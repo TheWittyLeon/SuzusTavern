@@ -1,0 +1,373 @@
+/* ============================================================
+ * Suzu's Tavern — Design Tokens
+ * Ported from: Suzu's Tavern Design System/colors_and_type.css
+ *
+ * Add `data-vibe="<palette>"` to <html> to switch palettes:
+ *
+ *   <html data-vibe="dusk-tavern">    (default)
+ *   <html data-vibe="candlelit">      (light, parchment)
+ *   <html data-vibe="aetheric">       (dark, arcane)
+ *   <html data-vibe="moonlit-grove">  (dark, druidic)
+ *
+ * Density:
+ *   <html data-density="compact"|"cozy"|"airy">
+ * ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,400;1,9..144,500&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root,
+[data-vibe="dusk-tavern"] {
+  /* ----- Dusk Tavern (default) — cozy, fireside, aubergine ----- */
+  --bg:         #15101e;
+  --bg-2:       #1c1530;
+  --bg-3:       #221a3a;
+  --card:       rgba(255,255,255,0.04);
+  --card-solid: #1c1530;
+  --ink:        #f5eef0;
+  --ink-2:      #c8bfd0;
+  --ink-3:      #8b8298;
+  --line:       rgba(255,255,255,0.08);
+  --line-2:     rgba(255,255,255,0.04);
+
+  --accent:     #f08bb6;   /* dusk rose — primary */
+  --accent-2:   #b39ef0;   /* lavender — secondary */
+  --accent-3:   #f4c8d9;   /* petal — soft fills */
+  --warm:       #f5cba8;   /* ember / candleglow */
+  --cool:       #a7c5ec;   /* moon-sky */
+
+  --good:       #6db48a;
+  --bad:        #c25353;
+  --warn:       #d4a64b;
+  --crit:       #ffd76a;   /* nat-20 gold */
+  --fumble:     #c25353;   /* nat-1 red */
+
+  --grad-aurora:
+    radial-gradient(60% 80% at 20% 10%, rgba(240,139,182,0.22) 0%, rgba(240,139,182,0) 60%),
+    radial-gradient(50% 70% at 80% 20%, rgba(179,158,240,0.22) 0%, rgba(179,158,240,0) 60%),
+    radial-gradient(60% 60% at 50% 100%, rgba(245,203,168,0.18) 0%, rgba(245,203,168,0) 60%);
+}
+
+[data-vibe="candlelit"] {
+  /* ----- Candlelit — light parchment, ember accents ----- */
+  --bg:         #f5eee2;
+  --bg-2:       #ebe1cf;
+  --bg-3:       #e0d4be;
+  --card:       rgba(255,253,247,0.72);
+  --card-solid: #fffdf7;
+  --ink:        #2a1e16;
+  --ink-2:      #5a4636;
+  --ink-3:      #8a7866;
+  --line:       rgba(42,30,22,0.10);
+  --line-2:     rgba(42,30,22,0.05);
+
+  --accent:     #b5462a;   /* ember red */
+  --accent-2:   #6b4a2a;   /* burnt umber */
+  --accent-3:   #e8c898;   /* candle */
+  --warm:       #d4a64b;
+  --cool:       #6b8aaa;
+
+  --good:       #5a8a5e;
+  --bad:        #a83a3a;
+  --warn:       #b88a2a;
+  --crit:       #c9882a;
+  --fumble:     #a83a3a;
+
+  --grad-aurora:
+    radial-gradient(60% 80% at 20% 10%, rgba(181,70,42,0.18) 0%, rgba(181,70,42,0) 60%),
+    radial-gradient(50% 70% at 80% 20%, rgba(212,166,75,0.22) 0%, rgba(212,166,75,0) 60%),
+    radial-gradient(60% 60% at 50% 100%, rgba(232,200,152,0.30) 0%, rgba(232,200,152,0) 60%);
+}
+
+[data-vibe="aetheric"] {
+  /* ----- Aetheric — deep midnight, arcane teal, amethyst ----- */
+  --bg:         #0c0f1e;
+  --bg-2:       #131830;
+  --bg-3:       #1a2244;
+  --card:       rgba(255,255,255,0.04);
+  --card-solid: #131830;
+  --ink:        #e8ecff;
+  --ink-2:      #b8bfdc;
+  --ink-3:      #7a82a8;
+  --line:       rgba(120,160,255,0.10);
+  --line-2:     rgba(120,160,255,0.05);
+
+  --accent:     #7ee8e2;   /* arcane teal */
+  --accent-2:   #c4a3ff;   /* amethyst */
+  --accent-3:   #6bb6ff;   /* spell-blue */
+  --warm:       #ffc792;
+  --cool:       #7ee8e2;
+
+  --good:       #6dd49a;
+  --bad:        #ff7a8a;
+  --warn:       #e8c44a;
+  --crit:       #ffe27a;
+  --fumble:     #ff7a8a;
+
+  --grad-aurora:
+    radial-gradient(60% 80% at 20% 10%, rgba(126,232,226,0.20) 0%, rgba(126,232,226,0) 60%),
+    radial-gradient(50% 70% at 80% 20%, rgba(196,163,255,0.24) 0%, rgba(196,163,255,0) 60%),
+    radial-gradient(60% 60% at 50% 100%, rgba(107,182,255,0.18) 0%, rgba(107,182,255,0) 60%);
+}
+
+[data-vibe="moonlit-grove"] {
+  /* ----- Moonlit Grove — mossy, silver, lavender mist ----- */
+  --bg:         #0f1614;
+  --bg-2:       #161f1c;
+  --bg-3:       #1d2825;
+  --card:       rgba(255,255,255,0.04);
+  --card-solid: #161f1c;
+  --ink:        #ecf2ec;
+  --ink-2:      #bccbc0;
+  --ink-3:      #7d9286;
+  --line:       rgba(200,232,210,0.10);
+  --line-2:     rgba(200,232,210,0.05);
+
+  --accent:     #9cd6a8;   /* moss-silver */
+  --accent-2:   #c8b6e6;   /* lavender mist */
+  --accent-3:   #e2dac0;   /* moonlight */
+  --warm:       #e8c89a;
+  --cool:       #9cc8e0;
+
+  --good:       #88c890;
+  --bad:        #d07a7a;
+  --warn:       #d4b870;
+  --crit:       #f0d896;
+  --fumble:     #d07a7a;
+
+  --grad-aurora:
+    radial-gradient(60% 80% at 20% 10%, rgba(156,214,168,0.18) 0%, rgba(156,214,168,0) 60%),
+    radial-gradient(50% 70% at 80% 20%, rgba(200,182,230,0.18) 0%, rgba(200,182,230,0) 60%),
+    radial-gradient(60% 60% at 50% 100%, rgba(226,218,192,0.16) 0%, rgba(226,218,192,0) 60%);
+}
+
+/* ============================================================
+ *  Shared structural tokens — same across all palettes
+ * ============================================================ */
+
+:root {
+  --radius-sm: 12px;
+  --radius:    18px;
+  --radius-lg: 28px;
+  --radius-pill: 999px;
+
+  --shadow-soft:
+    0 1px 0 rgba(255,255,255,0.06) inset,
+    0 8px 24px -12px rgba(0,0,0,0.45),
+    0 2px 6px -2px rgba(0,0,0,0.20);
+
+  --shadow-pop:
+    0 1px 0 rgba(255,255,255,0.08) inset,
+    0 24px 60px -24px rgba(179,158,240,0.40),
+    0 8px 20px -8px rgba(240,139,182,0.22);
+
+  --font-display: 'Fraunces', ui-serif, Georgia, 'Times New Roman', serif;
+  --font-ui:      'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono:    'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --density-pad: 22px;
+  --density-gap: 16px;
+
+  --ease: cubic-bezier(.2, .8, .2, 1);
+  --ease-soft: cubic-bezier(.4, 0, .2, 1);
+  --dur-fast: 150ms;
+  --dur:      220ms;
+  --dur-slow: 400ms;
+}
+
+/* light-palette shadow tweak */
+[data-vibe="candlelit"] {
+  --shadow-soft:
+    0 1px 0 rgba(255,255,255,0.7) inset,
+    0 8px 24px -12px rgba(42,30,22,0.18),
+    0 2px 6px -2px rgba(42,30,22,0.08);
+  --shadow-pop:
+    0 1px 0 rgba(255,255,255,0.8) inset,
+    0 24px 60px -24px rgba(181,70,42,0.40),
+    0 8px 20px -8px rgba(107,74,42,0.22);
+}
+
+[data-density="compact"] { --density-pad: 14px; --density-gap: 10px; }
+[data-density="cozy"]    { --density-pad: 22px; --density-gap: 16px; }
+[data-density="airy"]    { --density-pad: 30px; --density-gap: 24px; }
+
+/* ============================================================
+ *  Base type styles
+ * ============================================================ */
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--bg);
+  font-feature-settings: 'cv11', 'ss01', 'ss03';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+.display, h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  margin: 0;
+}
+
+h1 { font-size: clamp(40px, 5.5vw, 64px); letter-spacing: -0.03em; line-height: 1.05; }
+h2 { font-size: clamp(26px, 3vw, 32px); line-height: 1.15; }
+h3 { font-size: 20px; line-height: 1.25; }
+h4 { font-size: 16px; line-height: 1.3; }
+
+p { margin: 0; }
+a { color: inherit; text-decoration: none; }
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum', 'zero', 'ss01';
+}
+
+.label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-family: var(--font-ui);
+}
+
+.dialog {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+
+.body-lg { font-size: 17px; line-height: 1.6; color: var(--ink-2); }
+
+/* ============================================================
+ *  Workhorse primitives
+ * ============================================================ */
+
+.glass {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+}
+
+.aurora { position: relative; isolation: isolate; }
+.aurora::before {
+  content: '';
+  position: absolute; inset: -10%;
+  background: var(--grad-aurora);
+  z-index: -1;
+  pointer-events: none;
+  filter: blur(20px);
+  animation: aurora-drift 24s ease-in-out infinite alternate;
+}
+@keyframes aurora-drift {
+  0%   { transform: translate(0, 0) scale(1); }
+  100% { transform: translate(2%, -2%) scale(1.05); }
+}
+
+/* Subtle parchment grain — opt-in via .grain */
+.grain { position: relative; }
+.grain::after {
+  content: '';
+  position: absolute; inset: 0;
+  pointer-events: none;
+  opacity: 0.05;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='1.4' numOctaves='2'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='0.5'/></svg>");
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  height: 38px; padding: 0 16px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 14px; font-weight: 500;
+  cursor: pointer; white-space: nowrap;
+  transition: transform var(--dur-fast) var(--ease),
+              box-shadow var(--dur) var(--ease),
+              background var(--dur) var(--ease),
+              border-color var(--dur) var(--ease);
+}
+.btn:hover    { transform: translateY(-1px); }
+.btn:active   { transform: translateY(0); }
+.btn-primary  {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #fff; border-color: transparent;
+  box-shadow: 0 8px 24px -10px color-mix(in oklab, var(--accent) 60%, transparent);
+}
+.btn-primary:hover { box-shadow: 0 12px 30px -8px color-mix(in oklab, var(--accent) 70%, transparent); }
+.btn-ghost:hover   { background: color-mix(in oklab, var(--ink) 6%, transparent); }
+.btn-lg { height: 46px; padding: 0 22px; font-size: 15px; }
+.btn-icon { width: 38px; padding: 0; justify-content: center; }
+
+/* Pills */
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+  background: color-mix(in oklab, var(--accent) 14%, transparent);
+  color: var(--accent);
+  border: 1px solid color-mix(in oklab, var(--accent) 30%, transparent);
+}
+.pill .dot {
+  width: 6px; height: 6px; border-radius: 99px; background: currentColor;
+  box-shadow: 0 0 0 3px color-mix(in oklab, currentColor 25%, transparent);
+  animation: pulse 2.4s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+/* Inputs */
+.input {
+  width: 100%; height: 44px; padding: 0 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: color-mix(in oklab, var(--ink) 3%, transparent);
+  color: var(--ink);
+  font: inherit; font-size: 14px;
+  transition: border-color var(--dur) var(--ease),
+              background var(--dur) var(--ease),
+              box-shadow var(--dur) var(--ease);
+}
+.input:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: color-mix(in oklab, var(--accent) 6%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent) 18%, transparent);
+}
+
+/* Focus ring for keyboard nav */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--ink) 14%, transparent);
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklab, var(--ink) 22%, transparent);
+}
