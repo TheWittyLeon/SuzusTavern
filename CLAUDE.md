@@ -10,7 +10,7 @@ Suzu's Tavern is an AI-DM driven 5e tabletop web app. Suzu (the NekoNova persoco
 |-------|-----------|
 | Framework | Next.js 15, App Router, TypeScript (strict) |
 | Styling | CSS Modules + global CSS custom properties |
-| Package manager | npm |
+| Package manager | npm (package name is `suzustavern` — npm naming restriction; directory is `SuzusTavern`) |
 | Design system | Suzu's Tavern Design System (`../Suzu's Tavern Design System/`) — source of truth, do not modify |
 | Runtime | Node.js 20+ |
 

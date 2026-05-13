@@ -1,4 +1,5 @@
 interface CharacterPageProps {
+  // Sync params for Jest compatibility — upgrade to Promise<{id: string}> when async Server Components are testable
   params: { id: string };
 }
 

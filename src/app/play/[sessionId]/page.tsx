@@ -1,4 +1,5 @@
 interface PlayPageProps {
+  // Sync params for Jest compatibility — upgrade to Promise<{sessionId: string}> when async Server Components are testable
   params: { sessionId: string };
 }
 
