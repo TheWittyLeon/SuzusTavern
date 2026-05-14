@@ -1,6 +1,6 @@
 # Suzu's Tavern — Sprint Plan
 
-> Last updated: 2026-05-13  
+> Last updated: 2026-05-13 (Sprint 1 complete)  
 > Total stories: 80 (ST-001–ST-080) — see BACKLOG.md for full story details  
 > Status key: Backlog · In Progress · Done · Deferred
 
@@ -24,10 +24,10 @@ Sprint 1 (NekoNova) → Sprint 2 (Foundation) → Sprint 3 (Components)
 
 | Story | Title | Priority | Size | Status |
 |-------|-------|----------|------|--------|
-| ST-067 | Character REST endpoints in ProjectNekoNova | P0 | L | Backlog |
-| ST-068 | Session REST endpoints in ProjectNekoNova | P0 | L | Backlog |
-| ST-069 | Narration and combat REST endpoints in ProjectNekoNova | P0 | L | Backlog |
-| ST-070 | Next.js API route proxies | P0 | M | Backlog |
+| ST-067 | Character REST endpoints in ProjectNekoNova | P0 | L | Done |
+| ST-068 | Session REST endpoints in ProjectNekoNova | P0 | L | Done |
+| ST-069 | Narration and combat REST endpoints in ProjectNekoNova | P0 | L | Done |
+| ST-070 | Next.js API route proxies | P0 | M | Done |
 
 **What gets built:**
 - `POST /api/dnd/characters` — create character (wraps `cmd_create`)
