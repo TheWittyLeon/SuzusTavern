@@ -1,0 +1,59 @@
+# .graphifyignore — SUPERSET of .gitignore + secrets / infra / media.
+# graphify reads THIS instead of .gitignore, so every .gitignore rule is repeated here.
+# graphify-out/ is gitignored (rebuildable); this file IS tracked.
+
+# ---- mirror of .gitignore ----
+# dependencies
+/node_modules
+node_modules/
+/.pnp
+.pnp.*
+.yarn/*
+# testing
+/coverage
+coverage/
+# next.js
+/.next/
+.next/
+/out/
+out/
+# production
+/build
+build/
+# misc
+.DS_Store
+*.pem
+# debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+# env files
+.env*
+# vercel
+.vercel
+# typescript build info
+*.tsbuildinfo
+next-env.d.ts
+
+# ---- graphify additions: tooling ----
+.git/
+.swc/
+package-lock.json
+
+# ---- graphify additions: media / vector assets (no graph value) ----
+*.svg
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.ico
+*.mp4
+*.mov
+*.mp3
+*.wav
+*.pdf
+*.woff
+*.woff2
+*.ttf
