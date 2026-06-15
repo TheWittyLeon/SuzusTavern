@@ -32,8 +32,16 @@ async function proxyRequest(
   const forwardHeaders = new Headers();
   const contentType = req.headers.get('content-type');
   if (contentType) forwardHeaders.set('content-type', contentType);
+  // §3.1 additive: inject Bearer from st_access cookie when no Authorization header present.
+  // Feature-detect req.cookies?.get per §8 risk mitigation — test-constructed requests
+  // may not have cookie support; if absent, no auth header is forwarded (existing behaviour).
   const auth = req.headers.get('authorization');
-  if (auth) forwardHeaders.set('authorization', auth);
+  if (auth) {
+    forwardHeaders.set('authorization', auth);
+  } else if (typeof req.cookies?.get === 'function') {
+    const cookieAccess = req.cookies.get('st_access')?.value;
+    if (cookieAccess) forwardHeaders.set('authorization', `Bearer ${cookieAccess}`);
+  }
 
   const hasBody = req.method !== 'GET' && req.method !== 'HEAD';
   const body = hasBody ? await req.arrayBuffer() : undefined;

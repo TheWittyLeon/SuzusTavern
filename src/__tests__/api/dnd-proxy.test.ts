@@ -267,3 +267,113 @@ describe('Error handling', () => {
     expect(body.error).toBe('Upstream unavailable');
   });
 });
+
+// ---------------------------------------------------------------------------
+// HTTP method coverage — PUT / DELETE / PATCH (export wiring)
+// ---------------------------------------------------------------------------
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { PUT, DELETE, PATCH } = require('../../app/api/dnd/[...path]/route') as {
+  PUT:    (req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) => Promise<import('next/server').NextResponse>;
+  DELETE: (req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) => Promise<import('next/server').NextResponse>;
+  PATCH:  (req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) => Promise<import('next/server').NextResponse>;
+};
+
+describe('PUT / DELETE / PATCH proxying', () => {
+  it('forwards PUT request to upstream', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ success: true, data: {} }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    const req = makeRequest('PUT', 'http://localhost:3000/api/dnd/characters/char-1', {
+      body: '{"username":"p"}',
+    });
+    const res = await PUT(req, makeContext(['characters', 'char-1']));
+    expect(res.status).toBe(200);
+    const [, fetchOptions] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(fetchOptions.method).toBe('PUT');
+  });
+
+  it('forwards DELETE request to upstream', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ success: true, data: {} }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    const req = makeRequest('DELETE', 'http://localhost:3000/api/dnd/characters/char-1');
+    const res = await DELETE(req, makeContext(['characters', 'char-1']));
+    expect(res.status).toBe(200);
+    const [, fetchOptions] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(fetchOptions.method).toBe('DELETE');
+  });
+
+  it('forwards PATCH request to upstream', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ success: true, data: {} }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    const req = makeRequest('PATCH', 'http://localhost:3000/api/dnd/characters/char-1', {
+      body: '{"level":2}',
+    });
+    const res = await PATCH(req, makeContext(['characters', 'char-1']));
+    expect(res.status).toBe(200);
+    const [, fetchOptions] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(fetchOptions.method).toBe('PATCH');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// No Content-Type header from upstream (branch on ?? '')
+// ---------------------------------------------------------------------------
+
+describe('Upstream response with no Content-Type header', () => {
+  it('falls through to JSON parse when upstream omits Content-Type', async () => {
+    // When upstream returns no content-type, upstreamContentType = '' (via ?? '')
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ success: true, data: {} }), {
+        status: 200,
+        // intentionally no content-type header
+      }),
+    );
+
+    const req = makeRequest('POST', 'http://localhost:3000/api/dnd/sessions', { body: '{}' });
+    const res = await POST(req, makeContext(['sessions']));
+    expect(res.status).toBe(200);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cookie fallback (§3.1 additive — Pass 2)
+// ---------------------------------------------------------------------------
+
+describe('Cookie fallback — st_access injection', () => {
+  it('injects Bearer from st_access cookie when no Authorization header is present', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ success: true, data: {} }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    // Build request with a cookie header carrying st_access but no Authorization header
+    const req = makeRequest('POST', 'http://localhost:3000/api/dnd/sessions', {
+      body: '{}',
+      headers: { cookie: 'st_access=cookie-bearer-token' },
+    });
+    const ctx = makeContext(['sessions']);
+
+    await POST(req, ctx);
+
+    const [, fetchOptions] = mockFetch.mock.calls[0] as [string, RequestInit & { headers: Headers }];
+    const headers = fetchOptions.headers as Headers;
+    expect(headers.get('authorization')).toBe('Bearer cookie-bearer-token');
+  });
+});
