@@ -1,0 +1,26 @@
+/* Pulsing dot — animated variant */
+.dot {
+  animation: pill-pulse 2.4s ease-in-out infinite;
+}
+
+/* Static dot — no animation (reduced motion or motion preference off) */
+.dotStatic {
+  /* inherits box model from inline styles; no animation */
+}
+
+@keyframes pill-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Honour the OS setting at the CSS layer too (belt-and-suspenders with the hook) */
+@media (prefers-reduced-motion: reduce) {
+  .dot {
+    animation: none;
+  }
+}

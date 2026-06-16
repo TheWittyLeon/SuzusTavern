@@ -1,0 +1,13 @@
+/* A11Y-9: suppress SVG animations at the CSS layer as belt-and-suspenders.
+   The JS hook conditionally omits <animate> elements, but this ensures no
+   animation flash before the useReducedMotion hook resolves on hydration. */
+@media (prefers-reduced-motion: reduce) {
+  .mascot animate,
+  .mascot animateTransform {
+    display: none;
+  }
+  .mascot circle,
+  .mascot ellipse {
+    animation: none;
+  }
+}

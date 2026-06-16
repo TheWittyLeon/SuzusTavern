@@ -1,0 +1,29 @@
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.iconTile {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.value {
+  font-family: var(--font-display);
+  font-size: 28px;
+  margin-top: 8px;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.delta {
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}

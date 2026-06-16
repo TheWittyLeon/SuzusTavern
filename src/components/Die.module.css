@@ -1,0 +1,16 @@
+.die {
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  font-family: var(--font-display);
+  transition: all 0.2s var(--ease);
+  user-select: none;
+}
+
+/* A11Y-9: static frame wins at first paint — no animation flash before hydration */
+@media (prefers-reduced-motion: reduce) {
+  .die {
+    transition: none;
+  }
+}

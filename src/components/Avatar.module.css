@@ -1,0 +1,12 @@
+/* Mirror of .avatar from the design system kit.css */
+.avatar {
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  /* A11Y-1: per-palette token ensures ≥4.5:1 on the accent gradient background */
+  color: var(--on-accent);
+  font-family: var(--font-display);
+  font-weight: 500;
+  flex-shrink: 0;
+  /* width, height, font-size, background set via inline style (dynamic values) */
+}

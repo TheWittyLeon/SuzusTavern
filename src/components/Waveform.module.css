@@ -1,0 +1,8 @@
+/* A11Y-9: CSS-layer guard for any waveform bars that may be rendered at first paint.
+   The bars themselves are inline-styled; this targets the container to suppress
+   any transient animation applied via JS before the useReducedMotion hook resolves. */
+@media (prefers-reduced-motion: reduce) {
+  .waveform > div {
+    opacity: 0.3 !important;
+  }
+}

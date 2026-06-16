@@ -1,0 +1,44 @@
+.root {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.left {
+  min-width: 0;
+  flex: 1;
+}
+
+.kicker {
+  /* .label global class handles font/color/caps; only spacing here */
+  margin-bottom: 8px;
+}
+
+/* A11Y-6: clamp allows text zoom reflow; specificity h2.title beats global h2 rule */
+h2.title {
+  font-size: clamp(1.4rem, 3vw, 1.75rem);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Non-h2 heading levels (h1/h3–h6) — same fluid size, lower-specificity selector */
+.title {
+  font-size: clamp(1.4rem, 3vw, 1.75rem);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* Inherit font-family/weight from global heading rule */
+}
+
+.sub {
+  color: var(--ink-3);
+  font-size: 13px;
+  margin-top: 6px;
+}
+
+.action {
+  flex-shrink: 0;
+}
