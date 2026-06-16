@@ -1,0 +1,19 @@
+# Build context excludes — keep the image lean and avoid leaking local state.
+node_modules
+.next
+out
+.git
+.gitignore
+coverage
+.env*
+*.tsbuildinfo
+next-env.d.ts
+npm-debug.log*
+.DS_Store
+.vercel
+.swc
+graphify-out
+graphify-out/**
+docs
+**/*.md
+.github
