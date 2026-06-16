@@ -2,7 +2,7 @@
  * Tests for src/lib/auth/cookies.ts
  *
  * Covers:
- *   - cookieOpts.secure flips on IS_PROD
+ *   - cookieOpts.secure flips on env.COOKIE_SECURE
  *   - clearAll deletes all three cookies
  *   - setAccess/setRefresh/setPartial set correct maxAge
  */
@@ -21,10 +21,10 @@ describe('auth/cookies.ts', () => {
     process.env = originalEnv;
   });
 
-  // Helper to load the module with a specific IS_PROD value
-  function loadCookies(isProd: boolean) {
+  // Helper to load the module with a specific COOKIE_SECURE value
+  function loadCookies(cookieSecure: boolean) {
     jest.mock('../../lib/env', () => ({
-      env: { IS_PROD: isProd, AUTH_API_URL: 'http://localhost:5000', NEKANOVA_URL: 'http://localhost:8080', PUBLIC_AUTH_URL: null },
+      env: { COOKIE_SECURE: cookieSecure, IS_PROD: cookieSecure, AUTH_API_URL: 'http://localhost:5000', NEKANOVA_URL: 'http://localhost:8080', PUBLIC_AUTH_URL: null },
     }));
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     return require('../../lib/auth/cookies') as typeof import('../../lib/auth/cookies');
@@ -42,13 +42,13 @@ describe('auth/cookies.ts', () => {
   }
 
   describe('cookieOpts', () => {
-    it('secure is false when IS_PROD is false', () => {
+    it('secure is false when COOKIE_SECURE is false', () => {
       const { cookieOpts } = loadCookies(false);
       const opts = cookieOpts(60);
       expect(opts.secure).toBe(false);
     });
 
-    it('secure is true when IS_PROD is true', () => {
+    it('secure is true when COOKIE_SECURE is true', () => {
       jest.resetModules();
       const { cookieOpts } = loadCookies(true);
       const opts = cookieOpts(60);

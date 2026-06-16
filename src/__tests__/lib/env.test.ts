@@ -99,4 +99,48 @@ describe('env.ts', () => {
     const { env } = require('../../lib/env') as { env: Record<string, unknown> };
     expect(Object.isFrozen(env)).toBe(true);
   });
+
+  describe('COOKIE_SECURE', () => {
+    function loadCookieSecure(): boolean {
+      process.env.NEXT_PUBLIC_NEKANOVA_URL = 'http://neko:8080';
+      process.env.AUTH_API_URL = 'http://auth:5000';
+      jest.resetModules();
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      return (require('../../lib/env') as { env: { COOKIE_SECURE: boolean } }).env.COOKIE_SECURE;
+    }
+
+    it('defaults to IS_PROD when COOKIE_SECURE is unset', () => {
+      setNodeEnv('production');
+      delete process.env.COOKIE_SECURE;
+      expect(loadCookieSecure()).toBe(true);
+
+      setNodeEnv('development');
+      delete process.env.COOKIE_SECURE;
+      expect(loadCookieSecure()).toBe(false);
+    });
+
+    it('explicit "false" overrides prod default (HTTP homelab deploy)', () => {
+      setNodeEnv('production');
+      process.env.COOKIE_SECURE = 'false';
+      expect(loadCookieSecure()).toBe(false);
+    });
+
+    it('explicit "true" overrides dev default', () => {
+      setNodeEnv('development');
+      process.env.COOKIE_SECURE = 'true';
+      expect(loadCookieSecure()).toBe(true);
+    });
+
+    it.each(['1', 'yes', 'TRUE'])('parses truthy %s', (v) => {
+      setNodeEnv('development');
+      process.env.COOKIE_SECURE = v;
+      expect(loadCookieSecure()).toBe(true);
+    });
+
+    it.each(['0', 'no', 'FALSE'])('parses falsy %s', (v) => {
+      setNodeEnv('production');
+      process.env.COOKIE_SECURE = v;
+      expect(loadCookieSecure()).toBe(false);
+    });
+  });
 });

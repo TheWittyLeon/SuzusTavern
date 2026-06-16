@@ -16,6 +16,23 @@ export interface Env {
   PUBLIC_AUTH_URL: string | null; // NEXT_PUBLIC_AUTH_URL
   /** Set automatically by Next. */
   IS_PROD: boolean;
+  /**
+   * Whether session cookies carry the `Secure` attribute (HTTPS-only). Defaults
+   * to IS_PROD (secure-by-default), but can be explicitly overridden via the
+   * COOKIE_SECURE env var. MUST be set false for an HTTP-only deployment (e.g.
+   * the homelab LAN), because browsers silently DROP `Secure` cookies served
+   * over plain HTTP — which breaks the login session entirely.
+   */
+  COOKIE_SECURE: boolean;         // COOKIE_SECURE (server-only)
+}
+
+/** Parse a boolean-ish env var. Returns undefined when unset/empty. */
+function parseBool(raw: string | undefined): boolean | undefined {
+  if (raw === undefined || raw === '') return undefined;
+  const v = raw.trim().toLowerCase();
+  if (v === 'true' || v === '1' || v === 'yes') return true;
+  if (v === 'false' || v === '0' || v === 'no') return false;
+  return undefined;
 }
 
 function loadEnv(): Env {
@@ -32,11 +49,16 @@ function loadEnv(): Env {
     return devDefault;
   }
 
+  // Secure cookies by default in prod; allow an explicit override for HTTP-only
+  // deployments (homelab LAN) where Secure cookies would be dropped by browsers.
+  const cookieSecure = parseBool(process.env.COOKIE_SECURE) ?? isProd;
+
   return Object.freeze({
     NEKANOVA_URL: require('NEXT_PUBLIC_NEKANOVA_URL', 'http://localhost:8080'),
     AUTH_API_URL: require('AUTH_API_URL', 'http://localhost:5000'),
     PUBLIC_AUTH_URL: process.env.NEXT_PUBLIC_AUTH_URL ?? null,
     IS_PROD: isProd,
+    COOKIE_SECURE: cookieSecure,
   });
 }
 

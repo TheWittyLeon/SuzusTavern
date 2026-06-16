@@ -20,17 +20,22 @@ export const PARTIAL_COOKIE = 'st_partial'; // 2FA half-step
 export interface CookieOpts {
   httpOnly: true;
   sameSite: 'lax';
-  secure: boolean;  // true in prod
+  secure: boolean;  // follows env.COOKIE_SECURE (defaults to IS_PROD)
   path: '/';
   maxAge: number;   // seconds
 }
 
-/** Production-grade defaults. `secure` is true iff env.IS_PROD. */
+/**
+ * Production-grade cookie defaults. `secure` follows env.COOKIE_SECURE — which
+ * defaults to IS_PROD but is forced false on the HTTP-only homelab deploy (a
+ * `Secure` cookie set over plain HTTP is silently dropped by the browser, which
+ * would break the session). httpOnly + SameSite=Lax still apply over HTTP.
+ */
 export function cookieOpts(maxAgeSeconds: number): CookieOpts {
   return {
     httpOnly: true,
     sameSite: 'lax',
-    secure: env.IS_PROD,
+    secure: env.COOKIE_SECURE,
     path: '/',
     maxAge: maxAgeSeconds,
   };
