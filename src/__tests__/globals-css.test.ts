@@ -50,4 +50,11 @@ describe('globals.css token verification', () => {
     expect(importIndex).toBeGreaterThan(-1)
     expect(importIndex).toBeLessThan(firstRuleIndex)
   })
+
+  it('has forced-colors focus fallback for .input', () => {
+    // Iro MINOR-2: .input:focus must have a forced-colors override so
+    // box-shadow + color-mix don't silently vanish under Windows High Contrast.
+    expect(cssContent).toContain('forced-colors: active')
+    expect(cssContent).toContain('outline: 2px solid Highlight')
+  })
 })

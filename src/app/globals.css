@@ -37,6 +37,8 @@
 
   --good:       #6db48a;
   --bad:        #c25353;
+  /* A11Y: contrast-safe red for text on the error surface (≥4.5:1 AA on dusk) */
+  --bad-ink:    #e07070;
   --warn:       #d4a64b;
   --crit:       #ffd76a;   /* nat-20 gold */
   --fumble:     #c25353;   /* nat-1 red */
@@ -74,6 +76,7 @@
 
   --good:       #5a8a5e;
   --bad:        #a83a3a;
+  --bad-ink:    #962d2d;   /* darker red — text on light parchment error surface */
   --warn:       #b88a2a;
   --crit:       #c9882a;
   --fumble:     #a83a3a;
@@ -110,6 +113,7 @@
 
   --good:       #6dd49a;
   --bad:        #ff7a8a;
+  --bad-ink:    #ff8a98;   /* bright red — text on dark aetheric error surface */
   --warn:       #e8c44a;
   --crit:       #ffe27a;
   --fumble:     #ff7a8a;
@@ -146,6 +150,7 @@
 
   --good:       #88c890;
   --bad:        #d07a7a;
+  --bad-ink:    #e89090;   /* brighter rose — text on dark moonlit error surface */
   --warn:       #d4b870;
   --crit:       #f0d896;
   --fumble:     #d07a7a;
@@ -400,12 +405,48 @@ a { color: inherit; text-decoration: none; }
   background: color-mix(in oklab, var(--accent) 6%, transparent);
   box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent) 18%, transparent);
 }
+@media (forced-colors: active) {
+  .input:focus {
+    outline: 2px solid Highlight;
+    outline-offset: 1px;
+  }
+}
 
 /* Focus ring for keyboard nav */
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: 6px;
+}
+
+/* A11Y: visually-hidden until focused. Keyboard users land on it as the first
+   tab stop to jump past the header/nav straight to #main-content. */
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: 8px;
+  z-index: 100;
+  padding: 8px 16px;
+  background: var(--bg);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  font-weight: 600;
+  transition: top var(--dur-fast) var(--ease);
+}
+.skip-link:focus { top: 0; }
+
+/* A11Y: screen-reader-only utility (visually hidden, still announced). */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* Scrollbars */

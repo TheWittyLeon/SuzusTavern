@@ -49,10 +49,10 @@ describe('Pill', () => {
       expect(el.style.color).toContain('var(--crit)');
     });
 
-    it('muted tone uses --ink-3 color', () => {
+    it('muted tone uses --ink-2 color (a11y: ≥4.5:1 on the muted surface)', () => {
       const { container } = render(<Pill tone="muted">x</Pill>);
       const el = container.querySelector('[data-component="Pill"]') as HTMLElement;
-      expect(el.style.color).toContain('var(--ink-3)');
+      expect(el.style.color).toContain('var(--ink-2)');
     });
 
     it('lav tone uses --accent-2 color', () => {

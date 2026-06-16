@@ -29,6 +29,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 import { isExpired } from '@/lib/auth/jwt';
+import { sanitizeNextPath } from '@/lib/auth/redirect';
 
 const ACCESS_COOKIE  = 'st_access';
 const REFRESH_COOKIE = 'st_refresh';
@@ -78,27 +79,14 @@ export function proxy(req: NextRequest): NextResponse {
     // ── Auth pages (/login) ────────────────────────────────────────────────
     if (AUTH_PAGES.some((re) => re.test(pathname))) {
       if (accessValid) {
-        // Already authenticated — redirect to ?next or /dashboard
-        const next = req.nextUrl.searchParams.get('next');
-        const dest = req.nextUrl.clone();
-        dest.search = '';
-        if (next) {
-          try {
-            // next must be a relative path on the same origin
-            const parsed = new URL(next, req.nextUrl.origin);
-            if (parsed.origin === req.nextUrl.origin) {
-              dest.pathname = parsed.pathname;
-              dest.search = parsed.search;
-            } else {
-              dest.pathname = '/dashboard';
-            }
-          } catch {
-            dest.pathname = '/dashboard';
-          }
-        } else {
-          dest.pathname = '/dashboard';
-        }
-        return NextResponse.redirect(dest);
+        // Already authenticated — redirect to ?next or /dashboard.
+        // Shared open-redirect guard with the login page (src/lib/auth/redirect.ts)
+        // so the two can never drift on what counts as a safe same-origin target.
+        const safe = sanitizeNextPath(
+          req.nextUrl.searchParams.get('next'),
+          req.nextUrl.origin,
+        );
+        return NextResponse.redirect(new URL(safe, req.nextUrl.origin));
       }
       return NextResponse.next();
     }

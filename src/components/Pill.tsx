@@ -62,7 +62,9 @@ const TONE_MAP: Record<PillTone, { bg: string; fg: string; bd: string }> = {
   },
   muted: {
     bg: 'color-mix(in oklab, var(--ink) 6%, transparent)',
-    fg: 'var(--ink-3)',
+    // --ink-2 (not --ink-3): 11px/600 uppercase is WCAG "small text" and needs
+    // ≥4.5:1; --ink-3 measured 4.14:1 on the muted surface. --ink-2 passes.
+    fg: 'var(--ink-2)',
     bd: 'var(--line)',
   },
   lav: {

@@ -8,6 +8,10 @@
  *   - verify2FA sets user
  *   - logout clears user even if BFF throws
  *   - useAuth outside provider returns fallback (no throw)
+ *   - initialMaybeAuthed=true starts loading=true, maybeAuthed=true
+ *   - initialMaybeAuthed=true: silent refresh+me populates user on mount
+ *   - initialMaybeAuthed=true: refresh failure leaves user=null, loading=false
+ *   - maybeAuthed exposed in context; no-op fallback has maybeAuthed:false
  */
 
 import React from 'react';
@@ -35,6 +39,7 @@ const mockLogin    = authApi.login    as jest.MockedFunction<typeof authApi.logi
 const mockVerify   = authApi.verify2FA as jest.MockedFunction<typeof authApi.verify2FA>;
 const mockLogout   = authApi.logout   as jest.MockedFunction<typeof authApi.logout>;
 const mockRefresh  = authApi.refresh  as jest.MockedFunction<typeof authApi.refresh>;
+const mockMe       = authApi.me       as jest.MockedFunction<typeof authApi.me>;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -50,6 +55,7 @@ function AuthConsumer() {
       <span data-testid="username">{auth.user?.username ?? 'none'}</span>
       <span data-testid="authenticated">{String(auth.isAuthenticated)}</span>
       <span data-testid="loading">{String(auth.loading)}</span>
+      <span data-testid="maybeAuthed">{String(auth.maybeAuthed)}</span>
       <button onClick={() => auth.login('alice', 'secret')}>login</button>
       <button onClick={() => auth.verify2FA('123456')}>verify2fa</button>
       <button onClick={() => auth.logout()}>logout</button>
@@ -58,9 +64,9 @@ function AuthConsumer() {
   );
 }
 
-function wrap(initialUser: User | null = null) {
+function wrap(initialUser: User | null = null, initialMaybeAuthed = false) {
   return render(
-    <AuthProvider initialUser={initialUser}>
+    <AuthProvider initialUser={initialUser} initialMaybeAuthed={initialMaybeAuthed}>
       <AuthConsumer />
     </AuthProvider>,
   );
@@ -75,12 +81,14 @@ describe('AuthProvider — initialUser hydration', () => {
     wrap(null);
     expect(screen.getByTestId('username')).toHaveTextContent('none');
     expect(screen.getByTestId('authenticated')).toHaveTextContent('false');
+    expect(screen.getByTestId('maybeAuthed')).toHaveTextContent('false');
   });
 
   it('hydrates user from initialUser prop', () => {
     wrap(ALICE);
     expect(screen.getByTestId('username')).toHaveTextContent('alice');
     expect(screen.getByTestId('authenticated')).toHaveTextContent('true');
+    expect(screen.getByTestId('maybeAuthed')).toHaveTextContent('false');
   });
 });
 
@@ -273,6 +281,7 @@ describe('useAuth outside AuthProvider', () => {
         <div>
           <span data-testid="user">{auth.user?.username ?? 'none'}</span>
           <span data-testid="authenticated">{String(auth.isAuthenticated)}</span>
+          <span data-testid="maybeAuthed">{String(auth.maybeAuthed)}</span>
         </div>
       );
     }
@@ -280,6 +289,8 @@ describe('useAuth outside AuthProvider', () => {
     render(<Orphan />);
     expect(screen.getByTestId('user')).toHaveTextContent('none');
     expect(screen.getByTestId('authenticated')).toHaveTextContent('false');
+    // No-op fallback must have maybeAuthed: false
+    expect(screen.getByTestId('maybeAuthed')).toHaveTextContent('false');
   });
 
   it('no-op login on fallback returns "ok" without throwing', async () => {
@@ -298,5 +309,91 @@ describe('useAuth outside AuthProvider', () => {
       screen.getByRole('button', { name: 'login' }).click();
     });
     await waitFor(() => expect(screen.getByTestId('result')).toHaveTextContent('ok'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// initialMaybeAuthed — silent refresh on mount
+// ---------------------------------------------------------------------------
+
+describe('AuthProvider — initialMaybeAuthed', () => {
+  beforeEach(() => {
+    mockRefresh.mockReset();
+    mockMe.mockReset();
+  });
+
+  it('starts with loading=true and maybeAuthed=true when initialMaybeAuthed=true and no initialUser', () => {
+    // Prevent the useEffect from resolving during this synchronous assertion.
+    // Return a never-resolving promise so mount effect hangs.
+    mockRefresh.mockReturnValue(new Promise(() => { /* never resolves */ }));
+
+    wrap(null, true);
+
+    // Synchronously: loading should be true, maybeAuthed true, user none
+    expect(screen.getByTestId('loading')).toHaveTextContent('true');
+    expect(screen.getByTestId('maybeAuthed')).toHaveTextContent('true');
+    expect(screen.getByTestId('username')).toHaveTextContent('none');
+  });
+
+  it('starts with loading=false when initialMaybeAuthed=true but initialUser is already set', () => {
+    // If the server already resolved the user, no silent refresh needed
+    wrap(ALICE, true);
+
+    expect(screen.getByTestId('loading')).toHaveTextContent('false');
+    expect(screen.getByTestId('maybeAuthed')).toHaveTextContent('false');
+    expect(screen.getByTestId('username')).toHaveTextContent('alice');
+  });
+
+  it('populates user after successful silent refresh+me on mount', async () => {
+    mockRefresh.mockResolvedValueOnce({ ok: true });
+    mockMe.mockResolvedValueOnce({ user: ALICE });
+
+    wrap(null, true);
+
+    // Should resolve to logged-in state
+    await waitFor(() => {
+      expect(screen.getByTestId('username')).toHaveTextContent('alice');
+    });
+    expect(screen.getByTestId('loading')).toHaveTextContent('false');
+    expect(screen.getByTestId('maybeAuthed')).toHaveTextContent('false');
+    expect(screen.getByTestId('authenticated')).toHaveTextContent('true');
+
+    expect(mockRefresh).toHaveBeenCalledTimes(1);
+    expect(mockMe).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves user=null and loading=false when silent refresh fails', async () => {
+    mockRefresh.mockRejectedValueOnce(new Error('unauthorized'));
+
+    wrap(null, true);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('loading')).toHaveTextContent('false');
+    });
+    expect(screen.getByTestId('username')).toHaveTextContent('none');
+    expect(screen.getByTestId('authenticated')).toHaveTextContent('false');
+    expect(screen.getByTestId('maybeAuthed')).toHaveTextContent('false');
+  });
+
+  it('leaves user=null and loading=false when refresh succeeds but me() fails', async () => {
+    mockRefresh.mockResolvedValueOnce({ ok: true });
+    mockMe.mockRejectedValueOnce(new Error('network'));
+
+    wrap(null, true);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('loading')).toHaveTextContent('false');
+    });
+    expect(screen.getByTestId('username')).toHaveTextContent('none');
+    expect(screen.getByTestId('authenticated')).toHaveTextContent('false');
+  });
+
+  it('does NOT start loading when initialMaybeAuthed is false (default)', () => {
+    // No mock needed — effect should not run
+    wrap(null, false);
+
+    expect(screen.getByTestId('loading')).toHaveTextContent('false');
+    expect(screen.getByTestId('maybeAuthed')).toHaveTextContent('false');
+    expect(mockRefresh).not.toHaveBeenCalled();
   });
 });

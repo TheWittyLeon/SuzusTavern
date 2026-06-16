@@ -67,6 +67,23 @@ async function fetchUpstream(
   }
 }
 
+/**
+ * Build a 429 response from an upstream rate-limited reply. Forwards the
+ * upstream Retry-After header AND mirrors its parsed value into the JSON body as
+ * `retry_after` (seconds) — the client reads the body (ApiError.body), not the
+ * raw headers, so without this the login countdown always falls back to 60s.
+ */
+function rateLimited(res: Response): NextResponse {
+  const retryAfter = res.headers.get('retry-after');
+  const headers: HeadersInit = retryAfter ? { 'Retry-After': retryAfter } : {};
+  const parsed = retryAfter ? Number.parseInt(retryAfter, 10) : NaN;
+  const body =
+    Number.isFinite(parsed) && parsed >= 0
+      ? { error: 'rate_limited', retry_after: parsed }
+      : { error: 'rate_limited' };
+  return NextResponse.json(body, { status: 429, headers });
+}
+
 // ---------------------------------------------------------------------------
 // Body helpers
 // ---------------------------------------------------------------------------
@@ -136,9 +153,7 @@ async function handleRegister(req: NextRequest): Promise<NextResponse> {
   }
 
   if (res.status === 429) {
-    const retryAfter = res.headers.get('retry-after');
-    const headers: HeadersInit = retryAfter ? { 'Retry-After': retryAfter } : {};
-    return NextResponse.json({ error: 'rate_limited' }, { status: 429, headers });
+    return rateLimited(res);
   }
 
   const { body: safeBody } = await parseUpstreamBody(res);
@@ -164,9 +179,7 @@ async function handleLogin(req: NextRequest): Promise<NextResponse> {
   }
 
   if (res.status === 429) {
-    const retryAfter = res.headers.get('retry-after');
-    const headers: HeadersInit = retryAfter ? { 'Retry-After': retryAfter } : {};
-    return NextResponse.json({ error: 'rate_limited' }, { status: 429, headers });
+    return rateLimited(res);
   }
 
   const { body: safeBody, accessToken, refreshToken, partialToken } =
@@ -218,9 +231,7 @@ async function handleVerify2FA(req: NextRequest): Promise<NextResponse> {
   }
 
   if (res.status === 429) {
-    const retryAfter = res.headers.get('retry-after');
-    const headers: HeadersInit = retryAfter ? { 'Retry-After': retryAfter } : {};
-    return NextResponse.json({ error: 'rate_limited' }, { status: 429, headers });
+    return rateLimited(res);
   }
 
   const { body: safeBody, accessToken, refreshToken } = await parseUpstreamBody(res);
@@ -263,9 +274,7 @@ async function handleRefresh(req: NextRequest): Promise<NextResponse> {
   }
 
   if (res.status === 429) {
-    const retryAfter = res.headers.get('retry-after');
-    const headers: HeadersInit = retryAfter ? { 'Retry-After': retryAfter } : {};
-    return NextResponse.json({ error: 'rate_limited' }, { status: 429, headers });
+    return rateLimited(res);
   }
 
   const { accessToken: newAccess, refreshToken: newRefresh } = await parseUpstreamBody(res);
@@ -299,9 +308,7 @@ async function handleMe(req: NextRequest): Promise<NextResponse> {
   }
 
   if (res.status === 429) {
-    const retryAfter = res.headers.get('retry-after');
-    const headers: HeadersInit = retryAfter ? { 'Retry-After': retryAfter } : {};
-    return NextResponse.json({ error: 'rate_limited' }, { status: 429, headers });
+    return rateLimited(res);
   }
 
   const { body: safeBody } = await parseUpstreamBody(res);
