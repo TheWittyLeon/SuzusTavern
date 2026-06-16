@@ -76,10 +76,59 @@ export const getInventory = (
     { method: 'GET', signal },
   );
 
+/** List all of a user's characters (dashboard my-characters grid). ST-044.
+ *  Returns [] on empty; callers treat a thrown ApiError as an empty/degraded state. */
+export const listMyCharacters = (username: string, signal?: AbortSignal) =>
+  apiCall<{ characters: Character[] }>(
+    `/api/dnd/characters?username=${encodeURIComponent(username)}`,
+    { method: 'GET', signal },
+  ).then((d) => d.characters ?? []);
+
 // ── Sessions ────────────────────────────────────────────────────────────────
+
+/**
+ * List sessions for the lobby/dashboard (newest first). ST-033 / ST-041.
+ * `username` restricts to sessions the user participates in; `status` is a
+ * comma-separated filter (engine default: active,paused).
+ * Returns [] on an empty list. Callers handle a thrown ApiError (e.g. the
+ * backend route not yet deployed → 404) as an empty/degraded state.
+ */
+export const listSessions = (
+  opts?: { username?: string; status?: string },
+  signal?: AbortSignal,
+) => {
+  const q = new URLSearchParams();
+  if (opts?.username) q.set('username', opts.username);
+  if (opts?.status) q.set('status', opts.status);
+  const qs = q.toString();
+  return apiCall<{ sessions: Session[] }>(
+    `/api/dnd/sessions${qs ? `?${qs}` : ''}`,
+    { method: 'GET', signal },
+  ).then((d) => d.sessions ?? []);
+};
+
+/** Get a single session by id (dashboard resume / detail). ST-041. */
+export const getSession = (sessionId: string, signal?: AbortSignal) =>
+  apiCall<{ session: Session }>(
+    `/api/dnd/sessions/${encodeURIComponent(sessionId)}`,
+    { method: 'GET', signal },
+  ).then((d) => d.session);
 
 export const startSession = (req: SessionStartRequest, signal?: AbortSignal) =>
   apiCall<Session>('/api/dnd/sessions', { method: 'POST', json: req, signal });
+
+/**
+ * Create a session and return the structured session. ST-037.
+ * The upgraded engine returns `data.session`; against the not-yet-deployed
+ * backend the POST still succeeds (the session is created) but `session` is
+ * absent — callers treat `null` as "created, id unknown until backend lands".
+ */
+export const createSession = (req: SessionStartRequest, signal?: AbortSignal) =>
+  apiCall<{ message?: string; session?: Session }>('/api/dnd/sessions', {
+    method: 'POST',
+    json: req,
+    signal,
+  }).then((d) => d.session ?? null);
 
 export const joinSession = (
   sessionId: string,

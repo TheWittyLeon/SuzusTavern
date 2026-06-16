@@ -60,13 +60,38 @@ export interface InventoryItem { name: string; quantity: number; equipped?: bool
 export interface Inventory { items: InventoryItem[] }
 
 // ── DnD: sessions ──────────────────────────────────────────────────────────
+export type SessionStatus = 'active' | 'paused' | 'ended';
+
+/** Table content rating. 'mature' is only selectable on private/unlisted tables.
+ *  Client-annotated until the engine column lands (STORY-313). A public/streamed
+ *  table is hard-forced to the SFW model server-side regardless (STORY-314). */
+export type ContentRating = 'sfw' | 'mature';
+
+/** Table visibility. Client-annotated until the engine column lands (STORY-313). */
+export type Visibility = 'public' | 'unlisted' | 'private';
+
 export interface SessionStartRequest { username: string; channel: string }
 export interface Session {
   session_id: string;
   channel: string;
-  state: 'active' | 'paused' | 'ended';
-  /** Client-side enrichment — engine doesn't know this yet (see STORY-312). */
+  /** Engine-authoritative lifecycle state (present on list/detail responses). */
+  status?: SessionStatus;
+  /** @deprecated pre-Sprint-5 alias of `status`; the engine returns `status`. */
+  state?: SessionStatus;
+  dm_username?: string;
+  started_at?: string;
+  paused_at?: string | null;
+  active_combat_id?: string | null;
+  xp_pool?: number;
+  participant_usernames?: string[];
+  player_count?: number;
+  // ── Client-side enrichment (engine has no column yet) ──────────────────────
+  /** STORY-312 — narration mode. */
   dm_mode?: DmMode;
+  /** STORY-313 — content rating; 'mature' only on private/unlisted. */
+  content_rating?: ContentRating;
+  /** STORY-313 — table visibility. */
+  visibility?: Visibility;
   [k: string]: unknown;
 }
 export interface XpAwardRequest extends SessionStartRequest { amount: number; reason?: string }

@@ -37,6 +37,7 @@ const REFRESH_COOKIE = 'st_refresh';
 const PROTECTED: RegExp[] = [
   /^\/dashboard(\/|$)/,
   /^\/lobby(\/|$)/,
+  /^\/modules(\/|$)/,
   /^\/character(\/|$)/,
   /^\/play(\/|$)/,
 ];

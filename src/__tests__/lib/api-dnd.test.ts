@@ -29,7 +29,11 @@ import {
   equipItem,
   unequipItem,
   getInventory,
+  listMyCharacters,
   startSession,
+  createSession,
+  listSessions,
+  getSession,
   joinSession,
   pauseSession,
   resumeSession,
@@ -203,5 +207,85 @@ describe('Combat', () => {
     const { url, body } = lastCall();
     expect(url).toBe('/api/dnd/spells/cast');
     expect(body).toMatchObject({ spell_name: 'Fireball' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Session listing + detail + my-characters (Sprint 5 prerequisite)
+// ---------------------------------------------------------------------------
+
+function mockData(data: unknown) {
+  mockFetch.mockResolvedValueOnce(
+    new Response(JSON.stringify({ success: true, data }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }),
+  );
+}
+
+describe('Session listing (ST-033 / ST-041 / ST-044)', () => {
+  it('listSessions — GET /api/dnd/sessions, unwraps .sessions', async () => {
+    mockData({ sessions: [{ session_id: 's1', channel: 'leon' }] });
+    const out = await listSessions();
+    const { url, method } = lastCall();
+    expect(url).toBe('/api/dnd/sessions');
+    expect(method).toBe('GET');
+    expect(out).toEqual([{ session_id: 's1', channel: 'leon' }]);
+  });
+
+  it('listSessions forwards username + status as query params', async () => {
+    mockData({ sessions: [] });
+    await listSessions({ username: 'leon', status: 'active,paused' });
+    const { url } = lastCall();
+    expect(url).toBe('/api/dnd/sessions?username=leon&status=active%2Cpaused');
+  });
+
+  it('listSessions returns [] when the envelope omits sessions', async () => {
+    mockData({});
+    expect(await listSessions()).toEqual([]);
+  });
+
+  it('getSession — GET /api/dnd/sessions/:id, unwraps .session', async () => {
+    mockData({ session: { session_id: 's1', status: 'active' } });
+    const s = await getSession('s1');
+    const { url, method } = lastCall();
+    expect(url).toBe('/api/dnd/sessions/s1');
+    expect(method).toBe('GET');
+    expect(s).toMatchObject({ session_id: 's1', status: 'active' });
+  });
+
+  it('getSession encodes the id', async () => {
+    mockData({ session: { session_id: 'a/b' } });
+    await getSession('a/b');
+    expect(lastCall().url).toBe('/api/dnd/sessions/a%2Fb');
+  });
+
+  it('createSession — POST /api/dnd/sessions, returns the structured session', async () => {
+    mockData({ message: 'started', session: { session_id: 's9', channel: 'leon' } });
+    const s = await createSession({ username: 'leon', channel: 'leon' });
+    const { url, method, body } = lastCall();
+    expect(url).toBe('/api/dnd/sessions');
+    expect(method).toBe('POST');
+    expect(body).toMatchObject({ username: 'leon', channel: 'leon' });
+    expect(s).toMatchObject({ session_id: 's9' });
+  });
+
+  it('createSession returns null when the (un-upgraded) backend omits session', async () => {
+    mockData({ message: 'started' });
+    expect(await createSession({ username: 'leon', channel: 'leon' })).toBeNull();
+  });
+
+  it('listMyCharacters — GET /api/dnd/characters?username=, unwraps .characters', async () => {
+    mockData({ characters: [{ character_id: 'c1', name: 'Velka' }] });
+    const out = await listMyCharacters('leon');
+    const { url, method } = lastCall();
+    expect(url).toBe('/api/dnd/characters?username=leon');
+    expect(method).toBe('GET');
+    expect(out).toEqual([{ character_id: 'c1', name: 'Velka' }]);
+  });
+
+  it('listMyCharacters returns [] when the envelope omits characters', async () => {
+    mockData({});
+    expect(await listMyCharacters('leon')).toEqual([]);
   });
 });

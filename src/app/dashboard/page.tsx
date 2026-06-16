@@ -1,179 +1,318 @@
 'use client';
 /**
- * src/app/dashboard/page.tsx
+ * Dashboard — the authed home (ST-040/041/044).
  *
- * Dashboard stub — Sprint 4 authed seam.
+ * Thin-real-data: binds only fields the engine actually stores
+ * (channel, status, dm_username, participant count, started_at). No fabricated
+ * session metadata (no "session 7 / 412 rolls / tonight 8pm" — that was design
+ * mock data; cf. the Sprint-4 landing-stats cut).
  *
- * Behaviour per SPRINT4_UI_SPEC.md §4:
- * - While loading + maybeAuthed (silent refresh in flight): render PageSkeleton.
- *   This prevents the logged-out flash for returning users (M2 fix).
- * - When resolved + user: authed top-bar + Sign out button + placeholder card.
- * - When resolved + no user: redirect to /login (shouldn't normally happen since
- *   proxy.ts guards protected routes, but we handle it gracefully).
- *
- * Full dashboard shell (nav, lobby, character list) lands in Sprint 5.
+ * States (driven by the real session list):
+ *  - loading + maybeAuthed → skeleton (M2 first-paint fix, no logged-out flash)
+ *  - no sessions → the way-to-start hub (Option B): three doors + Suzu welcome.
+ *    This is also exactly what graceful-degradation lands on if the session-list
+ *    backend isn't deployed yet (listSessions throws → treated as []).
+ *  - has sessions → resume hero + my campaigns + my characters grid.
  */
-
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useAuth } from '@/lib/auth/AuthProvider';
-import { Skeleton } from '@/components/PageSkeleton';
+import { listSessions, listMyCharacters } from '@/lib/api/dnd';
+import type { Character, Session } from '@/lib/api/types';
+import TavernShell from '@/components/TavernShell';
 import PageSkeleton from '@/components/PageSkeleton';
-import SuzuDM from '@/components/SuzuDM';
 import Button from '@/components/Button';
 import Card from '@/components/Card';
+import Pill from '@/components/Pill';
+import Icon from '@/components/Icon';
+import SuzuDM from '@/components/SuzuDM';
+import SectionHead from '@/components/SectionHead';
+import { titleizeChannel, formatStarted } from '@/lib/format';
+import styles from './Dashboard.module.css';
 
-// ── Logout button ─────────────────────────────────────────────────────────────
-function LogoutButton({ onLogout }: { onLogout: () => Promise<void> }) {
-  const router = useRouter();
-  const [pending, setPending] = useState(false);
-
-  const handleLogout = async () => {
-    setPending(true);
-    await onLogout(); // clears user state immediately, then best-effort BFF call
-    router.replace('/login');
-  };
-
+// ── Way-to-start hub (Option B) — shown when you have no sessions ──────────────
+function DashEmpty({ username }: { username: string }) {
+  const doors = [
+    {
+      href: '/modules',
+      icon: 'Spellbook' as const,
+      title: 'Start a story',
+      body: 'Spin up a campaign from a prepared adventure. Pick the mood; Suzu runs it.',
+      cta: 'browse modules',
+    },
+    {
+      href: '/lobby',
+      icon: 'Users' as const,
+      title: 'Find a table',
+      body: 'See which campaigns have open seats. Join one and drop in.',
+      cta: "see who's playing",
+    },
+    {
+      href: '/character/new',
+      icon: 'Scroll' as const,
+      title: 'Roll a character',
+      body: 'No table yet, no rush. Build a PC and bring them in later — five steps.',
+      cta: 'go to the vault',
+    },
+  ];
   return (
-    <Button
-      variant="ghost"
-      onClick={() => void handleLogout()}
-      disabled={pending}
-      aria-label={pending ? 'Signing out…' : 'Sign out'}
-    >
-      {pending ? 'Signing out…' : 'Sign out'}
-    </Button>
+    <div className={styles.empty}>
+      <Card pop className={styles.welcome}>
+        <SuzuDM size={96} talking aria-hidden />
+        <div>
+          <Pill tone="lav" dot>
+            day one
+          </Pill>
+          <p className={styles.welcomeQuote}>
+            &ldquo;Glad you came, {username}. <em>Pick a door.</em> You can start a story
+            tonight, join a table that&rsquo;s running, or roll a character and decide
+            later.&rdquo;
+          </p>
+        </div>
+      </Card>
+
+      <div className={styles.doors}>
+        {doors.map((d) => (
+          <Link key={d.href} href={d.href} className={styles.door}>
+            <span className={styles.doorIcon}>
+              <Icon name={d.icon} size={26} aria-hidden />
+            </span>
+            <h2 className={styles.doorTitle}>{d.title}</h2>
+            <p className={styles.doorBody}>{d.body}</p>
+            <span className={styles.doorCta}>
+              {d.cta} <Icon name="Chevron" size={11} aria-hidden />
+            </span>
+          </Link>
+        ))}
+      </div>
+    </div>
   );
 }
 
-// ── Dashboard skeleton ────────────────────────────────────────────────────────
-function DashboardSkeleton() {
+// ── Character grid (ST-044) ───────────────────────────────────────────────────
+function CharacterGrid({ characters }: { characters: Character[] }) {
   return (
-    <>
-      {/* Top-bar skeleton */}
-      <header
-        style={{
-          height: 56,
-          borderBottom: '1px solid var(--line)',
-          display: 'flex',
-          alignItems: 'center',
-          padding: '0 24px',
-          gap: 12,
-        }}
-      >
-        <Skeleton circle width={32} height={32} />
-        <Skeleton height={14} width={120} />
-        <div style={{ marginLeft: 'auto' }}>
-          <Skeleton height={32} width={80} radius={99} />
-        </div>
-      </header>
-
-      {/* Content skeleton */}
-      <main
-        aria-label="Loading your dashboard"
-        aria-busy="true"
-        style={{ padding: '32px 24px', maxWidth: 720, margin: '0 auto' }}
-      >
-        <PageSkeleton variant="lines" lines={2} />
-        <div style={{ marginTop: 32 }}>
-          <PageSkeleton variant="card" lines={3} />
-        </div>
-        <div style={{ marginTop: 16 }}>
-          <PageSkeleton variant="list" lines={4} />
-        </div>
-      </main>
-    </>
+    <div>
+      <SectionHead title="Your characters" level={2} />
+      <div className={styles.charGrid}>
+        {characters.map((c) => {
+          const cls = String(c.char_class ?? c.class ?? '').toLowerCase();
+          const level = (c.level ?? undefined) as number | undefined;
+          const sub = [cls, level !== undefined ? String(level) : '']
+            .filter(Boolean)
+            .join(' ');
+          return (
+            <Link
+              key={c.character_id}
+              href={`/character/${encodeURIComponent(c.character_id)}`}
+              className={styles.charCard}
+            >
+              <span className={styles.charAvatar} aria-hidden>
+                {String(c.name ?? '?').charAt(0).toUpperCase()}
+              </span>
+              <span className={styles.charName}>{c.name}</span>
+              <span className={styles.charSub}>{sub}</span>
+            </Link>
+          );
+        })}
+        <Link href="/character/new" className={`${styles.charCard} ${styles.charNew}`}>
+          <span className={styles.charNewIcon} aria-hidden>
+            <Icon name="Plus" size={20} />
+          </span>
+          <span className={styles.charName}>New</span>
+          <span className={styles.charSub}>create</span>
+        </Link>
+      </div>
+    </div>
   );
 }
 
-// ── Authed stub content ───────────────────────────────────────────────────────
-function DashboardStub({
-  username,
-  onLogout,
+// ── Active dashboard — resume hero + campaigns + characters ────────────────────
+function DashActive({
+  sessions,
+  characters,
 }: {
-  username: string | null;
-  onLogout: () => Promise<void>;
+  sessions: Session[];
+  characters: Character[];
 }) {
+  const hero = sessions[0];
+  const heroTitle = titleizeChannel(hero.channel);
+  const isSuzu = (hero.dm_username ?? '').toLowerCase() === 'suzu';
+  const players = hero.player_count ?? hero.participant_usernames?.length ?? 0;
+
   return (
     <>
-      {/* Top-bar */}
-      <header
-        style={{
-          height: 56,
-          borderBottom: '1px solid var(--line)',
-          display: 'flex',
-          alignItems: 'center',
-          padding: '0 24px',
-          gap: 12,
-        }}
-      >
-        <SuzuDM size={32} glow={false} aria-hidden />
-        <span
-          style={{
-            fontFamily: 'var(--font-display)',
-            fontSize: 16,
-            letterSpacing: '-0.02em',
-          }}
-        >
-          Suzu's Tavern
-        </span>
-        <div style={{ marginLeft: 'auto' }}>
-          <LogoutButton onLogout={onLogout} />
+      <Card pop className={styles.hero}>
+        <SuzuDM size={88} talking aria-hidden />
+        <div className={styles.heroBody}>
+          <div className={styles.heroPills}>
+            <Pill tone={hero.status === 'paused' ? 'warn' : 'good'} dot={hero.status === 'active'}>
+              {hero.status ?? 'active'}
+            </Pill>
+            <Pill tone="muted">
+              {players} {players === 1 ? 'player' : 'players'}
+            </Pill>
+            {hero.started_at && <Pill tone="lav">started {formatStarted(hero.started_at)}</Pill>}
+          </div>
+          <h2 className={styles.heroTitle}>{heroTitle}</h2>
+          <p className={styles.heroDm}>
+            DM&rsquo;d by {isSuzu ? 'Suzu' : hero.dm_username ?? 'a human DM'}
+          </p>
         </div>
-      </header>
+        <div className={styles.heroActions}>
+          <Button
+            variant="primary"
+            size="lg"
+            href={`/play/${encodeURIComponent(hero.session_id)}`}
+            leadingIcon={<Icon name="D20" size={14} aria-hidden />}
+          >
+            Resume session
+          </Button>
+        </div>
+      </Card>
 
-      {/* Main content */}
-      <main
-        id="main-content"
-        style={{ padding: '40px 24px', maxWidth: 720, margin: '0 auto' }}
-        tabIndex={-1}
-      >
-        <h1>Welcome back{username ? `, ${username}` : ''}.</h1>
-        <p style={{ color: 'var(--ink-2)', marginTop: 8 }}>
-          Sprint 5 will bring the full dashboard here. For now, the table is set.
-        </p>
-        <div style={{ marginTop: 32 }}>
-          <Card pop style={{ padding: 24 }}>
-            <p className="label" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-              Dashboard — coming in Sprint 5
-            </p>
+      <div className={styles.cols}>
+        <div className={styles.colMain}>
+          <SectionHead
+            title="My campaigns"
+            level={2}
+            action={
+              <Button
+                variant="ghost"
+                href="/modules"
+                leadingIcon={<Icon name="Plus" size={12} aria-hidden />}
+              >
+                New
+              </Button>
+            }
+          />
+          <Card padding={false} className={styles.campaignList}>
+            {sessions.map((s) => {
+              const suzu = (s.dm_username ?? '').toLowerCase() === 'suzu';
+              return (
+                <div key={s.session_id} className={styles.campaignRow}>
+                  <span className={styles.campaignIcon} aria-hidden>
+                    <Icon name="Scroll" size={18} />
+                  </span>
+                  <div className={styles.campaignMeta}>
+                    <div className={styles.campaignName}>{titleizeChannel(s.channel)}</div>
+                    <div className={styles.campaignSub}>
+                      {suzu ? 'Suzu' : (s.dm_username ?? 'human DM')} ·{' '}
+                      {s.player_count ?? s.participant_usernames?.length ?? 0} players
+                    </div>
+                  </div>
+                  <Pill tone={s.status === 'paused' ? 'warn' : 'good'} dot={s.status === 'active'}>
+                    {s.status ?? 'active'}
+                  </Pill>
+                  <Button
+                    variant="ghost"
+                    href={`/play/${encodeURIComponent(s.session_id)}`}
+                  >
+                    Open
+                  </Button>
+                </div>
+              );
+            })}
           </Card>
         </div>
-      </main>
+
+        <div className={styles.colSide}>
+          <CharacterGrid characters={characters} />
+        </div>
+      </div>
     </>
   );
 }
 
-// ── Page default export ───────────────────────────────────────────────────────
-export default function DashboardPage() {
-  const { user, loading, maybeAuthed, logout } = useAuth();
-  const router = useRouter();
+// ── Skeleton ──────────────────────────────────────────────────────────────────
+function DashboardSkeleton() {
+  return (
+    <main aria-busy="true" aria-label="Loading your dashboard" style={{ padding: '32px 28px' }}>
+      <PageSkeleton variant="card" lines={3} />
+      <div style={{ marginTop: 20 }}>
+        <PageSkeleton variant="list" lines={4} />
+      </div>
+    </main>
+  );
+}
 
-  // When resolved with no user (edge case — proxy.ts should have redirected),
-  // redirect to login instead of rendering a broken authed state.
+export default function DashboardPage() {
+  const { user, loading, maybeAuthed } = useAuth();
+  const router = useRouter();
+  const [sessions, setSessions] = useState<Session[] | null>(null);
+  const [characters, setCharacters] = useState<Character[]>([]);
+
+  const username = user?.username ?? null;
+
+  const load = useCallback(
+    async (signal: AbortSignal) => {
+      if (!username) return;
+      // Graceful degradation: a thrown ApiError (e.g. backend not yet deployed
+      // → 404, or the service down) is treated as an empty/degraded state, never
+      // an error screen. The way-to-start hub is a fine place to land.
+      const [s, c] = await Promise.all([
+        listSessions({ username }, signal).catch(() => [] as Session[]),
+        listMyCharacters(username, signal).catch(() => [] as Character[]),
+      ]);
+      if (!signal.aborted) {
+        setSessions(s);
+        setCharacters(c);
+      }
+    },
+    [username],
+  );
+
   useEffect(() => {
     if (!loading && !user && !maybeAuthed) {
       router.replace('/login');
     }
   }, [loading, user, maybeAuthed, router]);
 
-  // While loading and we believe the user may be authed (silent refresh in flight),
-  // render the skeleton to avoid the logged-out flash.
-  if (loading && maybeAuthed) {
+  useEffect(() => {
+    if (!username) return;
+    const ac = new AbortController();
+    void load(ac.signal);
+    return () => ac.abort();
+  }, [username, load]);
+
+  // First-paint: show skeleton until we have a user. `loading` is only ever true
+  // alongside maybeAuthed && !user, so `!user` covers the silent-refresh window
+  // too (no logged-out flash for returning users — M2).
+  if (!user) {
     return <DashboardSkeleton />;
   }
 
-  // Not loading, user resolved — render authed content.
-  if (user) {
-    return (
-      <DashboardStub
-        username={user.username ?? null}
-        onLogout={logout}
-      />
-    );
-  }
+  const name = user.username ?? '';
+  const greetName = name ? `, ${name}` : '';
+  const dataLoading = sessions === null;
+  const isEmpty = !dataLoading && sessions.length === 0;
 
-  // Loading without maybeAuthed (fresh load, not a returning user) or waiting
-  // for redirect effect — show a minimal skeleton to avoid blank flash.
-  return <DashboardSkeleton />;
+  return (
+    <TavernShell
+      active="dashboard"
+      title={isEmpty ? `Welcome${greetName}.` : `Welcome back${greetName}.`}
+      actions={
+        !isEmpty && !dataLoading && sessions.length > 0 ? (
+          <Button
+            variant="primary"
+            href={`/play/${encodeURIComponent(sessions[0].session_id)}`}
+            leadingIcon={<Icon name="D20" size={14} aria-hidden />}
+          >
+            Resume
+          </Button>
+        ) : undefined
+      }
+    >
+      <div aria-live="polite">
+        {dataLoading ? (
+          <PageSkeleton variant="card" lines={3} />
+        ) : isEmpty ? (
+          <DashEmpty username={name} />
+        ) : (
+          <DashActive sessions={sessions} characters={characters} />
+        )}
+      </div>
+    </TavernShell>
+  );
 }

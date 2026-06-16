@@ -1,0 +1,188 @@
+/* ── Source tabs ──────────────────────────────────────────────────────────── */
+.tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--line-2);
+  padding-bottom: 12px;
+}
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: var(--radius-pill);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-3);
+  cursor: not-allowed;
+}
+.tabOn {
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
+  color: var(--ink);
+  cursor: default;
+}
+.soon {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px 5px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in oklab, var(--ink) 8%, transparent);
+}
+
+/* ── Module catalog ───────────────────────────────────────────────────────── */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+.module {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.moduleIcon {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, var(--cool), var(--accent-2));
+  color: var(--on-accent);
+}
+.moduleHead {
+  flex: 1;
+}
+.modulePills {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.moduleTitle {
+  font-family: var(--font-display);
+  font-size: 19px;
+  margin: 0 0 6px;
+}
+.moduleBlurb {
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.55;
+  margin: 0;
+}
+.moduleFoot {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
+  border-top: 1px solid var(--line-2);
+}
+
+/* ── Starter form ─────────────────────────────────────────────────────────── */
+.form {
+  max-width: 640px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.formHead {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.formTitle {
+  font-family: var(--font-display);
+  font-size: 22px;
+  margin: 0;
+}
+.formSub {
+  font-size: 13px;
+  color: var(--ink-2);
+  margin: 4px 0 0;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+.fieldLabel {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+  padding: 0;
+}
+
+.choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+.choice {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-height: 56px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+.choice:hover:not(:disabled) {
+  border-color: color-mix(in oklab, var(--accent) 50%, var(--line));
+}
+.choice:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.choiceOn {
+  border-color: var(--accent);
+  background: color-mix(in oklab, var(--accent) 10%, transparent);
+}
+.choice:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.choiceLabel {
+  font-size: 14px;
+  font-weight: 600;
+}
+.choiceNote {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.interlock {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-2);
+  margin: 2px 0 0;
+}
+
+.formFoot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line-2);
+}
+
+@media (max-width: 720px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}

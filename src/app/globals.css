@@ -74,10 +74,12 @@
   --warm:       #d4a64b;
   --cool:       #6b8aaa;
 
-  --good:       #5a8a5e;
+  /* A11Y (Sprint 5): darkened so 11px pill text clears AA (>=4.5:1) on the
+     14%-tinted pill background, not just on --bg (Iro-A11y MAJOR-2). */
+  --good:       #2d6032;
   --bad:        #a83a3a;
   --bad-ink:    #962d2d;   /* darker red — text on light parchment error surface */
-  --warn:       #b88a2a;
+  --warn:       #7a5500;
   --crit:       #c9882a;
   --fumble:     #a83a3a;
 

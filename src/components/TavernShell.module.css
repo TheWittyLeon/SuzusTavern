@@ -1,0 +1,265 @@
+.shell {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+/* ── Top nav ────────────────────────────────────────────────────────────── */
+.topnav {
+  position: sticky;
+  top: 0;
+  z-index: 40; /* owns a stacking context so the menu can't be trapped behind body */
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  height: 60px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in oklab, var(--card) 86%, transparent);
+  backdrop-filter: blur(20px);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: var(--ink);
+  border-radius: var(--radius-sm);
+  padding: 4px 6px;
+}
+.brand:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.brandMeta {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+.brandName {
+  font-family: var(--font-display);
+  font-size: 15px;
+  letter-spacing: -0.02em;
+}
+.brandSub {
+  font-size: 10px;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+}
+
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 44px;
+  padding: 0 14px;
+  border-radius: var(--radius-pill);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-2);
+  text-decoration: none;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.tab:hover {
+  background: color-mix(in oklab, var(--ink) 5%, transparent);
+  color: var(--ink);
+}
+.tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.tabActive {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: var(--on-accent);
+}
+.tabActive:hover {
+  color: var(--on-accent);
+}
+.tabDisabled {
+  color: var(--ink-3);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+.soon {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px 5px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in oklab, var(--ink) 8%, transparent);
+  color: var(--ink-3);
+}
+
+.end {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* ── User menu ──────────────────────────────────────────────────────────── */
+.userWrap {
+  position: relative;
+}
+.userBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  cursor: pointer;
+  font-family: inherit;
+}
+.userBtn:hover {
+  background: color-mix(in oklab, var(--ink) 4%, transparent);
+}
+.userBtn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.userMeta {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+  max-width: 140px;
+}
+.userName {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chev {
+  color: var(--ink-3);
+  transition: transform var(--dur-fast) var(--ease);
+}
+.chevOpen {
+  color: var(--ink-3);
+  transform: rotate(90deg);
+  transition: transform var(--dur-fast) var(--ease);
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 50;
+  min-width: 200px;
+  padding: 6px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--card-solid);
+  box-shadow: var(--shadow-pop);
+}
+.menuRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: none;
+  color: var(--ink);
+  font-size: 13px;
+  font-family: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+.menuRow:hover {
+  background: color-mix(in oklab, var(--ink) 6%, transparent);
+}
+.menuRow:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.menuRow:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.menuDanger {
+  color: var(--bad-ink);
+}
+.menuSep {
+  height: 1px;
+  margin: 6px 4px;
+  background: var(--line-2);
+}
+
+/* ── Workspace ──────────────────────────────────────────────────────────── */
+.workspace {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.workspaceHeader {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 20px 28px;
+  border-bottom: 1px solid var(--line-2);
+}
+.title {
+  font-family: var(--font-display);
+  font-size: clamp(1.4rem, 3vw, 1.9rem);
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  margin: 0;
+}
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+.body {
+  flex: 1;
+  padding: 24px 28px 48px;
+}
+
+@media (max-width: 720px) {
+  .topnav {
+    gap: 10px;
+    padding: 0 12px;
+  }
+  .brandSub {
+    display: none;
+  }
+  .userName {
+    display: none;
+  }
+  .workspaceHeader {
+    padding: 16px 16px;
+  }
+  .body {
+    padding: 16px 16px 40px;
+  }
+}
