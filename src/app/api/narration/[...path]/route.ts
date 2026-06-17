@@ -1,18 +1,22 @@
 /**
- * Narration SSE proxy — forwards POST /api/narration/stream to the NekoNova backend.
+ * Narration SSE proxy — forwards narration POSTs to the NekoNova backend.
  *
- * Only the 'stream' sub-path is permitted. All other sub-paths return 404.
- * This proxy is only called when dm_mode === 'ai'; 'human' and 'solo' modes
- * never reach this route.
+ * Permitted sub-paths:
+ *   - 'stream'    → companion-pipeline narration (legacy/fallback)
+ *   - 'dm/stream' → dedicated Suzu-DM pipeline (ST-062; core.dm_narrator)
+ * All other sub-paths return 404. Only called when dm_mode === 'ai'; 'human'
+ * and 'solo' modes never reach this route.
  *
  * Sibling of /api/dnd/[...path]/route.ts — intentionally kept separate so
  * the narrator (AI DM) can be swapped or disabled without touching the engine proxy.
  *
- * §2.8
+ * §2.8 / ST-062
  */
 import { NextRequest, NextResponse } from 'next/server';
 
 const NEKANOVA_URL = process.env.NEXT_PUBLIC_NEKANOVA_URL ?? 'http://localhost:8080';
+
+const ALLOWED_SUBPATHS = new Set(['stream', 'dm/stream']);
 
 type RouteContext = {
   params: Promise<{ path: string[] }>;
@@ -22,8 +26,7 @@ export async function POST(req: NextRequest, context: RouteContext): Promise<Nex
   const { path } = await context.params;
   const subPath = path.join('/');
 
-  // Only 'stream' is a permitted sub-path
-  if (subPath !== 'stream') {
+  if (!ALLOWED_SUBPATHS.has(subPath)) {
     return NextResponse.json({ error: 'not_found' }, { status: 404 });
   }
 

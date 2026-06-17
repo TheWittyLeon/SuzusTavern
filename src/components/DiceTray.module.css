@@ -1,0 +1,115 @@
+.tray {
+  display: flex;
+  flex-direction: column;
+}
+
+.label {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 10px;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.diceGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.die {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 6px;
+  border-radius: 12px;
+  background: color-mix(in oklab, var(--ink) 3%, transparent);
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+
+.die:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
+  border-color: color-mix(in oklab, var(--accent) 35%, transparent);
+  color: var(--ink);
+}
+
+.die:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.die:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.checkRow {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 4px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--line-2);
+  color: var(--ink-2);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.checkRow:hover:not(:disabled) {
+  color: var(--accent);
+}
+
+.checkRow:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.advRow {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+
+.advPill {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: color-mix(in oklab, var(--ink) 4%, transparent);
+  border: 1px solid var(--line);
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.advOn {
+  background: color-mix(in oklab, var(--warm) 18%, transparent);
+  border-color: color-mix(in oklab, var(--warm) 40%, transparent);
+  color: var(--ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .die {
+    transition: none;
+  }
+  .die:active:not(:disabled) {
+    transform: none;
+  }
+}

@@ -167,6 +167,51 @@ export interface CombatStatus {
   [k: string]: unknown;
 }
 
+// ── DnD: party roster (ST-061) ───────────────────────────────────────────────
+// Shape of GET /api/dnd/sessions/:id/participants (engine join over characters).
+export interface ParticipantCharacter {
+  character_id: string | null;
+  name: string | null;
+  char_class: string | null;
+  level: number | null;
+  current_hp: number | null;
+  max_hp: number | null;
+  ac: number | null;
+}
+export interface Participant {
+  username: string;
+  is_dm: boolean;
+  /** null when the member hasn't created a character yet. */
+  character: ParticipantCharacter | null;
+}
+
+// ── DnD: combat lifecycle (ST-064) ───────────────────────────────────────────
+export interface CombatStartRequest { username: string; channel: string }
+export interface CombatSpawnRequest {
+  username: string;
+  combat_id: string;
+  monster: string;
+  count?: number;
+}
+export interface CombatInitiativeRequest {
+  username: string;
+  combat_id: string;
+  seed?: number;
+}
+export interface CombatMonsterTurnRequest {
+  username: string;
+  combat_id: string;
+  target?: string;
+}
+/** Engine combat routes return chat-formatted strings, not structured JSON.
+ *  data.message for actions; data.status for status; data.combat_id on start. */
+export interface CombatMessageResult {
+  message?: string;
+  status?: string;
+  combat_id?: string;
+  [k: string]: unknown;
+}
+
 // ── Narration SSE ──────────────────────────────────────────────────────────
 export type NarrationEvent =
   | { kind: 'chunk'; text: string }
@@ -177,4 +222,18 @@ export interface NarrationRequest {
   username: string;
   message: string;
   channel: string;
+}
+
+/** DM-narration request (ST-062) — POST /api/narration/dm/stream.
+ *  `message` is the player's line/action; `mechanics` is the engine's
+ *  authoritative result string (empty for a pure roleplay beat). */
+export interface DmNarrationRequest {
+  username: string;
+  channel: string;
+  message: string;
+  mechanics?: string;
+  adventure?: string;
+  transcript?: string[];
+  mode?: 'say' | 'act' | 'ooc';
+  session_id?: string;
 }

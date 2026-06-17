@@ -10,7 +10,7 @@
 //
 // ST-007
 
-import type { NarrationEvent, NarrationRequest } from './api/types';
+import type { DmNarrationRequest, NarrationEvent, NarrationRequest } from './api/types';
 
 export interface ReadSSEOptions {
   signal?: AbortSignal;
@@ -167,6 +167,52 @@ export async function* streamNarration(
     let errorText = `HTTP ${res.status}`;
     try {
       const body = await res.json() as Record<string, unknown>;
+      if (typeof body['error'] === 'string') errorText = body['error'] as string;
+    } catch {
+      // non-JSON error body — use status string
+    }
+    yield { kind: 'error', error: errorText };
+    return;
+  }
+
+  yield* readSSE(res, options);
+}
+
+/**
+ * DM-narration stream (ST-062): POST /api/narration/dm/stream, iterate the SSE.
+ *
+ *   for await (const ev of streamDmNarration(payload, { signal })) { ... }
+ *
+ * Same wire format + error/abort semantics as streamNarration — the only
+ * difference is the endpoint (dedicated Suzu-DM pipeline) and the richer body
+ * (mechanics/transcript). The engine owns mechanical truth; this only narrates it.
+ */
+export async function* streamDmNarration(
+  payload: DmNarrationRequest,
+  options: ReadSSEOptions = {},
+): AsyncIterableIterator<NarrationEvent> {
+  const { signal } = options;
+  if (signal?.aborted) return;
+
+  let res: Response;
+  try {
+    res = await fetch('/api/narration/dm/stream', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+      credentials: 'same-origin',
+      signal,
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') return;
+    yield { kind: 'error', error: 'network' };
+    return;
+  }
+
+  if (!res.ok) {
+    let errorText = `HTTP ${res.status}`;
+    try {
+      const body = (await res.json()) as Record<string, unknown>;
       if (typeof body['error'] === 'string') errorText = body['error'] as string;
     } catch {
       // non-JSON error body — use status string

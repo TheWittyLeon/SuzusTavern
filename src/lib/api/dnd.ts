@@ -9,8 +9,13 @@ import type {
   CharacterCreated,
   CharacterSheet,
   CombatActionRequest,
-  CombatStatus,
+  CombatInitiativeRequest,
+  CombatMessageResult,
+  CombatMonsterTurnRequest,
+  CombatSpawnRequest,
+  CombatStartRequest,
   Inventory,
+  Participant,
   Session,
   SessionStartRequest,
   SpellCastRequest,
@@ -127,6 +132,14 @@ export const getSession = (sessionId: string, signal?: AbortSignal) =>
     { method: 'GET', signal },
   ).then((d) => d.session);
 
+/** Party roster for the play screen (ST-061): members + their character HP/AC.
+ *  Returns [] on an empty/degraded roster (callers treat a thrown ApiError so). */
+export const getParticipants = (sessionId: string, signal?: AbortSignal) =>
+  apiCall<{ participants: Participant[] }>(
+    `/api/dnd/sessions/${encodeURIComponent(sessionId)}/participants`,
+    { method: 'GET', signal },
+  ).then((d) => d.participants ?? []);
+
 export const startSession = (req: SessionStartRequest, signal?: AbortSignal) =>
   apiCall<Session>('/api/dnd/sessions', { method: 'POST', json: req, signal });
 
@@ -195,25 +208,81 @@ export const awardSessionXp = (
 
 // ── Combat ──────────────────────────────────────────────────────────────────
 
+/** Start a combat encounter for a session (ST-064). Returns the new combat_id. */
+export const startCombat = (req: CombatStartRequest, signal?: AbortSignal) =>
+  apiCall<CombatMessageResult>('/api/dnd/combat/start', {
+    method: 'POST',
+    json: req,
+    signal,
+  });
+
+/** Spawn monsters into an active combat (ST-064). */
+export const spawnMonster = (req: CombatSpawnRequest, signal?: AbortSignal) =>
+  apiCall<CombatMessageResult>('/api/dnd/combat/spawn', {
+    method: 'POST',
+    json: req,
+    signal,
+  });
+
+/** Roll initiative + order the turn track (ST-064). */
+export const rollInitiative = (req: CombatInitiativeRequest, signal?: AbortSignal) =>
+  apiCall<CombatMessageResult>('/api/dnd/combat/initiative', {
+    method: 'POST',
+    json: req,
+    signal,
+  });
+
+/** Drive the current monster's turn (ST-064). */
+export const monsterTurn = (req: CombatMonsterTurnRequest, signal?: AbortSignal) =>
+  apiCall<CombatMessageResult>('/api/dnd/combat/monster-turn', {
+    method: 'POST',
+    json: req,
+    signal,
+  });
+
+// NOTE: the engine returns chat-formatted strings (data.message / data.status),
+// NOT the aspirational structured CombatStatus. These wrappers therefore resolve
+// to CombatMessageResult; the play screen renders the strings into the chat log.
 export const attack = (
   req: Required<Pick<CombatActionRequest, 'username' | 'combat_id' | 'target'>>,
   signal?: AbortSignal,
-) => apiCall<CombatStatus>('/api/dnd/combat/attack', { method: 'POST', json: req, signal });
+) =>
+  apiCall<CombatMessageResult>('/api/dnd/combat/attack', {
+    method: 'POST',
+    json: req,
+    signal,
+  });
 
 export const dodge = (req: CombatActionRequest, signal?: AbortSignal) =>
-  apiCall<CombatStatus>('/api/dnd/combat/dodge', { method: 'POST', json: req, signal });
+  apiCall<CombatMessageResult>('/api/dnd/combat/dodge', {
+    method: 'POST',
+    json: req,
+    signal,
+  });
 
 export const dash = (req: CombatActionRequest, signal?: AbortSignal) =>
-  apiCall<CombatStatus>('/api/dnd/combat/dash', { method: 'POST', json: req, signal });
+  apiCall<CombatMessageResult>('/api/dnd/combat/dash', {
+    method: 'POST',
+    json: req,
+    signal,
+  });
 
 export const endTurn = (req: CombatActionRequest, signal?: AbortSignal) =>
-  apiCall<CombatStatus>('/api/dnd/combat/endturn', { method: 'POST', json: req, signal });
+  apiCall<CombatMessageResult>('/api/dnd/combat/endturn', {
+    method: 'POST',
+    json: req,
+    signal,
+  });
 
 export const getCombatStatus = (sessionId: string, signal?: AbortSignal) =>
-  apiCall<CombatStatus>(
+  apiCall<CombatMessageResult>(
     `/api/dnd/combat/${encodeURIComponent(sessionId)}/status`,
     { method: 'GET', signal },
   );
 
 export const castSpell = (req: SpellCastRequest, signal?: AbortSignal) =>
-  apiCall<CombatStatus>('/api/dnd/spells/cast', { method: 'POST', json: req, signal });
+  apiCall<CombatMessageResult>('/api/dnd/spells/cast', {
+    method: 'POST',
+    json: req,
+    signal,
+  });
