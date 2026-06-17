@@ -17,6 +17,12 @@
   align-items: center;
 }
 
+/* Sticky site header. Padding lives here (not inline) so it can shrink on
+   phones — see the ≤420px breakpoint below. */
+.siteHeader {
+  padding: 16px 40px;
+}
+
 .heroPortrait {
   position: relative;
 }
@@ -77,9 +83,35 @@
     gap: 40px;
   }
 
+  /* Let the stacked grid items shrink below their content's min-content size.
+     Without this, the left copy column's non-wrapping CTA row (and the portrait
+     card) force the 1fr track wider than the viewport, so the decorative card
+     and the secondary "Browse open tables" button get clipped off the right by
+     the .aurora overflow-x:clip on small phones. Paired with flexWrap on the
+     hero CTA row (page.tsx) so those lg buttons stack instead of clipping. */
+  .heroGrid > * {
+    min-width: 0;
+  }
+
   .heroPortrait {
-    max-width: 380px;
+    /* min(…, 100%) gives the missing 100% floor so the decorative portrait card
+       caps to the (now shrinkable) column instead of staying 380px and bleeding
+       past the .aurora clip on small phones. */
+    max-width: min(380px, 100%);
     margin: 0 auto;
+  }
+}
+
+/* ≤420px — compact mobile header: tighter padding + single primary CTA so the
+   brand + CTA cluster fit (the full header is a fixed 365px wide and overflows
+   any phone narrower than ~375px). */
+@media (max-width: 420px) {
+  .siteHeader {
+    padding: 12px 16px;
+  }
+
+  .headerGhostCta {
+    display: none;
   }
 }
 

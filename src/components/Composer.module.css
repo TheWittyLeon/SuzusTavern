@@ -167,3 +167,18 @@
   font-size: 11px;
   color: var(--ink-3);
 }
+
+/* ── narrow phones (≤400px) ── */
+/* Stack the Say/Act/OOC tablist above the input row so the textarea isn't
+   crushed between the tabs and the send button. .modes is the first flex child;
+   flex-basis: 100% forces it onto its own line, dropping .input + .send below it
+   where the textarea reclaims the full width. The existing gap: 8px doubles as
+   the row gap. Desktop layout (≥401px) and ARIA roles are untouched. */
+@media (max-width: 400px) {
+  .row {
+    flex-wrap: wrap;
+  }
+  .modes {
+    flex-basis: 100%;
+  }
+}

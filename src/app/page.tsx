@@ -25,7 +25,10 @@ export default function LandingPage() {
     <div style={{ background: 'var(--bg)' }}>
 
       {/* ── Header (banner landmark — sibling of <main>) ──────── */}
+      {/* Padding lives in .siteHeader (CSS module) so it can shrink on phones;
+         everything else stays inline. */}
       <header
+        className={styles.siteHeader}
         style={{
           position: 'sticky',
           top: 0,
@@ -33,7 +36,6 @@ export default function LandingPage() {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '16px 40px',
           backdropFilter: 'blur(16px)',
           WebkitBackdropFilter: 'blur(16px)',
           background: 'color-mix(in oklab, var(--bg) 80%, transparent)',
@@ -66,9 +68,11 @@ export default function LandingPage() {
           <a href="#what">What she does</a>
         </nav>
 
-        {/* CTAs */}
+        {/* CTAs — the ghost "Browse tables" is hidden ≤420px (the header can't
+           fit brand + two CTAs on small phones); /lobby stays reachable from the
+           hero's "Browse open tables" button. */}
         <div style={{ display: 'flex', gap: 8 }}>
-          <Button variant="ghost" href="/lobby">
+          <Button variant="ghost" href="/lobby" className={styles.headerGhostCta}>
             Browse tables
           </Button>
           <Button variant="primary" href="/login">
@@ -130,7 +134,7 @@ export default function LandingPage() {
               assistant when you DM your own table.
             </p>
 
-            <div style={{ display: 'flex', gap: 12, marginTop: 32 }}>
+            <div style={{ display: 'flex', gap: 12, marginTop: 32, flexWrap: 'wrap' }}>
               <Button
                 variant="primary"
                 size="lg"
