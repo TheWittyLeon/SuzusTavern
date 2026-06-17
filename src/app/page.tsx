@@ -52,7 +52,7 @@ export default function LandingPage() {
                 letterSpacing: '-0.02em',
               }}
             >
-              Suzu&apos;s Tavern
+              Aurora Tavern
             </div>
             <div className="label" style={{ fontSize: 9, marginTop: 2 }}>
               A NekoNova table · 5e
@@ -123,7 +123,7 @@ export default function LandingPage() {
                 textWrap: 'pretty',
               }}
             >
-              Suzu&apos;s Tavern is a 5e table run by Suzu — the NekoNova
+              Aurora Tavern is a 5e table run by Suzu — the NekoNova
               persocom in a slightly oversized DM hat. She rolls in the open,
               narrates in a dry voice, remembers your last session, and reads
               the modules you give her. Solo, with friends, or as your
@@ -521,7 +521,7 @@ export default function LandingPage() {
           fontSize: 12,
         }}
       >
-        <div>© 2026 Suzu&apos;s Tavern — a NekoNova product.</div>
+        <div>© 2026 Aurora Tavern — a NekoNova product.</div>
         <span className="mono">
           {process.env.NEXT_PUBLIC_BUILD_TAG ?? 'a NekoNova product'}
         </span>

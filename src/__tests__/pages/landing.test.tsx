@@ -91,7 +91,7 @@ describe('Landing page', () => {
   it('renders the footer copyright line', () => {
     render(<LandingPage />)
     expect(
-      screen.getByText(/© 2026 Suzu's Tavern/i),
+      screen.getByText(/© 2026 Aurora Tavern/i),
     ).toBeInTheDocument()
   })
 })

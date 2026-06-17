@@ -6,7 +6,7 @@ import ErrorBoundary from "@/components/ErrorBoundary";
 import { ToastProvider } from "@/components/Toast";
 
 export const metadata: Metadata = {
-  title: "Suzu's Tavern",
+  title: "Aurora Tavern",
   description: "AI-DM driven 5e tabletop",
 };
 

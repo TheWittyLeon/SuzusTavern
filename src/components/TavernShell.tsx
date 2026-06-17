@@ -197,10 +197,10 @@ export default function TavernShell({
   return (
     <div className={styles.shell}>
       <header className={styles.topnav}>
-        <Link href="/dashboard" className={styles.brand} aria-label="Suzu's Tavern — home">
+        <Link href="/dashboard" className={styles.brand} aria-label="Aurora Tavern — home">
           <SuzuDM size={32} glow={false} aria-hidden />
           <span className={styles.brandMeta}>
-            <span className={styles.brandName}>Suzu&apos;s Tavern</span>
+            <span className={styles.brandName}>Aurora Tavern</span>
             <span className={styles.brandSub}>v0.5 · 5e</span>
           </span>
         </Link>

@@ -491,7 +491,7 @@ function LoginForm() {
           <div className={styles.brandLockup}>
             <SuzuDM size={40} glow={false} />
             <div>
-              <div className={styles.brandTitle}>Suzu's Tavern</div>
+              <div className={styles.brandTitle}>Aurora Tavern</div>
               <div className="label" style={{ fontSize: 9, marginTop: 2 }}>
                 A NekoNova table
               </div>

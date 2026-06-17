@@ -91,7 +91,7 @@ describe('Landing page — heading hierarchy', () => {
     const h1 = screen.getByRole('heading', { level: 1 });
     // The h1 text is the hero headline, not a brand name
     expect(h1).toHaveTextContent(/dungeon master/i);
-    expect(h1).not.toHaveTextContent(/Suzu's Tavern/);
+    expect(h1).not.toHaveTextContent(/Aurora Tavern/);
   });
 });
 
@@ -144,7 +144,7 @@ describe('Landing page — footer build tag', () => {
   it('renders the copyright line in the footer', () => {
     render(<LandingPage />);
     expect(
-      screen.getByText(/© 2026 Suzu's Tavern/i),
+      screen.getByText(/© 2026 Aurora Tavern/i),
     ).toBeInTheDocument();
   });
 });
