@@ -1,0 +1,596 @@
+/* Character creation wizard (ST-047–052). Token-driven; no hardcoded colors. */
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── Three-column layout: steps rail · main · Suzu ───────────────────────────── */
+.layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr) 280px;
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 1080px) {
+  .layout {
+    grid-template-columns: 200px minmax(0, 1fr);
+  }
+  .suzu {
+    grid-column: 1 / -1;
+    order: 3;
+  }
+}
+
+@media (max-width: 720px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+  .rail {
+    order: 1;
+  }
+  .main {
+    order: 2;
+  }
+}
+
+/* ── Steps rail ──────────────────────────────────────────────────────────────── */
+.rail {
+  position: sticky;
+  top: 16px;
+}
+
+.railList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.railStep {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s var(--ease);
+}
+.railStep:hover {
+  background: color-mix(in oklab, var(--ink) 6%, transparent);
+}
+.railStep:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.railDot {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 99px;
+  border: 1.5px solid var(--ink-3);
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  transition: all 0.2s var(--ease);
+}
+.railStep[data-state='active'] .railDot {
+  border-color: var(--accent);
+  background: color-mix(in oklab, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+.railStep[data-state='done'] .railDot {
+  border-color: var(--good);
+  background: var(--good);
+  color: #fff;
+}
+
+.railText {
+  min-width: 0;
+}
+.railTitle {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.railStep[data-state='todo'] .railTitle {
+  color: var(--ink-3);
+}
+.railSub {
+  display: block;
+  font-size: 11px;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Main column ─────────────────────────────────────────────────────────────── */
+.main {
+  min-width: 0;
+}
+
+.stepHead {
+  margin-bottom: 22px;
+}
+.stepHeading {
+  font-size: clamp(1.5rem, 3vw, 1.9rem);
+  margin: 4px 0 0;
+  outline: none;
+}
+.stepHeading:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+.stepIntro {
+  color: var(--ink-2);
+  margin-top: 6px;
+  font-size: 14px;
+  line-height: 1.55;
+  max-width: 60ch;
+}
+
+.stepBody {
+  min-height: 200px;
+}
+
+.error {
+  margin-top: 18px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--bad);
+  background: color-mix(in oklab, var(--bad) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--bad) 30%, transparent);
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 28px;
+}
+.navCount {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.navSpacer {
+  flex: 1;
+}
+
+/* ── Suzu commentary panel ───────────────────────────────────────────────────── */
+.suzu {
+  position: sticky;
+  top: 16px;
+  background: color-mix(in oklab, var(--accent-2) 8%, transparent);
+}
+.suzuMascot {
+  display: grid;
+  place-items: center;
+  padding: 6px 0 14px;
+}
+.suzuLine {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 14px;
+  color: var(--ink-2);
+  line-height: 1.55;
+}
+.suzuWave {
+  margin-top: 16px;
+}
+
+/* ── Option grids (race / class) ─────────────────────────────────────────────── */
+.optGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-inline-size: 0;
+}
+@media (max-width: 1080px) {
+  .optGrid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+@media (max-width: 560px) {
+  .optGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.optCard {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-soft);
+  cursor: pointer;
+  transition: all 0.15s var(--ease);
+}
+.optCard:hover {
+  border-color: color-mix(in oklab, var(--opt-accent, var(--accent)) 35%, var(--line));
+}
+.optCard:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.optCard[data-selected='true'] {
+  border-color: color-mix(in oklab, var(--opt-accent, var(--accent)) 55%, transparent);
+  background: color-mix(in oklab, var(--opt-accent, var(--accent)) 14%, transparent);
+  box-shadow: 0 8px 20px -10px color-mix(in oklab, var(--opt-accent, var(--accent)) 55%, transparent);
+}
+
+.optIcon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--opt-accent, var(--accent-2)) 14%, transparent);
+  color: var(--opt-accent, var(--accent-2));
+}
+.optCard[data-selected='true'] .optIcon {
+  background: var(--opt-accent, var(--accent));
+  color: #fff;
+}
+.optName {
+  font-family: var(--font-display);
+  font-size: 16px;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.optSub {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.optBonus {
+  font-size: 10px;
+  color: var(--ink-3);
+  margin-top: auto;
+}
+.optCard[data-selected='true'] .optBonus {
+  color: var(--opt-accent, var(--accent));
+}
+/* On the tinted selected-card background, --ink-3 dips below AA (≈4.1:1);
+   --ink-2 clears it. */
+.optCard[data-selected='true'] .optSub {
+  color: var(--ink-2);
+}
+
+/* ── Abilities (point buy) ───────────────────────────────────────────────────── */
+.budget {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: color-mix(in oklab, var(--accent) 8%, transparent);
+  border: 1px solid var(--line);
+}
+.budgetNum {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: var(--accent);
+  /* --on-accent is the palette-correct readable ink on the accent fill
+     (pastel accents → dark ink, ember accent → white). #fff failed AA in 3/4. */
+  color: var(--on-accent);
+  font-family: var(--font-display);
+  font-size: 18px;
+}
+.budgetTitle {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+}
+.budgetSub {
+  display: block;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.abilityGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 18px;
+}
+@media (max-width: 880px) {
+  .abilityGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 480px) {
+  .abilityGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.abilityCard {
+  padding: 16px;
+  border-radius: 14px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-soft);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+}
+.abilityMeta {
+  min-width: 0;
+}
+.abilityBlurb {
+  display: block;
+  font-size: 11px;
+  color: var(--ink-3);
+  margin-top: 2px;
+}
+.abilityRight {
+  text-align: right;
+}
+.abilityScore {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 32px;
+  line-height: 1;
+  color: var(--ink);
+}
+.abilityMod {
+  font-size: 11px;
+  color: var(--accent);
+}
+.stepper {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 6px;
+}
+.stepper .btn,
+.stepper button {
+  flex: 1;
+  min-height: 44px; /* WCAG 2.5.8 touch target */
+  font-size: 16px;
+}
+
+/* ── Background step ─────────────────────────────────────────────────────────── */
+.nameCard {
+  margin-top: 4px;
+}
+.nameHint {
+  font-size: 11px;
+  color: var(--ink-3);
+  margin-top: 6px;
+}
+
+.bgGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-inline-size: 0;
+}
+@media (max-width: 560px) {
+  .bgGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.bgCard {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-soft);
+  cursor: pointer;
+  transition: all 0.15s var(--ease);
+}
+.bgCard:hover {
+  border-color: color-mix(in oklab, var(--accent-2) 35%, var(--line));
+}
+.bgCard:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.bgCard[data-selected='true'] {
+  border-color: color-mix(in oklab, var(--accent-2) 55%, transparent);
+  background: color-mix(in oklab, var(--accent-2) 14%, transparent);
+  box-shadow: 0 8px 20px -10px color-mix(in oklab, var(--accent-2) 55%, transparent);
+}
+.bgName {
+  font-family: var(--font-display);
+  font-size: 17px;
+  color: var(--ink);
+}
+.bgBlurb {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 12px;
+  color: var(--ink-2);
+  line-height: 1.45;
+}
+.bgSkills {
+  font-size: 11px;
+  color: var(--accent-2);
+  margin-top: 2px;
+}
+
+/* ── Review step ─────────────────────────────────────────────────────────────── */
+.review {
+  display: grid;
+  gap: 14px;
+}
+.reviewHero {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+}
+@media (max-width: 620px) {
+  .reviewHero {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .reviewStats {
+    grid-column: 1 / -1;
+  }
+}
+.reviewAvatar {
+  display: grid;
+  place-items: center;
+  width: 84px;
+  height: 84px;
+  border-radius: 18px;
+  background: linear-gradient(
+    135deg,
+    var(--opt-accent, var(--accent)),
+    color-mix(in oklab, var(--opt-accent, var(--accent)) 45%, var(--accent-2))
+  );
+  color: #fff;
+  font-family: var(--font-display);
+  font-size: 38px;
+  box-shadow: 0 14px 30px -10px color-mix(in oklab, var(--accent) 50%, transparent);
+}
+.reviewIdentity {
+  min-width: 0;
+}
+.reviewName {
+  font-size: clamp(1.4rem, 3vw, 1.7rem);
+  margin: 4px 0 2px;
+}
+.reviewSub {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+.reviewStats {
+  display: grid;
+  grid-template-columns: repeat(5, auto);
+  gap: 10px;
+}
+@media (max-width: 480px) {
+  .reviewStats {
+    grid-template-columns: repeat(5, 1fr);
+  }
+}
+.reviewStat {
+  text-align: center;
+  min-width: 44px;
+}
+.reviewStatValue {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 20px;
+  line-height: 1.1;
+  color: var(--ink);
+}
+
+.reviewCols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+@media (max-width: 720px) {
+  .reviewCols {
+    grid-template-columns: 1fr;
+  }
+}
+.reviewPanel {
+  min-width: 0;
+}
+
+.scoreGrid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+}
+@media (max-width: 420px) {
+  .scoreGrid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+.scoreBox {
+  text-align: center;
+  padding: 8px 4px;
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--ink) 4%, transparent);
+  border: 1px solid var(--line);
+}
+.scoreVal {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 22px;
+  line-height: 1.1;
+  color: var(--ink);
+}
+.scoreMod {
+  font-size: 11px;
+  color: var(--accent);
+}
+
+.profGroup {
+  margin-bottom: 14px;
+}
+.profGroup:last-child {
+  margin-bottom: 0;
+}
+.profLabel {
+  display: block;
+  font-size: 11px;
+  color: var(--ink-3);
+  margin-bottom: 8px;
+}
+.profPills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.profEmpty {
+  font-size: 12px;
+  color: var(--ink-3);
+  font-style: italic;
+}
+.reviewNameCard {
+  min-width: 0;
+}
+
+/* Suppress selection/hover transitions for vestibular-sensitive users. */
+@media (prefers-reduced-motion: reduce) {
+  .railStep,
+  .railDot,
+  .optCard,
+  .bgCard {
+    transition: none;
+  }
+}

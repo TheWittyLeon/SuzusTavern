@@ -40,6 +40,12 @@ export interface CharacterCreateRequest {
   race?: string;       // default 'Human' upstream
   char_class?: string; // 'class' is accepted as an alias upstream — prefer 'char_class'
   background?: string;
+  /**
+   * Base point-buy ability spread from the creation wizard (ST-050), pre-racial
+   * (8–15 each, ≤27 points). Omit on the Twitch path → engine rolls 4d6-drop-low.
+   * The engine validates legality and applies racial bonuses server-side.
+   */
+  ability_scores?: Record<string, number>;
 }
 export interface CharacterCreated { character_id: string; [k: string]: unknown }
 
