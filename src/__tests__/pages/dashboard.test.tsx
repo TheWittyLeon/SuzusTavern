@@ -38,7 +38,7 @@ import * as dnd from '../../lib/api/dnd';
 import { AuthProvider } from '../../lib/auth/AuthProvider';
 import { ToastProvider } from '../../components/Toast';
 import DashboardPage from '../../app/dashboard/page';
-import type { Session, User } from '../../lib/api/types';
+import type { Character, Session, User } from '../../lib/api/types';
 
 const mockLogout = authApi.logout as jest.MockedFunction<typeof authApi.logout>;
 const mockRefresh = authApi.refresh as jest.MockedFunction<typeof authApi.refresh>;
@@ -93,6 +93,19 @@ describe('Dashboard — empty (way-to-start)', () => {
       expect(screen.getByRole('heading', { level: 2, name: /start a story/i })).toBeInTheDocument(),
     );
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+  });
+
+  it('lists existing characters in the empty state so they are reachable without an active session', async () => {
+    mockListChars.mockResolvedValue([
+      { character_id: 'c1', name: 'Velka', char_class: 'Rogue', level: 1 } as unknown as Character,
+    ]);
+    renderDashboard(ALICE);
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { level: 2, name: /your characters/i })).toBeInTheDocument(),
+    );
+    // the character is listed (links to its sheet) alongside the way-to-start doors
+    expect(screen.getByText('Velka')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: /roll a character/i })).toBeInTheDocument();
   });
 });
 

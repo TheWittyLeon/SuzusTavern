@@ -32,7 +32,7 @@ import { titleizeChannel, formatStarted } from '@/lib/format';
 import styles from './Dashboard.module.css';
 
 // ── Way-to-start hub (Option B) — shown when you have no sessions ──────────────
-function DashEmpty({ username }: { username: string }) {
+function DashEmpty({ username, characters }: { username: string; characters: Character[] }) {
   const doors = [
     {
       href: '/modules',
@@ -86,6 +86,15 @@ function DashEmpty({ username }: { username: string }) {
           </Link>
         ))}
       </div>
+
+      {/* Surface existing characters here too — otherwise a player with PCs but
+          no running table has no path back to their sheets (the active-state
+          grid only renders when sessions > 0). */}
+      {characters.length > 0 && (
+        <div style={{ marginTop: 28 }}>
+          <CharacterGrid characters={characters} />
+        </div>
+      )}
     </div>
   );
 }
@@ -308,7 +317,7 @@ export default function DashboardPage() {
         {dataLoading ? (
           <PageSkeleton variant="card" lines={3} />
         ) : isEmpty ? (
-          <DashEmpty username={name} />
+          <DashEmpty username={name} characters={characters} />
         ) : (
           <DashActive sessions={sessions} characters={characters} />
         )}
