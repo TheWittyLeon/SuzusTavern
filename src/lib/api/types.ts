@@ -65,6 +65,52 @@ export interface Character {
 export interface InventoryItem { name: string; quantity: number; equipped?: boolean }
 export interface Inventory { items: InventoryItem[] }
 
+// ── DnD: structured character sheet (ST-054–058) ────────────────────────────
+// Shape of GET /api/dnd/characters/:id/sheet (engine get_character_sheet_data).
+// Distinct from the loose `Character` above and from the cmd_sheet display string.
+export interface AbilityBlock { score: number; modifier: number }
+export interface SheetSpellSlot { max: number; used: number; remaining: number }
+export interface SheetSpellcasting { ability: string; save_dc: number; attack_bonus: number }
+export interface SheetInventoryItem {
+  name: string;
+  item_type: string;
+  sub: string;
+  quantity: number;
+  equipped: boolean;
+}
+export interface CharacterSheet {
+  character_id: string;
+  owner_username: string;
+  name: string;
+  race: string;
+  subrace: string;
+  char_class: string;
+  subclass: string;
+  level: number;
+  background: string;
+  alignment: string;
+  /** Keyed by full ability name (strength, dexterity, …). */
+  ability_scores: Record<string, AbilityBlock>;
+  hp: { current: number; max: number; temp: number };
+  ac: number;
+  initiative: number;
+  proficiency_bonus: number;
+  speed: number;
+  xp: number;
+  xp_next: number | null;
+  hit_dice_remaining: number;
+  proficient_saves: string[];
+  proficient_skills: string[];
+  class_features: string[];
+  conditions: string[];
+  spellcasting: SheetSpellcasting | null;
+  /** Keyed by slot level "1".."9"; only non-zero levels present. */
+  spell_slots: Record<string, SheetSpellSlot>;
+  is_spellcaster: boolean;
+  inventory: SheetInventoryItem[];
+  inventory_weight: number;
+}
+
 // ── DnD: sessions ──────────────────────────────────────────────────────────
 export type SessionStatus = 'active' | 'paused' | 'ended';
 

@@ -1,8 +1,6 @@
 /**
- * Tests for the interim character landing (src/app/character/[id]/page.tsx).
- *
- * Sprint 6 P0: this is NOT the full sheet (ST-054+). It renders the engine's
- * summary string as a "created" confirmation, and a friendly error state.
+ * Tests for the character sheet (src/app/character/[id]/page.tsx, ST-054–058).
+ * Renders from the structured getCharacterSheet payload.
  */
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -25,16 +23,58 @@ jest.mock('../../lib/api/auth', () => ({
 }));
 
 jest.mock('../../lib/api/dnd', () => ({
-  getCharacter: jest.fn(),
+  getCharacterSheet: jest.fn(),
 }));
 
 import * as dnd from '../../lib/api/dnd';
 import { AuthProvider } from '../../lib/auth/AuthProvider';
 import CharacterPage from '../../app/character/[id]/page';
-import type { Character, User } from '../../lib/api/types';
+import type { CharacterSheet, User } from '../../lib/api/types';
 
-const mockGet = dnd.getCharacter as jest.MockedFunction<typeof dnd.getCharacter>;
+const mockGet = dnd.getCharacterSheet as jest.MockedFunction<typeof dnd.getCharacterSheet>;
 const ALICE: User = { id: 1, username: 'alice', email: null };
+
+function ability(score: number, modifier: number) {
+  return { score, modifier };
+}
+
+const ROGUE: CharacterSheet = {
+  character_id: 'abc-123',
+  owner_username: 'alice',
+  name: 'Velka Nightquill',
+  race: 'Human',
+  subrace: '',
+  char_class: 'Rogue',
+  subclass: '',
+  level: 1,
+  background: 'Charlatan',
+  alignment: '',
+  ability_scores: {
+    strength: ability(9, -1),
+    dexterity: ability(16, 3),
+    constitution: ability(13, 1),
+    intelligence: ability(12, 1),
+    wisdom: ability(10, 0),
+    charisma: ability(14, 2),
+  },
+  hp: { current: 9, max: 9, temp: 0 },
+  ac: 13,
+  initiative: 3,
+  proficiency_bonus: 2,
+  speed: 30,
+  xp: 0,
+  xp_next: 300,
+  hit_dice_remaining: 1,
+  proficient_saves: ['dexterity', 'intelligence'],
+  proficient_skills: ['deception', 'sleight_of_hand'],
+  class_features: ['Sneak Attack', 'Thieves’ Cant'],
+  conditions: [],
+  spellcasting: null,
+  spell_slots: {},
+  is_spellcaster: false,
+  inventory: [],
+  inventory_weight: 0,
+};
 
 function renderPage() {
   return render(
@@ -48,21 +88,38 @@ beforeEach(() => {
   mockGet.mockReset();
 });
 
-describe('Character landing (interim)', () => {
-  it('renders the engine summary as a created-character confirmation', async () => {
-    mockGet.mockResolvedValue({
-      sheet: 'Velka — Half-Elf Rogue Lv.1 (Charlatan) | HP:7/7 AC:13 Prof:+2 XP:0 | STR:8(-1)',
-    } as unknown as Character);
-
+describe('Character sheet', () => {
+  it('renders identity, abilities, skills, and features (martial)', async () => {
+    mockGet.mockResolvedValue(ROGUE);
     renderPage();
 
-    expect(await screen.findByText(/Half-Elf Rogue Lv\.1/)).toBeInTheDocument();
-    expect(screen.getByText('created')).toBeInTheDocument();
-    // Heading is the parsed name.
-    expect(screen.getByRole('heading', { level: 1, name: /Velka/ })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' })).toBeInTheDocument();
+    // DEX score box + proficient skill modifier (DEX 16 → +3, +2 prof on sleight_of_hand → +5).
+    expect(screen.getByText('16')).toBeInTheDocument();
+    expect(screen.getByText('Sleight of Hand')).toBeInTheDocument();
+    expect(screen.getByText('Sneak Attack')).toBeInTheDocument();
+    // HP meter exposes the values.
+    expect(screen.getByRole('meter', { name: /hit points 9 of 9/i })).toBeInTheDocument();
+    // Non-caster: no Spells panel.
+    expect(screen.queryByText('Spells')).not.toBeInTheDocument();
   });
 
-  it('shows a friendly error when the character cannot be loaded', async () => {
+  it('shows the spells panel for a caster', async () => {
+    mockGet.mockResolvedValue({
+      ...ROGUE,
+      name: 'Mira',
+      char_class: 'Wizard',
+      is_spellcaster: true,
+      spellcasting: { ability: 'intelligence', save_dc: 12, attack_bonus: 4 },
+      spell_slots: { '1': { max: 2, used: 0, remaining: 2 } },
+    });
+    renderPage();
+    await screen.findByRole('heading', { level: 1, name: 'Mira' });
+    expect(screen.getByText(/Spells/)).toBeInTheDocument();
+    expect(screen.getByText('Level 1')).toBeInTheDocument();
+  });
+
+  it('shows a friendly error when the sheet cannot be loaded', async () => {
     mockGet.mockRejectedValue(new Error('not found'));
     renderPage();
     await waitFor(() =>

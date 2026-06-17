@@ -7,6 +7,7 @@ import type {
   Character,
   CharacterCreateRequest,
   CharacterCreated,
+  CharacterSheet,
   CombatActionRequest,
   CombatStatus,
   Inventory,
@@ -64,6 +65,18 @@ export const unequipItem = (
     `/api/dnd/characters/${encodeURIComponent(characterId)}/unequip`,
     { method: 'POST', json: { username, item_name: itemName }, signal },
   );
+
+/** Structured character sheet (ST-054–058). Distinct from getCharacter, which
+ *  returns the cmd_sheet display string. */
+export const getCharacterSheet = (
+  characterId: string,
+  username: string,
+  signal?: AbortSignal,
+) =>
+  apiCall<{ character: CharacterSheet }>(
+    `/api/dnd/characters/${encodeURIComponent(characterId)}/sheet?username=${encodeURIComponent(username)}`,
+    { method: 'GET', signal },
+  ).then((d) => d.character);
 
 // NOTE: bridge route pending — wired in Sprint 6 (ST-057).
 export const getInventory = (

@@ -52,6 +52,37 @@ export const ABILITIES: AbilityMeta[] = [
 
 export const ABILITY_KEYS: AbilityKey[] = ABILITIES.map((a) => a.key);
 
+/** 18 SRD skills → governing ability (mirror of rules.SKILLS). Used by the sheet. */
+export interface SkillDef {
+  /** Engine key (e.g. 'sleight_of_hand'). */
+  key: string;
+  /** Display name. */
+  name: string;
+  ability: AbilityKey;
+  /** Three-letter ability abbreviation for the row. */
+  abbr: string;
+}
+export const SKILLS: SkillDef[] = [
+  { key: 'acrobatics', name: 'Acrobatics', ability: 'dexterity', abbr: 'DEX' },
+  { key: 'animal_handling', name: 'Animal Handling', ability: 'wisdom', abbr: 'WIS' },
+  { key: 'arcana', name: 'Arcana', ability: 'intelligence', abbr: 'INT' },
+  { key: 'athletics', name: 'Athletics', ability: 'strength', abbr: 'STR' },
+  { key: 'deception', name: 'Deception', ability: 'charisma', abbr: 'CHA' },
+  { key: 'history', name: 'History', ability: 'intelligence', abbr: 'INT' },
+  { key: 'insight', name: 'Insight', ability: 'wisdom', abbr: 'WIS' },
+  { key: 'intimidation', name: 'Intimidation', ability: 'charisma', abbr: 'CHA' },
+  { key: 'investigation', name: 'Investigation', ability: 'intelligence', abbr: 'INT' },
+  { key: 'medicine', name: 'Medicine', ability: 'wisdom', abbr: 'WIS' },
+  { key: 'nature', name: 'Nature', ability: 'intelligence', abbr: 'INT' },
+  { key: 'perception', name: 'Perception', ability: 'wisdom', abbr: 'WIS' },
+  { key: 'performance', name: 'Performance', ability: 'charisma', abbr: 'CHA' },
+  { key: 'persuasion', name: 'Persuasion', ability: 'charisma', abbr: 'CHA' },
+  { key: 'religion', name: 'Religion', ability: 'intelligence', abbr: 'INT' },
+  { key: 'sleight_of_hand', name: 'Sleight of Hand', ability: 'dexterity', abbr: 'DEX' },
+  { key: 'stealth', name: 'Stealth', ability: 'dexterity', abbr: 'DEX' },
+  { key: 'survival', name: 'Survival', ability: 'wisdom', abbr: 'WIS' },
+];
+
 /** 5e point-buy cost table (mirror of rules.point_buy_cost). */
 export const POINT_BUY_COST: Readonly<Record<number, number>> = {
   8: 0,

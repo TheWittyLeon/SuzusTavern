@@ -1,58 +1,404 @@
-/* Interim character landing (Sprint 6 P0). Full sheet = ST-054+ (deferred). */
+/* Character sheet (ST-054–058). Token-driven; no hardcoded colors. */
 
-.wrap {
+/* ── Layout ──────────────────────────────────────────────────────────────────── */
+.sheet {
   display: grid;
-  gap: 14px;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 18px;
+  align-items: start;
+}
+@media (max-width: 920px) {
+  .sheet {
+    grid-template-columns: 1fr;
+  }
+}
+.colMain,
+.colSide {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
 }
 
-.heroCard {
-  display: grid;
-  gap: 10px;
-}
+/* ── Identity card (ST-055) ──────────────────────────────────────────────────── */
 .identity {
-  font-size: clamp(1.4rem, 3vw, 1.75rem);
-  margin: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
 }
-.statLine {
+@media (max-width: 560px) {
+  .identity {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .idLevel {
+    grid-column: 1 / -1;
+    text-align: left !important;
+  }
+}
+.idAvatar {
+  display: grid;
+  place-items: center;
+  width: 88px;
+  height: 88px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: var(--on-accent);
+  font-family: var(--font-display);
+  font-size: 38px;
+  box-shadow: 0 12px 30px -10px color-mix(in oklab, var(--accent) 50%, transparent);
+}
+.idBody {
+  min-width: 0;
+}
+.idName {
+  margin: 6px 0 0;
+  font-size: clamp(1.4rem, 3vw, 1.6rem);
+}
+.idSub {
+  color: var(--ink-3);
+  font-size: 12px;
+  margin-top: 4px;
+}
+.idStats {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 16px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
+  gap: 16px;
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--ink-2);
 }
-.statSeg {
+.idStat {
+  display: flex;
+  gap: 5px;
+  align-items: baseline;
+}
+.idStat dt {
+  font-weight: 700;
+}
+.idStat dd {
   margin: 0;
+}
+.hpBar {
+  margin-top: 10px;
+  height: 8px;
+  width: min(280px, 100%);
+  border-radius: 99px;
+  background: color-mix(in oklab, var(--ink) 10%, transparent);
+  overflow: hidden;
+}
+.hpFill {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, var(--good), var(--accent));
+}
+.conditions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.idLevel {
+  text-align: right;
+}
+.idLevelNum {
+  font-family: var(--font-display);
+  font-size: 56px;
+  line-height: 1;
+  color: var(--accent);
+  margin: 2px 0;
+}
+.idXp {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+/* ── Ability stat boxes (ST-056) ─────────────────────────────────────────────── */
+.abilityRow {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 10px;
+}
+@media (max-width: 560px) {
+  .abilityRow {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+.statBox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 12px 6px;
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-soft);
+}
+.statName {
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.statVal {
+  font-family: var(--font-display);
+  font-size: 26px;
+  line-height: 1.1;
+  color: var(--ink);
+}
+.statMod {
+  font-size: 12px;
+  color: var(--accent);
+}
+
+/* ── Proficiency dot (saves + skills) ────────────────────────────────────────── */
+.profDot {
+  width: 9px;
+  height: 9px;
+  flex-shrink: 0;
+  border-radius: 99px;
+  border: 1.5px solid var(--ink-3);
+  background: transparent;
+}
+.profOn {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* ── Saving throws ───────────────────────────────────────────────────────────── */
+.saveRow {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+}
+@media (max-width: 560px) {
+  .saveRow {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+.save {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--ink) 4%, transparent);
+}
+.saveName {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.saveMod {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--ink);
+}
+
+/* ── Skills ──────────────────────────────────────────────────────────────────── */
+.skillGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 24px;
+}
+@media (max-width: 560px) {
+  .skillGrid {
+    grid-template-columns: 1fr;
+  }
+}
+.skillRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line-2);
+}
+.skillName {
+  flex: 1;
+  font-size: 13px;
+  color: var(--ink);
+  min-width: 0;
+}
+.skillAbbr {
+  margin-left: 6px;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+}
+.skillMod {
   font-size: 12px;
   color: var(--ink-2);
 }
 
-.panel {
+/* ── Card head (inventory / spells) ──────────────────────────────────────────── */
+.cardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.emptyRow {
+  font-size: 13px;
+  color: var(--ink-3);
+  font-style: italic;
+}
+
+/* ── Inventory (ST-057) ──────────────────────────────────────────────────────── */
+.itemList,
+.slotList,
+.featureList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.itemRow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line-2);
+}
+.itemRow:last-child {
+  border-bottom: 0;
+}
+.itemIcon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--accent) 10%, transparent);
+  color: var(--accent);
+}
+.itemMeta {
+  flex: 1;
   min-width: 0;
 }
-.soonHead {
+.itemName {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-family: var(--font-display);
-  font-size: 15px;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--ink);
-  margin-bottom: 8px;
 }
-.soonBody {
+.equipPill {
+  padding: 1px 7px;
+}
+.itemSub {
+  display: block;
+  font-size: 11px;
+  color: var(--ink-3);
+  margin-top: 1px;
+}
+.itemQty {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+/* ── Suzu's note ─────────────────────────────────────────────────────────────── */
+.suzuNote {
+  background: color-mix(in oklab, var(--accent-2) 8%, transparent);
+}
+.suzuHead {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.suzuHeadTitle {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.suzuQuote {
+  font-family: var(--font-display);
+  font-style: italic;
   font-size: 13px;
   color: var(--ink-2);
   line-height: 1.55;
-  max-width: 62ch;
 }
 
+/* ── Spells (ST-058) ─────────────────────────────────────────────────────────── */
+.castAtk {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.slotRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line-2);
+}
+.slotRow:last-child {
+  border-bottom: 0;
+}
+.slotLvl {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--accent-2) 12%, transparent);
+  color: var(--accent-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+}
+.slotLabel {
+  flex: 1;
+  font-size: 13px;
+  color: var(--ink);
+}
+.slotPips {
+  display: flex;
+  gap: 4px;
+}
+.pip {
+  width: 9px;
+  height: 9px;
+  border-radius: 99px;
+  border: 1.5px solid var(--accent-2);
+  background: transparent;
+}
+.pipOn {
+  background: var(--accent-2);
+}
+.slotCount {
+  font-size: 12px;
+  color: var(--ink-2);
+  min-width: 32px;
+  text-align: right;
+}
+
+/* ── Features ────────────────────────────────────────────────────────────────── */
+.featureRow {
+  font-size: 13px;
+  color: var(--ink);
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line-2);
+}
+.featureRow:last-child {
+  border-bottom: 0;
+}
+
+/* ── Error state ─────────────────────────────────────────────────────────────── */
+.panel {
+  min-width: 0;
+}
 .actions {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 16px;
 }
-
 .errorTitle {
   font-family: var(--font-display);
   font-size: 18px;
