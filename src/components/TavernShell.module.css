@@ -245,16 +245,49 @@
   padding: 24px 28px 48px;
 }
 
+/* ≤1024px — hide the disabled "soon" preview tabs (Codex/Memory). They're the
+   bulk of the nav's width (the full 5-tab nav needs ~1270px to sit on one row)
+   and are just previews, so dropping them lets the 3 real tabs fit beside the
+   brand + avatar on tablets/laptops instead of scrolling in a cramped strip. */
+@media (max-width: 1024px) {
+  .tabDisabled {
+    display: none;
+  }
+}
+
+/* ≤720px — compact 2-row header: brand + avatar on row 1; the primary tabs wrap
+   to their own full-width row below. Replaces the cramped overflow-x:auto strip
+   (the nav was being squeezed to ~83px between the brand and the avatar, so the
+   tabs became a sideways-scrolling sliver on phones). */
 @media (max-width: 720px) {
   .topnav {
+    flex-wrap: wrap;
+    height: auto;
     gap: 10px;
-    padding: 0 12px;
+    row-gap: 10px;
+    padding: 8px 12px;
   }
   .brandSub {
     display: none;
   }
   .userName {
     display: none;
+  }
+  /* Avatar rides up next to the brand on row 1 (order:1, keeps margin-left:auto);
+     the tabs (flex-basis:100%) wrap to row 2 and may wrap internally at ~320px. */
+  .end {
+    order: 1;
+  }
+  .tabs {
+    order: 2;
+    flex-basis: 100%;
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+  /* Trim tab padding so the 3 real tabs sit on one row even at 320px (height —
+     and thus the 44px touch target — is unchanged). */
+  .tab {
+    padding: 0 12px;
   }
   .workspaceHeader {
     padding: 16px 16px;
