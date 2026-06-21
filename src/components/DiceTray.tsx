@@ -55,10 +55,11 @@ export default function DiceTray({
             key={sides}
             type="button"
             className={styles.die}
+            aria-label={`Roll d${sides}`}
             onClick={() => onRoll(sides, `d${sides}`)}
             disabled={disabled}
           >
-            <Icon name={icon} size={18} />
+            <Icon name={icon} size={18} aria-hidden />
             <span>d{sides}</span>
           </button>
         ))}

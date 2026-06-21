@@ -35,8 +35,10 @@ export default function PartyPanel({ participants, selfUsername, loading = false
 
   return (
     <div>
-      <div className={styles.label}>Party · {participants.length}</div>
-      <ul className={styles.list}>
+      <div className={styles.label} id="party-panel-label">
+        Party · {participants.length}
+      </div>
+      <ul className={styles.list} aria-labelledby="party-panel-label">
         {participants.map((p) => {
           const you = p.username.toLowerCase() === self;
           const c = p.character;

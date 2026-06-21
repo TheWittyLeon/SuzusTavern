@@ -34,10 +34,10 @@ export default function InitiativeTracker({
   return (
     <div className={styles.wrap}>
       <div className={styles.head}>
-        <span className={styles.label}>Initiative</span>
+        <span className={styles.label} id="initiative-label">Initiative</span>
         {round != null && <span className={styles.round}>round {round}</span>}
       </div>
-      <ol className={styles.list}>
+      <ol className={styles.list} aria-labelledby="initiative-label">
         {entries.map((e, i) => {
           const current = currentIndex === i;
           return (

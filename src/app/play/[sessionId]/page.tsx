@@ -503,7 +503,7 @@ export default function PlayPage() {
           <span className={styles.kicker}>Scene</span>
         </div>
         <div className={styles.scenePlaceholder}>
-          <Icon name="Map" size={22} />
+          <Icon name="Map" size={22} aria-hidden />
           <span>The tactical map arrives in a later sprint. Suzu narrates the scene above.</span>
         </div>
 
@@ -514,11 +514,13 @@ export default function PlayPage() {
             onClick={beginEncounter}
             disabled={combatBusy}
           >
-            <Icon name="Sword" size={14} /> Begin an encounter
+            <Icon name="Sword" size={14} aria-hidden /> Begin an encounter
           </button>
         ) : (
-          <div className={styles.combatNote}>
-            <Icon name="Sword" size={13} /> In combat · use the action rail in the composer
+          // role=status so the transition into combat is announced to SR users
+          // who weren't focused here when it started (Iro S3.5 MAJOR-1).
+          <div className={styles.combatNote} role="status" aria-live="polite">
+            <Icon name="Sword" size={13} aria-hidden /> In combat · use the action rail in the composer
           </div>
         )}
 
