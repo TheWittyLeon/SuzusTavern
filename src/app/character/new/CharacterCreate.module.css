@@ -275,7 +275,9 @@
   margin-top: auto;
 }
 .optCard[data-selected='true'] .optBonus {
-  color: var(--opt-accent, var(--accent));
+  /* --opt-accent-ink is the candlelit-safe text variant (cool/crit accents fail
+     AA as text on parchment); falls back to the decorative accent then --accent. */
+  color: var(--opt-accent-ink, var(--opt-accent, var(--accent)));
 }
 /* On the tinted selected-card background, --ink-3 dips below AA (≈4.1:1);
    --ink-2 clears it. */

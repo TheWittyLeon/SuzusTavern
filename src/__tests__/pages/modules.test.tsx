@@ -26,6 +26,7 @@ jest.mock('../../lib/api/dnd', () => ({ createSession: jest.fn() }));
 
 import * as dnd from '../../lib/api/dnd';
 import { AuthProvider } from '../../lib/auth/AuthProvider';
+import { ThemeProvider } from '../../lib/theme/ThemeProvider';
 import { ToastProvider } from '../../components/Toast';
 import ModulesPage from '../../app/modules/page';
 import type { Session, User } from '../../lib/api/types';
@@ -36,9 +37,9 @@ const LEON: User = { id: 1, username: 'leon', email: null };
 function renderModules() {
   return render(
     <ToastProvider>
-      <AuthProvider initialUser={LEON} initialMaybeAuthed={false}>
+      <ThemeProvider><AuthProvider initialUser={LEON} initialMaybeAuthed={false}>
         <ModulesPage />
-      </AuthProvider>
+      </AuthProvider></ThemeProvider>
     </ToastProvider>,
   );
 }

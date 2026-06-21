@@ -43,10 +43,10 @@ describe('Pill', () => {
       expect(el.style.color).toContain('var(--bad)');
     });
 
-    it('crit tone uses --crit color', () => {
+    it('crit tone uses --crit-ink text color (a11y: candlelit-safe)', () => {
       const { container } = render(<Pill tone="crit">x</Pill>);
       const el = container.querySelector('[data-component="Pill"]') as HTMLElement;
-      expect(el.style.color).toContain('var(--crit)');
+      expect(el.style.color).toContain('var(--crit-ink)');
     });
 
     it('muted tone uses --ink-2 color (a11y: ≥4.5:1 on the muted surface)', () => {
@@ -115,10 +115,10 @@ describe('Pill', () => {
   });
 
   describe('remaining tones', () => {
-    it('cool tone uses --cool color', () => {
+    it('cool tone uses --cool-ink text color (a11y: candlelit-safe)', () => {
       const { container } = render(<Pill tone="cool">x</Pill>);
       const el = container.querySelector('[data-component="Pill"]') as HTMLElement;
-      expect(el.style.color).toContain('var(--cool)');
+      expect(el.style.color).toContain('var(--cool-ink)');
     });
 
     it('warm tone uses --warm color', () => {

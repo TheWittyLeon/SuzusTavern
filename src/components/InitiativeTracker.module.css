@@ -23,7 +23,7 @@
 .round {
   font-size: 10px;
   font-family: var(--font-mono);
-  color: var(--crit);
+  color: var(--crit-ink); /* text-safe on candlelit (A11Y S3.1) */
 }
 
 .list {
@@ -78,5 +78,5 @@
 }
 
 .current .init {
-  color: var(--crit);
+  color: var(--crit-ink); /* text-safe on candlelit (A11Y S3.1) */
 }

@@ -29,6 +29,7 @@ import { useRouter } from 'next/navigation';
 import Icon, { type IconName } from '@/components/Icon';
 import Avatar from '@/components/Avatar';
 import SuzuDM from '@/components/SuzuDM';
+import TweaksPanel from '@/components/TweaksPanel';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import styles from './TavernShell.module.css';
 
@@ -242,6 +243,7 @@ export default function TavernShell({
         </nav>
 
         <div className={styles.end}>
+          <TweaksPanel />
           <UserMenu />
         </div>
       </header>

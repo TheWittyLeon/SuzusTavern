@@ -47,7 +47,8 @@ const TONE_MAP: Record<PillTone, { bg: string; fg: string; bd: string }> = {
   },
   cool: {
     bg: 'color-mix(in oklab, var(--cool) 14%, transparent)',
-    fg: 'var(--cool)',
+    // --cool-ink: text-safe on the candlelit light parchment (A11Y S3.1).
+    fg: 'var(--cool-ink)',
     bd: 'color-mix(in oklab, var(--cool) 30%, transparent)',
   },
   warm: {
@@ -57,7 +58,8 @@ const TONE_MAP: Record<PillTone, { bg: string; fg: string; bd: string }> = {
   },
   crit: {
     bg: 'color-mix(in oklab, var(--crit) 18%, transparent)',
-    fg: 'var(--crit)',
+    // --crit-ink: text-safe on the candlelit light parchment (A11Y S3.1).
+    fg: 'var(--crit-ink)',
     bd: 'color-mix(in oklab, var(--crit) 36%, transparent)',
   },
   muted: {

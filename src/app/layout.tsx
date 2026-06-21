@@ -4,6 +4,8 @@ import { AuthProvider } from "@/lib/auth/AuthProvider";
 import { getServerSession } from "@/lib/auth/session";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { ToastProvider } from "@/components/Toast";
+import { ThemeProvider } from "@/lib/theme/ThemeProvider";
+import { NO_FLASH_SCRIPT } from "@/lib/theme/theme";
 
 export const metadata: Metadata = {
   title: "Aurora Tavern",
@@ -25,19 +27,28 @@ export default async function RootLayout({
   const { user: initialUser, maybeAuthed } = await getServerSession();
 
   return (
-    <html lang="en" data-vibe="dusk-tavern">
+    // suppressHydrationWarning: the no-flash script (below) rewrites data-vibe/
+    // data-density from localStorage before hydration; without this React would
+    // warn about the attribute mismatch on a non-default saved palette.
+    <html lang="en" data-vibe="dusk-tavern" data-density="cozy" suppressHydrationWarning>
+      <head>
+        {/* Apply the saved palette/density before first paint — no theme flash. */}
+        <script dangerouslySetInnerHTML={{ __html: NO_FLASH_SCRIPT }} />
+      </head>
       <body>
         {/* A11Y: first tab stop — jump past header/nav to the page's #main-content */}
         <a href="#main-content" className="skip-link">
           Skip to main content
         </a>
-        <AuthProvider initialUser={initialUser} initialMaybeAuthed={maybeAuthed}>
-          <ErrorBoundary>
-            <ToastProvider>
-              {children}
-            </ToastProvider>
-          </ErrorBoundary>
-        </AuthProvider>
+        <ThemeProvider>
+          <AuthProvider initialUser={initialUser} initialMaybeAuthed={maybeAuthed}>
+            <ErrorBoundary>
+              <ToastProvider>
+                {children}
+              </ToastProvider>
+            </ErrorBoundary>
+          </AuthProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

@@ -37,6 +37,7 @@ jest.mock('../../lib/api/dnd', () => ({
 import * as authApi from '../../lib/api/auth';
 import * as dnd from '../../lib/api/dnd';
 import { AuthProvider } from '../../lib/auth/AuthProvider';
+import { ThemeProvider } from '../../lib/theme/ThemeProvider';
 import { ToastProvider } from '../../components/Toast';
 import TrashPage from '../../app/trash/page';
 import type { Character, User } from '../../lib/api/types';
@@ -70,9 +71,9 @@ const BRENN = {
 function renderTrash(initialUser: User | null, initialMaybeAuthed = false) {
   return render(
     <ToastProvider>
-      <AuthProvider initialUser={initialUser} initialMaybeAuthed={initialMaybeAuthed}>
+      <ThemeProvider><AuthProvider initialUser={initialUser} initialMaybeAuthed={initialMaybeAuthed}>
         <TrashPage />
-      </AuthProvider>
+      </AuthProvider></ThemeProvider>
     </ToastProvider>,
   );
 }

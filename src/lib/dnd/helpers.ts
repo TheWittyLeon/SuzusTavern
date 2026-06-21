@@ -212,19 +212,23 @@ export const RACE_DECORATION: Record<
   'half-orc': { icon: 'Barbarian', sub: 'fierce · relentless' },
 };
 
+// `accent` is the decorative card tint (borders/fills/gradients). `accentInk` is
+// the contrast-safe TEXT variant for the selected-card bonus label — only the
+// cool/crit accents need it (they fail AA as text on candlelit; see globals.css
+// --cool-ink/--crit-ink). Others read AA already, so accentInk is omitted.
 export const CLASS_DECORATION: Record<
   string,
-  { icon: IconName; accent: string; flavor: string }
+  { icon: IconName; accent: string; accentInk?: string; flavor: string }
 > = {
   rogue:     { icon: 'Rogue',     accent: 'var(--accent)',   flavor: 'Sneak, stab, vanish.' },
-  wizard:    { icon: 'Wizard',    accent: 'var(--cool)',     flavor: 'A spell for every problem.' },
-  fighter:   { icon: 'Fighter',   accent: 'var(--cool)',     flavor: 'Hit it until it stops.' },
+  wizard:    { icon: 'Wizard',    accent: 'var(--cool)',     accentInk: 'var(--cool-ink)', flavor: 'A spell for every problem.' },
+  fighter:   { icon: 'Fighter',   accent: 'var(--cool)',     accentInk: 'var(--cool-ink)', flavor: 'Hit it until it stops.' },
   cleric:    { icon: 'Cleric',    accent: 'var(--accent-3)', flavor: 'Mend, smite, repeat.' },
   bard:      { icon: 'Bard',      accent: 'var(--warm)',     flavor: 'Talk your way through anything.' },
   ranger:    { icon: 'Ranger',    accent: 'var(--good)',     flavor: 'The wilds answer to you.' },
   druid:     { icon: 'Druid',     accent: 'var(--good)',     flavor: 'Be the bear.' },
   paladin:   { icon: 'Paladin',   accent: 'var(--warn)',     flavor: 'An oath, kept loudly.' },
-  sorcerer:  { icon: 'Sorcerer',  accent: 'var(--crit)',     flavor: 'Magic in the blood.' },
+  sorcerer:  { icon: 'Sorcerer',  accent: 'var(--crit)',     accentInk: 'var(--crit-ink)', flavor: 'Magic in the blood.' },
   warlock:   { icon: 'Warlock',   accent: 'var(--accent-2)', flavor: 'A bargain with consequences.' },
   barbarian: { icon: 'Barbarian', accent: 'var(--bad)',      flavor: 'Rage first, ask never.' },
   monk:      { icon: 'Monk',      accent: 'var(--accent-2)', flavor: 'Fists, focus, ki.' },

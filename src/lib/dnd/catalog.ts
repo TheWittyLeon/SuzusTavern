@@ -40,8 +40,10 @@ export interface WizardClass {
   /** Two saving-throw proficiency ability keys. */
   saves: AbilityKey[];
   icon: IconName;
-  /** CSS custom property for the card accent. */
+  /** CSS custom property for the card accent (decorative fills/borders). */
   accent: string;
+  /** Contrast-safe TEXT variant of the accent for the selected bonus label. */
+  accentInk?: string;
   flavor: string;
 }
 
@@ -106,6 +108,7 @@ export function catalogItemToClass(item: CatalogItem): WizardClass {
     saves,
     icon: deco.icon,
     accent: deco.accent,
+    accentInk: deco.accentInk,
     flavor: deco.flavor,
   };
 }

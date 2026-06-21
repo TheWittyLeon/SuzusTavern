@@ -98,6 +98,7 @@ jest.mock('../../lib/dnd/useCatalog', () => ({
 
 import * as dnd from '../../lib/api/dnd';
 import { AuthProvider } from '../../lib/auth/AuthProvider';
+import { ThemeProvider } from '../../lib/theme/ThemeProvider';
 import CharacterNewPage from '../../app/character/new/page';
 import type { User } from '../../lib/api/types';
 
@@ -106,9 +107,9 @@ const ALICE: User = { id: 1, username: 'alice', email: null };
 
 function renderWizard() {
   return render(
-    <AuthProvider initialUser={ALICE}>
+    <ThemeProvider><AuthProvider initialUser={ALICE}>
       <CharacterNewPage />
-    </AuthProvider>,
+    </AuthProvider></ThemeProvider>,
   );
 }
 

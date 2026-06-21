@@ -532,7 +532,11 @@ function ClassStep({
           key={c.id}
           className={styles.optCard}
           data-selected={value === c.id}
-          style={{ ['--opt-accent' as string]: c.accent }}
+          style={{
+            ['--opt-accent' as string]: c.accent,
+            // text-safe accent for the selected bonus label (candlelit AA)
+            ['--opt-accent-ink' as string]: c.accentInk ?? c.accent,
+          }}
         >
           <input
             type="radio"

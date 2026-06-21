@@ -177,11 +177,11 @@ export default function CharacterPage() {
                   </dd>
                 </div>
                 <div className={styles.idStat}>
-                  <dt style={{ color: 'var(--cool)' }}>AC</dt>
+                  <dt style={{ color: 'var(--cool-ink)' }}>AC</dt>
                   <dd>{sheet.ac}</dd>
                 </div>
                 <div className={styles.idStat}>
-                  <dt style={{ color: 'var(--crit)' }}>INIT</dt>
+                  <dt style={{ color: 'var(--crit-ink)' }}>INIT</dt>
                   <dd>{signed(sheet.initiative)}</dd>
                 </div>
                 <div className={styles.idStat}>

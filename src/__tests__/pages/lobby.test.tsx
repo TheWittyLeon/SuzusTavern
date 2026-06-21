@@ -28,6 +28,7 @@ jest.mock('../../lib/api/dnd', () => ({
 
 import * as dnd from '../../lib/api/dnd';
 import { AuthProvider } from '../../lib/auth/AuthProvider';
+import { ThemeProvider } from '../../lib/theme/ThemeProvider';
 import { ToastProvider } from '../../components/Toast';
 import LobbyPage from '../../app/lobby/page';
 import type { Session, User } from '../../lib/api/types';
@@ -55,9 +56,9 @@ const humanTable: Session = {
 function renderLobby() {
   return render(
     <ToastProvider>
-      <AuthProvider initialUser={LEON} initialMaybeAuthed={false}>
+      <ThemeProvider><AuthProvider initialUser={LEON} initialMaybeAuthed={false}>
         <LobbyPage />
-      </AuthProvider>
+      </AuthProvider></ThemeProvider>
     </ToastProvider>,
   );
 }

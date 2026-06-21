@@ -131,5 +131,5 @@
 }
 
 .ac {
-  color: var(--cool);
+  color: var(--cool-ink); /* text-safe on candlelit (A11Y S3.1) */
 }
