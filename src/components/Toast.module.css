@@ -121,7 +121,10 @@
   flex-shrink: 0;
   opacity: 0.55;
   transition: opacity var(--dur-fast) var(--ease);
-  /* A11Y-7: visual 24×24 but ~44×44 tap target via padding offset */
+  /* A11Y-7: visual 24×24 but 44×44 tap target via padding offset.
+     content-box is REQUIRED — under the global border-box the padding would be
+     interior and the hit area would stay 24px (Tora S3.2 MAJOR-1). */
+  box-sizing: content-box;
   height: 24px !important;
   width: 24px !important;
   padding: 10px;

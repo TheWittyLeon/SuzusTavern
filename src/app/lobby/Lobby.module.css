@@ -167,3 +167,14 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ── Phone widths (S3.2: 320/360/390/414) ─────────────────────────────────── */
+@media (max-width: 480px) {
+  /* Stack the suggestion banner: avatar → quote → CTA, so the italic text isn't
+     squeezed to a sliver between the portrait and the button at 320px. */
+  .suggestion {
+    flex-direction: column;
+    align-items: flex-start;
+    text-align: left;
+  }
+}

@@ -182,7 +182,9 @@
 /* ── Character grid ───────────────────────────────────────────────────────── */
 .charGrid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* minmax(0,1fr) so a long character name can't blow the track past the cell
+     and add horizontal page scroll at 320px (S3.2). */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 .charCard {
@@ -285,5 +287,40 @@
   .heroActions {
     flex-direction: row;
     justify-content: center;
+    flex-wrap: wrap;
+  }
+}
+
+/* ── Phone widths (S3.2: 320/360/390/414) ─────────────────────────────────── */
+@media (max-width: 480px) {
+  /* Stack the Suzu portrait above the welcome quote instead of side-by-side —
+     the 96px avatar + quote squeezes the text to a sliver at 320px. */
+  .welcome {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+    gap: 14px;
+    padding: 20px 16px;
+  }
+  .welcomeQuote {
+    max-width: none;
+  }
+  .hero {
+    padding: 20px 16px;
+  }
+  /* Reclaim width: drop the decorative campaign icon, tighten the row so the
+     name + status + Open button fit without horizontal overflow. Collapse the
+     icon's grid track too (else display:none leaves a 0px track + 10px gap dead
+     space at the left — Iro S3.2 MINOR-3). */
+  .campaignRow {
+    grid-template-columns: 1fr auto auto;
+    gap: 10px;
+    padding: 12px;
+  }
+  .campaignIcon {
+    display: none;
+  }
+  .charGrid {
+    gap: 8px;
   }
 }

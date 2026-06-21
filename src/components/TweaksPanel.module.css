@@ -187,8 +187,15 @@
 }
 
 @media (max-width: 420px) {
+  /* Anchor to the viewport (not the right-aligned .wrap) so the panel can't run
+     off the LEFT edge at 320px — at narrow widths .wrap sits far right and an
+     absolute right:0 panel would clip its left ~60px behind the screen edge
+     (Iro S3.2 MAJOR-1). top:62px clears the compact 2-row nav. */
   .panel {
-    right: -8px;
-    width: min(300px, calc(100vw - 16px));
+    position: fixed;
+    top: 62px;
+    right: 12px;
+    left: auto;
+    width: min(300px, calc(100vw - 24px));
   }
 }

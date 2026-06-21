@@ -390,6 +390,17 @@ a { color: inherit; text-decoration: none; }
   border-color: transparent;
 }
 
+/* A11Y (S3.2): on phone widths lift every default-size button to a ≥44px touch
+   target. The base .btn is 38px (fine for dense desktop rows); at ≤480 a button
+   is often the sole CTA in a compressed row (lobby Join, campaign Open,
+   ConfirmDialog, header actions), so it must clear 44px. min-height beats the
+   fixed height when larger. btn-lg/btn-icon already meet the floor. */
+@media (max-width: 480px) {
+  .btn {
+    min-height: 44px;
+  }
+}
+
 /* Pills */
 .pill {
   display: inline-flex; align-items: center; gap: 6px;
