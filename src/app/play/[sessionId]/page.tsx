@@ -42,7 +42,7 @@ import Icon from '@/components/Icon';
 import Pill from '@/components/Pill';
 import PageSkeleton from '@/components/PageSkeleton';
 import NarratorStrip from '@/components/NarratorStrip';
-import ChatLog, { type LogRow } from '@/components/ChatLog';
+import ChatLog, { type ChatLogHandle, type LogRow } from '@/components/ChatLog';
 import PartyPanel from '@/components/PartyPanel';
 import InitiativeTracker, { type InitEntry } from '@/components/InitiativeTracker';
 import DiceTray, { type Advantage } from '@/components/DiceTray';
@@ -96,7 +96,7 @@ export default function PlayPage() {
   const [msg, setMsg] = useState('');
   const [mode, setMode] = useState<ComposeMode>('say');
   const [advantage, setAdvantage] = useState<Advantage>('none');
-  const [mobileView, setMobileView] = useState<'log' | 'scene'>('log');
+  const [mobileView, setMobileView] = useState<'log' | 'party' | 'scene'>('log');
 
   const [combatId, setCombatId] = useState<string | null>(null);
   const [round, setRound] = useState<number | null>(null);
@@ -104,6 +104,7 @@ export default function PlayPage() {
   const [combatBusy, setCombatBusy] = useState(false);
 
   const idRef = useRef(0);
+  const chatLogRef = useRef<ChatLogHandle>(null);
   const revealRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const narrationAbort = useRef<AbortController | null>(null);
   // Latest-log ref so narrate() can read recent transcript without re-creating
@@ -147,6 +148,13 @@ export default function PlayPage() {
     })();
     return () => ctrl.abort();
   }, [username, sessionId]);
+
+  // Re-pin the chat to the latest line when returning to the Story view —
+  // display:none zeroes the log's scrollTop, and the rows effect won't re-fire
+  // on a bare tab switch (Tora S3.3 MAJOR-2). 'instant' so it snaps, not crawls.
+  useEffect(() => {
+    if (mobileView === 'log') chatLogRef.current?.scrollToBottom('instant');
+  }, [mobileView]);
 
   // ── cleanup streams/intervals on unmount ────────────────────────────────────
   useEffect(
@@ -414,30 +422,49 @@ export default function PlayPage() {
     </Pill>
   );
 
+  const mobileClass =
+    mobileView === 'scene'
+      ? styles.showScene
+      : mobileView === 'party'
+        ? styles.showParty
+        : styles.showLog;
+
   return (
-    <div
-      className={`${styles.grid} ${mobileView === 'scene' ? styles.showScene : styles.showLog}`}
-    >
-      {/* mobile tab bar */}
-      <div className={styles.mobileTabs}>
+    <div className={`${styles.grid} ${mobileClass}`}>
+      {/* mobile tab bar — switches which pane fills the single mobile column.
+          aria-pressed exposes the active view to screen readers (S3.5). */}
+      <div className={styles.mobileTabs} role="group" aria-label="Play view">
         <button
           type="button"
           className={mobileView === 'log' ? styles.tabOn : undefined}
+          aria-pressed={mobileView === 'log'}
+          aria-controls="play-pane-story"
           onClick={() => setMobileView('log')}
         >
-          <Icon name="Chat" size={13} /> Story
+          <Icon name="Chat" size={13} aria-hidden /> Story
+        </button>
+        <button
+          type="button"
+          className={mobileView === 'party' ? styles.tabOn : undefined}
+          aria-pressed={mobileView === 'party'}
+          aria-controls="play-pane-party"
+          onClick={() => setMobileView('party')}
+        >
+          <Icon name="Users" size={13} aria-hidden /> Party
         </button>
         <button
           type="button"
           className={mobileView === 'scene' ? styles.tabOn : undefined}
+          aria-pressed={mobileView === 'scene'}
+          aria-controls="play-pane-scene"
           onClick={() => setMobileView('scene')}
         >
-          <Icon name="Map" size={13} /> Scene
+          <Icon name="Map" size={13} aria-hidden /> Scene
         </button>
       </div>
 
       {/* LEFT — party + initiative */}
-      <aside className={`${styles.pane} ${styles.left}`}>
+      <aside id="play-pane-party" className={`${styles.pane} ${styles.left}`}>
         <div className={styles.sessionHead}>
           <Link href="/lobby" className={styles.back} aria-label="Leave session">
             <Icon name="Chevron" size={14} style={{ transform: 'rotate(180deg)' }} />
@@ -452,9 +479,9 @@ export default function PlayPage() {
       </aside>
 
       {/* CENTRE — narrator + log + composer */}
-      <main className={`${styles.pane} ${styles.center}`}>
+      <main id="play-pane-story" className={`${styles.pane} ${styles.center}`}>
         <NarratorStrip text={narratorText} talking={talking} status={statusPill} />
-        <ChatLog rows={log} thinking={thinking} />
+        <ChatLog ref={chatLogRef} rows={log} thinking={thinking} />
         <Composer
           value={msg}
           onChange={setMsg}
@@ -469,7 +496,7 @@ export default function PlayPage() {
       </main>
 
       {/* RIGHT — scene + dice + safety */}
-      <aside className={`${styles.pane} ${styles.right}`}>
+      <aside id="play-pane-scene" className={`${styles.pane} ${styles.right}`}>
         <div className={styles.sceneHead}>
           <span className={styles.kicker}>Scene</span>
         </div>

@@ -30,6 +30,14 @@
   cursor: pointer;
 }
 
+/* On phones the Say/Act/OOC mode tabs are primary tap targets — lift to ≥44px
+   (desktop stays compact). (Tora S3.3 MINOR-2) */
+@media (max-width: 480px) {
+  .mode {
+    min-height: 44px;
+  }
+}
+
 .modeOn {
   background: color-mix(in oklab, var(--accent) 16%, transparent);
   color: var(--ink);

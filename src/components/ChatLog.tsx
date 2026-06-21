@@ -6,7 +6,7 @@
  * Auto-scrolls to the newest row (respecting reduced-motion). A "thinking" row
  * shows a waveform while Suzu narrates. Roll rows render the shared <Die>.
  */
-import { useEffect, useRef } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
 import Die from '@/components/Die';
 import Waveform from '@/components/Waveform';
 import styles from './ChatLog.module.css';
@@ -39,16 +39,51 @@ export interface ChatLogProps {
   thinking?: boolean;
 }
 
-export default function ChatLog({ rows, thinking = false }: ChatLogProps) {
+/** Imperative handle so the play screen can re-pin the log after a mobile
+ *  tab switch (display:none resets scrollTop; the rows effect won't re-fire). */
+export interface ChatLogHandle {
+  scrollToBottom: (behavior?: ScrollBehavior) => void;
+}
+
+const ChatLog = forwardRef<ChatLogHandle, ChatLogProps>(function ChatLog(
+  { rows, thinking = false },
+  handleRef,
+) {
   const ref = useRef<HTMLDivElement>(null);
+  // True when the user is scrolled to (near) the bottom. We only auto-pin when
+  // they are — so scrolling UP to re-read history isn't yanked back down by a
+  // new line / narration completing (Tora S3.3 MAJOR-1).
+  const atBottom = useRef(true);
+
+  const pin = useCallback((behavior: ScrollBehavior = 'auto') => {
+    const el = ref.current;
+    if (!el) return;
+    // scrollTo is the smooth/instant-capable path; fall back to scrollTop for
+    // environments without it (jsdom).
+    if (typeof el.scrollTo === 'function') el.scrollTo({ top: el.scrollHeight, behavior });
+    else el.scrollTop = el.scrollHeight;
+  }, []);
+
+  const onScroll = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  }, []);
+
+  useImperativeHandle(handleRef, () => ({ scrollToBottom: pin }), [pin]);
 
   useEffect(() => {
-    const el = ref.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [rows, thinking]);
+    if (atBottom.current) pin();
+  }, [rows, thinking, pin]);
 
   return (
-    <div className={styles.log} ref={ref} role="log" aria-live="polite">
+    <div
+      className={styles.log}
+      ref={ref}
+      onScroll={onScroll}
+      role="log"
+      aria-live="polite"
+    >
       {rows.map((r) => (
         <div key={r.id} className={`${styles.row} ${styles[r.kind]}`}>
           <div className={styles.who} style={r.color ? { color: r.color } : undefined}>
@@ -97,4 +132,6 @@ export default function ChatLog({ rows, thinking = false }: ChatLogProps) {
       )}
     </div>
   );
-}
+});
+
+export default ChatLog;

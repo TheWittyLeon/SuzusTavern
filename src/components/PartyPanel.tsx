@@ -66,6 +66,9 @@ export default function PartyPanel({ participants, selfUsername, loading = false
                       aria-valuenow={hp ?? undefined}
                       aria-valuemin={0}
                       aria-valuemax={max ?? undefined}
+                      aria-valuetext={
+                        hp != null && max != null ? `${hp} of ${max} hit points` : undefined
+                      }
                       aria-label={`${c.name ?? p.username} hit points`}
                     >
                       <div

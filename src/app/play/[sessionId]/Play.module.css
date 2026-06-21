@@ -63,6 +63,11 @@
   border: 1px solid var(--line);
   color: var(--ink-2);
   flex-shrink: 0;
+  /* Visual 36×36 but a 44×44 tap target (content-box + padding/margin, the
+     established charDelete/Toast pattern) — it's the only mobile exit (Iro S3.3). */
+  box-sizing: content-box;
+  padding: 4px;
+  margin: -4px;
 }
 
 .back:hover {
@@ -249,15 +254,22 @@
     border-color: color-mix(in oklab, var(--accent) 30%, transparent) !important;
   }
 
-  .left {
+  /* One pane fills the 1fr row at a time; the mobile tabs switch between them.
+     Exactly one pane is ever in flow, so it lands in grid row 2 (1fr). The left
+     pane (party + initiative) is reachable via the Party tab — it used to be
+     display:none with no mobile affordance at all (S3.3 fix). */
+  .left,
+  .center,
+  .right {
     display: none;
   }
-
-  .showLog .right {
-    display: none;
+  .showParty .left {
+    display: block;
   }
-
-  .showScene .center {
-    display: none;
+  .showLog .center {
+    display: flex;
+  }
+  .showScene .right {
+    display: flex;
   }
 }

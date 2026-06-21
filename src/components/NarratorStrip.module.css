@@ -23,7 +23,9 @@
 }
 
 .idle {
-  color: var(--ink-3);
+  /* --ink-2 not --ink-3: --ink-3 fails AA (~4.0–4.5:1) on the accent-tinted
+     strip across all four palettes; --ink-2 clears it everywhere (Iro S3.3). */
+  color: var(--ink-2);
   font-style: italic;
 }
 
@@ -34,7 +36,7 @@
 }
 
 .thinkingLabel {
-  color: var(--ink-3);
+  color: var(--ink-2); /* AA on the tinted strip (Iro S3.3) */
   font-style: italic;
 }
 
