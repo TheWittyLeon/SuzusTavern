@@ -64,6 +64,13 @@
   /* Non-color-only focus indicator (WCAG 2.4.11) — matches globals .input:focus. */
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 28%, transparent);
 }
+/* Forced-colors strips box-shadow → reinstate a real outline (Iro S3.4 MINOR-1). */
+@media (forced-colors: active) {
+  .input:focus {
+    outline: 2px solid Highlight;
+    outline-offset: 1px;
+  }
+}
 
 .send {
   flex-shrink: 0;

@@ -164,6 +164,9 @@ export default function Composer({
   combat = null,
 }: ComposerProps) {
   const canSend = value.trim().length > 0 && !disabled;
+  // Refs to the mode tab buttons so Arrow keys move DOM focus (not just
+  // selection) to the newly-active tab — APG tablist contract (Iro S3.4).
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   return (
     <div className={styles.composer}>
@@ -176,18 +179,27 @@ export default function Composer({
           onKeyDown={(e) => {
             const order = MODES.map(([k]) => k);
             const idx = order.indexOf(mode);
+            let next = idx;
             if (e.key === 'ArrowRight') {
               e.preventDefault();
-              onMode(order[(idx + 1) % order.length]);
+              next = (idx + 1) % order.length;
             } else if (e.key === 'ArrowLeft') {
               e.preventDefault();
-              onMode(order[(idx - 1 + order.length) % order.length]);
+              next = (idx - 1 + order.length) % order.length;
+            }
+            if (next !== idx) {
+              onMode(order[next]);
+              // Move focus to the newly-active tab, not just the selection.
+              tabRefs.current[next]?.focus();
             }
           }}
         >
-          {MODES.map(([k, lbl]) => (
+          {MODES.map(([k, lbl], i) => (
             <button
               key={k}
+              ref={(el) => {
+                tabRefs.current[i] = el;
+              }}
               type="button"
               role="tab"
               aria-selected={mode === k}

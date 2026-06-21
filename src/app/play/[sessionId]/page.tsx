@@ -430,7 +430,9 @@ export default function PlayPage() {
         : styles.showLog;
 
   return (
-    <div className={`${styles.grid} ${mobileClass}`}>
+    // id="main-content" so the global skip link has a valid target on /play too
+    // (this route has no TavernShell <main id="main-content">) — Iro S3.4.
+    <div id="main-content" className={`${styles.grid} ${mobileClass}`}>
       {/* mobile tab bar — switches which pane fills the single mobile column.
           aria-pressed exposes the active view to screen readers (S3.5). */}
       <div className={styles.mobileTabs} role="group" aria-label="Play view">

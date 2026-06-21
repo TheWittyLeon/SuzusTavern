@@ -14,7 +14,7 @@
  *
  * Suzu's PDF library + your homebrew tabs are post-MVP (disabled).
  */
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import { useToast } from '@/components/Toast';
@@ -59,6 +59,80 @@ const VISIBILITIES: { id: Visibility; label: string; note: string }[] = [
   { id: 'unlisted', label: 'Unlisted', note: 'Only people with the link can join.' },
   { id: 'private', label: 'Private', note: 'Invite only.' },
 ];
+
+interface RadioOption<T extends string> {
+  id: T;
+  label: string;
+  note: string;
+  disabled?: boolean;
+}
+
+/**
+ * Accessible radiogroup of styled buttons (ST-076). role="radiogroup" + roving
+ * tabindex (checked = 0, others = -1) + Arrow-key navigation that moves focus,
+ * skipping disabled options — the APG radiogroup contract the previous
+ * fieldset-of-buttons lacked.
+ */
+function RadioGroup<T extends string>({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: T;
+  onChange: (v: T) => void;
+  options: RadioOption<T>[];
+}) {
+  const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const move = (dir: 1 | -1) => {
+    const idx = options.findIndex((o) => o.id === value);
+    let next = idx;
+    for (let i = 0; i < options.length; i += 1) {
+      next = (next + dir + options.length) % options.length;
+      if (!options[next].disabled) break;
+    }
+    if (next === idx || options[next].disabled) return;
+    onChange(options[next].id);
+    refs.current[next]?.focus();
+  };
+  return (
+    <div
+      className={styles.choices}
+      role="radiogroup"
+      aria-label={label}
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+          e.preventDefault();
+          move(1);
+        } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+          e.preventDefault();
+          move(-1);
+        }
+      }}
+    >
+      {options.map((o, i) => (
+        <button
+          key={o.id}
+          ref={(el) => {
+            refs.current[i] = el;
+          }}
+          type="button"
+          role="radio"
+          aria-checked={value === o.id}
+          aria-disabled={o.disabled || undefined}
+          disabled={o.disabled}
+          tabIndex={value === o.id ? 0 : -1}
+          className={`${styles.choice} ${value === o.id ? styles.choiceOn : ''}`}
+          onClick={() => !o.disabled && onChange(o.id)}
+        >
+          <span className={styles.choiceLabel}>{o.label}</span>
+          <span className={styles.choiceNote}>{o.note}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function StarterForm({
   module,
@@ -141,71 +215,43 @@ function StarterForm({
 
       <fieldset className={styles.field}>
         <legend className={styles.fieldLabel}>Dungeon Master</legend>
-        <div className={styles.choices}>
-          {([
-            ['ai', 'Suzu DMs', 'narration · memory · dice in the open'],
-            ['solo', 'Solo', 'no DM — just you and the engine'],
-          ] as const).map(([id, label, note]) => (
-            <button
-              key={id}
-              type="button"
-              role="radio"
-              aria-checked={dmMode === id}
-              className={`${styles.choice} ${dmMode === id ? styles.choiceOn : ''}`}
-              onClick={() => setDmMode(id)}
-            >
-              <span className={styles.choiceLabel}>{label}</span>
-              <span className={styles.choiceNote}>{note}</span>
-            </button>
-          ))}
-        </div>
+        <RadioGroup
+          label="Dungeon Master"
+          value={dmMode}
+          onChange={setDmMode}
+          options={[
+            { id: 'ai', label: 'Suzu DMs', note: 'narration · memory · dice in the open' },
+            { id: 'solo', label: 'Solo', note: 'no DM — just you and the engine' },
+          ]}
+        />
       </fieldset>
 
       <fieldset className={styles.field}>
         <legend className={styles.fieldLabel}>Who can see it</legend>
-        <div className={styles.choices}>
-          {VISIBILITIES.map((v) => (
-            <button
-              key={v.id}
-              type="button"
-              role="radio"
-              aria-checked={visibility === v.id}
-              className={`${styles.choice} ${visibility === v.id ? styles.choiceOn : ''}`}
-              onClick={() => onVisibilityChange(v.id)}
-            >
-              <span className={styles.choiceLabel}>{v.label}</span>
-              <span className={styles.choiceNote}>{v.note}</span>
-            </button>
-          ))}
-        </div>
+        <RadioGroup
+          label="Who can see it"
+          value={visibility}
+          onChange={onVisibilityChange}
+          options={VISIBILITIES}
+        />
       </fieldset>
 
       <fieldset className={styles.field}>
         <legend className={styles.fieldLabel}>Content rating</legend>
-        <div className={styles.choices}>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={effectiveRating === 'sfw'}
-            className={`${styles.choice} ${effectiveRating === 'sfw' ? styles.choiceOn : ''}`}
-            onClick={() => setRating('sfw')}
-          >
-            <span className={styles.choiceLabel}>Safe for stream</span>
-            <span className={styles.choiceNote}>default · always allowed</span>
-          </button>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={effectiveRating === 'mature'}
-            aria-disabled={!matureAllowed}
-            disabled={!matureAllowed}
-            className={`${styles.choice} ${effectiveRating === 'mature' ? styles.choiceOn : ''}`}
-            onClick={() => matureAllowed && setRating('mature')}
-          >
-            <span className={styles.choiceLabel}>Mature</span>
-            <span className={styles.choiceNote}>private / unlisted only</span>
-          </button>
-        </div>
+        <RadioGroup
+          label="Content rating"
+          value={effectiveRating}
+          onChange={setRating}
+          options={[
+            { id: 'sfw', label: 'Safe for stream', note: 'default · always allowed' },
+            {
+              id: 'mature',
+              label: 'Mature',
+              note: 'private / unlisted only',
+              disabled: !matureAllowed,
+            },
+          ]}
+        />
         {!matureAllowed && (
           <p className={styles.interlock}>
             <Icon name="Shield" size={12} aria-hidden /> Public tables are always
@@ -237,13 +283,35 @@ export default function ModulesPage() {
   return (
     <TavernShell active="modules" title="Start a campaign">
       <div className={styles.tabs} role="tablist" aria-label="Module source">
-        <span className={`${styles.tab} ${styles.tabOn}`} role="tab" aria-selected="true">
+        {/* Roving tabindex: the active tab is Tab-reachable (0); the disabled
+            "soon" previews sit at -1 so the tablist is keyboard-discoverable
+            without trapping Tab on placeholders (Iro/Tora S3.4). */}
+        <span
+          className={`${styles.tab} ${styles.tabOn}`}
+          role="tab"
+          aria-selected="true"
+          tabIndex={0}
+        >
           Official one-shots
         </span>
-        <span className={styles.tab} role="tab" aria-disabled="true" title="Coming soon">
+        <span
+          className={styles.tab}
+          role="tab"
+          aria-selected="false"
+          aria-disabled="true"
+          tabIndex={-1}
+          title="Coming soon"
+        >
           Suzu&rsquo;s library <span className={styles.soon}>soon</span>
         </span>
-        <span className={styles.tab} role="tab" aria-disabled="true" title="Coming soon">
+        <span
+          className={styles.tab}
+          role="tab"
+          aria-selected="false"
+          aria-disabled="true"
+          tabIndex={-1}
+          title="Coming soon"
+        >
           Your homebrew <span className={styles.soon}>soon</span>
         </span>
       </div>

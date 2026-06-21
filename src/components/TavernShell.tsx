@@ -88,6 +88,9 @@ function UserMenu() {
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') close();
+      // APG menu-button: Tab closes the menu and lets focus proceed naturally
+      // (don't preventDefault — the browser moves focus in document order).
+      else if (e.key === 'Tab') setOpen(false);
     };
     document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey);

@@ -67,6 +67,41 @@ it('opens the starter form when a module is chosen', () => {
   expect(screen.getByText(/table name/i)).toBeInTheDocument();
 });
 
+describe('RadioGroup keyboard navigation (S3.4)', () => {
+  it('groups are radiogroups with roving tabindex (checked=0, others=-1)', () => {
+    openForm();
+    const groups = screen.getAllByRole('radiogroup');
+    expect(groups.length).toBe(3); // DM · visibility · content rating
+    // The DM group defaults to "Suzu DMs" checked → tabIndex 0; "Solo" → -1.
+    const ai = screen.getByRole('radio', { name: /suzu dms/i });
+    const solo = screen.getByRole('radio', { name: /solo/i });
+    expect(ai).toHaveAttribute('tabindex', '0');
+    expect(solo).toHaveAttribute('tabindex', '-1');
+  });
+
+  it('ArrowDown moves the selection within a radiogroup', () => {
+    openForm();
+    const ai = screen.getByRole('radio', { name: /suzu dms/i });
+    fireEvent.keyDown(ai, { key: 'ArrowDown' });
+    expect(screen.getByRole('radio', { name: /solo/i })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+  });
+
+  it('Arrow navigation skips a disabled option (Mature when Public)', () => {
+    openForm();
+    fireEvent.click(screen.getByRole('radio', { name: /^public/i }));
+    const sfw = screen.getByRole('radio', { name: /safe for stream/i });
+    // Mature is disabled on a public table — ArrowDown wraps back to SFW, not Mature.
+    fireEvent.keyDown(sfw, { key: 'ArrowDown' });
+    expect(screen.getByRole('radio', { name: /mature/i })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    );
+  });
+});
+
 describe('content_rating SFW interlock', () => {
   it('allows Mature on a private table (default)', () => {
     openForm();
