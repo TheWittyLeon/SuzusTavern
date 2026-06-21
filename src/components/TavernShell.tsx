@@ -171,6 +171,15 @@ function UserMenu() {
             <Icon name="Scroll" size={14} aria-hidden />
             <span>New character</span>
           </Link>
+          <Link
+            href="/trash"
+            role="menuitem"
+            className={styles.menuRow}
+            onClick={() => close(false)}
+          >
+            <Icon name="Trash" size={14} aria-hidden />
+            <span>Trash</span>
+          </Link>
           <div className={styles.menuSep} />
           <button
             type="button"

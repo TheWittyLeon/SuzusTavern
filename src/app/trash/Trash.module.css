@@ -1,0 +1,86 @@
+/* Trash / restore view (DEL-8). Mirrors the dashboard campaign-list visual
+   language: a glass card holding stacked rows, each with an icon, meta, and a
+   trailing action. */
+
+.intro {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+.introBody {
+  min-width: 0;
+}
+.introBody p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--ink-2);
+  max-width: 56ch;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+}
+.row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 14px;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line-2);
+}
+.row:last-child {
+  border-bottom: none;
+}
+.icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius);
+  display: grid;
+  place-items: center;
+  background: var(--bg-2);
+  color: var(--ink-3);
+}
+.meta {
+  min-width: 0;
+}
+.name {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sub {
+  font-size: 11px;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Empty + back ─────────────────────────────────────────────────────────── */
+.emptyCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  padding: 40px 24px;
+}
+.emptyTitle {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+.emptyBody {
+  font-size: 13px;
+  color: var(--ink-2);
+  margin: 0;
+  max-width: 44ch;
+}
+.back {
+  margin-top: 20px;
+}
