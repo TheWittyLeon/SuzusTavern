@@ -4,6 +4,8 @@
 // Method + path taken verbatim from the NekoNova bridge files.
 import { apiCall } from './client';
 import type {
+  CatalogCounts,
+  CatalogResponse,
   Character,
   CharacterCreateRequest,
   CharacterCreated,
@@ -14,11 +16,13 @@ import type {
   CombatMonsterTurnRequest,
   CombatSpawnRequest,
   CombatStartRequest,
+  GameSystem,
   Inventory,
   Participant,
   Session,
   SessionStartRequest,
   SpellCastRequest,
+  SystemDefinition,
   XpAwardRequest,
 } from './types';
 
@@ -342,3 +346,55 @@ export const castSpell = (req: SpellCastRequest, signal?: AbortSignal) =>
     json: req,
     signal,
   });
+
+// ── Catalog (S2.4) ────────────────────────────────────────────────────────────
+
+export interface CatalogOpts {
+  /** Content type filter: 'race' | 'class' | 'background' | ... */
+  type?: string;
+  /** Comma-separated content-pack slugs. */
+  packs?: string;
+  /** Filter by owning user (homebrew). */
+  user?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/**
+ * Fetch catalog items from GET /api/dnd/catalog.
+ * Pass `type` to get a typed list; omit it for summary counts.
+ * Throws ApiError on failure — callers must handle the degraded state.
+ */
+export const getCatalog = (
+  system: string,
+  opts: CatalogOpts = {},
+  signal?: AbortSignal,
+): Promise<CatalogResponse> => {
+  const q = new URLSearchParams({ system });
+  if (opts.type) q.set('type', opts.type);
+  if (opts.packs) q.set('packs', opts.packs);
+  if (opts.user) q.set('user', opts.user);
+  if (opts.limit != null) q.set('limit', String(opts.limit));
+  if (opts.offset != null) q.set('offset', String(opts.offset));
+  return apiCall<CatalogResponse>(`/api/dnd/catalog?${q.toString()}`, {
+    method: 'GET',
+    signal,
+  });
+};
+
+/** List available game systems from GET /api/dnd/systems. */
+export const getSystems = (signal?: AbortSignal) =>
+  apiCall<{ systems: GameSystem[] }>('/api/dnd/systems', {
+    method: 'GET',
+    signal,
+  }).then((d) => d.systems ?? []);
+
+/** Get a system's full definition from GET /api/dnd/systems/:id/definition. */
+export const getSystemDefinition = (
+  systemId: string,
+  signal?: AbortSignal,
+) =>
+  apiCall<{ system: SystemDefinition }>(
+    `/api/dnd/systems/${encodeURIComponent(systemId)}/definition`,
+    { method: 'GET', signal },
+  ).then((d) => d.system);

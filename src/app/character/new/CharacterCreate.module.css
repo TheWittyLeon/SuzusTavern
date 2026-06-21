@@ -585,6 +585,29 @@
   min-width: 0;
 }
 
+/* ── Catalog error state (S2.4) ──────────────────────────────────────────────── */
+.catalogError {
+  max-width: 480px;
+  margin: 40px auto;
+  padding: 28px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+.catalogErrorTitle {
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  color: var(--ink);
+}
+.catalogErrorBody {
+  font-size: 14px;
+  color: var(--ink-2);
+  line-height: 1.55;
+  max-width: 38ch;
+}
+
 /* Suppress selection/hover transitions for vestibular-sensitive users. */
 @media (prefers-reduced-motion: reduce) {
   .railStep,

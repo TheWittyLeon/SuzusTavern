@@ -1,6 +1,11 @@
 'use client';
 /**
- * Character creation wizard — /character/new (ST-047–052).
+ * Character creation wizard — /character/new (ST-047–052, S2.4).
+ *
+ * Race/class/background lists are fetched LIVE from the engine catalog via
+ * GET /api/dnd/catalog (useCatalog hook). The hardcoded srd.ts mirror has been
+ * deleted (S2.4). If the catalog fetch fails, the wizard shows an error/retry
+ * state — it does not fall back to a hardcoded list.
  *
  * 5 steps: Race → Class → Abilities (27-point buy) → Background → Review.
  * All choices are held in local React state; the only server call is the final
@@ -9,12 +14,10 @@
  * (pre-racial) scores; the review preview applies bonuses locally only for
  * display, mirroring the engine so what you see equals what gets saved.
  *
- * Accessibility (this is a multi-step wizard — Iro-A11y + Tora-Gesture matter):
- *  - Race/Class/Background are native <input type="radio"> grids (free keyboard
- *    arrow nav + screen-reader group semantics), styled via :has(:checked).
+ * Accessibility:
+ *  - Race/Class/Background are native <input type="radio"> grids.
  *  - Focus moves to the step heading on each step change (not on first mount).
- *  - Point-buy steppers have explicit aria-labels; the budget is an aria-live
- *    region so the remaining count is announced as you spend.
+ *  - Point-buy steppers have explicit aria-labels; the budget is an aria-live region.
  *  - "Continue" is disabled until the step's required selection is made.
  */
 import {
@@ -28,6 +31,7 @@ import {
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import { createCharacter } from '@/lib/api/dnd';
+import { useCatalog } from '@/lib/dnd/useCatalog';
 import TavernShell from '@/components/TavernShell';
 import PageSkeleton from '@/components/PageSkeleton';
 import Card from '@/components/Card';
@@ -38,26 +42,21 @@ import SuzuDM from '@/components/SuzuDM';
 import Waveform from '@/components/Waveform';
 import {
   ABILITIES,
-  BACKGROUNDS,
-  CLASSES,
   DEFAULT_SCORES,
   POINT_BUY_BUDGET,
   POINT_BUY_MAX,
   POINT_BUY_MIN,
-  RACES,
   SUZU_LINES,
   applyRacialBonuses,
   costFor,
   derivedStats,
   formatMod,
-  getBackground,
-  getClass,
-  getRace,
   humanizeSkill,
   pointsRemaining,
   type AbilityKey,
   type AbilityScores,
-} from '@/lib/dnd/srd';
+} from '@/lib/dnd/helpers';
+import type { WizardRace, WizardClass, WizardBackground } from '@/lib/dnd/catalog';
 import styles from './CharacterCreate.module.css';
 
 const STEP_META = [
@@ -118,6 +117,8 @@ export default function CharacterNewPage(): ReactNode {
   const { user, loading, maybeAuthed } = useAuth();
   const router = useRouter();
 
+  const catalog = useCatalog();
+
   const [step, setStep] = useState(0);
   const [race, setRace] = useState<string | null>(null);
   const [cls, setCls] = useState<string | null>(null);
@@ -132,7 +133,7 @@ export default function CharacterNewPage(): ReactNode {
 
   const username = user?.username ?? null;
 
-  // Redirect out if genuinely logged out (proxy.ts also guards server-side).
+  // Redirect out if genuinely logged out.
   useEffect(() => {
     if (!loading && !user && !maybeAuthed) router.replace('/login');
   }, [loading, user, maybeAuthed, router]);
@@ -146,16 +147,16 @@ export default function CharacterNewPage(): ReactNode {
     headingRef.current?.focus();
   }, [step]);
 
-  const raceObj = getRace(race);
-  const clsObj = getClass(cls);
-  const bgObj = getBackground(background);
+  const raceObj = catalog.data.races.find((r) => r.id === race);
+  const clsObj = catalog.data.classes.find((c) => c.id === cls);
+  const bgObj = catalog.data.backgrounds.find((b) => b.id === background);
   const remaining = pointsRemaining(scores);
   const finalScores = useMemo(
-    () => applyRacialBonuses(scores, raceObj),
+    () => applyRacialBonuses(scores, raceObj?.bonuses),
     [scores, raceObj],
   );
   const derived = useMemo(
-    () => derivedStats(finalScores, clsObj, raceObj),
+    () => derivedStats(finalScores, clsObj, raceObj?.speed ?? 30),
     [finalScores, clsObj, raceObj],
   );
 
@@ -164,7 +165,7 @@ export default function CharacterNewPage(): ReactNode {
       const next = prev[key] + delta;
       if (next < POINT_BUY_MIN || next > POINT_BUY_MAX) return prev;
       const candidate: AbilityScores = { ...prev, [key]: next };
-      if (pointsRemaining(candidate) < 0) return prev; // never exceed budget
+      if (pointsRemaining(candidate) < 0) return prev;
       return candidate;
     });
   }, []);
@@ -204,13 +205,13 @@ export default function CharacterNewPage(): ReactNode {
         race: raceObj.name,
         char_class: clsObj.name,
         background: bgObj.name,
-        ability_scores: scores, // BASE scores — engine applies racial bonuses
+        ability_scores: scores,
       });
       if (!created.character_id) throw new Error('missing character_id');
       router.push(`/character/${encodeURIComponent(created.character_id)}`);
     } catch {
       setError(
-        'Suzu couldn’t write that down. Check your choices and try again in a moment.',
+        "Suzu couldn’t write that down. Check your choices and try again in a moment.",
       );
       setSubmitting(false);
     }
@@ -218,8 +219,8 @@ export default function CharacterNewPage(): ReactNode {
 
   // ── Suzu's line for the current step ──────────────────────────────────────────
   let suzuLine: string;
-  if (step === 0) suzuLine = race ? SUZU_LINES.race[race] : 'Take your time. The tavern will keep.';
-  else if (step === 1) suzuLine = cls ? SUZU_LINES.class[cls] : 'Pick a verb.';
+  if (step === 0) suzuLine = race ? (SUZU_LINES.race[race] ?? 'An unusual choice. Suzu is intrigued.') : 'Take your time. The tavern will keep.';
+  else if (step === 1) suzuLine = cls ? (SUZU_LINES.class[cls] ?? 'An interesting calling.') : 'Pick a verb.';
   else if (step === 2) suzuLine = abilitiesComment(scores);
   else if (step === 3)
     suzuLine = name.trim()
@@ -255,6 +256,35 @@ export default function CharacterNewPage(): ReactNode {
     );
   }
 
+  // ── Catalog error state — surface a retry UI, not a crash ─────────────────────
+  if (catalog.status === 'error') {
+    return (
+      <TavernShell active="dashboard" title="New character" actions={<Button variant="ghost" href="/dashboard">Cancel</Button>}>
+        <Card className={styles.catalogError} role="alert">
+          <p className={styles.catalogErrorTitle}>Suzu can&rsquo;t reach the catalog right now.</p>
+          <p className={styles.catalogErrorBody}>
+            The race, class, and background lists couldn&rsquo;t be loaded. Check your connection
+            or try again in a moment.
+          </p>
+          <Button variant="primary" onClick={catalog.retry}>
+            Try again
+          </Button>
+        </Card>
+      </TavernShell>
+    );
+  }
+
+  // ── Catalog loading state ──────────────────────────────────────────────────────
+  if (catalog.status === 'loading') {
+    return (
+      <TavernShell active="dashboard" title="New character" actions={<Button variant="ghost" href="/dashboard">Cancel</Button>}>
+        <div aria-busy="true" aria-label="Loading character options">
+          <PageSkeleton variant="card" lines={4} />
+        </div>
+      </TavernShell>
+    );
+  }
+
   const meta = STEP_META[step];
 
   return (
@@ -283,10 +313,6 @@ export default function CharacterNewPage(): ReactNode {
                     className={styles.railStep}
                     data-state={state}
                     aria-current={i === step ? 'step' : undefined}
-                    // Only the current + already-visited steps are jumpable; you
-                    // advance to later steps via Continue (which enforces the
-                    // per-step required selection). Prevents landing on Review
-                    // with nothing chosen.
                     disabled={i > step}
                     onClick={() => {
                       if (i <= step) setStep(i);
@@ -317,13 +343,26 @@ export default function CharacterNewPage(): ReactNode {
           </header>
 
           <div className={styles.stepBody}>
-            {step === 0 && <RaceStep value={race} onChange={setRace} />}
-            {step === 1 && <ClassStep value={cls} onChange={setCls} />}
+            {step === 0 && (
+              <RaceStep
+                races={catalog.data.races}
+                value={race}
+                onChange={setRace}
+              />
+            )}
+            {step === 1 && (
+              <ClassStep
+                classes={catalog.data.classes}
+                value={cls}
+                onChange={setCls}
+              />
+            )}
             {step === 2 && (
               <AbilitiesStep scores={scores} remaining={remaining} onStep={setScore} />
             )}
             {step === 3 && (
               <BackgroundStep
+                backgrounds={catalog.data.backgrounds}
                 value={background}
                 onChange={setBackground}
                 name={name}
@@ -413,16 +452,18 @@ export default function CharacterNewPage(): ReactNode {
 
 // ── Step: Race ────────────────────────────────────────────────────────────────
 function RaceStep({
+  races,
   value,
   onChange,
 }: {
+  races: WizardRace[];
   value: string | null;
   onChange: (id: string) => void;
 }) {
   return (
     <fieldset className={styles.optGrid}>
       <legend className={styles.srOnly}>Choose a race</legend>
-      {RACES.map((r) => (
+      {races.map((r) => (
         <label key={r.id} className={styles.optCard} data-selected={value === r.id}>
           <input
             type="radio"
@@ -446,16 +487,18 @@ function RaceStep({
 
 // ── Step: Class ───────────────────────────────────────────────────────────────
 function ClassStep({
+  classes,
   value,
   onChange,
 }: {
+  classes: WizardClass[];
   value: string | null;
   onChange: (id: string) => void;
 }) {
   return (
     <fieldset className={styles.optGrid}>
       <legend className={styles.srOnly}>Choose a class</legend>
-      {CLASSES.map((c) => (
+      {classes.map((c) => (
         <label
           key={c.id}
           className={styles.optCard}
@@ -561,11 +604,13 @@ function AbilitiesStep({
 
 // ── Step: Background ──────────────────────────────────────────────────────────
 function BackgroundStep({
+  backgrounds,
   value,
   onChange,
   name,
   onName,
 }: {
+  backgrounds: WizardBackground[];
   value: string | null;
   onChange: (id: string) => void;
   name: string;
@@ -596,7 +641,7 @@ function BackgroundStep({
       </p>
       <fieldset className={styles.bgGrid}>
         <legend className={styles.srOnly}>Choose a background</legend>
-        {BACKGROUNDS.map((b) => (
+        {backgrounds.map((b) => (
           <label key={b.id} className={styles.bgCard} data-selected={value === b.id}>
             <input
               type="radio"
@@ -630,9 +675,9 @@ function ReviewStep({
 }: {
   name: string;
   onName: (v: string) => void;
-  raceObj: ReturnType<typeof getRace>;
-  clsObj: ReturnType<typeof getClass>;
-  bgObj: ReturnType<typeof getBackground>;
+  raceObj: WizardRace | undefined;
+  clsObj: WizardClass | undefined;
+  bgObj: WizardBackground | undefined;
   finalScores: AbilityScores;
   derived: ReturnType<typeof derivedStats>;
 }) {

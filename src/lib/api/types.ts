@@ -212,6 +212,87 @@ export interface CombatMessageResult {
   [k: string]: unknown;
 }
 
+// ── DnD: catalog (S2.4 — GET /api/dnd/catalog) ───────────────────────────────
+
+/** Mechanical data shape for a race catalog item. */
+export interface CatalogRaceData {
+  ability_bonus: Partial<Record<string, number>>;
+  size?: string;
+  speed?: number;
+  traits?: string[];
+  languages?: string[];
+  proficiencies?: string[];
+  skill_proficiencies?: string[];
+  subraces?: Record<string, unknown>;
+}
+
+/** Mechanical data shape for a class catalog item. */
+export interface CatalogClassData {
+  hit_die: number;
+  primary_ability?: string[];
+  saving_throws?: string[];
+  armor_proficiencies?: string;
+  weapon_proficiencies?: string;
+  tool_proficiencies?: string;
+  skill_choices?: string[];
+  skill_count?: number;
+  subclass_level?: number;
+  spellcasting_ability?: string | null;
+  level1_features?: string[];
+}
+
+/** Mechanical data shape for a background catalog item. */
+export interface CatalogBackgroundData {
+  skills: string[];
+}
+
+export type CatalogItemData = CatalogRaceData | CatalogClassData | CatalogBackgroundData | Record<string, unknown>;
+
+export interface CatalogItem {
+  slug: string;
+  name: string;
+  content_type: string;
+  source_type: string;
+  data: CatalogItemData;
+}
+
+export interface CatalogResponse {
+  system: string;
+  content_type: string | null;
+  items: CatalogItem[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/** Counts returned when GET /catalog is called with no `type`. */
+export interface CatalogCounts {
+  counts: Record<string, number>;
+  content_type: null;
+}
+
+// ── DnD: systems (S2.4 — GET /api/dnd/systems) ───────────────────────────────
+
+export interface GameSystem {
+  system_id: string;
+  name: string;
+  version: string;
+  is_active: boolean;
+}
+
+export interface SystemDefinition {
+  system_id: string;
+  name: string;
+  version: string;
+  definition: {
+    attributes: string[];
+    content_types: string[];
+    character_required: string[];
+    dice: Record<string, unknown>;
+  };
+  is_active: boolean;
+}
+
 // ── Narration SSE ──────────────────────────────────────────────────────────
 export type NarrationEvent =
   | { kind: 'chunk'; text: string }

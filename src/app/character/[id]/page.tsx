@@ -24,7 +24,7 @@ import Button from '@/components/Button';
 import Pill from '@/components/Pill';
 import Icon, { type IconName } from '@/components/Icon';
 import SuzuDM from '@/components/SuzuDM';
-import { ABILITIES, SKILLS } from '@/lib/dnd/srd';
+import { ABILITIES, SKILLS } from '@/lib/dnd/helpers';
 import styles from './CharacterView.module.css';
 
 const ITEM_ICON: Record<string, IconName> = {
