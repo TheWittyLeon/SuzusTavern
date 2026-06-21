@@ -4,7 +4,6 @@
 // Method + path taken verbatim from the NekoNova bridge files.
 import { apiCall } from './client';
 import type {
-  CatalogCounts,
   CatalogResponse,
   Character,
   CharacterCreateRequest,

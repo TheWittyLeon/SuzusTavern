@@ -221,6 +221,28 @@ describe('catalogItemToRace', () => {
     const race = catalogItemToRace(item);
     expect(race.speed).toBe(30);
   });
+
+  it('buildBonusLabel: multiple bonuses are joined with " · " separator', () => {
+    // Human has +1 to all six abilities — exercises the multi-entry join path.
+    const item = makeItem('human', 'Human', 'race', {
+      ability_bonus: { strength: 1, dexterity: 1, constitution: 1, intelligence: 1, wisdom: 1, charisma: 1 },
+      speed: 30,
+    });
+    const race = catalogItemToRace(item);
+    // All six abilities should appear; entries are joined with " · ".
+    expect(race.bonusLabel).toContain(' · ');
+    expect(race.bonusLabel.split(' · ')).toHaveLength(6);
+    expect(race.bonusLabel).toContain('+1 STR');
+    expect(race.bonusLabel).toContain('+1 CHA');
+  });
+
+  it('buildBonusLabel: empty bonus map returns "none"', () => {
+    // Races with no mechanical bonuses (e.g. a homebrew slug) should not
+    // display a broken label — the function must return the literal "none".
+    const item = makeItem('new-race', 'New Race', 'race', { ability_bonus: {}, speed: 30 });
+    const race = catalogItemToRace(item);
+    expect(race.bonusLabel).toBe('none');
+  });
 });
 
 describe('catalogItemToClass', () => {

@@ -116,6 +116,15 @@ describe('getCatalog', () => {
     expect(result.items).toHaveLength(1);
     expect(result.items[0].slug).toBe('elf');
   });
+
+  it('calls /api/dnd/catalog?system=dnd5e with no type param when type is omitted (manifest call)', async () => {
+    // getCatalog with no opts.type → the URL must NOT include "type=".
+    // This is the counts/manifest call pattern documented in CatalogCounts.
+    await getCatalog('dnd5e');
+    const url = lastUrl();
+    expect(url).toBe('/api/dnd/catalog?system=dnd5e');
+    expect(url).not.toContain('type=');
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -9,7 +9,7 @@
 
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { getCatalog } from '@/lib/api/dnd';
 import {
   catalogItemToRace,
@@ -43,13 +43,10 @@ export function useCatalog(): UseCatalogResult {
   const [data, setData] = useState<CatalogData>(EMPTY);
   // Monotonic counter — increment to trigger a re-fetch.
   const [attempt, setAttempt] = useState(0);
-  const abortRef = useRef<AbortController | null>(null);
-
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
 
   useEffect(() => {
     const ac = new AbortController();
-    abortRef.current = ac;
     setStatus('loading');
 
     Promise.all([

@@ -129,6 +129,7 @@ export default function CharacterNewPage(): ReactNode {
   const [error, setError] = useState<string | null>(null);
 
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const errorRetryRef = useRef<HTMLButtonElement>(null);
   const mountedRef = useRef(false);
 
   const username = user?.username ?? null;
@@ -146,6 +147,18 @@ export default function CharacterNewPage(): ReactNode {
     }
     headingRef.current?.focus();
   }, [step]);
+
+  // Manage focus across catalog state transitions (Iro a11y MAJOR-1): on error
+  // (initial or after a failed retry) move focus to the "Try again" button so the
+  // alert is reachable and re-announced; once the catalog resolves after a retry,
+  // move focus to the wizard step heading instead of dropping it at document top.
+  useEffect(() => {
+    if (catalog.status === 'error') {
+      errorRetryRef.current?.focus();
+    } else if (catalog.status === 'ok' && mountedRef.current) {
+      headingRef.current?.focus();
+    }
+  }, [catalog.status]);
 
   const raceObj = catalog.data.races.find((r) => r.id === race);
   const clsObj = catalog.data.classes.find((c) => c.id === cls);
@@ -260,13 +273,27 @@ export default function CharacterNewPage(): ReactNode {
   if (catalog.status === 'error') {
     return (
       <TavernShell active="dashboard" title="New character" actions={<Button variant="ghost" href="/dashboard">Cancel</Button>}>
-        <Card className={styles.catalogError} role="alert">
-          <p className={styles.catalogErrorTitle}>Suzu can&rsquo;t reach the catalog right now.</p>
-          <p className={styles.catalogErrorBody}>
+        {/* role="alert" announces on mount; aria-labelledby surfaces the title in
+            the alert text for screen readers that include it. The "Try again"
+            button is aria-describedby the error body so its context is announced
+            alongside the action name when focused. */}
+        <Card
+          className={styles.catalogError}
+          role="alert"
+          aria-labelledby="catalog-error-title"
+        >
+          <p id="catalog-error-title" className={styles.catalogErrorTitle}>Suzu can&rsquo;t reach the catalog right now.</p>
+          <p id="catalog-error-body" className={styles.catalogErrorBody}>
             The race, class, and background lists couldn&rsquo;t be loaded. Check your connection
             or try again in a moment.
           </p>
-          <Button variant="primary" onClick={catalog.retry}>
+          <Button
+            ref={errorRetryRef}
+            variant="primary"
+            size="lg"
+            onClick={catalog.retry}
+            aria-describedby="catalog-error-body"
+          >
             Try again
           </Button>
         </Card>
@@ -278,9 +305,11 @@ export default function CharacterNewPage(): ReactNode {
   if (catalog.status === 'loading') {
     return (
       <TavernShell active="dashboard" title="New character" actions={<Button variant="ghost" href="/dashboard">Cancel</Button>}>
-        <div aria-busy="true" aria-label="Loading character options">
-          <PageSkeleton variant="card" lines={4} />
-        </div>
+        {/* PageSkeleton carries role="status" aria-busy="true" aria-label="Loading…"
+            internally. A bare <div> with aria-busy/aria-label has no implicit role
+            and the attributes are ignored by screen readers — let the component
+            own its own announcement. */}
+        <PageSkeleton variant="card" lines={4} />
       </TavernShell>
     );
   }
