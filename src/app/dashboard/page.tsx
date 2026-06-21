@@ -28,11 +28,20 @@ import Pill from '@/components/Pill';
 import Icon from '@/components/Icon';
 import SuzuDM from '@/components/SuzuDM';
 import SectionHead from '@/components/SectionHead';
+import DeleteCharacterButton from '@/components/DeleteCharacterButton';
 import { titleizeChannel, formatStarted } from '@/lib/format';
 import styles from './Dashboard.module.css';
 
 // ── Way-to-start hub (Option B) — shown when you have no sessions ──────────────
-function DashEmpty({ username, characters }: { username: string; characters: Character[] }) {
+function DashEmpty({
+  username,
+  characters,
+  onChanged,
+}: {
+  username: string;
+  characters: Character[];
+  onChanged: () => void;
+}) {
   const doors = [
     {
       href: '/modules',
@@ -92,7 +101,11 @@ function DashEmpty({ username, characters }: { username: string; characters: Cha
           grid only renders when sessions > 0). */}
       {characters.length > 0 && (
         <div style={{ marginTop: 28 }}>
-          <CharacterGrid characters={characters} />
+          <CharacterGrid
+            characters={characters}
+            username={username}
+            onChanged={onChanged}
+          />
         </div>
       )}
     </div>
@@ -100,7 +113,15 @@ function DashEmpty({ username, characters }: { username: string; characters: Cha
 }
 
 // ── Character grid (ST-044) ───────────────────────────────────────────────────
-function CharacterGrid({ characters }: { characters: Character[] }) {
+function CharacterGrid({
+  characters,
+  username,
+  onChanged,
+}: {
+  characters: Character[];
+  username: string;
+  onChanged: () => void;
+}) {
   return (
     <div>
       <SectionHead title="Your characters" level={2} />
@@ -111,18 +132,29 @@ function CharacterGrid({ characters }: { characters: Character[] }) {
           const sub = [cls, level !== undefined ? String(level) : '']
             .filter(Boolean)
             .join(' ');
+          // The delete control is a SIBLING of the card <Link> (never nested —
+          // a button inside an anchor is invalid + breaks AT). The wrapper is the
+          // positioning context for the corner button.
           return (
-            <Link
-              key={c.character_id}
-              href={`/character/${encodeURIComponent(c.character_id)}`}
-              className={styles.charCard}
-            >
-              <span className={styles.charAvatar} aria-hidden>
-                {String(c.name ?? '?').charAt(0).toUpperCase()}
-              </span>
-              <span className={styles.charName}>{c.name}</span>
-              <span className={styles.charSub}>{sub}</span>
-            </Link>
+            <div key={c.character_id} className={styles.charCardWrap}>
+              <Link
+                href={`/character/${encodeURIComponent(c.character_id)}`}
+                className={styles.charCard}
+              >
+                <span className={styles.charAvatar} aria-hidden>
+                  {String(c.name ?? '?').charAt(0).toUpperCase()}
+                </span>
+                <span className={styles.charName}>{c.name}</span>
+                <span className={styles.charSub}>{sub}</span>
+              </Link>
+              <DeleteCharacterButton
+                characterId={c.character_id}
+                characterName={String(c.name ?? 'this character')}
+                username={username}
+                onChanged={onChanged}
+                className={styles.charDelete}
+              />
+            </div>
           );
         })}
         <Link href="/character/new" className={`${styles.charCard} ${styles.charNew}`}>
@@ -141,9 +173,13 @@ function CharacterGrid({ characters }: { characters: Character[] }) {
 function DashActive({
   sessions,
   characters,
+  username,
+  onChanged,
 }: {
   sessions: Session[];
   characters: Character[];
+  username: string;
+  onChanged: () => void;
 }) {
   const hero = sessions[0];
   const heroTitle = titleizeChannel(hero.channel);
@@ -227,7 +263,11 @@ function DashActive({
         </div>
 
         <div className={styles.colSide}>
-          <CharacterGrid characters={characters} />
+          <CharacterGrid
+            characters={characters}
+            username={username}
+            onChanged={onChanged}
+          />
         </div>
       </div>
     </>
@@ -285,6 +325,12 @@ export default function DashboardPage() {
     return () => ac.abort();
   }, [username, load]);
 
+  // Re-fetch after a character delete/restore (DEL-7).
+  const refresh = useCallback(() => {
+    const ac = new AbortController();
+    void load(ac.signal);
+  }, [load]);
+
   // First-paint: show skeleton until we have a user. `loading` is only ever true
   // alongside maybeAuthed && !user, so `!user` covers the silent-refresh window
   // too (no logged-out flash for returning users — M2).
@@ -317,9 +363,14 @@ export default function DashboardPage() {
         {dataLoading ? (
           <PageSkeleton variant="card" lines={3} />
         ) : isEmpty ? (
-          <DashEmpty username={name} characters={characters} />
+          <DashEmpty username={name} characters={characters} onChanged={refresh} />
         ) : (
-          <DashActive sessions={sessions} characters={characters} />
+          <DashActive
+            sessions={sessions}
+            characters={characters}
+            username={name}
+            onChanged={refresh}
+          />
         )}
       </div>
     </TavernShell>

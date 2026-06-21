@@ -109,6 +109,14 @@
   margin: 0;
 }
 
+.action {
+  flex-shrink: 0;
+  align-self: center;
+  font-weight: 600;
+  color: var(--toast-accent);
+  white-space: nowrap;
+}
+
 .dismiss {
   flex-shrink: 0;
   opacity: 0.55;

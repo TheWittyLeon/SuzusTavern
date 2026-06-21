@@ -12,9 +12,10 @@
  * payload; the page only formats. Numbers use the mono font + tabular figures.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import { getCharacterSheet } from '@/lib/api/dnd';
+import DeleteCharacterButton from '@/components/DeleteCharacterButton';
 import type { CharacterSheet } from '@/lib/api/types';
 import TavernShell from '@/components/TavernShell';
 import PageSkeleton from '@/components/PageSkeleton';
@@ -44,6 +45,7 @@ export default function CharacterPage() {
   const id = typeof params?.id === 'string' ? params.id : '';
   const { user } = useAuth();
   const username = user?.username ?? null;
+  const router = useRouter();
 
   const [sheet, setSheet] = useState<CharacterSheet | null>(null);
   const [state, setState] = useState<'loading' | 'ok' | 'error'>('loading');
@@ -129,13 +131,24 @@ export default function CharacterPage() {
       active="dashboard"
       title={sheet.name}
       actions={
-        <Button
-          variant="primary"
-          href="/lobby"
-          leadingIcon={<Icon name="Compass" size={14} aria-hidden />}
-        >
-          Find a table
-        </Button>
+        <>
+          {username && (
+            <DeleteCharacterButton
+              variant="button"
+              characterId={id}
+              characterName={sheet.name}
+              username={username}
+              onDeleted={() => router.push('/dashboard')}
+            />
+          )}
+          <Button
+            variant="primary"
+            href="/lobby"
+            leadingIcon={<Icon name="Compass" size={14} aria-hidden />}
+          >
+            Find a table
+          </Button>
+        </>
       }
     >
       <div className={styles.sheet}>

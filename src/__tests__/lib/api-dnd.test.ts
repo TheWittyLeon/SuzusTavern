@@ -45,6 +45,11 @@ import {
   endTurn,
   getCombatStatus,
   castSpell,
+  deleteCharacter,
+  restoreCharacter,
+  listTrashedCharacters,
+  deleteSession,
+  restoreSession,
 } from '../../lib/api/dnd';
 
 // ---------------------------------------------------------------------------
@@ -287,5 +292,68 @@ describe('Session listing (ST-033 / ST-041 / ST-044)', () => {
   it('listMyCharacters returns [] when the envelope omits characters', async () => {
     mockData({});
     expect(await listMyCharacters('leon')).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Delete / restore / trash (DEL-6)
+// ---------------------------------------------------------------------------
+
+describe('Delete / restore / trash (DEL-6)', () => {
+  it('deleteCharacter — DELETE /api/dnd/characters/:id?username= (no body)', async () => {
+    await deleteCharacter('char-1', 'leon');
+    const { url, method, body } = lastCall();
+    expect(url).toBe('/api/dnd/characters/char-1?username=leon');
+    expect(method).toBe('DELETE');
+    expect(body).toBeUndefined();
+  });
+
+  it('deleteCharacter encodes id + username', async () => {
+    await deleteCharacter('id/with', 'user name');
+    const { url } = lastCall();
+    expect(url).toContain('id%2Fwith');
+    expect(url).toContain('user%20name');
+  });
+
+  it('restoreCharacter — POST /api/dnd/characters/:id/restore with username body', async () => {
+    await restoreCharacter('char-1', 'leon');
+    const { url, method, body } = lastCall();
+    expect(url).toBe('/api/dnd/characters/char-1/restore');
+    expect(method).toBe('POST');
+    expect(body).toMatchObject({ username: 'leon' });
+  });
+
+  it('listTrashedCharacters — GET /api/dnd/characters/trash?username=, unwraps .characters', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ success: true, data: { characters: [{ character_id: 't1' }] } }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    const out = await listTrashedCharacters('leon');
+    const { url, method } = lastCall();
+    expect(url).toBe('/api/dnd/characters/trash?username=leon');
+    expect(method).toBe('GET');
+    expect(out).toEqual([{ character_id: 't1' }]);
+  });
+
+  it('listTrashedCharacters returns [] when characters is absent', async () => {
+    expect(await listTrashedCharacters('leon')).toEqual([]);
+  });
+
+  it('deleteSession — DELETE /api/dnd/sessions/:id?username= (no body)', async () => {
+    await deleteSession('sess-1', 'leon');
+    const { url, method, body } = lastCall();
+    expect(url).toBe('/api/dnd/sessions/sess-1?username=leon');
+    expect(method).toBe('DELETE');
+    expect(body).toBeUndefined();
+  });
+
+  it('restoreSession — POST /api/dnd/sessions/:id/restore with username body', async () => {
+    await restoreSession('sess-1', 'leon');
+    const { url, method, body } = lastCall();
+    expect(url).toBe('/api/dnd/sessions/sess-1/restore');
+    expect(method).toBe('POST');
+    expect(body).toMatchObject({ username: 'leon' });
   });
 });

@@ -205,6 +205,38 @@
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+/* DEL-7: wrapper is the positioning context for the corner delete button; the
+   wrapped card must fill the grid cell the wrapper now occupies. */
+.charCardWrap {
+  position: relative;
+}
+.charCardWrap > .charCard {
+  width: 100%;
+  box-sizing: border-box;
+}
+.charDelete {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  /* Expand the 38px btn-icon to a ≥44px touch target without moving it visually
+     (mirrors the Toast .dismiss offset trick). content-box so padding grows the
+     box outward rather than eating the icon. */
+  box-sizing: content-box;
+  padding: 3px;
+  margin: -3px;
+  /* Visible at rest (discoverable on touch, not hover-only). color-mix keeps an
+     opaque, measurable colour ≥3:1 (A11Y-2) instead of opacity, which dropped
+     --ink-3 below 2.2:1; full strength on hover/focus. */
+  color: color-mix(in oklab, var(--ink-3) 72%, transparent);
+  transition: color var(--dur-fast) var(--ease);
+}
+.charCardWrap:hover .charDelete,
+.charCardWrap:focus-within .charDelete {
+  color: var(--ink-3);
+}
+.charDelete:hover {
+  color: var(--bad);
+}
 .charAvatar {
   width: 52px;
   height: 52px;

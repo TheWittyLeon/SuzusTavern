@@ -53,6 +53,29 @@ describe('ToastProvider / useToast', () => {
     expect(screen.queryAllByRole('status').length + screen.queryAllByRole('alert').length).toBe(0);
   });
 
+  it('renders an action button that fires its onClick and dismisses the toast (DEL-7 Undo)', () => {
+    const onAction = jest.fn();
+    render(
+      <Setup
+        opts={{
+          message: 'Character trashed.',
+          tone: 'success',
+          action: { label: 'Undo', onClick: onAction },
+        }}
+      />,
+    );
+    act(() => { screen.getByTestId('trigger').click(); });
+    expect(screen.getByText('Character trashed.')).toBeInTheDocument();
+
+    const undo = screen.getByRole('button', { name: 'Undo' });
+    act(() => { fireEvent.click(undo); });
+    expect(onAction).toHaveBeenCalledTimes(1);
+
+    // Clicking the action also dismisses the toast (exit animation = 220ms).
+    act(() => { jest.advanceTimersByTime(270); });
+    expect(screen.queryByText('Character trashed.')).toBeNull();
+  });
+
   it('shows a toast when toast() is called', () => {
     render(<Setup />);
     act(() => { screen.getByTestId('trigger').click(); });

@@ -72,7 +72,8 @@ export type IconName =
   | 'Rogue'
   | 'Sorcerer'
   | 'Warlock'
-  | 'Wizard';
+  | 'Wizard'
+  | 'Trash';
 
 /**
  * Map of icon name → SVG inner markup string.
@@ -103,6 +104,8 @@ export const ICON_PATHS: Record<IconName, string> = {
   Chevron: '<path d="m9 6 6 6-6 6"/>',
   Check: '<path d="M5 12l4 4 10-10"/>',
   Close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  Trash:
+    '<path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13M10 11v6M14 11v6"/>',
   Twitch:
     '<path d="M4 4h16v10l-4 4h-4l-3 3v-3H4V4z"/><path d="M11 8v5M16 8v5"/>',
   Discord:

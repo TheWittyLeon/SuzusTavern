@@ -102,6 +102,40 @@ export const listMyCharacters = (username: string, signal?: AbortSignal) =>
     { method: 'GET', signal },
   ).then((d) => d.characters ?? []);
 
+// ── Delete / restore / trash (DEL-6) ──────────────────────────────────────────
+// Soft-delete is recoverable for 7 days (server retention); restore is the undo.
+// Ownership is enforced server-side by `username`. The admin hard-purge is NOT
+// exposed to the client — it's an engine-direct LAN op.
+
+/** Soft-delete (trash) a character the user owns. Recoverable via restoreCharacter. */
+export const deleteCharacter = (
+  characterId: string,
+  username: string,
+  signal?: AbortSignal,
+) =>
+  apiCall<{ message?: string }>(
+    `/api/dnd/characters/${encodeURIComponent(characterId)}?username=${encodeURIComponent(username)}`,
+    { method: 'DELETE', signal },
+  );
+
+/** Restore a trashed character the user owns (the undo for deleteCharacter). */
+export const restoreCharacter = (
+  characterId: string,
+  username: string,
+  signal?: AbortSignal,
+) =>
+  apiCall<{ message?: string }>(
+    `/api/dnd/characters/${encodeURIComponent(characterId)}/restore`,
+    { method: 'POST', json: { username }, signal },
+  );
+
+/** A user's trashed characters (the restore view). Returns [] on empty/degraded. */
+export const listTrashedCharacters = (username: string, signal?: AbortSignal) =>
+  apiCall<{ characters: Character[] }>(
+    `/api/dnd/characters/trash?username=${encodeURIComponent(username)}`,
+    { method: 'GET', signal },
+  ).then((d) => d.characters ?? []);
+
 // ── Sessions ────────────────────────────────────────────────────────────────
 
 /**
@@ -204,6 +238,28 @@ export const awardSessionXp = (
   apiCall<Session>(
     `/api/dnd/sessions/${encodeURIComponent(sessionId)}/xp`,
     { method: 'POST', json: req, signal },
+  );
+
+/** Soft-delete (trash) a campaign the user runs (DM). Recoverable via restoreSession. */
+export const deleteSession = (
+  sessionId: string,
+  username: string,
+  signal?: AbortSignal,
+) =>
+  apiCall<{ message?: string }>(
+    `/api/dnd/sessions/${encodeURIComponent(sessionId)}?username=${encodeURIComponent(username)}`,
+    { method: 'DELETE', signal },
+  );
+
+/** Restore a trashed campaign the user runs (the undo for deleteSession). */
+export const restoreSession = (
+  sessionId: string,
+  username: string,
+  signal?: AbortSignal,
+) =>
+  apiCall<{ message?: string }>(
+    `/api/dnd/sessions/${encodeURIComponent(sessionId)}/restore`,
+    { method: 'POST', json: { username }, signal },
   );
 
 // ── Combat ──────────────────────────────────────────────────────────────────

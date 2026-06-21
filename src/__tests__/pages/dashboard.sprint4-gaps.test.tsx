@@ -28,6 +28,8 @@ jest.mock('../../lib/api/auth', () => ({
 jest.mock('../../lib/api/dnd', () => ({
   listSessions: jest.fn(),
   listMyCharacters: jest.fn(),
+  deleteCharacter: jest.fn(),
+  restoreCharacter: jest.fn(),
 }));
 
 import * as authApi from '../../lib/api/auth';

@@ -28,6 +28,7 @@ jest.mock('../../lib/api/dnd', () => ({
 
 import * as dnd from '../../lib/api/dnd';
 import { AuthProvider } from '../../lib/auth/AuthProvider';
+import { ToastProvider } from '../../components/Toast';
 import CharacterPage from '../../app/character/[id]/page';
 import type { CharacterSheet, User } from '../../lib/api/types';
 
@@ -79,7 +80,9 @@ const ROGUE: CharacterSheet = {
 function renderPage() {
   return render(
     <AuthProvider initialUser={ALICE}>
-      <CharacterPage />
+      <ToastProvider>
+        <CharacterPage />
+      </ToastProvider>
     </AuthProvider>,
   );
 }

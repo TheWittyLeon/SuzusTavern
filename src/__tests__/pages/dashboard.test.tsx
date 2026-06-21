@@ -31,6 +31,10 @@ jest.mock('../../lib/api/auth', () => ({
 jest.mock('../../lib/api/dnd', () => ({
   listSessions: jest.fn(),
   listMyCharacters: jest.fn(),
+  // DeleteCharacterButton (rendered per card) imports these; mock so a delete
+  // click in a test never hits the real API.
+  deleteCharacter: jest.fn(),
+  restoreCharacter: jest.fn(),
 }));
 
 import * as authApi from '../../lib/api/auth';
@@ -106,6 +110,17 @@ describe('Dashboard — empty (way-to-start)', () => {
     // the character is listed (links to its sheet) alongside the way-to-start doors
     expect(screen.getByText('Velka')).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: /roll a character/i })).toBeInTheDocument();
+  });
+
+  it('renders a delete button per character, as a SIBLING of the card link (not nested)', async () => {
+    mockListChars.mockResolvedValue([
+      { character_id: 'c1', name: 'Velka', char_class: 'Rogue', level: 1 } as unknown as Character,
+    ]);
+    renderDashboard(ALICE);
+    const del = await screen.findByRole('button', { name: /delete velka/i });
+    const link = screen.getByRole('link', { name: /velka/i });
+    // A button nested inside an anchor is invalid + breaks AT — assert it isn't.
+    expect(link.contains(del)).toBe(false);
   });
 });
 

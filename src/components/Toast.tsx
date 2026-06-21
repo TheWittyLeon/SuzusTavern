@@ -24,6 +24,8 @@ export interface ToastOptions {
   tone?: ToastTone;
   /** Auto-dismiss after this many ms. Default: 5000. Pass Infinity to disable. */
   duration?: number;
+  /** Optional action button (e.g. "Undo"). Invoked then the toast is dismissed. */
+  action?: { label: string; onClick: () => void };
 }
 
 interface ToastItem extends ToastOptions {
@@ -169,6 +171,19 @@ function ToastCard({ item, onDismiss }: ToastItemProps) {
         {item.title && <p className={styles.title}>{item.title}</p>}
         <p className={styles.message}>{item.message}</p>
       </div>
+
+      {item.action && (
+        <Button
+          variant="ghost"
+          className={styles.action}
+          onClick={() => {
+            item.action?.onClick();
+            onDismiss(item.id);
+          }}
+        >
+          {item.action.label}
+        </Button>
+      )}
 
       <Button
         size="icon"
