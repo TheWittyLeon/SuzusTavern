@@ -16,8 +16,13 @@
  * Two shapes mirror DeleteCharacterButton:
  *  - variant="icon"   → a small trash icon button (a campaign row action)
  *  - variant="button" → a full danger button (a campaign settings/detail header)
+ *
+ * Focus management (Iro MAJOR-1): when the campaign row is removed from the DOM,
+ * ConfirmDialog's focus-restore target no longer exists and focus would fall to
+ * <body>. Callers pass `focusFallbackRef` pointing at a stable element (e.g. the
+ * section heading) so focus lands somewhere meaningful after delete.
  */
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import Button from '@/components/Button';
 import Icon from '@/components/Icon';
 import ConfirmDialog from '@/components/ConfirmDialog';
@@ -38,6 +43,13 @@ export interface DeleteCampaignButtonProps {
   onChanged?: () => void;
   /** Called after a successful delete, for callers that must navigate away. */
   onDeleted?: () => void;
+  /**
+   * Iro MAJOR-1: element to receive focus after a confirmed delete.
+   * When the campaign row unmounts, ConfirmDialog's focus-restore target
+   * disappears and focus would land on <body>. Pass a ref to a stable
+   * element (e.g. the section heading) to keep focus on something meaningful.
+   */
+  focusFallbackRef?: React.RefObject<HTMLElement | null>;
   variant?: 'icon' | 'button';
   className?: string;
 }
@@ -48,21 +60,30 @@ export default function DeleteCampaignButton({
   username,
   onChanged,
   onDeleted,
+  focusFallbackRef,
   variant = 'icon',
   className,
 }: DeleteCampaignButtonProps) {
-  const { toast } = useToast();
+  const { toast, dismiss } = useToast();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Tora MINOR-1: guard against double-fire on Undo.
+  const restoringRef = useRef(false);
 
   const errMessage = (e: unknown): string =>
     isApiError(e) && e.status === 404
       ? 'That campaign is already gone.'
       : 'Could not delete the campaign. Try again in a moment.';
 
-  async function restore() {
+  async function restore(undoToastId: string) {
+    // Tora MINOR-1: early-return if a restore is already in flight.
+    if (restoringRef.current) return;
+    restoringRef.current = true;
     try {
       await restoreSession(sessionId, username);
+      // Tora MAJOR-1: dismiss the undo toast on successful restore so it
+      // doesn't linger after the action is no longer relevant.
+      dismiss(undoToastId);
       onChanged?.();
       toast({ message: `${campaignName} restored.`, tone: 'success' });
     } catch {
@@ -70,6 +91,8 @@ export default function DeleteCampaignButton({
         message: `Could not restore ${campaignName}. It stays in your trash for 7 days.`,
         tone: 'error',
       });
+    } finally {
+      restoringRef.current = false;
     }
   }
 
@@ -80,11 +103,17 @@ export default function DeleteCampaignButton({
       setConfirming(false);
       onChanged?.();
       onDeleted?.();
-      toast({
+      // Iro MAJOR-1: move focus to the stable fallback before the row unmounts.
+      focusFallbackRef?.current?.focus();
+      // Tora MAJOR-1: duration: Infinity keeps the undo toast alive until the
+      // user explicitly acts on it (dismiss or Undo). ToastCard already guards
+      // !isFinite(dur) to skip the auto-dismiss timer.
+      const undoToastId = toast({
         title: 'Campaign moved to trash',
         message: `${campaignName} is recoverable for 7 days.`,
         tone: 'success',
-        action: { label: 'Undo', onClick: () => void restore() },
+        duration: Infinity,
+        action: { label: 'Undo', onClick: () => void restore(undoToastId) },
       });
     } catch (e) {
       toast({ message: errMessage(e), tone: 'error' });

@@ -14,7 +14,7 @@
  *    backend isn't deployed yet (listSessions throws → treated as []).
  *  - has sessions → resume hero + my campaigns + my characters grid.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth/AuthProvider';
@@ -183,6 +183,14 @@ function DashActive({
   username: string;
   onChanged: () => void;
 }) {
+  // Iro MAJOR-1: stable focus target after a campaign delete.
+  // When the campaign row unmounts, ConfirmDialog's focus-restore target is gone
+  // and focus would land on <body>. We give the "My campaigns" section heading a
+  // ref (tabIndex=-1 so it is programmatically focusable without appearing in tab
+  // order) and pass it to DeleteCampaignButton as focusFallbackRef. After a
+  // confirmed delete the button focuses this element before the row disappears.
+  const campaignsSectionRef = useRef<HTMLDivElement>(null);
+
   const hero = sessions[0];
   const heroTitle = titleizeChannel(hero.channel);
   const isSuzu = (hero.dm_username ?? '').toLowerCase() === 'suzu';
@@ -228,8 +236,10 @@ function DashActive({
       <div className={styles.cols}>
         <div className={styles.colMain}>
           <SectionHead
+            ref={campaignsSectionRef}
             title="My campaigns"
             level={2}
+            tabIndex={-1}
             action={
               <Button
                 variant="ghost"
@@ -277,6 +287,8 @@ function DashActive({
                         campaignName={campaignName}
                         username={username}
                         onChanged={onChanged}
+                        focusFallbackRef={campaignsSectionRef}
+                        className={styles.campaignDelete}
                       />
                     )}
                   </div>

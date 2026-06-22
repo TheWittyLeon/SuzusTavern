@@ -160,12 +160,18 @@
   align-items: center;
   gap: 6px;
 }
-/* Expand the 38px btn-icon to a ≥44px touch target without shifting layout.
-   content-box keeps the visual footprint unchanged while padding grows hit area. */
-.campaignActions > :global(.btn-icon) {
+/* Tora MINOR-2: scoped to .campaignDelete (the className passed to
+   DeleteCampaignButton) instead of the broad :global(.btn-icon) escape.
+   Expands the 38px btn-icon to a ≥44px touch target without shifting layout;
+   content-box keeps the visual footprint unchanged while padding grows hit area.
+   Iro MINOR-1: shift icon to danger token on hover, matching .charDelete:hover. */
+.campaignDelete {
   box-sizing: content-box;
   padding: 3px;
   margin: -3px;
+}
+.campaignDelete:hover {
+  color: var(--bad);
 }
 .campaignIcon {
   width: 40px;
