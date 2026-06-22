@@ -350,6 +350,37 @@ describe('Session listing (ST-033 / ST-041 / ST-044)', () => {
     expect(events).toEqual([]);
   });
 
+  it('getSessionEvents handles event with null data without throwing', async () => {
+    // Engine can emit null-data events (e.g. session_start rows from pre-migration
+    // Postgres state). Adapter must not throw — description should be undefined.
+    mockData({
+      events: [
+        { seq: 1, kind: 'session_start', actor: 'suzu', data: null, created_at: '2026-06-21T09:00:00Z' },
+      ],
+    });
+    const events = await getSessionEvents('s1');
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ event_type: 'session_start', actor: 'suzu' });
+    expect(events[0].description).toBeUndefined();
+  });
+
+  it('getSessionEvents prefers data.description over data.text when both are present', async () => {
+    // The adapter must pick description first — text is the narration fallback only.
+    mockData({
+      events: [
+        {
+          seq: 3,
+          kind: 'combat',
+          actor: 'suzu',
+          data: { description: 'primary text', text: 'fallback text' },
+          created_at: '2026-06-21T10:02:00Z',
+        },
+      ],
+    });
+    const events = await getSessionEvents('s1');
+    expect(events[0].description).toBe('primary text');
+  });
+
   it('listMyCharacters — GET /api/dnd/characters?username=, unwraps .characters', async () => {
     mockData({ characters: [{ character_id: 'c1', name: 'Velka' }] });
     const out = await listMyCharacters('leon');
