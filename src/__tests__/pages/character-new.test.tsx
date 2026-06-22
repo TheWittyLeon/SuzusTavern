@@ -96,6 +96,14 @@ jest.mock('../../lib/dnd/useCatalog', () => ({
   useCatalog: () => catalogOverride,
 }));
 
+// The wizard's live Suzu commentary (ST-053) streams via streamNarration on
+// mount. Mock it to an empty stream so tests don't hit the real network.
+jest.mock('../../lib/stream', () => ({
+  streamNarration: jest.fn(async function* () {
+    /* no chunks → the wizard falls back to its deterministic line */
+  }),
+}));
+
 import * as dnd from '../../lib/api/dnd';
 import { AuthProvider } from '../../lib/auth/AuthProvider';
 import { ThemeProvider } from '../../lib/theme/ThemeProvider';

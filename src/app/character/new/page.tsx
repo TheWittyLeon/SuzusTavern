@@ -32,6 +32,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import { createCharacter } from '@/lib/api/dnd';
 import { useCatalog } from '@/lib/dnd/useCatalog';
+import { useWizardCommentary } from '@/lib/dnd/useWizardCommentary';
 import TavernShell from '@/components/TavernShell';
 import PageSkeleton from '@/components/PageSkeleton';
 import Card from '@/components/Card';
@@ -243,6 +244,30 @@ export default function CharacterNewPage(): ReactNode {
     suzuLine = name.trim()
       ? `${name.trim()}, I'll have a table ready by Tuesday. Bring a coat — the coast is colder than the brochure suggests.`
       : 'Welcome to the tavern. Mind the chimney.';
+
+  // ── Live Suzu commentary (ST-053) ─────────────────────────────────────────────
+  // Product default is full assist (the wizard has no session/ai-context source
+  // yet — FLAGGED); 'off' makes the panel ABSENT and issues no narration request.
+  // The streamed text is primary; `suzuLine` above is the deterministic fallback
+  // shown while waiting or if the stream is unavailable (graceful — AC#3).
+  const aiAssistLevel: 'full' | 'assist' | 'off' = 'full';
+  const commentaryKey = `${step}|${race ?? ''}|${cls ?? ''}|${background ?? ''}`;
+  const commentaryPrompt =
+    step === 0
+      ? `In one wry sentence, react to my new D&D character being a ${raceObj?.name ?? 'race I haven’t picked yet'}.`
+      : step === 1
+        ? `In one wry sentence, react to my character's class: ${clsObj?.name ?? 'undecided'}.`
+        : step === 2
+          ? `In one wry sentence, react to how I've spread my character's ability scores.`
+          : step === 3
+            ? `In one wry sentence, react to my character's name and background: ${name.trim() || 'unnamed'}, ${bgObj?.name ?? 'no background yet'}.`
+            : `In one wry sentence, send off my finished character ${name.trim() || 'the adventurer'}, a ${raceObj?.name ?? ''} ${clsObj?.name ?? ''}.`;
+  const {
+    enabled: suzuEnabled,
+    text: suzuStream,
+    streaming: suzuStreaming,
+  } = useWizardCommentary({ aiAssistLevel, username, commentaryKey, prompt: commentaryPrompt });
+  const suzuDisplay = suzuStream.trim() || suzuLine;
 
   const continueHint =
     step === 0
@@ -459,21 +484,26 @@ export default function CharacterNewPage(): ReactNode {
           </div>
         </div>
 
-        {/* Suzu commentary */}
-        <Card pop as="aside" className={styles.suzu} aria-label="Suzu's commentary">
-          <div className={styles.suzuMascot}>
-            <SuzuDM size={112} talking aria-hidden />
-          </div>
-          <p className="label" style={{ fontSize: '0.7rem', marginBottom: 6 }}>
-            Suzu
-          </p>
-          <p className={styles.suzuLine} aria-live="polite">
-            &ldquo;{suzuLine}&rdquo;
-          </p>
-          <div className={styles.suzuWave}>
-            <Waveform bars={26} height={20} active={false} />
-          </div>
-        </Card>
+        {/* Suzu commentary (ST-053) — real SSE-streamed narration. ABSENT (not an
+            empty shell) when AI assist is off; no narration request is issued. */}
+        {suzuEnabled && (
+          <Card pop as="aside" className={styles.suzu} aria-label="Suzu's commentary">
+            <div className={styles.suzuMascot}>
+              <SuzuDM size={112} talking={suzuStreaming} aria-hidden />
+            </div>
+            <p className="label" style={{ fontSize: '0.7rem', marginBottom: 6 }}>
+              Suzu
+            </p>
+            {/* aria-busy while streaming so AT announces the completed line once,
+                not every cumulative chunk (per-line, not per-token — S3.5). */}
+            <p className={styles.suzuLine} aria-live="polite" aria-busy={suzuStreaming || undefined}>
+              &ldquo;{suzuDisplay}&rdquo;
+            </p>
+            <div className={styles.suzuWave}>
+              <Waveform bars={26} height={20} active={suzuStreaming} />
+            </div>
+          </Card>
+        )}
       </div>
     </TavernShell>
   );
