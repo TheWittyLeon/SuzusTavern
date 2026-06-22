@@ -25,6 +25,7 @@ import { useToast } from '@/components/Toast';
 import { useReducedMotion } from '@/lib/useReducedMotion';
 import { titleizeChannel } from '@/lib/format';
 import {
+  combatFromScene,
   getSession,
   getParticipants,
   startCombat,
@@ -295,39 +296,52 @@ export default function PlayPage() {
   );
 
   // ── combat ──────────────────────────────────────────────────────────────────
+  /**
+   * ADV-6: Begin an encounter from the current scene's authored encounter block.
+   *
+   * The engine resolves session → campaign → adventure → current_scene and spawns
+   * its monsters. Returns a fully-typed combat_id + monster roster — no hardcoded
+   * "spawn 2 goblins" here. Freeform sessions (no adventure_ref) or scenes with
+   * no encounter block return a 400 "No encounter available" — handled gracefully
+   * via a friendly toast, no crash, no stuck spinner.
+   */
   const beginEncounter = useCallback(async () => {
     if (!session || !username || combatBusy) return;
     setCombatBusy(true);
     try {
-      const started = await startCombat({ username, channel: session.channel });
-      const newId = started.combat_id ?? session.active_combat_id ?? null;
-      if (!newId) {
-        toast({ tone: 'error', message: 'Could not start combat.' });
-        return;
-      }
+      const result = await combatFromScene({ session_id: session.session_id });
+      const newId = result.combat_id;
       setCombatId(newId);
-      setRound(1);
-      // A simple default encounter so the action loop is playable.
-      await spawnMonster({ username, combat_id: newId, monster: 'goblin', count: 2 }).catch(
-        () => null,
+      setRound(result.round ?? 1);
+      // Build the UI monster roster from the engine's typed response.
+      setMonsters(
+        result.monsters.map((m) => ({
+          id: m.participant_id,
+          name: m.name,
+          hp: m.hp,
+          maxHp: m.hp,
+        })),
       );
-      setMonsters([
-        { id: 'goblin-1', name: 'Goblin', hp: null, maxHp: null },
-        { id: 'goblin-2', name: 'Goblin', hp: null, maxHp: null },
-      ]);
       await rollInitiative({ username, combat_id: newId }).catch(() => null);
+      const monsterNames = result.monsters.map((m) => m.name).join(', ') || 'enemies';
       appendLog({
         who: 'Suzu',
         kind: 'system',
-        text: 'Combat begins — two goblins close in. Roll initiative.',
+        text: `Combat begins — ${monsterNames} close in. Roll initiative.`,
       });
       void narrate(
-        'We are ambushed!',
-        'Two goblins burst from cover and combat starts. Set the scene.',
+        'We are under attack!',
+        `Combat starts. ${monsterNames} enter the scene. Set the scene.`,
         'act',
       );
-    } catch {
-      toast({ tone: 'error', message: 'Could not start combat.' });
+    } catch (err) {
+      const status = (err as { status?: number } | null)?.status;
+      // 400 = no encounter defined for the current scene (expected, not an error).
+      if (status === 400) {
+        toast({ tone: 'info', message: "There's no scripted encounter here." });
+      } else {
+        toast({ tone: 'error', message: 'Could not start combat.' });
+      }
     } finally {
       setCombatBusy(false);
     }

@@ -1,10 +1,10 @@
 'use client';
 /**
- * Modules — the way-to-start (Option B blocking surface; ST-037).
+ * Modules — the way-to-start (Option B blocking surface; ST-037, ADV-9).
  *
- * A new user has no campaign and nowhere to begin, so "Start a campaign" routes
- * here: pick a prepared one-shot → configure the table → create it. The catalog
- * reflects the actually-seeded Phase-0 SRD starter set (no fabricated library).
+ * Adventure list is data-driven: fetched from GET /api/dnd/catalog?type=adventure
+ * (ADV-9). The old hardcoded MODULES constant is gone. Adding a new adventure to
+ * the catalog makes it appear here with no Tavern change.
  *
  * content_rating (baked-in decision): default 'sfw'; 'mature' is only selectable
  * on private/unlisted tables. It is client-typed (like dm_mode) — stored locally,
@@ -14,12 +14,12 @@
  *
  * Suzu's PDF library + your homebrew tabs are post-MVP (disabled).
  */
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import { useToast } from '@/components/Toast';
-import { createSession, listMyCharacters } from '@/lib/api/dnd';
-import type { Character, ContentRating, DmMode, Visibility } from '@/lib/api/types';
+import { createSession, getCatalog, listMyCharacters } from '@/lib/api/dnd';
+import type { AdventureCatalogItem, Character, ContentRating, DmMode, Visibility } from '@/lib/api/types';
 import {
   channelFromName,
   setSessionAnnotations,
@@ -30,29 +30,47 @@ import Card from '@/components/Card';
 import Pill from '@/components/Pill';
 import Icon from '@/components/Icon';
 import SuzuDM from '@/components/SuzuDM';
+import PageSkeleton from '@/components/PageSkeleton';
 import styles from './Modules.module.css';
 
-interface ModuleDef {
-  id: string;
-  title: string;
-  blurb: string;
-  levels: string;
-  length: string;
-  icon: 'Map' | 'Skull' | 'Scroll';
+// ── Adventure catalog fetch (ADV-9) ──────────────────────────────────────────
+
+type AdventureStatus = 'loading' | 'ok' | 'error';
+
+/**
+ * Map a raw catalog item for content_type='adventure' onto the typed
+ * AdventureCatalogItem shape. The engine returns adventures with a `summary`
+ * projection in the item body (a JSONB slice of data, not the full data blob).
+ * We cast via unknown because CatalogItem's `data` field predates this type.
+ */
+function toCatalogItem(raw: unknown): AdventureCatalogItem {
+  const item = raw as Record<string, unknown>;
+  const summary = (item['summary'] as Record<string, unknown> | undefined) ?? {};
+  return {
+    public_id: String(item['public_id'] ?? item['slug'] ?? ''),
+    name: String(item['name'] ?? ''),
+    summary: {
+      subtitle: summary['subtitle'] as string | undefined,
+      level_range: summary['level_range'] as { min: number; max: number } | undefined,
+      length: summary['length'] as string | undefined,
+      content_rating: summary['content_rating'] as string | undefined,
+      tags: summary['tags'] as string[] | undefined,
+    },
+  };
 }
 
-// The seeded Phase-0 SRD starter set (suzu_dnd: 22 items / 13 spells / 12 monsters).
-const MODULES: ModuleDef[] = [
-  {
-    id: 'hollow-tide',
-    title: 'The Hollow Tide Cave',
-    blurb:
-      'A coastal cave, a missing fishing crew, and goblins in the dark. The seeded starter one-shot — runs end-to-end with Suzu as DM.',
-    levels: 'levels 1–2',
-    length: 'one session',
-    icon: 'Map',
-  },
-];
+function formatLevelRange(lr?: { min: number; max: number }): string {
+  if (!lr) return '';
+  if (lr.min === lr.max) return `level ${lr.min}`;
+  return `levels ${lr.min}–${lr.max}`;
+}
+
+function formatLength(len?: string): string {
+  if (!len) return '';
+  return len.replace(/_/g, ' ');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 const VISIBILITIES: { id: Visibility; label: string; note: string }[] = [
   { id: 'public', label: 'Public', note: 'Anyone can find and watch. Always SFW.' },
@@ -135,17 +153,17 @@ function RadioGroup<T extends string>({
 }
 
 function StarterForm({
-  module,
+  adventure,
   onCancel,
 }: {
-  module: ModuleDef;
+  adventure: AdventureCatalogItem;
   onCancel: () => void;
 }) {
   const { user } = useAuth();
   const { toast } = useToast();
   const router = useRouter();
 
-  const [name, setName] = useState(module.title);
+  const [name, setName] = useState(adventure.name);
   const [dmMode, setDmMode] = useState<DmMode>('ai');
   const [visibility, setVisibility] = useState<Visibility>('private');
   const [rating, setRating] = useState<ContentRating>('sfw');
@@ -194,27 +212,25 @@ function StarterForm({
     const engineAiAssist = dmMode === 'solo' ? ('off' as const) : ('full' as const);
 
     try {
-      const sessionReq: Parameters<typeof createSession>[0] = {
+      const session = await createSession({
         username,
         channel,
         dm_mode: engineDmMode,
         ai_assist_level: engineAiAssist,
         visibility,
         content_rating: effectiveRating,
-      };
-      if (selectedCharId !== undefined && Number.isFinite(selectedCharId)) {
-        sessionReq.character_id = selectedCharId;
-      }
-      const session = await createSession(sessionReq);
-      // Also persist locally as client-side enrichment — stores module_id which the
-      // engine doesn't model, and serves as a fallback if the server response omits
-      // the session object (pre-upgrade backends).
+        // ADV-9: pass the adventure's public_id so the engine creates the campaign
+        // with adventure_ref stamped. The engine owns the link; no localStorage needed.
+        adventure_ref: adventure.public_id,
+        // Character binding: include selected character_id when the player has chosen one.
+        ...(selectedCharId !== undefined ? { character_id: selectedCharId } : {}),
+      });
+      // Persist client-side enrichment as a fallback for pre-upgrade backends.
       const key = session?.session_id ?? channel;
       setSessionAnnotations(key, {
         dm_mode: dmMode,
         content_rating: effectiveRating,
         visibility,
-        module_id: module.id,
       });
       toast({
         tone: 'success',
@@ -238,7 +254,7 @@ function StarterForm({
         <div>
           <h2 className={styles.formTitle}>Set the table</h2>
           <p className={styles.formSub}>
-            Running <strong>{module.title}</strong>. A few choices and we begin.
+            Running <strong>{adventure.name}</strong>. A few choices and we begin.
           </p>
         </div>
       </div>
@@ -343,7 +359,36 @@ function StarterForm({
 }
 
 export default function ModulesPage() {
-  const [selected, setSelected] = useState<ModuleDef | null>(null);
+  const [selected, setSelected] = useState<AdventureCatalogItem | null>(null);
+  const [adventures, setAdventures] = useState<AdventureCatalogItem[]>([]);
+  const [status, setStatus] = useState<AdventureStatus>('loading');
+  const [attempt, setAttempt] = useState(0);
+  const retryRef = useRef<HTMLButtonElement>(null);
+
+  const retry = useCallback(() => setAttempt((n) => n + 1), []);
+
+  useEffect(() => {
+    const ac = new AbortController();
+    setStatus('loading');
+    getCatalog('dnd5e', { type: 'adventure' }, ac.signal)
+      .then((res) => {
+        if (ac.signal.aborted) return;
+        setAdventures(res.items.map(toCatalogItem));
+        setStatus('ok');
+      })
+      .catch(() => {
+        if (ac.signal.aborted) return;
+        setAdventures([]);
+        setStatus('error');
+      });
+    return () => ac.abort();
+  }, [attempt]);
+
+  // Focus the retry button when the error state is entered (a11y — matches
+  // the wizard pattern from character creation, Iro S2.4 MAJOR-1).
+  useEffect(() => {
+    if (status === 'error') retryRef.current?.focus();
+  }, [status]);
 
   return (
     <TavernShell active="modules" title="Start a campaign">
@@ -382,34 +427,87 @@ export default function ModulesPage() {
       </div>
 
       {selected ? (
-        <StarterForm module={selected} onCancel={() => setSelected(null)} />
+        <StarterForm adventure={selected} onCancel={() => setSelected(null)} />
       ) : (
-        <div className={styles.grid}>
-          {MODULES.map((m) => (
-            <Card key={m.id} className={styles.module}>
-              <span className={styles.moduleIcon} aria-hidden>
-                <Icon name={m.icon} size={26} />
-              </span>
-              <div className={styles.moduleHead}>
-                <div className={styles.modulePills}>
-                  <Pill tone="lav">{m.levels}</Pill>
-                  <Pill tone="muted">{m.length}</Pill>
-                </div>
-                <h2 className={styles.moduleTitle}>{m.title}</h2>
-                <p className={styles.moduleBlurb}>{m.blurb}</p>
-              </div>
-              <div className={styles.moduleFoot}>
-                <Button
-                  variant="primary"
-                  onClick={() => setSelected(m)}
-                  leadingIcon={<Icon name="D20" size={14} aria-hidden />}
-                >
-                  Run this
-                </Button>
-              </div>
+        <>
+          {/* Loading state */}
+          {status === 'loading' && (
+            <PageSkeleton variant="card" lines={4} />
+          )}
+
+          {/* Error state */}
+          {status === 'error' && (
+            <Card
+              className={styles.catalogError}
+              role="alert"
+              aria-labelledby="modules-error-title"
+            >
+              <p id="modules-error-title" className={styles.catalogErrorTitle}>
+                Suzu can&rsquo;t reach the adventure catalog right now.
+              </p>
+              <p id="modules-error-body" className={styles.catalogErrorBody}>
+                The module list couldn&rsquo;t be loaded. Check your connection or try again in a moment.
+              </p>
+              <Button
+                ref={retryRef}
+                variant="primary"
+                size="lg"
+                onClick={retry}
+                aria-describedby="modules-error-body"
+              >
+                Try again
+              </Button>
             </Card>
-          ))}
-        </div>
+          )}
+
+          {/* Empty state (loaded but no adventures in catalog) */}
+          {status === 'ok' && adventures.length === 0 && (
+            <Card className={styles.catalogError} role="status" aria-labelledby="modules-empty-title">
+              <p id="modules-empty-title" className={styles.catalogErrorTitle}>
+                No modules available yet.
+              </p>
+              <p className={styles.catalogErrorBody}>
+                Check back soon — adventures will appear here once the catalog is seeded.
+              </p>
+            </Card>
+          )}
+
+          {/* Adventure grid */}
+          {status === 'ok' && adventures.length > 0 && (
+            <div className={styles.grid}>
+              {adventures.map((adv) => (
+                <Card key={adv.public_id} className={styles.module}>
+                  <span className={styles.moduleIcon} aria-hidden>
+                    <Icon name="Map" size={26} />
+                  </span>
+                  <div className={styles.moduleHead}>
+                    <div className={styles.modulePills}>
+                      {adv.summary.level_range && (
+                        <Pill tone="lav">{formatLevelRange(adv.summary.level_range)}</Pill>
+                      )}
+                      {adv.summary.length && (
+                        <Pill tone="muted">{formatLength(adv.summary.length)}</Pill>
+                      )}
+                    </div>
+                    <h2 className={styles.moduleTitle}>{adv.name}</h2>
+                    {adv.summary.subtitle && (
+                      <p className={styles.moduleBlurb}>{adv.summary.subtitle}</p>
+                    )}
+                  </div>
+                  <div className={styles.moduleFoot}>
+                    <Button
+                      variant="primary"
+                      onClick={() => setSelected(adv)}
+                      leadingIcon={<Icon name="D20" size={14} aria-hidden />}
+                    >
+                      Run this
+                    </Button>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </TavernShell>
   );

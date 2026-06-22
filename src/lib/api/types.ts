@@ -142,6 +142,10 @@ export interface SessionStartRequest {
    *  Omit = no binding (back-compat). The Tavern auto-binds when the user has
    *  exactly one character; shows a picker when they have multiple. */
   character_id?: number;
+  /** ADV-4/ADV-9: public_id of the authored adventure to run (e.g.
+   *  'dnd5e:adventure:hollow-tide-cave'). Omit = freeform/sandbox campaign.
+   *  The engine stamps this as campaign.adventure_ref and initialises progress. */
+  adventure_ref?: string;
 }
 /** A row from the engine's `session_events` log (S3.6 recap source).
  *  Field-name convention used by buildRecap and pre-existing callers. */
@@ -338,6 +342,53 @@ export interface SystemDefinition {
     dice: Record<string, unknown>;
   };
   is_active: boolean;
+}
+
+// ── DnD: authored adventures — combat from scene (ADV-6) ─────────────────────
+
+/** Request body for POST /api/dnd/combat/from-scene (ADV-6). */
+export interface CombatFromSceneRequest {
+  /** The active game session id. */
+  session_id: string;
+  /** Optional: override the current scene's encounter. Omit = use current scene. */
+  encounter_id?: string;
+}
+
+/** One monster spawned into the combat by the engine (ADV-6). */
+export interface CombatSceneMonster {
+  participant_id: string;
+  name: string;
+  hp: number | null;
+  from_ref?: string;
+  tactics?: string;
+  position?: string;
+}
+
+/** Response from POST /api/dnd/combat/from-scene (ADV-6). */
+export interface CombatFromSceneResult {
+  combat_id: string;
+  round: number;
+  monsters: CombatSceneMonster[];
+  terrain?: Record<string, unknown>;
+  encounter_id?: string;
+}
+
+// ── DnD: catalog — adventure items (ADV-9) ────────────────────────────────────
+
+/** Summary block projected from the adventure data JSONB for catalog list mode. */
+export interface AdventureSummary {
+  subtitle?: string;
+  level_range?: { min: number; max: number };
+  length?: string;
+  content_rating?: string;
+  tags?: string[];
+}
+
+/** A catalog item for content_type='adventure'. */
+export interface AdventureCatalogItem {
+  public_id: string;
+  name: string;
+  summary: AdventureSummary;
 }
 
 // ── Narration SSE ──────────────────────────────────────────────────────────

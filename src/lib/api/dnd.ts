@@ -10,6 +10,8 @@ import type {
   CharacterCreated,
   CharacterSheet,
   CombatActionRequest,
+  CombatFromSceneRequest,
+  CombatFromSceneResult,
   CombatInitiativeRequest,
   CombatMessageResult,
   CombatMonsterTurnRequest,
@@ -358,6 +360,25 @@ export const dash = (req: CombatActionRequest, signal?: AbortSignal) =>
 
 export const endTurn = (req: CombatActionRequest, signal?: AbortSignal) =>
   apiCall<CombatMessageResult>('/api/dnd/combat/endturn', {
+    method: 'POST',
+    json: req,
+    signal,
+  });
+
+/**
+ * Start combat from the current scene's authored encounter (ADV-6).
+ * The engine resolves the session → campaign → adventure → current scene and
+ * spawns the scene's monsters. Returns the new combat_id + monster roster.
+ *
+ * Throws ApiError with status 400 when no encounter is defined for the current
+ * scene (freeform session, or a scene that has no encounter block). Callers must
+ * handle this gracefully — it is an expected, non-crash condition.
+ */
+export const combatFromScene = (
+  req: CombatFromSceneRequest,
+  signal?: AbortSignal,
+) =>
+  apiCall<CombatFromSceneResult>('/api/dnd/combat/from-scene', {
     method: 'POST',
     json: req,
     signal,

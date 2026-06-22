@@ -181,6 +181,28 @@
   border-top: 1px solid var(--line-2);
 }
 
+/* ── Catalog loading / error / empty states (ADV-9) ──────────────────────── */
+.catalogError {
+  max-width: 480px;
+  margin: 24px auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+}
+.catalogErrorTitle {
+  font-family: var(--font-display);
+  font-size: 18px;
+  margin: 0;
+  color: var(--ink);
+}
+.catalogErrorBody {
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.55;
+  margin: 0;
+}
+
 @media (max-width: 720px) {
   .grid {
     grid-template-columns: 1fr;

@@ -23,6 +23,7 @@ beforeEach(() => {
 });
 
 import {
+  combatFromScene,
   createCharacter,
   getCharacter,
   levelUpCharacter,
@@ -456,5 +457,82 @@ describe('Delete / restore / trash (DEL-6)', () => {
     expect(url).toBe('/api/dnd/sessions/sess-1/restore');
     expect(method).toBe('POST');
     expect(body).toMatchObject({ username: 'leon' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADV-6: combatFromScene
+// ---------------------------------------------------------------------------
+
+describe('combatFromScene (ADV-6)', () => {
+  it('POST /api/dnd/combat/from-scene with session_id', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            combat_id: 'combat-1',
+            round: 1,
+            monsters: [
+              { participant_id: 'g1', name: 'Goblin', hp: 7 },
+            ],
+            encounter_id: 'cave_mouth_guards',
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    const result = await combatFromScene({ session_id: 's42' });
+    const { url, method, body } = lastCall();
+    expect(url).toBe('/api/dnd/combat/from-scene');
+    expect(method).toBe('POST');
+    expect(body).toMatchObject({ session_id: 's42' });
+    expect(result).toMatchObject({ combat_id: 'combat-1', round: 1 });
+    expect(result.monsters).toHaveLength(1);
+    expect(result.monsters[0]).toMatchObject({ participant_id: 'g1', name: 'Goblin', hp: 7 });
+  });
+
+  it('passes optional encounter_id in the request body', async () => {
+    await combatFromScene({ session_id: 's1', encounter_id: 'back_chamber' });
+    const { body } = lastCall();
+    expect(body).toMatchObject({ session_id: 's1', encounter_id: 'back_chamber' });
+  });
+
+  it('omits encounter_id from the body when not provided', async () => {
+    await combatFromScene({ session_id: 's1' });
+    const { body } = lastCall();
+    expect((body as Record<string, unknown>)['encounter_id']).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADV-9: createSession with adventure_ref
+// ---------------------------------------------------------------------------
+
+describe('createSession with adventure_ref (ADV-9)', () => {
+  it('passes adventure_ref through to the request body', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ success: true, data: { message: 'ok', session: { session_id: 's9', channel: 'c' } } }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    await createSession({
+      username: 'leon',
+      channel: 'the_hollow_tide_cave',
+      adventure_ref: 'dnd5e:adventure:hollow-tide-cave',
+    });
+    const { body } = lastCall();
+    expect(body).toMatchObject({
+      username: 'leon',
+      channel: 'the_hollow_tide_cave',
+      adventure_ref: 'dnd5e:adventure:hollow-tide-cave',
+    });
+  });
+
+  it('does not send adventure_ref when omitted (freeform session)', async () => {
+    await createSession({ username: 'leon', channel: 'sandbox' });
+    const { body } = lastCall();
+    expect((body as Record<string, unknown>)['adventure_ref']).toBeUndefined();
   });
 });

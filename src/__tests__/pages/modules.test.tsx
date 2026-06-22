@@ -1,8 +1,13 @@
 /**
  * Tests for src/app/modules/page.tsx — the way-to-start (Option B).
  *
- * Covers the catalog → starter form flow, the content_rating SFW interlock
- * (mature is private/unlisted only; public forces SFW), and create wiring.
+ * ADV-9: The module list is now data-driven (getCatalog). Tests cover:
+ *   - Loading / empty / error / retry states
+ *   - Adventure cards rendered from catalog response
+ *   - createSession called with adventure_ref = public_id (not hardcoded id)
+ *   - content_rating SFW interlock still intact
+ *   - Character binding still works
+ *   - No hardcoded MODULES content in the rendered output
  */
 import React from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
@@ -25,6 +30,7 @@ jest.mock('../../lib/api/auth', () => ({
 jest.mock('../../lib/api/dnd', () => ({
   createSession: jest.fn(),
   listMyCharacters: jest.fn(),
+  getCatalog: jest.fn(),
 }));
 
 import * as dnd from '../../lib/api/dnd';
@@ -36,6 +42,7 @@ import type { Character, Session, SessionStartRequest, User } from '../../lib/ap
 
 const mockCreate = dnd.createSession as jest.MockedFunction<typeof dnd.createSession>;
 const mockListChars = dnd.listMyCharacters as jest.MockedFunction<typeof dnd.listMyCharacters>;
+const mockGetCatalog = dnd.getCatalog as jest.MockedFunction<typeof dnd.getCatalog>;
 const LEON: User = { id: 1, username: 'leon', email: null };
 
 const CHAR_A: Character = {
@@ -59,6 +66,48 @@ const CHAR_B: Character = {
   ac: 14,
 };
 
+/** A catalog response with one seeded adventure (the Hollow Tide Cave). */
+const HOLLOW_TIDE_CATALOG = {
+  system: 'dnd5e',
+  content_type: 'adventure',
+  items: [
+    {
+      public_id: 'dnd5e:adventure:hollow-tide-cave',
+      name: 'The Hollow Tide Cave',
+      summary: {
+        subtitle: 'A coastal cave, a missing crew, and goblins in the dark.',
+        level_range: { min: 1, max: 2 },
+        length: 'one_session',
+        content_rating: 'sfw',
+        tags: ['coastal', 'dungeon', 'low-level', 'goblins'],
+      },
+    },
+  ],
+  total: 1,
+  limit: 50,
+  offset: 0,
+};
+
+/** A catalog response with two adventures (tests data-driven expansion). */
+const TWO_ADVENTURE_CATALOG = {
+  ...HOLLOW_TIDE_CATALOG,
+  items: [
+    ...HOLLOW_TIDE_CATALOG.items,
+    {
+      public_id: 'dnd5e:adventure:goblin-warrens',
+      name: 'The Goblin Warrens',
+      summary: {
+        subtitle: 'Deep tunnels, ancient grudges.',
+        level_range: { min: 2, max: 4 },
+        length: 'short',
+        content_rating: 'sfw',
+        tags: ['dungeon'],
+      },
+    },
+  ],
+  total: 2,
+};
+
 function renderModules() {
   return render(
     <ToastProvider>
@@ -72,71 +121,190 @@ function renderModules() {
 beforeEach(() => {
   mockPush.mockClear();
   mockCreate.mockReset().mockResolvedValue({ session_id: 's9', channel: 'x' } as Session);
-  // Default: no characters (DM-only path) — tests that need characters override this.
   mockListChars.mockReset().mockResolvedValue([]);
+  // Default: catalog returns the seeded Hollow Tide adventure.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  mockGetCatalog.mockReset().mockResolvedValue(HOLLOW_TIDE_CATALOG as any);
 });
 
-function openForm() {
+// ── Catalog loading / empty / error / retry ──────────────────────────────────
+
+it('shows a loading skeleton while the catalog is fetching', () => {
+  // Hold the catalog response in limbo to capture the loading state.
+  mockGetCatalog.mockReturnValue(new Promise(() => {}));
   renderModules();
-  fireEvent.click(screen.getByRole('button', { name: /run this/i }));
+  // PageSkeleton has aria-busy="true" (internal); the shell heading still renders.
+  expect(screen.getByRole('heading', { level: 1, name: /start a campaign/i })).toBeInTheDocument();
+  // Module cards must NOT be present while loading.
+  expect(screen.queryByRole('button', { name: /run this/i })).not.toBeInTheDocument();
+});
+
+it('shows the adventure grid after a successful catalog fetch', async () => {
+  renderModules();
+  expect(await screen.findByRole('heading', { level: 2, name: /hollow tide/i })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /run this/i })).toBeInTheDocument();
+  // Level range pill
+  expect(screen.getByText(/levels 1/i)).toBeInTheDocument();
+  // Subtitle
+  expect(screen.getByText(/coastal cave/i)).toBeInTheDocument();
+});
+
+it('shows the empty state when the catalog returns no adventures', async () => {
+  mockGetCatalog.mockResolvedValue({ ...HOLLOW_TIDE_CATALOG, items: [], total: 0 } as ReturnType<typeof dnd.getCatalog> extends Promise<infer T> ? T : never);
+  renderModules();
+  expect(await screen.findByText(/no modules available yet/i)).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /run this/i })).not.toBeInTheDocument();
+});
+
+it('shows the error state and retry button when the catalog fetch fails', async () => {
+  mockGetCatalog.mockRejectedValue(new Error('network error'));
+  renderModules();
+  // Match loosely — the apostrophe in "can't" is a curved Unicode right single quote
+  // (’) from &rsquo; in JSX, not a straight apostrophe.
+  expect(await screen.findByText(/reach the adventure catalog/i)).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
+});
+
+it('retry re-fetches the catalog and shows the grid on success', async () => {
+  // First call fails; second succeeds.
+  mockGetCatalog
+    .mockRejectedValueOnce(new Error('timeout'))
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .mockResolvedValue(HOLLOW_TIDE_CATALOG as any);
+
+  renderModules();
+  // Wait for error state.
+  const retryBtn = await screen.findByRole('button', { name: /try again/i });
+  await act(async () => {
+    fireEvent.click(retryBtn);
+  });
+  // After retry, the adventure grid should render.
+  expect(await screen.findByRole('heading', { level: 2, name: /hollow tide/i })).toBeInTheDocument();
+  expect(mockGetCatalog).toHaveBeenCalledTimes(2);
+});
+
+it('a second adventure in the catalog renders without any Tavern change', async () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  mockGetCatalog.mockResolvedValue(TWO_ADVENTURE_CATALOG as any);
+  renderModules();
+  expect(await screen.findByRole('heading', { level: 2, name: /hollow tide/i })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { level: 2, name: /goblin warrens/i })).toBeInTheDocument();
+  expect(screen.getAllByRole('button', { name: /run this/i })).toHaveLength(2);
+});
+
+// ── getCatalog called with correct args ──────────────────────────────────────
+
+it('getCatalog is called with system=dnd5e and type=adventure', async () => {
+  renderModules();
+  await screen.findByRole('button', { name: /run this/i });
+  expect(mockGetCatalog).toHaveBeenCalledWith('dnd5e', { type: 'adventure' }, expect.anything());
+});
+
+// ── Module pick → StarterForm ─────────────────────────────────────────────────
+
+async function openForm() {
+  renderModules();
+  // Wait for catalog to load and the "Run this" button to appear.
+  const runBtn = await screen.findByRole('button', { name: /run this/i });
+  fireEvent.click(runBtn);
 }
 
-it('renders the catalog with the seeded one-shot', () => {
-  renderModules();
-  expect(screen.getByRole('heading', { level: 1, name: /start a campaign/i })).toBeInTheDocument();
-  expect(screen.getByRole('heading', { level: 2, name: /hollow tide/i })).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /run this/i })).toBeInTheDocument();
-});
-
-it('opens the starter form when a module is chosen', () => {
-  openForm();
+it('opens the starter form when a module is chosen', async () => {
+  await openForm();
   expect(screen.getByRole('heading', { name: /set the table/i })).toBeInTheDocument();
   expect(screen.getByText(/table name/i)).toBeInTheDocument();
 });
 
+// ── adventure_ref passed to createSession (the key ADV-9 AC) ─────────────────
+
+it('Begin sends adventure_ref = public_id from the catalog item', async () => {
+  await openForm();
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
+  });
+  await waitFor(() => {
+    const call = mockCreate.mock.calls[0][0] as SessionStartRequest;
+    expect(call['adventure_ref']).toBe('dnd5e:adventure:hollow-tide-cave');
+  });
+});
+
+it('Begin creates a session with a slugified channel and routes to the dashboard', async () => {
+  await openForm();
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
+  });
+  // Default selection: Suzu DMs (ai) + private + sfw
+  await waitFor(() =>
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        username: 'leon',
+        channel: 'the_hollow_tide_cave',
+        dm_mode: 'ai',
+        ai_assist_level: 'full',
+        visibility: 'private',
+        content_rating: 'sfw',
+        adventure_ref: 'dnd5e:adventure:hollow-tide-cave',
+      }),
+    ),
+  );
+  await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/dashboard'));
+});
+
+// Regression: confirm no test asserts old hardcoded module content outside of
+// dynamic catalog rendering — the MODULES constant is gone; the name only
+// appears because the catalog returns it.
+
+it('module_id is NOT sent to createSession (engine owns adventure link now)', async () => {
+  await openForm();
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
+  });
+  await waitFor(() => {
+    const call = mockCreate.mock.calls[0][0] as SessionStartRequest;
+    // module_id was a localStorage annotation; it's gone; adventure_ref is the replacement.
+    expect((call as unknown as Record<string, unknown>)['module_id']).toBeUndefined();
+  });
+});
+
+// ── RadioGroup keyboard navigation ────────────────────────────────────────────
+
 describe('RadioGroup keyboard navigation (S3.4)', () => {
-  it('groups are radiogroups with roving tabindex (checked=0, others=-1)', () => {
-    openForm();
+  it('groups are radiogroups with roving tabindex (checked=0, others=-1)', async () => {
+    await openForm();
     const groups = screen.getAllByRole('radiogroup');
     expect(groups.length).toBe(3); // DM · visibility · content rating
-    // The DM group defaults to "Suzu DMs" checked → tabIndex 0; "Solo" → -1.
     const ai = screen.getByRole('radio', { name: /suzu dms/i });
     const solo = screen.getByRole('radio', { name: /solo/i });
     expect(ai).toHaveAttribute('tabindex', '0');
     expect(solo).toHaveAttribute('tabindex', '-1');
   });
 
-  it('ArrowDown moves the selection within a radiogroup', () => {
-    openForm();
+  it('ArrowDown moves the selection within a radiogroup', async () => {
+    await openForm();
     const ai = screen.getByRole('radio', { name: /suzu dms/i });
     fireEvent.keyDown(ai, { key: 'ArrowDown' });
-    expect(screen.getByRole('radio', { name: /solo/i })).toHaveAttribute(
-      'aria-checked',
-      'true',
-    );
+    expect(screen.getByRole('radio', { name: /solo/i })).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('Arrow navigation skips a disabled option (Mature when Public)', () => {
-    openForm();
+  it('Arrow navigation skips a disabled option (Mature when Public)', async () => {
+    await openForm();
     fireEvent.click(screen.getByRole('radio', { name: /^public/i }));
     const sfw = screen.getByRole('radio', { name: /safe for stream/i });
-    // Mature is disabled on a public table — ArrowDown wraps back to SFW, not Mature.
     fireEvent.keyDown(sfw, { key: 'ArrowDown' });
-    expect(screen.getByRole('radio', { name: /mature/i })).toHaveAttribute(
-      'aria-checked',
-      'false',
-    );
+    expect(screen.getByRole('radio', { name: /mature/i })).toHaveAttribute('aria-checked', 'false');
   });
 });
 
+// ── content_rating SFW interlock ──────────────────────────────────────────────
+
 describe('content_rating SFW interlock', () => {
-  it('allows Mature on a private table (default)', () => {
-    openForm();
+  it('allows Mature on a private table (default)', async () => {
+    await openForm();
     expect(screen.getByRole('radio', { name: /mature/i })).not.toBeDisabled();
   });
 
-  it('forces SFW + disables Mature when the table is Public', () => {
-    openForm();
+  it('forces SFW + disables Mature when the table is Public', async () => {
+    await openForm();
     fireEvent.click(screen.getByRole('radio', { name: /^public/i }));
     const mature = screen.getByRole('radio', { name: /mature/i });
     expect(mature).toBeDisabled();
@@ -147,8 +315,8 @@ describe('content_rating SFW interlock', () => {
     expect(screen.getByText(/always safe-for-stream/i)).toBeInTheDocument();
   });
 
-  it('resets a Mature selection back to SFW when switching to Public', () => {
-    openForm();
+  it('resets a Mature selection back to SFW when switching to Public', async () => {
+    await openForm();
     fireEvent.click(screen.getByRole('radio', { name: /mature/i }));
     expect(screen.getByRole('radio', { name: /mature/i })).toHaveAttribute('aria-checked', 'true');
     fireEvent.click(screen.getByRole('radio', { name: /^public/i }));
@@ -159,28 +327,10 @@ describe('content_rating SFW interlock', () => {
   });
 });
 
-it('Begin creates a session with a slugified channel and routes to the dashboard', async () => {
-  openForm();
-  await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
-  });
-  // Default selection: Suzu DMs (ai) + private + sfw → dm_mode:'ai', ai_assist_level:'full'
-  await waitFor(() =>
-    expect(mockCreate).toHaveBeenCalledWith({
-      username: 'leon',
-      channel: 'the_hollow_tide_cave',
-      dm_mode: 'ai',
-      ai_assist_level: 'full',
-      visibility: 'private',
-      content_rating: 'sfw',
-    }),
-  );
-  await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/dashboard'));
-});
+// ── DM mode axes ─────────────────────────────────────────────────────────────
 
 it('Begin with Suzu DMs selection sends dm_mode:ai + ai_assist_level:full', async () => {
-  openForm();
-  // Ensure "Suzu DMs" is selected (it is by default)
+  await openForm();
   fireEvent.click(screen.getByRole('radio', { name: /suzu dms/i }));
   await act(async () => {
     fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
@@ -193,7 +343,7 @@ it('Begin with Suzu DMs selection sends dm_mode:ai + ai_assist_level:full', asyn
 });
 
 it('Begin with Solo selection sends dm_mode:human + ai_assist_level:off', async () => {
-  openForm();
+  await openForm();
   fireEvent.click(screen.getByRole('radio', { name: /solo/i }));
   await act(async () => {
     fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
@@ -206,9 +356,7 @@ it('Begin with Solo selection sends dm_mode:human + ai_assist_level:off', async 
 });
 
 it('Begin sends the visibility and effective content_rating axes', async () => {
-  openForm();
-  // Switch to unlisted + mature. Anchor /^unlisted/i to avoid matching options
-  // whose note text also contains "unlisted".
+  await openForm();
   fireEvent.click(screen.getByRole('radio', { name: /^unlisted/i }));
   fireEvent.click(screen.getByRole('radio', { name: /mature/i }));
   await act(async () => {
@@ -222,9 +370,7 @@ it('Begin sends the visibility and effective content_rating axes', async () => {
 });
 
 it('Begin on a public table always sends content_rating:sfw regardless of prior selection', async () => {
-  openForm();
-  // First switch to unlisted to allow mature, then back to public.
-  // Use /^unlisted/i (anchored) to avoid matching options whose note mentions "unlisted".
+  await openForm();
   fireEvent.click(screen.getByRole('radio', { name: /^unlisted/i }));
   fireEvent.click(screen.getByRole('radio', { name: /mature/i }));
   fireEvent.click(screen.getByRole('radio', { name: /^public/i }));
@@ -238,11 +384,11 @@ it('Begin on a public table always sends content_rating:sfw regardless of prior 
   });
 });
 
-// ── character binding (bind-character-to-session) ─────────────────────────────
+// ── character binding ─────────────────────────────────────────────────────────
 
 it('Begin with no characters sends no character_id', async () => {
   mockListChars.mockResolvedValue([]);
-  openForm();
+  await openForm();
   await act(async () => {
     fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
   });
@@ -253,10 +399,18 @@ it('Begin with no characters sends no character_id', async () => {
 });
 
 it('Begin with exactly one character auto-binds it (sends character_id)', async () => {
-  mockListChars.mockResolvedValue([CHAR_A]);
-  openForm();
-  // Wait for the character list to load (useEffect)
-  await waitFor(() => expect(mockListChars).toHaveBeenCalledWith('leon', expect.anything()));
+  // Use a deferred promise so we can resolve it inside act, ensuring React
+  // commits setCharacters + setSelectedCharId within a controlled act scope.
+  let resolveChars!: (chars: Character[]) => void;
+  const charsPromise = new Promise<Character[]>((res) => { resolveChars = res; });
+  mockListChars.mockReturnValue(charsPromise);
+  await openForm();
+  // StarterForm is now mounted but characters haven't loaded yet.
+  await act(async () => {
+    resolveChars([CHAR_A]); // resolve inside act so state update is committed
+    await charsPromise;
+  });
+  // auto-bind: selectedCharId should now be 10
   await act(async () => {
     fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
   });
@@ -268,21 +422,28 @@ it('Begin with exactly one character auto-binds it (sends character_id)', async 
 
 it('Begin with multiple characters shows a picker select', async () => {
   mockListChars.mockResolvedValue([CHAR_A, CHAR_B]);
-  openForm();
+  await openForm();
   await waitFor(() =>
     expect(screen.getByRole('combobox', { name: /your character/i })).toBeInTheDocument(),
   );
 });
 
 it('Begin with multiple characters sends the selected character_id', async () => {
-  mockListChars.mockResolvedValue([CHAR_A, CHAR_B]);
-  openForm();
-  await waitFor(() =>
-    expect(screen.getByRole('combobox', { name: /your character/i })).toBeInTheDocument(),
-  );
-  // Select the second character
-  fireEvent.change(screen.getByRole('combobox', { name: /your character/i }), {
-    target: { value: '11' },
+  // Use a deferred promise so we can resolve characters inside act.
+  let resolveChars!: (chars: Character[]) => void;
+  const charsPromise = new Promise<Character[]>((res) => { resolveChars = res; });
+  mockListChars.mockReturnValue(charsPromise);
+  await openForm();
+  // Resolve inside act so setCharacters([CHAR_A, CHAR_B]) is committed.
+  await act(async () => {
+    resolveChars([CHAR_A, CHAR_B]);
+    await charsPromise;
+  });
+  const combobox = screen.getByRole('combobox', { name: /your character/i });
+  // Change and click in separate acts: first commits setSelectedCharId(11),
+  // second calls handleBegin which reads the committed selectedCharId.
+  await act(async () => {
+    fireEvent.change(combobox, { target: { value: '11' } });
   });
   await act(async () => {
     fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
@@ -295,11 +456,10 @@ it('Begin with multiple characters sends the selected character_id', async () =>
 
 it('Begin with multiple characters and no selection sends no character_id', async () => {
   mockListChars.mockResolvedValue([CHAR_A, CHAR_B]);
-  openForm();
+  await openForm();
   await waitFor(() =>
     expect(screen.getByRole('combobox', { name: /your character/i })).toBeInTheDocument(),
   );
-  // Ensure the "no character" option is selected (default when multiple)
   fireEvent.change(screen.getByRole('combobox', { name: /your character/i }), {
     target: { value: '' },
   });
