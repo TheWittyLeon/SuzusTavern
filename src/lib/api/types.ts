@@ -123,6 +123,16 @@ export type ContentRating = 'sfw' | 'mature';
 export type Visibility = 'public' | 'unlisted' | 'private';
 
 export interface SessionStartRequest { username: string; channel: string }
+/** A row from the engine's `session_events` log (S3.6 recap source). */
+export interface SessionEvent {
+  event_id?: string;
+  /** 'combat' | 'combat_end' | 'level_up' | 'scene' | 'death' | 'xp' | 'narration' | 'join' | … */
+  event_type?: string;
+  actor?: string;
+  description?: string;
+  created_at?: string;
+}
+
 export interface Session {
   session_id: string;
   channel: string;
@@ -144,6 +154,9 @@ export interface Session {
   content_rating?: ContentRating;
   /** STORY-313 — table visibility. */
   visibility?: Visibility;
+  /** S2.5 — AI assist level; engine-authoritative once deployed. 'off' = hard
+   *  interlock (no LLM calls). Drives the recap/commentary AI gates (S3.6/3.8). */
+  ai_assist_level?: 'full' | 'assist' | 'off';
   [k: string]: unknown;
 }
 export interface XpAwardRequest extends SessionStartRequest { amount: number; reason?: string }

@@ -27,6 +27,7 @@ jest.mock('../../lib/api/auth', () => ({
 
 jest.mock('../../lib/api/dnd', () => ({
   listSessions: jest.fn(),
+  getSessionEvents: jest.fn(() => Promise.resolve([])),
   listMyCharacters: jest.fn(),
   deleteCharacter: jest.fn(),
   restoreCharacter: jest.fn(),

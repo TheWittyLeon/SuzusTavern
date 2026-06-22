@@ -1,0 +1,127 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: color-mix(in oklab, var(--accent-2) 7%, var(--card));
+}
+
+.strip {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  /* 6% (not 8%): a higher tint darkens the aetheric strip enough that --ink-3
+     dips below AA (4.48:1) for .sub/.empty — keep the tint light (Iro S3.6). */
+  background: color-mix(in oklab, var(--accent-2) 6%, transparent);
+  flex-shrink: 0;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0;
+}
+.sub {
+  color: var(--ink-3);
+  font-weight: 400;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Strip toggle: the whole header bar is the expand/collapse control. */
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  color: var(--ink-2);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.chev {
+  margin-left: auto;
+  color: var(--ink-3);
+  transition: transform var(--dur-fast) var(--ease);
+}
+.chevOpen {
+  margin-left: auto;
+  color: var(--ink-3);
+  transform: rotate(90deg);
+  transition: transform var(--dur-fast) var(--ease);
+}
+
+.dismiss {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.dismiss:hover {
+  color: var(--ink);
+}
+
+.body {
+  padding: 0 12px 12px;
+}
+.card .body {
+  padding: 0;
+}
+
+.lines {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+
+.ai {
+  margin: 0;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+.attribution {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--accent-2);
+}
+
+.empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-3);
+  line-height: 1.5;
+}

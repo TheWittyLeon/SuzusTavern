@@ -30,6 +30,7 @@ jest.mock('../../lib/api/auth', () => ({
 
 jest.mock('../../lib/api/dnd', () => ({
   listSessions: jest.fn(),
+  getSessionEvents: jest.fn(() => Promise.resolve([])),
   listMyCharacters: jest.fn(),
   // DeleteCharacterButton (rendered per card) imports these; mock so a delete
   // click in a test never hits the real API.

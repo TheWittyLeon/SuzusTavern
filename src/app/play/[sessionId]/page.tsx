@@ -42,6 +42,7 @@ import Icon from '@/components/Icon';
 import Pill from '@/components/Pill';
 import PageSkeleton from '@/components/PageSkeleton';
 import NarratorStrip from '@/components/NarratorStrip';
+import SessionRecap from '@/components/SessionRecap';
 import ChatLog, { type ChatLogHandle, type LogRow } from '@/components/ChatLog';
 import PartyPanel from '@/components/PartyPanel';
 import InitiativeTracker, { type InitEntry } from '@/components/InitiativeTracker';
@@ -483,6 +484,18 @@ export default function PlayPage() {
       {/* CENTRE — narrator + log + composer */}
       <main id="play-pane-story" className={`${styles.pane} ${styles.center}`}>
         <NarratorStrip text={narratorText} talking={talking} status={statusPill} />
+        {/* Persistent polite live region so the recap is announced when it
+            mounts after the events fetch (Iro S3.6 MINOR-1). */}
+        <div aria-live="polite">
+          {session && (
+            <SessionRecap
+              key={session.session_id}
+              session={session}
+              username={username}
+              variant="strip"
+            />
+          )}
+        </div>
         <ChatLog ref={chatLogRef} rows={log} thinking={thinking} />
         <Composer
           value={msg}

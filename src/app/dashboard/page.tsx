@@ -29,6 +29,7 @@ import Icon from '@/components/Icon';
 import SuzuDM from '@/components/SuzuDM';
 import SectionHead from '@/components/SectionHead';
 import DeleteCharacterButton from '@/components/DeleteCharacterButton';
+import SessionRecap from '@/components/SessionRecap';
 import { titleizeChannel, formatStarted } from '@/lib/format';
 import styles from './Dashboard.module.css';
 
@@ -216,6 +217,12 @@ function DashActive({
           </Button>
         </div>
       </Card>
+
+      {/* "Previously on" recap for the most recent campaign (ST-079).
+          key by session so a campaign swap can't flash a stale AI summary (Kage). */}
+      <div style={{ marginBottom: 18 }}>
+        <SessionRecap key={hero.session_id} session={hero} username={username} variant="card" />
+      </div>
 
       <div className={styles.cols}>
         <div className={styles.colMain}>

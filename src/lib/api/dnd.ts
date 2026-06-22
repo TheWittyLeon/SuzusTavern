@@ -19,6 +19,7 @@ import type {
   Inventory,
   Participant,
   Session,
+  SessionEvent,
   SessionStartRequest,
   SpellCastRequest,
   SystemDefinition,
@@ -176,6 +177,23 @@ export const getParticipants = (sessionId: string, signal?: AbortSignal) =>
     `/api/dnd/sessions/${encodeURIComponent(sessionId)}/participants`,
     { method: 'GET', signal },
   ).then((d) => d.participants ?? []);
+
+/**
+ * Recent session events for the "previously on" recap (S3.6 / ST-079).
+ *
+ * FLAGGED: the engine writes `session_events` but exposes no read route yet, so
+ * this 404s today → caught → []. The recap then uses its deterministic metadata
+ * digest. When the tiny engine `GET /sessions/{id}/events` lands, this lights up
+ * with no caller change. Deliberately swallows errors (recap must never break
+ * the screen).
+ */
+export const getSessionEvents = (sessionId: string, signal?: AbortSignal) =>
+  apiCall<{ events: SessionEvent[] }>(
+    `/api/dnd/sessions/${encodeURIComponent(sessionId)}/events`,
+    { method: 'GET', signal },
+  )
+    .then((d) => d.events ?? [])
+    .catch(() => [] as SessionEvent[]);
 
 export const startSession = (req: SessionStartRequest, signal?: AbortSignal) =>
   apiCall<Session>('/api/dnd/sessions', { method: 'POST', json: req, signal });
