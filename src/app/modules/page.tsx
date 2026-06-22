@@ -163,7 +163,8 @@ function StarterForm({
       .then((chars) => {
         setCharacters(chars);
         if (chars.length === 1) {
-          setSelectedCharId(Number(chars[0].character_id));
+          const parsed = Number(chars[0].character_id);
+          if (Number.isFinite(parsed)) setSelectedCharId(parsed);
         }
       })
       .catch(() => setCharacters([]));
@@ -201,7 +202,7 @@ function StarterForm({
         visibility,
         content_rating: effectiveRating,
       };
-      if (selectedCharId !== undefined) {
+      if (selectedCharId !== undefined && Number.isFinite(selectedCharId)) {
         sessionReq.character_id = selectedCharId;
       }
       const session = await createSession(sessionReq);
@@ -302,14 +303,17 @@ function StarterForm({
       {/* Character binding — shown only once character list loads */}
       {characters !== null && characters.length > 1 && (
         <label className={styles.field}>
+          {/* Iro MINOR-2: the <label> text "Your character" is the accessible name.
+              The redundant aria-label was dropped — it overrode the visible label
+              text, causing a Label-in-Name WCAG mismatch. */}
           <span className={styles.fieldLabel}>Your character</span>
           <select
             className="input"
             value={selectedCharId ?? ''}
-            onChange={(e) =>
-              setSelectedCharId(e.target.value ? Number(e.target.value) : undefined)
-            }
-            aria-label="Choose which character to bring"
+            onChange={(e) => {
+              const parsed = Number(e.target.value);
+              setSelectedCharId(e.target.value && Number.isFinite(parsed) ? parsed : undefined);
+            }}
           >
             <option value="">— no character (DM only) —</option>
             {characters.map((c) => (

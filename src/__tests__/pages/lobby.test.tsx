@@ -159,8 +159,10 @@ it('join with one character auto-binds it (sends character_id)', async () => {
   mockListSessions.mockResolvedValue([suzuTable]);
   mockListChars.mockResolvedValue([CHAR_A]);
   renderLobby();
-  // Wait for character list to load
+  // Wait for both the character list fetch and the subsequent useEffect that sets
+  // selectedCharId to drain — the effect runs after setUserCharacters resolves.
   await waitFor(() => expect(mockListChars).toHaveBeenCalledWith('leon', expect.anything()));
+  await act(async () => { /* flush pending state updates and effects */ });
   await waitFor(() => expect(screen.getByRole('button', { name: /join table/i })).toBeInTheDocument());
   await act(async () => {
     fireEvent.click(screen.getByRole('button', { name: /join table/i }));
@@ -171,13 +173,15 @@ it('join with one character auto-binds it (sends character_id)', async () => {
   });
 });
 
-it('join with multiple characters shows a picker', async () => {
+it('join with multiple characters shows a picker (aria-label names the table)', async () => {
   mockListSessions.mockResolvedValue([suzuTable]);
   mockListChars.mockResolvedValue([CHAR_A, CHAR_B]);
   renderLobby();
   await waitFor(() => expect(mockListChars).toHaveBeenCalledWith('leon', expect.anything()));
+  // Iro MAJOR-1: aria-label now includes the table name for uniqueness across cards.
+  // The regex still partial-matches; the full label is "Choose which character to bring to Hollow Tide".
   await waitFor(() =>
-    expect(screen.getByRole('combobox', { name: /choose which character/i })).toBeInTheDocument(),
+    expect(screen.getByRole('combobox', { name: /choose which character to bring to hollow tide/i })).toBeInTheDocument(),
   );
 });
 
@@ -186,9 +190,9 @@ it('join with multiple characters sends the selected character_id', async () => 
   mockListChars.mockResolvedValue([CHAR_A, CHAR_B]);
   renderLobby();
   await waitFor(() =>
-    expect(screen.getByRole('combobox', { name: /choose which character/i })).toBeInTheDocument(),
+    expect(screen.getByRole('combobox', { name: /choose which character to bring to hollow tide/i })).toBeInTheDocument(),
   );
-  fireEvent.change(screen.getByRole('combobox', { name: /choose which character/i }), {
+  fireEvent.change(screen.getByRole('combobox', { name: /choose which character to bring to hollow tide/i }), {
     target: { value: '11' },
   });
   await act(async () => {
@@ -197,5 +201,33 @@ it('join with multiple characters sends the selected character_id', async () => 
   await waitFor(() => {
     const [, payload] = mockJoin.mock.calls[0];
     expect(payload).toHaveProperty('character_id', 11);
+  });
+});
+
+it('auto-bind still fires when sessions resolve before characters (race fix)', async () => {
+  // Simulates the real prod race: listSessions resolves immediately, but
+  // listMyCharacters is delayed. The useState initializer used to run before
+  // userCharacters was populated → binding silently never sent.
+  // The useEffect fix ensures binding happens after the character list arrives.
+  let resolveChars!: (v: Character[]) => void;
+  const charsPromise = new Promise<Character[]>((res) => { resolveChars = res; });
+
+  mockListSessions.mockResolvedValue([suzuTable]);
+  mockListChars.mockReturnValue(charsPromise);
+
+  renderLobby();
+  // Sessions loaded, cards rendered — characters not yet
+  await waitFor(() => expect(screen.getByRole('button', { name: /join table/i })).toBeInTheDocument());
+
+  // Now deliver the single character (would have been missed by the old initializer)
+  await act(async () => { resolveChars([CHAR_A]); });
+
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /join table/i }));
+  });
+  await waitFor(() => {
+    expect(mockJoin).toHaveBeenCalled();
+    const [, payload] = mockJoin.mock.calls[0];
+    expect(payload).toHaveProperty('character_id', 10);
   });
 });

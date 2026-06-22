@@ -270,7 +270,7 @@ it('Begin with multiple characters shows a picker select', async () => {
   mockListChars.mockResolvedValue([CHAR_A, CHAR_B]);
   openForm();
   await waitFor(() =>
-    expect(screen.getByRole('combobox', { name: /choose which character/i })).toBeInTheDocument(),
+    expect(screen.getByRole('combobox', { name: /your character/i })).toBeInTheDocument(),
   );
 });
 
@@ -278,10 +278,10 @@ it('Begin with multiple characters sends the selected character_id', async () =>
   mockListChars.mockResolvedValue([CHAR_A, CHAR_B]);
   openForm();
   await waitFor(() =>
-    expect(screen.getByRole('combobox', { name: /choose which character/i })).toBeInTheDocument(),
+    expect(screen.getByRole('combobox', { name: /your character/i })).toBeInTheDocument(),
   );
   // Select the second character
-  fireEvent.change(screen.getByRole('combobox', { name: /choose which character/i }), {
+  fireEvent.change(screen.getByRole('combobox', { name: /your character/i }), {
     target: { value: '11' },
   });
   await act(async () => {
@@ -297,10 +297,10 @@ it('Begin with multiple characters and no selection sends no character_id', asyn
   mockListChars.mockResolvedValue([CHAR_A, CHAR_B]);
   openForm();
   await waitFor(() =>
-    expect(screen.getByRole('combobox', { name: /choose which character/i })).toBeInTheDocument(),
+    expect(screen.getByRole('combobox', { name: /your character/i })).toBeInTheDocument(),
   );
   // Ensure the "no character" option is selected (default when multiple)
-  fireEvent.change(screen.getByRole('combobox', { name: /choose which character/i }), {
+  fireEvent.change(screen.getByRole('combobox', { name: /your character/i }), {
     target: { value: '' },
   });
   await act(async () => {

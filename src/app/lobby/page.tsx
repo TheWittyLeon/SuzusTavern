@@ -55,13 +55,21 @@ function TableCard({
   const players = session.player_count ?? session.participant_usernames?.length ?? 0;
 
   // Character binding: auto-bind when exactly one character; show a picker for multiple.
-  const [selectedCharId, setSelectedCharId] = useState<number | undefined>(
-    userCharacters.length === 1 ? Number(userCharacters[0].character_id) : undefined,
-  );
+  // useState initializer runs once at mount — before the parent's async listMyCharacters
+  // populates userCharacters. Use an effect so the binding fires after the list arrives.
+  const [selectedCharId, setSelectedCharId] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    if (userCharacters.length === 1) {
+      const parsed = Number(userCharacters[0].character_id);
+      if (Number.isFinite(parsed)) setSelectedCharId(parsed);
+    }
+  }, [userCharacters]);
 
   const handleJoinClick = () => {
     onJoin(session, selectedCharId);
   };
+
+  const tableTitle = titleizeChannel(session.channel);
 
   return (
     <Card className={styles.card}>
@@ -78,7 +86,7 @@ function TableCard({
               {players} {players === 1 ? 'player' : 'players'}
             </span>
           </div>
-          <h2 className={styles.cardTitle}>{titleizeChannel(session.channel)}</h2>
+          <h2 className={styles.cardTitle}>{tableTitle}</h2>
         </div>
       </div>
 
@@ -104,22 +112,29 @@ function TableCard({
 
       {userCharacters.length > 1 && (
         <div className={styles.cardFoot} style={{ paddingBottom: 0 }}>
-          <select
-            className="input"
-            value={selectedCharId ?? ''}
-            onChange={(e) =>
-              setSelectedCharId(e.target.value ? Number(e.target.value) : undefined)
-            }
-            aria-label="Choose which character to bring"
-            style={{ width: '100%' }}
-          >
-            <option value="">— no character —</option>
-            {userCharacters.map((c) => (
-              <option key={c.character_id} value={c.character_id}>
-                {c.name} (Lv {c.level} {c.char_class})
-              </option>
-            ))}
-          </select>
+          {/* Iro MAJOR-1: aria-label names the table so each card's combobox is unique.
+              Iro MINOR-1: sr-only label text associates the control for AT users who
+              navigate by form controls (visible label omitted to keep card compact). */}
+          <label style={{ display: 'block', width: '100%' }}>
+            <span className="sr-only">{`Character for ${tableTitle}`}</span>
+            <select
+              className="input"
+              value={selectedCharId ?? ''}
+              onChange={(e) => {
+                const parsed = Number(e.target.value);
+                setSelectedCharId(e.target.value && Number.isFinite(parsed) ? parsed : undefined);
+              }}
+              aria-label={`Choose which character to bring to ${tableTitle}`}
+              style={{ width: '100%' }}
+            >
+              <option value="">— no character —</option>
+              {userCharacters.map((c) => (
+                <option key={c.character_id} value={c.character_id}>
+                  {c.name} (Lv {c.level} {c.char_class})
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       )}
 
