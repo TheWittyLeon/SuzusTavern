@@ -134,7 +134,7 @@ describe('ADV-9 modules page — null summary guard', () => {
     });
 
     await waitFor(() => {
-      const call = mockCreate.mock.calls[0][0] as Record<string, unknown>;
+      const call = mockCreate.mock.calls[0][0] as unknown as Record<string, unknown>;
       expect(call['adventure_ref']).toBe('dnd5e:adventure:sparse');
     });
   });
@@ -180,7 +180,7 @@ describe('ADV-9 modules page — missing public_id fallback', () => {
     });
 
     await waitFor(() => {
-      const call = mockCreate.mock.calls[0][0] as Record<string, unknown>;
+      const call = mockCreate.mock.calls[0][0] as unknown as Record<string, unknown>;
       // Must not be '' — the slug fallback must fire
       expect(call['adventure_ref']).toBe('hollow-tide-cave');
     });
