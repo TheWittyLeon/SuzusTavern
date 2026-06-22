@@ -46,9 +46,11 @@ const SuzuDM = forwardRef<HTMLDivElement, SuzuDMProps>(function SuzuDM(
     <div
       ref={ref}
       data-component="SuzuDM"
-      aria-hidden="true"
       style={{ width: size, height: size, position: 'relative', ...style }}
       {...rest}
+      // After the spread so a stray aria-hidden in {...rest} can't unhide the
+      // decorative mascot (Iro S3.7 MINOR-1).
+      aria-hidden="true"
     >
       <svg
         viewBox="0 0 140 150"

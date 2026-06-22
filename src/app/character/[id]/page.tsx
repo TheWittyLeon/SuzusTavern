@@ -25,6 +25,7 @@ import Pill from '@/components/Pill';
 import Icon, { type IconName } from '@/components/Icon';
 import SuzuDM from '@/components/SuzuDM';
 import { ABILITIES, SKILLS } from '@/lib/dnd/helpers';
+import { useSuzuNote } from '@/lib/dnd/useSuzuNote';
 import styles from './CharacterView.module.css';
 
 const ITEM_ICON: Record<string, IconName> = {
@@ -49,6 +50,12 @@ export default function CharacterPage() {
 
   const [sheet, setSheet] = useState<CharacterSheet | null>(null);
   const [state, setState] = useState<'loading' | 'ok' | 'error'>('loading');
+
+  // Suzu's note (ST-080) — called unconditionally (rules of hooks); null-safe
+  // until the sheet loads. No aiAssistLevel source on a session-less sheet yet
+  // (FLAGGED), so it defaults to the deterministic placeholder with ZERO LLM
+  // calls; a persisted note (once generated) is read back verbatim.
+  const { note: suzuNote } = useSuzuNote(sheet);
 
   const load = useCallback(
     async (signal: AbortSignal) => {
@@ -124,7 +131,6 @@ export default function CharacterPage() {
   const initial = (sheet.name || '?').charAt(0).toUpperCase();
   const ageHeightLine = [sheet.alignment, sheet.subrace].filter(Boolean).join(' · ');
   // Precomputed to avoid JSX inter-expression whitespace pitfalls.
-  const suzuNote = `A ${sheet.race.toLowerCase()} ${sheet.char_class.toLowerCase()} with a ${sheet.background.toLowerCase()} past. I’ve seen how this story tends to go. Bring a coat.`;
 
   return (
     <TavernShell
@@ -327,12 +333,15 @@ export default function CharacterPage() {
 
         {/* RIGHT */}
         <div className={styles.colSide}>
-          {/* Suzu's note */}
-          <Card pop className={styles.suzuNote}>
+          {/* Suzu's note (ST-080) — labeled region; AI-attributed, persona flavor. */}
+          <Card pop className={styles.suzuNote} role="region" aria-labelledby="suzu-note-label">
             <div className={styles.suzuHead}>
               <SuzuDM size={42} glow={false} aria-hidden />
               <div>
-                <p className="label" style={{ fontSize: '0.6rem' }}>
+                {/* --ink-2 (not the .label default --ink-3): this is the region's
+                    accessible name and --ink-3 fails AA on the tinted card across
+                    the dark palettes. 11px (drop the 0.6rem override) for legibility. */}
+                <p className="label" id="suzu-note-label" style={{ color: 'var(--ink-2)' }}>
                   Suzu&rsquo;s note
                 </p>
                 <p className={styles.suzuHeadTitle}>On {sheet.name.split(' ')[0]}</p>
