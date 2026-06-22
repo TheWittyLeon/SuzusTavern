@@ -202,6 +202,7 @@ export default function PlayPage() {
       const transcript = logRef.current.slice(-8).map((r) => `${r.who}: ${r.text}`);
       let full = '';
       let errored = false;
+      let lastErrorReason: string | undefined;
       try {
         for await (const ev of streamDmNarration(
           {
@@ -221,6 +222,7 @@ export default function PlayPage() {
             revealText(full);
           } else if (ev.kind === 'error') {
             errored = true;
+            lastErrorReason = ev.reason;
           }
         }
       } catch {
@@ -231,10 +233,16 @@ export default function PlayPage() {
       setThinking(false);
       setTalking(false);
       if (errored || !full.trim()) {
+        // When the table is intentionally running without AI narration, say so
+        // plainly — don't imply a transient failure or prompt the user to retry.
+        const fallbackText =
+          lastErrorReason === 'ai_off'
+            ? 'This table runs without AI narration — you and your DM drive the scene.'
+            : 'Suzu stepped away for a moment. Try again.';
         appendLog({
           who: 'Suzu',
           kind: 'system',
-          text: 'Suzu stepped away for a moment. Try again.',
+          text: fallbackText,
         });
         setNarratorText('');
       } else {

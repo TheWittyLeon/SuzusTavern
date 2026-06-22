@@ -15,6 +15,7 @@ import type {
   CombatMonsterTurnRequest,
   CombatSpawnRequest,
   CombatStartRequest,
+  EngineSessionEvent,
   GameSystem,
   Inventory,
   Participant,
@@ -181,18 +182,29 @@ export const getParticipants = (sessionId: string, signal?: AbortSignal) =>
 /**
  * Recent session events for the "previously on" recap (S3.6 / ST-079).
  *
- * FLAGGED: the engine writes `session_events` but exposes no read route yet, so
- * this 404s today → caught → []. The recap then uses its deterministic metadata
- * digest. When the tiny engine `GET /sessions/{id}/events` lands, this lights up
- * with no caller change. Deliberately swallows errors (recap must never break
- * the screen).
+ * The engine returns `{ data: { events: [ { seq, kind, actor, visibility, data,
+ * created_at } ] } }`. We adapt the wire shape → SessionEvent so buildRecap is
+ * unaffected: kind → event_type, data.description|data.text → description.
+ * 404 / network errors → [] (recap must never break the screen).
  */
 export const getSessionEvents = (sessionId: string, signal?: AbortSignal) =>
-  apiCall<{ events: SessionEvent[] }>(
+  apiCall<{ events: EngineSessionEvent[] }>(
     `/api/dnd/sessions/${encodeURIComponent(sessionId)}/events`,
     { method: 'GET', signal },
   )
-    .then((d) => d.events ?? [])
+    .then((d): SessionEvent[] =>
+      (d.events ?? []).map((e) => ({
+        event_id: e.seq != null ? String(e.seq) : undefined,
+        event_type: e.kind,
+        actor: e.actor,
+        // Prefer an explicit description key; fall back to a `text` key for
+        // narration events where the payload stores the prose there.
+        description:
+          (e.data?.['description'] as string | undefined) ??
+          (e.data?.['text'] as string | undefined),
+        created_at: e.created_at,
+      })),
+    )
     .catch(() => [] as SessionEvent[]);
 
 export const startSession = (req: SessionStartRequest, signal?: AbortSignal) =>

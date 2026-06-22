@@ -118,7 +118,9 @@ function parseDataLine(data: string): NarrationEvent {
       return { kind: 'chunk', text: parsed['text'] as string };
     }
     if (parsed['success'] === false && typeof parsed['error'] === 'string') {
-      return { kind: 'error', error: parsed['error'] as string };
+      const reason =
+        typeof parsed['reason'] === 'string' ? (parsed['reason'] as string) : undefined;
+      return { kind: 'error', error: parsed['error'] as string, ...(reason ? { reason } : {}) };
     }
     // Unexpected shape — treat as error
     return { kind: 'error', error: `Unexpected event shape: ${data}` };

@@ -16,7 +16,11 @@ export interface ApiError extends Error {
   body?: unknown;
 }
 
-// ── DM mode (client-side only — engine support is STORY-312, NOT YET) ──────
+// ── DM mode ────────────────────────────────────────────────────────────────
+// 'ai' | 'human' are engine-understood values (STORY-312 now LIVE on engine branch).
+// 'solo' was a client-only alias; the engine has no 'solo' mode — the Tavern maps
+// solo → dm_mode:'human' + ai_assist_level:'off' before sending. Do not send 'solo'
+// to the engine.
 export type DmMode = 'ai' | 'human' | 'solo';
 
 // ── Auth ───────────────────────────────────────────────────────────────────
@@ -122,14 +126,40 @@ export type ContentRating = 'sfw' | 'mature';
 /** Table visibility. Client-annotated until the engine column lands (STORY-313). */
 export type Visibility = 'public' | 'unlisted' | 'private';
 
-export interface SessionStartRequest { username: string; channel: string }
-/** A row from the engine's `session_events` log (S3.6 recap source). */
+export interface SessionStartRequest {
+  username: string;
+  channel: string;
+  /** Engine-understood DM mode. Omit = engine default ('ai'). Do NOT send 'solo'
+   *  — the Tavern maps solo → dm_mode:'human' + ai_assist_level:'off'. */
+  dm_mode?: Exclude<DmMode, 'solo'>;
+  /** Visibility sent to the engine. Omit = engine default. */
+  visibility?: Visibility;
+  /** Content rating sent to the engine. Omit = engine default. */
+  content_rating?: ContentRating;
+  /** AI assist level. 'off' = hard interlock — no LLM calls on this table. */
+  ai_assist_level?: 'full' | 'assist' | 'off';
+}
+/** A row from the engine's `session_events` log (S3.6 recap source).
+ *  Field-name convention used by buildRecap and pre-existing callers. */
 export interface SessionEvent {
   event_id?: string;
   /** 'combat' | 'combat_end' | 'level_up' | 'scene' | 'death' | 'xp' | 'narration' | 'join' | … */
   event_type?: string;
   actor?: string;
   description?: string;
+  created_at?: string;
+}
+
+/** Wire shape returned by GET /api/dnd/sessions/<id>/events (engine branch).
+ *  Distinct from SessionEvent — `kind` maps to `event_type`, `data` is a
+ *  blob (may contain `description` or a `text` key for narration events).
+ *  getSessionEvents adapts this → SessionEvent so buildRecap is unaffected. */
+export interface EngineSessionEvent {
+  seq?: number;
+  kind?: string;
+  actor?: string;
+  visibility?: string;
+  data?: Record<string, unknown> | null;
   created_at?: string;
 }
 
@@ -310,7 +340,10 @@ export interface SystemDefinition {
 export type NarrationEvent =
   | { kind: 'chunk'; text: string }
   | { kind: 'done' }
-  | { kind: 'error'; error: string };
+  /** error: upstream error string. reason: structured cause when the backend
+   *  sends one (e.g. 'ai_off' = table intentionally running without AI,
+   *  'ai_unverified' = AI gate check failed). Absence = unknown/transient error. */
+  | { kind: 'error'; error: string; reason?: string };
 
 export interface NarrationRequest {
   username: string;

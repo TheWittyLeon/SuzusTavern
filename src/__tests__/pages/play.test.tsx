@@ -220,4 +220,56 @@ describe('Play page', () => {
       expect(screen.getByText(/stepped away/i)).toBeInTheDocument(),
     );
   });
+
+  it('ai_off error reason shows the intentional-no-AI message, not stepped-away', async () => {
+    // When the table is intentionally running without AI narration, the backend
+    // sends reason:'ai_off'. The client must not say "Suzu stepped away — try again"
+    // because there's nothing to retry; instead it explains the table is AI-free.
+    mStream.mockImplementation(async function* () {
+      yield {
+        kind: 'error' as const,
+        error: 'AI narration is disabled for this table',
+        reason: 'ai_off',
+      };
+      yield { kind: 'done' as const };
+    });
+
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: 'I scout ahead.' } });
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' });
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/this table runs without ai narration/i),
+      ).toBeInTheDocument(),
+    );
+    // The generic "stepped away" message must NOT appear
+    expect(screen.queryByText(/stepped away/i)).not.toBeInTheDocument();
+  });
+
+  it('unknown error reason still shows the generic stepped-away message', async () => {
+    mStream.mockImplementation(async function* () {
+      yield { kind: 'error' as const, error: 'something broke', reason: 'ai_unverified' };
+      yield { kind: 'done' as const };
+    });
+
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: 'I wait.' } });
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' });
+    });
+
+    await waitFor(() =>
+      expect(screen.getByText(/stepped away/i)).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/this table runs without ai narration/i)).not.toBeInTheDocument();
+  });
 });

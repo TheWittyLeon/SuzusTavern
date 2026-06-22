@@ -166,9 +166,25 @@ function StarterForm({
     if (!username || submitting) return;
     const channel = channelFromName(name);
     setSubmitting(true);
+
+    // Map the StarterForm's dmMode to the engine's axes.
+    // 'solo' has no engine equivalent: it's self-run with the deterministic engine,
+    // AI narration fully off. 'ai' = Suzu DMs with full LLM narration.
+    const engineDmMode = dmMode === 'solo' ? ('human' as const) : ('ai' as const);
+    const engineAiAssist = dmMode === 'solo' ? ('off' as const) : ('full' as const);
+
     try {
-      const session = await createSession({ username, channel });
-      // Persist the client-typed annotations until the engine columns land.
+      const session = await createSession({
+        username,
+        channel,
+        dm_mode: engineDmMode,
+        ai_assist_level: engineAiAssist,
+        visibility,
+        content_rating: effectiveRating,
+      });
+      // Also persist locally as client-side enrichment — stores module_id which the
+      // engine doesn't model, and serves as a fallback if the server response omits
+      // the session object (pre-upgrade backends).
       const key = session?.session_id ?? channel;
       setSessionAnnotations(key, {
         dm_mode: dmMode,

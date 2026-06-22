@@ -29,7 +29,7 @@ import { AuthProvider } from '../../lib/auth/AuthProvider';
 import { ThemeProvider } from '../../lib/theme/ThemeProvider';
 import { ToastProvider } from '../../components/Toast';
 import ModulesPage from '../../app/modules/page';
-import type { Session, User } from '../../lib/api/types';
+import type { Session, SessionStartRequest, User } from '../../lib/api/types';
 
 const mockCreate = dnd.createSession as jest.MockedFunction<typeof dnd.createSession>;
 const LEON: User = { id: 1, username: 'leon', email: null };
@@ -137,11 +137,76 @@ it('Begin creates a session with a slugified channel and routes to the dashboard
   await act(async () => {
     fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
   });
+  // Default selection: Suzu DMs (ai) + private + sfw → dm_mode:'ai', ai_assist_level:'full'
   await waitFor(() =>
     expect(mockCreate).toHaveBeenCalledWith({
       username: 'leon',
       channel: 'the_hollow_tide_cave',
+      dm_mode: 'ai',
+      ai_assist_level: 'full',
+      visibility: 'private',
+      content_rating: 'sfw',
     }),
   );
   await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/dashboard'));
+});
+
+it('Begin with Suzu DMs selection sends dm_mode:ai + ai_assist_level:full', async () => {
+  openForm();
+  // Ensure "Suzu DMs" is selected (it is by default)
+  fireEvent.click(screen.getByRole('radio', { name: /suzu dms/i }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
+  });
+  await waitFor(() => {
+    const call = mockCreate.mock.calls[0][0] as SessionStartRequest;
+    expect(call['dm_mode']).toBe('ai');
+    expect(call['ai_assist_level']).toBe('full');
+  });
+});
+
+it('Begin with Solo selection sends dm_mode:human + ai_assist_level:off', async () => {
+  openForm();
+  fireEvent.click(screen.getByRole('radio', { name: /solo/i }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
+  });
+  await waitFor(() => {
+    const call = mockCreate.mock.calls[0][0] as SessionStartRequest;
+    expect(call['dm_mode']).toBe('human');
+    expect(call['ai_assist_level']).toBe('off');
+  });
+});
+
+it('Begin sends the visibility and effective content_rating axes', async () => {
+  openForm();
+  // Switch to unlisted + mature. Anchor /^unlisted/i to avoid matching options
+  // whose note text also contains "unlisted".
+  fireEvent.click(screen.getByRole('radio', { name: /^unlisted/i }));
+  fireEvent.click(screen.getByRole('radio', { name: /mature/i }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
+  });
+  await waitFor(() => {
+    const call = mockCreate.mock.calls[0][0] as SessionStartRequest;
+    expect(call['visibility']).toBe('unlisted');
+    expect(call['content_rating']).toBe('mature');
+  });
+});
+
+it('Begin on a public table always sends content_rating:sfw regardless of prior selection', async () => {
+  openForm();
+  // First switch to unlisted to allow mature, then back to public.
+  // Use /^unlisted/i (anchored) to avoid matching options whose note mentions "unlisted".
+  fireEvent.click(screen.getByRole('radio', { name: /^unlisted/i }));
+  fireEvent.click(screen.getByRole('radio', { name: /mature/i }));
+  fireEvent.click(screen.getByRole('radio', { name: /^public/i }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
+  });
+  await waitFor(() => {
+    const call = mockCreate.mock.calls[0][0] as SessionStartRequest;
+    expect(call['visibility']).toBe('public');
+    expect(call['content_rating']).toBe('sfw');
+  });
 });

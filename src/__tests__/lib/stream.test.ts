@@ -120,6 +120,33 @@ describe('readSSE — parsing', () => {
     expect(events[1]).toEqual({ kind: 'done' });
   });
 
+  it('includes reason on the error event when backend sends reason:ai_off', async () => {
+    const body =
+      'data: {"success":false,"error":"AI narration is disabled for this table","reason":"ai_off"}\n\ndata: [DONE]\n\n';
+    const events = await collect(readSSE(sseResponse(body)));
+
+    expect(events[0]).toMatchObject({ kind: 'error', reason: 'ai_off' });
+    expect((events[0] as { kind: 'error'; error: string; reason?: string }).reason).toBe('ai_off');
+    expect(events[1]).toEqual({ kind: 'done' });
+  });
+
+  it('includes reason on the error event when backend sends reason:ai_unverified', async () => {
+    const body =
+      'data: {"success":false,"error":"AI gate check failed","reason":"ai_unverified"}\n\ndata: [DONE]\n\n';
+    const events = await collect(readSSE(sseResponse(body)));
+
+    expect(events[0]).toMatchObject({ kind: 'error', reason: 'ai_unverified' });
+  });
+
+  it('omits reason when backend sends success:false without a reason field', async () => {
+    const body = 'data: {"success":false,"error":"backend error"}\n\ndata: [DONE]\n\n';
+    const events = await collect(readSSE(sseResponse(body)));
+
+    const ev = events[0] as { kind: 'error'; error: string; reason?: string };
+    expect(ev.kind).toBe('error');
+    expect(ev.reason).toBeUndefined();
+  });
+
   it('handles response with no body gracefully', async () => {
     // Response with null body
     const res = new Response(null, { status: 200 });

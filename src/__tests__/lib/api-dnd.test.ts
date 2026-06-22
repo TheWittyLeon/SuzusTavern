@@ -34,6 +34,7 @@ import {
   createSession,
   listSessions,
   getSession,
+  getSessionEvents,
   joinSession,
   pauseSession,
   resumeSession,
@@ -278,6 +279,75 @@ describe('Session listing (ST-033 / ST-041 / ST-044)', () => {
   it('createSession returns null when the (un-upgraded) backend omits session', async () => {
     mockData({ message: 'started' });
     expect(await createSession({ username: 'leon', channel: 'leon' })).toBeNull();
+  });
+
+  it('getSessionEvents — GET /api/dnd/sessions/:id/events, adapts wire shape → SessionEvent', async () => {
+    mockData({
+      events: [
+        {
+          seq: 1,
+          kind: 'combat',
+          actor: 'alice',
+          visibility: 'public',
+          data: { description: 'Two goblins attacked.' },
+          created_at: '2026-06-21T10:00:00Z',
+        },
+      ],
+    });
+    const events = await getSessionEvents('s1');
+    const { url, method } = lastCall();
+    expect(url).toBe('/api/dnd/sessions/s1/events');
+    expect(method).toBe('GET');
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      event_id: '1',
+      event_type: 'combat',
+      actor: 'alice',
+      description: 'Two goblins attacked.',
+      created_at: '2026-06-21T10:00:00Z',
+    });
+  });
+
+  it('getSessionEvents adapts narration event — falls back to data.text when no description', async () => {
+    mockData({
+      events: [
+        {
+          seq: 2,
+          kind: 'narration',
+          actor: 'suzu',
+          data: { text: 'The cave trembles with distant thunder.' },
+          created_at: '2026-06-21T10:01:00Z',
+        },
+      ],
+    });
+    const events = await getSessionEvents('s1');
+    expect(events[0]).toMatchObject({
+      event_type: 'narration',
+      description: 'The cave trembles with distant thunder.',
+    });
+  });
+
+  it('getSessionEvents returns [] on 404 (graceful degradation)', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'not found' }), {
+        status: 404,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const events = await getSessionEvents('unknown-id');
+    expect(events).toEqual([]);
+  });
+
+  it('getSessionEvents returns [] on network error', async () => {
+    mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+    const events = await getSessionEvents('s1');
+    expect(events).toEqual([]);
+  });
+
+  it('getSessionEvents returns [] when events array is empty', async () => {
+    mockData({ events: [] });
+    const events = await getSessionEvents('s1');
+    expect(events).toEqual([]);
   });
 
   it('listMyCharacters — GET /api/dnd/characters?username=, unwraps .characters', async () => {
