@@ -107,6 +107,9 @@
   justify-content: center;
   gap: 8px;
   width: 100%;
+  /* Tora MINOR-1: explicit 44px floor so this control meets the touch-target
+     requirement — it bypasses the .btn class that normally enforces 44px. */
+  min-height: 44px;
   padding: 10px;
   border-radius: 12px;
   border: 1px solid color-mix(in oklab, var(--bad) 35%, transparent);

@@ -28,8 +28,6 @@ import {
   combatFromScene,
   getSession,
   getParticipants,
-  startCombat,
-  spawnMonster,
   rollInitiative,
   monsterTurn,
   attack as combatAttack,
@@ -548,6 +546,7 @@ export default function PlayPage() {
             className={styles.beginCombat}
             onClick={beginEncounter}
             disabled={combatBusy}
+            aria-busy={combatBusy}
           >
             <Icon name="Sword" size={14} aria-hidden /> Begin an encounter
           </button>

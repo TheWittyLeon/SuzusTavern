@@ -243,6 +243,7 @@ function StarterForm({
         tone: 'error',
         message: 'Could not start the table. Try again in a moment.',
       });
+    } finally {
       setSubmitting(false);
     }
   };
@@ -365,7 +366,12 @@ export default function ModulesPage() {
   const [attempt, setAttempt] = useState(0);
   const retryRef = useRef<HTMLButtonElement>(null);
 
-  const retry = useCallback(() => setAttempt((n) => n + 1), []);
+  // Iro MAJOR-1: retry guard — ignore taps when not in error state to prevent
+  // two concurrent fetches from rapid double-tap before the 'loading' re-render commits.
+  const retry = useCallback(() => {
+    if (status !== 'error') return;
+    setAttempt((n) => n + 1);
+  }, [status]);
 
   useEffect(() => {
     const ac = new AbortController();
@@ -429,7 +435,13 @@ export default function ModulesPage() {
       {selected ? (
         <StarterForm adventure={selected} onCancel={() => setSelected(null)} />
       ) : (
-        <>
+        /* Iro MAJOR-1: persistent live-region so screen readers hear "content
+           loaded" when the skeleton swaps to the grid. aria-busy mirrors the
+           loading flag; aria-atomic="false" means only the changed subtree is
+           announced, not the whole region on every paint. The error card keeps
+           its own role="alert" — assertive beats polite, so errors still fire
+           immediately regardless of the live-region's polite setting. */
+        <div aria-live="polite" aria-busy={status === 'loading'} aria-atomic="false">
           {/* Loading state */}
           {status === 'loading' && (
             <PageSkeleton variant="card" lines={4} />
@@ -495,10 +507,14 @@ export default function ModulesPage() {
                     )}
                   </div>
                   <div className={styles.moduleFoot}>
+                    {/* Iro MAJOR-2: aria-label gives each "Run this" button a unique
+                        accessible name across cards. Visible text "Run this" is a
+                        substring of the label — Label-in-Name / voice-control safe. */}
                     <Button
                       variant="primary"
                       onClick={() => setSelected(adv)}
                       leadingIcon={<Icon name="D20" size={14} aria-hidden />}
+                      aria-label={`Run this — ${adv.name}`}
                     >
                       Run this
                     </Button>
@@ -507,7 +523,7 @@ export default function ModulesPage() {
               ))}
             </div>
           )}
-        </>
+        </div>
       )}
     </TavernShell>
   );
