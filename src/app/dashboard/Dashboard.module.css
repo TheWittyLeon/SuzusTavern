@@ -154,6 +154,19 @@
 .campaignRow:last-child {
   border-bottom: none;
 }
+/* Trailing actions (Open + the DM-only delete) share the row's last grid cell. */
+.campaignActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* Expand the 38px btn-icon to a ≥44px touch target without shifting layout.
+   content-box keeps the visual footprint unchanged while padding grows hit area. */
+.campaignActions > :global(.btn-icon) {
+  box-sizing: content-box;
+  padding: 3px;
+  margin: -3px;
+}
 .campaignIcon {
   width: 40px;
   height: 40px;

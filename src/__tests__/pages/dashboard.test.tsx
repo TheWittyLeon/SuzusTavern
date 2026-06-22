@@ -36,6 +36,10 @@ jest.mock('../../lib/api/dnd', () => ({
   // click in a test never hits the real API.
   deleteCharacter: jest.fn(),
   restoreCharacter: jest.fn(),
+  // DeleteCampaignButton imports these; mock so campaign-delete clicks in tests
+  // never hit the real API.
+  deleteSession: jest.fn(),
+  restoreSession: jest.fn(),
 }));
 
 import * as authApi from '../../lib/api/auth';
@@ -51,6 +55,7 @@ const mockRefresh = authApi.refresh as jest.MockedFunction<typeof authApi.refres
 const mockMe = authApi.me as jest.MockedFunction<typeof authApi.me>;
 const mockListSessions = dnd.listSessions as jest.MockedFunction<typeof dnd.listSessions>;
 const mockListChars = dnd.listMyCharacters as jest.MockedFunction<typeof dnd.listMyCharacters>;
+const mockDeleteSession = dnd.deleteSession as jest.Mock;
 
 const ALICE: User = { id: 1, username: 'alice', email: 'alice@example.com' };
 
@@ -60,6 +65,15 @@ const SESSION: Session = {
   status: 'active',
   dm_username: 'suzu',
   player_count: 2,
+};
+
+/** Session where alice is the DM — delete button must be visible. */
+const SESSION_DM: Session = {
+  session_id: 's2',
+  channel: 'the_iron_vault',
+  status: 'active',
+  dm_username: 'alice',
+  player_count: 3,
 };
 
 function renderDashboard(initialUser: User | null, initialMaybeAuthed = false) {
@@ -80,6 +94,7 @@ beforeEach(() => {
   mockMe.mockReset();
   mockListSessions.mockReset().mockResolvedValue([]);
   mockListChars.mockReset().mockResolvedValue([]);
+  mockDeleteSession.mockReset();
 });
 
 describe('Dashboard — empty (way-to-start)', () => {
@@ -139,6 +154,66 @@ describe('Dashboard — active', () => {
     // CR-1 regression: the DM line renders a real apostrophe, not a raw entity.
     expect(screen.getByText(/DM.?d by Suzu/i)).toBeInTheDocument();
     expect(screen.queryByText(/&rsquo;/)).not.toBeInTheDocument();
+  });
+});
+
+describe('Dashboard — campaign delete (DEL-campaign)', () => {
+  it('shows a delete button only for the campaign the user owns (DM gate)', async () => {
+    // alice owns SESSION_DM but not SESSION (dm_username=suzu)
+    mockListSessions.mockResolvedValue([SESSION_DM, SESSION]);
+    renderDashboard(ALICE);
+    // One delete button for alice's own campaign
+    const delBtns = await screen.findAllByRole('button', { name: /delete campaign/i });
+    expect(delBtns).toHaveLength(1);
+    expect(delBtns[0]).toHaveAccessibleName(/delete campaign the iron vault/i);
+  });
+
+  it('does not render a delete button when the user is not the DM of any session', async () => {
+    mockListSessions.mockResolvedValue([SESSION]); // suzu is DM, not alice
+    renderDashboard(ALICE);
+    await screen.findByRole('link', { name: /resume session/i });
+    expect(screen.queryByRole('button', { name: /delete campaign/i })).not.toBeInTheDocument();
+  });
+
+  it('recap card and characters grid still render alongside the campaign list', async () => {
+    mockListSessions.mockResolvedValue([SESSION_DM]);
+    mockListChars.mockResolvedValue([
+      { character_id: 'c1', name: 'Edda', char_class: 'Cleric', level: 3 } as unknown as Character,
+    ]);
+    renderDashboard(ALICE);
+    // Characters grid present
+    await screen.findByText('Edda');
+    // Campaign row with the DM's delete control
+    expect(await screen.findByRole('button', { name: /delete campaign the iron vault/i })).toBeInTheDocument();
+    // Open link per campaign
+    expect(screen.getAllByRole('link', { name: /open/i }).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('clicking delete opens a confirm dialog; confirming calls deleteSession', async () => {
+    mockDeleteSession.mockResolvedValue({ message: 'trashed' });
+    mockListSessions.mockResolvedValue([SESSION_DM]);
+    renderDashboard(ALICE);
+
+    const delBtn = await screen.findByRole('button', { name: /delete campaign the iron vault/i });
+    fireEvent.click(delBtn);
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /move to trash/i }));
+    await waitFor(() => expect(mockDeleteSession).toHaveBeenCalledWith('s2', 'alice'));
+  });
+
+  it('cancel closes the dialog without calling deleteSession', async () => {
+    mockListSessions.mockResolvedValue([SESSION_DM]);
+    renderDashboard(ALICE);
+
+    const delBtn = await screen.findByRole('button', { name: /delete campaign the iron vault/i });
+    fireEvent.click(delBtn);
+    await screen.findByRole('dialog');
+
+    fireEvent.click(screen.getByRole('button', { name: /keep/i }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(mockDeleteSession).not.toHaveBeenCalled();
   });
 });
 

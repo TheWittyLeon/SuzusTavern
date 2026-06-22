@@ -29,6 +29,7 @@ import Icon from '@/components/Icon';
 import SuzuDM from '@/components/SuzuDM';
 import SectionHead from '@/components/SectionHead';
 import DeleteCharacterButton from '@/components/DeleteCharacterButton';
+import DeleteCampaignButton from '@/components/DeleteCampaignButton';
 import SessionRecap from '@/components/SessionRecap';
 import { titleizeChannel, formatStarted } from '@/lib/format';
 import styles from './Dashboard.module.css';
@@ -242,13 +243,19 @@ function DashActive({
           <Card padding={false} className={styles.campaignList}>
             {sessions.map((s) => {
               const suzu = (s.dm_username ?? '').toLowerCase() === 'suzu';
+              // Only the campaign's DM (owner) sees the delete control; the engine
+              // also enforces owner-only delete (a non-owner gets a 404).
+              const isDM =
+                !!username &&
+                (s.dm_username ?? '').toLowerCase() === username.toLowerCase();
+              const campaignName = titleizeChannel(s.channel);
               return (
                 <div key={s.session_id} className={styles.campaignRow}>
                   <span className={styles.campaignIcon} aria-hidden>
                     <Icon name="Scroll" size={18} />
                   </span>
                   <div className={styles.campaignMeta}>
-                    <div className={styles.campaignName}>{titleizeChannel(s.channel)}</div>
+                    <div className={styles.campaignName}>{campaignName}</div>
                     <div className={styles.campaignSub}>
                       {suzu ? 'Suzu' : (s.dm_username ?? 'human DM')} ·{' '}
                       {s.player_count ?? s.participant_usernames?.length ?? 0} players
@@ -257,12 +264,22 @@ function DashActive({
                   <Pill tone={s.status === 'paused' ? 'warn' : 'good'} dot={s.status === 'active'}>
                     {s.status ?? 'active'}
                   </Pill>
-                  <Button
-                    variant="ghost"
-                    href={`/play/${encodeURIComponent(s.session_id)}`}
-                  >
-                    Open
-                  </Button>
+                  <div className={styles.campaignActions}>
+                    <Button
+                      variant="ghost"
+                      href={`/play/${encodeURIComponent(s.session_id)}`}
+                    >
+                      Open
+                    </Button>
+                    {isDM && (
+                      <DeleteCampaignButton
+                        sessionId={s.session_id}
+                        campaignName={campaignName}
+                        username={username}
+                        onChanged={onChanged}
+                      />
+                    )}
+                  </div>
                 </div>
               );
             })}
