@@ -138,6 +138,10 @@ export interface SessionStartRequest {
   content_rating?: ContentRating;
   /** AI assist level. 'off' = hard interlock — no LLM calls on this table. */
   ai_assist_level?: 'full' | 'assist' | 'off';
+  /** Bind the player's character to this session. Owner-checked server-side.
+   *  Omit = no binding (back-compat). The Tavern auto-binds when the user has
+   *  exactly one character; shows a picker when they have multiple. */
+  character_id?: number;
 }
 /** A row from the engine's `session_events` log (S3.6 recap source).
  *  Field-name convention used by buildRecap and pre-existing callers. */

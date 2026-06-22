@@ -22,17 +22,42 @@ jest.mock('../../lib/api/auth', () => ({
   register: jest.fn(),
 }));
 
-jest.mock('../../lib/api/dnd', () => ({ createSession: jest.fn() }));
+jest.mock('../../lib/api/dnd', () => ({
+  createSession: jest.fn(),
+  listMyCharacters: jest.fn(),
+}));
 
 import * as dnd from '../../lib/api/dnd';
 import { AuthProvider } from '../../lib/auth/AuthProvider';
 import { ThemeProvider } from '../../lib/theme/ThemeProvider';
 import { ToastProvider } from '../../components/Toast';
 import ModulesPage from '../../app/modules/page';
-import type { Session, SessionStartRequest, User } from '../../lib/api/types';
+import type { Character, Session, SessionStartRequest, User } from '../../lib/api/types';
 
 const mockCreate = dnd.createSession as jest.MockedFunction<typeof dnd.createSession>;
+const mockListChars = dnd.listMyCharacters as jest.MockedFunction<typeof dnd.listMyCharacters>;
 const LEON: User = { id: 1, username: 'leon', email: null };
+
+const CHAR_A: Character = {
+  character_id: '10',
+  username: 'leon',
+  name: 'Aria',
+  race: 'Human',
+  char_class: 'Fighter',
+  level: 3,
+  hp: { current: 28, max: 28 },
+  ac: 16,
+};
+const CHAR_B: Character = {
+  character_id: '11',
+  username: 'leon',
+  name: 'Brax',
+  race: 'Dwarf',
+  char_class: 'Cleric',
+  level: 2,
+  hp: { current: 18, max: 18 },
+  ac: 14,
+};
 
 function renderModules() {
   return render(
@@ -47,6 +72,8 @@ function renderModules() {
 beforeEach(() => {
   mockPush.mockClear();
   mockCreate.mockReset().mockResolvedValue({ session_id: 's9', channel: 'x' } as Session);
+  // Default: no characters (DM-only path) — tests that need characters override this.
+  mockListChars.mockReset().mockResolvedValue([]);
 });
 
 function openForm() {
@@ -208,5 +235,79 @@ it('Begin on a public table always sends content_rating:sfw regardless of prior 
     const call = mockCreate.mock.calls[0][0] as SessionStartRequest;
     expect(call['visibility']).toBe('public');
     expect(call['content_rating']).toBe('sfw');
+  });
+});
+
+// ── character binding (bind-character-to-session) ─────────────────────────────
+
+it('Begin with no characters sends no character_id', async () => {
+  mockListChars.mockResolvedValue([]);
+  openForm();
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
+  });
+  await waitFor(() => {
+    const call = mockCreate.mock.calls[0][0] as SessionStartRequest;
+    expect(call['character_id']).toBeUndefined();
+  });
+});
+
+it('Begin with exactly one character auto-binds it (sends character_id)', async () => {
+  mockListChars.mockResolvedValue([CHAR_A]);
+  openForm();
+  // Wait for the character list to load (useEffect)
+  await waitFor(() => expect(mockListChars).toHaveBeenCalledWith('leon', expect.anything()));
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
+  });
+  await waitFor(() => {
+    const call = mockCreate.mock.calls[0][0] as SessionStartRequest;
+    expect(call['character_id']).toBe(10);
+  });
+});
+
+it('Begin with multiple characters shows a picker select', async () => {
+  mockListChars.mockResolvedValue([CHAR_A, CHAR_B]);
+  openForm();
+  await waitFor(() =>
+    expect(screen.getByRole('combobox', { name: /choose which character/i })).toBeInTheDocument(),
+  );
+});
+
+it('Begin with multiple characters sends the selected character_id', async () => {
+  mockListChars.mockResolvedValue([CHAR_A, CHAR_B]);
+  openForm();
+  await waitFor(() =>
+    expect(screen.getByRole('combobox', { name: /choose which character/i })).toBeInTheDocument(),
+  );
+  // Select the second character
+  fireEvent.change(screen.getByRole('combobox', { name: /choose which character/i }), {
+    target: { value: '11' },
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
+  });
+  await waitFor(() => {
+    const call = mockCreate.mock.calls[0][0] as SessionStartRequest;
+    expect(call['character_id']).toBe(11);
+  });
+});
+
+it('Begin with multiple characters and no selection sends no character_id', async () => {
+  mockListChars.mockResolvedValue([CHAR_A, CHAR_B]);
+  openForm();
+  await waitFor(() =>
+    expect(screen.getByRole('combobox', { name: /choose which character/i })).toBeInTheDocument(),
+  );
+  // Ensure the "no character" option is selected (default when multiple)
+  fireEvent.change(screen.getByRole('combobox', { name: /choose which character/i }), {
+    target: { value: '' },
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
+  });
+  await waitFor(() => {
+    const call = mockCreate.mock.calls[0][0] as SessionStartRequest;
+    expect(call['character_id']).toBeUndefined();
   });
 });

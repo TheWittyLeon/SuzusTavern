@@ -24,6 +24,7 @@ jest.mock('../../lib/api/auth', () => ({
 jest.mock('../../lib/api/dnd', () => ({
   listSessions: jest.fn(),
   joinSession: jest.fn(),
+  listMyCharacters: jest.fn(),
 }));
 
 import * as dnd from '../../lib/api/dnd';
@@ -31,10 +32,32 @@ import { AuthProvider } from '../../lib/auth/AuthProvider';
 import { ThemeProvider } from '../../lib/theme/ThemeProvider';
 import { ToastProvider } from '../../components/Toast';
 import LobbyPage from '../../app/lobby/page';
-import type { Session, User } from '../../lib/api/types';
+import type { Character, Session, User } from '../../lib/api/types';
 
 const mockListSessions = dnd.listSessions as jest.MockedFunction<typeof dnd.listSessions>;
 const mockJoin = dnd.joinSession as jest.MockedFunction<typeof dnd.joinSession>;
+const mockListChars = dnd.listMyCharacters as jest.MockedFunction<typeof dnd.listMyCharacters>;
+
+const CHAR_A: Character = {
+  character_id: '10',
+  username: 'leon',
+  name: 'Aria',
+  race: 'Human',
+  char_class: 'Fighter',
+  level: 3,
+  hp: { current: 28, max: 28 },
+  ac: 16,
+};
+const CHAR_B: Character = {
+  character_id: '11',
+  username: 'leon',
+  name: 'Brax',
+  race: 'Dwarf',
+  char_class: 'Cleric',
+  level: 2,
+  hp: { current: 18, max: 18 },
+  ac: 14,
+};
 
 const LEON: User = { id: 1, username: 'leon', email: null };
 
@@ -66,6 +89,8 @@ function renderLobby() {
 beforeEach(() => {
   mockListSessions.mockReset().mockResolvedValue([]);
   mockJoin.mockReset().mockResolvedValue({} as Session);
+  // Default: no characters — existing join tests stay unaffected.
+  mockListChars.mockReset().mockResolvedValue([]);
 });
 
 it('renders the h1 and a Start a campaign CTA', async () => {
@@ -112,4 +137,65 @@ it('joins a table → calls joinSession with the session channel', async () => {
   await waitFor(() =>
     expect(mockJoin).toHaveBeenCalledWith('s1', { username: 'leon', channel: 'hollow_tide' }),
   );
+});
+
+// ── character binding (bind-character-to-session) ─────────────────────────────
+
+it('join with no characters sends no character_id', async () => {
+  mockListSessions.mockResolvedValue([suzuTable]);
+  mockListChars.mockResolvedValue([]);
+  renderLobby();
+  await waitFor(() => expect(screen.getByRole('button', { name: /join table/i })).toBeInTheDocument());
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /join table/i }));
+  });
+  await waitFor(() => {
+    const [, payload] = mockJoin.mock.calls[0];
+    expect(payload).not.toHaveProperty('character_id');
+  });
+});
+
+it('join with one character auto-binds it (sends character_id)', async () => {
+  mockListSessions.mockResolvedValue([suzuTable]);
+  mockListChars.mockResolvedValue([CHAR_A]);
+  renderLobby();
+  // Wait for character list to load
+  await waitFor(() => expect(mockListChars).toHaveBeenCalledWith('leon', expect.anything()));
+  await waitFor(() => expect(screen.getByRole('button', { name: /join table/i })).toBeInTheDocument());
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /join table/i }));
+  });
+  await waitFor(() => {
+    const [, payload] = mockJoin.mock.calls[0];
+    expect(payload).toHaveProperty('character_id', 10);
+  });
+});
+
+it('join with multiple characters shows a picker', async () => {
+  mockListSessions.mockResolvedValue([suzuTable]);
+  mockListChars.mockResolvedValue([CHAR_A, CHAR_B]);
+  renderLobby();
+  await waitFor(() => expect(mockListChars).toHaveBeenCalledWith('leon', expect.anything()));
+  await waitFor(() =>
+    expect(screen.getByRole('combobox', { name: /choose which character/i })).toBeInTheDocument(),
+  );
+});
+
+it('join with multiple characters sends the selected character_id', async () => {
+  mockListSessions.mockResolvedValue([suzuTable]);
+  mockListChars.mockResolvedValue([CHAR_A, CHAR_B]);
+  renderLobby();
+  await waitFor(() =>
+    expect(screen.getByRole('combobox', { name: /choose which character/i })).toBeInTheDocument(),
+  );
+  fireEvent.change(screen.getByRole('combobox', { name: /choose which character/i }), {
+    target: { value: '11' },
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /join table/i }));
+  });
+  await waitFor(() => {
+    const [, payload] = mockJoin.mock.calls[0];
+    expect(payload).toHaveProperty('character_id', 11);
+  });
 });

@@ -14,12 +14,12 @@
  *
  * Suzu's PDF library + your homebrew tabs are post-MVP (disabled).
  */
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import { useToast } from '@/components/Toast';
-import { createSession } from '@/lib/api/dnd';
-import type { ContentRating, DmMode, Visibility } from '@/lib/api/types';
+import { createSession, listMyCharacters } from '@/lib/api/dnd';
+import type { Character, ContentRating, DmMode, Visibility } from '@/lib/api/types';
 import {
   channelFromName,
   setSessionAnnotations,
@@ -151,6 +151,25 @@ function StarterForm({
   const [rating, setRating] = useState<ContentRating>('sfw');
   const [submitting, setSubmitting] = useState(false);
 
+  // Character binding — fetch on mount; auto-bind when exactly one character.
+  const [characters, setCharacters] = useState<Character[] | null>(null);
+  const [selectedCharId, setSelectedCharId] = useState<number | undefined>(undefined);
+
+  useEffect(() => {
+    const username = user?.username;
+    if (!username) return;
+    const ac = new AbortController();
+    listMyCharacters(username, ac.signal)
+      .then((chars) => {
+        setCharacters(chars);
+        if (chars.length === 1) {
+          setSelectedCharId(Number(chars[0].character_id));
+        }
+      })
+      .catch(() => setCharacters([]));
+    return () => ac.abort();
+  }, [user?.username]);
+
   // Hard rule (client side): mature is only available on unlisted/private. A
   // public table is forced to SFW — protects the Twitch channel (STORY-314).
   const matureAllowed = visibility !== 'public';
@@ -174,14 +193,18 @@ function StarterForm({
     const engineAiAssist = dmMode === 'solo' ? ('off' as const) : ('full' as const);
 
     try {
-      const session = await createSession({
+      const sessionReq: Parameters<typeof createSession>[0] = {
         username,
         channel,
         dm_mode: engineDmMode,
         ai_assist_level: engineAiAssist,
         visibility,
         content_rating: effectiveRating,
-      });
+      };
+      if (selectedCharId !== undefined) {
+        sessionReq.character_id = selectedCharId;
+      }
+      const session = await createSession(sessionReq);
       // Also persist locally as client-side enrichment — stores module_id which the
       // engine doesn't model, and serves as a fallback if the server response omits
       // the session object (pre-upgrade backends).
@@ -275,6 +298,28 @@ function StarterForm({
           </p>
         )}
       </fieldset>
+
+      {/* Character binding — shown only once character list loads */}
+      {characters !== null && characters.length > 1 && (
+        <label className={styles.field}>
+          <span className={styles.fieldLabel}>Your character</span>
+          <select
+            className="input"
+            value={selectedCharId ?? ''}
+            onChange={(e) =>
+              setSelectedCharId(e.target.value ? Number(e.target.value) : undefined)
+            }
+            aria-label="Choose which character to bring"
+          >
+            <option value="">— no character (DM only) —</option>
+            {characters.map((c) => (
+              <option key={c.character_id} value={c.character_id}>
+                {c.name} (Lv {c.level} {c.char_class})
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
 
       <div className={styles.formFoot}>
         <Button variant="ghost" onClick={onCancel} disabled={submitting}>

@@ -20,8 +20,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import { useToast } from '@/components/Toast';
-import { listSessions, joinSession } from '@/lib/api/dnd';
-import type { Session } from '@/lib/api/types';
+import { listSessions, joinSession, listMyCharacters } from '@/lib/api/dnd';
+import type { Character, Session } from '@/lib/api/types';
 import TavernShell from '@/components/TavernShell';
 import PageSkeleton from '@/components/PageSkeleton';
 import Button from '@/components/Button';
@@ -44,13 +44,25 @@ function TableCard({
   session,
   onJoin,
   joining,
+  userCharacters,
 }: {
   session: Session;
-  onJoin: (s: Session) => void;
+  onJoin: (s: Session, characterId?: number) => void;
   joining: boolean;
+  userCharacters: Character[];
 }) {
   const isSuzu = (session.dm_username ?? '').toLowerCase() === 'suzu';
   const players = session.player_count ?? session.participant_usernames?.length ?? 0;
+
+  // Character binding: auto-bind when exactly one character; show a picker for multiple.
+  const [selectedCharId, setSelectedCharId] = useState<number | undefined>(
+    userCharacters.length === 1 ? Number(userCharacters[0].character_id) : undefined,
+  );
+
+  const handleJoinClick = () => {
+    onJoin(session, selectedCharId);
+  };
+
   return (
     <Card className={styles.card}>
       <div className={styles.cardTop}>
@@ -90,10 +102,31 @@ function TableCard({
         )}
       </div>
 
+      {userCharacters.length > 1 && (
+        <div className={styles.cardFoot} style={{ paddingBottom: 0 }}>
+          <select
+            className="input"
+            value={selectedCharId ?? ''}
+            onChange={(e) =>
+              setSelectedCharId(e.target.value ? Number(e.target.value) : undefined)
+            }
+            aria-label="Choose which character to bring"
+            style={{ width: '100%' }}
+          >
+            <option value="">— no character —</option>
+            {userCharacters.map((c) => (
+              <option key={c.character_id} value={c.character_id}>
+                {c.name} (Lv {c.level} {c.char_class})
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       <div className={styles.cardFoot}>
         <Button
           variant="primary"
-          onClick={() => onJoin(session)}
+          onClick={handleJoinClick}
           disabled={joining}
         >
           {joining ? 'Joining…' : 'Join table'}
@@ -109,6 +142,7 @@ export default function LobbyPage() {
   const [sessions, setSessions] = useState<Session[] | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
   const [joiningId, setJoiningId] = useState<string | null>(null);
+  const [userCharacters, setUserCharacters] = useState<Character[]>([]);
 
   const username = user?.username ?? null;
   const mountedRef = useRef(true);
@@ -118,6 +152,18 @@ export default function LobbyPage() {
     },
     [],
   );
+
+  // Fetch the current user's characters so the join picker can auto-bind.
+  useEffect(() => {
+    if (!username) return;
+    const ac = new AbortController();
+    listMyCharacters(username, ac.signal)
+      .then((chars) => {
+        if (!ac.signal.aborted && mountedRef.current) setUserCharacters(chars);
+      })
+      .catch(() => {/* degrade gracefully — picker just won't show */});
+    return () => ac.abort();
+  }, [username]);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     const s = await listSessions({}, signal).catch(() => [] as Session[]);
@@ -133,11 +179,15 @@ export default function LobbyPage() {
   }, [load]);
 
   const handleJoin = useCallback(
-    async (s: Session) => {
+    async (s: Session, characterId?: number) => {
       if (!username) return;
       setJoiningId(s.session_id);
       try {
-        await joinSession(s.session_id, { username, channel: s.channel });
+        const joinReq: Parameters<typeof joinSession>[1] = { username, channel: s.channel };
+        if (characterId !== undefined) {
+          joinReq.character_id = characterId;
+        }
+        await joinSession(s.session_id, joinReq);
         toast({ tone: 'success', message: `Joined ${titleizeChannel(s.channel)}.` });
         void load();
       } catch {
@@ -241,6 +291,7 @@ export default function LobbyPage() {
                 session={s}
                 onJoin={handleJoin}
                 joining={joiningId === s.session_id}
+                userCharacters={userCharacters}
               />
             ))}
           </div>
