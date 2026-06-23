@@ -33,6 +33,7 @@ import type {
   SetFlagRequest,
   SpellCastRequest,
   SystemDefinition,
+  WriteSessionEventRequest,
   XpAwardRequest,
 } from './types';
 
@@ -215,6 +216,23 @@ export const getSessionEvents = (sessionId: string, signal?: AbortSignal) =>
       })),
     )
     .catch(() => [] as SessionEvent[]);
+
+/**
+ * A1 — Write a durable session event via the proxy passthrough.
+ * POST /api/dnd/sessions/{id}/events → engine POST /sessions/{id}/events.
+ * Engine enforces a kind allowlist (currently just 'opening_narrated').
+ * Tolerate-failure: callers should .catch(() => {}) — a failed write is
+ * non-fatal; the gate will re-check on the next mount and retry the opening.
+ */
+export const postSessionEvent = (
+  sessionId: string,
+  req: WriteSessionEventRequest,
+  signal?: AbortSignal,
+) =>
+  apiCall<{ seq?: number; kind?: string; created_at?: string }>(
+    `/api/dnd/sessions/${encodeURIComponent(sessionId)}/events`,
+    { method: 'POST', json: req, signal },
+  );
 
 export const startSession = (req: SessionStartRequest, signal?: AbortSignal) =>
   apiCall<Session>('/api/dnd/sessions', { method: 'POST', json: req, signal });
@@ -464,22 +482,31 @@ export const setFlag = (sessionId: string, req: SetFlagRequest, signal?: AbortSi
 /**
  * Normalize the engine's nested grounding payload into the flat GroundingData
  * the play screen consumes. The engine returns `current_scene.{id,title,
- * boxed_text,transitions}` and `campaign.progress.{flags,encounter_state}`;
- * the UI reads `scene_id/scene_name/transitions/flags/encounter_state`.
+ * boxed_text,objective,transitions}`, `adventure.{title,hook}`, and
+ * `campaign.progress.{flags,encounter_state}`; the UI reads the flat shape.
+ *
+ * A1: exposes `hook` (adventure.hook), `adventure_title` (adventure.title),
+ *     and `objective` (current_scene.objective) so the opening beat and scene
+ *     card have them without a second round-trip.
  */
 const normalizeGrounding = (raw: unknown): GroundingData | null => {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, any>;
   const scene = (r.current_scene ?? {}) as Record<string, any>;
+  const adventure = (r.adventure ?? {}) as Record<string, any>;
   const progress = ((r.campaign ?? {}).progress ?? {}) as Record<string, any>;
   return {
     ...r,
     scene_id: scene.id,
     scene_name: scene.title,
     boxed_text: scene.boxed_text,
+    objective: scene.objective,
     transitions: Array.isArray(scene.transitions) ? scene.transitions : [],
     flags: progress.flags ?? {},
     encounter_state: progress.encounter_state ?? {},
+    // A1: adventure-level fields for opening scene
+    hook: adventure.hook,
+    adventure_title: adventure.title,
   };
 };
 

@@ -82,6 +82,16 @@ export interface SheetInventoryItem {
   quantity: number;
   equipped: boolean;
 }
+/** One skill entry returned by the engine's `skills` array on GET /sheet (A2). */
+export interface SheetSkill {
+  name: string;
+  /** Ability that backs this skill (e.g. 'dexterity'). */
+  ability: string;
+  /** Total modifier (ability mod + proficiency bonus if proficient). */
+  modifier: number;
+  proficient: boolean;
+}
+
 export interface CharacterSheet {
   character_id: string;
   owner_username: string;
@@ -113,6 +123,8 @@ export interface CharacterSheet {
   is_spellcaster: boolean;
   inventory: SheetInventoryItem[];
   inventory_weight: number;
+  /** A2 — all 18 SRD skills with real modifiers, sorted. Present on engine ≥ A2. */
+  skills?: SheetSkill[];
 }
 
 // ── DnD: sessions ──────────────────────────────────────────────────────────
@@ -501,12 +513,18 @@ export interface GroundingData {
   scene_name?: string;
   /** Boxed text / description for the current scene. */
   boxed_text?: string;
+  /** Current scene objective (A1 — surfaces on the scene card). */
+  objective?: string;
   /** Available transitions from the current scene. */
   transitions?: SceneTransition[];
   /** Progress flags. */
   flags?: Record<string, unknown>;
   /** Current encounter state (null when no encounter active or resolved). */
   encounter_state?: Record<string, unknown> | null;
+  /** Adventure hook (A1 — opening scene grounding). */
+  hook?: string;
+  /** Adventure title (A1 — AI-off opening header). */
+  adventure_title?: string;
   [k: string]: unknown;
 }
 
@@ -582,7 +600,10 @@ export interface NarrationRequest {
 
 /** DM-narration request (ST-062) — POST /api/narration/dm/stream.
  *  `message` is the player's line/action; `mechanics` is the engine's
- *  authoritative result string (empty for a pure roleplay beat). */
+ *  authoritative result string (empty for a pure roleplay beat).
+ *  `kind` defaults to 'beat' (all existing callers unaffected). When
+ *  'opening', message MUST be empty and the proxy writes the durable
+ *  opening_narrated marker on success. */
 export interface DmNarrationRequest {
   username: string;
   channel: string;
@@ -592,4 +613,14 @@ export interface DmNarrationRequest {
   transcript?: string[];
   mode?: 'say' | 'act' | 'ooc';
   session_id?: string;
+  /** A1 — beat kind. 'opening' = system-authored scene open; default 'beat'. */
+  kind?: 'beat' | 'opening';
+}
+
+/** A1 — request body for POST /api/dnd/sessions/{id}/events (proxy passthrough). */
+export interface WriteSessionEventRequest {
+  kind: string;
+  actor_username?: string;
+  data?: Record<string, unknown>;
+  visibility?: 'table' | 'dm' | 'public';
 }
