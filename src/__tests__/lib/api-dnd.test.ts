@@ -53,6 +53,7 @@ import {
   deleteSession,
   restoreSession,
   getGrounding,
+  getCombatState,
 } from '../../lib/api/dnd';
 
 // ---------------------------------------------------------------------------
@@ -597,5 +598,42 @@ describe('getGrounding — nested→flat normalization', () => {
     mockFetch.mockRejectedValue(new Error('boom'));
     const g = await getGrounding('sess1');
     expect(g).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getCombatState — unwraps the engine's data.state nesting into a bare
+// CombatState. Regression: GET /combat/{id}/state returns data:{state:{...}}
+// (same convention as mutating routes' data.state); without unwrapping,
+// combatState.participants was undefined and the play screen crashed on render.
+// ---------------------------------------------------------------------------
+
+describe('getCombatState — unwraps data.state', () => {
+  it('returns the inner CombatState when the engine nests it under data.state', async () => {
+    mockFetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: { state: { combat_id: 'c1', participants: [{ participant_id: 'g1' }], initiative: ['g1'] } },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    const cs = await getCombatState('c1');
+    expect(cs.combat_id).toBe('c1');
+    expect(Array.isArray(cs.participants)).toBe(true);
+    expect(cs.participants).toHaveLength(1);
+  });
+
+  it('tolerates a bare CombatState (no extra nesting)', async () => {
+    mockFetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({ success: true, data: { combat_id: 'c2', participants: [], initiative: [] } }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    const cs = await getCombatState('c2');
+    expect(cs.combat_id).toBe('c2');
+    expect(Array.isArray(cs.participants)).toBe(true);
   });
 });

@@ -412,10 +412,16 @@ export const getCombatStatus = (sessionId: string, signal?: AbortSignal) =>
  * Throws ApiError 404 when the combat_id is unknown.
  */
 export const getCombatState = (combatId: string, signal?: AbortSignal) =>
-  apiCall<CombatState>(
+  apiCall<CombatState | { state: CombatState }>(
     `/api/dnd/combat/${encodeURIComponent(combatId)}/state`,
     { method: 'GET', signal },
-  );
+  ).then((d) => {
+    // The engine's pure-projection route nests the CombatState under data.state
+    // (same convention as the mutating routes' data.state). Unwrap it; tolerate a
+    // bare CombatState too so the client is robust to either shape.
+    const nested = (d as { state?: CombatState })?.state;
+    return (nested ?? d) as CombatState;
+  });
 
 /**
  * Explicitly close a combat (CUI-13 / ADV-8).
