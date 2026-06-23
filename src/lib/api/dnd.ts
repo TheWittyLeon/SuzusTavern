@@ -456,15 +456,39 @@ export const setFlag = (sessionId: string, req: SetFlagRequest, signal?: AbortSi
   );
 
 /**
+ * Normalize the engine's nested grounding payload into the flat GroundingData
+ * the play screen consumes. The engine returns `current_scene.{id,title,
+ * boxed_text,transitions}` and `campaign.progress.{flags,encounter_state}`;
+ * the UI reads `scene_id/scene_name/transitions/flags/encounter_state`.
+ */
+const normalizeGrounding = (raw: unknown): GroundingData | null => {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, any>;
+  const scene = (r.current_scene ?? {}) as Record<string, any>;
+  const progress = ((r.campaign ?? {}).progress ?? {}) as Record<string, any>;
+  return {
+    ...r,
+    scene_id: scene.id,
+    scene_name: scene.title,
+    boxed_text: scene.boxed_text,
+    transitions: Array.isArray(scene.transitions) ? scene.transitions : [],
+    flags: progress.flags ?? {},
+    encounter_state: progress.encounter_state ?? {},
+  };
+};
+
+/**
  * Fetch session grounding data (ADV-5): current scene, boxed text, transitions.
  * GET /api/dnd/sessions/{sessionId}/grounding
  * Returns null gracefully when the backend route is not yet deployed.
  */
 export const getGrounding = (sessionId: string, signal?: AbortSignal) =>
-  apiCall<GroundingData>(
+  apiCall<unknown>(
     `/api/dnd/sessions/${encodeURIComponent(sessionId)}/grounding`,
     { method: 'GET', signal },
-  ).catch(() => null as GroundingData | null);
+  )
+    .then(normalizeGrounding)
+    .catch(() => null as GroundingData | null);
 
 export const castSpell = (req: SpellCastRequest, signal?: AbortSignal) =>
   apiCall<CombatMessageResult>('/api/dnd/spells/cast', {

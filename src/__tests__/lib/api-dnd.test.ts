@@ -52,6 +52,7 @@ import {
   listTrashedCharacters,
   deleteSession,
   restoreSession,
+  getGrounding,
 } from '../../lib/api/dnd';
 
 // ---------------------------------------------------------------------------
@@ -534,5 +535,67 @@ describe('createSession with adventure_ref (ADV-9)', () => {
     await createSession({ username: 'leon', channel: 'sandbox' });
     const { body } = lastCall();
     expect((body as Record<string, unknown>)['adventure_ref']).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getGrounding — normalizes the engine's NESTED grounding payload into the flat
+// shape the play screen reads. Regression: the engine returns
+// current_scene.{title,transitions} + campaign.progress.{flags,encounter_state};
+// the UI reads scene_name/transitions/flags/encounter_state. Without mapping,
+// the "Move on" button never appeared (transitions came back undefined).
+// ---------------------------------------------------------------------------
+
+describe('getGrounding — nested→flat normalization', () => {
+  it('maps current_scene + campaign.progress into the flat GroundingData shape', async () => {
+    mockFetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            current_scene: {
+              id: 'approach',
+              title: 'The Approach',
+              boxed_text: 'The dock-road dwindles...',
+              transitions: [{ to: 'cave_mouth', label: 'Enter the cave' }],
+            },
+            campaign: {
+              progress: {
+                flags: { lookout_spotted: true },
+                encounter_state: { cave_mouth_guards: { status: 'unresolved' } },
+              },
+            },
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    const g = await getGrounding('sess1');
+    expect(g).not.toBeNull();
+    expect(g!.scene_id).toBe('approach');
+    expect(g!.scene_name).toBe('The Approach');
+    expect(g!.boxed_text).toBe('The dock-road dwindles...');
+    expect(g!.transitions).toEqual([{ to: 'cave_mouth', label: 'Enter the cave' }]);
+    expect(g!.flags).toEqual({ lookout_spotted: true });
+    expect(g!.encounter_state).toEqual({ cave_mouth_guards: { status: 'unresolved' } });
+  });
+
+  it('degrades to empty arrays/objects (never throws) on freeform-null grounding', async () => {
+    mockFetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({ success: true, data: { current_scene: null, campaign: null } }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    const g = await getGrounding('sess1');
+    expect(g!.transitions).toEqual([]);
+    expect(g!.flags).toEqual({});
+    expect(g!.encounter_state).toEqual({});
+  });
+
+  it('returns null gracefully when the request fails', async () => {
+    mockFetch.mockRejectedValue(new Error('boom'));
+    const g = await getGrounding('sess1');
+    expect(g).toBeNull();
   });
 });
