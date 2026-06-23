@@ -158,6 +158,9 @@ export default function PlayPage() {
   // React state (combatBusy) only disables UI after a re-render; the ref closes
   // the race window between two taps in the same event-loop tick.
   const combatBusyRef = useRef(false);
+  // Guards the auto monster-turn driver so combatState updates mid-loop don't
+  // spawn a second concurrent driver.
+  const monsterDrivingRef = useRef(false);
 
   // Mirror of combatState kept in sync via an effect so the poll callback can
   // read the current state without being listed as a dep (avoids resetting the
@@ -621,32 +624,10 @@ export default function PlayPage() {
         appendLog({ who: username, kind: 'system', text: message });
         await narrate(playerLine, message, 'act');
 
-        // After the player ends their turn, drive the monsters' turn.
-        if (action === 'endturn') {
-          const mres = await monsterTurn({ username, combat_id: combatId }).catch(() => null);
-          const mmsg = mres?.message;
-          // Surface monster's last_action in the log.
-          const mla = mres?.state?.last_action;
-          const mOutcome = mla
-            ? ` ${mla.outcome}${mla.damage_dealt ? `, ${mla.damage_dealt} dmg` : ''}`
-            : '';
-          const mLogText = mmsg ?? (mla ? `${mla.actor_id}:${mOutcome}` : null);
-          if (mres?.state) {
-            stateSeqRef.current += 1;
-            setCombatState(mres.state);
-          }
-          if (mres?.scene_advance && !sceneAdvance) {
-            sceneAdvance = {
-              fromScene: mres.scene_advance.from_scene,
-              toScene: mres.scene_advance.to_scene,
-              outcome: mres.scene_advance.outcome,
-            };
-          }
-          if (mLogText) {
-            appendLog({ who: 'Suzu', kind: 'system', text: mLogText });
-            await narrate('(the enemies act)', mLogText, 'act');
-          }
-        }
+        // Monsters' turns (after the player ends theirs) are driven uniformly by
+        // the auto monster-turn effect below — it picks up whenever combatState
+        // shows a non-PC active turn, including at combat start when monsters win
+        // initiative.
 
         // ADV-8 auto-advance: scene_advance != null means combat resolved + scene moved.
         if (sceneAdvance) {
@@ -720,6 +701,66 @@ export default function PlayPage() {
       setCombatBusy(false);
     }
   }, [combatId, username, appendLog, handleSceneAdvance, refreshGrounding, toast]);
+
+  // Auto-drive monster turns. Whenever combat is active and the current turn
+  // belongs to a living NPC, run that monster's turn — looping through all
+  // consecutive NPC turns until it's a PC's turn or combat ends. Without this,
+  // a combat where monsters win initiative is stuck at the start (the player is
+  // never reached) and monster turns between rounds never advance.
+  useEffect(() => {
+    if (!combatState || combatState.state !== 'active' || !combatId || !username) return;
+    // Only monsterDrivingRef guards here — NOT combatBusyRef. A player's end-turn
+    // completes with combatBusyRef still set while it hands off to a monster's
+    // turn; gating on it would stall the hand-off. The active.is_pc check below
+    // already prevents this from firing during the player's own turn.
+    if (monsterDrivingRef.current) return;
+    const active = combatState.participants.find(
+      (p) => p.participant_id === combatState.active_participant_id,
+    );
+    if (!active || active.is_pc || !active.is_alive) return;
+
+    monsterDrivingRef.current = true;
+    let cancelled = false;
+    (async () => {
+      try {
+        // Hard cap defends against an engine that fails to advance the turn.
+        for (let i = 0; i < 20 && !cancelled; i += 1) {
+          const mres = await Promise.resolve(
+            monsterTurn({ username, combat_id: combatId }),
+          ).catch(() => null);
+          if (!mres) break;
+          const mla = mres.state?.last_action;
+          const mLog =
+            mres.message ??
+            (mla
+              ? `${mla.actor_id}: ${mla.outcome}${mla.damage_dealt ? `, ${mla.damage_dealt} dmg` : ''}`
+              : null);
+          if (mLog) appendLog({ who: 'Suzu', kind: 'system', text: mLog });
+          if (mres.state) {
+            stateSeqRef.current += 1;
+            setCombatState(mres.state);
+          }
+          if (mres.scene_advance) {
+            await handleSceneAdvance(
+              mres.scene_advance.from_scene,
+              mres.scene_advance.to_scene,
+              mres.scene_advance.outcome,
+            );
+            break;
+          }
+          const st = mres.state;
+          if (!st || st.state !== 'active') break;
+          const next = st.participants.find((p) => p.participant_id === st.active_participant_id);
+          if (!next || next.is_pc || !next.is_alive) break; // reached the player / nobody to drive
+        }
+      } finally {
+        monsterDrivingRef.current = false;
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [combatState, combatId, username, appendLog, handleSceneAdvance]);
 
   // ── derived combat UI state ──────────────────────────────────────────────────
 

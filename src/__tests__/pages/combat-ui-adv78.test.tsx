@@ -421,6 +421,9 @@ describe('CUI-11 — off-turn disables attack/dodge/dash', () => {
   it('Attack is disabled when it is not the PC turn', async () => {
     mGetCombatState.mockResolvedValue(COMBAT_STATE_GOBLIN_TURN);
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
+    // Hold the off-turn state: make the auto monster-turn driver a no-op so the
+    // goblin-turn state persists for the disabled-UI assertion.
+    mMonsterTurn.mockResolvedValue(null as never);
     render(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() => {
@@ -436,6 +439,8 @@ describe('CUI-11 — off-turn disables attack/dodge/dash', () => {
   it('"Waiting for your turn" notice appears when it is not the PC turn', async () => {
     mGetCombatState.mockResolvedValue(COMBAT_STATE_GOBLIN_TURN);
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
+    // No-op the auto monster-turn driver so the off-turn state persists.
+    mMonsterTurn.mockResolvedValue(null as never);
     render(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() => {
