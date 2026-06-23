@@ -133,3 +133,10 @@
 .ac {
   color: var(--cool-ink); /* text-safe on candlelit (A11Y S3.1) */
 }
+
+/* Downed indicator badge — uses bad-ink (contrast-safe red) for visibility. */
+.downedBadge {
+  font-size: 11px;
+  color: var(--bad-ink);
+  flex-shrink: 0;
+}
