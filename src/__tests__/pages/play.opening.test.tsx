@@ -66,8 +66,12 @@ jest.mock("../../lib/stream", () => ({
 }));
 
 import * as dnd from "@/lib/api/dnd";
+import * as streamMod from "@/lib/stream";
 import PlayPage from "@/app/play/[sessionId]/page";
 
+const mStream = streamMod.streamDmNarration as jest.MockedFunction<
+  typeof streamMod.streamDmNarration
+>;
 const mGetSession = dnd.getSession as jest.MockedFunction<typeof dnd.getSession>;
 const mGetParticipants = dnd.getParticipants as jest.MockedFunction<typeof dnd.getParticipants>;
 const mGetGrounding = dnd.getGrounding as jest.MockedFunction<typeof dnd.getGrounding>;
@@ -191,6 +195,35 @@ describe("A1 - gate logic (fire-once contract)", () => {
 
     expect(screen.queryByText(/cave mouth yawns/i)).not.toBeInTheDocument();
     expect(mPostSessionEvent).not.toHaveBeenCalled();
+  });
+});
+
+// ---- AI/full path: opening fires the grounded stream (FIX-1 regression) ----
+// Guards the stale-session-closure bug: narrate() must receive the LIVE session
+// (threaded via opts.session) so the opening actually streams. If narrate reverts
+// to reading `session` from a closure captured at mount (when state is still null),
+// it early-returns and streamDmNarration is never called with kind:'opening'.
+describe("A1 - AI/full opening fires the grounded stream", () => {
+  beforeEach(() => {
+    mGetSession.mockResolvedValue(SESSION_FULL);
+    mGetGrounding.mockResolvedValue(GROUNDING_WITH_SCENE);
+    mGetSessionEvents.mockResolvedValue([]);
+  });
+
+  it("calls streamDmNarration with kind:'opening', empty message, and the live session", async () => {
+    render(<PlayPage />);
+    await screen.findByText("The Hollow Tide");
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 120));
+    });
+
+    const openingCall = mStream.mock.calls
+      .map((c) => c[0] as Record<string, unknown>)
+      .find((p) => p?.kind === "opening");
+    expect(openingCall).toBeTruthy();
+    expect(openingCall!.message).toBe("");
+    expect(openingCall!.session_id).toBe("sess-opening");
+    expect(openingCall!.channel).toBe("the_hollow_tide");
   });
 });
 
