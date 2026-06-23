@@ -4,6 +4,8 @@
 // Method + path taken verbatim from the NekoNova bridge files.
 import { apiCall } from './client';
 import type {
+  AdvanceSceneRequest,
+  AdvanceSceneResult,
   CatalogResponse,
   Character,
   CharacterCreateRequest,
@@ -17,13 +19,18 @@ import type {
   CombatMonsterTurnRequest,
   CombatSpawnRequest,
   CombatStartRequest,
+  CombatState,
+  EndCombatRequest,
+  EndCombatResult,
   EngineSessionEvent,
   GameSystem,
+  GroundingData,
   Inventory,
   Participant,
   Session,
   SessionEvent,
   SessionStartRequest,
+  SetFlagRequest,
   SpellCastRequest,
   SystemDefinition,
   XpAwardRequest,
@@ -334,8 +341,16 @@ export const monsterTurn = (req: CombatMonsterTurnRequest, signal?: AbortSignal)
 // NOTE: the engine returns chat-formatted strings (data.message / data.status),
 // NOT the aspirational structured CombatStatus. These wrappers therefore resolve
 // to CombatMessageResult; the play screen renders the strings into the chat log.
+/**
+ * Attack in combat. Accepts either `target` (name, bot path — backward-compat)
+ * or `target_id` (explicit participant_id, preferred Tavern path; engine takes
+ * target_id over target when both are supplied). Throws ApiError on 400 with
+ * data.reason set (e.g. 'not_your_turn', 'target_down') — callers should surface
+ * the reason to the user and refresh from the error body's data.state.
+ */
 export const attack = (
-  req: Required<Pick<CombatActionRequest, 'username' | 'combat_id' | 'target'>>,
+  req: Pick<CombatActionRequest, 'username' | 'combat_id'> &
+    ({ target: string; target_id?: string } | { target?: string; target_id: string }),
   signal?: AbortSignal,
 ) =>
   apiCall<CombatMessageResult>('/api/dnd/combat/attack', {
@@ -389,6 +404,67 @@ export const getCombatStatus = (sessionId: string, signal?: AbortSignal) =>
     `/api/dnd/combat/${encodeURIComponent(sessionId)}/status`,
     { method: 'GET', signal },
   );
+
+/**
+ * Fetch the current structured combat state (CUI-10 / ADV-7/8).
+ * Poll target: GET /api/dnd/combat/{combatId}/state.
+ * Returns the CombatState projection — pure read, no side-effects.
+ * Throws ApiError 404 when the combat_id is unknown.
+ */
+export const getCombatState = (combatId: string, signal?: AbortSignal) =>
+  apiCall<CombatState>(
+    `/api/dnd/combat/${encodeURIComponent(combatId)}/state`,
+    { method: 'GET', signal },
+  );
+
+/**
+ * Explicitly close a combat (CUI-13 / ADV-8).
+ * POST /api/dnd/combat/{combatId}/end
+ * Triggers finalize_combat on the engine (clears active_combat_id, runs ADV-8 hook).
+ * Optional outcome override for retreat/flee/parley (DM-driven).
+ */
+export const endCombat = (combatId: string, req: EndCombatRequest, signal?: AbortSignal) =>
+  apiCall<EndCombatResult>(
+    `/api/dnd/combat/${encodeURIComponent(combatId)}/end`,
+    { method: 'POST', json: req, signal },
+  );
+
+/**
+ * Advance the session to a new scene (ADV-7T).
+ * POST /api/dnd/sessions/{sessionId}/advance
+ * 503 when msm is off; 400 freeform_session / unknown_scene.
+ */
+export const advanceScene = (
+  sessionId: string,
+  req: AdvanceSceneRequest,
+  signal?: AbortSignal,
+) =>
+  apiCall<AdvanceSceneResult>(
+    `/api/dnd/sessions/${encodeURIComponent(sessionId)}/advance`,
+    { method: 'POST', json: req, signal },
+  );
+
+/**
+ * Set a flag in the session's progress (ADV-7T).
+ * POST /api/dnd/sessions/{sessionId}/flag
+ * 503 when msm is off; 400 freeform_session.
+ */
+export const setFlag = (sessionId: string, req: SetFlagRequest, signal?: AbortSignal) =>
+  apiCall<{ flag: string; value: unknown }>(
+    `/api/dnd/sessions/${encodeURIComponent(sessionId)}/flag`,
+    { method: 'POST', json: req, signal },
+  );
+
+/**
+ * Fetch session grounding data (ADV-5): current scene, boxed text, transitions.
+ * GET /api/dnd/sessions/{sessionId}/grounding
+ * Returns null gracefully when the backend route is not yet deployed.
+ */
+export const getGrounding = (sessionId: string, signal?: AbortSignal) =>
+  apiCall<GroundingData>(
+    `/api/dnd/sessions/${encodeURIComponent(sessionId)}/grounding`,
+    { method: 'GET', signal },
+  ).catch(() => null as GroundingData | null);
 
 export const castSpell = (req: SpellCastRequest, signal?: AbortSignal) =>
   apiCall<CombatMessageResult>('/api/dnd/spells/cast', {

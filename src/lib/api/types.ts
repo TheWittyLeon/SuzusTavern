@@ -203,7 +203,8 @@ export interface XpAwardRequest extends SessionStartRequest { amount: number; re
 export interface CombatActionRequest {
   username: string;
   combat_id: string;
-  target?: string;     // required for /combat/attack
+  target?: string;     // required for /combat/attack (bot / name-match path)
+  target_id?: string;  // ADV-7/8: preferred explicit id from CombatState.participants[]
 }
 export interface SpellCastRequest extends CombatActionRequest {
   spell_name: string;
@@ -216,6 +217,109 @@ export interface CombatStatus {
   turn_index: number;
   initiative: { username: string; init: number }[];
   [k: string]: unknown;
+}
+
+// ── DnD: structured combat state (ADV-7/8 — CUI-10) ─────────────────────────
+// Shape of GET /api/dnd/combat/{id}/state and data.state on every mutating route.
+// Source of truth is the engine's CombatState projection (build_combat_state).
+// last_action is only populated on mutating responses; null on GET /state.
+// scene_advance is only populated when finalize_combat auto-advanced the scene.
+
+/** Death-save tracking block, present only on PC participants. */
+export interface CombatDeathSaves {
+  successes: number;
+  failures: number;
+  /** hp_current === 0 && is_alive (still making saves). */
+  is_downed: boolean;
+  /** Three successes — PC stabilised. */
+  is_stable: boolean;
+  /** !is_alive && entity_type === 'character'. */
+  is_dead: boolean;
+}
+
+/** One participant in the turn order. */
+export interface CombatParticipantState {
+  participant_id: string;
+  name: string;
+  /** true when entity_type === 'character'. */
+  is_pc: boolean;
+  initiative: number;
+  hp_current: number;
+  hp_max: number;
+  ac: number;
+  conditions: string[];
+  /** is_active (Participant.is_active). */
+  is_alive: boolean;
+  /** Friendly-unit targeting advisory: alive + hp > 0 for monsters; see design A3. */
+  can_be_targeted: boolean;
+  /** participant_id === active_participant_id. */
+  is_active_turn: boolean;
+  /** Took their turn this round. */
+  took_turn: boolean;
+  /** PC-only; absent on monster entries. */
+  death_saves?: CombatDeathSaves;
+  /** Monster-only: AI tactic text from encounter meta. */
+  tactics?: string;
+  /** Monster-only: descriptive position string. */
+  position?: string;
+}
+
+/** Side-effect summary of the most recent mutating call. */
+export interface CombatLastAction {
+  kind: 'attack' | 'dodge' | 'dash' | 'endturn' | 'monster_turn' | 'death_save' | 'spawn' | 'initiative' | 'start' | 'from_scene' | 'end';
+  actor_id: string;
+  target_id?: string | null;
+  /** 'hit' | 'miss' | 'crit' | 'crit_miss' | 'kill' | 'down' | 'stable' | 'death' | 'pass' | 'noop' */
+  outcome: string;
+  damage_dealt: number;
+  damage_type?: string | null;
+  target_new_hp?: number | null;
+  critical_hit: boolean;
+  natural_roll?: number | null;
+  total_roll?: number | null;
+  vs_ac?: number | null;
+}
+
+/** Populated on mutating responses when ADV-8 auto-advanced the scene. */
+export interface CombatSceneAdvance {
+  from_scene: string;
+  to_scene: string;
+  flags_set?: string[];
+  outcome?: string;
+}
+
+/** Full combat state snapshot — source of truth for all UI state during combat. */
+export interface CombatState {
+  combat_id: string;
+  session_id: string;
+  round: number;
+  /** 'idle' | 'rolling_initiative' | 'active' | 'between_turns' | 'ended' */
+  state: string;
+  turn_index: number;
+  /** participant_id of the current combatant; null when ended. */
+  active_participant_id: string | null;
+  /** Ordered participant ids (mirrors CombatSession.initiative_order). */
+  initiative: string[];
+  participants: CombatParticipantState[];
+  terrain?: {
+    lighting?: string;
+    cover?: string;
+    hazards?: string[];
+  } | null;
+  encounter_id?: string | null;
+  scene_id?: string | null;
+  /** Populated only on mutating route responses, not on GET /state. */
+  last_action?: CombatLastAction | null;
+  /** Set when finalize_combat auto-advanced the scene (ADV-8). */
+  scene_advance?: CombatSceneAdvance | null;
+}
+
+/** Error-response data when the engine rejects a combat action. */
+export interface CombatErrorData {
+  /** Machine-readable refusal code (e.g. 'not_your_turn', 'no_target'). */
+  reason?: string;
+  /** Current state snapshot so the UI can re-render without a second round-trip. */
+  state?: CombatState;
 }
 
 // ── DnD: party roster (ST-061) ───────────────────────────────────────────────
@@ -254,12 +358,20 @@ export interface CombatMonsterTurnRequest {
   combat_id: string;
   target?: string;
 }
-/** Engine combat routes return chat-formatted strings, not structured JSON.
- *  data.message for actions; data.status for status; data.combat_id on start. */
+/** Engine combat routes return chat-formatted strings + (ADV-7/8) structured state.
+ *  data.message for actions; data.status for status; data.combat_id on start.
+ *  data.state carries the CombatState snapshot on every response once the engine
+ *  is updated; existing message/status readers are unaffected. */
 export interface CombatMessageResult {
   message?: string;
   status?: string;
   combat_id?: string;
+  /** Structured state snapshot (ADV-7/8 — CUI-10). Present when the engine returns it. */
+  state?: CombatState;
+  /** Set when finalize_combat auto-advanced the scene (ADV-8). */
+  scene_advance?: CombatSceneAdvance | null;
+  /** Error: machine-readable refusal reason (e.g. 'not_your_turn'). */
+  reason?: string;
   [k: string]: unknown;
 }
 
@@ -371,6 +483,68 @@ export interface CombatFromSceneResult {
   monsters: CombatSceneMonster[];
   terrain?: Record<string, unknown>;
   encounter_id?: string;
+}
+
+// ── DnD: scene advancement (ADV-7T) ──────────────────────────────────────────
+
+/** A valid transition from the current scene to another. */
+export interface SceneTransition {
+  to: string;
+  label?: string;
+  /** When present: this transition is locked until the named encounter is resolved. */
+  requires_encounter_resolved?: string;
+}
+
+/** Grounding data for the current session / scene (ADV-5). */
+export interface GroundingData {
+  scene_id?: string;
+  scene_name?: string;
+  /** Boxed text / description for the current scene. */
+  boxed_text?: string;
+  /** Available transitions from the current scene. */
+  transitions?: SceneTransition[];
+  /** Progress flags. */
+  flags?: Record<string, unknown>;
+  /** Current encounter state (null when no encounter active or resolved). */
+  encounter_state?: Record<string, unknown> | null;
+  [k: string]: unknown;
+}
+
+/** Request body for POST /api/dnd/sessions/{id}/advance (ADV-7). */
+export interface AdvanceSceneRequest {
+  to_scene: string;
+  flags?: Record<string, unknown>;
+}
+
+/** Response from POST /api/dnd/sessions/{id}/advance. */
+export interface AdvanceSceneResult {
+  from_scene: string;
+  to_scene: string;
+  flags_set?: string[];
+  visited_scenes_count?: number;
+  ends_adventure?: boolean;
+}
+
+/** Request body for POST /api/dnd/sessions/{id}/flag. */
+export interface SetFlagRequest {
+  flag: string;
+  value: unknown;
+}
+
+/** Request body for POST /api/dnd/combat/{id}/end. */
+export interface EndCombatRequest {
+  username: string;
+  /** Optional outcome override: 'victory'|'retreat'|'flee'|'parley'|'alert'|'tpk'|'unresolved'. */
+  outcome?: string;
+}
+
+/** Response from POST /api/dnd/combat/{id}/end. */
+export interface EndCombatResult {
+  state: CombatState;
+  outcome: string;
+  xp_earned?: number;
+  defeated?: string[];
+  scene_advance?: CombatSceneAdvance | null;
 }
 
 // ── DnD: catalog — adventure items (ADV-9) ────────────────────────────────────
