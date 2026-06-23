@@ -1,23 +1,29 @@
 'use client';
 /**
- * Play session — /play/[sessionId] (ST-060–065, ST-071, ST-062).
+ * Play session — /play/[sessionId] (ST-060–065, ST-071, ST-062 / CUI-11/12 / ADV-7T/8).
  *
  * The immersive 3-pane table where Suzu runs the game:
- *   left   — party roster (ST-061) + initiative (ST-020)
+ *   left   — party roster (ST-061) + initiative (ST-020 / CUI-11)
  *   centre — narrator strip (ST-018/071) + chat log (ST-019) + composer (ST-063)
- *   right  — scene placeholder + dice tray (ST-017/065) + safety tools
+ *   right  — scene card + "Move on" affordance (ADV-7T) + dice tray + safety tools
  *
- * State machine: idle → composing → narrating → idle, with a combat overlay
- * (out-of-combat → in-combat{round}). The engine owns mechanical truth — combat
- * actions go to the engine, which returns a result string we both log and feed to
- * the DM-narration pipeline so Suzu narrates the resolved beat (ST-062). Narration
- * streams over SSE (one guarded chunk) and reveals word-by-word client-side.
+ * State machine: idle → composing → narrating → idle, with a combat overlay.
  *
- * v1 honesty: combat results are engine chat-strings (no structured turn JSON yet),
- * dice are client-side flavour (no server /roll endpoint), and real-time is SSE +
- * local optimistic state (no WebSocket — ST-072 deferred).
+ * ADV-7/8 (CUI-11/12):
+ *   - Holds ONE `combatState` (CombatState | null) as source of truth.
+ *   - Polls GET /api/dnd/combat/{id}/state every 4s while active + foregrounded.
+ *   - Every mutating combat call replaces combatState from the response's data.state.
+ *   - Initiative tracker and target picker read from combatState.participants.
+ *   - Attack sends target_id (participant_id) alongside the name fallback.
+ *   - On scene_advance: refetch grounding + surface the scene transition beat.
+ *   - "Move on" button: shown when grounding has a valid non-encounter-gated transition.
+ *   - Refused actions (400 + data.reason): surface to user; refresh from data.state.
+ *
+ * Poll guard: interval pauses on document.hidden, clears on unmount.
+ * Request-monotone guard: combatState updates are fenced by a seqRef so stale
+ * in-flight polls never overwrite a fresher mutation response.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth/AuthProvider';
@@ -25,9 +31,13 @@ import { useToast } from '@/components/Toast';
 import { useReducedMotion } from '@/lib/useReducedMotion';
 import { titleizeChannel } from '@/lib/format';
 import {
+  advanceScene,
   combatFromScene,
-  getSession,
+  endCombat,
+  getCombatState,
+  getGrounding,
   getParticipants,
+  getSession,
   rollInitiative,
   monsterTurn,
   attack as combatAttack,
@@ -36,7 +46,13 @@ import {
   endTurn as combatEndTurn,
 } from '@/lib/api/dnd';
 import { streamDmNarration } from '@/lib/stream';
-import type { Participant, Session } from '@/lib/api/types';
+import type {
+  CombatParticipantState,
+  CombatState,
+  GroundingData,
+  Participant,
+  Session,
+} from '@/lib/api/types';
 import Icon from '@/components/Icon';
 import Pill from '@/components/Pill';
 import PageSkeleton from '@/components/PageSkeleton';
@@ -44,7 +60,7 @@ import NarratorStrip from '@/components/NarratorStrip';
 import SessionRecap from '@/components/SessionRecap';
 import ChatLog, { type ChatLogHandle, type LogRow } from '@/components/ChatLog';
 import PartyPanel from '@/components/PartyPanel';
-import InitiativeTracker, { type InitEntry } from '@/components/InitiativeTracker';
+import InitiativeTracker from '@/components/InitiativeTracker';
 import DiceTray, { type Advantage } from '@/components/DiceTray';
 import Composer, {
   type ComposeMode,
@@ -60,6 +76,9 @@ const QUICK_CHECKS = [
   { name: 'Persuasion', mod: 1 },
 ];
 
+/** Poll interval in milliseconds. */
+const POLL_INTERVAL_MS = 4000;
+
 function nowStamp(): string {
   return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
@@ -74,6 +93,27 @@ function rollWithAdvantage(advantage: Advantage): number {
   const a = rollDie(20);
   const b = rollDie(20);
   return advantage === 'adv' ? Math.max(a, b) : Math.min(a, b);
+}
+
+/**
+ * Extract a human-readable refusal reason from a combat error body.
+ * The engine returns data.reason as a machine code; we translate to plain English.
+ */
+function humanRefusalReason(code: string | undefined): string | null {
+  if (!code) return null;
+  const map: Record<string, string> = {
+    not_your_turn: "It's not your turn.",
+    no_target: 'You need to pick a target.',
+    target_not_found: 'That target was not found.',
+    target_down: 'That target is already down.',
+    target_is_self: "You can't target yourself.",
+    no_character_bound: 'No character is bound to this session.',
+    actor_incapacitated: 'Your character is incapacitated.',
+    combat_over: 'Combat has ended.',
+    no_active_turn: 'No one has the active turn right now.',
+    no_combat: 'No combat is active.',
+  };
+  return map[code] ?? `Action refused: ${code}`;
 }
 
 export default function PlayPage() {
@@ -99,14 +139,24 @@ export default function PlayPage() {
   const [mobileView, setMobileView] = useState<'log' | 'party' | 'scene'>('log');
 
   const [combatId, setCombatId] = useState<string | null>(null);
-  const [round, setRound] = useState<number | null>(null);
-  const [monsters, setMonsters] = useState<CombatTarget[]>([]);
+  const [combatState, setCombatState] = useState<CombatState | null>(null);
   const [combatBusy, setCombatBusy] = useState(false);
+  const [refusedReason, setRefusedReason] = useState<string | null>(null);
+
+  // Grounding for the "Move on" affordance (ADV-7T).
+  const [grounding, setGrounding] = useState<GroundingData | null>(null);
+  const [sceneAdvanceBusy, setSceneAdvanceBusy] = useState(false);
+
+  // Monotone sequence guard: combatState updates from polls must not overwrite
+  // a more-recent mutation response. Mutations bump this; polls gate on it.
+  const stateSeqRef = useRef(0);
 
   const idRef = useRef(0);
   const chatLogRef = useRef<ChatLogHandle>(null);
   const revealRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const narrationAbort = useRef<AbortController | null>(null);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   // Latest-log ref so narrate() can read recent transcript without re-creating
   // itself on every log change. Synced in an effect (never written during render).
   const logRef = useRef<LogRow[]>([]);
@@ -131,17 +181,29 @@ export default function PlayPage() {
           return;
         }
         setSession(s);
-        setCombatId(s.active_combat_id ?? null);
-        if (s.active_combat_id) setRound(1);
+        const initialCombatId = s.active_combat_id ?? null;
+        setCombatId(initialCombatId);
         setState('ok');
+
+        // Fetch grounding to power the "Move on" affordance.
+        const g = await getGrounding(sessionId, ctrl.signal);
+        if (!ctrl.signal.aborted) setGrounding(g);
+
         const party = await getParticipants(sessionId, ctrl.signal).catch(
           () => [] as Participant[],
         );
         if (!ctrl.signal.aborted) setParticipants(party);
+
+        // If there's an active combat, fetch its state immediately.
+        if (initialCombatId && !ctrl.signal.aborted) {
+          const cs = await getCombatState(initialCombatId, ctrl.signal).catch(() => null);
+          if (!ctrl.signal.aborted && cs) {
+            stateSeqRef.current += 1;
+            setCombatState(cs);
+          }
+        }
       } catch (e) {
         if (ctrl.signal.aborted) return;
-        // A 404 means the table closed/expired (or you're not at it) → distinct
-        // copy from a transport failure. ApiError carries the HTTP status. (H-2)
         const status = (e as { status?: number } | null)?.status;
         setState(status === 404 ? 'notfound' : 'error');
       }
@@ -149,9 +211,41 @@ export default function PlayPage() {
     return () => ctrl.abort();
   }, [username, sessionId]);
 
-  // Re-pin the chat to the latest line when returning to the Story view —
-  // display:none zeroes the log's scrollTop, and the rows effect won't re-fire
-  // on a bare tab switch (Tora S3.3 MAJOR-2). 'instant' so it snaps, not crawls.
+  // ── combat state poll (4s, foregrounded, state=active) ─────────────────────
+  useEffect(() => {
+    if (!combatId || combatState?.state === 'ended') {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+      return;
+    }
+
+    const poll = async () => {
+      if (document.hidden) return;
+      const mySeq = stateSeqRef.current;
+      try {
+        const cs = await getCombatState(combatId);
+        // Only apply if no mutation has happened since we sent this request.
+        if (stateSeqRef.current === mySeq) {
+          setCombatState(cs);
+        }
+      } catch {
+        // Poll errors are non-fatal — the next tick will retry.
+      }
+    };
+
+    pollIntervalRef.current = setInterval(poll, POLL_INTERVAL_MS);
+
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
+  }, [combatId, combatState?.state]);
+
+  // Re-pin the chat to the latest line when returning to the Story view.
   useEffect(() => {
     if (mobileView === 'log') chatLogRef.current?.scrollToBottom('instant');
   }, [mobileView]);
@@ -160,6 +254,7 @@ export default function PlayPage() {
   useEffect(
     () => () => {
       if (revealRef.current) clearInterval(revealRef.current);
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
       narrationAbort.current?.abort();
     },
     [],
@@ -232,8 +327,6 @@ export default function PlayPage() {
       setThinking(false);
       setTalking(false);
       if (errored || !full.trim()) {
-        // When the table is intentionally running without AI narration, say so
-        // plainly — don't imply a transient failure or prompt the user to retry.
         const fallbackText =
           lastErrorReason === 'ai_off'
             ? 'This table runs without AI narration — you and your DM drive the scene.'
@@ -279,9 +372,6 @@ export default function PlayPage() {
         color: 'var(--accent)',
         roll: { sides, value, modifier, crit, fumble, label: lbl },
       });
-      // Named d20 checks get a Suzu reaction; bare dice just sit in the log.
-      // Skip while narrating OR while a combat action is in flight, so a stray
-      // roll can't abort/race the combat narration.
       if (sides === 20 && mod !== undefined && !talking && !combatBusy) {
         const total = value + modifier;
         const mech = `${lbl} check: ${value} + ${modifier} = ${total}${
@@ -293,34 +383,105 @@ export default function PlayPage() {
     [advantage, username, talking, combatBusy, appendLog, narrate],
   );
 
+  // ── scene advance (ADV-7T / CUI-12) ─────────────────────────────────────────
+
+  /** Refetch grounding after a scene advance so the Scene card updates. */
+  const refreshGrounding = useCallback(async () => {
+    if (!sessionId) return;
+    const g = await getGrounding(sessionId).catch(() => null);
+    setGrounding(g);
+  }, [sessionId]);
+
+  /**
+   * Handle an ADV-8 auto-advance (scene_advance != null on a combat response).
+   * Surfaced as a system log beat + grounding refresh + DM narration.
+   */
+  const handleSceneAdvance = useCallback(
+    async (fromScene: string, toScene: string, outcome?: string) => {
+      const label = outcome ? ` (${outcome})` : '';
+      appendLog({
+        who: 'Suzu',
+        kind: 'system',
+        text: `The scene shifts: ${fromScene} → ${toScene}${label}`,
+      });
+      await refreshGrounding();
+      void narrate(
+        'The scene changes.',
+        `Scene advance: ${fromScene} → ${toScene}. Narrate the transition.`,
+        'act',
+      );
+    },
+    [appendLog, refreshGrounding, narrate],
+  );
+
+  /** Manual "Move on" button handler (ADV-7T). */
+  const onMoveOn = useCallback(
+    async (toScene: string) => {
+      if (!session || !username || sceneAdvanceBusy) return;
+      setSceneAdvanceBusy(true);
+      try {
+        const result = await advanceScene(session.session_id, { to_scene: toScene });
+        appendLog({
+          who: 'Suzu',
+          kind: 'system',
+          text: `The scene shifts: ${result.from_scene} → ${result.to_scene}`,
+        });
+        await refreshGrounding();
+        void narrate(
+          'We move on.',
+          `Scene advance: ${result.from_scene} → ${result.to_scene}. Narrate the transition.`,
+          'act',
+        );
+      } catch (err) {
+        const status = (err as { status?: number } | null)?.status;
+        if (status === 400) {
+          // freeform_session or unknown_scene — quiet info, not a crash.
+          toast({ tone: 'info', message: 'No authored adventure to advance through.' });
+        } else if (status === 503) {
+          toast({ tone: 'info', message: 'Scene advancement is not available right now.' });
+        } else {
+          toast({ tone: 'error', message: 'Could not advance the scene.' });
+        }
+      } finally {
+        setSceneAdvanceBusy(false);
+      }
+    },
+    [session, username, sceneAdvanceBusy, appendLog, refreshGrounding, narrate, toast],
+  );
+
   // ── combat ──────────────────────────────────────────────────────────────────
   /**
    * ADV-6: Begin an encounter from the current scene's authored encounter block.
-   *
-   * The engine resolves session → campaign → adventure → current_scene and spawns
-   * its monsters. Returns a fully-typed combat_id + monster roster — no hardcoded
-   * "spawn 2 goblins" here. Freeform sessions (no adventure_ref) or scenes with
-   * no encounter block return a 400 "No encounter available" — handled gracefully
-   * via a friendly toast, no crash, no stuck spinner.
+   * Now also initialises combatState from the response's data.state (CUI-11).
    */
   const beginEncounter = useCallback(async () => {
     if (!session || !username || combatBusy) return;
     setCombatBusy(true);
+    setRefusedReason(null);
     try {
       const result = await combatFromScene({ session_id: session.session_id });
       const newId = result.combat_id;
       setCombatId(newId);
-      setRound(result.round ?? 1);
-      // Build the UI monster roster from the engine's typed response.
-      setMonsters(
-        result.monsters.map((m) => ({
-          id: m.participant_id,
-          name: m.name,
-          hp: m.hp,
-          maxHp: m.hp,
-        })),
-      );
+      // Initialise combatState from the engine response if it carries structured state;
+      // else fetch it immediately. (Proxy passes through data.state once engine is updated.)
+      if ('state' in result && result.state) {
+        stateSeqRef.current += 1;
+        setCombatState(result.state as CombatState);
+      } else {
+        // Fallback: explicit fetch for the structured state.
+        const cs = await getCombatState(newId).catch(() => null);
+        if (cs) {
+          stateSeqRef.current += 1;
+          setCombatState(cs);
+        }
+      }
       await rollInitiative({ username, combat_id: newId }).catch(() => null);
+      // Refresh combat state after initiative roll.
+      const csAfterInit = await getCombatState(newId).catch(() => null);
+      if (csAfterInit) {
+        stateSeqRef.current += 1;
+        setCombatState(csAfterInit);
+      }
       const monsterNames = result.monsters.map((m) => m.name).join(', ') || 'enemies';
       appendLog({
         who: 'Suzu',
@@ -334,7 +495,6 @@ export default function PlayPage() {
       );
     } catch (err) {
       const status = (err as { status?: number } | null)?.status;
-      // 400 = no encounter defined for the current scene (expected, not an error).
       if (status === 400) {
         toast({ tone: 'info', message: "There's no scripted encounter here." });
       } else {
@@ -349,67 +509,232 @@ export default function PlayPage() {
     async (action: CombatAction, payload?: string) => {
       if (!session || !username || !combatId || combatBusy) return;
       setCombatBusy(true);
+      setRefusedReason(null);
+
       try {
         let message = '';
         let playerLine = '';
+        let newState: CombatState | null | undefined;
+        let sceneAdvance: { fromScene: string; toScene: string; outcome?: string } | null = null;
+
         if (action === 'attack' && payload) {
-          const res = await combatAttack({ username, combat_id: combatId, target: payload });
-          message = res.message ?? `You attack ${payload}.`;
-          playerLine = `I attack ${payload}.`;
+          // payload is the participant_id (from the target menu item's id).
+          // We send target_id as the preferred path; target (name) as fallback.
+          const target = combatState?.participants.find((p) => p.participant_id === payload);
+          const targetName = target?.name ?? payload;
+          let res;
+          try {
+            res = await combatAttack({
+              username,
+              combat_id: combatId,
+              target: targetName,
+              target_id: payload,
+            });
+          } catch (err) {
+            // Surface refused-action reason from the error body.
+            const body = (err as { body?: unknown } | null)?.body;
+            const data = (body as { data?: { reason?: string; state?: CombatState } } | null)?.data;
+            const reason = humanRefusalReason(data?.reason);
+            setRefusedReason(reason);
+            if (data?.state) {
+              stateSeqRef.current += 1;
+              setCombatState(data.state);
+            }
+            return;
+          }
+          newState = res.state ?? null;
+          if (res.scene_advance) {
+            sceneAdvance = {
+              fromScene: res.scene_advance.from_scene,
+              toScene: res.scene_advance.to_scene,
+              outcome: res.scene_advance.outcome,
+            };
+          }
+          // Surface what happened from last_action.
+          const la = newState?.last_action;
+          const outcomeText = la
+            ? ` (${la.outcome}${la.damage_dealt ? `, ${la.damage_dealt} dmg` : ''})`
+            : '';
+          message = res.message ?? `You attack ${targetName}.${outcomeText}`;
+          playerLine = `I attack ${targetName}.`;
         } else if (action === 'dodge') {
           const res = await combatDodge({ username, combat_id: combatId });
+          newState = res.state ?? null;
           message = res.message ?? 'You take the Dodge action.';
           playerLine = 'I dodge.';
         } else if (action === 'dash') {
           const res = await combatDash({ username, combat_id: combatId });
+          newState = res.state ?? null;
           message = res.message ?? 'You take the Dash action.';
           playerLine = 'I dash.';
         } else if (action === 'endturn') {
           const res = await combatEndTurn({ username, combat_id: combatId });
+          newState = res.state ?? null;
+          if (res.scene_advance) {
+            sceneAdvance = {
+              fromScene: res.scene_advance.from_scene,
+              toScene: res.scene_advance.to_scene,
+              outcome: res.scene_advance.outcome,
+            };
+          }
           message = res.message ?? 'You end your turn.';
           playerLine = 'I end my turn.';
         }
+
+        if (newState) {
+          stateSeqRef.current += 1;
+          setCombatState(newState);
+        }
+
         appendLog({ who: username, kind: 'system', text: message });
         await narrate(playerLine, message, 'act');
 
-        // After the player ends their turn, drive the monsters' turn too.
+        // After the player ends their turn, drive the monsters' turn.
         if (action === 'endturn') {
           const mres = await monsterTurn({ username, combat_id: combatId }).catch(() => null);
           const mmsg = mres?.message;
-          if (mmsg) {
-            appendLog({ who: 'Suzu', kind: 'system', text: mmsg });
-            await narrate('(the enemies act)', mmsg, 'act');
+          // Surface monster's last_action in the log.
+          const mla = mres?.state?.last_action;
+          const mOutcome = mla
+            ? ` ${mla.outcome}${mla.damage_dealt ? `, ${mla.damage_dealt} dmg` : ''}`
+            : '';
+          const mLogText = mmsg ?? (mla ? `${mla.actor_id}:${mOutcome}` : null);
+          if (mres?.state) {
+            stateSeqRef.current += 1;
+            setCombatState(mres.state);
           }
-          setRound((r) => (r ?? 1) + 1);
+          if (mres?.scene_advance && !sceneAdvance) {
+            sceneAdvance = {
+              fromScene: mres.scene_advance.from_scene,
+              toScene: mres.scene_advance.to_scene,
+              outcome: mres.scene_advance.outcome,
+            };
+          }
+          if (mLogText) {
+            appendLog({ who: 'Suzu', kind: 'system', text: mLogText });
+            await narrate('(the enemies act)', mLogText, 'act');
+          }
         }
-      } catch {
-        toast({ tone: 'error', message: 'That combat action did not land. Try again.' });
+
+        // ADV-8 auto-advance: scene_advance != null means combat resolved + scene moved.
+        if (sceneAdvance) {
+          await handleSceneAdvance(sceneAdvance.fromScene, sceneAdvance.toScene, sceneAdvance.outcome);
+        }
+
+        // If combat ended, refresh grounding for the "Move on" affordance.
+        if (newState?.state === 'ended') {
+          void refreshGrounding();
+        }
+      } catch (err) {
+        const body = (err as { body?: unknown } | null)?.body;
+        const data = (body as { data?: { reason?: string; state?: CombatState } } | null)?.data;
+        const reason = humanRefusalReason(data?.reason);
+        if (reason) {
+          setRefusedReason(reason);
+        } else {
+          toast({ tone: 'error', message: 'That combat action did not land. Try again.' });
+        }
+        if (data?.state) {
+          stateSeqRef.current += 1;
+          setCombatState(data.state);
+        }
       } finally {
         setCombatBusy(false);
       }
     },
-    [session, username, combatId, combatBusy, appendLog, narrate, toast],
+    [
+      session,
+      username,
+      combatId,
+      combatState,
+      combatBusy,
+      appendLog,
+      narrate,
+      toast,
+      handleSceneAdvance,
+      refreshGrounding,
+    ],
   );
 
-  // ── initiative entries (client-built; see InitiativeTracker note) ───────────
-  const initEntries = useMemo<InitEntry[]>(() => {
-    if (!combatId) return [];
-    const self = (username ?? '').toLowerCase();
-    const pcs: InitEntry[] = participants.map((p) => ({
-      id: `pc-${p.username}`,
-      name: p.character?.name ?? p.username,
-      initiative: null,
-      kind: 'pc',
-      isYou: p.username.toLowerCase() === self,
-    }));
-    const mobs: InitEntry[] = monsters.map((m) => ({
-      id: m.id,
-      name: m.name,
-      initiative: null,
-      kind: 'monster',
-    }));
-    return [...pcs, ...mobs];
-  }, [combatId, participants, monsters, username]);
+  /** Explicit "End combat" — posts /combat/{id}/end with outcome='retreat'. */
+  const onEndCombat = useCallback(async () => {
+    if (!combatId || !username || combatBusy) return;
+    setCombatBusy(true);
+    try {
+      const result = await endCombat(combatId, { username, outcome: 'unresolved' });
+      if (result.state) {
+        stateSeqRef.current += 1;
+        setCombatState(result.state);
+      }
+      appendLog({
+        who: 'Suzu',
+        kind: 'system',
+        text: `Combat ended. ${result.outcome ?? 'Unresolved'}.`,
+      });
+      if (result.scene_advance) {
+        await handleSceneAdvance(
+          result.scene_advance.from_scene,
+          result.scene_advance.to_scene,
+          result.scene_advance.outcome,
+        );
+      } else {
+        void refreshGrounding();
+      }
+    } catch {
+      toast({ tone: 'error', message: 'Could not end combat.' });
+    } finally {
+      setCombatBusy(false);
+    }
+  }, [combatId, username, combatBusy, appendLog, handleSceneAdvance, refreshGrounding, toast]);
+
+  // ── derived combat UI state ──────────────────────────────────────────────────
+
+  // Participants that are valid targets (living, targetable enemies).
+  const targetableFoes: CombatTarget[] = combatState
+    ? combatState.participants
+        .filter((p): p is CombatParticipantState =>
+          !p.is_pc && p.can_be_targeted && p.is_alive,
+        )
+        .map((p) => ({
+          id: p.participant_id,
+          name: p.name,
+          hp: p.hp_current,
+          maxHp: p.hp_max,
+        }))
+    : [];
+
+  // Determine if it's the local player's turn (for disabling actions).
+  const selfPcParticipant = combatState?.participants.find(
+    (p) => p.is_pc && p.is_active_turn,
+  );
+  // We can't reliably map username → participant_id without a /bind API response,
+  // so we approximate: it's "your turn" when any PC has is_active_turn — in a
+  // solo-play session this is always the right answer. Multi-player tables will
+  // need the character bind endpoint to fully resolve this.
+  const isPlayerTurn = combatState?.state === 'active'
+    ? (selfPcParticipant != null)
+    : true; // out of combat: always enabled
+
+  // Round from combatState is authoritative; fall back to 1 when no state yet.
+  const round = combatState?.round ?? null;
+
+  // Determine valid "Move on" transitions from grounding (ADV-7T).
+  // Show the button only when: no active combat AND at least one transition is available
+  // that doesn't require an unresolved encounter.
+  const activeEncounterId = combatState?.state === 'active'
+    ? combatState.encounter_id
+    : null;
+
+  const availableTransitions = (combatState?.state !== 'active' && grounding?.transitions)
+    ? grounding.transitions.filter((t) => {
+        if (!t.requires_encounter_resolved) return true;
+        // If the encounter that gates this transition is resolved, allow it.
+        const enc = grounding.encounter_state as Record<string, { status?: string }> | null;
+        if (!enc) return false;
+        const st = enc[t.requires_encounter_resolved]?.status ?? '';
+        return st.startsWith('resolved_');
+      })
+    : [];
 
   // ── render states ───────────────────────────────────────────────────────────
   if (state === 'loading') return <PageSkeleton />;
@@ -433,7 +758,8 @@ export default function PlayPage() {
   }
 
   const title = titleizeChannel(session?.channel);
-  const statusPill = combatId ? (
+  const combatIsActive = !!combatId && combatState?.state !== 'ended';
+  const statusPill = combatIsActive ? (
     <Pill tone="lav" dot>
       round {round ?? 1} · combat
     </Pill>
@@ -450,12 +776,21 @@ export default function PlayPage() {
         ? styles.showParty
         : styles.showLog;
 
+  // Find the selfParticipantId for the "you" badge in the tracker.
+  const selfPcId =
+    combatState?.participants.find(
+      (p) =>
+        p.is_pc &&
+        participants.some(
+          (part) =>
+            part.username.toLowerCase() === (username ?? '').toLowerCase() &&
+            part.character?.name?.toLowerCase() === p.name.toLowerCase(),
+        ),
+    )?.participant_id ?? null;
+
   return (
-    // id="main-content" so the global skip link has a valid target on /play too
-    // (this route has no TavernShell <main id="main-content">) — Iro S3.4.
     <div id="main-content" className={`${styles.grid} ${mobileClass}`}>
-      {/* mobile tab bar — switches which pane fills the single mobile column.
-          aria-pressed exposes the active view to screen readers (S3.5). */}
+      {/* mobile tab bar */}
       <div className={styles.mobileTabs} role="group" aria-label="Play view">
         <button
           type="button"
@@ -497,15 +832,24 @@ export default function PlayPage() {
             <div className={styles.sessionTitle}>{title}</div>
           </div>
         </div>
-        <PartyPanel participants={participants} selfUsername={username} />
-        <InitiativeTracker entries={initEntries} round={round} />
+        <PartyPanel
+          participants={participants}
+          selfUsername={username}
+          combatState={combatState}
+        />
+        {/* ADV-7/8: structured tracker when combatState available; legacy shim otherwise. */}
+        {combatState && combatState.participants.length > 0 ? (
+          <InitiativeTracker
+            participants={combatState.participants}
+            round={round}
+            selfParticipantId={selfPcId}
+          />
+        ) : null}
       </aside>
 
       {/* CENTRE — narrator + log + composer */}
       <main id="play-pane-story" className={`${styles.pane} ${styles.center}`}>
         <NarratorStrip text={narratorText} talking={talking} status={statusPill} />
-        {/* Persistent polite live region so the recap is announced when it
-            mounts after the events fetch (Iro S3.6 MINOR-1). */}
         <div aria-live="polite">
           {session && (
             <SessionRecap
@@ -525,22 +869,55 @@ export default function PlayPage() {
           onSend={onSend}
           disabled={talking}
           combat={
-            combatId ? { targets: monsters, onAction: onCombatAction, busy: combatBusy } : null
+            combatIsActive
+              ? {
+                  targets: targetableFoes,
+                  onAction: onCombatAction,
+                  busy: combatBusy,
+                  isPlayerTurn,
+                  refusedReason,
+                }
+              : null
           }
         />
       </main>
 
-      {/* RIGHT — scene + dice + safety */}
+      {/* RIGHT — scene + "Move on" + dice + safety */}
       <aside id="play-pane-scene" className={`${styles.pane} ${styles.right}`}>
         <div className={styles.sceneHead}>
           <span className={styles.kicker}>Scene</span>
+          {grounding?.scene_name && (
+            <span className={styles.sceneName}>{grounding.scene_name}</span>
+          )}
         </div>
         <div className={styles.scenePlaceholder}>
           <Icon name="Map" size={22} aria-hidden />
           <span>The tactical map arrives in a later sprint. Suzu narrates the scene above.</span>
         </div>
 
-        {!combatId ? (
+        {/* Active combat: show combat note + End combat option. */}
+        {combatIsActive ? (
+          <div className={styles.combatNote} role="status" aria-live="polite">
+            <Icon name="Sword" size={13} aria-hidden /> In combat · use the action rail in the composer
+            {/* CUI-13: explicit "End combat" */}
+            <button
+              type="button"
+              className={styles.endCombatBtn}
+              onClick={onEndCombat}
+              disabled={combatBusy}
+              aria-busy={combatBusy}
+              aria-label="End combat"
+            >
+              End
+            </button>
+          </div>
+        ) : activeEncounterId ? (
+          // Between fights but encounter_id still set — shouldn't happen post-fix.
+          <div className={styles.combatNote} role="status" aria-live="polite">
+            <Icon name="Sword" size={13} aria-hidden /> Combat ended
+          </div>
+        ) : !combatId ? (
+          // No combat at all: offer to begin one.
           <button
             type="button"
             className={styles.beginCombat}
@@ -550,11 +927,27 @@ export default function PlayPage() {
           >
             <Icon name="Sword" size={14} aria-hidden /> Begin an encounter
           </button>
-        ) : (
-          // role=status so the transition into combat is announced to SR users
-          // who weren't focused here when it started (Iro S3.5 MAJOR-1).
-          <div className={styles.combatNote} role="status" aria-live="polite">
-            <Icon name="Sword" size={13} aria-hidden /> In combat · use the action rail in the composer
+        ) : null}
+
+        {/* ADV-7T: "Move on" affordance — shown only when transitions are available
+            and no combat is active. */}
+        {availableTransitions.length > 0 && (
+          <div className={styles.moveOnWrap}>
+            <div className={styles.moveOnLabel}>Scene transition</div>
+            {availableTransitions.map((t) => (
+              <button
+                key={t.to}
+                type="button"
+                className={styles.moveOnBtn}
+                onClick={() => void onMoveOn(t.to)}
+                disabled={sceneAdvanceBusy}
+                aria-busy={sceneAdvanceBusy}
+                aria-disabled={sceneAdvanceBusy}
+              >
+                <Icon name="Compass" size={13} aria-hidden />
+                {t.label ?? `Move on → ${t.to}`}
+              </button>
+            ))}
           </div>
         )}
 

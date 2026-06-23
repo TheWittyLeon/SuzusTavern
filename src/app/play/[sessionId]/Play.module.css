@@ -142,6 +142,77 @@
   margin-bottom: 16px;
 }
 
+/* "End combat" inline button inside combatNote. */
+.endCombatBtn {
+  margin-left: auto;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in oklab, var(--bad) 30%, transparent);
+  background: color-mix(in oklab, var(--bad) 10%, transparent);
+  color: var(--bad-ink);
+  font-size: 11px;
+  cursor: pointer;
+  /* ≥44px touch target via content-box padding trick. */
+  box-sizing: content-box;
+  min-height: 26px;
+}
+
+.endCombatBtn:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--bad) 18%, transparent);
+}
+
+.endCombatBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── "Move on" affordance (ADV-7T) ── */
+.moveOnWrap {
+  margin-bottom: 16px;
+}
+
+.moveOnLabel {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 6px;
+}
+
+.moveOnBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in oklab, var(--cool) 35%, transparent);
+  background: color-mix(in oklab, var(--cool) 8%, transparent);
+  color: var(--ink);
+  font-size: 13px;
+  cursor: pointer;
+  margin-bottom: 6px;
+}
+
+.moveOnBtn:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--cool) 16%, transparent);
+}
+
+.moveOnBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Scene name in the right-pane scene header. */
+.sceneName {
+  font-size: 13px;
+  font-family: var(--font-display);
+  color: var(--ink);
+  margin-left: 8px;
+}
+
 .diceWrap {
   margin-bottom: 18px;
 }
