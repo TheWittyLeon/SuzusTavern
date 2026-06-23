@@ -34,8 +34,8 @@
 
 .entry {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  align-items: flex-start;
+  gap: 8px;
   padding: 6px 4px;
   border-bottom: 1px solid var(--line-2);
   opacity: 0.7;
@@ -51,23 +51,83 @@
   font-weight: 600;
 }
 
+.dead {
+  opacity: 0.35;
+  text-decoration: line-through;
+}
+
 .dot {
   width: 6px;
   height: 6px;
   border-radius: 999px;
   flex-shrink: 0;
+  margin-top: 4px; /* align with text baseline when name block wraps */
+}
+
+/* nameBlock wraps name + hp bar vertically */
+.nameBlock {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 
 .name {
-  flex: 1;
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .you {
   font-size: 10px;
   color: var(--accent);
+  flex-shrink: 0;
+}
+
+/* downed / dead inline markers */
+.downed {
+  font-size: 10px;
+  color: var(--bad-ink);
+  flex-shrink: 0;
+}
+
+.deadLabel {
+  font-size: 10px;
+  color: var(--ink-3);
+  flex-shrink: 0;
+}
+
+/* HP bar */
+.hpBar {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.hpFill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s ease, background 0.3s ease;
+}
+
+/* right column: AC + initiative */
+.rightCol {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.ac {
+  font-size: 10px;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
 }
 
 .init {
@@ -79,4 +139,17 @@
 
 .current .init {
   color: var(--crit-ink); /* text-safe on candlelit (A11Y S3.1) */
+}
+
+/* Death-save assertive live region — visually hidden but screen-reader audible */
+.deathAlert {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
