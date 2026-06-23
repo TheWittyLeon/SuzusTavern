@@ -454,12 +454,35 @@ it('Begin with multiple characters sends the selected character_id', async () =>
   });
 });
 
-it('Begin with multiple characters and no selection sends no character_id', async () => {
+it('Begin with multiple characters defaults to the first and sends its character_id', async () => {
+  // Regression: the picker used to default to "no character", so creating a table
+  // without touching it bound nothing and the engine silently used the first
+  // character anyway. It now defaults to the first character (visible + changeable).
+  let resolveChars!: (chars: Character[]) => void;
+  const charsPromise = new Promise<Character[]>((res) => { resolveChars = res; });
+  mockListChars.mockReturnValue(charsPromise);
+  await openForm();
+  await act(async () => {
+    resolveChars([CHAR_A, CHAR_B]);
+    await charsPromise;
+  });
+  // No interaction with the picker — just Begin.
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
+  });
+  await waitFor(() => {
+    const call = mockCreate.mock.calls[0][0] as SessionStartRequest;
+    expect(call['character_id']).toBe(10); // CHAR_A — the first character
+  });
+});
+
+it('Begin with multiple characters and EXPLICIT no-character sends no character_id', async () => {
   mockListChars.mockResolvedValue([CHAR_A, CHAR_B]);
   await openForm();
   await waitFor(() =>
     expect(screen.getByRole('combobox', { name: /your character/i })).toBeInTheDocument(),
   );
+  // Explicitly pick "— no character (DM only) —".
   fireEvent.change(screen.getByRole('combobox', { name: /your character/i }), {
     target: { value: '' },
   });

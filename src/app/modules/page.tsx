@@ -169,7 +169,13 @@ function StarterForm({
   const [rating, setRating] = useState<ContentRating>('sfw');
   const [submitting, setSubmitting] = useState(false);
 
-  // Character binding — fetch on mount; auto-bind when exactly one character.
+  // Character binding — fetch on mount and default to the first character so the
+  // binding is explicit + visible. With one character the picker is hidden (it's
+  // auto-bound); with several the picker shows pre-selected to the first one and
+  // the player can change it (or pick "no character" for a DM-only table). Without
+  // a default, the picker sat on "no character" → nothing was sent → the engine's
+  // party/combat fallback silently used the first character, which read as
+  // "it bound a character I didn't choose."
   const [characters, setCharacters] = useState<Character[] | null>(null);
   const [selectedCharId, setSelectedCharId] = useState<number | undefined>(undefined);
 
@@ -180,7 +186,7 @@ function StarterForm({
     listMyCharacters(username, ac.signal)
       .then((chars) => {
         setCharacters(chars);
-        if (chars.length === 1) {
+        if (chars.length >= 1) {
           const parsed = Number(chars[0].character_id);
           if (Number.isFinite(parsed)) setSelectedCharId(parsed);
         }
