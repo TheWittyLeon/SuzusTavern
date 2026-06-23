@@ -152,9 +152,12 @@
   color: var(--bad-ink);
   font-size: 11px;
   cursor: pointer;
-  /* ≥44px touch target via content-box padding trick. */
+  /* A11Y (Iro HIGH-2): previous comment claimed "≥44px via content-box padding trick"
+     but min-height:26px + padding:4px×2 = 34px — 10px short.
+     Fix: min-height:36px + padding:4px×2 = 44px exactly. box-sizing stays content-box
+     so padding is additive (the original intent, just the wrong min-height value). */
   box-sizing: content-box;
-  min-height: 26px;
+  min-height: 36px;
 }
 
 .endCombatBtn:hover:not(:disabled) {

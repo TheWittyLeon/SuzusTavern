@@ -38,7 +38,8 @@
   gap: 8px;
   padding: 6px 4px;
   border-bottom: 1px solid var(--line-2);
-  opacity: 0.7;
+  /* A11Y (Iro BLOCKER-1): opacity on the whole row pulls --ink-3/.init below 4.5:1
+     and .dead @ 0.35 fails 4.5:1 entirely. Use colour tokens to convey state instead. */
   font-size: 12px;
 }
 
@@ -46,14 +47,30 @@
   border-bottom: none;
 }
 
+/* Non-current entry names are dimmed via ink-2 (≥10.5:1 all palettes). */
+.entry .name {
+  color: var(--ink-2);
+}
+
 .current {
-  opacity: 1;
   font-weight: 600;
 }
 
+/* Current-turn entry uses the full-contrast ink colour. */
+.current .name {
+  color: var(--ink);
+}
+
 .dead {
-  opacity: 0.35;
+  /* A11Y (Iro BLOCKER-1): was opacity:0.35 — effective text contrast 1.6-2.9:1 (FAILS).
+     Use line-through + ink-3 colour which clears 4.5:1 on all four palettes. */
   text-decoration: line-through;
+}
+
+/* Dead entry: override the .entry .name dimming rule so dead text uses --ink-3.
+   Both selectors share the same specificity; this one wins by source order. */
+.dead .name {
+  color: var(--ink-3);
 }
 
 .dot {

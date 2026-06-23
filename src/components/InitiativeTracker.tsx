@@ -118,13 +118,13 @@ function StructuredTracker({
                   {isDowned && (
                     <span
                       className={styles.downed}
-                      aria-label={`${p.name} is downed — making death saves: ${p.death_saves?.successes ?? 0} success, ${p.death_saves?.failures ?? 0} failure`}
+                      aria-label={`downed — death saves: ${p.death_saves?.successes ?? 0} success, ${p.death_saves?.failures ?? 0} failure`}
                     >
                       ↓
                     </span>
                   )}
                   {isDead && !isDowned && (
-                    <span className={styles.deadLabel} aria-label={`${p.name} is dead`}>
+                    <span className={styles.deadLabel} aria-label="dead">
                       ✕
                     </span>
                   )}

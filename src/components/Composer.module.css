@@ -1,3 +1,16 @@
+/* A11Y visually-hidden live-region (mirrors globals.css .sr-only). */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .composer {
   border-top: 1px solid var(--line);
   padding-top: 12px;
@@ -126,7 +139,10 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 10px;
+  /* A11Y (Iro HIGH-4): was padding:6px 10px → ~26px height, well below the 44px
+     touch-target floor. min-height:44px with adjusted padding meets the requirement. */
+  min-height: 44px;
+  padding: 0 12px;
   border-radius: 10px;
   background: color-mix(in oklab, var(--ink) 4%, transparent);
   border: 1px solid var(--line);
@@ -168,7 +184,10 @@
   width: 100%;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px;
+  /* A11Y (Iro HIGH-5): was padding:8px 10px → ~31px height. min-height:44px
+     meets the touch-target requirement for target-picker items. */
+  min-height: 44px;
+  padding: 0 10px;
   border: none;
   background: transparent;
   border-radius: 8px;

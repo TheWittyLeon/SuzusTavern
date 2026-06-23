@@ -71,6 +71,23 @@ function ActionRail({ combat }: { combat: ComposerCombat }) {
 
   const notYourTurn = combat.isPlayerTurn === false;
 
+  // A11Y (Iro HIGH-3): announce "Your turn" when the turn flips to the player.
+  // The notYourTurn div disappearing does NOT trigger a live-region update.
+  // A separate polite live-region that changes from "" → "Your turn — choose an action"
+  // is the only reliable way to notify screen-reader users without interrupting narration.
+  const prevNotYourTurnRef = useRef<boolean | null>(null);
+  const [turnAnnounce, setTurnAnnounce] = useState('');
+  useEffect(() => {
+    const prev = prevNotYourTurnRef.current;
+    // Only fire on the false→true transition (was waiting, now it's our turn).
+    if (prev === true && !notYourTurn) {
+      setTurnAnnounce('Your turn — choose an action');
+      const t = setTimeout(() => setTurnAnnounce(''), 4000);
+      return () => clearTimeout(t);
+    }
+    prevNotYourTurnRef.current = notYourTurn;
+  }, [notYourTurn]);
+
   // Outside-click dismissal. mousedown (not click) so that opening the menu via
   // the Attack button's own click doesn't immediately re-close it, and so that
   // menu items — which live INSIDE railRef — are never dismissed before their
@@ -111,6 +128,11 @@ function ActionRail({ combat }: { combat: ComposerCombat }) {
       e.preventDefault();
       setTargetOpen(false);
       attackBtnRef.current?.focus();
+    } else if (e.key === 'Tab') {
+      // A11Y (Iro MEDIUM-1): APG menu-button — Tab closes the menu and lets focus
+      // move naturally. Without this the popup stays open after Tab-out.
+      setTargetOpen(false);
+      // Don't preventDefault: let the browser advance focus as normal.
     }
   };
 
@@ -121,6 +143,15 @@ function ActionRail({ combat }: { combat: ComposerCombat }) {
 
   return (
     <div className={styles.rail} ref={railRef}>
+      {/* A11Y (Iro HIGH-3): polite live-region fires once when it becomes the player's
+          turn. Kept visually hidden; the text clears after 4s to avoid stale state. */}
+      <div
+        aria-live="polite"
+        aria-atomic="true"
+        className={styles.srOnly}
+      >
+        {turnAnnounce}
+      </div>
       {/* Refused-action reason — perceivable (not colour-only), sr-accessible. */}
       {combat.refusedReason && (
         <div
@@ -232,6 +263,20 @@ export default function Composer({
   // Refs to the mode tab buttons so Arrow keys move DOM focus (not just
   // selection) to the newly-active tab — APG tablist contract (Iro S3.4).
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const prevCombatRef = useRef<ComposerCombat | null>(null);
+
+  // A11Y (Iro MEDIUM-3): when ActionRail unmounts (combat ends), keyboard focus is
+  // dropped to <body>. Detect the null transition and restore focus to the textarea
+  // — the next logical interaction point after combat ends.
+  useEffect(() => {
+    const prev = prevCombatRef.current;
+    if (prev !== null && combat === null) {
+      // Only steal focus if it was last inside the Composer area (don't yank from unrelated UI).
+      textareaRef.current?.focus();
+    }
+    prevCombatRef.current = combat;
+  }, [combat]);
 
   return (
     <div className={styles.composer}>
@@ -279,6 +324,7 @@ export default function Composer({
           ))}
         </div>
         <textarea
+          ref={textareaRef}
           className={styles.input}
           placeholder={PLACEHOLDER[mode]}
           value={value}

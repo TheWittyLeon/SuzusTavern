@@ -101,14 +101,18 @@ export default function PartyPanel({
                     </div>
                     <div
                       className={styles.hp}
-                      role="meter"
+                      /* A11Y (Iro MEDIUM-2): role=meter requires aria-valuenow; when hp or
+                         max is null (character data not yet loaded) those attributes would be
+                         absent, which is a role-attribute-required violation. Guard the role
+                         so AT sees a plain div instead of a broken meter widget. */
+                      role={hp != null && max != null ? 'meter' : undefined}
                       aria-valuenow={hp ?? undefined}
-                      aria-valuemin={0}
+                      aria-valuemin={hp != null && max != null ? 0 : undefined}
                       aria-valuemax={max ?? undefined}
                       aria-valuetext={
                         hp != null && max != null ? `${hp} of ${max} hit points` : undefined
                       }
-                      aria-label={`${c.name ?? p.username} hit points`}
+                      aria-label={hp != null && max != null ? `${c.name ?? p.username} hit points` : undefined}
                     >
                       <div
                         className={styles.hpFill}

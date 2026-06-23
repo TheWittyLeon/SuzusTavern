@@ -771,7 +771,9 @@ describe('InitiativeTracker — downed PC indicator', () => {
     await screen.findByText('The Hollow Tide');
     await waitFor(() => {
       // The downed indicator (↓) should be present in the tracker.
-      expect(screen.getByLabelText(/Velka is downed/i)).toBeInTheDocument();
+      // A11Y fix (Iro MINOR-1): aria-label no longer repeats the name (name is in the preceding .name span).
+      // Use the more specific death-saves text to distinguish from PartyPanel's badge.
+      expect(screen.getByLabelText(/downed — death saves/i)).toBeInTheDocument();
     });
   });
 });

@@ -131,7 +131,8 @@ describe('InitiativeTracker — structured (engine-driven) props', () => {
   it('downed PC shows ↓ indicator with aria-label', () => {
     render(<InitiativeTracker participants={[DOWNED_VELKA, GOBLIN]} round={1} />);
     expect(
-      screen.getByLabelText(/Velka is downed.*death saves/i),
+      // A11Y fix (Iro MINOR-1): aria-label no longer repeats the name (already in .name span).
+      screen.getByLabelText(/downed.*death saves/i),
     ).toBeInTheDocument();
   });
 
