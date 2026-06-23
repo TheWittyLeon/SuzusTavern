@@ -38,7 +38,9 @@ export default function SessionRecap({ session, username, variant = 'card' }: Se
   useEffect(() => {
     const ctrl = new AbortController();
     (async () => {
-      const events = await getSessionEvents(session.session_id, ctrl.signal);
+      // FIX-4: getSessionEvents now returns null on error (engine unreachable).
+      // Fall back to [] so the recap keeps its resilient empty-state behavior.
+      const events = (await getSessionEvents(session.session_id, ctrl.signal)) ?? [];
       if (ctrl.signal.aborted) return;
       setRecap(buildRecap(session, events));
     })();

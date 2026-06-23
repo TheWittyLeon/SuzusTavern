@@ -64,6 +64,8 @@
   width: 100%;
   align-items: center;
   justify-content: space-between;
+  /* FIX-6 (Iro BLOCKER-2): 44px minimum touch target height. */
+  min-height: 44px;
   padding: 8px 4px;
   background: transparent;
   border: none;
@@ -90,6 +92,13 @@
 }
 
 .advPill {
+  /* FIX-6 (Iro BLOCKER-2): 44px minimum touch target height.
+     The .advRow already has flex-wrap:wrap + gap:6px so three pills
+     in a 228px content column fit on one row (each ~80px) without
+     forcing a wrap at this height. */
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
   padding: 4px 10px;
   border-radius: 999px;
   font-size: 11px;

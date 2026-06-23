@@ -391,15 +391,22 @@ export default function PlayPage() {
    *   - `message` sent to the proxy is '' (opening beats have no player message).
    *   - The proxy writes the durable `opening_narrated` event marker on success.
    *   - On error, a neutral "Suzu hasn't joined yet" system row is appended.
+   *
+   * FIX-1: accepts optional `opts.session` to override the closure `session` value.
+   * This is required for the opening-scene call where session state is still null
+   * at mount time; all other callers omit it and fall back to the closure value.
    */
   const narrate = useCallback(
     async (
       playerMessage: string,
       mechanics: string,
       beatMode: ComposeMode,
-      opts?: { kind?: 'beat' | 'opening' },
+      opts?: { kind?: 'beat' | 'opening'; session?: Session },
     ) => {
-      if (!session || !username) return;
+      // FIX-1: use the override session when supplied (opening call), otherwise
+      // fall back to the closure value (all subsequent player/combat calls).
+      const activeSession = opts?.session ?? session;
+      if (!activeSession || !username) return;
       narrationAbort.current?.abort();
       const ctrl = new AbortController();
       narrationAbort.current = ctrl;
@@ -417,13 +424,13 @@ export default function PlayPage() {
         for await (const ev of streamDmNarration(
           {
             username,
-            channel: session.channel,
+            channel: activeSession.channel,
             // Opening beats MUST send empty message — the proxy enforces this.
             message: isOpening ? '' : playerMessage,
             mechanics,
             transcript,
             mode: beatMode,
-            session_id: session.session_id,
+            session_id: activeSession.session_id,
             ...(isOpening ? { kind: 'opening' as const } : {}),
           },
           { signal: ctrl.signal },
@@ -480,12 +487,10 @@ export default function PlayPage() {
       // Per-lifetime ref guard catches StrictMode double-invoke within one mount.
       if (openingFiredRef.current) return false;
 
-      let events: Array<{ event_type?: string }> = [];
-      try {
-        events = await getSessionEvents(sid, signal);
-      } catch {
-        return false; // engine unreachable — render silence, don't speculate
-      }
+      // FIX-4: getSessionEvents now returns null on error (engine unreachable).
+      // Treat null as fail-safe: don't open when we can't confirm the session state.
+      const events = await getSessionEvents(sid, signal);
+      if (events === null) return false; // engine unreachable → fail safe, don't open
       if (signal.aborted) return false;
 
       // Durable marker exists: opening already ran.
@@ -546,8 +551,9 @@ export default function PlayPage() {
         // ── AI/full path: stream the opening narration ─────────────────────
         // narrate() with kind:'opening' sends empty message + kind field.
         // The proxy writes the opening_narrated marker on stream success.
-        // Non-blocking: narrate handles its own abort via narrationAbort ref.
-        void narrate('', '', 'act', { kind: 'opening' });
+        // FIX-1: pass the live session param `s` so narrate() doesn't read
+        // from the React state closure (which is still null at mount time).
+        void narrate('', '', 'act', { kind: 'opening', session: s });
       }
     },
     [checkShouldOpen, appendLog, narrate],
@@ -631,9 +637,14 @@ export default function PlayPage() {
   const onMoveOn = useCallback(
     async (toScene: string) => {
       if (!session || !username || sceneAdvanceBusyRef.current) return;
-      sceneAdvanceBusyRef.current = true;
-      setSceneAdvanceBusy(true);
+      // FIX-2: guard against clicking Move on while an opening stream is in flight.
+      // Without this, a race between the opening narration and a scene transition
+      // leaves the opening_narrated marker unwritten → re-fires on the next mount.
+      if (talking) return;
       try {
+        // FIX-3: latch INSIDE the try so the finally always resets them.
+        sceneAdvanceBusyRef.current = true;
+        setSceneAdvanceBusy(true);
         const result = await advanceScene(session.session_id, { to_scene: toScene });
         appendLog({
           who: 'Suzu',
@@ -1109,7 +1120,9 @@ export default function PlayPage() {
       {/* CENTRE — narrator + log + composer */}
       <main id="play-pane-story" className={`${styles.pane} ${styles.center}`}>
         <NarratorStrip text={narratorText} talking={talking} status={statusPill} />
-        <div aria-live="polite">
+        {/* FIX-8 (MEDIUM-2): aria-label on the live region so AT announces the
+            context ("Session recap") before reading the content changes. */}
+        <div aria-live="polite" aria-label="Session recap">
           {session && (
             <SessionRecap
               key={session.session_id}
@@ -1143,10 +1156,17 @@ export default function PlayPage() {
 
       {/* RIGHT — scene + "Move on" + dice + safety */}
       <aside id="play-pane-scene" className={`${styles.pane} ${styles.right}`}>
-        <div className={styles.sceneHead}>
-          <span className={styles.kicker}>Scene</span>
+        {/* FIX-8 (MEDIUM-1): aria-label surfaces the scene name to AT so the
+            "Scene" kicker (now aria-hidden) doesn't duplicate it on screen readers.
+            Scene name rendered as <p> (block element) so AT pauses between the
+            name and objective. */}
+        <div
+          className={styles.sceneHead}
+          aria-label={grounding?.scene_name ? `Scene: ${grounding.scene_name}` : 'Scene'}
+        >
+          <span className={styles.kicker} aria-hidden>Scene</span>
           {grounding?.scene_name && (
-            <span className={styles.sceneName}>{grounding.scene_name}</span>
+            <p className={styles.sceneName}>{grounding.scene_name}</p>
           )}
           {/* A1 — surface the current objective below the scene name (free win). */}
           {grounding?.objective && (
@@ -1203,9 +1223,9 @@ export default function PlayPage() {
                 type="button"
                 className={styles.moveOnBtn}
                 onClick={() => void onMoveOn(t.to)}
-                disabled={sceneAdvanceBusy}
-                aria-busy={sceneAdvanceBusy}
-                aria-disabled={sceneAdvanceBusy}
+                disabled={sceneAdvanceBusy || talking}
+                aria-busy={sceneAdvanceBusy || talking}
+                aria-disabled={sceneAdvanceBusy || talking}
               >
                 <Icon name="Compass" size={13} aria-hidden />
                 {t.label ?? `Move on → ${t.to}`}

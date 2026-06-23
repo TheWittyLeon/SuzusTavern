@@ -73,9 +73,14 @@ export default function DiceTray({
           <ul className={styles.checks}>
             {quickChecks.map((q) => (
               <li key={q.name}>
+                {/* FIX-7 (Iro HIGH-1): aria-label conveys action + skill + modifier
+                    so screen readers announce "Roll Perception check, modifier +3"
+                    rather than just reading the visible label + modifier as separate
+                    elements. Mirrors the aria-label="Roll d20" pattern on dice buttons. */}
                 <button
                   type="button"
                   className={styles.checkRow}
+                  aria-label={`Roll ${q.name} check, modifier ${q.mod >= 0 ? '+' : ''}${q.mod}`}
                   onClick={() => onRoll(20, q.name, q.mod)}
                   disabled={disabled}
                 >

@@ -215,7 +215,9 @@ export const getSessionEvents = (sessionId: string, signal?: AbortSignal) =>
         created_at: e.created_at,
       })),
     )
-    .catch(() => [] as SessionEvent[]);
+    // FIX-4: return null on error (sentinel) so checkShouldOpen can
+    // distinguish "no events" from "engine unreachable → don't open".
+    .catch(() => null as SessionEvent[] | null);
 
 /**
  * A1 — Write a durable session event via the proxy passthrough.

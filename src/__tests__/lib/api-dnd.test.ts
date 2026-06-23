@@ -330,7 +330,9 @@ describe('Session listing (ST-033 / ST-041 / ST-044)', () => {
     });
   });
 
-  it('getSessionEvents returns [] on 404 (graceful degradation)', async () => {
+  it('getSessionEvents returns null on 404 (engine unreachable sentinel)', async () => {
+    // FIX-4: null signals "engine unreachable" to checkShouldOpen so it fails safe.
+    // Callers that want [] fall back with `?? []`.
     mockFetch.mockResolvedValueOnce(
       new Response(JSON.stringify({ error: 'not found' }), {
         status: 404,
@@ -338,13 +340,14 @@ describe('Session listing (ST-033 / ST-041 / ST-044)', () => {
       }),
     );
     const events = await getSessionEvents('unknown-id');
-    expect(events).toEqual([]);
+    expect(events).toBeNull();
   });
 
-  it('getSessionEvents returns [] on network error', async () => {
+  it('getSessionEvents returns null on network error (engine unreachable sentinel)', async () => {
+    // FIX-4: null sentinel — not [] — so checkShouldOpen can distinguish.
     mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
     const events = await getSessionEvents('s1');
-    expect(events).toEqual([]);
+    expect(events).toBeNull();
   });
 
   it('getSessionEvents returns [] when events array is empty', async () => {
