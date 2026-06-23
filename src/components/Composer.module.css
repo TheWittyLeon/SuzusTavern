@@ -98,6 +98,24 @@
   margin-bottom: 10px;
 }
 
+/* Engine-refused action reason (non-colour-only, always visible as text). */
+.refusedReason {
+  font-size: 11px;
+  color: var(--bad-ink);
+  padding: 4px 0 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Polite turn-wait notice. */
+.notYourTurn {
+  font-size: 11px;
+  color: var(--ink-3);
+  padding: 2px 0 6px;
+  font-style: italic;
+}
+
 .railBtns {
   display: flex;
   gap: 6px;

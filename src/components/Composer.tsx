@@ -1,12 +1,17 @@
 'use client';
 /**
- * Composer (ST-063) — the message composer at the bottom of the centre pane.
+ * Composer (ST-063 / CUI-11) — the message composer at the bottom of the centre pane.
  *
  * Say / Act / OOC mode tabs change placeholder + routing: Say & Act go to Suzu's
  * DM pipeline; OOC stays at the table (never sent to the AI). Enter sends,
  * Shift+Enter is a newline. When combat is active the ActionRail exposes the
  * engine-backed combat actions (attack with target picker, dodge, dash, end turn);
  * spell casting in combat (ST-066) is deferred.
+ *
+ * ADV-7/8 (CUI-11): CombatTarget now mirrors CombatParticipantState fields so the
+ * target picker can display live HP and filter by can_be_targeted. The onAction
+ * callback receives the participant_id (not the name) as payload for attack so the
+ * play page can send target_id to the engine (name fallback retained for compat).
  */
 import { useEffect, useRef, useState } from 'react';
 import Icon from '@/components/Icon';
@@ -24,8 +29,16 @@ export interface CombatTarget {
 
 export interface ComposerCombat {
   targets: CombatTarget[];
+  /** Called with action + payload. For 'attack', payload is the target id
+   *  (participant_id) — the play page maps this to target_id on the engine request.
+   *  Backward-compat: callers that only have a name may pass the name; the play
+   *  page falls back to `target` (name) when no id is available. */
   onAction: (action: CombatAction, payload?: string) => void;
   busy?: boolean;
+  /** Whether it is the player's turn (disables Attack/Dodge/Dash when false). */
+  isPlayerTurn?: boolean;
+  /** Reason text to surface when an action was refused by the engine. */
+  refusedReason?: string | null;
 }
 
 export interface ComposerProps {
@@ -55,6 +68,8 @@ function ActionRail({ combat }: { combat: ComposerCombat }) {
   const railRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const attackBtnRef = useRef<HTMLButtonElement>(null);
+
+  const notYourTurn = combat.isPlayerTurn === false;
 
   // Outside-click dismissal. mousedown (not click) so that opening the menu via
   // the Attack button's own click doesn't immediately re-close it, and so that
@@ -99,27 +114,76 @@ function ActionRail({ combat }: { combat: ComposerCombat }) {
     }
   };
 
+  // Attack is disabled when: busy, no targets, or not the player's turn.
+  const attackDisabled = combat.busy || combat.targets.length === 0 || notYourTurn;
+  // Non-attack actions (dodge/dash) are also gated on turn.
+  const actionDisabled = combat.busy || notYourTurn;
+
   return (
     <div className={styles.rail} ref={railRef}>
+      {/* Refused-action reason — perceivable (not colour-only), sr-accessible. */}
+      {combat.refusedReason && (
+        <div
+          className={styles.refusedReason}
+          role="alert"
+          aria-live="assertive"
+          aria-atomic="true"
+        >
+          {combat.refusedReason}
+        </div>
+      )}
+      {/* Turn indicator — polite because it's informational, not urgent. */}
+      {notYourTurn && (
+        <div className={styles.notYourTurn} aria-live="polite" aria-atomic="true">
+          Waiting for your turn…
+        </div>
+      )}
       <div className={styles.railBtns}>
         <button
           ref={attackBtnRef}
           type="button"
           className={targetOpen ? `${styles.action} ${styles.actionOn}` : styles.action}
-          onClick={() => setTargetOpen((o) => !o)}
-          disabled={combat.busy || combat.targets.length === 0}
+          onClick={() => !attackDisabled && setTargetOpen((o) => !o)}
+          disabled={attackDisabled}
+          aria-disabled={attackDisabled}
           aria-expanded={targetOpen}
           aria-haspopup="menu"
+          aria-label={
+            notYourTurn
+              ? 'Attack (not your turn)'
+              : combat.targets.length === 0
+                ? 'Attack (no valid targets)'
+                : 'Attack'
+          }
         >
           <Icon name="Sword" size={13} /> Attack
         </button>
-        <button type="button" className={styles.action} onClick={() => fire('dodge')} disabled={combat.busy}>
+        <button
+          type="button"
+          className={styles.action}
+          onClick={() => fire('dodge')}
+          disabled={actionDisabled}
+          aria-disabled={actionDisabled}
+          aria-label={notYourTurn ? 'Dodge (not your turn)' : 'Dodge'}
+        >
           <Icon name="Shield" size={13} /> Dodge
         </button>
-        <button type="button" className={styles.action} onClick={() => fire('dash')} disabled={combat.busy}>
+        <button
+          type="button"
+          className={styles.action}
+          onClick={() => fire('dash')}
+          disabled={actionDisabled}
+          aria-disabled={actionDisabled}
+          aria-label={notYourTurn ? 'Dash (not your turn)' : 'Dash'}
+        >
           <Icon name="Compass" size={13} /> Dash
         </button>
-        <button type="button" className={styles.action} onClick={() => fire('endturn')} disabled={combat.busy}>
+        <button
+          type="button"
+          className={styles.action}
+          onClick={() => fire('endturn')}
+          disabled={combat.busy}
+        >
           <Icon name="Check" size={13} /> End turn
         </button>
       </div>
@@ -137,12 +201,13 @@ function ActionRail({ combat }: { combat: ComposerCombat }) {
               type="button"
               className={styles.popRow}
               role="menuitem"
-              onClick={() => fire('attack', t.name)}
+              // Pass the participant_id as payload; play page uses it as target_id.
+              onClick={() => fire('attack', t.id)}
             >
               <span className={styles.popDot} aria-hidden />
               <span className={styles.popName}>{t.name}</span>
               {t.hp != null && t.maxHp != null && (
-                <span className={styles.popMeta}>
+                <span className={styles.popMeta} aria-label={`${t.hp} of ${t.maxHp} HP`}>
                   {t.hp}/{t.maxHp}
                 </span>
               )}
