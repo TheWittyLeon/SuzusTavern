@@ -28,15 +28,21 @@ export interface RecapResult {
   facts: string;
 }
 
-// Event types worth surfacing in a recap (beats a returning player wants).
+// Event types worth surfacing in a recap (A3 - real engine event kinds).
+// Engine msm path emits: scene_advance, encounter_resolved, session_start,
+// session_end, xp_award, level_up, opening_narrated.
+// Forward-compat aliases kept for callers normalising legacy event_type values.
 const NOTABLE = new Set([
-  'combat',
-  'combat_end',
-  'level_up',
-  'scene',
-  'death',
-  'milestone',
-  'xp',
+  // Real engine kinds (msm path)
+  'scene_advance',        // scene moved on - has description
+  'encounter_resolved',   // combat/encounter ended - has description
+  'xp_award',             // XP granted - has description
+  'level_up',             // character levelled - has description
+  'session_end',          // session ended - has description
+  // Forward-compat / legacy aliases
+  'combat',               // legacy combat kind
+  'combat_end',           // legacy combat-end kind
+  'milestone',            // custom milestone events
 ]);
 
 function metadataLines(session: Pick<Session, 'status' | 'dm_username' | 'player_count' | 'participant_usernames' | 'started_at'>): string[] {
