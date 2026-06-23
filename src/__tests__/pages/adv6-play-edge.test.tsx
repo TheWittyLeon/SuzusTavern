@@ -39,6 +39,8 @@ jest.mock('../../lib/api/dnd', () => ({
   getParticipants: jest.fn(),
   getGrounding: jest.fn(() => Promise.resolve(null)),
   getCombatState: jest.fn(() => Promise.resolve(null)),
+  getCharacterSheet: jest.fn(() => Promise.resolve(null)),
+  postSessionEvent: jest.fn(() => Promise.resolve({})),
   combatFromScene: jest.fn(),
   startCombat: jest.fn(),
   spawnMonster: jest.fn(),

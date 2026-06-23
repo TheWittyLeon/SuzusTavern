@@ -36,6 +36,10 @@ jest.mock('../../lib/api/dnd', () => ({
   getParticipants: jest.fn(),
   getGrounding: jest.fn(() => Promise.resolve(null)),
   getCombatState: jest.fn(() => Promise.resolve(null)),
+  // A2: getCharacterSheet for real quick-checks; resolve null → no quick-checks rendered.
+  getCharacterSheet: jest.fn(() => Promise.resolve(null)),
+  // A1: postSessionEvent for the AI-off opening marker; resolve silently.
+  postSessionEvent: jest.fn(() => Promise.resolve({})),
   // ADV-6: combatFromScene replaces the old startCombat + spawnMonster flow.
   combatFromScene: jest.fn(),
   // Keep startCombat + spawnMonster in the mock — they're still exported and

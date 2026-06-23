@@ -216,6 +216,16 @@
   margin-left: 8px;
 }
 
+/* A1 — scene objective below the scene name (muted, one-liner). */
+.sceneObjective {
+  display: block;
+  font-size: 11px;
+  color: var(--ink-muted);
+  margin-top: 4px;
+  font-style: italic;
+  line-height: 1.4;
+}
+
 .diceWrap {
   margin-bottom: 18px;
 }

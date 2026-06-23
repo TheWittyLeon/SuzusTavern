@@ -35,9 +35,12 @@ import {
   combatFromScene,
   endCombat,
   getCombatState,
+  getCharacterSheet,
   getGrounding,
   getParticipants,
   getSession,
+  getSessionEvents,
+  postSessionEvent,
   rollInitiative,
   monsterTurn,
   attack as combatAttack,
@@ -53,6 +56,7 @@ import type {
   Participant,
   Session,
 } from '@/lib/api/types';
+import type { QuickCheck } from '@/components/DiceTray';
 import Icon from '@/components/Icon';
 import Pill from '@/components/Pill';
 import PageSkeleton from '@/components/PageSkeleton';
@@ -69,12 +73,25 @@ import Composer, {
 } from '@/components/Composer';
 import styles from './Play.module.css';
 
-const QUICK_CHECKS = [
-  { name: 'Perception', mod: 3 },
-  { name: 'Stealth', mod: 7 },
-  { name: 'Investigation', mod: 4 },
-  { name: 'Persuasion', mod: 1 },
+/**
+ * A2 — preferred quick-check skill names shown in the dice tray.
+ * These are surfaced when the bound character's sheet includes them; we pick
+ * the four most-used out-of-combat checks. Snake_case matches the engine's
+ * `skills[].name` format (the display name is title-cased from the sheet).
+ */
+const PREFERRED_QUICK_CHECK_NAMES = [
+  'perception',
+  'stealth',
+  'investigation',
+  'persuasion',
 ];
+
+/** A1 — structural event kinds that indicate the scene hasn't started yet. */
+const STRUCTURAL_EVENT_KINDS = new Set([
+  'session_start',
+  'character_bound',
+  'opening_narrated',
+]);
 
 /** Poll interval in milliseconds. */
 const POLL_INTERVAL_MS = 4000;
@@ -150,6 +167,16 @@ export default function PlayPage() {
   const [grounding, setGrounding] = useState<GroundingData | null>(null);
   const [sceneAdvanceBusy, setSceneAdvanceBusy] = useState(false);
 
+  // A2 — real quick-checks derived from the bound character's sheet.
+  // null = not yet resolved; [] = DM-only (no character bound) or fetch failed.
+  const [quickChecks, setQuickChecks] = useState<QuickCheck[] | null>(null);
+
+  // A1 — fire-once gate: ensures the opening beat only streams once per mount
+  // even under React StrictMode's double-invoke. The durable server-side event
+  // is the canonical guard; this ref prevents a second fire within the same
+  // component lifetime (e.g. StrictMode double-effect).
+  const openingFiredRef = useRef(false);
+
   // Monotone sequence guard: combatState updates from polls must not overwrite
   // a more-recent mutation response. Mutations bump this; polls gate on it.
   const stateSeqRef = useRef(0);
@@ -208,14 +235,54 @@ export default function PlayPage() {
         setCombatId(initialCombatId);
         setState('ok');
 
-        // Fetch grounding to power the "Move on" affordance.
-        const g = await getGrounding(sessionId, ctrl.signal);
-        if (!ctrl.signal.aborted) setGrounding(g);
+        // Fetch grounding, participants, and combat state in parallel.
+        const [g, party] = await Promise.all([
+          getGrounding(sessionId, ctrl.signal),
+          getParticipants(sessionId, ctrl.signal).catch(() => [] as Participant[]),
+        ]);
+        if (ctrl.signal.aborted) return;
+        if (g) setGrounding(g);
+        setParticipants(party);
 
-        const party = await getParticipants(sessionId, ctrl.signal).catch(
-          () => [] as Participant[],
+        // A2 — fetch the bound character's sheet to build real quick-checks.
+        // The self participant carries character_id when a character is bound.
+        const selfParticipant = party.find(
+          (p) => p.username.toLowerCase() === username.toLowerCase(),
         );
-        if (!ctrl.signal.aborted) setParticipants(party);
+        const boundCharId = selfParticipant?.character?.character_id ?? null;
+        if (boundCharId) {
+          getCharacterSheet(boundCharId, username, ctrl.signal)
+            .then((sheet) => {
+              if (ctrl.signal.aborted) return;
+              if (!sheet?.skills?.length) {
+                setQuickChecks([]);
+                return;
+              }
+              // Build quick-checks from the preferred names, preserving order.
+              const skillMap = new Map(
+                sheet.skills.map((sk) => [sk.name.toLowerCase(), sk]),
+              );
+              const checks: QuickCheck[] = PREFERRED_QUICK_CHECK_NAMES
+                .map((n) => {
+                  const sk = skillMap.get(n);
+                  if (!sk) return null;
+                  // Title-case: "sleight_of_hand" → "Sleight of Hand"
+                  const display = sk.name
+                    .replace(/_/g, ' ')
+                    .replace(/\b\w/g, (c) => c.toUpperCase());
+                  return { name: display, mod: sk.modifier };
+                })
+                .filter((c): c is QuickCheck => c !== null);
+              setQuickChecks(checks);
+            })
+            .catch(() => {
+              // Sheet fetch failed — hide quick-checks rather than show stale numbers.
+              if (!ctrl.signal.aborted) setQuickChecks([]);
+            });
+        } else {
+          // DM-only or no character bound: hide quick-checks.
+          setQuickChecks([]);
+        }
 
         // If there's an active combat, fetch its state immediately.
         if (initialCombatId && !ctrl.signal.aborted) {
@@ -225,6 +292,12 @@ export default function PlayPage() {
             setCombatState(cs);
           }
         }
+
+        // A1 — Opening scene trigger. Non-blocking: fire-and-forget so the
+        // player can interact while the opening streams in the background.
+        if (g && !ctrl.signal.aborted) {
+          void openScene(s, g, sessionId, ctrl.signal);
+        }
       } catch (e) {
         if (ctrl.signal.aborted) return;
         const status = (e as { status?: number } | null)?.status;
@@ -232,6 +305,9 @@ export default function PlayPage() {
       }
     })();
     return () => ctrl.abort();
+    // openScene is defined below; it reads session/username via closure args
+    // so it doesn't need to be a dep here (stable through the effect's life).
+     
   }, [username, sessionId]);
 
   // ── combat state poll (4s, foregrounded) ────────────────────────────────────
@@ -307,9 +383,22 @@ export default function PlayPage() {
     [reduced],
   );
 
-  /** Stream one DM-narration beat; `mechanics` empty = pure roleplay beat. */
+  /**
+   * Stream one DM-narration beat; `mechanics` empty = pure roleplay beat.
+   *
+   * A1: optional `opts.kind` can be 'opening' — when set:
+   *   - No player log row is appended (opening is system-authored).
+   *   - `message` sent to the proxy is '' (opening beats have no player message).
+   *   - The proxy writes the durable `opening_narrated` event marker on success.
+   *   - On error, a neutral "Suzu hasn't joined yet" system row is appended.
+   */
   const narrate = useCallback(
-    async (playerMessage: string, mechanics: string, beatMode: ComposeMode) => {
+    async (
+      playerMessage: string,
+      mechanics: string,
+      beatMode: ComposeMode,
+      opts?: { kind?: 'beat' | 'opening' },
+    ) => {
       if (!session || !username) return;
       narrationAbort.current?.abort();
       const ctrl = new AbortController();
@@ -317,6 +406,8 @@ export default function PlayPage() {
       setTalking(true);
       setThinking(true);
       setNarratorText('');
+
+      const isOpening = opts?.kind === 'opening';
 
       const transcript = logRef.current.slice(-8).map((r) => `${r.who}: ${r.text}`);
       let full = '';
@@ -327,11 +418,13 @@ export default function PlayPage() {
           {
             username,
             channel: session.channel,
-            message: playerMessage,
+            // Opening beats MUST send empty message — the proxy enforces this.
+            message: isOpening ? '' : playerMessage,
             mechanics,
             transcript,
             mode: beatMode,
             session_id: session.session_id,
+            ...(isOpening ? { kind: 'opening' as const } : {}),
           },
           { signal: ctrl.signal },
         )) {
@@ -352,8 +445,9 @@ export default function PlayPage() {
       setThinking(false);
       setTalking(false);
       if (errored || !full.trim()) {
-        const fallbackText =
-          lastErrorReason === 'ai_off'
+        const fallbackText = isOpening
+          ? "Suzu hasn't joined yet — try a move and she'll catch up."
+          : lastErrorReason === 'ai_off'
             ? 'This table runs without AI narration — you and your DM drive the scene.'
             : 'Suzu stepped away for a moment. Try again.';
         appendLog({
@@ -367,6 +461,96 @@ export default function PlayPage() {
       }
     },
     [session, username, revealText, appendLog],
+  );
+
+  // ── A1: opening scene ───────────────────────────────────────────────────────
+
+  /**
+   * Gate: should the opening beat fire this mount?
+   * Returns true only when:
+   *   - grounding has a scene_id + boxed_text (there's a scene to open)
+   *   - getSessionEvents returns no `opening_narrated` event
+   *   - AND no non-structural fiction events exist (belt-and-braces)
+   * Returns false on any error (fail safe: don't speculate, render silence).
+   */
+  const checkShouldOpen = useCallback(
+    async (sid: string, g: GroundingData, signal: AbortSignal): Promise<boolean> => {
+      // No authored scene — nothing to open.
+      if (!g.scene_id || !g.boxed_text) return false;
+      // Per-lifetime ref guard catches StrictMode double-invoke within one mount.
+      if (openingFiredRef.current) return false;
+
+      let events: Array<{ event_type?: string }> = [];
+      try {
+        events = await getSessionEvents(sid, signal);
+      } catch {
+        return false; // engine unreachable — render silence, don't speculate
+      }
+      if (signal.aborted) return false;
+
+      // Durable marker exists: opening already ran.
+      if (events.some((e) => e.event_type === 'opening_narrated')) return false;
+
+      // Belt-and-braces: any non-structural event means play already started.
+      const hasFiction = events.some(
+        (e) => e.event_type && !STRUCTURAL_EVENT_KINDS.has(e.event_type),
+      );
+      if (hasFiction) return false;
+
+      return true;
+    },
+    [],
+  );
+
+  /**
+   * A1 — Open the scene on first load. Fire-and-forget; non-blocking.
+   *
+   * AI/full path: streams an opening narration via narrate(..., {kind:'opening'}).
+   *   The proxy writes the durable `opening_narrated` event on success.
+   * AI-off path: renders the scene locally from grounding data, then writes
+   *   the marker client-side via postSessionEvent (best-effort).
+   */
+  const openScene = useCallback(
+    async (s: Session, g: GroundingData, sid: string, signal: AbortSignal) => {
+      const shouldOpen = await checkShouldOpen(sid, g, signal);
+      if (!shouldOpen || signal.aborted) return;
+
+      // Latch: prevent a second fire from the StrictMode double-invoke or
+      // any concurrent call within the same component lifetime.
+      openingFiredRef.current = true;
+
+      const aiLevel = s.ai_assist_level;
+
+      if (aiLevel === 'off' || !aiLevel) {
+        // ── AI-off path: client-render from grounding ──────────────────────
+        const lines: string[] = [];
+        if (g.adventure_title) lines.push(`— ${g.adventure_title} —`);
+        if (g.hook) lines.push(g.hook);
+        if (g.scene_name) lines.push(`\nScene: ${g.scene_name}`);
+        if (g.boxed_text) lines.push(g.boxed_text);
+        if (g.objective) lines.push(`\nObjective: ${g.objective}`);
+
+        if (!signal.aborted) {
+          appendLog({
+            who: 'Suzu',
+            kind: 'system',
+            text: lines.filter(Boolean).join('\n'),
+          });
+          // Write the durable marker client-side (best-effort — non-fatal on failure).
+          void postSessionEvent(sid, {
+            kind: 'opening_narrated',
+            data: { scene_id: g.scene_id, source: 'client_render' },
+          }).catch(() => {/* non-fatal */});
+        }
+      } else {
+        // ── AI/full path: stream the opening narration ─────────────────────
+        // narrate() with kind:'opening' sends empty message + kind field.
+        // The proxy writes the opening_narrated marker on stream success.
+        // Non-blocking: narrate handles its own abort via narrationAbort ref.
+        void narrate('', '', 'act', { kind: 'opening' });
+      }
+    },
+    [checkShouldOpen, appendLog, narrate],
   );
 
   // ── composer send ───────────────────────────────────────────────────────────
@@ -964,6 +1148,10 @@ export default function PlayPage() {
           {grounding?.scene_name && (
             <span className={styles.sceneName}>{grounding.scene_name}</span>
           )}
+          {/* A1 — surface the current objective below the scene name (free win). */}
+          {grounding?.objective && (
+            <span className={styles.sceneObjective}>{grounding.objective}</span>
+          )}
         </div>
         <div className={styles.scenePlaceholder}>
           <Icon name="Map" size={22} aria-hidden />
@@ -1027,9 +1215,10 @@ export default function PlayPage() {
         )}
 
         <div className={styles.diceWrap}>
+          {/* A2 — real character skill modifiers; null=loading or []=DM-only hide checks */}
           <DiceTray
             onRoll={onRoll}
-            quickChecks={QUICK_CHECKS}
+            quickChecks={quickChecks ?? []}
             advantage={advantage}
             onAdvantage={setAdvantage}
             disabled={talking || combatBusy}
