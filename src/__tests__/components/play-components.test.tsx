@@ -115,7 +115,7 @@ describe('Composer', () => {
     expect(onMode).toHaveBeenCalledWith('act');
   });
 
-  it('combat action rail attacks a chosen target', () => {
+  it('combat action rail attacks a chosen target (passes id as payload)', () => {
     const onAction = jest.fn();
     render(
       <Composer
@@ -125,8 +125,56 @@ describe('Composer', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: /Attack/i }));
     const menu = screen.getByRole('menu');
+    // CUI-11: payload is now the participant_id, not the name.
     fireEvent.click(within(menu).getByRole('menuitem', { name: /Goblin/i }));
-    expect(onAction).toHaveBeenCalledWith('attack', 'Goblin');
+    expect(onAction).toHaveBeenCalledWith('attack', 'g1');
+  });
+
+  it('disables Attack when isPlayerTurn is false', () => {
+    const onAction = jest.fn();
+    render(
+      <Composer
+        {...base}
+        combat={{
+          targets: [{ id: 'g1', name: 'Goblin' }],
+          onAction,
+          busy: false,
+          isPlayerTurn: false,
+        }}
+      />,
+    );
+    const attackBtn = screen.getByRole('button', { name: /Attack.*not your turn/i });
+    expect(attackBtn).toBeDisabled();
+  });
+
+  it('shows refused reason text when refusedReason is set', () => {
+    render(
+      <Composer
+        {...base}
+        combat={{
+          targets: [{ id: 'g1', name: 'Goblin' }],
+          onAction: jest.fn(),
+          busy: false,
+          refusedReason: "It's not your turn.",
+        }}
+      />,
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent("It's not your turn.");
+  });
+
+  it('shows "Waiting for your turn" notice when isPlayerTurn is false', () => {
+    render(
+      <Composer
+        {...base}
+        combat={{
+          targets: [{ id: 'g1', name: 'Goblin' }],
+          onAction: jest.fn(),
+          busy: false,
+          isPlayerTurn: false,
+        }}
+      />,
+    );
+    expect(screen.getByText(/Waiting for your turn/i)).toBeInTheDocument();
   });
 });
 

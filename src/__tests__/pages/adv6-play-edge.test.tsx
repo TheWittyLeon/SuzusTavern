@@ -37,6 +37,8 @@ jest.mock('../../lib/api/dnd', () => ({
   getSession: jest.fn(),
   getSessionEvents: jest.fn(() => Promise.resolve([])),
   getParticipants: jest.fn(),
+  getGrounding: jest.fn(() => Promise.resolve(null)),
+  getCombatState: jest.fn(() => Promise.resolve(null)),
   combatFromScene: jest.fn(),
   startCombat: jest.fn(),
   spawnMonster: jest.fn(),
@@ -46,6 +48,9 @@ jest.mock('../../lib/api/dnd', () => ({
   dodge: jest.fn(),
   dash: jest.fn(),
   endTurn: jest.fn(),
+  endCombat: jest.fn(),
+  advanceScene: jest.fn(),
+  setFlag: jest.fn(),
 }));
 
 jest.mock('../../lib/stream', () => ({
