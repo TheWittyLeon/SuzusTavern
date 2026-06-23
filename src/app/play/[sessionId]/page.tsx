@@ -112,6 +112,9 @@ function humanRefusalReason(code: string | undefined): string | null {
     combat_over: 'Combat has ended.',
     no_active_turn: 'No one has the active turn right now.',
     no_combat: 'No combat is active.',
+    invalid_outcome: 'That outcome is not valid right now.',
+    victory_refused: "Can't claim victory — no enemies are down.",
+    msm_disabled: 'Multi-system content is not available for this session.',
   };
   return map[code] ?? `Action refused: ${code}`;
 }
@@ -151,6 +154,16 @@ export default function PlayPage() {
   // a more-recent mutation response. Mutations bump this; polls gate on it.
   const stateSeqRef = useRef(0);
 
+  // Synchronous latch for double-tap protection on all combat mutating actions.
+  // React state (combatBusy) only disables UI after a re-render; the ref closes
+  // the race window between two taps in the same event-loop tick.
+  const combatBusyRef = useRef(false);
+
+  // Mirror of combatState kept in sync via an effect so the poll callback can
+  // read the current state without being listed as a dep (avoids resetting the
+  // interval on every state-string transition).
+  const combatStateRef = useRef<CombatState | null>(null);
+
   const idRef = useRef(0);
   const chatLogRef = useRef<ChatLogHandle>(null);
   const revealRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -163,6 +176,13 @@ export default function PlayPage() {
   useEffect(() => {
     logRef.current = log;
   }, [log]);
+
+  // Keep combatStateRef in sync so the poll callback can read current state
+  // without being a dep of the poll effect (which would reset the interval on
+  // every state-string transition such as active→between_turns→active).
+  useEffect(() => {
+    combatStateRef.current = combatState;
+  }, [combatState]);
 
   const appendLog = useCallback((row: Omit<LogRow, 'id' | 'ts'>) => {
     setLog((prev) => [...prev, { id: `r${(idRef.current += 1)}`, ts: nowStamp(), ...row }]);
@@ -211,18 +231,17 @@ export default function PlayPage() {
     return () => ctrl.abort();
   }, [username, sessionId]);
 
-  // ── combat state poll (4s, foregrounded, state=active) ─────────────────────
+  // ── combat state poll (4s, foregrounded) ────────────────────────────────────
+  // Deps: [combatId] only — state transitions (active→between_turns→active) must
+  // NOT reset the interval. The ended short-circuit is checked inside poll() via
+  // combatStateRef so the effect never needs to observe combatState?.state.
   useEffect(() => {
-    if (!combatId || combatState?.state === 'ended') {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
-      return;
-    }
+    if (!combatId) return;
 
     const poll = async () => {
       if (document.hidden) return;
+      // Short-circuit: if combat has ended, skip the fetch.
+      if (combatStateRef.current?.state === 'ended') return;
       const mySeq = stateSeqRef.current;
       try {
         const cs = await getCombatState(combatId);
@@ -243,18 +262,21 @@ export default function PlayPage() {
         pollIntervalRef.current = null;
       }
     };
-  }, [combatId, combatState?.state]);
+  }, [combatId]);
 
   // Re-pin the chat to the latest line when returning to the Story view.
   useEffect(() => {
     if (mobileView === 'log') chatLogRef.current?.scrollToBottom('instant');
   }, [mobileView]);
 
-  // ── cleanup streams/intervals on unmount ────────────────────────────────────
+  // ── cleanup streams on unmount ───────────────────────────────────────────────
+  // pollIntervalRef is owned by the combatId effect above — its cleanup already
+  // runs on combatId change and on unmount. Don't double-clear it here; doing so
+  // trips a Strict Mode bug where the []-dep cleanup fires between the poll
+  // effect's double-invoke and its real mount, leaving no cleanup for real unmount.
   useEffect(
     () => () => {
       if (revealRef.current) clearInterval(revealRef.current);
-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
       narrationAbort.current?.abort();
     },
     [],
@@ -415,9 +437,14 @@ export default function PlayPage() {
   );
 
   /** Manual "Move on" button handler (ADV-7T). */
+  // sceneAdvanceBusyRef: separate ref latch for Move on (uses its own state,
+  // not combatBusyRef, since scene advance can coexist with combat logic).
+  const sceneAdvanceBusyRef = useRef(false);
+
   const onMoveOn = useCallback(
     async (toScene: string) => {
-      if (!session || !username || sceneAdvanceBusy) return;
+      if (!session || !username || sceneAdvanceBusyRef.current) return;
+      sceneAdvanceBusyRef.current = true;
       setSceneAdvanceBusy(true);
       try {
         const result = await advanceScene(session.session_id, { to_scene: toScene });
@@ -443,10 +470,11 @@ export default function PlayPage() {
           toast({ tone: 'error', message: 'Could not advance the scene.' });
         }
       } finally {
+        sceneAdvanceBusyRef.current = false;
         setSceneAdvanceBusy(false);
       }
     },
-    [session, username, sceneAdvanceBusy, appendLog, refreshGrounding, narrate, toast],
+    [session, username, appendLog, refreshGrounding, narrate, toast],
   );
 
   // ── combat ──────────────────────────────────────────────────────────────────
@@ -455,7 +483,8 @@ export default function PlayPage() {
    * Now also initialises combatState from the response's data.state (CUI-11).
    */
   const beginEncounter = useCallback(async () => {
-    if (!session || !username || combatBusy) return;
+    if (!session || !username || combatBusyRef.current) return;
+    combatBusyRef.current = true;
     setCombatBusy(true);
     setRefusedReason(null);
     try {
@@ -475,9 +504,10 @@ export default function PlayPage() {
           setCombatState(cs);
         }
       }
-      await rollInitiative({ username, combat_id: newId }).catch(() => null);
-      // Refresh combat state after initiative roll.
-      const csAfterInit = await getCombatState(newId).catch(() => null);
+      const initRes = await rollInitiative({ username, combat_id: newId }).catch(() => null);
+      // Use the state from the initiative response if the engine emits it;
+      // avoids a separate getCombatState round-trip (M2).
+      const csAfterInit = initRes?.state ?? (await getCombatState(newId).catch(() => null));
       if (csAfterInit) {
         stateSeqRef.current += 1;
         setCombatState(csAfterInit);
@@ -501,13 +531,15 @@ export default function PlayPage() {
         toast({ tone: 'error', message: 'Could not start combat.' });
       }
     } finally {
+      combatBusyRef.current = false;
       setCombatBusy(false);
     }
-  }, [session, username, combatBusy, toast, appendLog, narrate]);
+  }, [session, username, toast, appendLog, narrate]);
 
   const onCombatAction = useCallback(
     async (action: CombatAction, payload?: string) => {
-      if (!session || !username || !combatId || combatBusy) return;
+      if (!session || !username || !combatId || combatBusyRef.current) return;
+      combatBusyRef.current = true;
       setCombatBusy(true);
       setRefusedReason(null);
 
@@ -639,6 +671,7 @@ export default function PlayPage() {
           setCombatState(data.state);
         }
       } finally {
+        combatBusyRef.current = false;
         setCombatBusy(false);
       }
     },
@@ -647,7 +680,6 @@ export default function PlayPage() {
       username,
       combatId,
       combatState,
-      combatBusy,
       appendLog,
       narrate,
       toast,
@@ -658,7 +690,8 @@ export default function PlayPage() {
 
   /** Explicit "End combat" — posts /combat/{id}/end with outcome='retreat'. */
   const onEndCombat = useCallback(async () => {
-    if (!combatId || !username || combatBusy) return;
+    if (!combatId || !username || combatBusyRef.current) return;
+    combatBusyRef.current = true;
     setCombatBusy(true);
     try {
       const result = await endCombat(combatId, { username, outcome: 'unresolved' });
@@ -683,9 +716,10 @@ export default function PlayPage() {
     } catch {
       toast({ tone: 'error', message: 'Could not end combat.' });
     } finally {
+      combatBusyRef.current = false;
       setCombatBusy(false);
     }
-  }, [combatId, username, combatBusy, appendLog, handleSceneAdvance, refreshGrounding, toast]);
+  }, [combatId, username, appendLog, handleSceneAdvance, refreshGrounding, toast]);
 
   // ── derived combat UI state ──────────────────────────────────────────────────
 

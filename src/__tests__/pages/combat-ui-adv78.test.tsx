@@ -555,7 +555,7 @@ describe('CUI-12 — scene_advance auto-flow', () => {
       state: COMBAT_STATE_ENDED,
       scene_advance: { from_scene: 'cave_mouth', to_scene: 'tunnel', outcome: 'victory' },
     });
-    mMonsterTurn.mockResolvedValue({ message: null, state: COMBAT_STATE_ENDED });
+    mMonsterTurn.mockResolvedValue({ message: undefined, state: COMBAT_STATE_ENDED });
     mGetGrounding.mockResolvedValue(GROUNDING_WITH_TRANSITION);
 
     render(<PlayPage />);

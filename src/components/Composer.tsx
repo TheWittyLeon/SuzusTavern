@@ -213,7 +213,9 @@ function ActionRail({ combat }: { combat: ComposerCombat }) {
           type="button"
           className={styles.action}
           onClick={() => fire('endturn')}
-          disabled={combat.busy}
+          disabled={actionDisabled}
+          aria-disabled={actionDisabled}
+          aria-label={notYourTurn ? 'End turn (not your turn)' : 'End turn'}
         >
           <Icon name="Check" size={13} /> End turn
         </button>

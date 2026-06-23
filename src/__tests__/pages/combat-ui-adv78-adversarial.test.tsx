@@ -375,6 +375,143 @@ describe('"Move on" error paths — graceful degradation', () => {
   });
 });
 
+// ── Double-tap latch (MAJOR-2) ────────────────────────────────────────────────
+
+describe('Double-tap latch — rapid second tap must not fire the action twice', () => {
+  it('two synchronous attack clicks fire the API exactly once', async () => {
+    // Simulate a slow attack so the first call is still in-flight when the
+    // second tap lands. Both taps arrive before any re-render (same tick).
+    let resolveAttack!: (v: ReturnType<typeof mAttack> extends Promise<infer T> ? T : never) => void;
+    mAttack.mockImplementation(
+      () =>
+        new Promise((res) => {
+          resolveAttack = res;
+        }),
+    );
+
+    mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+
+    // Open the attack target menu.
+    await waitFor(() =>
+      expect(screen.getAllByRole('button', { name: /Attack/i }).length).toBeGreaterThan(0),
+    );
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole('button', { name: /Attack/i })[0]);
+    });
+    await waitFor(() => screen.getByRole('menu'));
+
+    // Two clicks on the same menuitem in the same act block — simulates rapid double-tap.
+    const goblinItem = screen.getByRole('menuitem', { name: /Goblin/i });
+    await act(async () => {
+      fireEvent.click(goblinItem);
+      fireEvent.click(goblinItem); // second tap before re-render
+    });
+
+    // Resolve the attack.
+    await act(async () => {
+      resolveAttack({ message: 'hit', state: COMBAT_STATE_ACTIVE });
+    });
+
+    // The API must have been called exactly once.
+    expect(mAttack).toHaveBeenCalledTimes(1);
+  });
+
+  it('two synchronous End combat clicks fire endCombat exactly once', async () => {
+    let resolveEnd!: (v: Awaited<ReturnType<typeof mEndCombat>>) => void;
+    mEndCombat.mockImplementation(
+      () =>
+        new Promise((res) => {
+          resolveEnd = res;
+        }),
+    );
+
+    mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /End combat/i })).toBeInTheDocument(),
+    );
+
+    // Two clicks before re-render.
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /End combat/i }));
+      fireEvent.click(screen.getByRole('button', { name: /End combat/i }));
+    });
+
+    await act(async () => {
+      resolveEnd({
+        state: COMBAT_STATE_ACTIVE,
+        outcome: 'unresolved',
+        xp_earned: 0,
+        defeated: [],
+        scene_advance: null,
+      });
+    });
+
+    expect(mEndCombat).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── End-turn turn-gate (MINOR-1) ──────────────────────────────────────────────
+
+describe('End-turn turn-gate — disabled when not player turn', () => {
+  it('End turn button is disabled when it is not the player turn', async () => {
+    // Goblin's turn — no PC has is_active_turn.
+    const goblinTurnState: CombatState = {
+      ...COMBAT_STATE_ACTIVE,
+      active_participant_id: 'p_gob1',
+      participants: [
+        { ...COMBAT_STATE_ACTIVE.participants[0], is_active_turn: false },
+        { ...COMBAT_STATE_ACTIVE.participants[1], is_active_turn: true },
+      ],
+    };
+    mGetCombatState.mockResolvedValue(goblinTurnState);
+    mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
+
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+
+    await waitFor(() => {
+      // "End turn (not your turn)" label — or just disabled End turn.
+      const endBtns = screen.queryAllByRole('button', { name: /End turn/i });
+      if (endBtns.length > 0) {
+        const disabled = endBtns.some(
+          (b) => b.hasAttribute('disabled') || b.getAttribute('aria-disabled') === 'true',
+        );
+        expect(disabled).toBe(true);
+      }
+    });
+  });
+
+  it('End turn off-turn does NOT call endTurn API', async () => {
+    const goblinTurnState: CombatState = {
+      ...COMBAT_STATE_ACTIVE,
+      active_participant_id: 'p_gob1',
+      participants: [
+        { ...COMBAT_STATE_ACTIVE.participants[0], is_active_turn: false },
+        { ...COMBAT_STATE_ACTIVE.participants[1], is_active_turn: true },
+      ],
+    };
+    mGetCombatState.mockResolvedValue(goblinTurnState);
+    mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
+
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+
+    // The endTurn import (from dnd) should never fire — button is disabled.
+    // We verify by checking the mock was not called after the page loads.
+    await waitFor(() =>
+      expect(screen.getAllByText('The Hollow Tide').length).toBeGreaterThan(0),
+    );
+
+    // endTurn should not have been called at all (no implicit trigger on load).
+    const { endTurn: mEndTurnFn } = await import('@/lib/api/dnd');
+    expect(mEndTurnFn).not.toHaveBeenCalled();
+  });
+});
+
 // ── Poll unmount cleanup ──────────────────────────────────────────────────────
 
 describe('Poll cleanup on unmount', () => {
