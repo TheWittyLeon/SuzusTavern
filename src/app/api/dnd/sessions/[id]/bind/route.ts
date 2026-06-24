@@ -61,6 +61,22 @@ async function resolveCallerUsername(accessToken: string): Promise<string | null
  * Uses the Bearer token the proxy already understands (the DND API key injected
  * by the catch-all proxy, which injects the st_access Bearer).
  */
+/**
+ * Fetch the session's dm_username from the NekoNova proxy.
+ *
+ * Response chain (verified against engine routes/sessions.py::get_session_route and
+ * proxy api/routes/dnd_sessions.py::get_session):
+ *   Engine  → {"success": true, "data": {"session": {..., "dm_username": "..."}}}
+ *   Proxy   → {"success": true, "data": {"session": {..., "dm_username": "..."}}}
+ *   Shape   → data.session.dm_username  ← the correct path.
+ *
+ * The proxy's get_session returns `result.get("data", {})` where the engine's
+ * _ok({"session": _session_summary(session)}) wraps the summary under "session".
+ * So the correct path is data.session.dm_username, NOT data.dm_username.
+ *
+ * Defensive console.warn if neither shape matches so it surfaces in dev without
+ * silently falling through to null and granting a 403 to the DM.
+ */
 async function fetchSessionDm(sessionId: string, accessToken: string): Promise<string | null> {
   try {
     const upstreamUrl = new URL(`/api/dnd/sessions/${encodeURIComponent(sessionId)}`, NEKANOVA_URL);
@@ -73,10 +89,23 @@ async function fetchSessionDm(sessionId: string, accessToken: string): Promise<s
       cache: 'no-store',
     });
     if (!res.ok) return null;
-    const data = await res.json() as { data?: { session?: { dm_username?: string }; dm_username?: string } };
-    // The proxy wraps in {success, data}; the session object may be nested differently
-    const session = data?.data?.session ?? data?.data;
-    return (session as { dm_username?: string } | null)?.dm_username ?? null;
+    const body = await res.json() as {
+      data?: {
+        session?: { dm_username?: string };
+      };
+    };
+    // Correct path: data.session.dm_username (engine wraps summary under "session" key).
+    const dmUsername = body?.data?.session?.dm_username ?? null;
+    if (dmUsername == null) {
+      // If the shape ever changes this warn surfaces it in dev logs without crashing.
+      console.warn(
+        '[bind/route] fetchSessionDm: dm_username not found at data.session.dm_username.',
+        'Check engine _session_summary or proxy get_session response shape.',
+        'Received data keys:',
+        Object.keys(body?.data ?? {}),
+      );
+    }
+    return dmUsername;
   } catch {
     return null;
   }
