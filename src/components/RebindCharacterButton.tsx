@@ -27,9 +27,11 @@
  *
  * A11Y:
  *   - Popover has role="dialog", aria-modal, aria-label.
- *   - Focus moves into the popover on open; restores on close.
- *   - Escape closes. Focus is trapped between interactive elements.
- *   - Character radio list uses role="radiogroup" + role="radio".
+ *   - Focus moves into the popover on open (container first, then first option).
+ *     Returns to trigger on close.
+ *   - Escape closes. Tab/Shift-Tab are trapped within the popover.
+ *   - Character list uses role="radiogroup" + role="radio" with roving tabindex
+ *     and arrow-key navigation.
  *   - Touch targets ≥44px via CSS.
  */
 import {
@@ -79,7 +81,19 @@ export interface RebindCharacterButtonProps {
   onChanged: () => void;
 }
 
-export default function RebindCharacterButton({
+/**
+ * Thin outer wrapper — does the visibility guard (early return OK, no hooks).
+ * All hooks live in RebindCharacterButtonInner.
+ */
+export default function RebindCharacterButton(props: RebindCharacterButtonProps) {
+  const isSelf = props.targetUsername.toLowerCase() === props.selfUsername.toLowerCase();
+  // Only show the button for own row OR when DM — safe early return, no hooks here.
+  if (!isSelf && !props.isDm) return null;
+  return <RebindCharacterButtonInner {...props} />;
+}
+
+/** Inner component — owns ALL hooks, never early-returns. */
+function RebindCharacterButtonInner({
   sessionId,
   targetUsername,
   selfUsername,
@@ -91,40 +105,54 @@ export default function RebindCharacterButton({
   const uid = useId();
   const dialogId = `${uid}-rebind-dialog`;
   const labelId  = `${uid}-rebind-label`;
+  const liveId   = `${uid}-rebind-live`;
 
-  const [open, setOpen]       = useState(false);
-  const [busy, setBusy]       = useState(false);
-  const [chars, setChars]     = useState<Character[] | null>(null);
+  const [open, setOpen]         = useState(false);
+  const [busy, setBusy]         = useState(false);
+  const [chars, setChars]       = useState<Character[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null); // character_id string or '' for none
+  // Index of the radio option that holds tabIndex=0 (roving tabindex).
+  const [focusedIdx, setFocusedIdx] = useState(0);
 
   const triggerRef  = useRef<HTMLButtonElement>(null);
   const popoverRef  = useRef<HTMLDivElement>(null);
-  const firstItemRef = useRef<HTMLButtonElement>(null);
+  // Refs for each radio option — built from the chars array (index 0 = "no char").
+  const optionRefs  = useRef<(HTMLButtonElement | null)[]>([]);
 
   const isSelf = targetUsername.toLowerCase() === selfUsername.toLowerCase();
 
-  // Only show the button for own row OR when DM
-  if (!isSelf && !isDm) return null;
-
-  // Load characters on open
+  // Load characters on open; reset focusedIdx so the first option gets focus.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
+    setFocusedIdx(0);
     listMyCharacters(selfUsername)
       .then((list) => { if (!cancelled) setChars(list); })
       .catch(() => { if (!cancelled) setChars([]); });
     return () => { cancelled = true; };
   }, [open, selfUsername]);
 
-  // Focus management: into popover on open, back to trigger on close
+  // Focus management — Phase 1: immediately focus the dialog container on open,
+  // return focus to trigger on close.
   useEffect(() => {
     if (open) {
-      const t = setTimeout(() => firstItemRef.current?.focus(), 50);
-      return () => clearTimeout(t);
+      popoverRef.current?.focus();
     } else {
       triggerRef.current?.focus();
     }
   }, [open]);
+
+  // Focus management — Phase 2: once chars resolves, move focus to the first
+  // radio option. This runs every time chars transitions from null → array.
+  useEffect(() => {
+    if (open && chars !== null) {
+      optionRefs.current[0]?.focus();
+    }
+  }, [open, chars]);
+
+  // Keep optionRefs in sync with the rendered radio list length.
+  // Count: 1 ("no character") + chars.length.
+  const optionCount = chars !== null ? 1 + chars.length : 0;
 
   const closePopover = useCallback(() => {
     setOpen(false);
@@ -132,14 +160,66 @@ export default function RebindCharacterButton({
     setSelected(null);
   }, []);
 
+  // Tab trap: cycle focusable children within the popover.
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === 'Escape' && !busy) {
         e.stopPropagation();
         closePopover();
+        return;
+      }
+
+      if (e.key === 'Tab') {
+        const popover = popoverRef.current;
+        if (!popover) return;
+        const focusable = Array.from(
+          popover.querySelectorAll<HTMLElement>(
+            'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+          ),
+        ).filter((el) => el.tabIndex !== -1);
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last  = focusable[focusable.length - 1];
+        if (e.shiftKey) {
+          if (document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
       }
     },
     [busy, closePopover],
+  );
+
+  // Arrow-key navigation for the radiogroup (roving tabindex).
+  const handleRadioKeyDown = useCallback(
+    (e: React.KeyboardEvent, idx: number) => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        const next = (idx + 1) % optionCount;
+        setFocusedIdx(next);
+        optionRefs.current[next]?.focus();
+      } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        const prev = (idx - 1 + optionCount) % optionCount;
+        setFocusedIdx(prev);
+        optionRefs.current[prev]?.focus();
+      } else if (e.key === ' ' || e.key === 'Enter') {
+        e.preventDefault();
+        // Select the focused option (value: '' for index 0, char id for others).
+        if (idx === 0) {
+          setSelected('');
+        } else if (chars && chars[idx - 1]) {
+          setSelected(String(chars[idx - 1].character_id));
+        }
+      }
+    },
+    [optionCount, chars],
   );
 
   const handleConfirm = useCallback(async () => {
@@ -165,6 +245,19 @@ export default function RebindCharacterButton({
     : isSelf
       ? 'Change your character'
       : `Change ${targetUsername}'s character`;
+
+  // Build option list for rendering (parallel array for roving tabindex tracking).
+  // options[0] = "no character", options[1..] = characters.
+  const options: { id: string; label: string; sub?: string }[] = chars
+    ? [
+        { id: '', label: '— No character (DM / observer only) —' },
+        ...chars.map((c) => ({
+          id: String(c.character_id),
+          label: c.name,
+          sub: `${c.char_class} · lv ${c.level}`,
+        })),
+      ]
+    : [];
 
   return (
     <span className={styles.wrap}>
@@ -214,49 +307,49 @@ export default function RebindCharacterButton({
               {isSelf ? 'Change your character' : `Change ${targetUsername}'s character`}
             </h3>
 
-            {chars === null ? (
-              <p className={styles.loading}>Loading characters…</p>
-            ) : (
-              <div
-                role="radiogroup"
-                aria-label="Select a character"
-                className={styles.list}
-              >
-                {/* "DM only / no character" option */}
-                <button
-                  ref={firstItemRef}
-                  type="button"
-                  role="radio"
-                  aria-checked={selected === ''}
-                  className={`${styles.option} ${selected === '' ? styles.optionSelected : ''}`}
-                  onClick={() => setSelected('')}
+            {/* Iro MEDIUM-1: persistent live region wraps the load/list swap so
+                "Loading characters…" → options is announced to AT. */}
+            <div
+              id={liveId}
+              aria-live="polite"
+              aria-atomic="true"
+            >
+              {chars === null ? (
+                <p className={styles.loading}>Loading characters…</p>
+              ) : (
+                <div
+                  role="radiogroup"
+                  aria-label="Select a character"
+                  className={styles.list}
                 >
-                  <span className={styles.optionName}>— No character (DM / observer only) —</span>
-                </button>
+                  {options.map((opt, idx) => (
+                    <button
+                      key={opt.id}
+                      ref={(el) => { optionRefs.current[idx] = el; }}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected === opt.id}
+                      /* Roving tabindex: only the focused option is in the tab order. */
+                      tabIndex={idx === focusedIdx ? 0 : -1}
+                      className={`${styles.option} ${selected === opt.id ? styles.optionSelected : ''}`}
+                      onClick={() => { setSelected(opt.id); setFocusedIdx(idx); }}
+                      onKeyDown={(e) => handleRadioKeyDown(e, idx)}
+                    >
+                      <span className={styles.optionName}>{opt.label}</span>
+                      {opt.sub && (
+                        <span className={styles.optionSub}>{opt.sub}</span>
+                      )}
+                    </button>
+                  ))}
 
-                {chars.map((c) => (
-                  <button
-                    key={c.character_id}
-                    type="button"
-                    role="radio"
-                    aria-checked={selected === String(c.character_id)}
-                    className={`${styles.option} ${selected === String(c.character_id) ? styles.optionSelected : ''}`}
-                    onClick={() => setSelected(String(c.character_id))}
-                  >
-                    <span className={styles.optionName}>{c.name}</span>
-                    <span className={styles.optionSub}>
-                      {c.char_class} · lv {c.level}
-                    </span>
-                  </button>
-                ))}
-
-                {chars.length === 0 && (
-                  <p className={styles.empty}>
-                    You have no characters yet. Create one first.
-                  </p>
-                )}
-              </div>
-            )}
+                  {chars.length === 0 && (
+                    <p className={styles.empty}>
+                      You have no characters yet. Create one first.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
 
             <div className={styles.actions}>
               <button

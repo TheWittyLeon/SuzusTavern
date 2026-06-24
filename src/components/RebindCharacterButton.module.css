@@ -24,7 +24,7 @@
 
 .trigger:hover:not(:disabled) {
   color: var(--accent);
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in oklab, var(--ink) 6%, transparent);
 }
 
 .trigger:disabled {
@@ -101,7 +101,7 @@
 }
 
 .option:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in oklab, var(--ink) 6%, transparent);
 }
 
 .option:focus-visible {
@@ -111,7 +111,7 @@
 
 .optionSelected {
   border-color: var(--accent);
-  background: rgba(240, 139, 182, 0.08);
+  background: color-mix(in oklab, var(--accent) 8%, transparent);
 }
 
 .optionName {
@@ -169,7 +169,7 @@
 }
 
 .btnGhost:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in oklab, var(--ink) 6%, transparent);
 }
 
 .btnPrimary {
