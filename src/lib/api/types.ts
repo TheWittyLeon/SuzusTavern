@@ -261,6 +261,9 @@ export interface CombatDeathSaves {
 /** One participant in the turn order. */
 export interface CombatParticipantState {
   participant_id: string;
+  /** B1: PC = stringified character_id; monster = slug.
+   *  Used to map the logged-in user to their combatant. */
+  entity_id: string;
   name: string;
   /** true when entity_type === 'character'. */
   is_pc: boolean;
@@ -558,11 +561,24 @@ export interface SetFlagRequest {
   value: unknown;
 }
 
+/**
+ * B3: DM-chooser outcome values. 'tpk' and 'alert' exist on the engine but are
+ * reserved for system-driven resolution paths — intentionally excluded from the
+ * UI chooser.
+ */
+export type EndCombatOutcome =
+  | 'victory'
+  | 'retreat'
+  | 'parley'
+  | 'flee'
+  | 'unresolved';
+
 /** Request body for POST /api/dnd/combat/{id}/end. */
 export interface EndCombatRequest {
   username: string;
-  /** Optional outcome override: 'victory'|'retreat'|'flee'|'parley'|'alert'|'tpk'|'unresolved'. */
-  outcome?: string;
+  /** Optional outcome override. Engine also accepts 'alert'|'tpk'|'unresolved' but
+   *  the Tavern chooser only surfaces the EndCombatOutcome subset. */
+  outcome?: EndCombatOutcome | string;
 }
 
 /** Response from POST /api/dnd/combat/{id}/end. */
@@ -572,6 +588,24 @@ export interface EndCombatResult {
   xp_earned?: number;
   defeated?: string[];
   scene_advance?: CombatSceneAdvance | null;
+}
+
+// ── DnD: re-bind (B2) ─────────────────────────────────────────────────────────
+
+/** Request body for POST /api/dnd/sessions/{id}/bind (Tavern BFF route). */
+export interface BindCharacterRequest {
+  /** Target username to bind for. Callers may only bind for themselves unless they are the DM. */
+  username: string;
+  /** character_id to bind; null to clear (DM-only / no character). */
+  character_id: number | null;
+}
+
+/** Response data from a successful bind. */
+export interface BindCharacterResult {
+  campaign_id: string;
+  username: string;
+  role: string;
+  character_id: number | null;
 }
 
 // ── DnD: catalog — adventure items (ADV-9) ────────────────────────────────────
