@@ -60,6 +60,8 @@ export function channelFromName(name: string): string {
  */
 export function uniqueChannelFromName(name: string): string {
   const base = channelFromName(name);
-  const suffix = Math.random().toString(36).slice(2, 6);
+  // Pad before slicing so the degenerate Math.random()===0 case
+  // ("0".slice(2)==='') can't yield an empty suffix / trailing hyphen.
+  const suffix = (Math.random().toString(36).slice(2) + '0000').slice(0, 4);
   return `${base}-${suffix}`;
 }

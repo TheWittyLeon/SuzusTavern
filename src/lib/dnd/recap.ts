@@ -12,7 +12,7 @@
  * metadata digest. When the tiny engine `GET /sessions/{id}/events` lands, the
  * event digest below lights up with no Tavern change.
  */
-import { titleizeChannel, sessionTitle, formatStarted } from '@/lib/format';
+import { sessionTitle, formatStarted } from '@/lib/format';
 import type { Session, SessionEvent } from '@/lib/api/types';
 
 export type { SessionEvent };

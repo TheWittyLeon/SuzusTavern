@@ -55,6 +55,20 @@ describe('uniqueChannelFromName', () => {
     const ch = uniqueChannelFromName('!!!');
     expect(ch).toMatch(/^table-[a-z0-9]{4}$/);
   });
+  it('adversarial: suffix is non-empty even when Math.random() returns 0 (degenerate case)', () => {
+    // HARDENED: the impl pads before slicing, so even the degenerate
+    // Math.random()===0 case ("0".slice(2)==='') yields a full 4-char suffix
+    // instead of a trailing hyphen ("base-").
+    const realRandom = Math.random;
+    try {
+      Math.random = () => 0;
+      const ch = uniqueChannelFromName('The Cave');
+      expect(ch).toMatch(/^the_cave-[a-z0-9]{4}$/);
+      expect(ch.endsWith('-')).toBe(false);
+    } finally {
+      Math.random = realRandom;
+    }
+  });
 });
 
 describe('sessionTitle', () => {
@@ -78,5 +92,31 @@ describe('sessionTitle', () => {
   });
   it('falls back when channel is absent (no session data)', () => {
     expect(sessionTitle({})).toBe('Untitled table');
+  });
+  it('adversarial: very long name (>80 chars) does not crash — renders raw', () => {
+    // The engine Pydantic schema enforces max_length=80 on new creates.
+    // A legacy row could hypothetically have a longer stored name.
+    // sessionTitle must never throw or return blank.
+    const longName = 'A'.repeat(300);
+    const result = sessionTitle({ name: longName, channel: 'aaa-1234' });
+    expect(result).toBe(longName); // renders raw, no truncation in the util
+    expect(result.length).toBe(300);
+  });
+  it('adversarial: name with HTML/script chars does not crash (XSS is React\'s job)', () => {
+    // sessionTitle is a pure string function; sanitization is the renderer's responsibility.
+    // This test just confirms it does not throw and returns the raw string.
+    const xssName = '<script>alert(1)</script>';
+    const result = sessionTitle({ name: xssName, channel: 'safe-chan' });
+    expect(result).toBe(xssName);
+  });
+  it('adversarial: name that trims to empty string falls back (e.g. all whitespace)', () => {
+    expect(sessionTitle({ name: '     ', channel: 'hollow_tide' })).toBe('Hollow Tide');
+  });
+  it('adversarial: name that trims to equal the channel slug falls back to titleize', () => {
+    // Edge: name=' the_hollow_tide_cave ' trims to 'the_hollow_tide_cave' which equals channel.
+    // The guard (n !== session.channel after trim) correctly catches this.
+    expect(
+      sessionTitle({ name: ' the_hollow_tide_cave ', channel: 'the_hollow_tide_cave' })
+    ).toBe('The Hollow Tide Cave');
   });
 });

@@ -223,9 +223,9 @@ function StarterForm({
       const session = await createSession({
         username,
         channel,
-        // Verbatim human name from the form — stored as the campaign display name by the
-        // engine. The lobby/dashboard/play/recap UIs render this via sessionTitle().
-        name,
+        // Verbatim human name from the form (trimmed) — stored as the campaign display
+        // name by the engine. The lobby/dashboard/play/recap UIs render this via sessionTitle().
+        name: name.trim(),
         dm_mode: engineDmMode,
         ai_assist_level: engineAiAssist,
         visibility,
