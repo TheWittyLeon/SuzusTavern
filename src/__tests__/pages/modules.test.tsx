@@ -228,26 +228,42 @@ it('Begin sends adventure_ref = public_id from the catalog item', async () => {
   });
 });
 
-it('Begin creates a session with a slugified channel and routes to the dashboard', async () => {
+it('Begin creates a session with a unique-suffixed channel, verbatim name, and routes to the dashboard', async () => {
   await openForm();
   await act(async () => {
     fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
   });
   // Default selection: Suzu DMs (ai) + private + sfw
-  await waitFor(() =>
-    expect(mockCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        username: 'leon',
-        channel: 'the_hollow_tide_cave',
-        dm_mode: 'ai',
-        ai_assist_level: 'full',
-        visibility: 'private',
-        content_rating: 'sfw',
-        adventure_ref: 'dnd5e:adventure:hollow-tide-cave',
-      }),
-    ),
-  );
+  await waitFor(() => {
+    const call = mockCreate.mock.calls[0][0] as SessionStartRequest;
+    // channel is now unique-suffixed: base slug + hyphen + 4 random [a-z0-9] chars
+    expect(call['channel']).toMatch(/^the_hollow_tide_cave-[a-z0-9]{4}$/);
+    // name is the verbatim human form value
+    expect(call['name']).toBe('The Hollow Tide Cave');
+    expect(call['username']).toBe('leon');
+    expect(call['dm_mode']).toBe('ai');
+    expect(call['ai_assist_level']).toBe('full');
+    expect(call['visibility']).toBe('private');
+    expect(call['content_rating']).toBe('sfw');
+    expect(call['adventure_ref']).toBe('dnd5e:adventure:hollow-tide-cave');
+  });
   await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/dashboard'));
+});
+
+it('modules create sends both name (verbatim) and a unique channel to createSession', async () => {
+  await openForm();
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
+  });
+  await waitFor(() => {
+    const call = mockCreate.mock.calls[0][0] as SessionStartRequest;
+    // name is the verbatim human label from the form field
+    expect(call['name']).toBe('The Hollow Tide Cave');
+    // channel has the unique suffix — base slug + hyphen + 4 chars
+    expect(call['channel']).toMatch(/^the_hollow_tide_cave-[a-z0-9]{4}$/);
+    // name and channel are different (name is not slugified)
+    expect(call['name']).not.toBe(call['channel']);
+  });
 });
 
 // Regression: confirm no test asserts old hardcoded module content outside of

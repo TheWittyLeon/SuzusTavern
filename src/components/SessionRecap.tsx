@@ -15,7 +15,7 @@ import { useEffect, useId, useState } from 'react';
 import { getSessionEvents } from '@/lib/api/dnd';
 import { streamDmNarration } from '@/lib/stream';
 import { buildRecap, type RecapResult } from '@/lib/dnd/recap';
-import { titleizeChannel } from '@/lib/format';
+import { sessionTitle } from '@/lib/format';
 import Icon from '@/components/Icon';
 import type { Session } from '@/lib/api/types';
 import styles from './SessionRecap.module.css';
@@ -83,7 +83,7 @@ export default function SessionRecap({ session, username, variant = 'card' }: Se
 
   const headId = `${uid}-head`;
   const bodyId = `${uid}-body`;
-  const title = titleizeChannel(session.channel);
+  const title = sessionTitle(session);
 
   const body = recap.empty ? (
     <p className={styles.empty}>

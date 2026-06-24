@@ -141,6 +141,10 @@ export type Visibility = 'public' | 'unlisted' | 'private';
 export interface SessionStartRequest {
   username: string;
   channel: string;
+  /** Human-readable table name (free-form, as typed by the player). When present,
+   *  the engine stores it as the campaign display name. Omit on the bot path —
+   *  the bot has no human name and relies on get-or-create-by-channel semantics. */
+  name?: string;
   /** Engine-understood DM mode. Omit = engine default ('ai'). Do NOT send 'solo'
    *  — the Tavern maps solo → dm_mode:'human' + ai_assist_level:'off'. */
   dm_mode?: Exclude<DmMode, 'solo'>;
@@ -186,6 +190,11 @@ export interface EngineSessionEvent {
 export interface Session {
   session_id: string;
   channel: string;
+  /** Human-readable table name stored by the engine (channel-name-decouple fix).
+   *  Present on sessions created via the Tavern after the fix. Absent (or equal
+   *  to channel) on bot-created sessions and pre-fix rows — sessionTitle() handles
+   *  both cases with a titleizeChannel fallback. */
+  name?: string;
   /** Engine-authoritative lifecycle state (present on list/detail responses). */
   status?: SessionStatus;
   /** @deprecated pre-Sprint-5 alias of `status`; the engine returns `status`. */

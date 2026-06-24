@@ -31,7 +31,7 @@ import SectionHead from '@/components/SectionHead';
 import DeleteCharacterButton from '@/components/DeleteCharacterButton';
 import DeleteCampaignButton from '@/components/DeleteCampaignButton';
 import SessionRecap from '@/components/SessionRecap';
-import { titleizeChannel, formatStarted } from '@/lib/format';
+import { sessionTitle, formatStarted } from '@/lib/format';
 import styles from './Dashboard.module.css';
 
 // ── Way-to-start hub (Option B) — shown when you have no sessions ──────────────
@@ -192,7 +192,7 @@ function DashActive({
   const campaignsSectionRef = useRef<HTMLDivElement>(null);
 
   const hero = sessions[0];
-  const heroTitle = titleizeChannel(hero.channel);
+  const heroTitle = sessionTitle(hero);
   const isSuzu = (hero.dm_username ?? '').toLowerCase() === 'suzu';
   const players = hero.player_count ?? hero.participant_usernames?.length ?? 0;
 
@@ -258,7 +258,7 @@ function DashActive({
               const isDM =
                 !!username &&
                 (s.dm_username ?? '').toLowerCase() === username.toLowerCase();
-              const campaignName = titleizeChannel(s.channel);
+              const campaignName = sessionTitle(s);
               return (
                 <div key={s.session_id} className={styles.campaignRow}>
                   <span className={styles.campaignIcon} aria-hidden>

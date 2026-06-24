@@ -29,7 +29,7 @@ import Link from 'next/link';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import { useToast } from '@/components/Toast';
 import { useReducedMotion } from '@/lib/useReducedMotion';
-import { titleizeChannel } from '@/lib/format';
+import { sessionTitle } from '@/lib/format';
 import {
   advanceScene,
   combatFromScene,
@@ -1031,7 +1031,7 @@ export default function PlayPage() {
     );
   }
 
-  const title = titleizeChannel(session?.channel);
+  const title = sessionTitle(session ?? {});
   const combatIsActive = !!combatId && combatState?.state !== 'ended';
   const statusPill = combatIsActive ? (
     <Pill tone="lav" dot>

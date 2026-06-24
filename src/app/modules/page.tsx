@@ -21,7 +21,7 @@ import { useToast } from '@/components/Toast';
 import { createSession, getCatalog, listMyCharacters } from '@/lib/api/dnd';
 import type { AdventureCatalogItem, Character, ContentRating, DmMode, Visibility } from '@/lib/api/types';
 import {
-  channelFromName,
+  uniqueChannelFromName,
   setSessionAnnotations,
 } from '@/lib/sessionAnnotations';
 import TavernShell from '@/components/TavernShell';
@@ -208,7 +208,9 @@ function StarterForm({
   const handleBegin = async () => {
     const username = user?.username;
     if (!username || submitting) return;
-    const channel = channelFromName(name);
+    // uniqueChannelFromName gives a collision-resistant slug (base + 4-char random suffix)
+    // so two players who both name their table "The Hollow Tide Cave" get distinct sessions.
+    const channel = uniqueChannelFromName(name);
     setSubmitting(true);
 
     // Map the StarterForm's dmMode to the engine's axes.
@@ -221,6 +223,9 @@ function StarterForm({
       const session = await createSession({
         username,
         channel,
+        // Verbatim human name from the form — stored as the campaign display name by the
+        // engine. The lobby/dashboard/play/recap UIs render this via sessionTitle().
+        name,
         dm_mode: engineDmMode,
         ai_assist_level: engineAiAssist,
         visibility,

@@ -29,7 +29,7 @@ import Card from '@/components/Card';
 import Pill from '@/components/Pill';
 import Icon from '@/components/Icon';
 import SuzuDM from '@/components/SuzuDM';
-import { titleizeChannel } from '@/lib/format';
+import { sessionTitle } from '@/lib/format';
 import styles from './Lobby.module.css';
 
 type Filter = 'all' | 'suzu' | 'human';
@@ -69,7 +69,7 @@ function TableCard({
     onJoin(session, selectedCharId);
   };
 
-  const tableTitle = titleizeChannel(session.channel);
+  const tableTitle = sessionTitle(session);
 
   return (
     <Card className={styles.card}>
@@ -203,7 +203,7 @@ export default function LobbyPage() {
           joinReq.character_id = characterId;
         }
         await joinSession(s.session_id, joinReq);
-        toast({ tone: 'success', message: `Joined ${titleizeChannel(s.channel)}.` });
+        toast({ tone: 'success', message: `Joined ${sessionTitle(s)}.` });
         void load();
       } catch {
         toast({ tone: 'error', message: 'Could not join that table. Try again.' });

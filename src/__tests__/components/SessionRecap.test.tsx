@@ -80,4 +80,27 @@ describe('SessionRecap', () => {
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     expect(screen.getByRole('button', { name: /dismiss recap/i })).toBeInTheDocument();
   });
+
+  it('renders the human name (not the slug) in the strip sub-label when session.name is set', async () => {
+    // Post-fix Tavern session: name = human form value, channel = unique slug with suffix.
+    // In the strip variant the title is rendered inside the toggle button as a <span>.
+    render(
+      <SessionRecap
+        session={makeSession({
+          name: 'The Hollow Tide Cave',
+          channel: 'the_hollow_tide_cave-9f3a',
+          ai_assist_level: 'off',
+        })}
+        username="leon"
+        variant="strip"
+      />,
+    );
+    // The strip button is collapsed by default; the title sub-label is still in DOM.
+    const toggle = await screen.findByRole('button', { name: /where you left off/i });
+    expect(toggle).toBeInTheDocument();
+    // The human name appears in the sub-label, not the slug.
+    expect(screen.getByText(/The Hollow Tide Cave/)).toBeInTheDocument();
+    // The ugly slug with suffix must NOT appear.
+    expect(screen.queryByText(/the_hollow_tide_cave-9f3a/)).not.toBeInTheDocument();
+  });
 });

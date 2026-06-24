@@ -12,7 +12,7 @@
  * metadata digest. When the tiny engine `GET /sessions/{id}/events` lands, the
  * event digest below lights up with no Tavern change.
  */
-import { titleizeChannel, formatStarted } from '@/lib/format';
+import { titleizeChannel, sessionTitle, formatStarted } from '@/lib/format';
 import type { Session, SessionEvent } from '@/lib/api/types';
 
 export type { SessionEvent };
@@ -66,7 +66,7 @@ function metadataLines(session: Pick<Session, 'status' | 'dm_username' | 'player
  * genuinely nothing to say (a brand-new first session).
  */
 export function buildRecap(
-  session: Pick<Session, 'channel' | 'status' | 'dm_username' | 'player_count' | 'participant_usernames' | 'started_at'>,
+  session: Pick<Session, 'name' | 'channel' | 'status' | 'dm_username' | 'player_count' | 'participant_usernames' | 'started_at'>,
   events: SessionEvent[] = [],
   opts: { maxLines?: number } = {},
 ): RecapResult {
@@ -84,7 +84,7 @@ export function buildRecap(
       headline: 'Previously on…',
       lines: eventLines,
       // Anchor the AI grounding to the campaign on the event path too (Kage).
-      facts: `${titleizeChannel(session.channel)}: ${eventLines.join(' ')}`,
+      facts: `${sessionTitle(session)}: ${eventLines.join(' ')}`,
     };
   }
 
@@ -96,6 +96,6 @@ export function buildRecap(
     empty: false,
     headline: 'Where you left off',
     lines: meta,
-    facts: `${titleizeChannel(session.channel)}: ${meta.join(' ')}`,
+    facts: `${sessionTitle(session)}: ${meta.join(' ')}`,
   };
 }

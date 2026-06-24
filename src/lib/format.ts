@@ -18,6 +18,23 @@ export function titleizeChannel(channel: string | undefined | null): string {
 }
 
 /**
+ * Return the human-readable title for a session.
+ *
+ * Priority:
+ *   1. session.name when it is a real human name (present, non-empty, and
+ *      not equal to the channel slug). The `name !== channel` guard catches
+ *      legacy/bot rows where `name` was set to the slug — those should still
+ *      titleize cleanly via fallback.
+ *   2. titleizeChannel(session.channel) — the original fallback for every
+ *      pre-fix row and any row without a name.
+ */
+export function sessionTitle(session: { name?: string; channel?: string | null }): string {
+  const n = session.name?.trim();
+  if (n && n !== session.channel) return n;
+  return titleizeChannel(session.channel);
+}
+
+/**
  * Format an engine timestamp (ISO 8601, "YYYY-MM-DD HH:MM:SS", or epoch) into a
  * short, locale-aware label. Returns '' on anything unparseable — never throws.
  */

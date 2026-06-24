@@ -49,3 +49,17 @@ export function channelFromName(name: string): string {
     .replace(/^_+|_+$/g, '');
   return slug || 'table';
 }
+
+/**
+ * Return a collision-resistant channel key for a new Tavern-created session.
+ * Appends a random 4-character [a-z0-9] suffix separated by a hyphen so that:
+ *   - Two players who both name their table "The Hollow Tide Cave" get distinct channels.
+ *   - The base slug remains human-readable for ops/grep.
+ *   - A future slugify pass leaves the string stable (hyphen is not collapsed by channelFromName).
+ * The bot path never calls this; it uses the Twitch login (already unique-per-streamer).
+ */
+export function uniqueChannelFromName(name: string): string {
+  const base = channelFromName(name);
+  const suffix = Math.random().toString(36).slice(2, 6);
+  return `${base}-${suffix}`;
+}
