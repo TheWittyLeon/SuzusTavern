@@ -6,6 +6,8 @@ import { apiCall } from './client';
 import type {
   AdvanceSceneRequest,
   AdvanceSceneResult,
+  BindCharacterRequest,
+  BindCharacterResult,
   CatalogResponse,
   Character,
   CharacterCreateRequest,
@@ -322,6 +324,29 @@ export const restoreSession = (
   apiCall<{ message?: string }>(
     `/api/dnd/sessions/${encodeURIComponent(sessionId)}/restore`,
     { method: 'POST', json: { username }, signal },
+  );
+
+/**
+ * B2 — Re-bind: set (or clear) the caller's bound character on a session.
+ * POST /api/dnd/sessions/{sessionId}/bind
+ *
+ * The Tavern BFF enforces self-vs-DM: callers may only bind for their own
+ * username unless they are the session's DM. The engine additionally enforces
+ * character ownership (you cannot bind a character you don't own).
+ *
+ * Throws ApiError on:
+ *   403 — forbidden_other_user (proxy: non-DM tried to bind for another user)
+ *   400 — not_a_member | not_your_character | unknown_character (engine)
+ *   503 — msm_disabled (engine: msm flag is off)
+ */
+export const bindCharacter = (
+  sessionId: string,
+  req: BindCharacterRequest,
+  signal?: AbortSignal,
+) =>
+  apiCall<BindCharacterResult>(
+    `/api/dnd/sessions/${encodeURIComponent(sessionId)}/bind`,
+    { method: 'POST', json: req, signal },
   );
 
 // ── Combat ──────────────────────────────────────────────────────────────────
