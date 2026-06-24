@@ -58,6 +58,9 @@ jest.mock('../../lib/api/dnd', () => ({
   endCombat: jest.fn(),
   advanceScene: jest.fn(),
   setFlag: jest.fn(),
+  // B2-4: rebind support
+  bindCharacter: jest.fn(() => Promise.resolve({ campaign_id: 's1', username: 'alice', role: 'player', character_id: 1 })),
+  listMyCharacters: jest.fn(() => Promise.resolve([])),
 }));
 
 jest.mock('../../lib/stream', () => ({
@@ -120,6 +123,8 @@ const COMBAT_STATE_ACTIVE: CombatState = {
   participants: [
     {
       participant_id: 'p_velka',
+      // entity_id matches PARTY's character_id so isPlayerTurn resolves correctly.
+      entity_id: 'c1',
       name: 'Velka',
       is_pc: true,
       initiative: 18,
@@ -135,6 +140,7 @@ const COMBAT_STATE_ACTIVE: CombatState = {
     },
     {
       participant_id: 'p_gob1',
+      entity_id: 'goblin',
       name: 'Goblin',
       is_pc: false,
       initiative: 12,
@@ -298,6 +304,15 @@ describe('seqRef guard — stale poll must not overwrite a fresh mutation respon
 
 // ── endCombat error handling ───────────────────────────────────────────────────
 
+// Helper: open the outcome chooser and pick an outcome via the B3-1 flow.
+async function openChooserAndPick(outcomeName: RegExp) {
+  const endBtn = screen.getByRole('button', { name: /End combat/i });
+  await act(async () => { fireEvent.click(endBtn); });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: outcomeName }));
+  });
+}
+
 describe('endCombat error paths — graceful degradation', () => {
   it('engine 400 victory_refused during endCombat → toast shown, not a crash', async () => {
     mEndCombat.mockRejectedValue(
@@ -312,16 +327,14 @@ describe('endCombat error paths — graceful degradation', () => {
       expect(screen.getByRole('button', { name: /End combat/i })).toBeInTheDocument(),
     );
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /End combat/i }));
-    });
+    // B3-1: open chooser and pick Unresolved (Victory is disabled when no monster down).
+    await openChooserAndPick(/Unresolved/i);
 
     // Must not crash — component still renders.
     await waitFor(() =>
       expect(screen.getAllByText('Velka').length).toBeGreaterThan(0),
     );
-    // Some kind of user feedback must appear (toast or inline message).
-    // The page must not silently swallow the error.
+    // The call was made — no silent swallow.
     expect(mEndCombat).toHaveBeenCalledTimes(1);
   });
 
@@ -336,9 +349,8 @@ describe('endCombat error paths — graceful degradation', () => {
       expect(screen.getByRole('button', { name: /End combat/i })).toBeInTheDocument(),
     );
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /End combat/i }));
-    });
+    // B3-1: open chooser and pick Retreat.
+    await openChooserAndPick(/Retreat/i);
 
     await waitFor(() =>
       expect(screen.getAllByText('Velka').length).toBeGreaterThan(0),
@@ -420,7 +432,10 @@ describe('Double-tap latch — rapid second tap must not fire the action twice',
     expect(mAttack).toHaveBeenCalledTimes(1);
   });
 
-  it('two synchronous End combat clicks fire endCombat exactly once', async () => {
+  it('two synchronous outcome clicks fire endCombat exactly once', async () => {
+    // B3-1: endCombat is now reached via the outcome chooser.
+    // Guard: after the chooser is opened and an outcome picked, the combatBusyRef
+    // latch should prevent a second rapid click from calling endCombat again.
     let resolveEnd!: (v: Awaited<ReturnType<typeof mEndCombat>>) => void;
     mEndCombat.mockImplementation(
       () =>
@@ -436,10 +451,16 @@ describe('Double-tap latch — rapid second tap must not fire the action twice',
       expect(screen.getByRole('button', { name: /End combat/i })).toBeInTheDocument(),
     );
 
-    // Two clicks before re-render.
+    // Open the chooser.
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /End combat/i }));
-      fireEvent.click(screen.getByRole('button', { name: /End combat/i }));
+    });
+
+    // Two clicks on the same outcome button before re-render.
+    const unresolvedBtn = screen.getByRole('button', { name: /Unresolved/i });
+    await act(async () => {
+      fireEvent.click(unresolvedBtn);
+      fireEvent.click(unresolvedBtn);
     });
 
     await act(async () => {

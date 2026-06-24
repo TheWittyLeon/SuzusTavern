@@ -20,6 +20,7 @@ import type { InitEntry } from '@/components/InitiativeTracker';
 
 const VELKA: CombatParticipantState = {
   participant_id: 'p_velka',
+  entity_id: '1',
   name: 'Velka',
   is_pc: true,
   initiative: 18,
@@ -36,6 +37,7 @@ const VELKA: CombatParticipantState = {
 
 const GOBLIN: CombatParticipantState = {
   participant_id: 'p_gob1',
+  entity_id: 'goblin',
   name: 'Goblin',
   is_pc: false,
   initiative: 12,

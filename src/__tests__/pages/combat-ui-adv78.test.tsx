@@ -56,6 +56,9 @@ jest.mock('../../lib/api/dnd', () => ({
   endCombat: jest.fn(),
   advanceScene: jest.fn(),
   setFlag: jest.fn(),
+  // B2-4: rebind support
+  bindCharacter: jest.fn(() => Promise.resolve({ campaign_id: 's1', username: 'alice', role: 'player', character_id: 1 })),
+  listMyCharacters: jest.fn(() => Promise.resolve([])),
 }));
 
 jest.mock('../../lib/stream', () => ({
@@ -128,6 +131,8 @@ const COMBAT_STATE: CombatState = {
   participants: [
     {
       participant_id: 'p_velka',
+      // entity_id matches the PARTY fixture's character_id so isPlayerTurn works correctly.
+      entity_id: 'c1',
       name: 'Velka',
       is_pc: true,
       initiative: 18,
@@ -143,6 +148,7 @@ const COMBAT_STATE: CombatState = {
     },
     {
       participant_id: 'p_gob1',
+      entity_id: 'goblin',
       name: 'Goblin',
       is_pc: false,
       initiative: 12,
@@ -582,33 +588,48 @@ describe('CUI-12 — scene_advance auto-flow', () => {
   });
 });
 
-// ── CUI-13: "End combat" button ──────────────────────────────────────────────
+// ── CUI-13: "End combat" chooser (B3-1) ─────────────────────────────────────
+// The End button now opens an outcome chooser (B3-1); clicking an outcome calls
+// endCombat with that outcome. The old direct-click path is replaced.
 
 describe('CUI-13 — End combat button calls endCombat', () => {
-  it('clicking "End" calls endCombat with the current combat_id', async () => {
+  it('clicking "End" opens the outcome chooser and picking Unresolved calls endCombat', async () => {
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
     render(<PlayPage />);
     await screen.findByText('The Hollow Tide');
+    // Wait for the End button (aria-label has "End combat — choose outcome").
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /End combat/i })).toBeInTheDocument(),
     );
-    const endBtn = screen.getByRole('button', { name: /End combat/i });
-    await act(async () => { fireEvent.click(endBtn); });
+    // Open the chooser.
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /End combat/i }));
+    });
+    // Chooser should be visible.
+    expect(screen.getByText(/How does this fight end/i)).toBeInTheDocument();
+    // Click "Unresolved".
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Unresolved/i }));
+    });
 
     await waitFor(() => expect(mEndCombat).toHaveBeenCalledTimes(1));
     expect(mEndCombat.mock.calls[0][0]).toBe('combat-42');
     expect(mEndCombat.mock.calls[0][1]).toMatchObject({ outcome: 'unresolved' });
   });
 
-  it('logs "Combat ended." after endCombat resolves', async () => {
+  it('logs "Combat ended." after picking an outcome', async () => {
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
     render(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /End combat/i })).toBeInTheDocument(),
     );
+    // Open the chooser, then pick Retreat.
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /End combat/i }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Retreat/i }));
     });
     await waitFor(() =>
       expect(screen.getByText(/Combat ended/i)).toBeInTheDocument(),

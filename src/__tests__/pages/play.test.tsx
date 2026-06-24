@@ -55,6 +55,9 @@ jest.mock('../../lib/api/dnd', () => ({
   endCombat: jest.fn(),
   advanceScene: jest.fn(),
   setFlag: jest.fn(),
+  // B2-4: rebind support
+  bindCharacter: jest.fn(() => Promise.resolve({ campaign_id: 's1', username: 'alice', role: 'player', character_id: 1 })),
+  listMyCharacters: jest.fn(() => Promise.resolve([])),
 }));
 
 jest.mock('../../lib/stream', () => ({
@@ -140,7 +143,9 @@ describe('Play page', () => {
   it('loads the session and renders its title + party', async () => {
     render(<PlayPage />);
     expect(await screen.findByText('The Hollow Tide')).toBeInTheDocument();
-    expect(await screen.findByText('Velka')).toBeInTheDocument();
+    // B2-4: "Velka" now appears in both PartyPanel and the rebind section label.
+    const velkaEls = await screen.findAllByText('Velka');
+    expect(velkaEls.length).toBeGreaterThanOrEqual(1);
   });
 
   it('mobile view tabs switch Story / Party / Scene (party reachable on mobile)', async () => {
