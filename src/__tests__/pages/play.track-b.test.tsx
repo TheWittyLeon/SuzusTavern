@@ -240,7 +240,7 @@ beforeEach(() => {
   jest.useFakeTimers();
   mGetSession.mockResolvedValue(SESSION);
   mGetParticipants.mockResolvedValue(PARTY_ALICE);
-  mGetCombatState.mockResolvedValue(null);
+  mGetCombatState.mockResolvedValue(null as never);
   mEndCombat.mockResolvedValue({ state: endedState(), outcome: 'unresolved', xp_earned: 0, defeated: [], scene_advance: null });
 });
 
