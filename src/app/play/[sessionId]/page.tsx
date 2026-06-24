@@ -165,6 +165,10 @@ export default function PlayPage() {
   const [combatBusy, setCombatBusy] = useState(false);
   const [refusedReason, setRefusedReason] = useState<string | null>(null);
 
+  // Iro MEDIUM-2: persistent turn-status text so one mounted live region mutates
+  // in place instead of two regions mounting/unmounting on every poll cycle.
+  const [turnStatusText, setTurnStatusText] = useState<string | null>(null);
+
   // Grounding for the "Move on" affordance (ADV-7T).
   const [grounding, setGrounding] = useState<GroundingData | null>(null);
   const [sceneAdvanceBusy, setSceneAdvanceBusy] = useState(false);
@@ -212,6 +216,9 @@ export default function PlayPage() {
   const revealRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const narrationAbort = useRef<AbortController | null>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Tora MAJOR-2: ref for the "End" trigger button so focus returns to it when
+  // the outcome chooser is closed via Escape.
+  const endCombatBtnRef = useRef<HTMLButtonElement>(null);
 
   // Latest-log ref so narrate() can read recent transcript without re-creating
   // itself on every log change. Synced in an effect (never written during render).
@@ -383,6 +390,32 @@ export default function PlayPage() {
       });
     }
   }, [combatState?.state, myCharacterIdStr, toast]);
+
+  // Iro MEDIUM-2: derive the turn-status label from combat state so one
+  // persistent live region (rendered below) updates in place. Null = hide.
+  // This effect replaces the two separate offTurnStatus/myTurnStatus mounts.
+  useEffect(() => {
+    if (!combatId || combatState?.state !== 'active') {
+      setTurnStatusText(null);
+      return;
+    }
+    const active = combatState.participants.find((p) => p.is_active_turn) ?? null;
+    if (!active) {
+      setTurnStatusText(null);
+      return;
+    }
+    const myTurn =
+      active.is_pc === true &&
+      myCharacterIdStr != null &&
+      active.entity_id === myCharacterIdStr;
+    if (myTurn) {
+      setTurnStatusText('Your turn!');
+    } else if (active.is_pc) {
+      setTurnStatusText(`Waiting on ${active.name}'s turn...`);
+    } else {
+      setTurnStatusText(`Monster turn — ${active.name}`);
+    }
+  }, [combatId, combatState, myCharacterIdStr]);
 
   // ── cleanup streams on unmount ───────────────────────────────────────────────
   // pollIntervalRef is owned by the combatId effect above — its cleanup already
@@ -623,7 +656,8 @@ export default function PlayPage() {
         color: 'var(--accent)',
         roll: { sides, value, modifier, crit, fumble, label: lbl },
       });
-      if (sides === 20 && mod !== undefined && !talking && !combatBusy) {
+      // Tora NIT-1: read the ref (synchronous) not combatBusy state (stale between renders).
+      if (sides === 20 && mod !== undefined && !talking && !combatBusyRef.current) {
         const total = value + modifier;
         const mech = `${lbl} check: ${value} + ${modifier} = ${total}${
           crit ? ' (natural 20)' : fumble ? ' (natural 1)' : ''
@@ -631,7 +665,8 @@ export default function PlayPage() {
         void narrate(`I roll ${lbl}.`, mech, 'act');
       }
     },
-    [advantage, username, talking, combatBusy, appendLog, narrate],
+    // Tora NIT-1: combatBusy removed from deps — we read combatBusyRef.current instead.
+    [advantage, username, talking, appendLog, narrate],
   );
 
   // ── scene advance (ADV-7T / CUI-12) ─────────────────────────────────────────
@@ -719,6 +754,8 @@ export default function PlayPage() {
   const beginEncounter = useCallback(async () => {
     if (!session || !username || combatBusyRef.current) return;
     combatBusyRef.current = true;
+    // Tora MINOR-2: increment seq at mutation START so any in-flight poll is discarded.
+    stateSeqRef.current += 1;
     setCombatBusy(true);
     setRefusedReason(null);
     try {
@@ -774,6 +811,8 @@ export default function PlayPage() {
     async (action: CombatAction, payload?: string) => {
       if (!session || !username || !combatId || combatBusyRef.current) return;
       combatBusyRef.current = true;
+      // Tora MINOR-2: increment seq at mutation START so any in-flight poll is discarded.
+      stateSeqRef.current += 1;
       setCombatBusy(true);
       setRefusedReason(null);
 
@@ -907,8 +946,11 @@ export default function PlayPage() {
   const onEndCombat = useCallback(async (outcome: EndCombatOutcome = 'unresolved') => {
     if (!combatId || !username || combatBusyRef.current) return;
     combatBusyRef.current = true;
+    // Tora MINOR-2: increment seq at mutation START so any in-flight poll is discarded.
+    stateSeqRef.current += 1;
     setCombatBusy(true);
-    setOutcomeChooserOpen(false);
+    // Tora MINOR-1: do NOT close the chooser here — only close on success so the
+    // user can retry on engine error without re-opening the panel.
     try {
       const result = await endCombat(combatId, { username, outcome });
       if (result.state) {
@@ -923,6 +965,8 @@ export default function PlayPage() {
         kind: 'system',
         text: `Combat ended. ${outcomeLabel}.`,
       });
+      // Tora MINOR-1: close on SUCCESS only.
+      setOutcomeChooserOpen(false);
       if (result.scene_advance) {
         await handleSceneAdvance(
           result.scene_advance.from_scene,
@@ -941,6 +985,7 @@ export default function PlayPage() {
       } else {
         toast({ tone: 'error', message: 'Could not end combat.' });
       }
+      // Tora MINOR-1: chooser stays open on error so the user can retry.
     } finally {
       combatBusyRef.current = false;
       setCombatBusy(false);
@@ -1196,7 +1241,10 @@ export default function PlayPage() {
                     isDm={isDm}
                     combatActive={combatIsActive && combatState?.state === 'active'}
                     onChanged={async () => {
-                      // Re-fetch participants so myCharacterIdStr + party panel update.
+                      // Kage T-IMP-1: `session` does not need re-fetching here. The engine
+                      // reads campaign_members fresh on each combat action, so only the
+                      // participants list (for party panel display) and myCharacterIdStr
+                      // (for per-user turn resolution) need to be refreshed.
                       const updated = await getParticipants(sessionId).catch(() => null);
                       if (updated) {
                         setParticipants(updated);
@@ -1242,27 +1290,24 @@ export default function PlayPage() {
           )}
         </div>
         <ChatLog ref={chatLogRef} rows={log} thinking={thinking} />
-        {/* B1-4: off-turn status — politely announced to AT; hidden out of combat */}
-        {combatIsActive && !isPlayerTurn && activeParticipant && (
+        {/* Iro MEDIUM-2: ONE persistent live region for turn status. Stays mounted
+            throughout combat; only the text and className change in place. This
+            prevents the 4s poll from re-triggering AT announcements on every
+            combatState object replacement when the text hasn't actually changed.
+            null text = hidden (opacity:0 + aria-hidden via CSS would also work,
+            but clearing text is the simplest AT-safe approach). */}
+        {combatIsActive && (
           <div
             role="status"
             aria-live="polite"
             aria-atomic="true"
-            className={styles.offTurnStatus}
+            className={
+              turnStatusText === 'Your turn!'
+                ? styles.myTurnStatus
+                : styles.offTurnStatus
+            }
           >
-            {activeParticipant.is_pc
-              ? `Waiting on ${activeParticipant.name}’s turn…`
-              : `Monster turn — ${activeParticipant.name}`}
-          </div>
-        )}
-        {combatIsActive && isPlayerTurn && (
-          <div
-            role="status"
-            aria-live="polite"
-            aria-atomic="true"
-            className={styles.myTurnStatus}
-          >
-            Your turn!
+            {turnStatusText}
           </div>
         )}
         <Composer
@@ -1315,8 +1360,10 @@ export default function PlayPage() {
           <>
             <div className={styles.combatNote} role="status" aria-live="polite">
               <Icon name="Sword" size={13} aria-hidden /> In combat · use the action rail in the composer
-              {/* B3-1: "End" opens the outcome chooser */}
+              {/* B3-1: "End" opens the outcome chooser. Tora MAJOR-2: ref so focus
+                  returns here when the chooser is dismissed via Escape. */}
               <button
+                ref={endCombatBtnRef}
                 type="button"
                 className={styles.endCombatBtn}
                 onClick={() => setOutcomeChooserOpen((v) => !v)}
@@ -1335,6 +1382,14 @@ export default function PlayPage() {
                 className={styles.outcomeChooser}
                 role="group"
                 aria-label="Choose combat outcome"
+                onKeyDown={(e) => {
+                  // Tora MAJOR-2: Escape closes the chooser and returns focus to the trigger.
+                  if (e.key === 'Escape' && !combatBusy) {
+                    e.stopPropagation();
+                    setOutcomeChooserOpen(false);
+                    endCombatBtnRef.current?.focus();
+                  }
+                }}
               >
                 <div className={styles.outcomeChooserLabel}>How does this fight end?</div>
                 {(
@@ -1351,24 +1406,28 @@ export default function PlayPage() {
                       label: 'Retreat',
                       sub: 'Fall back; you live to fight again.',
                       disabled: false,
+                      disabledTip: undefined,
                     },
                     {
                       key: 'parley' as EndCombatOutcome,
                       label: 'Parley',
                       sub: 'Talk it out.',
                       disabled: false,
+                      disabledTip: undefined,
                     },
                     {
                       key: 'flee' as EndCombatOutcome,
                       label: 'Flee',
                       sub: 'Run; consequences possible.',
                       disabled: false,
+                      disabledTip: undefined,
                     },
                     {
                       key: 'unresolved' as EndCombatOutcome,
                       label: 'Unresolved',
                       sub: 'End the fight without a verdict.',
                       disabled: false,
+                      disabledTip: undefined,
                     },
                   ] as {
                     key: EndCombatOutcome;
@@ -1377,24 +1436,37 @@ export default function PlayPage() {
                     disabled: boolean;
                     disabledTip?: string;
                   }[]
-                ).map(({ key, label, sub, disabled, disabledTip }) => (
-                  <button
-                    key={key}
-                    type="button"
-                    className={styles.outcomeOption}
-                    onClick={() => void onEndCombat(key)}
-                    disabled={combatBusy || disabled}
-                    title={disabled && disabledTip ? disabledTip : undefined}
-                    aria-disabled={disabled || combatBusy}
-                  >
-                    <span className={styles.outcomeLabel}>{label}</span>
-                    <span className={styles.outcomeSub}>{sub}</span>
-                  </button>
-                ))}
+                ).map(({ key, label, sub, disabled, disabledTip }) => {
+                  // Iro HIGH-2: each disabled option gets a visually-hidden description
+                  // so the reason is conveyed to AT (title= is not reliably read).
+                  const tipId = disabledTip ? `outcome-tip-${key}` : undefined;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      className={styles.outcomeOption}
+                      onClick={() => void onEndCombat(key)}
+                      disabled={combatBusy || disabled}
+                      aria-disabled={disabled || combatBusy}
+                      aria-describedby={disabled && tipId ? tipId : undefined}
+                    >
+                      <span className={styles.outcomeLabel}>{label}</span>
+                      <span className={styles.outcomeSub}>{sub}</span>
+                      {/* Iro HIGH-2: sr-only description for disabled state (title= only
+                          is not reliably announced by AT). */}
+                      {disabled && disabledTip && (
+                        <span id={tipId} className="sr-only">{disabledTip}</span>
+                      )}
+                    </button>
+                  );
+                })}
                 <button
                   type="button"
                   className={styles.outcomeCancel}
-                  onClick={() => setOutcomeChooserOpen(false)}
+                  onClick={() => {
+                    setOutcomeChooserOpen(false);
+                    endCombatBtnRef.current?.focus();
+                  }}
                   disabled={combatBusy}
                 >
                   Cancel

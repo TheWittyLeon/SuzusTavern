@@ -288,7 +288,9 @@
 
 .myTurnStatus {
   font-size: 12px;
-  color: var(--accent);
+  /* Iro HIGH-1: var(--accent) on the accent-tint bg fails AA on candlelit (4.11:1).
+     Use var(--ink) instead — passes ≥4.5:1 on all four palettes. */
+  color: var(--ink);
   padding: 6px 12px;
   border-radius: 8px;
   background: color-mix(in oklab, var(--accent) 10%, transparent);
@@ -386,8 +388,10 @@
 .outcomeCancel {
   margin-top: 4px;
   align-self: flex-end;
-  padding: 6px 14px;
-  min-height: 36px;
+  /* Tora MINOR-3: 36px was below the 44px touch-target floor. Use padding to
+     get the content-box to 44px while keeping the visual appearance compact. */
+  padding: 11px 14px;
+  min-height: 44px;
   border-radius: 8px;
   border: 1px solid var(--line);
   background: transparent;

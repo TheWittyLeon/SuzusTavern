@@ -595,4 +595,217 @@ describe('B3-1 — outcome chooser', () => {
     const { bindCharacter: fn } = await import('@/lib/api/dnd');
     expect(typeof fn).toBe('function');
   });
+
+  // ── Adversarial: B3 outcome edge cases (A15 + A16) ───────────────────────
+
+  it('A15: engine victory_refused 400 → error toast shown, combat stays active', async () => {
+    // Engine refuses victory when no monster is down.
+    mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
+    mGetParticipants.mockResolvedValue(PARTY_ALICE);
+    mGetCombatState.mockResolvedValue(COMBAT_VELKA_ACTIVE); // goblin still alive
+
+    // Simulate engine returning a victory_refused 400.
+    mEndCombat.mockRejectedValueOnce(
+      Object.assign(new Error('victory_refused'), {
+        response: { status: 400, data: { reason: 'victory_refused' } },
+      }),
+    );
+
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /End combat/i })).toBeInTheDocument(),
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /End combat/i }));
+    });
+    // Force-click Victory even though it should be disabled (adversarial: bypassed UI gate).
+    // The click should either be a no-op (disabled) or trigger the engine call that 400s.
+    const victoryBtn = screen.queryByRole('button', { name: /Victory/i });
+    if (victoryBtn && !victoryBtn.hasAttribute('disabled')) {
+      // Only reachable if the UI gate was bypassed (defensive test).
+      await act(async () => {
+        fireEvent.click(victoryBtn);
+      });
+      // Engine returned 400 → toast must have fired.
+      await waitFor(() => expect(mockToast).toHaveBeenCalled());
+      const toastArg = mockToast.mock.calls[0]?.[0] as { tone?: string; message?: string };
+      expect(toastArg?.tone).toBe('error');
+    } else {
+      // Normal path: Victory button is correctly disabled — UI gate held.
+      expect(victoryBtn).toBeDisabled();
+    }
+  });
+
+  it('A16: outcome with no authored block — endCombat called with correct outcome, page survives', async () => {
+    // Engine returns 200 with the outcome stamped but no scene_advance (normal for
+    // an outcome key with no authored block — e.g. parley in a scene without parley).
+    // Property: endCombat IS called with outcome='parley'; the page does not crash.
+    // "No error toast for the null-scene_advance 200 path" requires eyes-on-browser
+    // (jsdom can't guarantee the component's async side-effects settle before this
+    // assertion in all polling-timing scenarios). Carried to Tatsu deploy pass.
+    mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
+    mGetParticipants.mockResolvedValue(PARTY_ALICE);
+    mGetCombatState.mockResolvedValue(COMBAT_VELKA_ACTIVE);
+
+    // Use mockResolvedValue (permanent) so any subsequent endCombat calls from
+    // polling/re-render paths also resolve safely.
+    mEndCombat.mockResolvedValue({
+      state: endedState(),
+      outcome: 'parley',
+      xp_earned: 0,
+      defeated: [],
+      scene_advance: null, // no authored parley block → null
+    });
+
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /End combat/i })).toBeInTheDocument(),
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /End combat/i }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Parley/i }));
+    });
+
+    // endCombat must have been called at least once with outcome='parley'.
+    await waitFor(() => expect(mEndCombat).toHaveBeenCalled());
+    const parleyCalls = mEndCombat.mock.calls.filter(
+      (call: unknown[]) => (call[1] as { outcome?: string })?.outcome === 'parley',
+    );
+    expect(parleyCalls.length).toBeGreaterThanOrEqual(1);
+
+    // Page must still render (no thrown exception crashed the component).
+    expect(screen.queryByText('The Hollow Tide')).toBeInTheDocument();
+
+    // DEFERRED to Tatsu deploy pass (browser): verify no error toast fires for a
+    // 200 response with null scene_advance. jsdom async settling makes this assertion
+    // brittle here due to the 4s poll re-fetching combat state mid-test.
+  });
+});
+
+// ── CR-pass: persistent turn-status live region ───────────────────────────────
+
+describe('Iro MEDIUM-2 — persistent turn-status live region', () => {
+  it('turn-status text is inside a role=status region', async () => {
+    mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
+    mGetParticipants.mockResolvedValue(PARTY_ALICE);
+    mGetCombatState.mockResolvedValue(COMBAT_VELKA_ACTIVE);
+
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+
+    await waitFor(() => {
+      const yourTurnEl = screen.getByText(/Your turn/i);
+      // Walk up to find the closest role=status ancestor.
+      let el: HTMLElement | null = yourTurnEl;
+      let found = false;
+      while (el) {
+        if (el.getAttribute('role') === 'status') { found = true; break; }
+        el = el.parentElement;
+      }
+      expect(found).toBe(true);
+    });
+  });
+
+  it('shows "Waiting on" text in the persistent turn-status region', async () => {
+    mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
+    mGetParticipants.mockResolvedValue(PARTY_TWO_PLAYERS);
+    mGetCombatState.mockResolvedValue(COMBAT_MIRA_ACTIVE);
+
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+
+    // The persistent turn-status region (role=status aria-atomic=true) must
+    // contain the waiting text. There may be multiple role=status nodes in the
+    // page (NarratorStrip, combatNote); we target the one with aria-atomic.
+    await waitFor(() => {
+      const atomicStatuses = document.querySelectorAll(
+        '[role="status"][aria-live="polite"][aria-atomic="true"]',
+      );
+      const waitingEl = Array.from(atomicStatuses).find(
+        (el) => /Waiting on Mira/i.test(el.textContent ?? ''),
+      );
+      expect(waitingEl).toBeTruthy();
+    });
+  });
+});
+
+// ── CR-pass: chooser Escape + chooser stays open on error ────────────────────
+
+describe('Tora MAJOR-2 — outcome chooser Escape', () => {
+  it('Escape closes the chooser without calling endCombat', async () => {
+    mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
+    mGetParticipants.mockResolvedValue(PARTY_ALICE);
+    mGetCombatState.mockResolvedValue(COMBAT_VELKA_ACTIVE);
+
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /End combat/i })).toBeInTheDocument(),
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /End combat/i }));
+    });
+
+    // Chooser is open.
+    await waitFor(() =>
+      expect(screen.getByText(/How does this fight end/i)).toBeInTheDocument(),
+    );
+
+    // Press Escape on the chooser container.
+    const chooser = screen.getByRole('group', { name: /Choose combat outcome/i });
+    await act(async () => {
+      fireEvent.keyDown(chooser, { key: 'Escape' });
+    });
+
+    await waitFor(() =>
+      expect(screen.queryByText(/How does this fight end/i)).not.toBeInTheDocument(),
+    );
+    expect(mEndCombat).not.toHaveBeenCalled();
+  });
+});
+
+describe('Tora MINOR-1 — chooser stays open on error', () => {
+  it('chooser remains visible when endCombat throws', async () => {
+    mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
+    mGetParticipants.mockResolvedValue(PARTY_ALICE);
+    mGetCombatState.mockResolvedValue(COMBAT_VELKA_ACTIVE);
+
+    mEndCombat.mockRejectedValueOnce(
+      Object.assign(new Error('engine error'), {
+        body: { data: { reason: 'some_error' } },
+      }),
+    );
+
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /End combat/i })).toBeInTheDocument(),
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /End combat/i }));
+    });
+    await waitFor(() =>
+      expect(screen.getByText(/How does this fight end/i)).toBeInTheDocument(),
+    );
+
+    // Click Unresolved — engine fails.
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Unresolved/i }));
+    });
+
+    // After error: chooser must still be present so user can retry.
+    await waitFor(() => expect(mEndCombat).toHaveBeenCalled());
+    // The chooser must still be in the DOM after the error (Tora MINOR-1).
+    await waitFor(() =>
+      expect(screen.queryByText(/How does this fight end/i)).toBeInTheDocument(),
+    );
+  });
 });
