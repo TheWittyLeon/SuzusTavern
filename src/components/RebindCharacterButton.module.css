@@ -1,0 +1,182 @@
+/* RebindCharacterButton.module.css — B2-4 re-bind affordance */
+
+/* Wrapper keeps the button inline with the party row */
+.wrap {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Pencil trigger — minimum 44×44px touch target (Iro spec) */
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.trigger:hover:not(:disabled) {
+  color: var(--accent);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.trigger:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Full-screen backdrop */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+/* Popover dialog */
+.popover {
+  background: var(--card-solid, var(--bg-2));
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 20px;
+  width: min(400px, 100%);
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  outline: none;
+}
+
+.heading {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0 0 16px;
+}
+
+.loading {
+  color: var(--ink-3);
+  font-size: 0.85rem;
+  margin: 0 0 16px;
+}
+
+/* Radio list */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+/* Each option is a full-width button acting as a radio */
+.option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  background: var(--card);
+  border: 1.5px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.12s ease, background 0.12s ease;
+  color: var(--ink);
+}
+
+.option:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.optionSelected {
+  border-color: var(--accent);
+  background: rgba(240, 139, 182, 0.08);
+}
+
+.optionName {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.optionSub {
+  font-size: 0.75rem;
+  color: var(--ink-3);
+  margin-top: 2px;
+}
+
+.empty {
+  font-size: 0.85rem;
+  color: var(--ink-3);
+  margin: 0;
+  padding: 8px 0;
+}
+
+/* Action buttons row */
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.btn {
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: opacity 0.15s ease;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.btnGhost {
+  background: transparent;
+  color: var(--ink-2);
+  border: 1px solid var(--line);
+}
+
+.btnGhost:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.btnPrimary {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.btnPrimary:hover:not(:disabled) {
+  opacity: 0.88;
+}
