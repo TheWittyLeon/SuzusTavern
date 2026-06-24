@@ -69,7 +69,6 @@ const mGetSession = dnd.getSession as jest.MockedFunction<typeof dnd.getSession>
 const mGetParticipants = dnd.getParticipants as jest.MockedFunction<typeof dnd.getParticipants>;
 const mGetCombatState = dnd.getCombatState as jest.MockedFunction<typeof dnd.getCombatState>;
 const mEndCombat = dnd.endCombat as jest.MockedFunction<typeof dnd.endCombat>;
-const mBindCharacter = dnd.bindCharacter as jest.MockedFunction<typeof dnd.bindCharacter>;
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -121,11 +120,6 @@ const PARTY_TWO_PLAYERS: Participant[] = [
       ac: 16,
     },
   },
-];
-
-/** alice is the DM */
-const PARTY_ALICE_DM: Participant[] = [
-  { username: 'alice', is_dm: true, character: null },
 ];
 
 /**

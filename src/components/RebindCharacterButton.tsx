@@ -97,7 +97,6 @@ function RebindCharacterButtonInner({
   sessionId,
   targetUsername,
   selfUsername,
-  isDm,
   combatActive,
   onChanged,
 }: RebindCharacterButtonProps) {
@@ -121,11 +120,11 @@ function RebindCharacterButtonInner({
 
   const isSelf = targetUsername.toLowerCase() === selfUsername.toLowerCase();
 
-  // Load characters on open; reset focusedIdx so the first option gets focus.
+  // Load characters on open. focusedIdx is reset to 0 in the trigger handler
+  // (an event, not an effect) so the first option gets the roving tabIndex.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    setFocusedIdx(0);
     listMyCharacters(selfUsername)
       .then((list) => { if (!cancelled) setChars(list); })
       .catch(() => { if (!cancelled) setChars([]); });
@@ -270,7 +269,7 @@ function RebindCharacterButtonInner({
         aria-expanded={open}
         aria-controls={open ? dialogId : undefined}
         disabled={combatActive}
-        onClick={() => { if (!combatActive) setOpen(true); }}
+        onClick={() => { if (!combatActive) { setFocusedIdx(0); setOpen(true); } }}
       >
         {/* Pencil/edit icon — inline SVG keeps the bundle lean */}
         <svg

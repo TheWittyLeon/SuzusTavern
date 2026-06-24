@@ -167,7 +167,6 @@ export default function PlayPage() {
 
   // Iro MEDIUM-2: persistent turn-status text so one mounted live region mutates
   // in place instead of two regions mounting/unmounting on every poll cycle.
-  const [turnStatusText, setTurnStatusText] = useState<string | null>(null);
 
   // Grounding for the "Move on" affordance (ADV-7T).
   const [grounding, setGrounding] = useState<GroundingData | null>(null);
@@ -390,32 +389,6 @@ export default function PlayPage() {
       });
     }
   }, [combatState?.state, myCharacterIdStr, toast]);
-
-  // Iro MEDIUM-2: derive the turn-status label from combat state so one
-  // persistent live region (rendered below) updates in place. Null = hide.
-  // This effect replaces the two separate offTurnStatus/myTurnStatus mounts.
-  useEffect(() => {
-    if (!combatId || combatState?.state !== 'active') {
-      setTurnStatusText(null);
-      return;
-    }
-    const active = combatState.participants.find((p) => p.is_active_turn) ?? null;
-    if (!active) {
-      setTurnStatusText(null);
-      return;
-    }
-    const myTurn =
-      active.is_pc === true &&
-      myCharacterIdStr != null &&
-      active.entity_id === myCharacterIdStr;
-    if (myTurn) {
-      setTurnStatusText('Your turn!');
-    } else if (active.is_pc) {
-      setTurnStatusText(`Waiting on ${active.name}'s turn...`);
-    } else {
-      setTurnStatusText(`Monster turn — ${active.name}`);
-    }
-  }, [combatId, combatState, myCharacterIdStr]);
 
   // ── cleanup streams on unmount ───────────────────────────────────────────────
   // pollIntervalRef is owned by the combatId effect above — its cleanup already
@@ -656,8 +629,7 @@ export default function PlayPage() {
         color: 'var(--accent)',
         roll: { sides, value, modifier, crit, fumble, label: lbl },
       });
-      // Tora NIT-1: read the ref (synchronous) not combatBusy state (stale between renders).
-      if (sides === 20 && mod !== undefined && !talking && !combatBusyRef.current) {
+      if (sides === 20 && mod !== undefined && !talking && !combatBusy) {
         const total = value + modifier;
         const mech = `${lbl} check: ${value} + ${modifier} = ${total}${
           crit ? ' (natural 20)' : fumble ? ' (natural 1)' : ''
@@ -665,8 +637,7 @@ export default function PlayPage() {
         void narrate(`I roll ${lbl}.`, mech, 'act');
       }
     },
-    // Tora NIT-1: combatBusy removed from deps — we read combatBusyRef.current instead.
-    [advantage, username, talking, appendLog, narrate],
+    [advantage, username, talking, combatBusy, appendLog, narrate],
   );
 
   // ── scene advance (ADV-7T / CUI-12) ─────────────────────────────────────────
@@ -1084,6 +1055,18 @@ export default function PlayPage() {
   const isPlayerTurn = combatState?.state === 'active'
     ? activeIsMine
     : true; // out of combat: always enabled
+
+  // Iro MEDIUM-2: derive the turn-status label during render so the single
+  // persistent live region (rendered below) updates its text in place. null =
+  // hidden. Derived (not effect+state) to avoid a set-state-in-effect cascade.
+  const turnStatusText: string | null =
+    !combatId || combatState?.state !== 'active' || !activeParticipant
+      ? null
+      : activeIsMine
+        ? 'Your turn!'
+        : activeParticipant.is_pc
+          ? `Waiting on ${activeParticipant.name}'s turn...`
+          : `Monster turn — ${activeParticipant.name}`;
 
   // Round from combatState is authoritative; fall back to 1 when no state yet.
   const round = combatState?.round ?? null;
