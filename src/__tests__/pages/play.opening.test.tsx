@@ -218,7 +218,7 @@ describe("A1 - AI/full opening fires the grounded stream", () => {
     });
 
     const openingCall = mStream.mock.calls
-      .map((c) => c[0] as Record<string, unknown>)
+      .map((c) => c[0] as unknown as Record<string, unknown>)
       .find((p) => p?.kind === "opening");
     expect(openingCall).toBeTruthy();
     expect(openingCall!.message).toBe("");

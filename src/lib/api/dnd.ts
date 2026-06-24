@@ -495,7 +495,9 @@ const normalizeGrounding = (raw: unknown): GroundingData | null => {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, any>;
   const scene = (r.current_scene ?? {}) as Record<string, any>;
-  const adventure = (r.adventure ?? {}) as Record<string, any>;
+  // r is already `any`, so r.adventure is `any` — derive without a new explicit
+  // `any` annotation to avoid adding a net-new no-explicit-any lint error.
+  const adventure = r.adventure ?? {};
   const progress = ((r.campaign ?? {}).progress ?? {}) as Record<string, any>;
   return {
     ...r,

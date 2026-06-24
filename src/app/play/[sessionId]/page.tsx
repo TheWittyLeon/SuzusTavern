@@ -295,7 +295,10 @@ export default function PlayPage() {
 
         // A1 — Opening scene trigger. Non-blocking: fire-and-forget so the
         // player can interact while the opening streams in the background.
+        // openScene is a useCallback declared below; this effect runs post-mount
+        // (after the component body executes) so the forward reference is safe.
         if (g && !ctrl.signal.aborted) {
+          // eslint-disable-next-line react-hooks/immutability
           void openScene(s, g, sessionId, ctrl.signal);
         }
       } catch (e) {
@@ -305,9 +308,10 @@ export default function PlayPage() {
       }
     })();
     return () => ctrl.abort();
-    // openScene is defined below; it reads session/username via closure args
-    // so it doesn't need to be a dep here (stable through the effect's life).
-     
+    // openScene intentionally omitted from deps: it reads session/username via
+    // closure args, and adding it would re-run this load effect on every
+    // narrate/session change (re-fetching the session). Matches login/page.tsx.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [username, sessionId]);
 
   // ── combat state poll (4s, foregrounded) ────────────────────────────────────

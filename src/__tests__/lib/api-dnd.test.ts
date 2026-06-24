@@ -302,7 +302,7 @@ describe('Session listing (ST-033 / ST-041 / ST-044)', () => {
     expect(url).toBe('/api/dnd/sessions/s1/events');
     expect(method).toBe('GET');
     expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({
+    expect(events![0]).toMatchObject({
       event_id: '1',
       event_type: 'combat',
       actor: 'alice',
@@ -324,7 +324,7 @@ describe('Session listing (ST-033 / ST-041 / ST-044)', () => {
       ],
     });
     const events = await getSessionEvents('s1');
-    expect(events[0]).toMatchObject({
+    expect(events![0]).toMatchObject({
       event_type: 'narration',
       description: 'The cave trembles with distant thunder.',
     });
@@ -366,8 +366,8 @@ describe('Session listing (ST-033 / ST-041 / ST-044)', () => {
     });
     const events = await getSessionEvents('s1');
     expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({ event_type: 'session_start', actor: 'suzu' });
-    expect(events[0].description).toBeUndefined();
+    expect(events![0]).toMatchObject({ event_type: 'session_start', actor: 'suzu' });
+    expect(events![0].description).toBeUndefined();
   });
 
   it('getSessionEvents prefers data.description over data.text when both are present', async () => {
@@ -384,7 +384,7 @@ describe('Session listing (ST-033 / ST-041 / ST-044)', () => {
       ],
     });
     const events = await getSessionEvents('s1');
-    expect(events[0].description).toBe('primary text');
+    expect(events![0].description).toBe('primary text');
   });
 
   it('listMyCharacters — GET /api/dnd/characters?username=, unwraps .characters', async () => {
