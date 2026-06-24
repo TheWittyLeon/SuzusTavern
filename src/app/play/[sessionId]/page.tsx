@@ -52,10 +52,12 @@ import { streamDmNarration } from '@/lib/stream';
 import type {
   CombatParticipantState,
   CombatState,
+  EndCombatOutcome,
   GroundingData,
   Participant,
   Session,
 } from '@/lib/api/types';
+import RebindCharacterButton from '@/components/RebindCharacterButton';
 import type { QuickCheck } from '@/components/DiceTray';
 import Icon from '@/components/Icon';
 import Pill from '@/components/Pill';
@@ -167,6 +169,14 @@ export default function PlayPage() {
   const [grounding, setGrounding] = useState<GroundingData | null>(null);
   const [sceneAdvanceBusy, setSceneAdvanceBusy] = useState(false);
 
+  // B1-4: the logged-in user's bound character_id (stringified) for per-user
+  // turn resolution. Populated from the participants endpoint on load + on rebind.
+  const [myCharacterIdStr, setMyCharacterIdStr] = useState<string | null>(null);
+
+  // B3-1: outcome chooser state (null = chooser closed).
+  const [outcomeChooserOpen, setOutcomeChooserOpen] = useState(false);
+
+
   // A2 — real quick-checks derived from the bound character's sheet.
   // null = not yet resolved; [] = DM-only (no character bound) or fetch failed.
   const [quickChecks, setQuickChecks] = useState<QuickCheck[] | null>(null);
@@ -176,6 +186,9 @@ export default function PlayPage() {
   // is the canonical guard; this ref prevents a second fire within the same
   // component lifetime (e.g. StrictMode double-effect).
   const openingFiredRef = useRef(false);
+
+  // B1-4: fire-once "no character bound" toast when combat becomes active.
+  const noCharToastFiredRef = useRef(false);
 
   // Monotone sequence guard: combatState updates from polls must not overwrite
   // a more-recent mutation response. Mutations bump this; polls gate on it.
@@ -250,6 +263,9 @@ export default function PlayPage() {
           (p) => p.username.toLowerCase() === username.toLowerCase(),
         );
         const boundCharId = selfParticipant?.character?.character_id ?? null;
+
+        // B1-4: persist the stringified character_id for per-user turn resolution.
+        setMyCharacterIdStr(boundCharId != null ? String(boundCharId) : null);
         if (boundCharId) {
           getCharacterSheet(boundCharId, username, ctrl.signal)
             .then((sheet) => {
@@ -351,6 +367,22 @@ export default function PlayPage() {
   useEffect(() => {
     if (mobileView === 'log') chatLogRef.current?.scrollToBottom('instant');
   }, [mobileView]);
+
+  // B1-4: fire-once toast when combat becomes active and the user has no bound
+  // character (they can observe but not act).
+  useEffect(() => {
+    if (
+      combatState?.state === 'active' &&
+      myCharacterIdStr === null &&
+      !noCharToastFiredRef.current
+    ) {
+      noCharToastFiredRef.current = true;
+      toast({
+        tone: 'info',
+        message: 'You have no bound character — you can watch but not act.',
+      });
+    }
+  }, [combatState?.state, myCharacterIdStr, toast]);
 
   // ── cleanup streams on unmount ───────────────────────────────────────────────
   // pollIntervalRef is owned by the combatId effect above — its cleanup already
@@ -868,21 +900,28 @@ export default function PlayPage() {
     ],
   );
 
-  /** Explicit "End combat" — posts /combat/{id}/end with outcome='retreat'. */
-  const onEndCombat = useCallback(async () => {
+  /**
+   * B3-1: Explicit "End combat" — posts /combat/{id}/end with a DM-chosen outcome.
+   * Previously hardcoded 'unresolved'; now driven by the outcome chooser.
+   */
+  const onEndCombat = useCallback(async (outcome: EndCombatOutcome = 'unresolved') => {
     if (!combatId || !username || combatBusyRef.current) return;
     combatBusyRef.current = true;
     setCombatBusy(true);
+    setOutcomeChooserOpen(false);
     try {
-      const result = await endCombat(combatId, { username, outcome: 'unresolved' });
+      const result = await endCombat(combatId, { username, outcome });
       if (result.state) {
         stateSeqRef.current += 1;
         setCombatState(result.state);
       }
+      const outcomeLabel = result.outcome
+        ? result.outcome.charAt(0).toUpperCase() + result.outcome.slice(1)
+        : 'Unresolved';
       appendLog({
         who: 'Suzu',
         kind: 'system',
-        text: `Combat ended. ${result.outcome ?? 'Unresolved'}.`,
+        text: `Combat ended. ${outcomeLabel}.`,
       });
       if (result.scene_advance) {
         await handleSceneAdvance(
@@ -893,8 +932,15 @@ export default function PlayPage() {
       } else {
         void refreshGrounding();
       }
-    } catch {
-      toast({ tone: 'error', message: 'Could not end combat.' });
+    } catch (err) {
+      const body = (err as { body?: unknown } | null)?.body;
+      const data = (body as { data?: { reason?: string } } | null)?.data;
+      const reason = data?.reason;
+      if (reason === 'victory_refused') {
+        toast({ tone: 'error', message: "Can't claim victory — no enemies are down yet." });
+      } else {
+        toast({ tone: 'error', message: 'Could not end combat.' });
+      }
     } finally {
       combatBusyRef.current = false;
       setCombatBusy(false);
@@ -977,16 +1023,21 @@ export default function PlayPage() {
         }))
     : [];
 
-  // Determine if it's the local player's turn (for disabling actions).
-  const selfPcParticipant = combatState?.participants.find(
-    (p) => p.is_pc && p.is_active_turn,
-  );
-  // We can't reliably map username → participant_id without a /bind API response,
-  // so we approximate: it's "your turn" when any PC has is_active_turn — in a
-  // solo-play session this is always the right answer. Multi-player tables will
-  // need the character bind endpoint to fully resolve this.
+  // B1-4: per-user turn resolution.
+  // Find the active participant; it's MY turn only when the active participant
+  // is a PC whose entity_id matches my bound character_id (stringified).
+  // Out of combat: always enabled. DM/no-character: never their turn during combat.
+  const activeParticipant = combatState?.participants.find(
+    (p) => p.is_active_turn,
+  ) ?? null;
+
+  const activeIsMine =
+    activeParticipant?.is_pc === true &&
+    myCharacterIdStr != null &&
+    activeParticipant.entity_id === myCharacterIdStr;
+
   const isPlayerTurn = combatState?.state === 'active'
-    ? (selfPcParticipant != null)
+    ? activeIsMine
     : true; // out of combat: always enabled
 
   // Round from combatState is authoritative; fall back to 1 when no state yet.
@@ -1033,6 +1084,15 @@ export default function PlayPage() {
 
   const title = sessionTitle(session ?? {});
   const combatIsActive = !!combatId && combatState?.state !== 'ended';
+
+  // B2-4: is the logged-in user the session DM?
+  const isDm = !!(session?.dm_username && username &&
+    session.dm_username.toLowerCase() === username.toLowerCase());
+
+  // B3-1: Victory is disabled when no monster is down (engine would 400 victory_refused).
+  const anyMonsterDown = !!combatState?.participants.some(
+    (p) => !p.is_pc && !p.is_alive,
+  );
   const statusPill = combatIsActive ? (
     <Pill tone="lav" dot>
       round {round ?? 1} · combat
@@ -1051,7 +1111,13 @@ export default function PlayPage() {
         : styles.showLog;
 
   // Find the selfParticipantId for the "you" badge in the tracker.
+  // B1-4: prefer entity_id match (precise); fall back to name match for older engine.
   const selfPcId =
+    (myCharacterIdStr != null
+      ? combatState?.participants.find(
+          (p) => p.is_pc && p.entity_id === myCharacterIdStr,
+        )?.participant_id
+      : undefined) ??
     combatState?.participants.find(
       (p) =>
         p.is_pc &&
@@ -1060,7 +1126,8 @@ export default function PlayPage() {
             part.username.toLowerCase() === (username ?? '').toLowerCase() &&
             part.character?.name?.toLowerCase() === p.name.toLowerCase(),
         ),
-    )?.participant_id ?? null;
+    )?.participant_id ??
+    null;
 
   return (
     <div id="main-content" className={`${styles.grid} ${mobileClass}`}>
@@ -1111,6 +1178,44 @@ export default function PlayPage() {
           selfUsername={username}
           combatState={combatState}
         />
+        {/* B2-4: rebind affordances — one "Change character" button per party row.
+            Self sees their own row's button always; DM sees all rows. */}
+        {participants.length > 0 && (
+          <div className={styles.rebindSection}>
+            {participants.map((p) => {
+              // Non-DM players only see the button on their own row.
+              const isSelf = p.username.toLowerCase() === (username ?? '').toLowerCase();
+              if (!isSelf && !isDm) return null;
+              return (
+                <div key={p.username} className={styles.rebindRow}>
+                  <span className={styles.rebindName}>{p.character?.name ?? p.username}</span>
+                  <RebindCharacterButton
+                    sessionId={sessionId}
+                    targetUsername={p.username}
+                    selfUsername={username ?? ''}
+                    isDm={isDm}
+                    combatActive={combatIsActive && combatState?.state === 'active'}
+                    onChanged={async () => {
+                      // Re-fetch participants so myCharacterIdStr + party panel update.
+                      const updated = await getParticipants(sessionId).catch(() => null);
+                      if (updated) {
+                        setParticipants(updated);
+                        const self = updated.find(
+                          (q) => q.username.toLowerCase() === (username ?? '').toLowerCase(),
+                        );
+                        setMyCharacterIdStr(
+                          self?.character?.character_id != null
+                            ? String(self.character.character_id)
+                            : null,
+                        );
+                      }
+                    }}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
         {/* ADV-7/8: structured tracker when combatState available; legacy shim otherwise. */}
         {combatState && combatState.participants.length > 0 ? (
           <InitiativeTracker
@@ -1137,6 +1242,29 @@ export default function PlayPage() {
           )}
         </div>
         <ChatLog ref={chatLogRef} rows={log} thinking={thinking} />
+        {/* B1-4: off-turn status — politely announced to AT; hidden out of combat */}
+        {combatIsActive && !isPlayerTurn && activeParticipant && (
+          <div
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            className={styles.offTurnStatus}
+          >
+            {activeParticipant.is_pc
+              ? `Waiting on ${activeParticipant.name}’s turn…`
+              : `Monster turn — ${activeParticipant.name}`}
+          </div>
+        )}
+        {combatIsActive && isPlayerTurn && (
+          <div
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            className={styles.myTurnStatus}
+          >
+            Your turn!
+          </div>
+        )}
         <Composer
           value={msg}
           onChange={setMsg}
@@ -1182,22 +1310,98 @@ export default function PlayPage() {
           <span>The tactical map arrives in a later sprint. Suzu narrates the scene above.</span>
         </div>
 
-        {/* Active combat: show combat note + End combat option. */}
+        {/* Active combat: show combat note + B3-1 outcome chooser. */}
         {combatIsActive ? (
-          <div className={styles.combatNote} role="status" aria-live="polite">
-            <Icon name="Sword" size={13} aria-hidden /> In combat · use the action rail in the composer
-            {/* CUI-13: explicit "End combat" */}
-            <button
-              type="button"
-              className={styles.endCombatBtn}
-              onClick={onEndCombat}
-              disabled={combatBusy}
-              aria-busy={combatBusy}
-              aria-label="End combat"
-            >
-              End
-            </button>
-          </div>
+          <>
+            <div className={styles.combatNote} role="status" aria-live="polite">
+              <Icon name="Sword" size={13} aria-hidden /> In combat · use the action rail in the composer
+              {/* B3-1: "End" opens the outcome chooser */}
+              <button
+                type="button"
+                className={styles.endCombatBtn}
+                onClick={() => setOutcomeChooserOpen((v) => !v)}
+                disabled={combatBusy}
+                aria-busy={combatBusy}
+                aria-haspopup="true"
+                aria-expanded={outcomeChooserOpen}
+                aria-label="End combat — choose outcome"
+              >
+                End
+              </button>
+            </div>
+            {/* B3-1: outcome chooser popover */}
+            {outcomeChooserOpen && (
+              <div
+                className={styles.outcomeChooser}
+                role="group"
+                aria-label="Choose combat outcome"
+              >
+                <div className={styles.outcomeChooserLabel}>How does this fight end?</div>
+                {(
+                  [
+                    {
+                      key: 'victory' as EndCombatOutcome,
+                      label: 'Victory',
+                      sub: 'You finished the foes.',
+                      disabled: !anyMonsterDown,
+                      disabledTip: 'No enemies are down yet.',
+                    },
+                    {
+                      key: 'retreat' as EndCombatOutcome,
+                      label: 'Retreat',
+                      sub: 'Fall back; you live to fight again.',
+                      disabled: false,
+                    },
+                    {
+                      key: 'parley' as EndCombatOutcome,
+                      label: 'Parley',
+                      sub: 'Talk it out.',
+                      disabled: false,
+                    },
+                    {
+                      key: 'flee' as EndCombatOutcome,
+                      label: 'Flee',
+                      sub: 'Run; consequences possible.',
+                      disabled: false,
+                    },
+                    {
+                      key: 'unresolved' as EndCombatOutcome,
+                      label: 'Unresolved',
+                      sub: 'End the fight without a verdict.',
+                      disabled: false,
+                    },
+                  ] as {
+                    key: EndCombatOutcome;
+                    label: string;
+                    sub: string;
+                    disabled: boolean;
+                    disabledTip?: string;
+                  }[]
+                ).map(({ key, label, sub, disabled, disabledTip }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={styles.outcomeOption}
+                    onClick={() => void onEndCombat(key)}
+                    disabled={combatBusy || disabled}
+                    title={disabled && disabledTip ? disabledTip : undefined}
+                    aria-disabled={disabled || combatBusy}
+                  >
+                    <span className={styles.outcomeLabel}>{label}</span>
+                    <span className={styles.outcomeSub}>{sub}</span>
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className={styles.outcomeCancel}
+                  onClick={() => setOutcomeChooserOpen(false)}
+                  disabled={combatBusy}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+          </>
         ) : activeEncounterId ? (
           // Between fights but encounter_id still set — shouldn't happen post-fix.
           <div className={styles.combatNote} role="status" aria-live="polite">
