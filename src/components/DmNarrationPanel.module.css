@@ -1,0 +1,372 @@
+/* DmNarrationPanel (S5.3) — human-DM monster control surface.
+   Styled with design-system tokens only; no inline colours.
+   Touch targets meet 44px min per Tora/Iro conventions. */
+
+.panel {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.panelLabel {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 2px;
+}
+
+/* ── Monster card ── */
+.monsterCard {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  background: color-mix(in oklab, var(--ink) 2%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+}
+
+.activeTurn {
+  border-color: color-mix(in oklab, var(--accent-2) 40%, transparent);
+  background: color-mix(in oklab, var(--accent-2) 5%, transparent);
+}
+
+.down {
+  opacity: 0.45;
+}
+
+.monsterHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.monsterName {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  font-family: var(--font-display);
+}
+
+.turnBadge {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent-2);
+  background: color-mix(in oklab, var(--accent-2) 14%, transparent);
+  border: 1px solid color-mix(in oklab, var(--accent-2) 30%, transparent);
+  border-radius: 999px;
+  padding: 2px 8px;
+  flex-shrink: 0;
+}
+
+/* ── HP bar ── */
+.hpRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hpBar {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--ink) 8%, transparent);
+  overflow: hidden;
+}
+
+.hpFill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--good);
+  transition: width 0.25s ease;
+}
+
+.hpMid {
+  background: var(--warn);
+}
+
+.hpLow {
+  background: var(--bad);
+}
+
+.hpLabel {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--ink-3);
+  flex-shrink: 0;
+}
+
+/* ── Conditions ── */
+.conditions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.conditionChip {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--warn) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--warn) 28%, transparent);
+  color: var(--ink-2);
+}
+
+/* ── Inline error ── */
+.npcError {
+  font-size: 11px;
+  color: var(--bad-ink);
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--bad) 8%, transparent);
+  border: 1px solid color-mix(in oklab, var(--bad) 20%, transparent);
+}
+
+/* ── Action rail ── */
+.npcActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.npcAttackWrap {
+  position: relative;
+}
+
+.npcBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: color-mix(in oklab, var(--ink) 4%, transparent);
+  color: var(--ink-2);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.npcBtn:hover:not(:disabled) {
+  border-color: color-mix(in oklab, var(--accent-2) 35%, transparent);
+  color: var(--ink);
+}
+
+.npcBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.npcBtnAttack {
+  border-color: color-mix(in oklab, var(--bad) 30%, transparent);
+  color: var(--bad-ink);
+}
+
+.npcBtnAttack:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--bad) 10%, transparent);
+  border-color: color-mix(in oklab, var(--bad) 50%, transparent);
+  color: var(--bad-ink);
+}
+
+.npcBtnOn {
+  background: color-mix(in oklab, var(--accent-2) 14%, transparent);
+  border-color: color-mix(in oklab, var(--accent-2) 35%, transparent);
+  color: var(--ink);
+}
+
+/* Target dropdown */
+.npcTargetMenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  min-width: 200px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 4px;
+  box-shadow: 0 10px 28px -10px rgba(0, 0, 0, 0.5);
+}
+
+.npcTargetItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 10px;
+  border: none;
+  background: transparent;
+  border-radius: 7px;
+  color: var(--ink);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.npcTargetItem:hover {
+  background: color-mix(in oklab, var(--accent-2) 12%, transparent);
+}
+
+.npcTargetDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--good);
+  flex-shrink: 0;
+}
+
+.npcTargetName {
+  flex: 1;
+}
+
+.npcTargetHp {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+/* ── Speak as NPC ── */
+.speakWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.speakToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  /* Min 44px touch target (Tora). Visual size is smaller but margin extends hit area. */
+  min-height: 36px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px dashed var(--line);
+  background: transparent;
+  color: var(--ink-3);
+  font-size: 11px;
+  cursor: pointer;
+  align-self: flex-start;
+  /* Touch target extension without visual inflation */
+  box-sizing: content-box;
+  margin: -4px;
+  padding: 10px;
+}
+
+.speakToggle:hover {
+  color: var(--ink-2);
+  border-color: color-mix(in oklab, var(--accent-2) 30%, transparent);
+}
+
+.speakForm {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.speakError {
+  font-size: 11px;
+  color: var(--bad-ink);
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--bad) 8%, transparent);
+}
+
+.speakInput {
+  width: 100%;
+  resize: none;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--ink) 3%, transparent);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  box-sizing: border-box;
+}
+
+.speakInput:focus {
+  outline: none;
+  border-color: color-mix(in oklab, var(--accent-2) 45%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-2) 22%, transparent);
+}
+
+@media (forced-colors: active) {
+  .speakInput:focus {
+    outline: 2px solid Highlight;
+    outline-offset: 1px;
+  }
+}
+
+.speakInput:disabled {
+  opacity: 0.55;
+}
+
+.speakActions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.speakSend {
+  min-height: 36px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent-2);
+  color: var(--on-accent);
+  font-size: 12px;
+  cursor: pointer;
+  /* Touch target extension */
+  box-sizing: content-box;
+}
+
+.speakSend:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.speakCancel {
+  min-height: 36px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink-3);
+  font-size: 12px;
+  cursor: pointer;
+  box-sizing: content-box;
+}
+
+.speakCancel:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+/* ── Mobile ≤420px: ensure panel doesn't clip ── */
+@media (max-width: 420px) {
+  .npcTargetMenu {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    top: auto;
+    bottom: 80px;
+    min-width: 0;
+  }
+
+  .npcActions {
+    flex-direction: column;
+  }
+
+  .npcBtn {
+    width: 100%;
+    justify-content: center;
+  }
+}
