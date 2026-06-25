@@ -48,8 +48,8 @@
 }
 
 .closeBtn {
-  min-width: 32px;
-  min-height: 32px;
+  min-width: 44px;
+  min-height: 44px;
   padding: 4px 8px;
   background: transparent;
   border: none;
@@ -132,6 +132,11 @@
   background: var(--accent-2);
 }
 
+.radioInput:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 2px;
+}
+
 /* ── Field layout ── */
 .field {
   display: flex;
@@ -163,8 +168,8 @@
 
 .select:focus {
   outline: none;
-  border-color: color-mix(in oklab, var(--accent-2) 50%, transparent);
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-2) 20%, transparent);
+  border-color: var(--accent-2);
+  box-shadow: 0 0 0 2px var(--accent-2);
 }
 
 .select:disabled {
@@ -186,8 +191,8 @@
 
 .numInput:focus {
   outline: none;
-  border-color: color-mix(in oklab, var(--accent-2) 50%, transparent);
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-2) 20%, transparent);
+  border-color: var(--accent-2);
+  box-shadow: 0 0 0 2px var(--accent-2);
 }
 
 .numInput:disabled {
@@ -210,7 +215,7 @@
   font-size: 13px;
   color: var(--ink-2);
   cursor: pointer;
-  min-height: 38px;
+  min-height: 44px;
   padding: 4px 0;
 }
 
@@ -238,8 +243,8 @@
 
 .textarea:focus {
   outline: none;
-  border-color: color-mix(in oklab, var(--accent-2) 45%, transparent);
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-2) 22%, transparent);
+  border-color: var(--accent-2);
+  box-shadow: 0 0 0 2px var(--accent-2);
 }
 
 .textarea:disabled {
@@ -271,7 +276,7 @@
 }
 
 .cancelBtn {
-  min-height: 40px;
+  min-height: 44px;
   padding: 0 16px;
   border-radius: 8px;
   border: 1px solid var(--line);
@@ -292,7 +297,7 @@
 }
 
 .submitBtn {
-  min-height: 40px;
+  min-height: 44px;
   padding: 0 20px;
   border-radius: 8px;
   border: none;

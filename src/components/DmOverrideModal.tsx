@@ -229,18 +229,18 @@ export default function DmOverrideModal({
         (body as { message?: string } | null)?.message ??
         (body as { data?: { message?: string } } | null)?.data?.message ??
         null;
-      const reason =
+      const engineReason =
         (body as { data?: { reason?: string } } | null)?.data?.reason ?? null;
 
-      if (reason === 'override_malformed') {
+      if (engineReason === 'override_malformed') {
         setSubmitError(`Override refused: ${engineMessage ?? 'shape invalid'}`);
-      } else if (reason === 'not_dm') {
+      } else if (engineReason === 'not_dm') {
         setSubmitError('Only the DM can submit overrides.');
-      } else if (reason === 'combat_not_active') {
+      } else if (engineReason === 'combat_not_active') {
         setSubmitError('Combat is not active.');
-      } else if (reason === 'actor_not_found') {
+      } else if (engineReason === 'actor_not_found') {
         setSubmitError('Selected actor not found in combat.');
-      } else if (reason === 'target_not_found') {
+      } else if (engineReason === 'target_not_found') {
         setSubmitError('Selected target not found in combat.');
       } else {
         setSubmitError(engineMessage ?? 'Override failed. Check the values and try again.');
@@ -518,6 +518,7 @@ export default function DmOverrideModal({
               disabled={submitting}
               required
               aria-required="true"
+              aria-describedby={submitError ? `${uid}-error` : undefined}
               onChange={(e) => setReason(e.target.value)}
             />
             <span className={styles.charCount} aria-hidden>
@@ -527,7 +528,7 @@ export default function DmOverrideModal({
 
           {/* Inline error */}
           {submitError && (
-            <div className={styles.error} role="alert" aria-live="assertive">
+            <div id={`${uid}-error`} className={styles.error} role="alert" aria-live="assertive">
               {submitError}
             </div>
           )}

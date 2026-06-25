@@ -295,8 +295,8 @@
 
 .speakInput:focus {
   outline: none;
-  border-color: color-mix(in oklab, var(--accent-2) 45%, transparent);
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-2) 22%, transparent);
+  border-color: var(--accent-2);
+  box-shadow: 0 0 0 2px var(--accent-2);
 }
 
 @media (forced-colors: active) {

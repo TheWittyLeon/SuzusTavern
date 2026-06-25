@@ -87,7 +87,12 @@ const ChatLog = forwardRef<ChatLogHandle, ChatLogProps>(function ChatLog(
       {rows.map((r) => (
         <div key={r.id} className={`${styles.row} ${styles[r.kind]}`}>
           <div className={styles.who} style={r.color ? { color: r.color } : undefined}>
-            <span>{r.who}</span>
+            <span>
+              {r.who}
+              {r.kind === 'dm_override' && (
+                <span className="sr-only"> — DM ruling</span>
+              )}
+            </span>
             <span className={styles.ts}>{r.ts}</span>
           </div>
           {r.roll ? (
