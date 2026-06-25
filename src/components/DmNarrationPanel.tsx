@@ -22,8 +22,9 @@
  *   onStateRefresh — called when a stale error arrives; triggers a getCombatState poll
  */
 import { useRef, useState } from 'react';
-import { npcAction, postSessionEvent } from '@/lib/api/dnd';
+import { npcAction, postSessionEvent, setSessionPolicy } from '@/lib/api/dnd';
 import type { CombatParticipantState, CombatState } from '@/lib/api/types';
+import DmOverrideModal from '@/components/DmOverrideModal';
 import Icon from '@/components/Icon';
 import styles from './DmNarrationPanel.module.css';
 
@@ -32,7 +33,12 @@ export interface DmNarrationPanelProps {
   combatState: CombatState;
   sessionId: string;
   dmUsername: string;
+  /** S5.4 — initial value from session.dm_override_player_visible (default true). */
+  overridePlayerVisible?: boolean;
   onMessage: (text: string) => void;
+  /** S5.4 — called with the resolved message after a successful override; caller
+   *  should append this with kind='dm_override' so ChatLog renders it distinctly. */
+  onOverrideMessage?: (text: string) => void;
   onStateUpdate: (state: CombatState) => void;
   onStateRefresh: () => void;
 }
@@ -356,7 +362,9 @@ export default function DmNarrationPanel({
   combatState,
   sessionId,
   dmUsername,
+  overridePlayerVisible = true,
   onMessage,
+  onOverrideMessage,
   onStateUpdate,
   onStateRefresh,
 }: DmNarrationPanelProps) {
@@ -365,7 +373,48 @@ export default function DmNarrationPanel({
   );
   const pcTargets = livingPcTargets(combatState.participants);
 
-  if (monsters.length === 0) return null;
+  // S5.4: override modal state
+  const [overrideOpen, setOverrideOpen] = useState(false);
+
+  // S5.4: visibility toggle (optimistic local state, persisted via setSessionPolicy)
+  const [overrideVisible, setOverrideVisible] = useState(overridePlayerVisible);
+  const [toggleBusy, setToggleBusy] = useState(false);
+  const [toggleError, setToggleError] = useState<string | null>(null);
+
+  const handleOverrideSuccess = (
+    message: string,
+    newState: CombatState | undefined,
+  ) => {
+    setOverrideOpen(false);
+    // Route override messages through the dedicated callback (dm_override kind)
+    // so ChatLog renders them with the amber ruling treatment. Fall back to the
+    // generic onMessage with a "DM ruled:" prefix if no dedicated callback is set.
+    if (onOverrideMessage) {
+      onOverrideMessage(message);
+    } else {
+      onMessage(`DM ruled: ${message}`);
+    }
+    if (newState) {
+      onStateUpdate(newState);
+    }
+  };
+
+  const handleToggleVisible = async () => {
+    if (toggleBusy) return;
+    const next = !overrideVisible;
+    setOverrideVisible(next);  // optimistic
+    setToggleBusy(true);
+    setToggleError(null);
+    try {
+      await setSessionPolicy(sessionId, { dm_override_player_visible: next });
+    } catch {
+      // Rollback optimistic update on failure
+      setOverrideVisible(!next);
+      setToggleError('Could not update visibility. Try again.');
+    } finally {
+      setToggleBusy(false);
+    }
+  };
 
   return (
     <section
@@ -373,7 +422,40 @@ export default function DmNarrationPanel({
       aria-label="DM monster control"
     >
       <div className={styles.panelLabel}>Monster control</div>
-      {monsters.map((m) => (
+
+      {/* S5.4: DM Override button + visibility toggle — DM-seat only (parent gates render) */}
+      <div className={styles.dmControls}>
+        <button
+          type="button"
+          className={styles.overrideBtn}
+          aria-label="Open DM override modal"
+          onClick={() => setOverrideOpen(true)}
+        >
+          <Icon name="Sword" size={11} aria-hidden /> DM Override
+        </button>
+
+        <label className={styles.visibilityToggle}>
+          <input
+            type="checkbox"
+            className={styles.visibilityCheckbox}
+            checked={overrideVisible}
+            disabled={toggleBusy}
+            aria-label="Show my overrides to players"
+            onChange={() => void handleToggleVisible()}
+          />
+          <span className={styles.visibilityLabel}>
+            Show overrides to players
+          </span>
+        </label>
+
+        {toggleError && (
+          <div className={styles.toggleError} role="alert">
+            {toggleError}
+          </div>
+        )}
+      </div>
+
+      {monsters.length > 0 && monsters.map((m) => (
         <MonsterRow
           key={m.participant_id}
           monster={m}
@@ -387,6 +469,16 @@ export default function DmNarrationPanel({
           onStateRefresh={onStateRefresh}
         />
       ))}
+
+      {/* S5.4: Override modal — rendered at this level so it can see all participants */}
+      <DmOverrideModal
+        open={overrideOpen}
+        combatId={combatId}
+        participants={combatState.participants}
+        defaultActorId={combatState.active_participant_id}
+        onSuccess={handleOverrideSuccess}
+        onClose={() => setOverrideOpen(false)}
+      />
     </section>
   );
 }

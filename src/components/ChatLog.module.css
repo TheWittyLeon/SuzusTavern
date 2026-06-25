@@ -74,6 +74,20 @@
   font-style: italic;
 }
 
+/* dm_override — DM fiat/override events (S5.4).
+   Uses --warn family tokens (amber) to signal authoritative intervention.
+   Server filters these per dm_override_player_visible before they reach us;
+   the client NEVER filters these client-side. */
+.dm_override .who {
+  color: var(--warn-ink, var(--warn, #d97706));
+}
+.dm_override .what {
+  color: var(--ink);
+  padding-left: 10px;
+  border-left: 2px solid color-mix(in oklab, var(--warn, #d97706) 40%, transparent);
+  font-style: italic;
+}
+
 /* roll rows */
 .rollBody {
   display: flex;

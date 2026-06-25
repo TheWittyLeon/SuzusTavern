@@ -350,6 +350,83 @@
   color: var(--ink);
 }
 
+/* ── S5.4: DM override controls ── */
+
+.dmControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 4px;
+}
+
+.overrideBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 36px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in oklab, var(--warn, #d97706) 35%, transparent);
+  background: color-mix(in oklab, var(--warn, #d97706) 8%, transparent);
+  color: var(--warn-ink, var(--ink-2));
+  font-size: 12px;
+  cursor: pointer;
+  /* Touch target extension */
+  box-sizing: content-box;
+  flex-shrink: 0;
+}
+
+.overrideBtn:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--warn, #d97706) 16%, transparent);
+  border-color: color-mix(in oklab, var(--warn, #d97706) 55%, transparent);
+  color: var(--ink);
+}
+
+.overrideBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.visibilityToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  min-height: 36px;
+  padding: 4px 0;
+}
+
+.visibilityCheckbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--accent-2);
+  flex-shrink: 0;
+}
+
+.visibilityCheckbox:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.visibilityLabel {
+  font-size: 11px;
+  color: var(--ink-3);
+  user-select: none;
+}
+
+.toggleError {
+  width: 100%;
+  font-size: 11px;
+  color: var(--bad-ink);
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--bad) 8%, transparent);
+}
+
 /* ── Mobile ≤420px: ensure panel doesn't clip ── */
 @media (max-width: 420px) {
   .npcTargetMenu {

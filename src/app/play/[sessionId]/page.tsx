@@ -1382,15 +1382,23 @@ export default function PlayPage() {
             {turnStatusText}
           </div>
         )}
-        {/* S5.3: monster control panel — human DM seat only, during active combat. */}
+        {/* S5.3 + S5.4: monster control panel — human DM seat only, during active combat. */}
         {isHumanDM && combatIsActive && combatState && combatId && (
           <DmNarrationPanel
             combatId={combatId}
             combatState={combatState}
             sessionId={sessionId}
             dmUsername={session?.dm_username ?? username ?? ''}
+            overridePlayerVisible={session?.dm_override_player_visible ?? true}
             onMessage={(text) =>
               appendLog({ who: 'Suzu', kind: 'system', text })
+            }
+            onOverrideMessage={(text) =>
+              appendLog({
+                who: `DM (${session?.dm_username ?? username ?? 'DM'})`,
+                kind: 'dm_override',
+                text: `DM ruled: ${text}`,
+              })
             }
             onStateUpdate={(newState) => {
               stateSeqRef.current += 1;
