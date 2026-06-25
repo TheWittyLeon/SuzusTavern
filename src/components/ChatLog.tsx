@@ -11,7 +11,7 @@ import Die from '@/components/Die';
 import Waveform from '@/components/Waveform';
 import styles from './ChatLog.module.css';
 
-export type LogKind = 'player' | 'narration' | 'system' | 'roll';
+export type LogKind = 'player' | 'narration' | 'system' | 'roll' | 'dm_narration';
 
 export interface RollResult {
   sides: number;

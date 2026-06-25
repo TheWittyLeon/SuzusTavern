@@ -105,6 +105,39 @@
   cursor: not-allowed;
 }
 
+/* S5.2: inline error banner above the compose row (text preserved in textarea). */
+.sendError {
+  font-size: 12px;
+  color: var(--bad-ink);
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--bad) 8%, transparent);
+  border: 1px solid color-mix(in oklab, var(--bad) 24%, transparent);
+}
+
+/* S5.2: spinner inside the send button while a DM narration post is in-flight. */
+.sendSpinner {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid color-mix(in oklab, var(--on-accent) 35%, transparent);
+  border-top-color: var(--on-accent);
+  border-radius: 50%;
+  animation: composerSpin 0.65s linear infinite;
+}
+
+@keyframes composerSpin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sendSpinner {
+    animation: none;
+    border-top-color: var(--on-accent);
+  }
+}
+
 /* ── action rail ── */
 .rail {
   position: relative;

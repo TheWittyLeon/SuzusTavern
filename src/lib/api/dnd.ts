@@ -28,6 +28,8 @@ import type {
   GameSystem,
   GroundingData,
   Inventory,
+  NpcActionRequest,
+  NpcActionResult,
   Participant,
   Session,
   SessionEvent,
@@ -551,6 +553,23 @@ export const getGrounding = (sessionId: string, signal?: AbortSignal) =>
   )
     .then(normalizeGrounding)
     .catch(() => null as GroundingData | null);
+
+/**
+ * S5.3: Human DM drives a monster's turn manually.
+ * POST /api/dnd/combat/{combatId}/npc-action
+ * The proxy injects dm_username from the cookie — callers must NOT include it.
+ * Returns {success, message, data:{applied, state, turn_advanced}}.
+ * Throws ApiError on 400 (not_dm, not_npc_turn, npc_incapacitated, target_required).
+ */
+export const npcAction = (
+  combatId: string,
+  req: NpcActionRequest,
+  signal?: AbortSignal,
+) =>
+  apiCall<NpcActionResult>(
+    `/api/dnd/combat/${encodeURIComponent(combatId)}/npc-action`,
+    { method: 'POST', json: req, signal },
+  );
 
 export const castSpell = (req: SpellCastRequest, signal?: AbortSignal) =>
   apiCall<CombatMessageResult>('/api/dnd/spells/cast', {

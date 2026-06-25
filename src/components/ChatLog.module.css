@@ -60,6 +60,20 @@
   color: var(--ink);
 }
 
+/* dm_narration — human DM voice / speak-as-NPC.
+   Distinct from .narration (Suzu AI) and .system (engine mechanical lines).
+   Left border uses --accent-2 (lavender/amethyst) so it reads as authoritative
+   but different from Suzu's --accent rose. Speaker label inherits --accent-2. */
+.dm_narration .who {
+  color: var(--accent-2);
+}
+.dm_narration .what {
+  color: var(--ink);
+  padding-left: 10px;
+  border-left: 2px solid color-mix(in oklab, var(--accent-2) 40%, transparent);
+  font-style: italic;
+}
+
 /* roll rows */
 .rollBody {
   display: flex;

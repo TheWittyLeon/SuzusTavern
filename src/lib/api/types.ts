@@ -654,7 +654,7 @@ export interface DmNarrationRequest {
   mechanics?: string;
   adventure?: string;
   transcript?: string[];
-  mode?: 'say' | 'act' | 'ooc';
+  mode?: 'say' | 'act' | 'ooc' | 'dm_narration';
   session_id?: string;
   /** A1 — beat kind. 'opening' = system-authored scene open; default 'beat'. */
   kind?: 'beat' | 'opening';
@@ -666,4 +666,28 @@ export interface WriteSessionEventRequest {
   actor_username?: string;
   data?: Record<string, unknown>;
   visibility?: 'table' | 'dm' | 'public';
+}
+
+// ── S5.3: NPC action (human DM drives monster turn) ──────────────────────────
+
+/** Request body for POST /api/dnd/combat/{id}/npc-action.
+ *  The proxy injects dm_username from the session cookie — do NOT send it
+ *  from the client. */
+export interface NpcActionRequest {
+  participant_id: string;
+  action: 'attack' | 'skip' | 'move';
+  target_id?: string;
+}
+
+/** Response from POST /api/dnd/combat/{id}/npc-action. */
+export interface NpcActionResult {
+  message?: string;
+  data?: {
+    applied?: CombatMessageResult;
+    state?: CombatState;
+    turn_advanced?: boolean;
+  };
+  state?: CombatState;
+  turn_advanced?: boolean;
+  [k: string]: unknown;
 }

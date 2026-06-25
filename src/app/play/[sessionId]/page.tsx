@@ -73,6 +73,7 @@ import Composer, {
   type CombatAction,
   type CombatTarget,
 } from '@/components/Composer';
+import DmNarrationPanel from '@/components/DmNarrationPanel';
 import styles from './Play.module.css';
 
 /**
@@ -157,6 +158,12 @@ export default function PlayPage() {
 
   const [msg, setMsg] = useState('');
   const [mode, setMode] = useState<ComposeMode>('say');
+  // S5.2: pending/error state for DM narration submission.
+  const [dmNarrationPending, setDmNarrationPending] = useState(false);
+  const [dmNarrationError, setDmNarrationError] = useState<string | null>(null);
+  // S5.2: track whether the session has loaded so we can sync the initial
+  // composer mode once (human DM should default to dm_narration, not 'say').
+  const modeSyncedRef = useRef(false);
   const [advantage, setAdvantage] = useState<Advantage>('none');
   const [mobileView, setMobileView] = useState<'log' | 'party' | 'scene'>('log');
 
@@ -336,6 +343,19 @@ export default function PlayPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [username, sessionId]);
 
+  // S5.2: once the session loads, snap the composer mode to 'dm_narration'
+  // for human-DM seats so the tab is correct from the first render.
+  // Runs once per session load (not on every mode change).
+  useEffect(() => {
+    if (modeSyncedRef.current || !session) return;
+    modeSyncedRef.current = true;
+    const thisDm = !!(session.dm_username && username &&
+      session.dm_username.toLowerCase() === username.toLowerCase());
+    if (thisDm && session.dm_mode === 'human') {
+      setMode('dm_narration');
+    }
+  }, [session, username]);
+
   // ── combat state poll (4s, foregrounded) ────────────────────────────────────
   // Deps: [combatId] only — state transitions (active→between_turns→active) must
   // NOT reset the interval. The ended short-circuit is checked inside poll() via
@@ -449,6 +469,11 @@ export default function PlayPage() {
       // fall back to the closure value (all subsequent player/combat calls).
       const activeSession = opts?.session ?? session;
       if (!activeSession || !username) return;
+
+      // S5.2: human-DM sessions do NOT route through the LLM pipeline at all.
+      // The DM authors narration directly via postSessionEvent (dm_narration kind).
+      // Gate here so every call-site is covered without touching them individually.
+      if (activeSession.dm_mode === 'human') return;
       narrationAbort.current?.abort();
       const ctrl = new AbortController();
       narrationAbort.current = ctrl;
@@ -511,6 +536,47 @@ export default function PlayPage() {
     },
     [session, username, revealText, appendLog],
   );
+
+  // ── S5.2: DM narration submit handler ───────────────────────────────────────
+  /**
+   * Called when the human DM sends a dm_narration beat via the composer.
+   * Posts to POST /api/dnd/sessions/{id}/events (the existing proxy passthrough).
+   * Makes ZERO calls to /api/narration/* — the DM authors the text directly.
+   * Text is preserved in `msg` on error (cleared only on success).
+   */
+  const onSendDmNarration = useCallback(async () => {
+    const text = msg.trim();
+    if (!text || !sessionId || !session || !username || dmNarrationPending) return;
+    setDmNarrationPending(true);
+    setDmNarrationError(null);
+    try {
+      await postSessionEvent(sessionId, {
+        kind: 'dm_narration',
+        actor_username: session.dm_username ?? username,
+        data: { text },
+        visibility: 'table',
+      });
+      // Optimistically append to the local log with distinct dm_narration kind.
+      const actor = session.dm_username ?? username;
+      appendLog({
+        who: `DM (${actor})`,
+        kind: 'dm_narration',
+        text,
+      });
+      setMsg(''); // clear only on success
+    } catch (err) {
+      const status = (err as { status?: number } | null)?.status;
+      if (status === 401 || status === 403) {
+        // Cookie expired — redirect to login per existing pattern.
+        window.location.href = '/login';
+        return;
+      }
+      // 5xx / network: preserve text in textarea, show inline error.
+      setDmNarrationError('Could not send narration. Try again.');
+    } finally {
+      setDmNarrationPending(false);
+    }
+  }, [msg, sessionId, session, username, dmNarrationPending, appendLog]);
 
   // ── A1: opening scene ───────────────────────────────────────────────────────
 
@@ -605,6 +671,11 @@ export default function PlayPage() {
   const onSend = useCallback(() => {
     const text = msg.trim();
     if (!text || talking) return;
+    // S5.2: DM narration mode is handled by its own async submit handler.
+    if (mode === 'dm_narration') {
+      void onSendDmNarration();
+      return;
+    }
     setMsg('');
     if (mode === 'ooc') {
       appendLog({ who: username ?? 'You', kind: 'system', text: `(ooc) ${text}` });
@@ -612,7 +683,7 @@ export default function PlayPage() {
     }
     appendLog({ who: username ?? 'You', kind: 'player', text, color: 'var(--accent)' });
     void narrate(text, '', mode);
-  }, [msg, talking, mode, username, appendLog, narrate]);
+  }, [msg, talking, mode, username, appendLog, narrate, onSendDmNarration]);
 
   // ── dice ────────────────────────────────────────────────────────────────────
   const onRoll = useCallback(
@@ -968,8 +1039,13 @@ export default function PlayPage() {
   // consecutive NPC turns until it's a PC's turn or combat ends. Without this,
   // a combat where monsters win initiative is stuck at the start (the player is
   // never reached) and monster turns between rounds never advance.
+  //
+  // S5.3: skip the auto-driver entirely when dm_mode === 'human' — the DM
+  // drives monster turns manually via the DmNarrationPanel (npc-action route).
   useEffect(() => {
     if (!combatState || combatState.state !== 'active' || !combatId || !username) return;
+    // Human DM: monster turns are driven by the DmNarrationPanel, not auto.
+    if (session?.dm_mode === 'human') return;
     // Only monsterDrivingRef guards here — NOT combatBusyRef. A player's end-turn
     // completes with combatBusyRef still set while it hands off to a monster's
     // turn; gating on it would stall the hand-off. The active.is_pc check below
@@ -1021,7 +1097,7 @@ export default function PlayPage() {
     return () => {
       cancelled = true;
     };
-  }, [combatState, combatId, username, appendLog, handleSceneAdvance]);
+  }, [combatState, combatId, username, session, appendLog, handleSceneAdvance]);
 
   // ── derived combat UI state ──────────────────────────────────────────────────
 
@@ -1116,6 +1192,19 @@ export default function PlayPage() {
   // B2-4: is the logged-in user the session DM?
   const isDm = !!(session?.dm_username && username &&
     session.dm_username.toLowerCase() === username.toLowerCase());
+
+  // S5.2: human DM = DM seat + dm_mode 'human'. When true:
+  //   - composer modes swap to ['DM Narration', 'OOC']
+  //   - AI narrate() path is gated off (early return in narrate())
+  //   - DmNarrationPanel renders in the centre pane during combat
+  const isHumanDM = isDm && session?.dm_mode === 'human';
+
+  // S5.2: composer mode list for the current seat.
+  // Human DM: dm_narration + ooc (no roleplay modes — the DM narrates, not plays a PC).
+  // All others: the standard say/act/ooc set.
+  const composerModes: [ComposeMode, string][] = isHumanDM
+    ? [['dm_narration', 'DM Narration'], ['ooc', 'OOC']]
+    : [['say', 'Say'], ['act', 'Act'], ['ooc', 'OOC']];
 
   // B3-1: Victory is disabled when no monster is down (engine would 400 victory_refused).
   const anyMonsterDown = !!combatState?.participants.some(
@@ -1293,23 +1382,58 @@ export default function PlayPage() {
             {turnStatusText}
           </div>
         )}
+        {/* S5.3: monster control panel — human DM seat only, during active combat. */}
+        {isHumanDM && combatIsActive && combatState && combatId && (
+          <DmNarrationPanel
+            combatId={combatId}
+            combatState={combatState}
+            sessionId={sessionId}
+            dmUsername={session?.dm_username ?? username ?? ''}
+            onMessage={(text) =>
+              appendLog({ who: 'Suzu', kind: 'system', text })
+            }
+            onStateUpdate={(newState) => {
+              stateSeqRef.current += 1;
+              setCombatState(newState);
+            }}
+            onStateRefresh={async () => {
+              if (!combatId) return;
+              const cs = await getCombatState(combatId).catch(() => null);
+              if (cs) {
+                stateSeqRef.current += 1;
+                setCombatState(cs);
+              }
+            }}
+          />
+        )}
         <Composer
           value={msg}
           onChange={setMsg}
           mode={mode}
-          onMode={setMode}
+          onMode={(m) => {
+            setMode(m);
+            // Clear any pending DM narration error when the DM switches modes.
+            if (m !== 'dm_narration') setDmNarrationError(null);
+          }}
           onSend={onSend}
           disabled={talking}
+          availableModes={composerModes}
+          pending={dmNarrationPending}
+          sendError={mode === 'dm_narration' ? dmNarrationError : null}
           combat={
-            combatIsActive
-              ? {
-                  targets: targetableFoes,
-                  onAction: onCombatAction,
-                  busy: combatBusy,
-                  isPlayerTurn,
-                  refusedReason,
-                }
-              : null
+            // S5.2: human DM doesn't see the player action rail (Attack/Dodge/etc.).
+            // The DmNarrationPanel above handles monster control separately.
+            isHumanDM
+              ? null
+              : combatIsActive
+                ? {
+                    targets: targetableFoes,
+                    onAction: onCombatAction,
+                    busy: combatBusy,
+                    isPlayerTurn,
+                    refusedReason,
+                  }
+                : null
           }
         />
       </main>

@@ -17,7 +17,7 @@ import { useEffect, useRef, useState } from 'react';
 import Icon from '@/components/Icon';
 import styles from './Composer.module.css';
 
-export type ComposeMode = 'say' | 'act' | 'ooc';
+export type ComposeMode = 'say' | 'act' | 'ooc' | 'dm_narration';
 export type CombatAction = 'attack' | 'dodge' | 'dash' | 'endturn';
 
 export interface CombatTarget {
@@ -49,15 +49,23 @@ export interface ComposerProps {
   onSend: () => void;
   disabled?: boolean;
   combat?: ComposerCombat | null;
+  /** Override the available mode tabs. Defaults to ['say','act','ooc'].
+   *  Human-DM sessions supply ['dm_narration','ooc']. */
+  availableModes?: [ComposeMode, string][];
+  /** Inline error message to display above the composer (e.g. on 5xx). */
+  sendError?: string | null;
+  /** When true the send button shows a spinner (submit pending). */
+  pending?: boolean;
 }
 
 const PLACEHOLDER: Record<ComposeMode, string> = {
   say: 'Say something. Suzu will narrate back.',
   act: 'I climb the chimney quietly…',
   ooc: 'Out-of-character. Visible to the table, not the world.',
+  dm_narration: 'Narrate the scene as DM… (or speak as an NPC above)',
 };
 
-const MODES: [ComposeMode, string][] = [
+const DEFAULT_MODES: [ComposeMode, string][] = [
   ['say', 'Say'],
   ['act', 'Act'],
   ['ooc', 'OOC'],
@@ -260,8 +268,13 @@ export default function Composer({
   onSend,
   disabled = false,
   combat = null,
+  availableModes,
+  sendError = null,
+  pending = false,
 }: ComposerProps) {
-  const canSend = value.trim().length > 0 && !disabled;
+  // Use caller-supplied mode list if provided; default to the standard 3-tab set.
+  const MODES = availableModes ?? DEFAULT_MODES;
+  const canSend = value.trim().length > 0 && !disabled && !pending;
   // Refs to the mode tab buttons so Arrow keys move DOM focus (not just
   // selection) to the newly-active tab — APG tablist contract (Iro S3.4).
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -283,6 +296,17 @@ export default function Composer({
   return (
     <div className={styles.composer}>
       {combat && <ActionRail combat={combat} />}
+      {/* S5.2: inline error banner — text is preserved in the textarea on error. */}
+      {sendError && (
+        <div
+          className={styles.sendError}
+          role="alert"
+          aria-live="assertive"
+          aria-atomic="true"
+        >
+          {sendError}
+        </div>
+      )}
       <div className={styles.row}>
         <div
           className={styles.modes}
@@ -328,10 +352,11 @@ export default function Composer({
         <textarea
           ref={textareaRef}
           className={styles.input}
-          placeholder={PLACEHOLDER[mode]}
+          placeholder={PLACEHOLDER[mode] ?? ''}
           value={value}
           rows={1}
           aria-label={`Compose (${mode})`}
+          disabled={disabled || pending}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -344,10 +369,15 @@ export default function Composer({
           type="button"
           className={styles.send}
           disabled={!canSend}
-          aria-label="Send"
+          aria-label={pending ? 'Sending…' : 'Send'}
+          aria-busy={pending}
           onClick={onSend}
         >
-          <Icon name="Send" size={14} />
+          {pending ? (
+            <span className={styles.sendSpinner} aria-hidden />
+          ) : (
+            <Icon name="Send" size={14} />
+          )}
         </button>
       </div>
     </div>
