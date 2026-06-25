@@ -280,6 +280,9 @@ export default function Composer({
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const prevCombatRef = useRef<ComposerCombat | null>(null);
+  // MINOR-3: synchronous latch prevents a fast double-click from firing onSend twice.
+  // The Enter path is already guarded by canSend; this closes the onClick gap.
+  const pendingRef = useRef(false);
 
   // A11Y (Iro MEDIUM-3): when ActionRail unmounts (combat ends), keyboard focus is
   // dropped to <body>. Detect the null transition and restore focus to the textarea
@@ -371,7 +374,14 @@ export default function Composer({
           disabled={!canSend}
           aria-label={pending ? 'Sending…' : 'Send'}
           aria-busy={pending}
-          onClick={onSend}
+          onClick={() => {
+            if (!canSend || pendingRef.current) return;
+            pendingRef.current = true;
+            // Reset after the current microtask so the latch only blocks genuine
+            // double-clicks; the caller's pending state takes over from there.
+            Promise.resolve().then(() => { pendingRef.current = false; });
+            onSend();
+          }}
         >
           {pending ? (
             <span className={styles.sendSpinner} aria-hidden />

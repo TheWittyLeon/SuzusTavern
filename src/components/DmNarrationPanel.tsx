@@ -21,7 +21,7 @@
  *   onStateUpdate — called with a new CombatState after a successful npc-action
  *   onStateRefresh — called when a stale error arrives; triggers a getCombatState poll
  */
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { npcAction, postSessionEvent, setSessionPolicy } from '@/lib/api/dnd';
 import type { CombatParticipantState, CombatState } from '@/lib/api/types';
 import DmOverrideModal from '@/components/DmOverrideModal';
@@ -93,6 +93,22 @@ function MonsterRow({
   const [speakError, setSpeakError] = useState<string | null>(null);
   const busyRef = useRef(false);
   const attackBtnRef = useRef<HTMLButtonElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  // MAJOR-1: outside-click dismissal for the NPC attack target menu.
+  // Uses mousedown (not click) so the triggering Attack button click doesn't
+  // re-close the menu before the menu item click fires — same pattern as
+  // Composer.tsx ActionRail (~lines 103-110).
+  useEffect(() => {
+    if (!targetOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setTargetOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [targetOpen]);
 
   const hpPct =
     monster.hp_max > 0
@@ -220,7 +236,7 @@ function MonsterRow({
       {isCurrentTurn && !isDown && (
         <div className={styles.npcActions}>
           {/* Attack dropdown */}
-          <div className={styles.npcAttackWrap}>
+          <div className={styles.npcAttackWrap} ref={wrapRef}>
             <button
               ref={attackBtnRef}
               type="button"
@@ -380,6 +396,9 @@ export default function DmNarrationPanel({
   const [overrideVisible, setOverrideVisible] = useState(overridePlayerVisible);
   const [toggleBusy, setToggleBusy] = useState(false);
   const [toggleError, setToggleError] = useState<string | null>(null);
+  // MINOR-1: ref-latch guards against double-tap race on the async toggle.
+  // setToggleBusy drives the disabled UI; toggleBusyRef is the synchronous gate.
+  const toggleBusyRef = useRef(false);
 
   const handleOverrideSuccess = (
     message: string,
@@ -400,7 +419,8 @@ export default function DmNarrationPanel({
   };
 
   const handleToggleVisible = async () => {
-    if (toggleBusy) return;
+    if (toggleBusyRef.current) return;
+    toggleBusyRef.current = true;
     const next = !overrideVisible;
     setOverrideVisible(next);  // optimistic
     setToggleBusy(true);
@@ -412,6 +432,7 @@ export default function DmNarrationPanel({
       setOverrideVisible(!next);
       setToggleError('Could not update visibility. Try again.');
     } finally {
+      toggleBusyRef.current = false;
       setToggleBusy(false);
     }
   };
