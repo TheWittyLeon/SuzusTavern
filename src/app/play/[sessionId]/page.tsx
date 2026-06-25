@@ -471,9 +471,13 @@ export default function PlayPage() {
       if (!activeSession || !username) return;
 
       // S5.2: human-DM sessions do NOT route through the LLM pipeline at all.
-      // The DM authors narration directly via postSessionEvent (dm_narration kind).
-      // Gate here so every call-site is covered without touching them individually.
-      if (activeSession.dm_mode === 'human') return;
+      // S5.5: ai_assist_level='off' or 'assist' also suppresses auto-fire narration.
+      //   'off'    → full interlock; no LLM calls (server enforces; client matches).
+      //   'assist' → no auto-fire; only explicit DM invocation (future affordance).
+      //              Sprint 5 ships assist = no auto-fire (same gate as off for now).
+      // Read directly from activeSession (server truth) — no separate useState copy.
+      const aiLevel = activeSession.ai_assist_level;
+      if (activeSession.dm_mode === 'human' || aiLevel === 'off' || aiLevel === 'assist') return;
       narrationAbort.current?.abort();
       const ctrl = new AbortController();
       narrationAbort.current = ctrl;
@@ -700,7 +704,16 @@ export default function PlayPage() {
         color: 'var(--accent)',
         roll: { sides, value, modifier, crit, fumble, label: lbl },
       });
-      if (sides === 20 && mod !== undefined && !talking && !combatBusy) {
+      // S5.5: skip auto-narration when AI is off or assist-only.
+      const sessionAiLevel = session?.ai_assist_level;
+      if (
+        sides === 20 &&
+        mod !== undefined &&
+        !talking &&
+        !combatBusy &&
+        sessionAiLevel !== 'off' &&
+        sessionAiLevel !== 'assist'
+      ) {
         const total = value + modifier;
         const mech = `${lbl} check: ${value} + ${modifier} = ${total}${
           crit ? ' (natural 20)' : fumble ? ' (natural 1)' : ''
@@ -1045,7 +1058,10 @@ export default function PlayPage() {
   useEffect(() => {
     if (!combatState || combatState.state !== 'active' || !combatId || !username) return;
     // Human DM: monster turns are driven by the DmNarrationPanel, not auto.
-    if (session?.dm_mode === 'human') return;
+    // S5.5: ai_assist_level='off' or 'assist' also suppresses auto monster drive.
+    // For 'off': no AI; for 'assist': no auto-fire (manual DM invocation only).
+    const autoAiLevel = session?.ai_assist_level;
+    if (session?.dm_mode === 'human' || autoAiLevel === 'off' || autoAiLevel === 'assist') return;
     // Only monsterDrivingRef guards here — NOT combatBusyRef. A player's end-turn
     // completes with combatBusyRef still set while it hands off to a monster's
     // turn; gating on it would stall the hand-off. The active.is_pc check below
@@ -1199,6 +1215,18 @@ export default function PlayPage() {
   //   - DmNarrationPanel renders in the centre pane during combat
   const isHumanDM = isDm && session?.dm_mode === 'human';
 
+  // S5.5: AI assist level read directly from server-loaded session (no stale snapshot).
+  // 'off'    → hide ALL AI surfaces; no LLM calls (NarratorStrip, auto-narration, etc.)
+  // 'assist' → no auto-fire; AI available only on explicit DM invocation (future affordance).
+  // 'full'   → standard AI path unchanged.
+  // Read directly from session.ai_assist_level every render cycle — NOT a useState copy.
+  const aiLevel = session?.ai_assist_level ?? 'full';
+  // True when AI surfaces should be hidden entirely from the UI.
+  const aiOff = aiLevel === 'off';
+  // Show Suzu commentary panel when AI is active ('full' or 'assist').
+  // For 'assist': the strip renders but auto-narration is suppressed in narrate().
+  const showSuzuPanel = !aiOff;
+
   // S5.2: composer mode list for the current seat.
   // Human DM: dm_narration + ooc (no roleplay modes — the DM narrates, not plays a PC).
   // All others: the standard say/act/ooc set.
@@ -1348,7 +1376,16 @@ export default function PlayPage() {
 
       {/* CENTRE — narrator + log + composer */}
       <main id="play-pane-story" className={`${styles.pane} ${styles.center}`}>
-        <NarratorStrip text={narratorText} talking={talking} status={statusPill} />
+        {/* S5.5: NarratorStrip (Suzu commentary panel) hidden when ai_assist_level='off'.
+            When hidden, the combat status pill is surfaced inline so turn/round info
+            remains visible. */}
+        {showSuzuPanel ? (
+          <NarratorStrip text={narratorText} talking={talking} status={statusPill} />
+        ) : (
+          <div className={styles.aiOffStatus} role="status" aria-live="polite">
+            {statusPill}
+          </div>
+        )}
         {/* FIX-8 (MEDIUM-2): aria-label on the live region so AT announces the
             context ("Session recap") before reading the content changes. */}
         <div aria-live="polite" aria-label="Session recap">

@@ -20,6 +20,8 @@ import { useAuth } from '@/lib/auth/AuthProvider';
 import { useToast } from '@/components/Toast';
 import { createSession, getCatalog, listMyCharacters } from '@/lib/api/dnd';
 import type { AdventureCatalogItem, Character, ContentRating, DmMode, Visibility } from '@/lib/api/types';
+
+type AiAssistLevel = 'full' | 'assist' | 'off';
 import {
   uniqueChannelFromName,
   setSessionAnnotations,
@@ -165,6 +167,9 @@ function StarterForm({
 
   const [name, setName] = useState(adventure.name);
   const [dmMode, setDmMode] = useState<DmMode>('ai');
+  // S5.5: AI assist level. Exposed for human-DM sessions (ai+off is locked by engine;
+  // the form prevents it by disabling 'off'/'assist' when dmMode==='ai').
+  const [aiAssistLevel, setAiAssistLevel] = useState<AiAssistLevel>('full');
   const [visibility, setVisibility] = useState<Visibility>('private');
   const [rating, setRating] = useState<ContentRating>('sfw');
   const [submitting, setSubmitting] = useState(false);
@@ -213,11 +218,12 @@ function StarterForm({
     const channel = uniqueChannelFromName(name);
     setSubmitting(true);
 
-    // Map the StarterForm's dmMode to the engine's axes.
-    // 'solo' has no engine equivalent: it's self-run with the deterministic engine,
-    // AI narration fully off. 'ai' = Suzu DMs with full LLM narration.
-    const engineDmMode = dmMode === 'solo' ? ('human' as const) : ('ai' as const);
-    const engineAiAssist = dmMode === 'solo' ? ('off' as const) : ('full' as const);
+    // Map the StarterForm's dmMode + aiAssistLevel to the engine's axes.
+    // 'solo' is legacy shorthand for human+off. The engine normalises ai+off → ai+full,
+    // but the form already prevents that combination by locking ai_assist to 'full'
+    // when dmMode === 'ai'.
+    const engineDmMode: 'ai' | 'human' = dmMode === 'ai' ? 'ai' : 'human';
+    const engineAiAssist: AiAssistLevel = dmMode === 'ai' ? 'full' : aiAssistLevel;
 
     try {
       const session = await createSession({
@@ -243,10 +249,15 @@ function StarterForm({
         content_rating: effectiveRating,
         visibility,
       });
+      const successMsg = engineDmMode === 'ai'
+        ? `${name} is ready. Suzu will be your DM.`
+        : engineAiAssist === 'off'
+          ? `${name} is ready. No AI — pure human DM.`
+          : `${name} is ready. Suzu assists on request.`;
       toast({
         tone: 'success',
         title: 'Table set',
-        message: `${name} is ready. Suzu will be your DM.`,
+        message: successMsg,
       });
       router.push('/dashboard');
     } catch {
@@ -286,13 +297,65 @@ function StarterForm({
         <RadioGroup
           label="Dungeon Master"
           value={dmMode}
-          onChange={setDmMode}
+          onChange={(v) => {
+            setDmMode(v);
+            // When switching to AI mode, lock assist level to 'full' (engine invariant).
+            // When switching away from AI, default to 'off' (the solo/manual experience).
+            if (v === 'ai') setAiAssistLevel('full');
+            else if (aiAssistLevel === 'full') setAiAssistLevel('off');
+          }}
           options={[
-            { id: 'ai', label: 'Suzu DMs', note: 'narration · memory · dice in the open' },
+            { id: 'ai', label: 'Suzu DMs', note: 'full AI narration · memory · dice in the open' },
+            { id: 'human', label: 'Human DM', note: 'you drive the scene; AI assist is optional' },
             { id: 'solo', label: 'Solo', note: 'no DM — just you and the engine' },
           ]}
         />
       </fieldset>
+
+      {/* S5.5: AI assist level — shown for human/solo modes only.
+          When dmMode==='ai', assist is locked to 'full' (the engine invariant).
+          When dmMode==='human', all three levels are available.
+          When dmMode==='solo', only 'off' makes sense (shown, but the other options
+          are available so an experienced player can run solo with AI commentary). */}
+      {dmMode !== 'ai' && (
+        <fieldset className={styles.field}>
+          <legend className={styles.fieldLabel}>AI narration</legend>
+          <RadioGroup
+            label="AI narration level"
+            value={aiAssistLevel}
+            onChange={setAiAssistLevel}
+            options={[
+              {
+                id: 'off' as AiAssistLevel,
+                label: 'No AI',
+                note: 'pure human/manual — no LLM calls on this table',
+              },
+              {
+                id: 'assist' as AiAssistLevel,
+                label: 'AI assist on request',
+                note: 'Suzu narrates only when the DM explicitly asks',
+              },
+              {
+                id: 'full' as AiAssistLevel,
+                label: 'Full AI DM',
+                note: 'Suzu narrates automatically on every beat',
+                disabled: dmMode === 'solo',
+              },
+            ]}
+          />
+          {aiAssistLevel === 'off' && (
+            <p className={styles.interlock}>
+              <Icon name="Shield" size={12} aria-hidden /> No LLM calls — the engine runs
+              deterministically. The server enforces this even if the client changes.
+            </p>
+          )}
+        </fieldset>
+      )}
+      {dmMode === 'ai' && (
+        <p className={styles.interlock} style={{ marginTop: 0 }}>
+          <Icon name="Shield" size={12} aria-hidden /> Suzu DMs mode requires full AI narration.
+        </p>
+      )}
 
       <fieldset className={styles.field}>
         <legend className={styles.fieldLabel}>Who can see it</legend>

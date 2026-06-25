@@ -299,7 +299,8 @@ describe('RadioGroup keyboard navigation (S3.4)', () => {
     await openForm();
     const ai = screen.getByRole('radio', { name: /suzu dms/i });
     fireEvent.keyDown(ai, { key: 'ArrowDown' });
-    expect(screen.getByRole('radio', { name: /solo/i })).toHaveAttribute('aria-checked', 'true');
+    // S5.5: "Human DM" is now the second option (between Suzu DMs and Solo).
+    expect(screen.getByRole('radio', { name: /human dm/i })).toHaveAttribute('aria-checked', 'true');
   });
 
   it('Arrow navigation skips a disabled option (Mature when Public)', async () => {

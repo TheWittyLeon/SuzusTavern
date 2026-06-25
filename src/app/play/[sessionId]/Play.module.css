@@ -299,6 +299,15 @@
   flex-shrink: 0;
 }
 
+/* ── S5.5: ai-off status bar (replaces NarratorStrip when ai_assist_level='off') ── */
+.aiOffStatus {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 4px 0;
+  flex-shrink: 0;
+}
+
 /* ── B2-4: rebind section in the left pane ── */
 .rebindSection {
   margin-top: 10px;
