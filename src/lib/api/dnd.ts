@@ -30,12 +30,16 @@ import type {
   Inventory,
   NpcActionRequest,
   NpcActionResult,
+  OverrideResult,
   Participant,
   Session,
   SessionEvent,
+  SessionPolicyRequest,
+  SessionPolicyResult,
   SessionStartRequest,
   SetFlagRequest,
   SpellCastRequest,
+  SubmitOverrideRequest,
   SystemDefinition,
   WriteSessionEventRequest,
   XpAwardRequest,
@@ -553,6 +557,49 @@ export const getGrounding = (sessionId: string, signal?: AbortSignal) =>
   )
     .then(normalizeGrounding)
     .catch(() => null as GroundingData | null);
+
+/**
+ * S5.4: Human DM submits a combat override / fiat decision.
+ * POST /api/dnd/combat/{combatId}/override
+ *
+ * The proxy injects dm_username from the cookie — callers must NOT include it.
+ * Returns {success, message, data:{applied, state, event_seq}}.
+ * Throws ApiError on:
+ *   400 reason='override_malformed'   — shape invalid or invariant fail
+ *   400 reason='combat_not_active'    — combat.state !== ACTIVE
+ *   400 reason='not_dm'               — caller is not the session DM
+ *   404 reason='actor_not_found' | 'target_not_found'
+ *
+ * On {success:false}, the engine returns data.reason + message; do NOT apply
+ * anything; keep the modal open so the DM can correct.
+ */
+export const submitOverride = (
+  combatId: string,
+  req: SubmitOverrideRequest,
+  signal?: AbortSignal,
+) =>
+  apiCall<OverrideResult>(
+    `/api/dnd/combat/${encodeURIComponent(combatId)}/override`,
+    { method: 'POST', json: req, signal },
+  );
+
+/**
+ * S5.4: Update a per-session policy flag (currently: dm_override_player_visible).
+ * POST /api/dnd/sessions/{sessionId}/policy
+ *
+ * The proxy injects dm_username from the cookie. Refuses with reason='not_dm'
+ * if the caller is not the session DM.
+ * Returns {success, data:{session}} with the updated session row.
+ */
+export const setSessionPolicy = (
+  sessionId: string,
+  req: SessionPolicyRequest,
+  signal?: AbortSignal,
+) =>
+  apiCall<SessionPolicyResult>(
+    `/api/dnd/sessions/${encodeURIComponent(sessionId)}/policy`,
+    { method: 'POST', json: req, signal },
+  );
 
 /**
  * S5.3: Human DM drives a monster's turn manually.

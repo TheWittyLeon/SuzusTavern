@@ -216,6 +216,8 @@ export interface Session {
   /** S2.5 — AI assist level; engine-authoritative once deployed. 'off' = hard
    *  interlock (no LLM calls). Drives the recap/commentary AI gates (S3.6/3.8). */
   ai_assist_level?: 'full' | 'assist' | 'off';
+  /** S5.4 — whether DM override events are visible to players. Default true. */
+  dm_override_player_visible?: boolean;
   [k: string]: unknown;
 }
 export interface XpAwardRequest extends SessionStartRequest { amount: number; reason?: string }
@@ -666,6 +668,80 @@ export interface WriteSessionEventRequest {
   actor_username?: string;
   data?: Record<string, unknown>;
   visibility?: 'table' | 'dm' | 'public';
+}
+
+// ── S5.4: DM override + visibility policy ────────────────────────────────────
+
+/** Per-kind outcome payloads for POST /api/dnd/combat/{id}/override.
+ *  Must match the engine's Pydantic models exactly (extra='forbid').
+ *  Proxy injects dm_username from cookie — never send it from the client. */
+
+export interface OverrideAttackOutcome {
+  hit: boolean;
+  critical_hit?: boolean;
+  critical_miss?: boolean;
+  natural_roll?: number | null;
+  total_roll?: number | null;
+  total_attack_mod?: number | null;
+  vs_defense?: number | null;
+  damage?: Array<{ amount: number; type: string; location_hint?: string | null }>;
+}
+
+export interface OverrideCheckOutcome {
+  success: boolean;
+  degree: 'crit_failure' | 'failure' | 'success' | 'crit_success';
+  total: number;
+  successes_rolled?: number;
+  successes_needed?: number;
+  natural_high?: number;
+}
+
+export interface OverrideDamageOutcome {
+  target_new_hp: number;
+  damage_dealt: number;
+  raw_damage: number;
+  is_down?: boolean;
+}
+
+export type OverrideOutcome =
+  | OverrideAttackOutcome
+  | OverrideCheckOutcome
+  | OverrideDamageOutcome;
+
+export type OverrideKind = 'attack' | 'check' | 'save' | 'damage';
+
+/** Request body for POST /api/dnd/combat/{id}/override.
+ *  Proxy injects dm_username. */
+export interface SubmitOverrideRequest {
+  kind: OverrideKind;
+  actor_id: string;
+  target_id?: string | null;
+  outcome: OverrideOutcome;
+  reason: string;
+}
+
+/** Success data from POST /api/dnd/combat/{id}/override. */
+export interface OverrideResult {
+  applied?: {
+    message?: string;
+    success?: boolean;
+    damage_dealt?: number;
+    damage_type?: string | null;
+    target_new_hp?: number | null;
+    [k: string]: unknown;
+  };
+  state?: CombatState;
+  event_seq?: number;
+}
+
+/** Request body for POST /api/dnd/sessions/{id}/policy. */
+export interface SessionPolicyRequest {
+  dm_override_player_visible?: boolean;
+}
+
+/** Response data from POST /api/dnd/sessions/{id}/policy. */
+export interface SessionPolicyResult {
+  session?: Session;
 }
 
 // ── S5.3: NPC action (human DM drives monster turn) ──────────────────────────
