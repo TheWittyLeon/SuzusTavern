@@ -43,12 +43,14 @@ jest.mock('../../lib/useReducedMotion', () => ({
 // --- dnd API mock -----------------------------------------------------------
 const mockPostSessionEvent = jest.fn();
 const mockNpcAction = jest.fn();
-const mockGetSession = jest.fn();
-const mockGetSessionEvents = jest.fn(() => Promise.resolve([]));
-const mockGetParticipants = jest.fn();
-const mockGetGrounding = jest.fn(() => Promise.resolve(null));
-const mockGetCombatState = jest.fn(() => Promise.resolve(null));
-const mockGetCharacterSheet = jest.fn(() => Promise.resolve(null));
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyFn = (...args: any[]) => any;
+const mockGetSession = jest.fn<Promise<unknown>, unknown[]>();
+const mockGetSessionEvents = jest.fn<Promise<unknown[]>, unknown[]>(() => Promise.resolve([]));
+const mockGetParticipants = jest.fn<Promise<unknown>, unknown[]>();
+const mockGetGrounding = jest.fn<Promise<unknown>, unknown[]>(() => Promise.resolve(null));
+const mockGetCombatState = jest.fn<Promise<unknown>, unknown[]>(() => Promise.resolve(null));
+const mockGetCharacterSheet = jest.fn<Promise<unknown>, unknown[]>(() => Promise.resolve(null));
 const mockStreamDmNarration = jest.fn();
 const mockMonsterTurn = jest.fn();
 const mockRollInitiative = jest.fn();
@@ -56,24 +58,24 @@ const mockCombatFromScene = jest.fn();
 const mockEndCombat = jest.fn();
 
 jest.mock('../../lib/api/dnd', () => ({
-  getSession: (...args: unknown[]) => mockGetSession(...args),
-  getSessionEvents: (...args: unknown[]) => mockGetSessionEvents(...args),
-  getParticipants: (...args: unknown[]) => mockGetParticipants(...args),
-  getGrounding: (...args: unknown[]) => mockGetGrounding(...args),
-  getCombatState: (...args: unknown[]) => mockGetCombatState(...args),
-  getCharacterSheet: (...args: unknown[]) => mockGetCharacterSheet(...args),
-  postSessionEvent: (...args: unknown[]) => mockPostSessionEvent(...args),
-  npcAction: (...args: unknown[]) => mockNpcAction(...args),
-  combatFromScene: (...args: unknown[]) => mockCombatFromScene(...args),
-  rollInitiative: (...args: unknown[]) => mockRollInitiative(...args),
-  monsterTurn: (...args: unknown[]) => mockMonsterTurn(...args),
+  getSession: (...args: Parameters<AnyFn>) => mockGetSession(...args),
+  getSessionEvents: (...args: Parameters<AnyFn>) => mockGetSessionEvents(...args),
+  getParticipants: (...args: Parameters<AnyFn>) => mockGetParticipants(...args),
+  getGrounding: (...args: Parameters<AnyFn>) => mockGetGrounding(...args),
+  getCombatState: (...args: Parameters<AnyFn>) => mockGetCombatState(...args),
+  getCharacterSheet: (...args: Parameters<AnyFn>) => mockGetCharacterSheet(...args),
+  postSessionEvent: (...args: Parameters<AnyFn>) => mockPostSessionEvent(...args),
+  npcAction: (...args: Parameters<AnyFn>) => mockNpcAction(...args),
+  combatFromScene: (...args: Parameters<AnyFn>) => mockCombatFromScene(...args),
+  rollInitiative: (...args: Parameters<AnyFn>) => mockRollInitiative(...args),
+  monsterTurn: (...args: Parameters<AnyFn>) => mockMonsterTurn(...args),
   startCombat: jest.fn(),
   spawnMonster: jest.fn(),
   attack: jest.fn(),
   dodge: jest.fn(),
   dash: jest.fn(),
   endTurn: jest.fn(),
-  endCombat: (...args: unknown[]) => mockEndCombat(...args),
+  endCombat: (...args: Parameters<AnyFn>) => mockEndCombat(...args),
   advanceScene: jest.fn(),
   setFlag: jest.fn(),
   bindCharacter: jest.fn(() => Promise.resolve({ campaign_id: 's1', username: 'dm_alice', role: 'dm', character_id: null })),
