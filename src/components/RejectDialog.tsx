@@ -23,7 +23,7 @@
  *
  * S8.3 — Gated Content Pipeline: admin review screen.
  */
-import { useEffect, useId, useState } from 'react';
+import { useId, useState } from 'react';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import styles from '@/components/RejectDialog.module.css';
 
@@ -50,14 +50,13 @@ export default function RejectDialog({
   const hintId = useId();
   const alertId = useId();
 
-  // MINOR-2 (Tora): reset reason when dialog opens (not on close) so the text
-  // does not flash blank during the exit animation. Cleanup handles unmount.
-  useEffect(() => {
-    if (open) {
-      setReason('');
-      setShowRequired(false);
-    }
-  }, [open]);
+  // Reset helper — called from both cancel and confirm-success paths so the
+  // dialog opens with a blank slate each time. No effect needed: clearing on
+  // close is equivalent because the dialog is always mounted.
+  const resetFields = () => {
+    setReason('');
+    setShowRequired(false);
+  };
 
   const handleConfirm = () => {
     const trimmed = reason.trim();
@@ -67,8 +66,13 @@ export default function RejectDialog({
       setShowRequired(true);
       return;
     }
-    setShowRequired(false);
+    resetFields();
     onConfirm(trimmed);
+  };
+
+  const handleCancel = () => {
+    resetFields();
+    onCancel();
   };
 
   const isEmpty = reason.trim() === '';
@@ -124,7 +128,7 @@ export default function RejectDialog({
       // (input required). SR distinction: "loading" vs "unavailable".
       confirmDisabled={isEmpty}
       onConfirm={handleConfirm}
-      onCancel={onCancel}
+      onCancel={handleCancel}
     />
   );
 }

@@ -14,7 +14,6 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import TavernShell from '@/components/TavernShell';
 import Button from '@/components/Button';
 import Pill from '@/components/Pill';
@@ -164,11 +163,12 @@ export default function AdminContentQueuePage() {
     if (!user.roles?.includes('admin')) { router.replace('/dashboard'); return; }
   }, [user, authLoading, router]);
 
-  // Fetch queue data
+  // Fetch queue data. Initial 'loading' state comes from the useState initializer.
+  // Subsequent fetches (retry) flip back to loading via the retry callback before
+  // incrementing retryKey, avoiding a setState inside an effect body.
   useEffect(() => {
     if (!user?.roles?.includes('admin')) return;
 
-    setQueueState({ status: 'loading' });
     const controller = new AbortController();
 
     listDrafts({ username: user.username, signal: controller.signal })
@@ -183,10 +183,19 @@ export default function AdminContentQueuePage() {
     return () => controller.abort();
   }, [user, retryKey]);
 
-  const retry = useCallback(() => setRetryKey((k) => k + 1), []);
+  // Set loading state in the event handler that triggers the re-fetch so we
+  // never call setState synchronously inside an effect.
+  const retry = useCallback(() => {
+    setQueueState({ status: 'loading' });
+    setRetryKey((k) => k + 1);
+  }, []);
 
-  // Derive filter options from loaded items (client-side — queue is small)
-  const allItems = queueState.status === 'success' ? queueState.items : [];
+  // Derive filter options from loaded items (client-side — queue is small).
+  // Memoize allItems so downstream useMemos have a stable reference.
+  const allItems = useMemo(
+    () => (queueState.status === 'success' ? queueState.items : []),
+    [queueState],
+  );
   const packOptions = useMemo(
     () => Array.from(new Set(allItems.map((i) => i.pack_id))).sort(),
     [allItems],

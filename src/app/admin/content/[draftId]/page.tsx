@@ -492,16 +492,11 @@ function DraftFieldsEditor({
   onRejectOpen,
   onClearError,
 }: DraftFieldsEditorProps) {
+  // useState initializers run on mount (and on remount when the parent passes a
+  // new key={draft.draft_id}), so no reset effect is needed here.
   const [localName, setLocalName] = useState(draft.name);
   const [localData, setLocalData] = useState<Record<string, unknown>>(draft.data);
   const [isDirty, setIsDirty] = useState(false);
-
-  // Reset local state when a new draft loads (e.g. after a save re-fetch)
-  useEffect(() => {
-    setLocalName(draft.name);
-    setLocalData(draft.data);
-    setIsDirty(false);
-  }, [draft.draft_id, draft.name, draft.data]);
 
   const handleNameChange = (v: string) => {
     setLocalName(v);
@@ -625,7 +620,13 @@ function ReviewPageInner() {
   const { user, loading: authLoading } = useAuth();
   const { toast } = useToast();
 
-  const [pageState, setPageState] = useState<ReviewPageState>({ status: 'loading' });
+  // Kage suggestion: non-numeric draftId resolves to NaN — initialize to
+  // not_found immediately rather than hanging on a loading skeleton.
+  const [pageState, setPageState] = useState<ReviewPageState>(
+    () => (!draftId || !Number.isFinite(draftId))
+      ? { status: 'not_found' }
+      : { status: 'loading' },
+  );
   const [isBusy, setIsBusy] = useState(false);
   const [currentAction, setCurrentAction] = useState<ActionKind | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -640,17 +641,13 @@ function ReviewPageInner() {
     if (!user.roles?.includes('admin')) { router.replace('/dashboard'); return; }
   }, [user, authLoading, router]);
 
-  // Load draft
+  // Load draft. Initial state ('loading' or 'not_found') is set by the useState
+  // initializer above. The reload callback flips back to 'loading' before
+  // incrementing retryKey so we never call setState synchronously inside an effect.
   useEffect(() => {
-    // Kage suggestion: non-numeric draftId resolves to NaN — set not_found rather
-    // than hanging on loading skeleton.
     if (!user?.roles?.includes('admin')) return;
-    if (!draftId || !Number.isFinite(draftId)) {
-      setPageState({ status: 'not_found' });
-      return;
-    }
+    if (!draftId || !Number.isFinite(draftId)) return;
 
-    setPageState({ status: 'loading' });
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -671,7 +668,12 @@ function ReviewPageInner() {
     return () => controller.abort();
   }, [user, draftId, retryKey]);
 
-  const reload = useCallback(() => setRetryKey((k) => k + 1), []);
+  // Set loading state in the event handler that triggers the re-fetch so we
+  // never call setState synchronously inside an effect.
+  const reload = useCallback(() => {
+    setPageState({ status: 'loading' });
+    setRetryKey((k) => k + 1);
+  }, []);
 
   const handleSave = useCallback(async (name: string, data: Record<string, unknown>) => {
     if (!user || pageState.status !== 'success') return;
@@ -790,6 +792,7 @@ function ReviewPageInner() {
           <div className={styles.splitLayout}>
             <SourceProvenancePanel draft={draft} />
             <DraftFieldsEditor
+              key={draft.draft_id}
               draft={draft}
               isBusy={isBusy}
               currentAction={currentAction}
