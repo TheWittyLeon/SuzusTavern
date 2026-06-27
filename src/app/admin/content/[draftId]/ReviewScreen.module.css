@@ -1,0 +1,259 @@
+/* ReviewScreen.module.css — side-by-side draft review (S8.3) */
+
+/* ── Split layout ─────────────────────────────────────────────────────────── */
+
+.splitLayout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  /* Each pane fills the viewport height minus nav chrome and header row. */
+  min-height: calc(100vh - 140px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+@media (max-width: 720px) {
+  .splitLayout {
+    grid-template-columns: 1fr;
+    /* Single column; source pane renders first (above) so the reviewer reads
+       top-to-bottom: source → fields. Do NOT reverse this order. */
+  }
+}
+
+/* ── Shared pane base ─────────────────────────────────────────────────────── */
+
+.sourcePane,
+.fieldsPane {
+  padding: var(--density-pad, 20px);
+  overflow-y: auto;
+  background: var(--bg-2);
+}
+
+/* Vertical divider between panes (desktop only) */
+.sourcePane {
+  border-right: 1px solid var(--line);
+}
+
+@media (max-width: 720px) {
+  .sourcePane {
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+  }
+}
+
+/* ── Pane headings ────────────────────────────────────────────────────────── */
+
+.paneHeading {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 0 0 12px 0;
+}
+
+/* ── Provenance metadata ──────────────────────────────────────────────────── */
+
+.provenanceMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  align-items: center;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+/* ── Snippet ──────────────────────────────────────────────────────────────── */
+
+.snippetShell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.snippet {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ink-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: color-mix(in oklab, var(--ink) 4%, transparent);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  overflow-y: auto;
+  max-height: 60vh;
+  /* Focusable for keyboard scroll — focus ring via globals :focus-visible */
+  outline-offset: 2px;
+}
+
+@media (max-width: 720px) {
+  .snippet {
+    max-height: 40vh;
+  }
+}
+
+@media (max-width: 360px) {
+  .snippet {
+    max-height: 30vh;
+  }
+}
+
+/* ── Fields header ────────────────────────────────────────────────────────── */
+
+.fieldsHeader {
+  margin-bottom: 16px;
+}
+
+.fieldsMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  align-items: center;
+  font-size: 13px;
+  color: var(--ink-2);
+  margin-top: 6px;
+}
+
+/* ── Form layout ──────────────────────────────────────────────────────────── */
+
+.fieldsForm {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.fieldsSection {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.fieldGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fieldRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 480px) {
+  .fieldRow {
+    grid-template-columns: 1fr;
+  }
+}
+
+.fieldHint {
+  font-size: 12px;
+  color: var(--ink-3);
+  margin: 2px 0 0;
+}
+
+.damageRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  margin-bottom: 8px;
+}
+
+@media (max-width: 480px) {
+  .damageRow {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── SPECIAL stats grid ───────────────────────────────────────────────────── */
+
+.specialGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.specialCell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+@media (max-width: 480px) {
+  .specialGrid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* ── Form actions ─────────────────────────────────────────────────────────── */
+
+.formActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+@media (max-width: 480px) {
+  .formActions .btn {
+    min-height: 44px;
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}
+
+/* ── Action error banner ──────────────────────────────────────────────────── */
+
+.actionError {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: color-mix(in oklab, var(--bad) 10%, transparent);
+  border: 1px solid color-mix(in oklab, var(--bad) 30%, transparent);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  margin-top: 12px;
+}
+
+/* ── Raw data fallback ────────────────────────────────────────────────────── */
+
+.rawDataFallback {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ── State cards (loading/error/not-found) ────────────────────────────────── */
+
+.stateCard {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+  max-width: 480px;
+  margin: 32px auto;
+}
+
+.stateCardActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* ── Header actions slot ──────────────────────────────────────────────────── */
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
