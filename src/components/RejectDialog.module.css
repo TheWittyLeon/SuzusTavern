@@ -1,0 +1,16 @@
+/* RejectDialog.module.css — dialog-specific layout overrides (S8.3).
+   Most dialog chrome is inherited from ConfirmDialog.module.css.
+   This file only adds the body layout specific to the reject flow. */
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.desc {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1.5;
+}
