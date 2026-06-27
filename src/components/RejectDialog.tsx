@@ -8,13 +8,22 @@
  *
  * Z-index / stacking contract (S8.3 design spec):
  *   Render this component at the PAGE level, above the ReviewLayout's
- *   overflow:auto panes. Never nest inside a scroll-container ancestor —
- *   position:fixed inside overflow:auto creates a stacking trap where
- *   backdrop-filter clips the dialog backdrop. See Aoi-UI spec §RejectDialog.
+ *   overflow:auto panes. The ConfirmDialog itself now portals to document.body
+ *   so it escapes any overflow:auto or isolation:isolate ancestor regardless.
+ *   See Aoi-UI spec §RejectDialog.
+ *
+ * S8.3 gate fixes:
+ *   - MINOR-2 (Tora): replaced 200ms setTimeout reason-reset with a useEffect
+ *     watching `open`. Resets when the dialog opens (clean slate on each use).
+ *     Cleanup fires on unmount — no post-unmount setState risk.
+ *   - HIGH-3 / MEDIUM-2 (Iro): pass `confirmDisabled` (not `busy`) when reason
+ *     is empty. `aria-busy` is reserved for actual in-flight state. Added
+ *     `aria-invalid` + `role=alert` "Reason is required" on attempted submit
+ *     with empty reason.
  *
  * S8.3 — Gated Content Pipeline: admin review screen.
  */
-import { useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import styles from '@/components/RejectDialog.module.css';
 
@@ -37,21 +46,32 @@ export default function RejectDialog({
   onCancel,
 }: RejectDialogProps) {
   const [reason, setReason] = useState('');
+  const [showRequired, setShowRequired] = useState(false);
+  const hintId = useId();
+  const alertId = useId();
 
-  // Reset reason when the dialog closes so it's blank on next open.
-  // We do this on next open detection rather than close, to avoid resetting
-  // while the exit animation is still running.
-  const handleCancel = () => {
-    onCancel();
-    // Delay reset until after dialog unmounts so the text doesn't flash empty.
-    setTimeout(() => setReason(''), 200);
-  };
+  // MINOR-2 (Tora): reset reason when dialog opens (not on close) so the text
+  // does not flash blank during the exit animation. Cleanup handles unmount.
+  useEffect(() => {
+    if (open) {
+      setReason('');
+      setShowRequired(false);
+    }
+  }, [open]);
 
   const handleConfirm = () => {
     const trimmed = reason.trim();
-    if (!trimmed) return;
+    if (!trimmed) {
+      // HIGH-3 + MEDIUM-2: show "Reason is required" error on attempted submit
+      // with empty reason, instead of silently swallowing the action.
+      setShowRequired(true);
+      return;
+    }
+    setShowRequired(false);
     onConfirm(trimmed);
   };
+
+  const isEmpty = reason.trim() === '';
 
   const body = (
     <div className={styles.body}>
@@ -66,12 +86,27 @@ export default function RejectDialog({
         className="input"
         rows={3}
         value={reason}
-        onChange={(e) => setReason(e.target.value)}
+        onChange={(e) => {
+          setReason(e.target.value);
+          if (e.target.value.trim()) setShowRequired(false);
+        }}
         placeholder="Describe what's wrong with this extraction…"
         aria-required="true"
         required
         disabled={busy}
+        aria-invalid={showRequired ? 'true' : undefined}
+        aria-describedby={[hintId, showRequired ? alertId : ''].filter(Boolean).join(' ') || undefined}
       />
+      <p id={hintId} className={styles.fieldHint}>
+        A reason is required before rejecting a draft.
+      </p>
+      {/* MEDIUM-2 (Iro): announce "Reason is required" when attempting to confirm
+          with an empty textarea. role=alert fires immediately; clears on any input. */}
+      {showRequired && (
+        <p id={alertId} role="alert" className={styles.requiredAlert}>
+          Reason is required.
+        </p>
+      )}
     </div>
   );
 
@@ -83,9 +118,13 @@ export default function RejectDialog({
       confirmLabel="Reject draft"
       cancelLabel="Cancel"
       tone="danger"
-      busy={busy || reason.trim() === ''}
+      busy={busy}
+      // HIGH-3 (Iro): use confirmDisabled (not busy) when reason is empty.
+      // busy=true → aria-busy (in flight). confirmDisabled=true → aria-disabled
+      // (input required). SR distinction: "loading" vs "unavailable".
+      confirmDisabled={isEmpty}
       onConfirm={handleConfirm}
-      onCancel={handleCancel}
+      onCancel={onCancel}
     />
   );
 }

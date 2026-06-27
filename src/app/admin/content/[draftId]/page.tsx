@@ -75,7 +75,11 @@ function SpecialGrid({ values, onChange, max = 10, hint, prefix = 'special' }: S
         const id = `${prefix}-${key}`;
         return (
           <div key={abbr} className={styles.specialCell}>
-            <label htmlFor={id} className="label">{abbr}</label>
+            {/* MEDIUM-1 (Iro): single-char label is ambiguous to screen readers.
+                The label text stays abbreviated for sighted density; the input
+                also carries aria-label with the full stat name so SR reads
+                "Strength, number input" rather than just "S". */}
+            <label htmlFor={id} className="label" aria-hidden="true">{abbr}</label>
             <input
               id={id}
               type="number"
@@ -84,6 +88,7 @@ function SpecialGrid({ values, onChange, max = 10, hint, prefix = 'special' }: S
               className="input"
               value={values[key] ?? 0}
               onChange={(e) => onChange(key, Number(e.target.value))}
+              aria-label={SPECIAL_KEYS[abbr].charAt(0).toUpperCase() + SPECIAL_KEYS[abbr].slice(1)}
               aria-describedby={hint ? `${prefix}-hint` : undefined}
             />
           </div>
@@ -613,7 +618,10 @@ type ReviewPageState =
 function ReviewPageInner() {
   const router = useRouter();
   const params = useParams();
-  const draftId = Number(params?.draftId);
+  // Kage suggestion: non-numeric draftId → not_found immediately (don't hang on
+  // loading skeleton with NaN). Number('') === 0 and Number(undefined) === NaN.
+  const rawDraftId = params?.draftId;
+  const draftId = typeof rawDraftId === 'string' ? Number(rawDraftId) : NaN;
   const { user, loading: authLoading } = useAuth();
   const { toast } = useToast();
 
@@ -634,7 +642,13 @@ function ReviewPageInner() {
 
   // Load draft
   useEffect(() => {
-    if (!user?.roles?.includes('admin') || !draftId) return;
+    // Kage suggestion: non-numeric draftId resolves to NaN — set not_found rather
+    // than hanging on loading skeleton.
+    if (!user?.roles?.includes('admin')) return;
+    if (!draftId || !Number.isFinite(draftId)) {
+      setPageState({ status: 'not_found' });
+      return;
+    }
 
     setPageState({ status: 'loading' });
     abortRef.current?.abort();
@@ -693,10 +707,12 @@ function ReviewPageInner() {
         message: 'Approved — item is now live',
         duration: 5000,
       });
+      // MINOR-1 (Tora): do NOT re-enable buttons in finally before router.push
+      // unmounts the component — that causes a brief visible flicker. Reset busy
+      // only in the error path; the success path navigates away.
       router.push('/admin/content');
     } catch {
       setActionError('Failed to approve this draft. Please try again.');
-    } finally {
       setIsBusy(false);
       setCurrentAction(null);
     }
@@ -715,11 +731,11 @@ function ReviewPageInner() {
         message: 'Draft rejected',
         duration: 4000,
       });
+      // MINOR-1 (Tora): do NOT reset busy in finally — navigating away avoids flicker.
       router.push('/admin/content');
     } catch {
       setRejectDialogOpen(false);
       setActionError('Failed to reject this draft. Please try again.');
-    } finally {
       setIsBusy(false);
       setCurrentAction(null);
     }
@@ -727,7 +743,9 @@ function ReviewPageInner() {
 
   const draft = pageState.status === 'success' ? pageState.draft : null;
 
-  if (authLoading || (!user?.roles?.includes('admin') && !authLoading)) {
+  // Kage suggestion: simplified — the two conditions collapse to "not yet admin".
+  // authLoading=true → waiting; authLoading=false + not-admin → auth effect redirects.
+  if (authLoading || !user?.roles?.includes('admin')) {
     return null;
   }
 
@@ -742,10 +760,9 @@ function ReviewPageInner() {
         </div>
       }
     >
-      <div
-        aria-live="polite"
-        aria-busy={pageState.status === 'loading' ? 'true' : 'false'}
-      >
+      {/* HIGH-2 (Iro): no aria-live/aria-busy here — PageSkeleton owns the loading
+          announcement via role="status". Nested live regions cause double-announcement. */}
+      <div>
         {pageState.status === 'loading' && (
           <PageSkeleton variant="card" lines={5} />
         )}

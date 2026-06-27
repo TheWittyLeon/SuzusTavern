@@ -14,3 +14,19 @@
   font-size: 14px;
   line-height: 1.5;
 }
+
+.fieldHint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-3);
+  line-height: 1.4;
+}
+
+/* A11Y S8.3 MEDIUM-2: "Reason is required" alert — appears below the textarea
+   on attempted confirm with empty reason. role=alert fires immediately on mount. */
+.requiredAlert {
+  margin: 0;
+  font-size: 12px;
+  color: var(--bad-ink);
+  line-height: 1.4;
+}

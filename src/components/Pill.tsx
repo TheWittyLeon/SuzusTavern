@@ -37,12 +37,17 @@ const TONE_MAP: Record<PillTone, { bg: string; fg: string; bd: string }> = {
   },
   warn: {
     bg: 'color-mix(in oklab, var(--warn) 16%, transparent)',
-    fg: 'var(--warn)',
+    // --warn-ink: text-safe on the candlelit light parchment (A11Y S8.3, HIGH-1).
+    // Candlelit --warn (#7a5500) on a 16%-tinted surface passes, but --warn-ink
+    // (#6b4a00) gives consistent ≥4.88:1 clearance across all palettes.
+    fg: 'var(--warn-ink)',
     bd: 'color-mix(in oklab, var(--warn) 30%, transparent)',
   },
   bad: {
     bg: 'color-mix(in oklab, var(--bad) 16%, transparent)',
-    fg: 'var(--bad)',
+    // --bad-ink: text-safe on both dark and light parchment surfaces (A11Y S8.3, BLOCKER-1).
+    // --bad alone fails 4.5:1 on the candlelit 16%-tinted bg (≈2.7:1 on light surfaces).
+    fg: 'var(--bad-ink)',
     bd: 'color-mix(in oklab, var(--bad) 30%, transparent)',
   },
   cool: {
@@ -53,7 +58,9 @@ const TONE_MAP: Record<PillTone, { bg: string; fg: string; bd: string }> = {
   },
   warm: {
     bg: 'color-mix(in oklab, var(--warm) 14%, transparent)',
-    fg: 'var(--warm)',
+    // --warm-ink: text-safe on the candlelit light parchment (A11Y S8.3, BLOCKER-2).
+    // Candlelit --warm (#d4a64b) = 1.60:1 — fails AA. --warm-ink (#7a5300) = 6.2:1.
+    fg: 'var(--warm-ink)',
     bd: 'color-mix(in oklab, var(--warm) 30%, transparent)',
   },
   crit: {

@@ -52,8 +52,6 @@ interface QueueTableProps {
 }
 
 function QueueTable({ items, total }: QueueTableProps) {
-  const router = useRouter();
-
   return (
     <div className={styles.tableWrap}>
       <table className={styles.table}>
@@ -74,10 +72,12 @@ function QueueTable({ items, total }: QueueTableProps) {
         </thead>
         <tbody>
           {items.map((item) => (
+            // MAJOR-2 (Tora): removed <tr onClick> — the onClick + nested Button href
+            // caused double-navigation and was mouse-only. The "Review" Button in the
+            // last cell is the sole navigation target (keyboard + mouse + touch).
             <tr
               key={item.draft_id}
               className={styles.row}
-              onClick={() => router.push(`/admin/content/${item.draft_id}`)}
             >
               <td>
                 <Pill tone={contentTypePillTone(item.content_type)}>
@@ -267,12 +267,10 @@ export default function AdminContentQueuePage() {
           )}
         </div>
 
-        {/* State container */}
-        <div
-          aria-live="polite"
-          aria-busy={queueState.status === 'loading' ? 'true' : 'false'}
-          className={styles.stateContainer}
-        >
+        {/* State container — no aria-live/aria-busy here; PageSkeleton owns
+            the loading announcement via role="status" (HIGH-2 / Iro: nested
+            live regions cause double-announcement in screen readers). */}
+        <div className={styles.stateContainer}>
           {queueState.status === 'loading' && (
             <PageSkeleton variant="list" lines={8} />
           )}

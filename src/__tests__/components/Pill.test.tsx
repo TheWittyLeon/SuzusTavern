@@ -31,16 +31,20 @@ describe('Pill', () => {
       expect(el.style.color).toContain('var(--good)');
     });
 
-    it('warn tone uses --warn color', () => {
+    it('warn tone uses --warn-ink text color (a11y: candlelit-safe HIGH-1)', () => {
+      // --warn alone is 1.60:1 on the warn-tinted candlelit surface — fails AA.
+      // --warn-ink (#6b4a00 on candlelit) = 4.88:1 — passes AA.
       const { container } = render(<Pill tone="warn">x</Pill>);
       const el = container.querySelector('[data-component="Pill"]') as HTMLElement;
-      expect(el.style.color).toContain('var(--warn)');
+      expect(el.style.color).toContain('var(--warn-ink)');
     });
 
-    it('bad tone uses --bad color', () => {
+    it('bad tone uses --bad-ink text color (a11y: candlelit-safe BLOCKER-1)', () => {
+      // --bad alone is ~2.7:1 on a 16%-tinted candlelit bg — fails AA.
+      // --bad-ink is the contrast-safe per-palette token (≥4.5:1 on all palettes).
       const { container } = render(<Pill tone="bad">x</Pill>);
       const el = container.querySelector('[data-component="Pill"]') as HTMLElement;
-      expect(el.style.color).toContain('var(--bad)');
+      expect(el.style.color).toContain('var(--bad-ink)');
     });
 
     it('crit tone uses --crit-ink text color (a11y: candlelit-safe)', () => {
@@ -121,10 +125,12 @@ describe('Pill', () => {
       expect(el.style.color).toContain('var(--cool-ink)');
     });
 
-    it('warm tone uses --warm color', () => {
+    it('warm tone uses --warm-ink text color (a11y: candlelit-safe BLOCKER-2)', () => {
+      // --warm alone is 1.60:1 on a 14%-tinted candlelit bg — fails AA.
+      // --warm-ink (#7a5300 on candlelit) = 6.2:1 — passes AA.
       const { container } = render(<Pill tone="warm">x</Pill>);
       const el = container.querySelector('[data-component="Pill"]') as HTMLElement;
-      expect(el.style.color).toContain('var(--warm)');
+      expect(el.style.color).toContain('var(--warm-ink)');
     });
   });
 });
