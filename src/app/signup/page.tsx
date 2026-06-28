@@ -182,15 +182,17 @@ function SignupForm() {
           ...(email.trim() ? { email: email.trim() } : {}),
           ...(mode.requires_invite_code ? { invite_code: inviteCode.trim() } : {}),
         });
-        // 201 → account created and active
-        setPageState({ status: 'success', username: username.trim() });
+        // Both 201 (created+active) and 202 (pending approval) resolve here —
+        // apiFetch only rejects on non-2xx. Dispatch on the mode we fetched:
+        // approval → the account is created inactive and needs admin approval
+        // before login; everything else → active, can log in now.
+        if (mode.mode === 'approval') {
+          setPageState({ status: 'pending', username: username.trim() });
+        } else {
+          setPageState({ status: 'success', username: username.trim() });
+        }
       } catch (err: unknown) {
         const apiErr = err as ApiError;
-        // 202 is not an error — it means pending approval
-        if (apiErr.status === 202) {
-          setPageState({ status: 'pending', username: username.trim() });
-          return;
-        }
         const fe = extractErrorMessage(apiErr, mode.requires_invite_code);
         setFormError(fe);
         setPageState({ status: 'form', mode });
