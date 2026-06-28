@@ -8,10 +8,21 @@
  * - Esc cancels; clicking the backdrop cancels; Tab is trapped between the two
  *   buttons so focus can't escape behind the dialog.
  * - `busy` disables both buttons while the confirm action is in flight.
+ * - `confirmDisabled` disables only the confirm button (distinct from `busy` —
+ *   used when the confirm action is not yet valid, e.g. required reason is empty).
+ *   SR sees this as disabled/aria-disabled, NOT as aria-busy (misleads SR as "loading").
+ *
+ * S8.3 additions:
+ *   - Portal to document.body so position:fixed is never clipped by an
+ *     overflow:auto or isolation:isolate ancestor (MAJOR-1 / Tora).
+ *   - confirmDisabled prop (HIGH-3 / Iro): separate disabled-input-required
+ *     state from in-flight busy state.
+ *   - e.stopPropagation() in the busy-Tab branch (MINOR-3 / Tora).
  *
  * Renders nothing when `open` is false.
  */
 import { useCallback, useEffect, useId, useRef, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import Button from '@/components/Button';
 import styles from '@/components/ConfirmDialog.module.css';
 
@@ -23,8 +34,15 @@ export interface ConfirmDialogProps {
   cancelLabel?: string;
   /** 'danger' tints the confirm button as destructive. */
   tone?: 'default' | 'danger';
-  /** Disable both buttons while the confirm action runs. */
+  /** Disable both buttons while the confirm action runs (in-flight). */
   busy?: boolean;
+  /**
+   * Disable only the confirm button because the action is not yet valid
+   * (e.g. a required reason field is empty). Separate from `busy` — this
+   * renders as disabled/aria-disabled rather than aria-busy so screen readers
+   * announce "unavailable" not "loading" (A11Y S8.3 HIGH-3 / Iro).
+   */
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -37,6 +55,7 @@ export default function ConfirmDialog({
   cancelLabel = 'Cancel',
   tone = 'default',
   busy = false,
+  confirmDisabled = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -76,6 +95,7 @@ export default function ConfirmDialog({
         // on the dialog itself so it can't escape behind the modal.
         if (busy) {
           e.preventDefault();
+          e.stopPropagation(); // MINOR-3: stop propagation alongside preventDefault
           dialogRef.current?.focus();
           return;
         }
@@ -93,7 +113,12 @@ export default function ConfirmDialog({
 
   if (!open) return null;
 
-  return (
+  // Determine confirm button state:
+  // - busy: in-flight action → aria-busy, disabled
+  // - confirmDisabled (not busy): input not valid → aria-disabled, not aria-busy
+  const confirmIsDisabled = busy || confirmDisabled;
+
+  const dialogContent = (
     <div
       className={styles.backdrop}
       onClick={(e) => {
@@ -134,7 +159,8 @@ export default function ConfirmDialog({
             ref={confirmRef}
             variant={tone === 'danger' ? 'danger' : 'primary'}
             onClick={onConfirm}
-            disabled={busy}
+            disabled={confirmIsDisabled}
+            aria-disabled={confirmDisabled && !busy ? 'true' : undefined}
             aria-busy={busy || undefined}
             // Keep the real label as the accessible name while busy shows a spinner
             // glyph — otherwise SR reads the bare "…".
@@ -146,4 +172,11 @@ export default function ConfirmDialog({
       </div>
     </div>
   );
+
+  // Portal to document.body so position:fixed is never clipped by an
+  // overflow:auto or isolation:isolate ancestor (MAJOR-1 / Tora).
+  // SSR-safe: createPortal is called only when open=true (which can only be
+  // true client-side since this is a 'use client' component).
+  if (typeof document === 'undefined') return null;
+  return createPortal(dialogContent, document.body);
 }

@@ -467,6 +467,23 @@ function LoginForm() {
       <p className={`mono ${styles.footer}`}>
         session.encrypted · ed25519
       </p>
+
+      {/* Sign-up link — shown when mode != closed (B3). Plain text; mode is
+          not pre-fetched here to keep the login page dead-simple. The link is
+          always present and /signup handles the closed-mode message itself. */}
+      <p className={styles.footer} style={{ marginTop: 8, fontSize: 12, color: 'var(--ink-3)' }}>
+        Don&apos;t have an account?{' '}
+        <a
+          href="/signup"
+          style={{
+            color: 'var(--accent)',
+            textDecoration: 'underline',
+            textUnderlineOffset: 2,
+          }}
+        >
+          Sign up
+        </a>
+      </p>
     </form>
   );
 

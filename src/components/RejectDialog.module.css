@@ -1,0 +1,32 @@
+/* RejectDialog.module.css — dialog-specific layout overrides (S8.3).
+   Most dialog chrome is inherited from ConfirmDialog.module.css.
+   This file only adds the body layout specific to the reject flow. */
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.desc {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.fieldHint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-3);
+  line-height: 1.4;
+}
+
+/* A11Y S8.3 MEDIUM-2: "Reason is required" alert — appears below the textarea
+   on attempted confirm with empty reason. role=alert fires immediately on mount. */
+.requiredAlert {
+  margin: 0;
+  font-size: 12px;
+  color: var(--bad-ink);
+  line-height: 1.4;
+}

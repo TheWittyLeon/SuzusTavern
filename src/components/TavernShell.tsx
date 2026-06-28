@@ -33,7 +33,7 @@ import TweaksPanel from '@/components/TweaksPanel';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import styles from './TavernShell.module.css';
 
-export type TabId = 'dashboard' | 'lobby' | 'modules' | 'compendium' | 'memory';
+export type TabId = 'dashboard' | 'lobby' | 'modules' | 'compendium' | 'memory' | 'admin';
 
 interface TabDef {
   id: TabId;
@@ -184,6 +184,38 @@ function UserMenu() {
             <Icon name="Trash" size={14} aria-hidden />
             <span>Trash</span>
           </Link>
+          {/* S8.3 / B3: admin-only menu items */}
+          {user?.roles?.includes('admin') && (
+            <>
+              <Link
+                href="/admin/content"
+                role="menuitem"
+                className={styles.menuRow}
+                onClick={() => close(false)}
+              >
+                <Icon name="Scroll" size={14} aria-hidden />
+                <span>Review queue</span>
+              </Link>
+              <Link
+                href="/admin/invitations"
+                role="menuitem"
+                className={styles.menuRow}
+                onClick={() => close(false)}
+              >
+                <Icon name="Quill" size={14} aria-hidden />
+                <span>Invite codes</span>
+              </Link>
+              <Link
+                href="/admin/pending"
+                role="menuitem"
+                className={styles.menuRow}
+                onClick={() => close(false)}
+              >
+                <Icon name="Users" size={14} aria-hidden />
+                <span>Pending signups</span>
+              </Link>
+            </>
+          )}
           <div className={styles.menuSep} />
           <button
             type="button"
@@ -207,6 +239,10 @@ export default function TavernShell({
   actions,
   children,
 }: TavernShellProps) {
+  // useAuth is already called by UserMenu sub-component; we also call it here
+  // for the admin tab conditional. Both calls share the same context, no extra cost.
+  const { user } = useAuth();
+
   return (
     <div className={styles.shell}>
       <header className={styles.topnav}>
@@ -242,6 +278,17 @@ export default function TavernShell({
                 <span>{t.label}</span>
               </Link>
             ),
+          )}
+          {/* S8.3: Admin tab — only visible to users with the 'admin' role */}
+          {user?.roles?.includes('admin') && (
+            <Link
+              href="/admin/content"
+              className={`${styles.tab} ${active === 'admin' ? styles.tabActive : ''}`}
+              aria-current={active === 'admin' ? 'page' : undefined}
+            >
+              <Icon name="Scroll" size={15} aria-hidden />
+              <span>Admin</span>
+            </Link>
           )}
         </nav>
 
