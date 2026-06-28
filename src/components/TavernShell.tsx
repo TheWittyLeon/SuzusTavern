@@ -184,17 +184,37 @@ function UserMenu() {
             <Icon name="Trash" size={14} aria-hidden />
             <span>Trash</span>
           </Link>
-          {/* S8.3: admin-only menu item — review queue shortcut */}
+          {/* S8.3 / B3: admin-only menu items */}
           {user?.roles?.includes('admin') && (
-            <Link
-              href="/admin/content"
-              role="menuitem"
-              className={styles.menuRow}
-              onClick={() => close(false)}
-            >
-              <Icon name="Scroll" size={14} aria-hidden />
-              <span>Review queue</span>
-            </Link>
+            <>
+              <Link
+                href="/admin/content"
+                role="menuitem"
+                className={styles.menuRow}
+                onClick={() => close(false)}
+              >
+                <Icon name="Scroll" size={14} aria-hidden />
+                <span>Review queue</span>
+              </Link>
+              <Link
+                href="/admin/invitations"
+                role="menuitem"
+                className={styles.menuRow}
+                onClick={() => close(false)}
+              >
+                <Icon name="Quill" size={14} aria-hidden />
+                <span>Invite codes</span>
+              </Link>
+              <Link
+                href="/admin/pending"
+                role="menuitem"
+                className={styles.menuRow}
+                onClick={() => close(false)}
+              >
+                <Icon name="Users" size={14} aria-hidden />
+                <span>Pending signups</span>
+              </Link>
+            </>
           )}
           <div className={styles.menuSep} />
           <button

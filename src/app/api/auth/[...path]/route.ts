@@ -346,16 +346,34 @@ async function handleLogout(req: NextRequest): Promise<NextResponse> {
 }
 
 // ---------------------------------------------------------------------------
-// Dispatch
+// Registration mode (public)
 // ---------------------------------------------------------------------------
 
-const ALLOWED_POST_PATHS = new Set([
-  'register',
-  'login',
-  'login/verify-2fa',
-  'refresh',
-  'logout',
-]);
+async function handleRegistrationMode(): Promise<NextResponse> {
+  const { res } = await fetchUpstream('auth/registration-mode', {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  if (!res) {
+    return NextResponse.json({ error: 'upstream_unavailable' }, { status: 502 });
+  }
+
+  let raw: Record<string, unknown> = {};
+  try {
+    raw = (await res.json()) as Record<string, unknown>;
+  } catch {
+    // non-JSON — fall through
+  }
+
+  // Relay the full upstream body (mode, signup_enabled, requires_invite_code,
+  // requires_approval, message). None of these are sensitive.
+  return NextResponse.json(raw, { status: res.status });
+}
+
+// ---------------------------------------------------------------------------
+// Dispatch
+// ---------------------------------------------------------------------------
 
 async function dispatch(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
   const { path } = await ctx.params;
@@ -363,6 +381,10 @@ async function dispatch(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
 
   if (req.method === 'GET' && joined === 'me') {
     return handleMe(req);
+  }
+
+  if (req.method === 'GET' && joined === 'registration-mode') {
+    return handleRegistrationMode();
   }
 
   if (req.method === 'POST') {
