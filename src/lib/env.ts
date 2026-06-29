@@ -24,6 +24,14 @@ export interface Env {
    * over plain HTTP — which breaks the login session entirely.
    */
   COOKIE_SECURE: boolean;         // COOKIE_SECURE (server-only)
+  /**
+   * Deployment environment signal — baked in at build/container time.
+   * Drives the <EnvBanner/>: 'prod' renders nothing; 'dev' or 'local'
+   * renders a high-contrast sticky banner on every page.
+   * Missing or empty value defaults to 'prod' (safe default).
+   * Set via NEXT_PUBLIC_DEPLOY_ENV in docker-compose env (homelab).
+   */
+  DEPLOY_ENV: 'prod' | 'dev' | 'local';  // NEXT_PUBLIC_DEPLOY_ENV
 }
 
 /** Parse a boolean-ish env var. Returns undefined when unset/empty. */
@@ -53,12 +61,21 @@ function loadEnv(): Env {
   // deployments (homelab LAN) where Secure cookies would be dropped by browsers.
   const cookieSecure = parseBool(process.env.COOKIE_SECURE) ?? isProd;
 
+  // DEPLOY_ENV — build-time constant. Explicit default 'prod' so a missing var
+  // is always safe (no banner leaks into production accidentally).
+  const rawDeployEnv = process.env.NEXT_PUBLIC_DEPLOY_ENV?.trim().toLowerCase();
+  const DEPLOY_ENV: 'prod' | 'dev' | 'local' =
+    rawDeployEnv === 'dev' ? 'dev'
+    : rawDeployEnv === 'local' ? 'local'
+    : 'prod';
+
   return Object.freeze({
     NEKANOVA_URL: require('NEXT_PUBLIC_NEKANOVA_URL', 'http://localhost:8080'),
     AUTH_API_URL: require('AUTH_API_URL', 'http://localhost:5000'),
     PUBLIC_AUTH_URL: process.env.NEXT_PUBLIC_AUTH_URL ?? null,
     IS_PROD: isProd,
     COOKIE_SECURE: cookieSecure,
+    DEPLOY_ENV,
   });
 }
 

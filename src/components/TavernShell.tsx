@@ -214,6 +214,15 @@ function UserMenu() {
                 <Icon name="Users" size={14} aria-hidden />
                 <span>Pending signups</span>
               </Link>
+              <Link
+                href="/admin/flags"
+                role="menuitem"
+                className={styles.menuRow}
+                onClick={() => close(false)}
+              >
+                <Icon name="Sliders" size={14} aria-hidden />
+                <span>Feature flags</span>
+              </Link>
             </>
           )}
           <div className={styles.menuSep} />

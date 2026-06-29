@@ -1,0 +1,299 @@
+/* Flags.module.css — /admin/flags read-only feature-flag panel.
+ *
+ * Global utilities (.glass, .label, .mono) from globals.css.
+ * Token-only colours — never hardcode hex values.
+ */
+
+/* ── Phase banner ─────────────────────────────────────────────────────────── */
+.phaseBanner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--accent) 8%, transparent);
+  border: 1px solid color-mix(in oklab, var(--accent) 20%, transparent);
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 20px;
+}
+
+.phaseBanner strong {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ── State container ─────────────────────────────────────────────────────── */
+.stateContainer {
+  min-height: 120px;
+}
+
+.stateCard {
+  padding: 32px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+  max-width: 480px;
+  margin: 24px auto;
+}
+
+/* ── Table ───────────────────────────────────────────────────────────────── */
+.tableWrap {
+  overflow-x: auto;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.table thead th {
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in oklab, var(--ink) 3%, transparent);
+  white-space: nowrap;
+}
+
+.row {
+  border-bottom: 1px solid var(--line);
+  transition: background 0.1s ease;
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.row:hover {
+  background: color-mix(in oklab, var(--accent) 5%, transparent);
+}
+
+/* High-risk rows: subtle left accent stripe */
+.rowHighRisk {
+  border-left: 3px solid color-mix(in oklab, var(--bad) 55%, transparent);
+}
+
+.row td {
+  padding: 10px 12px;
+  color: var(--ink);
+  vertical-align: top;
+}
+
+/* ── Key + label ─────────────────────────────────────────────────────────── */
+.keyCell {
+  min-width: 180px;
+}
+
+.keyCode {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink);
+  display: block;
+}
+
+.labelText {
+  font-size: 12px;
+  color: var(--ink-2);
+  margin-top: 3px;
+  display: block;
+}
+
+.descText {
+  font-size: 11px;
+  color: var(--ink-3);
+  margin-top: 4px;
+  line-height: 1.45;
+}
+
+/* ── Resolved value ──────────────────────────────────────────────────────── */
+.valueCell {
+  white-space: nowrap;
+}
+
+.valueTrue {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--good);
+}
+
+.valueFalse {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.valueString {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent);
+}
+
+/* Shown when this panel cannot observe the flag value (remote owner) */
+.valueRemote {
+  font-size: 11px;
+  color: var(--ink-3);
+  font-style: italic;
+  cursor: help;
+}
+
+/* ── Source badge ─────────────────────────────────────────────────────────── */
+.sourceBadge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 99px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.sourceEnv {
+  background: color-mix(in oklab, var(--accent) 14%, transparent);
+  color: var(--accent);
+  border: 1px solid color-mix(in oklab, var(--accent) 25%, transparent);
+}
+
+.sourceConfig {
+  background: color-mix(in oklab, var(--warn) 14%, transparent);
+  color: var(--warn-ink, var(--warn));
+  border: 1px solid color-mix(in oklab, var(--warn) 30%, transparent);
+}
+
+.sourceDefault {
+  background: color-mix(in oklab, var(--ink-3) 12%, transparent);
+  color: var(--ink-3);
+  border: 1px solid color-mix(in oklab, var(--ink-3) 20%, transparent);
+}
+
+/* Remote: flag owned by a different service — value not visible here */
+.sourceRemote {
+  background: color-mix(in oklab, var(--ink-2) 10%, transparent);
+  color: var(--ink-2);
+  border: 1px solid color-mix(in oklab, var(--ink-2) 18%, transparent);
+  font-style: italic;
+}
+
+/* ── Risk indicator ──────────────────────────────────────────────────────── */
+.riskHigh {
+  color: var(--bad-ink, var(--bad));
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.riskMedium {
+  color: var(--warn-ink, var(--warn));
+  font-size: 12px;
+}
+
+.riskLow {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+/* ── Scope + services ────────────────────────────────────────────────────── */
+.scopeCell {
+  font-size: 12px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.serviceList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.servicePill {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--ink) 7%, transparent);
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+/* ── Hide less-critical columns at narrower widths ───────────────────────── */
+@media (max-width: 1100px) {
+  .colScope { display: none; }
+}
+
+@media (max-width: 860px) {
+  .colServices { display: none; }
+}
+
+@media (max-width: 640px) {
+  .colRisk { display: none; }
+}
+
+/* ── Mobile cards ─────────────────────────────────────────────────────────── */
+.tableView { display: block; }
+.cardView  { display: none; }
+
+@media (max-width: 640px) {
+  .tableView { display: none; }
+  .cardView  { display: block; }
+}
+
+.cardList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.card {
+  padding: 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--card, var(--bg-2));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cardHighRisk {
+  border-left: 3px solid color-mix(in oklab, var(--bad) 55%, transparent);
+}
+
+.cardTopRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.cardMeta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.cardDesc {
+  font-size: 12px;
+  color: var(--ink-3);
+  line-height: 1.4;
+}

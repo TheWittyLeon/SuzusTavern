@@ -1,0 +1,64 @@
+/* EnvBanner — persistent deployment environment indicator.
+ *
+ * Shown on every page when NEXT_PUBLIC_DEPLOY_ENV is 'dev' or 'local'.
+ * Renders nothing (display:none) for 'prod'.
+ *
+ * Design spec (§5, Dev Toggle Panel design):
+ *   - 32px sticky top bar
+ *   - High-contrast — black text on yellow (#ffd600); hardcoded, NOT a design
+ *     token, because the banner must be legible regardless of the active vibe
+ *     theme. Tokens can be overridden per-vibe; we want a fixed danger signal.
+ *   - role="status" + sr-only region label for screen readers
+ *   - data-env-banner attribute — CI smoke test hook
+ *   - No animation (prefers-reduced-motion: automatically satisfied; nothing moves)
+ */
+
+.banner {
+  /* Sticky pinned above all page content. z-index 100 ensures it sits above the
+   * TavernShell's topnav (z-index 40) and any modals (z-index 50). */
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 16px;
+
+  /* Hardcoded high-contrast yellow/black — intentionally not using design tokens.
+   * This is a "you are not in production" danger signal that must be legible
+   * on every vibe palette without per-theme overrides. */
+  background: #ffd600;
+  color: #1a1100;
+
+  font-family: var(--font-mono, 'JetBrains Mono', ui-monospace, monospace);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+
+  /* Prevent text selection — it's informational chrome, not content */
+  user-select: none;
+}
+
+.text {
+  /* Centre the visible label; the sr-only span is rendered adjacent in the DOM
+   * but taken out of flow, so this remains visually centred. */
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Screen-reader-only description — provides a more verbose label than the
+ * visually abbreviated text. Matches the .sr-only pattern from globals.css. */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

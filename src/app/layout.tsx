@@ -6,6 +6,7 @@ import ErrorBoundary from "@/components/ErrorBoundary";
 import { ToastProvider } from "@/components/Toast";
 import { ThemeProvider } from "@/lib/theme/ThemeProvider";
 import { NO_FLASH_SCRIPT } from "@/lib/theme/theme";
+import EnvBanner from "@/components/EnvBanner";
 
 export const metadata: Metadata = {
   title: "Aurora Tavern",
@@ -36,6 +37,8 @@ export default async function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: NO_FLASH_SCRIPT }} />
       </head>
       <body>
+        {/* Deployment environment banner — renders only on 'dev' / 'local'; null on 'prod'. */}
+        <EnvBanner />
         {/* A11Y: first tab stop — jump past header/nav to the page's #main-content */}
         <a href="#main-content" className="skip-link">
           Skip to main content
