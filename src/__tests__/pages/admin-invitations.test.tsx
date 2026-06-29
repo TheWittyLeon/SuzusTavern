@@ -297,6 +297,25 @@ describe('RevealBlock — clipboard fallback (Bug 1)', () => {
       expect(screen.getByRole('button', { name: /copy sign-up link/i })).toHaveTextContent('Copied!');
     });
   });
+
+  it('cleans up textarea from DOM and does not set Copied! when execCommand throws', async () => {
+    // Override execCommand to throw so the finally path is exercised
+    execCommandMock.mockImplementation(() => { throw new Error('execCommand failed'); });
+
+    await mintAndReveal();
+
+    const copyCodeBtn = screen.getByRole('button', { name: /copy invite code/i });
+    fireEvent.click(copyCodeBtn);
+
+    // Give any async state updates a tick to settle
+    await waitFor(() => {
+      // finally must have removed the textarea — none should remain in the DOM
+      expect(document.querySelectorAll('textarea').length).toBe(0);
+    });
+
+    // copy failed → button must still say "Copy", never "Copied!"
+    expect(screen.getByRole('button', { name: /copy invite code/i })).toHaveTextContent('Copy');
+  });
 });
 
 // ---------------------------------------------------------------------------

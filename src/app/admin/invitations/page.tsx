@@ -247,19 +247,28 @@ async function copyToClipboard(text: string): Promise<boolean> {
   }
 
   // Legacy execCommand fallback — works on plain HTTP.
+  const ta = document.createElement('textarea');
+  // Capture focus origin so keyboard users aren't stranded after the textarea
+  // is removed (restored in the finally block).
+  const prev = document.activeElement as HTMLElement | null;
   try {
-    const ta = document.createElement('textarea');
     ta.value = text;
-    // Position off-screen so it doesn't shift layout.
+    // Off-screen so it doesn't shift layout.
     ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0;';
+    // readonly prevents a mobile soft-keyboard from popping open.
+    ta.setAttribute('readonly', '');
     document.body.appendChild(ta);
-    ta.focus();
+    // preventScroll avoids a focus-induced page jump.
+    ta.focus({ preventScroll: true });
     ta.select();
-    const ok = document.execCommand('copy');
-    document.body.removeChild(ta);
-    return ok;
+    return document.execCommand('copy');
   } catch {
     return false;
+  } finally {
+    // Remove the textarea regardless of success, failure, or throw.
+    if (ta.parentNode) ta.parentNode.removeChild(ta);
+    // Restore focus to the element that triggered the copy.
+    prev?.focus?.();
   }
 }
 
