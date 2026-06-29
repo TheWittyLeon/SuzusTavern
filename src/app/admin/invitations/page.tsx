@@ -226,14 +226,62 @@ function MintModal({ onClose, onMinted }: MintModalProps) {
 
 // ── One-time reveal block ─────────────────────────────────────────────────────
 
+/**
+ * Copy text to clipboard with a fallback for non-secure (HTTP) contexts.
+ *
+ * On plain HTTP (e.g. homelab at http://10.69.69.127:3000) `navigator.clipboard`
+ * is undefined because the Clipboard API requires a secure context. This helper
+ * tries the modern API first and falls back to the legacy execCommand path.
+ *
+ * Returns true if the copy succeeded via either path.
+ */
+async function copyToClipboard(text: string): Promise<boolean> {
+  // Modern API — only available in secure contexts (HTTPS / localhost).
+  if (navigator.clipboard) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fall through to legacy path if the browser refuses (e.g. permissions).
+    }
+  }
+
+  // Legacy execCommand fallback — works on plain HTTP.
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    // Position off-screen so it doesn't shift layout.
+    ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0;';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 function RevealBlock({ code, signup_url, onDismiss }: MintedInfo & { onDismiss: () => void }) {
   const [copied, setCopied] = useState<'code' | 'url' | null>(null);
 
-  const copy = useCallback((text: string, which: 'code' | 'url') => {
-    void navigator.clipboard.writeText(text).then(() => {
+  // Bug fix: build the sign-up link from window.location.origin so it always
+  // reflects how the Tavern was actually reached (not the backend's FRONTEND_URL
+  // which defaults to localhost:3000 on the auth box).
+  // Guard for SSR safety even though RevealBlock only ever mounts after a user
+  // interaction — fall back to the API-provided signup_url if window is absent.
+  const signupLink =
+    typeof window !== 'undefined'
+      ? `${window.location.origin}/signup?invite=${code}`
+      : signup_url;
+
+  const copy = useCallback(async (text: string, which: 'code' | 'url') => {
+    const ok = await copyToClipboard(text);
+    if (ok) {
       setCopied(which);
       setTimeout(() => setCopied(null), 2000);
-    });
+    }
   }, []);
 
   return (
@@ -249,7 +297,7 @@ function RevealBlock({ code, signup_url, onDismiss }: MintedInfo & { onDismiss: 
           <code className={styles.codeBlock}>{code}</code>
           <Button
             variant="ghost"
-            onClick={() => copy(code, 'code')}
+            onClick={() => void copy(code, 'code')}
             aria-label="Copy invite code"
           >
             {copied === 'code' ? 'Copied!' : 'Copy'}
@@ -260,10 +308,10 @@ function RevealBlock({ code, signup_url, onDismiss }: MintedInfo & { onDismiss: 
       <div>
         <span className="label" style={{ marginBottom: 6, display: 'block' }}>Sign-up link</span>
         <div className={styles.codeRow}>
-          <code className={styles.codeBlock}>{signup_url}</code>
+          <code className={styles.codeBlock}>{signupLink}</code>
           <Button
             variant="ghost"
-            onClick={() => copy(signup_url, 'url')}
+            onClick={() => void copy(signupLink, 'url')}
             aria-label="Copy sign-up link"
           >
             {copied === 'url' ? 'Copied!' : 'Copy'}
