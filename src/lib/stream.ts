@@ -115,7 +115,35 @@ function parseDataLine(data: string): NarrationEvent {
   try {
     const parsed = JSON.parse(data) as Record<string, unknown>;
     if (parsed['success'] === true && typeof parsed['text'] === 'string') {
-      return { kind: 'chunk', text: parsed['text'] as string };
+      const chunk: NarrationEvent = { kind: 'chunk', text: parsed['text'] as string };
+
+      // A.2 reconciliation — parse the two optional fields the server's INTENT
+      // classifier attaches (NN narration.py + core/intent_router.py, confirmed
+      // shipped contract). Defensive: an unexpected/malformed shape is simply
+      // dropped, never thrown — presence is a bonus, never a requirement, so
+      // today's behaviour (no fields) is unchanged.
+      const offered = parsed['offered_check'];
+      if (
+        offered &&
+        typeof offered === 'object' &&
+        typeof (offered as Record<string, unknown>)['skill'] === 'string'
+      ) {
+        const o = offered as Record<string, unknown>;
+        chunk.offeredCheck = {
+          skill: o['skill'] as string,
+          ...(typeof o['dc'] === 'number' ? { dc: o['dc'] as number } : {}),
+        };
+      }
+
+      if (typeof parsed['scene_advanced'] === 'boolean') {
+        chunk.sceneAdvanced = parsed['scene_advanced'];
+        const advancedTo = parsed['advanced_to'];
+        if (typeof advancedTo === 'string' || advancedTo === null) {
+          chunk.advancedTo = advancedTo;
+        }
+      }
+
+      return chunk;
     }
     if (parsed['success'] === false && typeof parsed['error'] === 'string') {
       const reason =

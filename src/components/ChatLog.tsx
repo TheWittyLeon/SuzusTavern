@@ -11,7 +11,18 @@ import Die from '@/components/Die';
 import Waveform from '@/components/Waveform';
 import styles from './ChatLog.module.css';
 
-export type LogKind = 'player' | 'narration' | 'system' | 'roll' | 'dm_narration' | 'dm_override';
+export type LogKind =
+  | 'player'
+  | 'narration'
+  | 'system'
+  | 'roll'
+  | 'dm_narration'
+  | 'dm_override'
+  /** P1-READALOUD: verbatim authored scene-set block (adventure title + hook +
+   *  scene name + boxed_text + objective). Rendered instantly; no typewriter. */
+  | 'read_aloud'
+  /** P1-READALOUD: one scripted NPC dialogue line in the opening beat. */
+  | 'read_aloud_line';
 
 export interface RollResult {
   sides: number;
@@ -84,45 +95,74 @@ const ChatLog = forwardRef<ChatLogHandle, ChatLogProps>(function ChatLog(
       role="log"
       aria-live="polite"
     >
-      {rows.map((r) => (
-        <div key={r.id} className={`${styles.row} ${styles[r.kind]}`}>
-          <div className={styles.who} style={r.color ? { color: r.color } : undefined}>
-            <span>
-              {r.who}
-              {r.kind === 'dm_override' && (
-                <span className="sr-only"> — DM ruling</span>
-              )}
-            </span>
-            <span className={styles.ts}>{r.ts}</span>
-          </div>
-          {r.roll ? (
-            <div className={styles.rollBody}>
-              <Die
-                size={48}
-                sides={r.roll.sides}
-                value={r.roll.value}
-                crit={r.roll.crit}
-                fumble={r.roll.fumble}
-              />
-              <div>
-                <div className={styles.rollTotal}>
-                  {r.roll.value}
-                  {r.roll.modifier !== 0 && (
-                    <span className={styles.rollMod}>
-                      {' '}
-                      {r.roll.modifier >= 0 ? `+ ${r.roll.modifier}` : `- ${Math.abs(r.roll.modifier)}`}{' '}
-                      = {r.roll.value + r.roll.modifier}
-                    </span>
-                  )}
-                </div>
-                <div className={styles.rollLabel}>{r.text}</div>
+      {rows.map((r) => {
+        // P1-READALOUD: verbatim scene-set block. Rendered without typewriter
+        // animation — authored text appears instantly at the player's own pace.
+        if (r.kind === 'read_aloud') {
+          return (
+            <div key={r.id} className={`${styles.row} ${styles.read_aloud}`}>
+              <div className={styles.readAloudLabel} aria-label="Read aloud">
+                READ ALOUD
               </div>
+              <div className={styles.what}>{r.text}</div>
+              <div className={styles.ts}>{r.ts}</div>
             </div>
-          ) : (
-            <div className={styles.what}>{r.text}</div>
-          )}
-        </div>
-      ))}
+          );
+        }
+
+        // P1-READALOUD: one scripted NPC line in the opening beat.
+        if (r.kind === 'read_aloud_line') {
+          return (
+            <div key={r.id} className={`${styles.row} ${styles.read_aloud_line}`}>
+              <div className={styles.who}>
+                <span className={styles.readAloudSpeaker}>{r.who}</span>
+                <span className={styles.ts}>{r.ts}</span>
+              </div>
+              <div className={styles.readAloudDialogue}>{r.text}</div>
+            </div>
+          );
+        }
+
+        return (
+          <div key={r.id} className={`${styles.row} ${styles[r.kind]}`}>
+            <div className={styles.who} style={r.color ? { color: r.color } : undefined}>
+              <span>
+                {r.who}
+                {r.kind === 'dm_override' && (
+                  <span className="sr-only"> — DM ruling</span>
+                )}
+              </span>
+              <span className={styles.ts}>{r.ts}</span>
+            </div>
+            {r.roll ? (
+              <div className={styles.rollBody}>
+                <Die
+                  size={48}
+                  sides={r.roll.sides}
+                  value={r.roll.value}
+                  crit={r.roll.crit}
+                  fumble={r.roll.fumble}
+                />
+                <div>
+                  <div className={styles.rollTotal}>
+                    {r.roll.value}
+                    {r.roll.modifier !== 0 && (
+                      <span className={styles.rollMod}>
+                        {' '}
+                        {r.roll.modifier >= 0 ? `+ ${r.roll.modifier}` : `- ${Math.abs(r.roll.modifier)}`}{' '}
+                        = {r.roll.value + r.roll.modifier}
+                      </span>
+                    )}
+                  </div>
+                  <div className={styles.rollLabel}>{r.text}</div>
+                </div>
+              </div>
+            ) : (
+              <div className={styles.what}>{r.text}</div>
+            )}
+          </div>
+        );
+      })}
 
       {thinking && (
         <div className={`${styles.row} ${styles.narration}`} style={{ opacity: 0.7 }}>

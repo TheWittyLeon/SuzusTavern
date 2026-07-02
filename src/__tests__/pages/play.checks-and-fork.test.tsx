@@ -1,0 +1,487 @@
+/**
+ * P1-PLAYFIX §3.3.3 (Ship 2 / S2.4) — Tavern client: check affordances + fork
+ * choice buttons.
+ *
+ * Coverage (maps to the design doc's Miko checklist):
+ *   C10: fork scene's two `auto:false` labelled transitions render as two
+ *        distinct choice buttons, each calling advanceScene(to).
+ *   C11: check affordance calls resolveCheck, narrates result.mechanics via
+ *        narrate(), and refreshes grounding afterward.
+ *   C12 (client-side bound): the affordance never invents a check the scene
+ *        doesn't authored-offer — grounding is the sole source.
+ *   Rehydration (§3.3.3 item 4): on load, checks/transitions reflect the
+ *        CURRENT scene from grounding, not an assumed opening scene — a
+ *        resumed session lands mid-graph (modelled here via the timberwolf
+ *        scene with a two-skill alternative check).
+ *   Adversarial: checks hidden during active combat; a 400 no_such_check
+ *        refusal surfaces a toast without crashing.
+ */
+import React from 'react';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import '@testing-library/jest-dom';
+import type { CombatState, GroundingData, Participant, Session } from '@/lib/api/types';
+
+jest.mock('next/navigation', () => ({
+  useParams: () => ({ sessionId: 's1' }),
+}));
+
+const mockToast = jest.fn();
+jest.mock('../../components/Toast', () => ({
+  useToast: () => ({ toast: mockToast }),
+}));
+
+jest.mock('../../lib/auth/AuthProvider', () => ({
+  useAuth: () => ({ user: { id: 1, username: 'leon', email: null } }),
+}));
+
+jest.mock('../../lib/useReducedMotion', () => ({
+  useReducedMotion: () => true,
+}));
+
+jest.mock('../../lib/api/dnd', () => ({
+  getSession: jest.fn(),
+  getSessionEvents: jest.fn(() => Promise.resolve([])),
+  getSessionEventsRaw: jest.fn(() => Promise.resolve(null)),
+  getParticipants: jest.fn(),
+  getGrounding: jest.fn(),
+  getCombatState: jest.fn(() => Promise.resolve(null)),
+  getCharacterSheet: jest.fn(() => Promise.resolve(null)),
+  postSessionEvent: jest.fn(() => Promise.resolve({})),
+  combatFromScene: jest.fn(),
+  startCombat: jest.fn(),
+  spawnMonster: jest.fn(),
+  rollInitiative: jest.fn(),
+  monsterTurn: jest.fn(),
+  attack: jest.fn(),
+  dodge: jest.fn(),
+  dash: jest.fn(),
+  endTurn: jest.fn(),
+  endCombat: jest.fn(),
+  advanceScene: jest.fn(),
+  setFlag: jest.fn(),
+  resolveCheck: jest.fn(),
+}));
+
+jest.mock('../../lib/stream', () => ({
+  streamDmNarration: jest.fn(async function* () { yield { kind: 'done' as const }; }),
+}));
+
+import * as dnd from '@/lib/api/dnd';
+import PlayPage from '@/app/play/[sessionId]/page';
+
+const mGetSession = dnd.getSession as jest.MockedFunction<typeof dnd.getSession>;
+const mGetParticipants = dnd.getParticipants as jest.MockedFunction<typeof dnd.getParticipants>;
+const mGetGrounding = dnd.getGrounding as jest.MockedFunction<typeof dnd.getGrounding>;
+const mGetSessionEvents = dnd.getSessionEvents as jest.MockedFunction<typeof dnd.getSessionEvents>;
+const mGetSessionEventsRaw = dnd.getSessionEventsRaw as jest.MockedFunction<
+  typeof dnd.getSessionEventsRaw
+>;
+const mAdvanceScene = dnd.advanceScene as jest.MockedFunction<typeof dnd.advanceScene>;
+const mResolveCheck = dnd.resolveCheck as jest.MockedFunction<typeof dnd.resolveCheck>;
+
+// ── Fixtures ──────────────────────────────────────────────────────────────────
+
+const SESSION: Session = {
+  session_id: 's1',
+  channel: 'mlp_everfree_leon',
+  status: 'active',
+  dm_username: 'suzu',
+  participant_usernames: ['leon'],
+  player_count: 1,
+  active_combat_id: null,
+  dm_mode: 'ai',
+  ai_assist_level: 'full',
+};
+
+const SESSION_WITH_COMBAT: Session = { ...SESSION, active_combat_id: 'combat-1' };
+
+const PARTY: Participant[] = [
+  {
+    username: 'leon',
+    is_dm: false,
+    character: {
+      character_id: 'c1',
+      name: 'Anomaly',
+      char_class: 'Ranger',
+      level: 1,
+      current_hp: 10,
+      max_hp: 10,
+      ac: 13,
+    },
+  },
+];
+
+const COMBAT_STATE_ACTIVE: CombatState = {
+  combat_id: 'combat-1',
+  session_id: 's1',
+  round: 1,
+  state: 'active',
+  turn_index: 0,
+  active_participant_id: 'p1',
+  initiative: ['p1'],
+  participants: [
+    {
+      participant_id: 'p1',
+      entity_id: 'c1',
+      name: 'Anomaly',
+      is_pc: true,
+      initiative: 15,
+      hp_current: 10,
+      hp_max: 10,
+      ac: 13,
+      conditions: [],
+      is_alive: true,
+      can_be_targeted: false,
+      is_active_turn: true,
+      took_turn: false,
+    },
+  ],
+};
+
+/** A resumed mid-graph session: current_scene is the timberwolf beat (not the
+ *  opening cold_open), offering two ALTERNATIVE skills for the same outcome. */
+const GROUNDING_TIMBERWOLF: GroundingData = {
+  scene_id: 'slice_everfree_timberwolf',
+  scene_name: 'The Timberwolf',
+  boxed_text: 'Twigs snap somewhere close.',
+  objective: 'Slip past or fight the timberwolf.',
+  transitions: [],
+  checks: [
+    { skill: 'stealth', dc: 12 },
+    { skill: 'survival', dc: 12 },
+  ],
+  flags: {},
+  encounter_state: {},
+};
+
+/** The fork scene: two auto:false labelled transitions, no checks. */
+const GROUNDING_FORK: GroundingData = {
+  scene_id: 'slice_everfree_fork',
+  scene_name: 'The Fork',
+  boxed_text: 'Two paths diverge.',
+  objective: 'Choose a way onward.',
+  transitions: [
+    { to: 'slice_everfree_zecora', label: 'Follow the smoke — southeast' },
+    { to: 'slice_everfree_ponyville', label: 'Follow the path — northwest' },
+  ],
+  checks: [],
+  flags: {},
+  encounter_state: {},
+};
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  mGetSession.mockResolvedValue(SESSION);
+  mGetParticipants.mockResolvedValue(PARTY);
+  mGetSessionEvents.mockResolvedValue([]);
+  mGetSessionEventsRaw.mockResolvedValue(null);
+});
+
+// ── C10: fork renders both labelled choices as distinct buttons ─────────────
+
+describe('P1-PLAYFIX — fork scene choice buttons (C10)', () => {
+  it('renders both auto:false labelled transitions as distinct buttons, on rehydrated mid-graph load', async () => {
+    mGetGrounding.mockResolvedValue(GROUNDING_FORK);
+    render(<PlayPage />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /Follow the smoke — southeast/i }),
+      ).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByRole('button', { name: /Follow the path — northwest/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('each fork button calls advanceScene with its own to_scene', async () => {
+    mGetGrounding.mockResolvedValue(GROUNDING_FORK);
+    mAdvanceScene.mockResolvedValue({
+      from_scene: 'slice_everfree_fork',
+      to_scene: 'slice_everfree_zecora',
+    });
+    render(<PlayPage />);
+
+    const zecoraBtn = await screen.findByRole('button', { name: /Follow the smoke/i });
+    await act(async () => {
+      fireEvent.click(zecoraBtn);
+    });
+    await waitFor(() => expect(mAdvanceScene).toHaveBeenCalledTimes(1));
+    expect(mAdvanceScene.mock.calls[0][0]).toBe('s1');
+    expect(mAdvanceScene.mock.calls[0][1]).toMatchObject({ to_scene: 'slice_everfree_zecora' });
+  });
+
+  it('the OTHER fork branch calls advanceScene with the northwest to_scene', async () => {
+    mGetGrounding.mockResolvedValue(GROUNDING_FORK);
+    mAdvanceScene.mockResolvedValue({
+      from_scene: 'slice_everfree_fork',
+      to_scene: 'slice_everfree_ponyville',
+    });
+    render(<PlayPage />);
+
+    const ponyvilleBtn = await screen.findByRole('button', { name: /Follow the path/i });
+    await act(async () => {
+      fireEvent.click(ponyvilleBtn);
+    });
+    await waitFor(() => expect(mAdvanceScene).toHaveBeenCalledTimes(1));
+    expect(mAdvanceScene.mock.calls[0][1]).toMatchObject({ to_scene: 'slice_everfree_ponyville' });
+  });
+});
+
+// ── C11: check affordance calls resolveCheck + narrates + refreshes grounding ─
+
+describe('P1-PLAYFIX — check affordance (C11)', () => {
+  it('rehydrates to the CURRENT scene\'s checks on load, not an assumed opening scene', async () => {
+    mGetGrounding.mockResolvedValue(GROUNDING_TIMBERWOLF);
+    render(<PlayPage />);
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Attempt Stealth, DC 12/i })).toBeInTheDocument(),
+    );
+    // Two alternative skills for one outcome both render (timberwolf: Stealth OR Survival).
+    expect(
+      screen.getByRole('button', { name: /Attempt Survival, DC 12/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('clicking a check button calls resolveCheck with the skill + actor_username, then refreshes grounding', async () => {
+    mGetGrounding.mockResolvedValue(GROUNDING_TIMBERWOLF);
+    mResolveCheck.mockResolvedValue({
+      skill: 'survival',
+      dc: 12,
+      total: 15,
+      success: true,
+      flag_set: ['slipped_past_wolf'],
+      mechanics: 'Survival check vs DC 12: rolled 15 — SUCCESS.',
+      description: 'Survival check (DC 12): 15 — success.',
+    });
+    // Second grounding read (after the check resolves) reflects the auto-advance
+    // that the engine may have performed — the client must learn this from the
+    // REFRESH, not from the check response itself.
+    mGetGrounding.mockResolvedValueOnce(GROUNDING_TIMBERWOLF).mockResolvedValue(GROUNDING_FORK);
+
+    render(<PlayPage />);
+    const survivalBtn = await screen.findByRole('button', { name: /Attempt Survival/i });
+    await act(async () => {
+      fireEvent.click(survivalBtn);
+    });
+
+    await waitFor(() => expect(mResolveCheck).toHaveBeenCalledTimes(1));
+    expect(mResolveCheck.mock.calls[0][0]).toBe('s1');
+    expect(mResolveCheck.mock.calls[0][1]).toMatchObject({
+      skill: 'survival',
+      actor_username: 'leon',
+    });
+
+    // The result's description is surfaced in the log.
+    await waitFor(() =>
+      expect(screen.getByText('Survival check (DC 12): 15 — success.')).toBeInTheDocument(),
+    );
+
+    // getGrounding was called again (refreshGrounding) — and the scene
+    // subsequently reflects the fork (proving the client learned the
+    // auto-advance from the refresh, not the check response).
+    await waitFor(() => expect(mGetGrounding.mock.calls.length).toBeGreaterThanOrEqual(2));
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /Follow the smoke — southeast/i }),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it('does NOT render check affordances while combat is active', async () => {
+    mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
+    mGetGrounding.mockResolvedValue(GROUNDING_TIMBERWOLF);
+    (dnd.getCombatState as jest.MockedFunction<typeof dnd.getCombatState>).mockResolvedValue(
+      COMBAT_STATE_ACTIVE,
+    );
+    render(<PlayPage />);
+
+    await screen.findByText(/mlp everfree leon|Mlp Everfree Leon/i).catch(() => null);
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /Attempt Stealth/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Attempt Survival/i })).not.toBeInTheDocument();
+    });
+  });
+
+  it('does NOT render a check row when the scene offers none', async () => {
+    mGetGrounding.mockResolvedValue(GROUNDING_FORK);
+    render(<PlayPage />);
+    await screen.findByRole('button', { name: /Follow the smoke/i });
+    expect(screen.queryByRole('button', { name: /^Attempt/i })).not.toBeInTheDocument();
+  });
+
+  it('a 400 no_such_check refusal shows a toast and does not crash', async () => {
+    mGetGrounding.mockResolvedValue(GROUNDING_TIMBERWOLF);
+    const err = Object.assign(new Error('no_such_check'), {
+      status: 400,
+      body: { data: { reason: 'no_such_check' } },
+    });
+    mResolveCheck.mockRejectedValue(err);
+
+    render(<PlayPage />);
+    const stealthBtn = await screen.findByRole('button', { name: /Attempt Stealth/i });
+    await act(async () => {
+      fireEvent.click(stealthBtn);
+    });
+
+    await waitFor(() => expect(mockToast).toHaveBeenCalled());
+    // Page did not crash — the button is still present/interactable.
+    expect(screen.getByRole('button', { name: /Attempt Stealth/i })).toBeInTheDocument();
+  });
+});
+
+// ── Iro Ship 2 CRITICAL-1: stranded focus after a resolved check / taken
+// transition unmounts the just-clicked control ────────────────────────────────
+
+describe('P1-PLAYFIX Ship 2 — stranded focus recovery (CRITICAL-1)', () => {
+  it('the scene heading is a stable, programmatically-focusable anchor', async () => {
+    mGetGrounding.mockResolvedValue(GROUNDING_TIMBERWOLF);
+    const { container } = render(<PlayPage />);
+    await screen.findByRole('button', { name: /Attempt Stealth/i });
+
+    const sceneHead = container.querySelector('[aria-label^="Scene:"]');
+    expect(sceneHead).not.toBeNull();
+    expect(sceneHead).toHaveAttribute('tabindex', '-1');
+  });
+
+  it('moves focus to the scene heading when a resolved check unmounts its own button', async () => {
+    mGetGrounding.mockResolvedValueOnce(GROUNDING_TIMBERWOLF).mockResolvedValue(GROUNDING_FORK);
+    mResolveCheck.mockResolvedValue({
+      skill: 'stealth',
+      dc: 12,
+      total: 15,
+      success: true,
+      flag_set: ['slipped_past_wolf'],
+      mechanics: 'Stealth check vs DC 12: rolled 15 — SUCCESS.',
+      description: 'Stealth check (DC 12): 15 — success.',
+    });
+
+    const { container } = render(<PlayPage />);
+    const stealthBtn = await screen.findByRole('button', { name: /Attempt Stealth/i });
+
+    // The user is on the button (keyboard activation or a prior mouse click
+    // both leave the browser's focus there) before the resolving click fires.
+    act(() => stealthBtn.focus());
+    expect(stealthBtn).toHaveFocus();
+
+    await act(async () => {
+      fireEvent.click(stealthBtn);
+    });
+
+    // The check row (and the stealth button with it) unmounts once grounding
+    // refreshes to the checks-free fork scene — focus must land on the scene
+    // heading, not get stranded on <body>.
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /Attempt Stealth/i })).not.toBeInTheDocument();
+    });
+    const sceneHead = container.querySelector('[aria-label^="Scene:"]');
+    await waitFor(() => expect(document.activeElement).toBe(sceneHead));
+  });
+
+  it('moves focus to the scene heading when a taken transition unmounts its own button', async () => {
+    mGetGrounding.mockResolvedValueOnce(GROUNDING_FORK).mockResolvedValue(GROUNDING_TIMBERWOLF);
+    mAdvanceScene.mockResolvedValue({
+      from_scene: 'slice_everfree_fork',
+      to_scene: 'slice_everfree_timberwolf',
+    });
+
+    const { container } = render(<PlayPage />);
+    const zecoraBtn = await screen.findByRole('button', { name: /Follow the smoke/i });
+
+    act(() => zecoraBtn.focus());
+    expect(zecoraBtn).toHaveFocus();
+
+    await act(async () => {
+      fireEvent.click(zecoraBtn);
+    });
+
+    // The transition row unmounts once grounding refreshes to a scene with no
+    // transitions — focus must land on the scene heading, not <body>.
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /Follow the smoke/i })).not.toBeInTheDocument();
+    });
+    const sceneHead = container.querySelector('[aria-label^="Scene:"]');
+    await waitFor(() => expect(document.activeElement).toBe(sceneHead));
+  });
+});
+
+// ── Iro Ship 2 MAJOR-1 / MINOR-1 / MINOR-2 — aria wiring on the check row ────
+
+describe('P1-PLAYFIX Ship 2 — check-note aria wiring + group labels', () => {
+  const GROUNDING_WITH_NOTE: GroundingData = {
+    ...GROUNDING_TIMBERWOLF,
+    checks: [{ skill: 'stealth', dc: 12, note: 'Rustling underbrush might give you away.' }],
+  };
+
+  it('wires aria-describedby to a sr-only note span when the check has a note', async () => {
+    mGetGrounding.mockResolvedValue(GROUNDING_WITH_NOTE);
+    render(<PlayPage />);
+
+    const stealthBtn = await screen.findByRole('button', { name: /Attempt Stealth, DC 12/i });
+    const describedBy = stealthBtn.getAttribute('aria-describedby');
+    expect(describedBy).toBeTruthy();
+    const note = document.getElementById(describedBy as string);
+    expect(note).toHaveTextContent('Rustling underbrush might give you away.');
+    expect(note).toHaveClass('sr-only');
+  });
+
+  it('does not set aria-describedby when the check has no note', async () => {
+    mGetGrounding.mockResolvedValue(GROUNDING_TIMBERWOLF);
+    render(<PlayPage />);
+
+    const stealthBtn = await screen.findByRole('button', { name: /Attempt Stealth, DC 12/i });
+    expect(stealthBtn).not.toHaveAttribute('aria-describedby');
+  });
+
+  it('groups the skill-check row and scene-transition row with role="group" + labels', async () => {
+    mGetGrounding.mockResolvedValueOnce(GROUNDING_TIMBERWOLF);
+    render(<PlayPage />);
+    await screen.findByRole('button', { name: /Attempt Stealth/i });
+    expect(screen.getByRole('group', { name: 'Skill check' })).toBeInTheDocument();
+  });
+
+  it('groups the scene-transition row with role="group" + label', async () => {
+    mGetGrounding.mockResolvedValue(GROUNDING_FORK);
+    render(<PlayPage />);
+    await screen.findByRole('button', { name: /Follow the smoke/i });
+    expect(screen.getByRole('group', { name: 'Scene transition' })).toBeInTheDocument();
+  });
+});
+
+// Iro MINOR-1 (P1-PLAYFIX-2 gate fix): key / noteId / offeredId collided when
+// a scene authors two checks with the SAME skill (different DC) — e.g. a
+// bargain-vs-intimidate Persuasion beat offered at two DCs. Keyed by
+// `${skill}-${dc}` now.
+describe('P1-PLAYFIX Ship 2 — check id uniqueness (Iro MINOR-1)', () => {
+  const GROUNDING_SAME_SKILL_TWO_DCS: GroundingData = {
+    ...GROUNDING_TIMBERWOLF,
+    checks: [
+      { skill: 'stealth', dc: 12, note: 'The easy route.' },
+      { skill: 'stealth', dc: 18, note: 'The bold, faster route.' },
+    ],
+  };
+
+  it('renders two distinct buttons for the same skill at different DCs, each with its own unique note id', async () => {
+    mGetGrounding.mockResolvedValue(GROUNDING_SAME_SKILL_TWO_DCS);
+    render(<PlayPage />);
+
+    const dc12Btn = await screen.findByRole('button', { name: /Attempt Stealth, DC 12/i });
+    const dc18Btn = await screen.findByRole('button', { name: /Attempt Stealth, DC 18/i });
+    expect(dc12Btn).not.toBe(dc18Btn);
+
+    const dc12DescribedBy = dc12Btn.getAttribute('aria-describedby');
+    const dc18DescribedBy = dc18Btn.getAttribute('aria-describedby');
+    expect(dc12DescribedBy).toBeTruthy();
+    expect(dc18DescribedBy).toBeTruthy();
+    // The core of the fix: the two ids must NOT collide.
+    expect(dc12DescribedBy).not.toBe(dc18DescribedBy);
+
+    expect(document.getElementById(dc12DescribedBy as string)).toHaveTextContent(
+      'The easy route.',
+    );
+    expect(document.getElementById(dc18DescribedBy as string)).toHaveTextContent(
+      'The bold, faster route.',
+    );
+  });
+});

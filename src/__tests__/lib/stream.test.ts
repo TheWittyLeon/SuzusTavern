@@ -156,6 +156,80 @@ describe('readSSE — parsing', () => {
 });
 
 // ---------------------------------------------------------------------------
+// P1-PLAYFIX-2 §A.5 — offered_check / scene_advanced parsing (A.2 reconciliation:
+// real shipped contract from api/routes/narration.py + core/intent_router.py).
+// ---------------------------------------------------------------------------
+
+describe('readSSE — offered_check / scene_advanced (A.2 contract)', () => {
+  it('parses offered_check into offeredCheck on the chunk event', async () => {
+    const body =
+      'data: {"success":true,"text":"Make a Survival check.","offered_check":{"skill":"survival","dc":12}}\n\ndata: [DONE]\n\n';
+    const events = await collect(readSSE(sseResponse(body)));
+
+    expect(events[0]).toMatchObject({
+      kind: 'chunk',
+      text: 'Make a Survival check.',
+      offeredCheck: { skill: 'survival', dc: 12 },
+    });
+  });
+
+  it('parses offered_check without a dc (dc is optional)', async () => {
+    const body =
+      'data: {"success":true,"text":"...","offered_check":{"skill":"stealth"}}\n\ndata: [DONE]\n\n';
+    const events = await collect(readSSE(sseResponse(body)));
+
+    expect(events[0]).toMatchObject({ kind: 'chunk', offeredCheck: { skill: 'stealth' } });
+  });
+
+  it('parses scene_advanced + advanced_to into sceneAdvanced/advancedTo on the chunk event', async () => {
+    const body =
+      'data: {"success":true,"text":"You press on.","scene_advanced":true,"advanced_to":"navigate"}\n\ndata: [DONE]\n\n';
+    const events = await collect(readSSE(sseResponse(body)));
+
+    expect(events[0]).toMatchObject({
+      kind: 'chunk',
+      sceneAdvanced: true,
+      advancedTo: 'navigate',
+    });
+  });
+
+  it('parses scene_advanced:false with advanced_to:null', async () => {
+    const body =
+      'data: {"success":true,"text":"Nothing changes.","scene_advanced":false,"advanced_to":null}\n\ndata: [DONE]\n\n';
+    const events = await collect(readSSE(sseResponse(body)));
+
+    expect(events[0]).toMatchObject({
+      kind: 'chunk',
+      sceneAdvanced: false,
+      advancedTo: null,
+    });
+  });
+
+  it('a chunk with neither field carries neither key (today\'s wire, unchanged)', async () => {
+    const body = 'data: {"success":true,"text":"Hello"}\n\ndata: [DONE]\n\n';
+    const events = await collect(readSSE(sseResponse(body)));
+
+    expect(events[0]).toEqual({ kind: 'chunk', text: 'Hello' });
+  });
+
+  it('a malformed offered_check (missing skill) is dropped, not thrown', async () => {
+    const body =
+      'data: {"success":true,"text":"Hello","offered_check":{"dc":12}}\n\ndata: [DONE]\n\n';
+    const events = await collect(readSSE(sseResponse(body)));
+
+    expect(events[0]).toEqual({ kind: 'chunk', text: 'Hello' });
+  });
+
+  it('a non-boolean scene_advanced is dropped, not thrown', async () => {
+    const body =
+      'data: {"success":true,"text":"Hello","scene_advanced":"yes"}\n\ndata: [DONE]\n\n';
+    const events = await collect(readSSE(sseResponse(body)));
+
+    expect(events[0]).toEqual({ kind: 'chunk', text: 'Hello' });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // readSSE — abort signal
 // ---------------------------------------------------------------------------
 

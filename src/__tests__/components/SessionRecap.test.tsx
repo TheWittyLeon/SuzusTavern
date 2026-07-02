@@ -48,15 +48,41 @@ describe('SessionRecap', () => {
     expect(mStream).not.toHaveBeenCalled();
   });
 
-  it('streams an AI recap when assist is on and replaces the digest', async () => {
+  it('streams an AI recap when assist is on and there is REAL play history', async () => {
+    // fromEvents=true requires notable play events (not just metadata).
+    mGetEvents.mockResolvedValue([
+      { event_type: 'scene_advance', description: 'The party fled the rising tide.' },
+    ]);
     mStream.mockImplementation(async function* () {
       yield { kind: 'chunk' as const, text: 'When last we met, the tide was rising.' };
     });
     render(<SessionRecap session={makeSession({ ai_assist_level: 'full' })} username="leon" />);
     expect(await screen.findByText(/when last we met/i, { selector: 'p' })).toBeInTheDocument();
     expect(mStream).toHaveBeenCalledTimes(1);
-    // grounded in the deterministic facts, not free-form
-    expect(mStream.mock.calls[0][0].mechanics).toMatch(/DM’d by Suzu/);
+    // grounded in the deterministic EVENT facts, not free-form or metadata
+    expect(mStream.mock.calls[0][0].mechanics).toMatch(/rising tide/i);
+  });
+
+  it('does NOT narrate a recap for a fresh session (metadata only, no events) — the fabrication guard', async () => {
+    // The bug this locks: metadata-only recap fired an AI "previously on" that
+    // hallucinated a nonexistent past. fromEvents=false ⇒ zero narration calls.
+    mGetEvents.mockResolvedValue([]);
+    render(<SessionRecap session={makeSession({ ai_assist_level: 'full' })} username="leon" />);
+    // Card variant still renders the deterministic metadata digest…
+    expect(await screen.findByRole('heading', { name: /where you left off/i })).toBeInTheDocument();
+    // …but NO AI narration request is issued.
+    expect(mStream).not.toHaveBeenCalled();
+  });
+
+  it('renders NOTHING on the play strip for a fresh session (no play history)', async () => {
+    mGetEvents.mockResolvedValue([]);
+    const { container } = render(
+      <SessionRecap session={makeSession({ ai_assist_level: 'full' })} username="leon" variant="strip" />,
+    );
+    // Give effects a tick; the strip must stay empty (read-aloud is the opening, not a recap).
+    await waitFor(() => expect(mGetEvents).toHaveBeenCalled());
+    expect(container.querySelector('section')).toBeNull();
+    expect(mStream).not.toHaveBeenCalled();
   });
 
   it('falls back to the digest if the AI stream errors', async () => {
@@ -73,10 +99,13 @@ describe('SessionRecap', () => {
     expect(mStream).not.toHaveBeenCalled();
   });
 
-  it('strip variant is collapsible and dismissible', async () => {
+  it('strip variant is collapsible and dismissible (with real play history)', async () => {
+    mGetEvents.mockResolvedValue([
+      { event_type: 'scene_advance', description: 'You crossed the underground river.' },
+    ]);
     render(<SessionRecap session={makeSession({ ai_assist_level: 'off' })} username="leon" variant="strip" />);
     // collapsed by default → toggle present, body hidden
-    const toggle = await screen.findByRole('button', { name: /where you left off/i });
+    const toggle = await screen.findByRole('button', { name: /previously on/i });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     expect(screen.getByRole('button', { name: /dismiss recap/i })).toBeInTheDocument();
   });
@@ -84,6 +113,9 @@ describe('SessionRecap', () => {
   it('renders the human name (not the slug) in the strip sub-label when session.name is set', async () => {
     // Post-fix Tavern session: name = human form value, channel = unique slug with suffix.
     // In the strip variant the title is rendered inside the toggle button as a <span>.
+    mGetEvents.mockResolvedValue([
+      { event_type: 'scene_advance', description: 'You lit the brazier in the antechamber.' },
+    ]);
     render(
       <SessionRecap
         session={makeSession({
@@ -96,7 +128,7 @@ describe('SessionRecap', () => {
       />,
     );
     // The strip button is collapsed by default; the title sub-label is still in DOM.
-    const toggle = await screen.findByRole('button', { name: /where you left off/i });
+    const toggle = await screen.findByRole('button', { name: /previously on/i });
     expect(toggle).toBeInTheDocument();
     // The human name appears in the sub-label, not the slug.
     expect(screen.getByText(/The Hollow Tide Cave/)).toBeInTheDocument();

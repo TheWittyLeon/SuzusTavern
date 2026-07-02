@@ -5,7 +5,8 @@
  * The immersive 3-pane table where Suzu runs the game:
  *   left   — party roster (ST-061) + initiative (ST-020 / CUI-11)
  *   centre — narrator strip (ST-018/071) + chat log (ST-019) + composer (ST-063)
- *   right  — scene card + "Move on" affordance (ADV-7T) + dice tray + safety tools
+ *   right  — scene card + skill-check affordance (P1-PLAYFIX §3.3.3) +
+ *            "Move on" affordance (ADV-7T) + dice tray + safety tools
  *
  * State machine: idle → composing → narrating → idle, with a combat overlay.
  *
@@ -23,7 +24,7 @@
  * Request-monotone guard: combatState updates are fenced by a seqRef so stale
  * in-flight polls never overwrite a fresher mutation response.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth/AuthProvider';
@@ -40,7 +41,9 @@ import {
   getParticipants,
   getSession,
   getSessionEvents,
+  getSessionEventsRaw,
   postSessionEvent,
+  resolveCheck,
   rollInitiative,
   monsterTurn,
   attack as combatAttack,
@@ -49,11 +52,14 @@ import {
   endTurn as combatEndTurn,
 } from '@/lib/api/dnd';
 import { streamDmNarration } from '@/lib/stream';
+import { eventToLogRow, formatEventTimestamp as formatOpeningTimestamp } from '@/lib/rehydration';
+import { matchKeywordIntent } from '@/lib/dnd/intentFastPath';
 import type {
   CombatParticipantState,
   CombatState,
   EndCombatOutcome,
   GroundingData,
+  OfferedCheck,
   Participant,
   Session,
 } from '@/lib/api/types';
@@ -89,10 +95,16 @@ const PREFERRED_QUICK_CHECK_NAMES = [
   'persuasion',
 ];
 
-/** A1 — structural event kinds that indicate the scene hasn't started yet. */
+/** A1 — structural event kinds that indicate the scene hasn't started yet.
+ * These are session/character SETUP events, not fiction — their presence must
+ * NOT suppress the read-aloud opening. The engine emits `rebind` when a
+ * character is bound/re-bound to a campaign (there is no `character_bound`
+ * kind); both are listed so the gate matches engine reality regardless. */
 const STRUCTURAL_EVENT_KINDS = new Set([
   'session_start',
+  'session_created',
   'character_bound',
+  'rebind',
   'opening_narrated',
 ]);
 
@@ -113,6 +125,29 @@ function rollWithAdvantage(advantage: Advantage): number {
   const a = rollDie(20);
   const b = rollDie(20);
   return advantage === 'adv' ? Math.max(a, b) : Math.min(a, b);
+}
+
+/**
+ * P1-READALOUD: Build the verbatim read-aloud block text from grounding data.
+ * Matches the authored structure the AI-off path used to produce (§3.2 of the
+ * design doc), now shared by all session types (AI-on, AI-off, human-DM).
+ * Pure function — no side effects.
+ */
+function buildReadAloudBlock(g: GroundingData): string {
+  const lines: string[] = [];
+  if (g.adventure_title) lines.push(`— ${g.adventure_title} —`);
+  if (g.hook) lines.push(g.hook);
+  if (g.scene_name) lines.push(`\nScene: ${g.scene_name}`);
+  if (g.boxed_text) lines.push(g.boxed_text);
+  if (g.objective) lines.push(`\nObjective: ${g.objective}`);
+  return lines.filter(Boolean).join('\n');
+}
+
+/** Title-case an engine skill slug ('sleight_of_hand' -> 'Sleight Of Hand'). */
+function titleCaseSkill(skill: string): string {
+  return skill
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 /**
@@ -179,6 +214,16 @@ export default function PlayPage() {
   const [grounding, setGrounding] = useState<GroundingData | null>(null);
   const [sceneAdvanceBusy, setSceneAdvanceBusy] = useState(false);
 
+  // P1-PLAYFIX (S2.4) — busy flag for the check-affordance row (Attempt: Survival, etc.).
+  const [checkBusy, setCheckBusy] = useState(false);
+
+  // P1-PLAYFIX-2 §A.5/§A.6 — the skill the server invited this turn (present
+  // once the SSE payload carries an `offeredCheck`; forward-compatible, see
+  // dnd.ts/types.ts). Cleared at the start of every new narrate() beat so a
+  // stale offer never lingers past the turn it was made on. NEVER drives an
+  // auto-roll — it only makes the matching "Attempt {skill}" button hard to miss.
+  const [offeredCheckSkill, setOfferedCheckSkill] = useState<string | null>(null);
+
   // B1-4: the logged-in user's bound character_id (stringified) for per-user
   // turn resolution. Populated from the participants endpoint on load + on rebind.
   const [myCharacterIdStr, setMyCharacterIdStr] = useState<string | null>(null);
@@ -196,6 +241,12 @@ export default function PlayPage() {
   // is the canonical guard; this ref prevents a second fire within the same
   // component lifetime (e.g. StrictMode double-effect).
   const openingFiredRef = useRef(false);
+
+  // PLAY-PERSIST §7: guards against a second rehydration within one mount
+  // (e.g. a stray effect re-run). Rehydration runs once, synchronously before
+  // the composer can be used, so a persisted row and its future live-append
+  // counterpart never coexist in the same mount.
+  const rehydratedRef = useRef(false);
 
   // B1-4: fire-once "no character bound" toast when combat becomes active.
   const noCharToastFiredRef = useRef(false);
@@ -225,6 +276,16 @@ export default function PlayPage() {
   // Tora MAJOR-2: ref for the "End" trigger button so focus returns to it when
   // the outcome chooser is closed via Escape.
   const endCombatBtnRef = useRef<HTMLButtonElement>(null);
+
+  // Iro Ship 2 CRITICAL-1: a resolved check / taken transition unmounts the
+  // just-clicked button once `refreshGrounding()` recomputes availableChecks /
+  // availableTransitions, dropping focus to <body> with no announcement.
+  // `sceneHeadRef` is a stable, always-mounted anchor (mirrors the
+  // `endCombatBtnRef` refocus pattern above); the wrap refs let each handler
+  // capture "did this click originate inside my group" before the unmount.
+  const sceneHeadRef = useRef<HTMLDivElement>(null);
+  const checkWrapRef = useRef<HTMLDivElement>(null);
+  const transitionWrapRef = useRef<HTMLDivElement>(null);
 
   // Latest-log ref so narrate() can read recent transcript without re-creating
   // itself on every log change. Synced in an effect (never written during render).
@@ -261,14 +322,66 @@ export default function PlayPage() {
         setCombatId(initialCombatId);
         setState('ok');
 
-        // Fetch grounding, participants, and combat state in parallel.
-        const [g, party] = await Promise.all([
+        // Fetch grounding, participants, and the raw event log (rehydration) in
+        // parallel.
+        const [g, party, rawEvents] = await Promise.all([
           getGrounding(sessionId, ctrl.signal),
           getParticipants(sessionId, ctrl.signal).catch(() => [] as Participant[]),
+          getSessionEventsRaw(sessionId, ctrl.signal),
         ]);
         if (ctrl.signal.aborted) return;
         if (g) setGrounding(g);
         setParticipants(party);
+
+        // PLAY-PERSIST §6.2 — rehydrate the transcript ONCE on mount, before the
+        // opening path can fire. rawEvents === null means the engine was
+        // unreachable — skip rehydration and render what we have (resilient,
+        // never crash); the existing (unchanged) opening path still runs below.
+        if (rawEvents && !rehydratedRef.current) {
+          const sorted = [...rawEvents].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+          const rows: LogRow[] = [];
+          for (const e of sorted) {
+            if (e.kind === 'opening_narrated') {
+              // §6.4 — reconstruct the verbatim read-aloud from CURRENT grounding,
+              // but only while the player is still on the scene it was shown for.
+              // If they've advanced, showing the (different) current boxed_text
+              // would misrepresent it as "the opening" — render a compact marker
+              // instead so the log still records "the game opened here".
+              const openingSceneId = (e.data?.['scene_id'] as string | undefined) || undefined;
+              if (g && openingSceneId && openingSceneId === g.scene_id) {
+                rows.push({
+                  id: `ev${e.seq ?? 'opening'}-read-aloud`,
+                  ts: formatOpeningTimestamp(e.created_at),
+                  who: 'Scene',
+                  kind: 'read_aloud',
+                  text: buildReadAloudBlock(g),
+                });
+                for (const line of g.opening_lines ?? []) {
+                  rows.push({
+                    id: `ev${e.seq ?? 'opening'}-line-${line.npc_ref}`,
+                    ts: formatOpeningTimestamp(e.created_at),
+                    who: line.speaker_display_name,
+                    kind: 'read_aloud_line',
+                    text: line.line,
+                  });
+                }
+              } else if (g) {
+                rows.push({
+                  id: `ev${e.seq ?? 'opening'}-marker`,
+                  ts: formatOpeningTimestamp(e.created_at),
+                  who: 'Scene',
+                  kind: 'system',
+                  text: `— ${g.adventure_title ?? 'the adventure'} · opening —`,
+                });
+              }
+              continue;
+            }
+            const row = eventToLogRow(e);
+            if (row) rows.push(row);
+          }
+          setLog(rows);
+          rehydratedRef.current = true;
+        }
 
         // A2 — fetch the bound character's sheet to build real quick-checks.
         // The self participant carries character_id when a character is bound.
@@ -327,7 +440,7 @@ export default function PlayPage() {
         // openScene is a useCallback declared below; this effect runs post-mount
         // (after the component body executes) so the forward reference is safe.
         if (g && !ctrl.signal.aborted) {
-          // eslint-disable-next-line react-hooks/immutability
+           
           void openScene(s, g, sessionId, ctrl.signal);
         }
       } catch (e) {
@@ -446,6 +559,51 @@ export default function PlayPage() {
   );
 
   /**
+   * Refetch grounding after a scene advance so the Scene card updates.
+   *
+   * Defined ahead of `narrate` (moved up from its original spot just below
+   * the scene-advance handlers) so `narrate` can call it directly when a
+   * beat's SSE response carries a `sceneAdvanced` signal (P1-PLAYFIX-2 §A.5/§A.7).
+   *
+   * Iro MAJOR-1: returns the freshly-fetched grounding so callers that need
+   * to validate against CURRENT state right after a refresh (e.g. narrate()'s
+   * offered_check check) don't have to rely on the `grounding` closure value,
+   * which is stale until the next render commits this call's setGrounding().
+   */
+  const refreshGrounding = useCallback(async (): Promise<GroundingData | null> => {
+    if (!sessionId) return null;
+    const g = await getGrounding(sessionId).catch(() => null);
+    setGrounding(g);
+    return g;
+  }, [sessionId]);
+
+  /**
+   * Iro Ship 2 CRITICAL-1 — refocus the scene heading if a `refreshGrounding()`
+   * refresh unmounted the button the user was just on, stranding focus on
+   * <body>. `hadFocusInGroup` MUST be captured synchronously by the caller
+   * BEFORE any await (the browser focuses a clicked button synchronously, so
+   * that's the only reliable moment to know which group had focus).
+   * The stranding check itself runs inside a rAF so it observes the DOM
+   * *after* React's commit — checking immediately after an `await` can race
+   * the commit and false-negative. Only acts if focus actually landed on
+   * <body> (i.e. was truly dropped) — if the user had already tabbed
+   * elsewhere in the interim, activeElement is that element, not <body>, and
+   * we leave it alone.
+   *
+   * Defined ahead of `narrate` (P1-PLAYFIX-2 gate fix, Iro CRITICAL-1) so
+   * narrate() can call it directly after its own sceneAdvanced-triggered
+   * refreshGrounding(), mirroring onMoveOn/onAttemptCheck below.
+   */
+  const refocusSceneHeadIfStranded = useCallback((hadFocusInGroup: boolean) => {
+    if (!hadFocusInGroup) return;
+    requestAnimationFrame(() => {
+      if (document.activeElement === document.body) {
+        sceneHeadRef.current?.focus();
+      }
+    });
+  }, []);
+
+  /**
    * Stream one DM-narration beat; `mechanics` empty = pure roleplay beat.
    *
    * A1: optional `opts.kind` can be 'opening' — when set:
@@ -457,13 +615,18 @@ export default function PlayPage() {
    * FIX-1: accepts optional `opts.session` to override the closure `session` value.
    * This is required for the opening-scene call where session state is still null
    * at mount time; all other callers omit it and fall back to the closure value.
+   *
+   * P1-PLAYFIX-2 §A.5/§A.7 (A.2 reconciliation): the SSE response may carry
+   * `offeredCheck` and/or `sceneAdvanced`/`advancedTo`. Both are handled AFTER
+   * the narration text is appended so the beat reads in order: Suzu's words
+   * land, THEN the UI reacts to what she signalled.
    */
   const narrate = useCallback(
     async (
       playerMessage: string,
       mechanics: string,
       beatMode: ComposeMode,
-      opts?: { kind?: 'beat' | 'opening'; session?: Session },
+      opts?: { kind?: 'beat' | 'opening'; session?: Session; suppressIntent?: boolean },
     ) => {
       // FIX-1: use the override session when supplied (opening call), otherwise
       // fall back to the closure value (all subsequent player/combat calls).
@@ -478,12 +641,27 @@ export default function PlayPage() {
       // Read directly from activeSession (server truth) — no separate useState copy.
       const aiLevel = activeSession.ai_assist_level;
       if (activeSession.dm_mode === 'human' || aiLevel === 'off' || aiLevel === 'assist') return;
+
+      // Iro Ship 2 CRITICAL-1: capture BEFORE any await in this function — a
+      // `sceneAdvanced` signal below triggers refreshGrounding(), which can
+      // recompute availableChecks/availableTransitions and unmount whichever
+      // button the player was just on. This mirrors onMoveOn/onAttemptCheck's
+      // own capture exactly; the browser focuses a clicked button
+      // synchronously, so this is the only reliable moment to know which
+      // group had it.
+      const hadFocusInCheckWrap = checkWrapRef.current?.contains(document.activeElement) ?? false;
+      const hadFocusInTransitionWrap =
+        transitionWrapRef.current?.contains(document.activeElement) ?? false;
+
       narrationAbort.current?.abort();
       const ctrl = new AbortController();
       narrationAbort.current = ctrl;
       setTalking(true);
       setThinking(true);
       setNarratorText('');
+      // P1-PLAYFIX-2 §A.6 — clear any stale offer from a previous beat; THIS
+      // turn's response (if any) re-sets it below.
+      setOfferedCheckSkill(null);
 
       const isOpening = opts?.kind === 'opening';
 
@@ -491,6 +669,8 @@ export default function PlayPage() {
       let full = '';
       let errored = false;
       let lastErrorReason: string | undefined;
+      let offeredCheckSignal: OfferedCheck | undefined;
+      let sceneAdvancedSignal = false;
       try {
         for await (const ev of streamDmNarration(
           {
@@ -503,6 +683,12 @@ export default function PlayPage() {
             mode: beatMode,
             session_id: activeSession.session_id,
             ...(isOpening ? { kind: 'opening' as const } : {}),
+            // Kage #1 / Miko DEFECT-2 — true only on the client's own synthetic
+            // confirmation beats (onMoveOn/onAttemptCheck/handleSceneAdvance);
+            // tells the server's INTENT classifier not to advance the scene a
+            // second time for a beat that already advanced it via its own
+            // dedicated endpoint.
+            suppress_intent: opts?.suppressIntent ?? false,
           },
           { signal: ctrl.signal },
         )) {
@@ -510,6 +696,8 @@ export default function PlayPage() {
             full = ev.text;
             setThinking(false);
             revealText(full);
+            if (ev.offeredCheck) offeredCheckSignal = ev.offeredCheck;
+            if (ev.sceneAdvanced) sceneAdvancedSignal = true;
           } else if (ev.kind === 'error') {
             errored = true;
             lastErrorReason = ev.reason;
@@ -534,11 +722,68 @@ export default function PlayPage() {
           text: fallbackText,
         });
         setNarratorText('');
-      } else {
-        appendLog({ who: 'Suzu', kind: 'narration', text: full });
+        return;
+      }
+
+      appendLog({ who: 'Suzu', kind: 'narration', text: full });
+
+      // P1-PLAYFIX-2 §A.5/§A.7 (A.2 reconciliation) — the server already
+      // narrated the transition in-fiction on THIS turn (server-side INTENT)
+      // when `sceneAdvanced` is true; just catch the scene card / affordances
+      // up. Never call narrate() again here — `full` above IS the narration
+      // for this beat, calling it again would double-narrate.
+      // Iro MAJOR-1: keep the freshly-fetched grounding here (not the closure
+      // value below) — refreshGrounding()'s returned data is used for the
+      // offered_check validation just below so a check offered on the
+      // NEWLY-advanced scene isn't wrongly dropped as "not authored".
+      let freshGrounding: GroundingData | null = null;
+      if (sceneAdvancedSignal) {
+        freshGrounding = await refreshGrounding();
+        // Iro Ship 2 CRITICAL-1: mirror onMoveOn/onAttemptCheck — refocus the
+        // scene heading if the refresh above stranded focus on <body>.
+        refocusSceneHeadIfStranded(hadFocusInCheckWrap || hadFocusInTransitionWrap);
+      }
+
+      // P1-PLAYFIX-2 §A.5/§A.6 — surface an offered check. Per §A.3 this NEVER
+      // auto-rolls; it only makes the matching "Attempt {skill}" affordance
+      // impossible to miss. Defensive: only surface when the offered skill is
+      // actually one of THIS scene's authored checks — never trust the signal
+      // blindly. Uses the toast/aria-live channel (not a stolen DOM focus) so
+      // screen-reader users get the invite without yanking focus off the
+      // composer mid-conversation.
+      if (offeredCheckSignal) {
+        // Iro MAJOR-1: validate against the freshly-fetched grounding when
+        // this beat just advanced the scene — the `grounding` closure value
+        // is stale until the next render (setGrounding() is async), so
+        // validating against it here would wrongly drop a check authored on
+        // the scene we JUST advanced to.
+        const currentGrounding = sceneAdvancedSignal ? freshGrounding : grounding;
+        const isAuthoredCheck = (currentGrounding?.checks ?? []).some(
+          (c) => c.skill === offeredCheckSignal.skill,
+        );
+        if (isAuthoredCheck) {
+          setOfferedCheckSkill(offeredCheckSignal.skill);
+          toast({
+            tone: 'info',
+            message: `Suzu invites a ${titleCaseSkill(offeredCheckSignal.skill)} check — the Attempt button is ready when you are.`,
+            duration: 8000,
+          });
+          requestAnimationFrame(() => {
+            checkWrapRef.current?.scrollIntoView({ block: 'nearest' });
+          });
+        }
       }
     },
-    [session, username, revealText, appendLog],
+    [
+      session,
+      username,
+      revealText,
+      appendLog,
+      refreshGrounding,
+      refocusSceneHeadIfStranded,
+      grounding,
+      toast,
+    ],
   );
 
   // ── S5.2: DM narration submit handler ───────────────────────────────────────
@@ -620,74 +865,62 @@ export default function PlayPage() {
   );
 
   /**
-   * A1 — Open the scene on first load. Fire-and-forget; non-blocking.
+   * A1 / P1-READALOUD — Open the scene on first load. Fire-and-forget; non-blocking.
    *
-   * AI/full path: streams an opening narration via narrate(..., {kind:'opening'}).
-   *   The proxy writes the durable `opening_narrated` event on success.
-   * AI-off path: renders the scene locally from grounding data, then writes
-   *   the marker client-side via postSessionEvent (best-effort).
+   * Unified verbatim path (Option A from §3 of the design doc): renders the
+   * authored boxed_text block instantly for ALL session types (AI, AI-off,
+   * human-DM). No LLM call on open. Suzu's narration fires on the player's
+   * first action instead (normal beat via onSend/onRoll).
+   *
+   * Idempotency: guarded by openingFiredRef (in-memory, per-mount) AND the
+   * durable `opening_narrated` session event (survives remounts). The
+   * semantics of opening_narrated shift from "AI opening streamed" to
+   * "read-aloud shown", but the gate mechanic is unchanged.
    */
   const openScene = useCallback(
     async (s: Session, g: GroundingData, sid: string, signal: AbortSignal) => {
       const shouldOpen = await checkShouldOpen(sid, g, signal);
       if (!shouldOpen || signal.aborted) return;
 
-      // Latch: prevent a second fire from the StrictMode double-invoke or
-      // any concurrent call within the same component lifetime.
+      // Latch: prevent a second fire from StrictMode double-invoke or any
+      // concurrent call within the same component lifetime.
       openingFiredRef.current = true;
 
-      const aiLevel = s.ai_assist_level;
+      // Step 1 — render the verbatim read-aloud block (authored, byte-identical,
+      // same for every session type). No typewriter; player reads at their pace.
+      appendLog({
+        who: 'Scene',
+        kind: 'read_aloud',
+        text: buildReadAloudBlock(g),
+      });
 
-      if (aiLevel === 'off' || !aiLevel) {
-        // ── AI-off path: client-render from grounding ──────────────────────
-        const lines: string[] = [];
-        if (g.adventure_title) lines.push(`— ${g.adventure_title} —`);
-        if (g.hook) lines.push(g.hook);
-        if (g.scene_name) lines.push(`\nScene: ${g.scene_name}`);
-        if (g.boxed_text) lines.push(g.boxed_text);
-        if (g.objective) lines.push(`\nObjective: ${g.objective}`);
-
-        if (!signal.aborted) {
-          appendLog({
-            who: 'Suzu',
-            kind: 'system',
-            text: lines.filter(Boolean).join('\n'),
-          });
-          // Write the durable marker client-side (best-effort — non-fatal on failure).
-          void postSessionEvent(sid, {
-            kind: 'opening_narrated',
-            data: { scene_id: g.scene_id, source: 'client_render' },
-          }).catch(() => {/* non-fatal */});
-        }
-      } else {
-        // ── AI/full path: stream the opening narration ─────────────────────
-        // narrate() with kind:'opening' sends empty message + kind field.
-        // The proxy writes the opening_narrated marker on stream success.
-        // FIX-1: pass the live session param `s` so narrate() doesn't read
-        // from the React state closure (which is still null at mount time).
-        void narrate('', '', 'act', { kind: 'opening', session: s });
+      // Step 2 — render optional authored NPC opening lines, verbatim, in order.
+      for (const line of g.opening_lines ?? []) {
+        if (signal.aborted) return;
+        appendLog({
+          who: line.speaker_display_name,
+          kind: 'read_aloud_line',
+          text: line.line,
+        });
       }
-    },
-    [checkShouldOpen, appendLog, narrate],
-  );
 
-  // ── composer send ───────────────────────────────────────────────────────────
-  const onSend = useCallback(() => {
-    const text = msg.trim();
-    if (!text || talking) return;
-    // S5.2: DM narration mode is handled by its own async submit handler.
-    if (mode === 'dm_narration') {
-      void onSendDmNarration();
-      return;
-    }
-    setMsg('');
-    if (mode === 'ooc') {
-      appendLog({ who: username ?? 'You', kind: 'system', text: `(ooc) ${text}` });
-      return;
-    }
-    appendLog({ who: username ?? 'You', kind: 'player', text, color: 'var(--accent)' });
-    void narrate(text, '', mode);
-  }, [msg, talking, mode, username, appendLog, narrate, onSendDmNarration]);
+      // Step 3 — write durable marker (best-effort, non-fatal on failure).
+      // Semantics: "read-aloud has been shown for this scene opening". The
+      // event kind is unchanged so the engine allowlist stays frozen.
+      if (!signal.aborted) {
+        void postSessionEvent(sid, {
+          kind: 'opening_narrated',
+          data: { scene_id: g.scene_id, source: 'read_aloud_verbatim' },
+        }).catch(() => {/* non-fatal */});
+      }
+
+      // Step 4 — NO AI opening call. The next narrate() fires when the player
+      // sends their first action via onSend / onRoll (existing paths, unchanged).
+      // That call is a normal beat with is_opening=False; Suzu reacts to the
+      // player rather than re-describing the room.
+    },
+    [checkShouldOpen, appendLog],
+  );
 
   // ── dice ────────────────────────────────────────────────────────────────────
   const onRoll = useCallback(
@@ -726,13 +959,6 @@ export default function PlayPage() {
 
   // ── scene advance (ADV-7T / CUI-12) ─────────────────────────────────────────
 
-  /** Refetch grounding after a scene advance so the Scene card updates. */
-  const refreshGrounding = useCallback(async () => {
-    if (!sessionId) return;
-    const g = await getGrounding(sessionId).catch(() => null);
-    setGrounding(g);
-  }, [sessionId]);
-
   /**
    * Handle an ADV-8 auto-advance (scene_advance != null on a combat response).
    * Surfaced as a system log beat + grounding refresh + DM narration.
@@ -746,10 +972,14 @@ export default function PlayPage() {
         text: `The scene shifts: ${fromScene} → ${toScene}${label}`,
       });
       await refreshGrounding();
+      // Kage #1 / Miko DEFECT-2: this beat only narrates a transition the
+      // caller's own scene_advance already performed server-side — suppress
+      // the server's INTENT classifier from advancing the scene AGAIN.
       void narrate(
         'The scene changes.',
         `Scene advance: ${fromScene} → ${toScene}. Narrate the transition.`,
         'act',
+        { suppressIntent: true },
       );
     },
     [appendLog, refreshGrounding, narrate],
@@ -767,6 +997,11 @@ export default function PlayPage() {
       // Without this, a race between the opening narration and a scene transition
       // leaves the opening_narrated marker unwritten → re-fires on the next mount.
       if (talking) return;
+      // Iro Ship 2 CRITICAL-1: capture BEFORE the await — refreshGrounding()
+      // below may recompute availableTransitions and unmount the clicked
+      // button, so this is the last reliable moment to know it had focus.
+      const hadFocusInTransitionWrap =
+        transitionWrapRef.current?.contains(document.activeElement) ?? false;
       try {
         // FIX-3: latch INSIDE the try so the finally always resets them.
         sceneAdvanceBusyRef.current = true;
@@ -778,10 +1013,15 @@ export default function PlayPage() {
           text: `The scene shifts: ${result.from_scene} → ${result.to_scene}`,
         });
         await refreshGrounding();
+        refocusSceneHeadIfStranded(hadFocusInTransitionWrap);
+        // Kage #1 / Miko DEFECT-2: advanceScene() above already moved the
+        // scene server-side — suppress the INTENT classifier from advancing
+        // it a second time off this confirmation beat.
         void narrate(
           'We move on.',
           `Scene advance: ${result.from_scene} → ${result.to_scene}. Narrate the transition.`,
           'act',
+          { suppressIntent: true },
         );
       } catch (err) {
         const status = (err as { status?: number } | null)?.status;
@@ -798,7 +1038,76 @@ export default function PlayPage() {
         setSceneAdvanceBusy(false);
       }
     },
-    [session, username, appendLog, refreshGrounding, narrate, toast],
+    [session, username, talking, appendLog, refreshGrounding, refocusSceneHeadIfStranded, narrate, toast],
+  );
+
+  /**
+   * P1-PLAYFIX §3.3.3 (S2.4) — check affordance handler ("Attempt: Survival (DC 12)").
+   * Resolves the authored check via the engine (DC + skill match are engine-side —
+   * the client only names the skill), narrates the real result, then MUST
+   * refreshGrounding() so the client learns any flag/auto-advance from the
+   * refreshed scene state rather than inferring it from the check response.
+   */
+  const checkBusyRef = useRef(false);
+
+  const onAttemptCheck = useCallback(
+    async (skill: string) => {
+      if (!session || !username || checkBusyRef.current || talking) return;
+      const skillLabel = titleCaseSkill(skill);
+      // Iro Ship 2 CRITICAL-1: capture BEFORE the await — refreshGrounding()
+      // below may recompute availableChecks and unmount the clicked button,
+      // so this is the last reliable moment to know it had focus.
+      const hadFocusInCheckWrap = checkWrapRef.current?.contains(document.activeElement) ?? false;
+      try {
+        checkBusyRef.current = true;
+        setCheckBusy(true);
+        const result = await resolveCheck(session.session_id, {
+          skill,
+          actor_username: username,
+          advantage: advantage === 'adv' ? true : undefined,
+          disadvantage: advantage === 'dis' ? true : undefined,
+        });
+        appendLog({ who: username, kind: 'system', text: result.description });
+        // refreshGrounding() BEFORE narrate() so the scene card / check row are
+        // already current when Suzu's beat lands (the engine may have set a
+        // flag and/or auto-advanced the scene — never assumed from `result`).
+        await refreshGrounding();
+        refocusSceneHeadIfStranded(hadFocusInCheckWrap);
+        // Kage #1 / Miko DEFECT-2: resolveCheck() above already resolved the
+        // check (and any resulting flag/auto-advance) server-side — suppress
+        // the INTENT classifier from acting on this confirmation beat too.
+        void narrate(`I attempt a ${skillLabel} check.`, result.mechanics, 'act', {
+          suppressIntent: true,
+        });
+      } catch (err) {
+        const status = (err as { status?: number } | null)?.status;
+        const body = (err as { body?: unknown } | null)?.body;
+        const reason = (body as { data?: { reason?: string } } | null)?.data?.reason;
+        if (status === 400 && reason === 'no_such_check') {
+          toast({ tone: 'info', message: `No ${skillLabel} check is available right now.` });
+        } else if (status === 400) {
+          toast({ tone: 'info', message: 'No authored adventure to check against.' });
+        } else if (status === 503) {
+          toast({ tone: 'info', message: 'Skill checks are not available right now.' });
+        } else {
+          toast({ tone: 'error', message: 'Could not resolve that check.' });
+        }
+      } finally {
+        checkBusyRef.current = false;
+        setCheckBusy(false);
+      }
+    },
+    [
+      session,
+      username,
+      talking,
+      advantage,
+      appendLog,
+      refreshGrounding,
+      refocusSceneHeadIfStranded,
+      narrate,
+      toast,
+    ],
   );
 
   // ── combat ──────────────────────────────────────────────────────────────────
@@ -1170,16 +1479,88 @@ export default function PlayPage() {
     ? combatState.encounter_id
     : null;
 
-  const availableTransitions = (combatState?.state !== 'active' && grounding?.transitions)
-    ? grounding.transitions.filter((t) => {
-        if (!t.requires_encounter_resolved) return true;
-        // If the encounter that gates this transition is resolved, allow it.
-        const enc = grounding.encounter_state as Record<string, { status?: string }> | null;
-        if (!enc) return false;
-        const st = enc[t.requires_encounter_resolved]?.status ?? '';
-        return st.startsWith('resolved_');
-      })
-    : [];
+  // P1-PLAYFIX-2 §A.3: memoized (not a plain const) — the new onSend
+  // keyword-fast-path useCallback below depends on this array, and a fresh
+  // array literal every render would recreate onSend every render too.
+  const availableTransitions = useMemo(
+    () =>
+      (combatState?.state !== 'active' && grounding?.transitions)
+        ? grounding.transitions.filter((t) => {
+            if (!t.requires_encounter_resolved) return true;
+            // If the encounter that gates this transition is resolved, allow it.
+            const enc = grounding.encounter_state as Record<string, { status?: string }> | null;
+            if (!enc) return false;
+            const st = enc[t.requires_encounter_resolved]?.status ?? '';
+            return st.startsWith('resolved_');
+          })
+        : [],
+    [combatState?.state, grounding],
+  );
+
+  // P1-PLAYFIX §3.3.3 (S2.4) — authored skill checks offered by the current scene.
+  // Same gating as "Move on": hidden during active combat (checks are an
+  // exploration-beat affordance). Rehydrates correctly on a fresh mount because
+  // it derives from `grounding`, which always reflects the CURRENT scene
+  // (never an assumed opening scene) — a resumed session lands mid-graph.
+  // P1-PLAYFIX-2 §A.3: memoized for the same reason as availableTransitions above.
+  const availableChecks = useMemo(
+    () => (combatState?.state !== 'active' ? (grounding?.checks ?? []) : []),
+    [combatState?.state, grounding],
+  );
+
+  // ── composer send ───────────────────────────────────────────────────────────
+  /**
+   * P1-PLAYFIX-2 §A.3/§A.4(c) — before falling through to narrate(), test the
+   * player's free-text against a bounded, conservative keyword fast-path
+   * SCOPED to the CURRENT scene's authored transitions (availableTransitions,
+   * derived from grounding just above). On an unambiguous match, route
+   * straight to the existing onMoveOn handler and skip narrate() entirely for
+   * this beat — mutual exclusivity with the server's INTENT classifier is
+   * required: onMoveOn does its own narrate() call with real mechanics
+   * (suppress_intent:true), so calling narrate() here too would
+   * double-advance the beat. On no confident match (including any
+   * ambiguous/roleplay text, AND any check-implying text — P1-PLAYFIX-2 gate
+   * fix, Kage #3 / Miko DEFECT-1: checks are never fast-pathed, see
+   * intentFastPath.ts), fall through to narrate() — the server's INTENT
+   * classifier there is what invites a check in-fiction via `offered_check`,
+   * never an auto-roll.
+   *
+   * Placed after onMoveOn/availableTransitions in source order deliberately —
+   * this callback's dependency array names both, which must already be
+   * declared (`const`/`useCallback`) by this point in the component body.
+   */
+  const onSend = useCallback(() => {
+    const text = msg.trim();
+    if (!text || talking) return;
+    // S5.2: DM narration mode is handled by its own async submit handler.
+    if (mode === 'dm_narration') {
+      void onSendDmNarration();
+      return;
+    }
+    setMsg('');
+    if (mode === 'ooc') {
+      appendLog({ who: username ?? 'You', kind: 'system', text: `(ooc) ${text}` });
+      return;
+    }
+    appendLog({ who: username ?? 'You', kind: 'player', text, color: 'var(--accent)' });
+
+    const intent = matchKeywordIntent(text, availableTransitions);
+    if (intent?.type === 'transition') {
+      void onMoveOn(intent.to);
+      return;
+    }
+    void narrate(text, '', mode);
+  }, [
+    msg,
+    talking,
+    mode,
+    username,
+    appendLog,
+    narrate,
+    onSendDmNarration,
+    availableTransitions,
+    onMoveOn,
+  ]);
 
   // ── render states ───────────────────────────────────────────────────────────
   if (state === 'loading') return <PageSkeleton />;
@@ -1488,8 +1869,14 @@ export default function PlayPage() {
         {/* FIX-8 (MEDIUM-1): aria-label surfaces the scene name to AT so the
             "Scene" kicker (now aria-hidden) doesn't duplicate it on screen readers.
             Scene name rendered as <p> (block element) so AT pauses between the
-            name and objective. */}
+            name and objective.
+            Iro Ship 2 CRITICAL-1: tabIndex={-1} + ref makes this a programmatic
+            focus anchor — refocusSceneHeadIfStranded() lands here when a
+            resolved check / taken transition unmounts the control the user
+            was just on. */}
         <div
+          ref={sceneHeadRef}
+          tabIndex={-1}
           className={styles.sceneHead}
           aria-label={grounding?.scene_name ? `Scene: ${grounding.scene_name}` : 'Scene'}
         >
@@ -1644,10 +2031,70 @@ export default function PlayPage() {
           </button>
         ) : null}
 
+        {/* P1-PLAYFIX §3.3.3 (S2.4): authored skill-check affordances — shown only
+            when the current scene offers checks and no combat is active. When a
+            scene offers two skills for one outcome (e.g. Stealth OR Survival),
+            both render as alternative buttons; either resolves the beat.
+            Iro Ship 2 MINOR-2: role="group" + aria-label mirrors the existing
+            .outcomeChooser group pattern above. */}
+        {availableChecks.length > 0 && (
+          <div ref={checkWrapRef} className={styles.checkWrap} role="group" aria-label="Skill check">
+            <div className={styles.checkLabel}>Skill check</div>
+            {availableChecks.map((c) => {
+              // Iro MINOR-1: a scene authoring two checks with the same skill
+              // (different DC) collided on `c.skill` alone for key/noteId/
+              // offeredId. Key by skill+dc — stable and unique per authored
+              // check within a scene.
+              const checkKey = `${c.skill}-${c.dc}`;
+              // Iro Ship 2 MAJOR-1: `note` was only reachable via native title=
+              // (not reliably announced by AT, invisible on touch). Mirror the
+              // outcomeChooser's sr-only + aria-describedby pattern instead.
+              const noteId = c.note ? `check-note-${checkKey}` : undefined;
+              // P1-PLAYFIX-2 §A.5/§A.6 — highlight the check Suzu invited this
+              // turn. A second sr-only span (not color alone) carries the
+              // invite to screen readers; toast() already announced it once
+              // via aria-live when the offer landed (see narrate()).
+              const isOffered = c.skill === offeredCheckSkill;
+              const offeredId = isOffered ? `check-offered-${checkKey}` : undefined;
+              const describedBy = [offeredId, noteId].filter(Boolean).join(' ') || undefined;
+              return (
+                <button
+                  key={checkKey}
+                  type="button"
+                  className={`${styles.checkBtn} ${isOffered ? styles.checkBtnOffered : ''}`}
+                  onClick={() => void onAttemptCheck(c.skill)}
+                  disabled={checkBusy || talking}
+                  aria-busy={checkBusy || talking}
+                  aria-disabled={checkBusy || talking}
+                  aria-describedby={describedBy}
+                  title={c.note}
+                >
+                  <Icon name="Check" size={13} aria-hidden />
+                  {/* Iro Ship 2 MINOR-1: comma reads better in AT/TTS than parens. */}
+                  {`Attempt ${titleCaseSkill(c.skill)}, DC ${c.dc}`}
+                  {isOffered && (
+                    <span id={offeredId} className="sr-only">Suzu invited this check.</span>
+                  )}
+                  {c.note && (
+                    <span id={noteId} className="sr-only">{c.note}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {/* ADV-7T: "Move on" affordance — shown only when transitions are available
-            and no combat is active. */}
+            and no combat is active.
+            Iro Ship 2 MINOR-2: role="group" + aria-label mirrors the existing
+            .outcomeChooser group pattern above. */}
         {availableTransitions.length > 0 && (
-          <div className={styles.moveOnWrap}>
+          <div
+            ref={transitionWrapRef}
+            className={styles.moveOnWrap}
+            role="group"
+            aria-label="Scene transition"
+          >
             <div className={styles.moveOnLabel}>Scene transition</div>
             {availableTransitions.map((t) => (
               <button

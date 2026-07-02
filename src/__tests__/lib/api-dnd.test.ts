@@ -36,6 +36,7 @@ import {
   listSessions,
   getSession,
   getSessionEvents,
+  getSessionEventsRaw,
   joinSession,
   pauseSession,
   resumeSession,
@@ -54,6 +55,7 @@ import {
   restoreSession,
   getGrounding,
   getCombatState,
+  resolveCheck,
 } from '../../lib/api/dnd';
 
 // ---------------------------------------------------------------------------
@@ -387,6 +389,77 @@ describe('Session listing (ST-033 / ST-041 / ST-044)', () => {
     expect(events![0].description).toBe('primary text');
   });
 
+  // ── PLAY-PERSIST §6.1 — raw reader for rehydration ─────────────────────────
+
+  it('getSessionEventsRaw — GET /api/dnd/sessions/:id/events, preserves raw shape (seq/kind/data/actor/created_at)', async () => {
+    mockData({
+      events: [
+        {
+          seq: 5,
+          kind: 'player_action',
+          actor: 'leon',
+          visibility: 'table',
+          data: { who: 'leon', text: 'I push open the door.', log_kind: 'player', mode: 'act' },
+          created_at: '2026-07-01T10:00:00Z',
+        },
+        {
+          seq: 6,
+          kind: 'narration',
+          actor: 'leon',
+          visibility: 'table',
+          data: { who: 'Suzu', text: 'The door creaks open.', log_kind: 'narration' },
+          created_at: '2026-07-01T10:00:05Z',
+        },
+      ],
+    });
+    const events = await getSessionEventsRaw('s1');
+    const { url, method } = lastCall();
+    expect(url).toBe('/api/dnd/sessions/s1/events');
+    expect(method).toBe('GET');
+    // Raw shape preserved — unlike getSessionEvents, `data` is NOT dropped/flattened.
+    expect(events).toEqual([
+      {
+        seq: 5,
+        kind: 'player_action',
+        actor: 'leon',
+        visibility: 'table',
+        data: { who: 'leon', text: 'I push open the door.', log_kind: 'player', mode: 'act' },
+        created_at: '2026-07-01T10:00:00Z',
+      },
+      {
+        seq: 6,
+        kind: 'narration',
+        actor: 'leon',
+        visibility: 'table',
+        data: { who: 'Suzu', text: 'The door creaks open.', log_kind: 'narration' },
+        created_at: '2026-07-01T10:00:05Z',
+      },
+    ]);
+  });
+
+  it('getSessionEventsRaw returns [] when events array is empty', async () => {
+    mockData({ events: [] });
+    const events = await getSessionEventsRaw('s1');
+    expect(events).toEqual([]);
+  });
+
+  it('getSessionEventsRaw returns null on 404 (engine unreachable sentinel)', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'not found' }), {
+        status: 404,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const events = await getSessionEventsRaw('unknown-id');
+    expect(events).toBeNull();
+  });
+
+  it('getSessionEventsRaw returns null on network error (engine unreachable sentinel)', async () => {
+    mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+    const events = await getSessionEventsRaw('s1');
+    expect(events).toBeNull();
+  });
+
   it('listMyCharacters — GET /api/dnd/characters?username=, unwraps .characters', async () => {
     mockData({ characters: [{ character_id: 'c1', name: 'Velka' }] });
     const out = await listMyCharacters('leon');
@@ -601,6 +674,146 @@ describe('getGrounding — nested→flat normalization', () => {
     mockFetch.mockRejectedValue(new Error('boom'));
     const g = await getGrounding('sess1');
     expect(g).toBeNull();
+  });
+
+  // P1-PLAYFIX §3.4 / C8 — grounding surfaces current_scene.checks[], stripped
+  // to {skill, dc, note}. on_success/on_failure must NEVER reach the client
+  // shape even when the engine's wire payload includes them (authored
+  // branching stays opaque to the browser).
+  it('maps current_scene.checks[] to {skill, dc, note}, stripping on_success/on_failure', async () => {
+    mockFetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            current_scene: {
+              id: 'navigate',
+              title: 'Finding Your Bearings',
+              checks: [
+                {
+                  skill: 'survival',
+                  dc: 12,
+                  on_success: 'everfree_bearings_found',
+                  on_failure: 'everfree_lost',
+                  note: 'Read the canopy for a path.',
+                },
+              ],
+            },
+            campaign: { progress: {} },
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    const g = await getGrounding('sess1');
+    expect(g!.checks).toEqual([
+      { skill: 'survival', dc: 12, note: 'Read the canopy for a path.' },
+    ]);
+    const check = g!.checks![0] as unknown as Record<string, unknown>;
+    expect(check['on_success']).toBeUndefined();
+    expect(check['on_failure']).toBeUndefined();
+  });
+
+  it('handles a scene offering two alternative checks for one outcome (timberwolf: Stealth OR Survival)', async () => {
+    mockFetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            current_scene: {
+              id: 'timberwolf',
+              checks: [
+                { skill: 'stealth', dc: 12, on_success: 'slipped_past_wolf' },
+                { skill: 'survival', dc: 12, on_success: 'slipped_past_wolf' },
+              ],
+            },
+            campaign: { progress: {} },
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    const g = await getGrounding('sess1');
+    expect(g!.checks).toEqual([
+      { skill: 'stealth', dc: 12 },
+      { skill: 'survival', dc: 12 },
+    ]);
+  });
+
+  it('defaults checks to [] when the scene has none', async () => {
+    mockFetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: { current_scene: { id: 'fork' }, campaign: { progress: {} } },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    const g = await getGrounding('sess1');
+    expect(g!.checks).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveCheck (P1-PLAYFIX §3.3.1/3.3.3 — S2.4)
+// Mirrors advanceScene: same fetch pattern, same route convention.
+// ---------------------------------------------------------------------------
+
+describe('resolveCheck (P1-PLAYFIX check-resolution client fn)', () => {
+  it('POST /api/dnd/sessions/{id}/check with the skill + actor_username body', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            skill: 'survival',
+            dc: 12,
+            total: 15,
+            success: true,
+            flag_set: ['everfree_bearings_found'],
+            mechanics: 'Survival check vs DC 12: rolled 15 — SUCCESS.',
+            description: 'Survival check (DC 12): 15 — success.',
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    const result = await resolveCheck('sess1', { skill: 'survival', actor_username: 'leon' });
+    const { url, method, body } = lastCall();
+    expect(url).toBe('/api/dnd/sessions/sess1/check');
+    expect(method).toBe('POST');
+    expect(body).toMatchObject({ skill: 'survival', actor_username: 'leon' });
+    expect(result).toMatchObject({ skill: 'survival', dc: 12, total: 15, success: true });
+    expect(result.flag_set).toEqual(['everfree_bearings_found']);
+  });
+
+  it('passes optional advantage/disadvantage flags in the request body', async () => {
+    await resolveCheck('sess1', {
+      skill: 'stealth',
+      actor_username: 'leon',
+      advantage: true,
+    });
+    const { body } = lastCall();
+    expect(body).toMatchObject({ skill: 'stealth', actor_username: 'leon', advantage: true });
+  });
+
+  it('encodes the session id in the URL', async () => {
+    await resolveCheck('sess with spaces', { skill: 'survival', actor_username: 'leon' });
+    const { url } = lastCall();
+    expect(url).toBe('/api/dnd/sessions/sess%20with%20spaces/check');
+  });
+
+  it('propagates a 400 no_such_check ApiError to the caller', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ success: false, error: 'no_such_check', data: { reason: 'no_such_check' } }),
+        { status: 400, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    await expect(
+      resolveCheck('sess1', { skill: 'perception', actor_username: 'leon' }),
+    ).rejects.toMatchObject({ status: 400 });
   });
 });
 

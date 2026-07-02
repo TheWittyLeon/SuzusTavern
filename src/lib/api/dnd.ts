@@ -30,8 +30,12 @@ import type {
   Inventory,
   NpcActionRequest,
   NpcActionResult,
+  OpeningLine,
   OverrideResult,
   Participant,
+  ResolveCheckRequest,
+  ResolveCheckResult,
+  SceneCheck,
   Session,
   SessionEvent,
   SessionPolicyRequest,
@@ -226,6 +230,28 @@ export const getSessionEvents = (sessionId: string, signal?: AbortSignal) =>
     // FIX-4: return null on error (sentinel) so checkShouldOpen can
     // distinguish "no events" from "engine unreachable → don't open".
     .catch(() => null as SessionEvent[] | null);
+
+/**
+ * PLAY-PERSIST §6.1 — raw session events reader (rehydration).
+ *
+ * Unlike getSessionEvents (which flattens to the recap-shaped SessionEvent and
+ * DROPS `data`), this returns the RAW engine event shape — `seq`, `kind`,
+ * `actor`, `visibility`, `data`, `created_at` all intact — so the play screen
+ * can rebuild real LogRow content (player_action/narration/dm_narration/etc.)
+ * on mount. Do NOT reuse/modify getSessionEvents — the recap feature depends
+ * on its current flattened shape.
+ *
+ * Returns null on error (engine unreachable) — same resilient sentinel
+ * convention as getSessionEvents. Callers must treat null as "skip
+ * rehydration, render what we have" rather than crash.
+ */
+export const getSessionEventsRaw = (sessionId: string, signal?: AbortSignal) =>
+  apiCall<{ events: EngineSessionEvent[] }>(
+    `/api/dnd/sessions/${encodeURIComponent(sessionId)}/events`,
+    { method: 'GET', signal },
+  )
+    .then((d) => d.events ?? [])
+    .catch(() => null as EngineSessionEvent[] | null);
 
 /**
  * A1 — Write a durable session event via the proxy passthrough.
@@ -513,14 +539,44 @@ export const setFlag = (sessionId: string, req: SetFlagRequest, signal?: AbortSi
   );
 
 /**
+ * P1-PLAYFIX §3.3.1/3.3.3 — resolve an authored skill check (Ship 2 / S2.4).
+ * POST /api/dnd/sessions/{sessionId}/check
+ *
+ * Mirrors advanceScene exactly: same fetch pattern (apiCall), same cookie-BFF
+ * auth path, same error handling, same `/api/dnd/sessions/{id}/…` route
+ * convention. The engine resolves the DC + skill match against the current
+ * scene's authored checks — the client only names which skill is attempted.
+ *
+ * After a check resolves, the CLIENT MUST call refreshGrounding() — the
+ * engine may have set a flag and/or auto-advanced the scene; the new state is
+ * learned from the refreshed grounding, never from this response.
+ *
+ * Throws ApiError on:
+ *   400 reason='no_such_check'    — the current scene has no check for that skill
+ *   400 reason='freeform_session' — no authored adventure on this session
+ *   503                            — msm flag is off
+ */
+export const resolveCheck = (
+  sessionId: string,
+  req: ResolveCheckRequest,
+  signal?: AbortSignal,
+) =>
+  apiCall<ResolveCheckResult>(
+    `/api/dnd/sessions/${encodeURIComponent(sessionId)}/check`,
+    { method: 'POST', json: req, signal },
+  );
+
+/**
  * Normalize the engine's nested grounding payload into the flat GroundingData
  * the play screen consumes. The engine returns `current_scene.{id,title,
- * boxed_text,objective,transitions}`, `adventure.{title,hook}`, and
+ * boxed_text,objective,transitions,checks}`, `adventure.{title,hook}`, and
  * `campaign.progress.{flags,encounter_state}`; the UI reads the flat shape.
  *
  * A1: exposes `hook` (adventure.hook), `adventure_title` (adventure.title),
  *     and `objective` (current_scene.objective) so the opening beat and scene
  *     card have them without a second round-trip.
+ * P1-PLAYFIX §3.4: exposes `checks` (current_scene.checks) stripped down to
+ *     {skill, dc, note} — see the `checks:` mapping below.
  */
 const normalizeGrounding = (raw: unknown): GroundingData | null => {
   if (!raw || typeof raw !== 'object') return null;
@@ -537,11 +593,31 @@ const normalizeGrounding = (raw: unknown): GroundingData | null => {
     boxed_text: scene.boxed_text,
     objective: scene.objective,
     transitions: Array.isArray(scene.transitions) ? scene.transitions : [],
+    // P1-PLAYFIX §3.4: surface only {skill, dc, note} — the authored scene may
+    // (and does) carry on_success/on_failure flag names on the wire, but the
+    // client type/shape never exposes them. Never spread the raw check object.
+    checks: Array.isArray(scene.checks)
+      ? scene.checks.map(
+          // scene is already `Record<string, any>` (see the r.adventure note
+          // above), so `c` is implicitly `any` here — no new explicit `any`
+          // annotation needed.
+          (c): SceneCheck => ({
+            skill: c.skill,
+            dc: c.dc,
+            ...(c.note ? { note: c.note } : {}),
+          }),
+        )
+      : [],
     flags: progress.flags ?? {},
     encounter_state: progress.encounter_state ?? {},
     // A1: adventure-level fields for opening scene
     hook: adventure.hook,
     adventure_title: adventure.title,
+    // P1-READALOUD: projected NPC opening lines (engine guarantees the key is present;
+    // default [] when the scene has none or the engine is pre-READALOUD).
+    opening_lines: Array.isArray(scene.opening_lines)
+      ? (scene.opening_lines as OpeningLine[])
+      : [],
   };
 };
 

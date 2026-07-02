@@ -124,6 +124,68 @@
   font-size: 13px;
 }
 
+/* ── P1-READALOUD: verbatim scene-set block ─────────────────────────────────
+   Parchment-tint background + left accent border + "READ ALOUD" small-caps
+   gutter label. Uses design-token colours only; works across all data-vibe
+   palettes. No reveal animation — authored text appears instantly. */
+
+.read_aloud {
+  background: color-mix(in oklab, var(--accent) 8%, var(--bg-2));
+  border-left: 3px solid var(--accent);
+  border-radius: 0 4px 4px 0;
+  padding: 10px 12px 10px 14px;
+  gap: 6px;
+}
+
+.readAloudLabel {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-variant: small-caps;
+  color: var(--accent);
+  opacity: 0.85;
+}
+
+.read_aloud .what {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--ink);
+  font-style: italic;
+  white-space: pre-wrap;
+}
+
+.read_aloud .ts {
+  font-size: 10px;
+  font-weight: 400;
+  font-family: var(--font-mono);
+  color: var(--ink-3);
+  align-self: flex-end;
+}
+
+/* ── P1-READALOUD: scripted NPC opening line ────────────────────────────────
+   Speaker name in --accent, dialogue italic and indented. Visually: this is
+   "an NPC speaking aloud at table-set time", not a narration beat. */
+
+.read_aloud_line {
+  padding-left: 14px;
+  border-left: 2px solid color-mix(in oklab, var(--accent) 30%, transparent);
+}
+
+.readAloudSpeaker {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.readAloudDialogue {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ink);
+  font-style: italic;
+  padding-left: 6px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .log {
     scroll-behavior: auto;

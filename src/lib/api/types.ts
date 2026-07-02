@@ -521,6 +521,30 @@ export interface SceneTransition {
   requires_encounter_resolved?: string;
 }
 
+/** P1-READALOUD: one authored read-aloud NPC dialogue line for the opening beat.
+ *  Speaker display name is resolved server-side by project_opening_line_for_wire(). */
+export interface OpeningLine {
+  /** The author's NPC reference (bare id or content_ref e.g. 'dnd5e:npc:mira'). */
+  npc_ref: string;
+  /** Verbatim authored dialogue (≤400 chars). */
+  line: string;
+  /** Resolved display name — engine resolves from npcs_present[], falls back
+   *  to slug humanisation ('rainbow-dash' → 'Rainbow Dash'). */
+  speaker_display_name: string;
+}
+
+/**
+ * P1-PLAYFIX §3.4 — an authored skill check offered by the current scene.
+ * Deliberately omits `on_success`/`on_failure` (the authored flag names): the
+ * client only needs to know WHICH skill can be attempted, never what flag it
+ * sets. Authored branching stays opaque to the browser (C8).
+ */
+export interface SceneCheck {
+  skill: string;
+  dc: number;
+  note?: string;
+}
+
 /** Grounding data for the current session / scene (ADV-5). */
 export interface GroundingData {
   scene_id?: string;
@@ -531,6 +555,8 @@ export interface GroundingData {
   objective?: string;
   /** Available transitions from the current scene. */
   transitions?: SceneTransition[];
+  /** P1-PLAYFIX §3.4 — authored skill checks offered by the current scene. */
+  checks?: SceneCheck[];
   /** Progress flags. */
   flags?: Record<string, unknown>;
   /** Current encounter state (null when no encounter active or resolved). */
@@ -539,6 +565,10 @@ export interface GroundingData {
   hook?: string;
   /** Adventure title (A1 — AI-off opening header). */
   adventure_title?: string;
+  /** P1-READALOUD: optional authored NPC dialogue for the opening beat.
+   *  Always an array (empty when the scene has none). Projected server-side via
+   *  project_opening_line_for_wire(); each entry carries speaker_display_name. */
+  opening_lines?: OpeningLine[];
   [k: string]: unknown;
 }
 
@@ -561,6 +591,38 @@ export interface AdvanceSceneResult {
 export interface SetFlagRequest {
   flag: string;
   value: unknown;
+}
+
+/**
+ * P1-PLAYFIX §3.3.1 — request body for POST /api/dnd/sessions/{id}/check.
+ * DC and skill-vs-scene matching are resolved engine-side from the authored
+ * adventure — the client only names which skill it is attempting. Advantage/
+ * disadvantage are optional player-declared dice modifiers.
+ */
+export interface ResolveCheckRequest {
+  skill: string;
+  actor_username: string;
+  advantage?: boolean;
+  disadvantage?: boolean;
+}
+
+/**
+ * Response from POST /api/dnd/sessions/{id}/check.
+ * `mechanics` is the narrator-ready roll string; `description` is the
+ * recap-ready sentence (also persisted as the `check_resolved` event's
+ * data.description). `flag_set` names whatever flag THIS resolution actually
+ * wrote — distinct from SceneCheck (grounding), which never reveals which
+ * flag an unresolved check *would* set; the branching stays opaque until
+ * it has actually happened.
+ */
+export interface ResolveCheckResult {
+  skill: string;
+  dc: number;
+  total: number;
+  success: boolean;
+  flag_set: string[];
+  mechanics: string;
+  description: string;
 }
 
 /**
@@ -629,8 +691,44 @@ export interface AdventureCatalogItem {
 }
 
 // ── Narration SSE ──────────────────────────────────────────────────────────
+
+/**
+ * P1-PLAYFIX-2 §A.5 — an authored skill check the server's INTENT classifier
+ * invited this turn (the DM calls for it; the player rolls — never auto-roll).
+ * `dc` is informational only; the engine's `/check` route is still the sole
+ * authority on the actual DC.
+ */
+export interface OfferedCheck {
+  skill: string;
+  dc?: number;
+}
+
 export type NarrationEvent =
-  | { kind: 'chunk'; text: string }
+  | {
+      kind: 'chunk';
+      text: string;
+      /**
+       * P1-PLAYFIX-2 §A.5/§A.7 — FORWARD-COMPATIBLE, pending A.2 (NN
+       * `api/routes/narration.py`, a parallel work item not yet landed as of
+       * this edit). Present once the server validates a check-intent from
+       * the model's `INTENT:` line against the current scene's authored
+       * checks. Field name (`offered_check`/`{skill,dc}`) is an assumption
+       * sourced from the design doc — reconcile against the real A.2
+       * payload once it ships. Absent today; consumers must treat absence
+       * as "no offer", never assume one.
+       */
+      offeredCheck?: OfferedCheck;
+      /**
+       * A.2 reconciliation (real `api/routes/narration.py` + `core/intent_router.py`
+       * contract, confirmed post-landing) — `true` when the server-side INTENT
+       * classifier executed a scene transition on THIS turn. Distinct from the
+       * combat `CombatSceneAdvance` wire shape (`{from_scene, to_scene}`) used
+       * elsewhere on the play page — the narration contract is flat fields.
+       */
+      sceneAdvanced?: boolean;
+      /** The scene id the server advanced to; null/absent when sceneAdvanced is falsy. */
+      advancedTo?: string | null;
+    }
   | { kind: 'done' }
   /** error: upstream error string. reason: structured cause when the backend
    *  sends one (e.g. 'ai_off' = table intentionally running without AI,
@@ -660,6 +758,16 @@ export interface DmNarrationRequest {
   session_id?: string;
   /** A1 — beat kind. 'opening' = system-authored scene open; default 'beat'. */
   kind?: 'beat' | 'opening';
+  /**
+   * P1-PLAYFIX-2 gate fix (Kage #1 / Miko DEFECT-2) — true ONLY on the
+   * client's own synthetic confirmation beats (the `narrate()` call an
+   * already-completed onMoveOn/onAttemptCheck/handleSceneAdvance fires to
+   * narrate what just happened). Tells the server's INTENT classifier not to
+   * advance the scene AGAIN for this beat — the advance already happened via
+   * its own dedicated endpoint (advanceScene / resolveCheck). Default false;
+   * real player-action beats never set this.
+   */
+  suppress_intent?: boolean;
 }
 
 /** A1 — request body for POST /api/dnd/sessions/{id}/events (proxy passthrough). */

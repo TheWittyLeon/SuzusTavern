@@ -26,6 +26,13 @@ export interface RecapResult {
   lines: string[];
   /** Plain-text facts for grounding an optional AI summary (never fabricated). */
   facts: string;
+  /**
+   * True ONLY when `lines`/`facts` were derived from real play `session_events`
+   * (not session metadata). The AI "previously on" narration must gate on this —
+   * a fresh session with only metadata has no history to recap, and narrating
+   * from metadata alone makes the LLM fabricate a nonexistent past.
+   */
+  fromEvents: boolean;
 }
 
 // Event types worth surfacing in a recap (A3 - real engine event kinds).
@@ -85,17 +92,20 @@ export function buildRecap(
       lines: eventLines,
       // Anchor the AI grounding to the campaign on the event path too (Kage).
       facts: `${sessionTitle(session)}: ${eventLines.join(' ')}`,
+      fromEvents: true,
     };
   }
 
   const meta = metadataLines(session);
   if (meta.length === 0) {
-    return { empty: true, headline: 'Your story starts here', lines: [], facts: '' };
+    return { empty: true, headline: 'Your story starts here', lines: [], facts: '', fromEvents: false };
   }
   return {
     empty: false,
     headline: 'Where you left off',
     lines: meta,
     facts: `${sessionTitle(session)}: ${meta.join(' ')}`,
+    // Metadata-only: NOT real play history. The AI recap must not narrate from this.
+    fromEvents: false,
   };
 }

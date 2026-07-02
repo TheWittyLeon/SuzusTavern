@@ -36,6 +36,7 @@ jest.mock('../../lib/api/dnd', () => ({
   getCatalog: jest.fn(),
   getSession: jest.fn(),
   getSessionEvents: jest.fn(() => Promise.resolve([])),
+  getSessionEventsRaw: jest.fn(() => Promise.resolve(null)),
   getParticipants: jest.fn(),
   getGrounding: jest.fn(() => Promise.resolve(null)),
   getCombatState: jest.fn(() => Promise.resolve(null)),

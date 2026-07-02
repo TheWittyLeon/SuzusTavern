@@ -41,6 +41,7 @@ jest.mock('../../lib/useReducedMotion', () => ({
 jest.mock('../../lib/api/dnd', () => ({
   getSession: jest.fn(),
   getSessionEvents: jest.fn(() => Promise.resolve([])),
+  getSessionEventsRaw: jest.fn(() => Promise.resolve(null)),
   getParticipants: jest.fn(),
   getGrounding: jest.fn(),
   getCombatState: jest.fn(),

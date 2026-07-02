@@ -169,6 +169,53 @@
   cursor: not-allowed;
 }
 
+/* ── Skill-check affordance (P1-PLAYFIX §3.3.3 / S2.4) ── */
+.checkWrap {
+  margin-bottom: 16px;
+}
+
+.checkLabel {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 6px;
+}
+
+.checkBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in oklab, var(--warn) 40%, transparent);
+  background: color-mix(in oklab, var(--warn) 10%, transparent);
+  color: var(--ink);
+  font-size: 13px;
+  cursor: pointer;
+  margin-bottom: 6px;
+}
+
+.checkBtn:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--warn) 18%, transparent);
+}
+
+.checkBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* P1-PLAYFIX-2 §A.5/§A.6 — the check Suzu invited this turn. Border + shadow
+   (not color alone) so the cue survives grayscale/contrast modes; pairs with
+   the sr-only "Suzu invited this check." span + a toast announcement. */
+.checkBtnOffered {
+  border: 2px solid var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 25%, transparent);
+}
+
 /* ── "Move on" affordance (ADV-7T) ── */
 .moveOnWrap {
   margin-bottom: 16px;

@@ -19,3 +19,12 @@ if (typeof window !== 'undefined') {
     })),
   });
 }
+
+// jsdom does not implement Element.scrollIntoView. Several components call it
+// (via rAF, e.g. the play page's check-invite focus-catch) — without a stub
+// this throws an uncaught exception inside the animation-frame callback that
+// jsdom reports against whichever test happens to be running when the frame
+// fires, producing order-dependent flakes unrelated to the calling test.
+if (typeof Element !== 'undefined' && !Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = jest.fn();
+}

@@ -47,6 +47,7 @@ const mockNpcAction = jest.fn();
 type AnyFn = (...args: any[]) => any;
 const mockGetSession = jest.fn<Promise<unknown>, unknown[]>();
 const mockGetSessionEvents = jest.fn<Promise<unknown[]>, unknown[]>(() => Promise.resolve([]));
+const mockGetSessionEventsRaw = jest.fn<Promise<unknown[] | null>, unknown[]>(() => Promise.resolve(null));
 const mockGetParticipants = jest.fn<Promise<unknown>, unknown[]>();
 const mockGetGrounding = jest.fn<Promise<unknown>, unknown[]>(() => Promise.resolve(null));
 const mockGetCombatState = jest.fn<Promise<unknown>, unknown[]>(() => Promise.resolve(null));
@@ -60,6 +61,7 @@ const mockEndCombat = jest.fn();
 jest.mock('../../lib/api/dnd', () => ({
   getSession: (...args: Parameters<AnyFn>) => mockGetSession(...args),
   getSessionEvents: (...args: Parameters<AnyFn>) => mockGetSessionEvents(...args),
+  getSessionEventsRaw: (...args: Parameters<AnyFn>) => mockGetSessionEventsRaw(...args),
   getParticipants: (...args: Parameters<AnyFn>) => mockGetParticipants(...args),
   getGrounding: (...args: Parameters<AnyFn>) => mockGetGrounding(...args),
   getCombatState: (...args: Parameters<AnyFn>) => mockGetCombatState(...args),

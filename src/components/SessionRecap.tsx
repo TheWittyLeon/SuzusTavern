@@ -51,7 +51,9 @@ export default function SessionRecap({ session, username, variant = 'card' }: Se
   // 'off'/undefined ⇒ no narration request at all (the interlock guarantee).
   useEffect(() => {
     const level = session.ai_assist_level;
-    if (!recap || recap.empty || !recap.facts) return;
+    // Gate on fromEvents: never narrate a "previously on" from metadata alone —
+    // a fresh session has no past, and the LLM would fabricate one.
+    if (!recap || recap.empty || !recap.facts || !recap.fromEvents) return;
     if (level !== 'full' && level !== 'assist') return;
     if (!username) return;
     const ctrl = new AbortController();
@@ -80,6 +82,11 @@ export default function SessionRecap({ session, username, variant = 'card' }: Se
   }, [recap, session, username]);
 
   if (dismissed || !recap) return null;
+  // Play-screen strip: only show when there's REAL play history. A fresh session
+  // (metadata-only) shows nothing here — the scene's read-aloud opening is the
+  // player's starting point, not a "where you left off" strip. The dashboard
+  // `card` variant still surfaces the metadata digest.
+  if (variant === 'strip' && !recap.fromEvents) return null;
 
   const headId = `${uid}-head`;
   const bodyId = `${uid}-body`;
