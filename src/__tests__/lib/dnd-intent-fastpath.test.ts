@@ -171,3 +171,177 @@ describe('matchKeywordIntent — word-boundary safety (no substring phrase-hijac
     ).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// P1-PLAYFIX-3 — broadened MOVE_ON_PHRASES (verb-anchored locomotion/advance
+// phrases). Single-transition scene throughout this block.
+// ---------------------------------------------------------------------------
+describe('matchKeywordIntent — P1-PLAYFIX-3 broadened MOVE_ON_PHRASES (positive)', () => {
+  it('"I head towards the sound of water" routes to the sole transition (acceptance phrasing)', () => {
+    expect(
+      matchKeywordIntent('I head towards the sound of water', [SINGLE_TRANSITION]),
+    ).toEqual({ type: 'transition', to: 'slice_everfree_navigate' });
+  });
+
+  it('"I make my way down the path" routes to the sole transition', () => {
+    expect(
+      matchKeywordIntent('I make my way down the path', [SINGLE_TRANSITION]),
+    ).toEqual({ type: 'transition', to: 'slice_everfree_navigate' });
+  });
+
+  it('"I press forward" routes to the sole transition', () => {
+    expect(matchKeywordIntent('I press forward', [SINGLE_TRANSITION])).toEqual({
+      type: 'transition',
+      to: 'slice_everfree_navigate',
+    });
+  });
+
+  it('"I press onward, deeper into the trees" routes via the "onward" phrase', () => {
+    expect(
+      matchKeywordIntent('I press onward, deeper into the trees', [SINGLE_TRANSITION]),
+    ).toEqual({ type: 'transition', to: 'slice_everfree_navigate' });
+  });
+
+  it('"let\'s keep going" routes to the sole transition', () => {
+    expect(matchKeywordIntent("let's keep going", [SINGLE_TRANSITION])).toEqual({
+      type: 'transition',
+      to: 'slice_everfree_navigate',
+    });
+  });
+
+  it('"onward" routes to the sole transition', () => {
+    expect(matchKeywordIntent('onward', [SINGLE_TRANSITION])).toEqual({
+      type: 'transition',
+      to: 'slice_everfree_navigate',
+    });
+  });
+
+  it('"push on" still routes to the sole transition (pre-existing phrase, regression guard)', () => {
+    expect(matchKeywordIntent('push on', [SINGLE_TRANSITION])).toEqual({
+      type: 'transition',
+      to: 'slice_everfree_navigate',
+    });
+  });
+
+  it('"head on" still routes to the sole transition (pre-existing phrase, regression guard)', () => {
+    expect(matchKeywordIntent('head on', [SINGLE_TRANSITION])).toEqual({
+      type: 'transition',
+      to: 'slice_everfree_navigate',
+    });
+  });
+});
+
+describe('matchKeywordIntent — P1-PLAYFIX-3 excluded-phrase discipline (negative, must return null)', () => {
+  it('"I look around" does not hijack — looking is not movement', () => {
+    expect(matchKeywordIntent('I look around', [SINGLE_TRANSITION])).toBeNull();
+  });
+
+  it('"I pause, unsettled by how wrong this feels" does not hijack', () => {
+    expect(
+      matchKeywordIntent(
+        'I pause, unsettled by how wrong this feels',
+        [SINGLE_TRANSITION],
+      ),
+    ).toBeNull();
+  });
+
+  it('"I glance toward the shadows" does not hijack — bare "toward" is excluded, not verb-anchored', () => {
+    expect(
+      matchKeywordIntent('I glance toward the shadows', [SINGLE_TRANSITION]),
+    ).toBeNull();
+  });
+
+  it('"I follow her gaze" does not hijack — bare "follow" is excluded (fork-label word, not in MOVE_ON_PHRASES)', () => {
+    expect(matchKeywordIntent('I follow her gaze', [SINGLE_TRANSITION])).toBeNull();
+  });
+
+  it('"I go to my knees" does not hijack — bare "go to" is excluded (body/state idiom collision)', () => {
+    expect(matchKeywordIntent('I go to my knees', [SINGLE_TRANSITION])).toBeNull();
+  });
+
+  it('"I nod towards the door" does not hijack — bare "towards" is excluded, not verb-anchored', () => {
+    expect(matchKeywordIntent('I nod towards the door', [SINGLE_TRANSITION])).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Kage CR (P1-PLAYFIX-3): "head" is a body-part NOUN as often as a motion VERB.
+// The determiner guard (matchesHeadMovement + HEAD_NOUN_DETERMINERS) must let
+// "I head towards X" advance while rejecting "<possessive> head towards/on/for".
+// ---------------------------------------------------------------------------
+describe('matchKeywordIntent — P1-PLAYFIX-3 "head" verb-vs-noun determiner guard', () => {
+  // Positive: "head" as a motion verb still advances a single-exit scene.
+  it('"I head towards the sound of water" advances (acceptance phrasing)', () => {
+    expect(
+      matchKeywordIntent('I head towards the sound of water', [SINGLE_TRANSITION]),
+    ).toEqual({ type: 'transition', to: 'slice_everfree_navigate' });
+  });
+
+  it('"I head for the treeline" advances', () => {
+    expect(matchKeywordIntent('I head for the treeline', [SINGLE_TRANSITION])).toEqual({
+      type: 'transition',
+      to: 'slice_everfree_navigate',
+    });
+  });
+
+  it('"I head deeper into the woods" advances (pre-existing phrase, guarded)', () => {
+    expect(
+      matchKeywordIntent('I head deeper into the woods', [SINGLE_TRANSITION]),
+    ).toEqual({ type: 'transition', to: 'slice_everfree_navigate' });
+  });
+
+  // Negative: "head" as a body-part noun after a determiner must NOT advance.
+  it('"I nod my head towards the door" does NOT hijack — "my head" is the body part', () => {
+    expect(
+      matchKeywordIntent('I nod my head towards the door', [SINGLE_TRANSITION]),
+    ).toBeNull();
+  });
+
+  it('"I turn my head toward her voice" does NOT hijack', () => {
+    expect(
+      matchKeywordIntent('I turn my head toward her voice', [SINGLE_TRANSITION]),
+    ).toBeNull();
+  });
+
+  it('"I shake my head for a moment" does NOT hijack', () => {
+    expect(
+      matchKeywordIntent('I shake my head for a moment', [SINGLE_TRANSITION]),
+    ).toBeNull();
+  });
+
+  it('"I rest my head on the cold stone" does NOT hijack ("head on" as noun)', () => {
+    expect(
+      matchKeywordIntent('I rest my head on the cold stone', [SINGLE_TRANSITION]),
+    ).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DEFECT FIXED (Miko-QA found, P1-PLAYFIX-3 adversarial pass, 2026-07-02):
+// bare `press on` used to false-advance on the non-movement, physical-action
+// sense of "press on [something]" — apply/maintain pressure — which is ordinary
+// D&D combat/first-aid roleplay ("press on the wound to stop the bleeding").
+// Resolved by DROPPING bare `press on` from MOVE_ON_PHRASES; the advance sense
+// is preserved by `press forward` and by `onward` (\b-matches inside "press
+// onward"). These now-passing tests lock in the corrected behavior — bare
+// "press on [object]" falls through to narrate() (returns null).
+// ---------------------------------------------------------------------------
+describe('matchKeywordIntent — P1-PLAYFIX-3: bare "press on [object]" must NOT hijack (roleplay collision, fixed)', () => {
+  it('"I press on the wound to stop the bleeding" is NOT movement and returns null', () => {
+    expect(
+      matchKeywordIntent(
+        'I press on the wound to stop the bleeding',
+        [SINGLE_TRANSITION],
+      ),
+    ).toBeNull();
+  });
+
+  it('"I press on the lever, hoping it does something" is NOT movement and returns null', () => {
+    expect(
+      matchKeywordIntent(
+        'I press on the lever, hoping it does something',
+        [SINGLE_TRANSITION],
+      ),
+    ).toBeNull();
+  });
+});
