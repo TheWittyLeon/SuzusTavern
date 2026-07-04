@@ -1,11 +1,20 @@
 /**
- * Admin flags BFF — /api/admin/flags/[...path]
+ * Admin flags BFF — /api/admin/flags/[[...path]]
  *
  * Proxies feature-flag read operations to Authentication-Python.
  * Phase 1: GET /api/admin/flags → GET /admin/flags  (read-only panel)
  *
  * Allowed paths:
  *   GET  (no path segments)   → GET  /admin/flags
+ *
+ * D2 (sweep, 2026-07-03): the route folder MUST be an *optional* catch-all
+ * ([[...path]], double brackets) rather than a required catch-all ([...path],
+ * single brackets). Next.js App Router's required catch-all only matches
+ * requests with at least one extra path segment — it does NOT match the
+ * base route with zero segments. The panel calls exactly `/api/admin/flags`
+ * (no sub-path), so the [...path] shape 404'd every request before it ever
+ * reached this handler. `params.path` is `undefined` (not `[]`) on the
+ * zero-segment match, hence the `path ?? []` guard below.
  *
  * Security:
  *   - Admin gate runs BEFORE any upstream call (fail-closed).
@@ -15,16 +24,17 @@
  *   - COOKIE_SECURE=false is respected (homelab plain-HTTP deploy).
  *
  * Phase 2 will extend this with PUT/DELETE per-user overrides once that endpoint
- * exists in Auth-Python. The [...path] catch-all is already in place for that.
+ * exists in Auth-Python. The [[...path]] optional catch-all is already in place
+ * for that (sub-paths like `<key>` will arrive with path.length > 0).
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { env } from '@/lib/env';
 import { readAccess } from '@/lib/auth/cookies';
 
-type Ctx = { params: Promise<{ path: string[] }> };
+type Ctx = { params: Promise<{ path?: string[] }> };
 
 // ---------------------------------------------------------------------------
-// Admin session gate — same implementation as /api/admin/auth/[...path]
+// Admin session gate — mirrors the gate in /api/admin/auth/[...path] (token-only variant)
 // ---------------------------------------------------------------------------
 
 /**
@@ -107,7 +117,9 @@ async function proxyToAuth(
 
 async function dispatch(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
   const { path } = await ctx.params;
-  const joined = path.join('/');
+  // Optional catch-all: `path` is `undefined` (not `[]`) when the request has
+  // zero extra segments, i.e. the exact `/api/admin/flags` request the panel makes.
+  const joined = (path ?? []).join('/');
 
   // Admin gate — runs before any upstream call
   const session = await getAdminToken(req);
@@ -120,7 +132,7 @@ async function dispatch(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
   // ── Phase 1: read-only flag list ──────────────────────────────────────────
 
   // GET /api/admin/flags (no sub-path) → GET /admin/flags
-  if (req.method === 'GET' && (joined === '' || joined === undefined)) {
+  if (req.method === 'GET' && joined === '') {
     return proxyToAuth('admin/flags', 'GET', token);
   }
 
