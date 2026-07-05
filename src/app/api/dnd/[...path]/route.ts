@@ -23,6 +23,14 @@
  *   is restricted to non-production environments only. In production, the
  *   cookie-BFF is the only valid auth path (fail-closed posture).
  *
+ * Security — non-admin param strip (SECURITY-3, Kuro-Sec DDX-21):
+ *   On NON-admin paths, any client-supplied `user` or `packs` query param is
+ *   deleted before forwarding. Both drive server-side authorization (RLS
+ *   app_user resolution and private-pack visibility) — a browser must never
+ *   be able to assert its own identity or content scope. This is the interim
+ *   guard while Track-A actor enforcement + the non-superuser RLS cutover
+ *   (STORY-PLAYFIX-PRODRLS) are still pending.
+ *
  * The admin token is never returned in any response and never logged.
  *
  * Environment:
@@ -137,8 +145,20 @@ async function proxyRequest(
   // session's authenticated username. The client-supplied value (if any) is
   // discarded — the engine uses this for RLS app_user, so its integrity is
   // part of the legal posture (actor stamping).
+  //
+  // SECURITY-3 (Kuro-Sec, DDX-21): on NON-admin paths, a browser must never
+  // be able to assert its own identity/scope. `user` drives the engine's RLS
+  // app_user resolution and `packs` selects which content packs (including
+  // private ones) are visible — a client-supplied value for either is an
+  // authorization bypass, not a preference. Strip both before forwarding.
+  // Verified (2026-07-05): no legitimate caller sends these — useCatalog,
+  // useCodexCatalog, and the modules page only ever send type/limit/offset;
+  // zero call sites send `packs`. Admin paths are unaffected (handled above).
   if (isAdminPath && adminSession) {
     upstreamUrl.searchParams.set('user', adminSession.username);
+  } else if (!isAdminPath) {
+    upstreamUrl.searchParams.delete('user');
+    upstreamUrl.searchParams.delete('packs');
   }
 
   // Forward relevant headers

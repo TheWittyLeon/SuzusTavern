@@ -8,6 +8,7 @@ import type {
   AdvanceSceneResult,
   BindCharacterRequest,
   BindCharacterResult,
+  CatalogCounts,
   CatalogResponse,
   Character,
   CharacterCreateRequest,
@@ -731,6 +732,27 @@ export const getCatalog = (
   if (opts.limit != null) q.set('limit', String(opts.limit));
   if (opts.offset != null) q.set('offset', String(opts.offset));
   return apiCall<CatalogResponse>(`/api/dnd/catalog?${q.toString()}`, {
+    method: 'GET',
+    signal,
+  });
+};
+
+/**
+ * Fetch per-content-type counts from GET /api/dnd/catalog (no `type` param).
+ * The engine returns a distinct response shape in this mode — `{counts,
+ * content_type: null}` instead of `{items, total, limit, offset}` — so this
+ * is a separate typed call rather than an overload of getCatalog (DDX-21).
+ * Used by the Codex rail to show per-tab counts without paging every type.
+ */
+export const getCatalogCounts = (
+  system: string,
+  opts: Pick<CatalogOpts, 'packs' | 'user'> = {},
+  signal?: AbortSignal,
+): Promise<CatalogCounts> => {
+  const q = new URLSearchParams({ system });
+  if (opts.packs) q.set('packs', opts.packs);
+  if (opts.user) q.set('user', opts.user);
+  return apiCall<CatalogCounts>(`/api/dnd/catalog?${q.toString()}`, {
     method: 'GET',
     signal,
   });

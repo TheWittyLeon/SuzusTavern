@@ -8,7 +8,10 @@
  *
  * MVP scope: player mode only (host mode = Phase 3). Search + notifications are
  * omitted rather than shipped non-functional (no backend) — honest over decorative.
- * Codex/Memory tabs render disabled ("soon") — they're v1.1 fast-follow surfaces.
+ * Codex (DDX-21) — /codex, the in-app 5e compendium — is feature-flagged via
+ * CODEX_ENABLED (src/lib/config.ts): live in dev/test, disabled in production
+ * until it ships broadly. Memory still renders disabled ("soon") — it's a
+ * later fast-follow surface.
  *
  * Lessons baked in:
  *  - The avatar opens a MENU; it never logs you out on click (NekoNova dashboard trap).
@@ -31,6 +34,7 @@ import Avatar from '@/components/Avatar';
 import SuzuDM from '@/components/SuzuDM';
 import TweaksPanel from '@/components/TweaksPanel';
 import { useAuth } from '@/lib/auth/AuthProvider';
+import { CODEX_ENABLED } from '@/lib/config';
 import styles from './TavernShell.module.css';
 
 export type TabId = 'dashboard' | 'lobby' | 'modules' | 'compendium' | 'memory' | 'admin';
@@ -47,7 +51,9 @@ const TABS: TabDef[] = [
   { id: 'dashboard', label: 'Home', href: '/dashboard', icon: 'Home' },
   { id: 'lobby', label: 'Tables', href: '/lobby', icon: 'Compass' },
   { id: 'modules', label: 'Modules', href: '/modules', icon: 'Spellbook' },
-  { id: 'compendium', label: 'Codex', href: '#', icon: 'Scroll', disabled: true },
+  // DDX-21 follow-up: gated off in production (CODEX_ENABLED, src/lib/config.ts)
+  // until Codex ships broadly — renders exactly like the other disabled tabs.
+  { id: 'compendium', label: 'Codex', href: '/codex', icon: 'Scroll', disabled: !CODEX_ENABLED },
   { id: 'memory', label: 'Memory', href: '#', icon: 'Lantern', disabled: true },
 ];
 

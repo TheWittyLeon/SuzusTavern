@@ -494,7 +494,74 @@ describe('Security: actor stamping (SECURITY-1)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 6. SECURITY-2: Bearer header fallback is non-production only
+// 6. SECURITY-3 (Kuro-Sec, DDX-21): non-admin paths strip client-supplied
+//    `user` and `packs` — a browser must never assert its own identity/scope.
+// ---------------------------------------------------------------------------
+
+describe('Security: non-admin param strip (SECURITY-3)', () => {
+  it('strips client-supplied user and packs from a non-admin catalog request', async () => {
+    mockUpstreamOk({ items: [], total: 0 });
+
+    const req = makeRequest(
+      'GET',
+      'http://localhost:3000/api/dnd/catalog?system=dnd5e&type=spell&user=leon&packs=x',
+    );
+    const ctx = makeContext(['catalog']);
+
+    const res = await GET(req, ctx);
+
+    expect(res.status).toBe(200);
+    // No /auth/me round-trip for a non-admin path — only the upstream call.
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [[upstreamUrl]] = mockFetch.mock.calls as [[string]];
+    const forwardedUrl = new URL(String(upstreamUrl));
+    expect(forwardedUrl.searchParams.has('user')).toBe(false);
+    expect(forwardedUrl.searchParams.has('packs')).toBe(false);
+    // Legitimate params still forward untouched.
+    expect(forwardedUrl.searchParams.get('system')).toBe('dnd5e');
+    expect(forwardedUrl.searchParams.get('type')).toBe('spell');
+  });
+
+  it('strips user/packs even when they are the only query params present', async () => {
+    mockUpstreamOk({ characters: [] });
+
+    const req = makeRequest('GET', 'http://localhost:3000/api/dnd/characters?user=leon&packs=homebrew');
+    const ctx = makeContext(['characters']);
+
+    await GET(req, ctx);
+
+    const [[upstreamUrl]] = mockFetch.mock.calls as [[string]];
+    const forwardedUrl = new URL(String(upstreamUrl));
+    expect(forwardedUrl.searchParams.has('user')).toBe(false);
+    expect(forwardedUrl.searchParams.has('packs')).toBe(false);
+  });
+
+  it('still stamps user from the session on an admin/* path — unaffected by the strip', async () => {
+    mockAuthMeOk(['admin']);
+    mockUpstreamOk();
+
+    const req = makeRequest(
+      'GET',
+      'http://localhost:3000/api/dnd/admin/content/drafts?user=Attacker&packs=homebrew',
+      { cookies: { st_access: 'admin-access-token' } },
+    );
+    const ctx = makeContext(['admin', 'content', 'drafts']);
+
+    await GET(req, ctx);
+
+    const [, [upstreamUrl]] = mockFetch.mock.calls as [[string], [string, RequestInit]];
+    const forwardedUrl = new URL(String(upstreamUrl));
+    // user is overwritten with the session's true identity (SECURITY-1) —
+    // re-asserted here to prove the strip's `else if (!isAdminPath)` branch
+    // doesn't collide with the admin-stamp branch.
+    expect(forwardedUrl.searchParams.get('user')).toBe('Leon');
+    // packs is an admin-path param the strip never touches.
+    expect(forwardedUrl.searchParams.get('packs')).toBe('homebrew');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7. SECURITY-2: Bearer header fallback is non-production only
 // ---------------------------------------------------------------------------
 
 describe('Security: Bearer header fallback (SECURITY-2)', () => {

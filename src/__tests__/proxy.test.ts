@@ -127,6 +127,24 @@ describe('Protected paths', () => {
     const res = middleware(req);
     expect(res.status).toBe(307);
   });
+
+  // DDX-21: /codex is an authed route — same gate as the other player surfaces.
+  it('redirects /codex when no refresh cookie', () => {
+    const req = makeReq('/codex');
+    const res = middleware(req);
+    expect(res.status).toBe(307);
+    const location = res.headers.get('location') ?? '';
+    expect(decodeURIComponent(location)).toContain('/codex');
+  });
+
+  it('passes through /codex when both access and refresh are valid', () => {
+    const req = makeReq('/codex', {
+      st_access: validAccessToken(),
+      st_refresh: validRefreshToken(),
+    });
+    const res = middleware(req);
+    expect(res.status).toBe(200);
+  });
 });
 
 // ---------------------------------------------------------------------------

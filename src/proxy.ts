@@ -40,6 +40,7 @@ const PROTECTED: RegExp[] = [
   /^\/modules(\/|$)/,
   /^\/character(\/|$)/,
   /^\/play(\/|$)/,
+  /^\/codex(\/|$)/,
 ];
 
 const AUTH_PAGES: RegExp[] = [

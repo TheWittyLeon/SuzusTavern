@@ -435,13 +435,101 @@ export interface CatalogBackgroundData {
   skills: string[];
 }
 
-export type CatalogItemData = CatalogRaceData | CatalogClassData | CatalogBackgroundData | Record<string, unknown>;
+/** Mechanical data shape for a spell catalog item (DDX-21). */
+export interface CatalogSpellData {
+  level: number;
+  school?: string;
+  casting_time?: string;
+  range?: string;
+  components?: { V?: boolean; S?: boolean; M?: boolean };
+  duration?: string;
+  concentration?: boolean;
+  ritual?: boolean;
+  description?: string;
+  higher_levels?: string | null;
+  classes?: string[];
+  attack_roll?: boolean;
+  save_ability?: string | null;
+  damage_dice?: string | null;
+  damage_type?: string | null;
+  healing_dice?: string | null;
+}
+
+/** One entry in a monster's actions or legendary_actions list (DDX-21). */
+export interface CatalogMonsterAction {
+  name: string;
+  description?: string;
+  desc?: string;
+  attack_bonus?: number | null;
+  damage_dice?: string | null;
+  damage_type?: string | null;
+  is_legendary?: boolean;
+}
+
+/** Mechanical data shape for a monster catalog item — the full stat block (DDX-21). */
+export interface CatalogMonsterData {
+  size?: string;
+  monster_type?: string;
+  alignment?: string;
+  ac?: number;
+  ac_note?: string;
+  hp_formula?: string;
+  speed?: Partial<Record<string, number>>;
+  senses?: Partial<Record<string, number>>;
+  ability_scores?: Partial<Record<string, number>>;
+  cr?: number | string;
+  xp?: number;
+  languages?: string[];
+  actions?: CatalogMonsterAction[];
+  legendary_actions?: CatalogMonsterAction[];
+  damage_resistances?: string[];
+  damage_immunities?: string[];
+  condition_immunities?: string[];
+}
+
+/** Mechanical data shape for an item (equipment) catalog item (DDX-21).
+ *  Named "Equipment" (not "Item") to avoid colliding with CatalogItem, the
+ *  generic catalog envelope every content_type shares. */
+export interface CatalogEquipmentData {
+  item_type?: string;
+  weight?: number | null;
+  cost_gp?: number | null;
+  properties?: string[];
+  damage_dice?: string | null;
+  damage_type?: string | null;
+  weapon_range?: string | null;
+  ac_base?: number | null;
+  ac_dex_cap?: number | null;
+  requires_str?: number | null;
+  stealth_disadvantage?: boolean | null;
+  requires_attunement?: boolean;
+  description?: string;
+}
+
+/** Mechanical data shape for a condition catalog item (DDX-21).
+ *  Currently empty on suzu_dnd_dev — the engine has no condition rules-text
+ *  column yet (see DDX-21 gap notes). Kept as an open record for forward-compat. */
+export type CatalogConditionData = Record<string, unknown>;
+
+export type CatalogItemData =
+  | CatalogRaceData
+  | CatalogClassData
+  | CatalogBackgroundData
+  | CatalogSpellData
+  | CatalogMonsterData
+  | CatalogEquipmentData
+  | CatalogConditionData
+  | Record<string, unknown>;
 
 export interface CatalogItem {
   slug: string;
   name: string;
   content_type: string;
   source_type: string;
+  /** Stable cross-system id, e.g. "dnd5e:spell:fireball" (DDX-21). */
+  public_id?: string;
+  /** Content pack slug this row resolved from, e.g. "srd-5e" (DDX-21). */
+  pack_id?: string;
   data: CatalogItemData;
 }
 

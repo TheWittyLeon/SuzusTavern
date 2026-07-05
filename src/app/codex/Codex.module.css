@@ -1,0 +1,612 @@
+/* Codex (DDX-21) — ported from Suzu's Tavern Design System
+   ui_kits/web/kit.css § COMPENDIUM (Codex), re-expressed as scoped module
+   classes against the existing --tone / --card / --line token contract. */
+
+/* ── Header search ─────────────────────────────────────────────────────── */
+.search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: color-mix(in oklab, var(--ink) 5%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px 14px;
+  width: 100%;
+  max-width: 420px;
+  transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+.search:focus-within {
+  border-color: color-mix(in oklab, var(--accent) 40%, var(--line));
+  background: color-mix(in oklab, var(--accent) 4%, transparent);
+}
+.searchIcon {
+  color: var(--ink-3);
+  flex-shrink: 0;
+}
+.searchInput {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--ink);
+  font: inherit;
+  /* Iro: 16px minimum for text inputs (prevents iOS auto-zoom-on-focus). */
+  font-size: 16px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── Body layout: rail · list · drawer ────────────────────────────────── */
+.body {
+  display: grid;
+  grid-template-columns: 208px 1fr 380px;
+  gap: 22px;
+  align-items: start;
+}
+@media (max-width: 1280px) {
+  .body {
+    grid-template-columns: 180px 1fr;
+  }
+}
+@media (max-width: 860px) {
+  .body {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* A11Y (MAJOR-9, Iro): touch target floor at phone widths — mirrors
+   globals.css's `.btn` >=44px rule (§A11Y, max-width:480px). .railItem's
+   40px min-height, .subfilterSelect's 40px height, and .search's ~34px
+   effective height all fall short of the 44px minimum target size. */
+@media (max-width: 480px) {
+  .railItem {
+    min-height: 44px;
+  }
+  .subfilterSelect {
+    height: 44px;
+  }
+  .search {
+    min-height: 44px;
+  }
+}
+
+/* ── Left rail: kind tablist ───────────────────────────────────────────── */
+/* DDX-21 fix pass 3 (Aoi-UI live-browser re-verify, 2026-07-05): reverted the
+   ≤860px horizontal-rail reflow that briefly lived here (fix pass 2's
+   cascade-order fix made it actually apply, which is what surfaced these two
+   defects — it was inert before that). At ~800px the reflowed rail wrapped
+   the per-kind subfilter control onto the same visual row as the last tab
+   ("Conditions"), reading as if it belonged to the wrong tab; and
+   `position: static` there made the rail non-sticky, defeating the very
+   compactness rationale the horizontal layout was for. Vertical + sticky +
+   opaque now applies at ALL widths — see aria-orientation="vertical"
+   (unconditional) and onRailKeyDown (Up/Down only) in page.tsx. A deliberate
+   "compact mobile tabs" single-row horizontal scroller is a real future
+   option but is a separate UX decision, not this revert. */
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  position: sticky;
+  top: 0;
+  /* DDX21-2 (Aoi live-browser pass): was transparent, so scrolling list
+     content bled through and overlapped the rail's own labels once the
+     sticky rule above actually took effect. --card-solid, not --card —
+     --card is a translucent tint meant to sit over the *static* page
+     background (rows/drawer), not over other scrolling content;
+     --card-solid is the same "guaranteed opaque" token TavernShell's .menu
+     dropdown and Play.module.css/RebindCharacterButton already reach for
+     when a panel must occlude whatever's behind it. Needed at ALL widths
+     now that the rail no longer reflows to non-sticky below 860px. */
+  background: var(--card-solid);
+}
+.railItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: transparent;
+  border: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  min-height: 40px;
+}
+.railItem:hover {
+  background: color-mix(in oklab, var(--ink) 4%, transparent);
+  color: var(--ink);
+}
+.railItem:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* A11Y (follow-up, Iro sweep): was `color: var(--tone)` on the whole button
+   — cascaded onto .railLbl's text too and measured as low as 3.88:1 (accent,
+   candlelit) against this 14%-tinted background, failing AA. Same "tone on
+   non-text only" principle as .rowSpine/.detailGlyph: tone stays on the icon
+   (.railItemOn .ic below), the label text goes neutral --ink-2 — verified
+   >=6.17:1 across all 4 themes x all 7 kind tones (worst case: bad, candlelit). */
+.railItemOn {
+  background: color-mix(in oklab, var(--tone) 14%, transparent);
+  color: var(--ink-2);
+}
+.railItem .ic {
+  display: inline-flex;
+  opacity: 0.85;
+}
+/* Icon keeps the tone accent (non-text) even though .railItemOn's own text
+   color above is now neutral — see the A11Y comment above for why. */
+.railItemOn .ic {
+  color: var(--tone);
+}
+.railLbl {
+  flex: 1;
+  min-width: 0;
+}
+/* A11Y (follow-up, Iro sweep): OFF-state text was --ink-3 — measured a
+   hairline 4.49:1 (dusk-tavern / aetheric) against this pill's own 6%-tinted
+   background, failing AA. --ink-2 verified >=6.90:1 across all 4 themes (the
+   ON-state override just below, .railItemOn .railCount, was already fixed by
+   the earlier sweep and is untouched here). */
+.railCount {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 99px;
+  background: color-mix(in oklab, var(--ink) 6%, transparent);
+  color: var(--ink-2);
+}
+/* A11Y (MAJOR-2, Iro): was `color: var(--tone)` (tone-as-text) — measured as
+   low as 2.07:1 (crit-ink, dusk-tavern) against this pill's own tinted
+   background, failing AA for several tone/theme combos. Tone stays on the
+   non-text tint only (background); the count digits go neutral --ink-2
+   (Pill's already-audited "muted" tone). The tint also had to come down from
+   22%->10%: at 22% it compounds with .railItemOn's own 14% tone tint into a
+   backdrop saturated enough that even --ink-2 couldn't clear 4.5:1 for the
+   warmer tones (crit/bad) in 3 of 4 themes — verified >=5.14:1 at 10% across
+   all 4 themes x all 7 kind tones. */
+.railItemOn .railCount {
+  background: color-mix(in oklab, var(--tone) 10%, transparent);
+  color: var(--ink-2);
+}
+
+/* ── Secondary (per-kind) filter ──────────────────────────────────────── */
+.subfilter {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.subfilterLabel {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-3);
+}
+.subfilterSelect {
+  width: 100%;
+  height: 40px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: color-mix(in oklab, var(--ink) 3%, transparent);
+  color: var(--ink);
+  font: inherit;
+  /* Iro: 16px minimum for form inputs. */
+  font-size: 16px;
+}
+.subfilterSelect:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ── Center list ───────────────────────────────────────────────────────── */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.listHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.listHead b {
+  color: var(--ink);
+  font-family: var(--font-mono);
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 56px 1fr auto;
+  gap: 14px;
+  align-items: stretch;
+  padding: 0;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  font-family: inherit;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+  overflow: hidden;
+  transition: transform var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease);
+}
+.row:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in oklab, var(--tone) 32%, var(--line));
+}
+.rowOn {
+  border-color: color-mix(in oklab, var(--tone) 50%, var(--line));
+  background: color-mix(in oklab, var(--tone) 6%, var(--card));
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--tone) 30%, transparent);
+}
+/* aria-activedescendant "virtual focus" ring — the listbox itself holds real
+   DOM focus, so this is the only visible focus indicator for keyboard users. */
+.rowFocused {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.rowSpine {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 0;
+  background: color-mix(in oklab, var(--tone) 14%, transparent);
+  border-right: 1px solid color-mix(in oklab, var(--tone) 26%, var(--line));
+  color: var(--tone);
+}
+.rowBody {
+  padding: 10px 4px 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.rowHead {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.rowName {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  margin: 0;
+}
+.rowMeta {
+  display: inline-flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.metaChip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: color-mix(in oklab, var(--ink) 4%, transparent);
+  border: 1px solid var(--line);
+  font-size: 10.5px;
+  /* A11Y (MAJOR-1, Iro): was --ink-3 — measured 4.24:1 (dusk-tavern) / 4.25:1
+     (aetheric) against this chip's own tinted background, failing AA. Same
+     fix Pill.tsx:72-77 already applied for its "muted" tone; verified
+     >=7.8:1 across all 4 themes with --ink-2. */
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.metaChipMono {
+  font-family: var(--font-mono);
+}
+.rowSelected {
+  padding: 12px 12px 12px 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--tone);
+}
+
+/* ── Loading / error / empty ──────────────────────────────────────────── */
+.stateCard {
+  max-width: 480px;
+  margin: 24px auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+}
+.stateTitle {
+  font-family: var(--font-display);
+  font-size: 18px;
+  margin: 0;
+  color: var(--ink);
+}
+.stateBody {
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.55;
+  margin: 0;
+}
+
+/* ── Right drawer ──────────────────────────────────────────────────────── */
+.drawer {
+  position: sticky;
+  top: 0;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: var(--shadow-soft);
+  max-height: calc(100vh - 140px);
+  display: flex;
+  flex-direction: column;
+}
+/* At <=1280px the reachable detail surface is CodexDetailModal, not this drawer.
+   Declared AFTER the base .drawer rule so display:none wins the cascade at equal
+   specificity (mirrors the .rail ordering fix). */
+@media (max-width: 1280px) {
+  .drawer {
+    display: none;
+  }
+}
+.detail {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.detailHero {
+  padding: 18px 20px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--tone) 14%, var(--card)),
+    color-mix(in oklab, var(--tone) 4%, var(--card))
+  );
+  border-bottom: 1px solid color-mix(in oklab, var(--tone) 22%, var(--line));
+  color: var(--tone);
+}
+.detailGlyph {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: color-mix(in oklab, var(--tone) 22%, transparent);
+  border: 1px solid color-mix(in oklab, var(--tone) 36%, var(--line));
+  display: grid;
+  place-items: center;
+  color: var(--tone);
+  margin-bottom: 10px;
+}
+/* A11Y (MAJOR-2, Iro): was `color: var(--tone)` — measured as low as ~2.9:1
+   (crit-ink, dusk-tavern) against the .detailHero gradient it sits directly
+   on. Tone stays on non-text surfaces (.detailGlyph bg/border, the hero
+   gradient itself); this label goes neutral --ink-2 — verified >=5.9:1
+   across all 4 themes x all 7 kind tones against the gradient's worst stop. */
+.detailKind {
+  color: var(--ink-2);
+  margin-bottom: 6px;
+}
+.detailTitle {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 22px;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  margin: 0;
+}
+.detailBody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 20px 20px;
+}
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.stat {
+  padding: 9px 12px;
+  background: color-mix(in oklab, var(--ink) 3%, transparent);
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+}
+.statK {
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  /* A11Y (MAJOR-1, Iro): was --ink-3 — measured 4.35:1 (dusk-tavern) / 4.35:1
+     (aetheric) against this tile's own tinted background, failing AA (small
+     uppercase text needs >=4.5:1). Verified >=8.9:1 across all 4 themes with
+     --ink-2 — same fix as .metaChip / Pill.tsx:72-77. */
+  color: var(--ink-2);
+  font-weight: 600;
+}
+.statV {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  margin-top: 3px;
+  color: var(--ink);
+}
+.section {
+  margin-top: 16px;
+}
+.section:first-child {
+  margin-top: 0;
+}
+/* A11Y (MINOR-1, Iro): Section's label is now an <h3> (CodexDetail.tsx) so SR
+   users can jump by heading — reset the UA default heading margin (the
+   original <div> had none) so promoting the element doesn't add visible gap. */
+.sectionLabel {
+  margin: 0 0 6px;
+}
+.section p {
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.55;
+  margin: 0;
+  white-space: pre-line;
+}
+.actionRow {
+  padding: 10px 12px;
+  background: color-mix(in oklab, var(--ink) 3%, transparent);
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  margin-bottom: 8px;
+}
+.actionRow:last-child {
+  margin-bottom: 0;
+}
+.actionName {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--ink);
+  margin: 0 0 3px;
+}
+.actionDesc {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  line-height: 1.5;
+  margin: 0;
+}
+.tagList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.subcard {
+  padding: 10px 12px;
+  background: color-mix(in oklab, var(--ink) 3%, transparent);
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  margin-bottom: 8px;
+}
+.subcard:last-child {
+  margin-bottom: 0;
+}
+.subcardTitle {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--ink);
+  margin: 0 0 4px;
+}
+
+/* ── Empty drawer state ────────────────────────────────────────────────── */
+.emptyDrawer {
+  padding: 32px 22px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.emptyDrawerTitle {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--ink);
+  margin: 6px 0 0;
+}
+.emptyDrawer p {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.55;
+  margin: 0;
+}
+
+/* ── List empty state ──────────────────────────────────────────────────── */
+.listEmpty {
+  text-align: center;
+  padding: 60px 20px;
+  border: 1px dashed var(--line);
+  border-radius: 18px;
+  background: color-mix(in oklab, var(--ink) 2%, transparent);
+}
+.listEmptyTitle {
+  margin: 10px 0 4px;
+  font-family: var(--font-display);
+  font-size: 18px;
+  color: var(--ink);
+}
+.listEmpty p {
+  color: var(--ink-3);
+  margin: 0;
+}
+
+/* ── Mobile detail modal (A11Y CRITICAL-1) ────────────────────────────────
+   Below 1280px .drawer above is display:none with no fallback, so a
+   selected entry's full detail was completely unreachable on tablets,
+   laptops narrower than 1280px, and at 200% browser zoom. CodexDetailModal
+   renders the same CodexDetail content here instead, opened on selection
+   whenever the viewport is narrow. Sized/animated like ConfirmDialog's
+   backdrop+dialog, just wide enough for CodexDetail's stat grids. */
+.mobileDetailBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(10, 7, 18, 0.62);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  animation: mobile-detail-backdrop-in var(--dur-fast) var(--ease);
+}
+.mobileDetailDialog {
+  position: relative;
+  width: 100%;
+  max-width: 480px;
+  max-height: min(640px, 86vh);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: mobile-detail-dialog-in var(--dur) var(--ease);
+}
+.mobileDetailClose {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1;
+}
+@keyframes mobile-detail-backdrop-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes mobile-detail-dialog-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mobileDetailBackdrop,
+  .mobileDetailDialog {
+    animation: none;
+  }
+}
