@@ -305,6 +305,33 @@ export default function PlayPage() {
     setLog((prev) => [...prev, { id: `r${(idRef.current += 1)}`, ts: nowStamp(), ...row }]);
   }, []);
 
+  // DM-STREAM: while a narration streams, mirror it into a LIVE bottom-of-chat
+  // row that grows token-by-token (so the reader sees Suzu narrate inline in the
+  // conversation, not just in the top strip). The row is created on the first
+  // chunk and updated in place; finalized (or removed on error) after the beat.
+  const streamRowIdRef = useRef<string | null>(null);
+  const upsertStreamNarration = useCallback((text: string) => {
+    // Decide create-vs-update and mutate the id/ref OUTSIDE the state updater —
+    // setLog's updater must stay pure (React/StrictMode may re-invoke it).
+    const existingId = streamRowIdRef.current;
+    if (existingId) {
+      setLog((prev) => prev.map((r) => (r.id === existingId ? { ...r, text } : r)));
+    } else {
+      const id = `r${(idRef.current += 1)}`;
+      const ts = nowStamp();
+      streamRowIdRef.current = id;
+      setLog((prev) => [
+        ...prev,
+        { id, who: 'Suzu', kind: 'narration' as const, text, ts },
+      ]);
+    }
+  }, []);
+  const clearStreamNarration = useCallback((removeRow: boolean) => {
+    const id = streamRowIdRef.current;
+    streamRowIdRef.current = null;
+    if (removeRow && id) setLog((prev) => prev.filter((r) => r.id !== id));
+  }, []);
+
   // ── load session + party ────────────────────────────────────────────────────
   useEffect(() => {
     if (!username || !sessionId) return;
@@ -659,6 +686,9 @@ export default function PlayPage() {
       setTalking(true);
       setThinking(true);
       setNarratorText('');
+      // Drop any partial live-narration row left over from an aborted beat so
+      // this beat starts a fresh bottom-of-chat row (never overwrites the old).
+      clearStreamNarration(true);
       // P1-PLAYFIX-2 §A.6 — clear any stale offer from a previous beat; THIS
       // turn's response (if any) re-sets it below.
       setOfferedCheckSkill(null);
@@ -695,7 +725,23 @@ export default function PlayPage() {
           if (ev.kind === 'chunk') {
             full = ev.text;
             setThinking(false);
-            revealText(full);
+            if (ev.streamMode) {
+              // DM-STREAM: the server is already pacing the reveal
+              // token-by-token — set the cumulative text directly instead of
+              // running the client-side fake typewriter (which would double
+              // up the reveal and lag behind the real stream). Clear any
+              // typewriter interval left over from a prior non-streamed beat.
+              if (revealRef.current) {
+                clearInterval(revealRef.current);
+                revealRef.current = null;
+              }
+              setNarratorText(full);
+              // Mirror the live stream into a growing bottom-of-chat row.
+              upsertStreamNarration(full);
+            } else {
+              // Flag-OFF / buffered path — unchanged fake-reveal.
+              revealText(full);
+            }
             if (ev.offeredCheck) offeredCheckSignal = ev.offeredCheck;
             if (ev.sceneAdvanced) sceneAdvancedSignal = true;
           } else if (ev.kind === 'error') {
@@ -703,19 +749,36 @@ export default function PlayPage() {
             lastErrorReason = ev.reason;
           }
         }
-      } catch {
+      } catch (e) {
         errored = true;
+        // OBS-1: never swallow the reason — this catch is exactly where
+        // "instant stepped-away with zero trace" failures land (aborted
+        // fetches, exhausted connection pool, proxy refusals). Console gets
+        // the real exception; the fallback row gets a debug suffix on the
+        // local stack so playtests can report the cause verbatim.
+        lastErrorReason = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+         
+        console.error('[dm-narration] beat failed client-side:', e);
       }
 
       if (ctrl.signal.aborted) return;
       setThinking(false);
       setTalking(false);
       if (errored || !full.trim()) {
+        // Drop any partial live-streamed row before showing the fallback.
+        clearStreamNarration(true);
         const fallbackText = isOpening
           ? "Suzu hasn't joined yet — try a move and she'll catch up."
           : lastErrorReason === 'ai_off'
             ? 'This table runs without AI narration — you and your DM drive the scene.'
-            : 'Suzu stepped away for a moment. Try again.';
+            : // OBS-1: on the local stack, show the captured failure reason in
+              // the log row itself so a playtest report carries the cause
+              // verbatim (prod keeps the friendly copy only).
+              `Suzu stepped away for a moment. Try again.${
+                process.env.NEXT_PUBLIC_DEPLOY_ENV === 'local' && lastErrorReason
+                  ? ` (debug: ${lastErrorReason})`
+                  : ''
+              }`;
         appendLog({
           who: 'Suzu',
           kind: 'system',
@@ -725,7 +788,15 @@ export default function PlayPage() {
         return;
       }
 
-      appendLog({ who: 'Suzu', kind: 'narration', text: full });
+      if (streamRowIdRef.current) {
+        // Streamed path — the narration is already live in the bottom log;
+        // finalize it with the complete text (no second row appended).
+        upsertStreamNarration(full);
+        clearStreamNarration(false);
+      } else {
+        // Buffered / flag-OFF path — append the finished narration as before.
+        appendLog({ who: 'Suzu', kind: 'narration', text: full });
+      }
 
       // P1-PLAYFIX-2 §A.5/§A.7 (A.2 reconciliation) — the server already
       // narrated the transition in-fiction on THIS turn (server-side INTENT)
@@ -779,6 +850,8 @@ export default function PlayPage() {
       username,
       revealText,
       appendLog,
+      upsertStreamNarration,
+      clearStreamNarration,
       refreshGrounding,
       refocusSceneHeadIfStranded,
       grounding,
@@ -1498,14 +1571,34 @@ export default function PlayPage() {
   );
 
   // P1-PLAYFIX §3.3.3 (S2.4) — authored skill checks offered by the current scene.
-  // Same gating as "Move on": hidden during active combat (checks are an
-  // exploration-beat affordance). Rehydrates correctly on a fresh mount because
-  // it derives from `grounding`, which always reflects the CURRENT scene
-  // (never an assumed opening scene) — a resumed session lands mid-graph.
-  // P1-PLAYFIX-2 §A.3: memoized for the same reason as availableTransitions above.
+  // Same combat gating as "Move on": hidden during active combat (checks are
+  // an exploration-beat affordance). P1-PLAYFIX-2 §A.3: memoized for the same
+  // reason as availableTransitions above.
+  // DM-driven gating (Leon, explicit): the authored scene check is only
+  // actionable once Suzu has invited it in the fiction — `offeredCheckSkill`
+  // is set when she names the check in her narration OR the player's action
+  // maps to it (both go through the offered_check signal, validated against
+  // this scene's authored checks). Before that, the dice stay in the DM's
+  // hands: no "Attempt {skill}" button. Never during active combat. Generic
+  // quick-checks (separate panel) remain always-available player agency and
+  // are NOT gated here.
+  //
+  // Rehydration (fresh mount / reload mid-scene): `offeredCheckSkill` starts
+  // null and is NOT restored from persisted history. The offered_check signal
+  // only exists in the ephemeral SSE narration payload (src/lib/stream.ts) —
+  // it is never written into a durable session_events row (see
+  // src/lib/rehydration.ts eventToLogRow: narration events only carry
+  // text/who), so there is nothing clean to rehydrate it from. This is a
+  // deliberate accept, not an oversight: strictly honoring "DM must invite
+  // it" means a bare reload shows no authored-check button until Suzu next
+  // offers it (her next beat, or the player's next action re-triggering the
+  // offer) — never inferring an invitation that isn't freshly reasserted.
   const availableChecks = useMemo(
-    () => (combatState?.state !== 'active' ? (grounding?.checks ?? []) : []),
-    [combatState?.state, grounding],
+    () =>
+      combatState?.state !== 'active' && offeredCheckSkill
+        ? (grounding?.checks ?? []).filter((c) => c.skill === offeredCheckSkill)
+        : [],
+    [combatState?.state, grounding, offeredCheckSkill],
   );
 
   // ── composer send ───────────────────────────────────────────────────────────

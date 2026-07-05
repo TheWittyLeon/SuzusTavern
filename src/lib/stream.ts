@@ -143,6 +143,14 @@ function parseDataLine(data: string): NarrationEvent {
         }
       }
 
+      // DM-STREAM — additive: surface the server's stream_mode marker so the
+      // consumer knows this beat is already being paced server-side (chunk
+      // events carry cumulative text either way; this only changes how the
+      // consumer reveals it — see page.tsx narrate()).
+      if (parsed['stream_mode'] === true) {
+        chunk.streamMode = true;
+      }
+
       return chunk;
     }
     if (parsed['success'] === false && typeof parsed['error'] === 'string') {

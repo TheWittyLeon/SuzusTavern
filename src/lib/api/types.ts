@@ -728,6 +728,15 @@ export type NarrationEvent =
       sceneAdvanced?: boolean;
       /** The scene id the server advanced to; null/absent when sceneAdvanced is falsy. */
       advancedTo?: string | null;
+      /**
+       * DM-STREAM — `true` when the server streamed this beat token-by-token
+       * (`SUZU_DM_STREAM_NARRATION` + `SUZU_DM_SPLIT_INTENT` both on, non-combat
+       * beat). `text` is still the cumulative prose so far, same as the buffered
+       * shape — this flag only tells the consumer the server is already pacing
+       * the reveal, so it should render `text` directly instead of running its
+       * own fake typewriter. Absent/false = today's buffered single-event beat.
+       */
+      streamMode?: boolean;
     }
   | { kind: 'done' }
   /** error: upstream error string. reason: structured cause when the backend

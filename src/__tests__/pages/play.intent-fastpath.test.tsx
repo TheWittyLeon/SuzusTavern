@@ -462,16 +462,20 @@ describe('P1-PLAYFIX-2 §A.5/§A.7 — a narrate() sceneAdvanced signal refreshe
 describe('P1-PLAYFIX-2 gate fix (Iro CRITICAL-1) — narrate() refocuses a stranded scene heading', () => {
   it('moves focus to the scene heading when a sceneAdvanced refresh unmounts the check button the player was on', async () => {
     mGetGrounding.mockResolvedValueOnce(GROUNDING_STEALTH_ONLY).mockResolvedValue(GROUNDING_FORK);
+    const { container } = render(<PlayPage />);
+    await screen.findByRole('textbox');
+
+    // DM-gated (Leon, explicit): establish Suzu's in-fiction offer first so
+    // the Attempt button exists to be focused/stranded below.
     streamOnce([
       {
         kind: 'chunk',
-        text: 'You slip past and the path opens onto a fork ahead.',
-        sceneAdvanced: true,
-        advancedTo: 'slice_everfree_fork',
+        text: 'The undergrowth rustles. A Stealth check would serve you well here.',
+        offeredCheck: { skill: 'stealth', dc: 12 },
       },
       { kind: 'done' },
     ]);
-    const { container } = render(<PlayPage />);
+    await sendMessage('I pause and listen carefully to the noise.');
     const stealthBtn = await screen.findByRole('button', { name: /Attempt Stealth/i });
 
     // The player was focused on the check button (keyboard nav or a prior
@@ -481,6 +485,15 @@ describe('P1-PLAYFIX-2 gate fix (Iro CRITICAL-1) — narrate() refocuses a stran
     act(() => stealthBtn.focus());
     expect(stealthBtn).toHaveFocus();
 
+    streamOnce([
+      {
+        kind: 'chunk',
+        text: 'You slip past and the path opens onto a fork ahead.',
+        sceneAdvanced: true,
+        advancedTo: 'slice_everfree_fork',
+      },
+      { kind: 'done' },
+    ]);
     await sendMessage('I consider what to do next.');
 
     // The check row (and its button) unmounts once grounding refreshes to

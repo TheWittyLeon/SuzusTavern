@@ -230,6 +230,88 @@ describe('readSSE — offered_check / scene_advanced (A.2 contract)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// DM-STREAM (docs/design/DM-STREAM_streaming_narration.md §4/§10 P2) —
+// parseDataLine surfacing the server's `stream_mode` marker onto the chunk
+// event's `streamMode` field. `parseDataLine` itself is not exported — these
+// exercise it via `readSSE`, matching the established pattern above.
+// ---------------------------------------------------------------------------
+
+describe('readSSE — DM-STREAM stream_mode / final (design §4 wire additions)', () => {
+  it('surfaces stream_mode:true as streamMode on the chunk event', async () => {
+    const body =
+      'data: {"success":true,"stream_mode":true,"text":"You wade"}\n\ndata: [DONE]\n\n';
+    const events = await collect(readSSE(sseResponse(body)));
+
+    expect(events[0]).toMatchObject({ kind: 'chunk', text: 'You wade', streamMode: true });
+  });
+
+  it('a chunk with no stream_mode key leaves streamMode undefined (flag-OFF wire unchanged)', async () => {
+    const body = 'data: {"success":true,"text":"You wade"}\n\ndata: [DONE]\n\n';
+    const events = await collect(readSSE(sseResponse(body)));
+
+    const chunk = events[0] as { kind: 'chunk'; text: string; streamMode?: boolean };
+    expect(chunk.kind).toBe('chunk');
+    expect(chunk.streamMode).toBeUndefined();
+  });
+
+  it('stream_mode:false does NOT set streamMode (must be exactly true, per parseDataLine)', async () => {
+    const body =
+      'data: {"success":true,"stream_mode":false,"text":"buffered"}\n\ndata: [DONE]\n\n';
+    const events = await collect(readSSE(sseResponse(body)));
+
+    const chunk = events[0] as { kind: 'chunk'; text: string; streamMode?: boolean };
+    expect(chunk.streamMode).toBeUndefined();
+  });
+
+  it('parses several streamed chunks then a final:true event carrying metadata — the final event still parses as an ordinary chunk (design §4: "no new event kind")', async () => {
+    const body = [
+      'data: {"success":true,"stream_mode":true,"text":"You "}\n\n',
+      'data: {"success":true,"stream_mode":true,"text":"You wade"}\n\n',
+      'data: {"success":true,"stream_mode":true,"final":true,"text":"You wade toward the water.","offered_check":null,"scene_advanced":false,"advanced_to":null}\n\n',
+      'data: [DONE]\n\n',
+    ].join('');
+    const events = await collect(readSSE(sseResponse(body)));
+
+    expect(events).toHaveLength(4);
+    expect(events[0]).toMatchObject({ kind: 'chunk', text: 'You ', streamMode: true });
+    expect(events[1]).toMatchObject({ kind: 'chunk', text: 'You wade', streamMode: true });
+    expect(events[2]).toMatchObject({
+      kind: 'chunk',
+      text: 'You wade toward the water.',
+      streamMode: true,
+      sceneAdvanced: false,
+      advancedTo: null,
+    });
+    expect(events[3]).toEqual({ kind: 'done' });
+  });
+
+  it('a streamed final event carrying a validated transition still surfaces sceneAdvanced/advancedTo alongside streamMode', async () => {
+    const body =
+      'data: {"success":true,"stream_mode":true,"final":true,"text":"You push through.","offered_check":null,"scene_advanced":true,"advanced_to":"navigate"}\n\ndata: [DONE]\n\n';
+    const events = await collect(readSSE(sseResponse(body)));
+
+    expect(events[0]).toMatchObject({
+      kind: 'chunk',
+      streamMode: true,
+      sceneAdvanced: true,
+      advancedTo: 'navigate',
+    });
+  });
+
+  it('documents a real trust-boundary fact, not a new guarantee: an INTENT: line smuggled into stream_mode text is NOT sanitized client-side — the leak guard is entirely server-side (_inline_stream_guard / strip_intent_line). If a client-side sanitizer is ever added, this test should be the first thing updated.', async () => {
+    const body =
+      'data: {"success":true,"stream_mode":true,"text":"You pause.\\nINTENT: {\\"type\\":\\"none\\"}"}\n\ndata: [DONE]\n\n';
+    const events = await collect(readSSE(sseResponse(body)));
+
+    expect(events[0]).toMatchObject({
+      kind: 'chunk',
+      text: 'You pause.\nINTENT: {"type":"none"}',
+      streamMode: true,
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // readSSE — abort signal
 // ---------------------------------------------------------------------------
 

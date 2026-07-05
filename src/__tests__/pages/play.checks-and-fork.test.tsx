@@ -19,7 +19,13 @@
 import React from 'react';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import type { CombatState, GroundingData, Participant, Session } from '@/lib/api/types';
+import type {
+  CombatState,
+  GroundingData,
+  NarrationEvent,
+  Participant,
+  Session,
+} from '@/lib/api/types';
 
 jest.mock('next/navigation', () => ({
   useParams: () => ({ sessionId: 's1' }),
@@ -67,6 +73,7 @@ jest.mock('../../lib/stream', () => ({
 }));
 
 import * as dnd from '@/lib/api/dnd';
+import * as stream from '@/lib/stream';
 import PlayPage from '@/app/play/[sessionId]/page';
 
 const mGetSession = dnd.getSession as jest.MockedFunction<typeof dnd.getSession>;
@@ -78,6 +85,7 @@ const mGetSessionEventsRaw = dnd.getSessionEventsRaw as jest.MockedFunction<
 >;
 const mAdvanceScene = dnd.advanceScene as jest.MockedFunction<typeof dnd.advanceScene>;
 const mResolveCheck = dnd.resolveCheck as jest.MockedFunction<typeof dnd.resolveCheck>;
+const mStream = stream.streamDmNarration as jest.MockedFunction<typeof stream.streamDmNarration>;
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -169,12 +177,51 @@ const GROUNDING_FORK: GroundingData = {
   encounter_state: {},
 };
 
+function streamOnce(events: NarrationEvent[]) {
+  mStream.mockImplementation(async function* () {
+    for (const e of events) yield e;
+  });
+}
+
+async function sendMessage(text: string) {
+  const input = screen.getByRole('textbox');
+  fireEvent.change(input, { target: { value: text } });
+  await act(async () => {
+    fireEvent.keyDown(input, { key: 'Enter' });
+  });
+}
+
+/**
+ * DM-gated authored checks (Leon, explicit — "DM must invite it") only
+ * become actionable once Suzu has offered them in the fiction. Establishes
+ * that invitation via a narrate() beat whose SSE response carries the
+ * matching offeredCheck, then waits for the resulting "Attempt {skill}"
+ * button to render, so the rest of the test can interact with it exactly
+ * as before this gating landed.
+ */
+async function offerCheck(skill: string, dc: number) {
+  await screen.findByRole('textbox');
+  streamOnce([
+    { kind: 'chunk', text: `Suzu invites a ${skill} check.`, offeredCheck: { skill, dc } },
+    { kind: 'done' },
+  ]);
+  await sendMessage(`I consider using my ${skill}.`);
+  // findByRole requires a single match; a scene may author the same skill at
+  // two DCs (two buttons whose name both start with "Attempt {skill}"), so
+  // wait on the count instead of a single-element query.
+  const namePattern = new RegExp(`Attempt ${skill}`, 'i');
+  await waitFor(() => {
+    expect(screen.queryAllByRole('button', { name: namePattern }).length).toBeGreaterThan(0);
+  });
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   mGetSession.mockResolvedValue(SESSION);
   mGetParticipants.mockResolvedValue(PARTY);
   mGetSessionEvents.mockResolvedValue([]);
   mGetSessionEventsRaw.mockResolvedValue(null);
+  streamOnce([{ kind: 'chunk', text: 'Suzu narrates.' }, { kind: 'done' }]);
 });
 
 // ── C10: fork renders both labelled choices as distinct buttons ─────────────
@@ -231,17 +278,27 @@ describe('P1-PLAYFIX — fork scene choice buttons (C10)', () => {
 // ── C11: check affordance calls resolveCheck + narrates + refreshes grounding ─
 
 describe('P1-PLAYFIX — check affordance (C11)', () => {
-  it('rehydrates to the CURRENT scene\'s checks on load, not an assumed opening scene', async () => {
+  it('DM-gated (Leon, explicit): rehydrating from grounding alone does NOT surface a check — the current scene\'s checks only become actionable once Suzu offers one in the fiction, not merely because they\'re authored', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_TIMBERWOLF);
     render(<PlayPage />);
+    await screen.findByRole('textbox');
 
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: /Attempt Stealth, DC 12/i })).toBeInTheDocument(),
-    );
-    // Two alternative skills for one outcome both render (timberwolf: Stealth OR Survival).
+    // On bare load — no offer yet — neither authored alternative is shown,
+    // even though grounding authors both Stealth and Survival at DC 12.
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /Attempt Stealth/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Attempt Survival/i })).not.toBeInTheDocument();
+    });
+
+    // Once Suzu invites the Stealth check, ONLY the offered skill's button
+    // renders — offering one alternative is not an invitation to the other.
+    await offerCheck('stealth', 12);
     expect(
-      screen.getByRole('button', { name: /Attempt Survival, DC 12/i }),
+      screen.getByRole('button', { name: /Attempt Stealth, DC 12/i }),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /Attempt Survival, DC 12/i }),
+    ).not.toBeInTheDocument();
   });
 
   it('clicking a check button calls resolveCheck with the skill + actor_username, then refreshes grounding', async () => {
@@ -261,6 +318,8 @@ describe('P1-PLAYFIX — check affordance (C11)', () => {
     mGetGrounding.mockResolvedValueOnce(GROUNDING_TIMBERWOLF).mockResolvedValue(GROUNDING_FORK);
 
     render(<PlayPage />);
+    // DM-gated: Suzu must invite the Survival check before it's actionable.
+    await offerCheck('survival', 12);
     const survivalBtn = await screen.findByRole('button', { name: /Attempt Survival/i });
     await act(async () => {
       fireEvent.click(survivalBtn);
@@ -320,6 +379,8 @@ describe('P1-PLAYFIX — check affordance (C11)', () => {
     mResolveCheck.mockRejectedValue(err);
 
     render(<PlayPage />);
+    // DM-gated: Suzu must invite the Stealth check before it's actionable.
+    await offerCheck('stealth', 12);
     const stealthBtn = await screen.findByRole('button', { name: /Attempt Stealth/i });
     await act(async () => {
       fireEvent.click(stealthBtn);
@@ -338,7 +399,9 @@ describe('P1-PLAYFIX Ship 2 — stranded focus recovery (CRITICAL-1)', () => {
   it('the scene heading is a stable, programmatically-focusable anchor', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_TIMBERWOLF);
     const { container } = render(<PlayPage />);
-    await screen.findByRole('button', { name: /Attempt Stealth/i });
+    await waitFor(() =>
+      expect(container.querySelector('[aria-label^="Scene:"]')).not.toBeNull(),
+    );
 
     const sceneHead = container.querySelector('[aria-label^="Scene:"]');
     expect(sceneHead).not.toBeNull();
@@ -358,6 +421,8 @@ describe('P1-PLAYFIX Ship 2 — stranded focus recovery (CRITICAL-1)', () => {
     });
 
     const { container } = render(<PlayPage />);
+    // DM-gated: Suzu must invite the Stealth check before it's actionable.
+    await offerCheck('stealth', 12);
     const stealthBtn = await screen.findByRole('button', { name: /Attempt Stealth/i });
 
     // The user is on the button (keyboard activation or a prior mouse click
@@ -417,26 +482,40 @@ describe('P1-PLAYFIX Ship 2 — check-note aria wiring + group labels', () => {
   it('wires aria-describedby to a sr-only note span when the check has a note', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_WITH_NOTE);
     render(<PlayPage />);
+    // DM-gated: Suzu must invite the Stealth check before it's actionable.
+    await offerCheck('stealth', 12);
 
     const stealthBtn = await screen.findByRole('button', { name: /Attempt Stealth, DC 12/i });
     const describedBy = stealthBtn.getAttribute('aria-describedby');
     expect(describedBy).toBeTruthy();
-    const note = document.getElementById(describedBy as string);
-    expect(note).toHaveTextContent('Rustling underbrush might give you away.');
-    expect(note).toHaveClass('sr-only');
+    // DM-gated side effect: every RENDERED check is, by construction, the one
+    // Suzu just offered — so describedBy is now a two-id list (the offered
+    // sr-only span + the note sr-only span) rather than the note alone. The
+    // note's own id must still be present in that list and correctly wired.
+    const noteEl = screen.getByText('Rustling underbrush might give you away.');
+    expect((describedBy as string).split(' ')).toContain(noteEl.id);
+    expect(noteEl).toHaveClass('sr-only');
   });
 
-  it('does not set aria-describedby when the check has no note', async () => {
+  it('references only the offered-check sr-only span (never a note id) when the check has no note', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_TIMBERWOLF);
     render(<PlayPage />);
+    await offerCheck('stealth', 12);
 
     const stealthBtn = await screen.findByRole('button', { name: /Attempt Stealth, DC 12/i });
-    expect(stealthBtn).not.toHaveAttribute('aria-describedby');
+    // DM-gated side effect: aria-describedby is no longer absent — every
+    // rendered check carries the "Suzu invited this check" sr-only span. What
+    // must hold is that with no authored note, nothing note-shaped is wired in.
+    const describedBy = stealthBtn.getAttribute('aria-describedby');
+    expect(describedBy).toBeTruthy();
+    expect(describedBy).not.toMatch(/check-note-/);
+    expect(screen.queryByText(/./, { selector: '[id^="check-note-"]' })).not.toBeInTheDocument();
   });
 
   it('groups the skill-check row and scene-transition row with role="group" + labels', async () => {
     mGetGrounding.mockResolvedValueOnce(GROUNDING_TIMBERWOLF);
     render(<PlayPage />);
+    await offerCheck('stealth', 12);
     await screen.findByRole('button', { name: /Attempt Stealth/i });
     expect(screen.getByRole('group', { name: 'Skill check' })).toBeInTheDocument();
   });
@@ -465,6 +544,9 @@ describe('P1-PLAYFIX Ship 2 — check id uniqueness (Iro MINOR-1)', () => {
   it('renders two distinct buttons for the same skill at different DCs, each with its own unique note id', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_SAME_SKILL_TWO_DCS);
     render(<PlayPage />);
+    // DM-gated: offering the skill (dc is validated engine-side, not by the
+    // offer) surfaces BOTH authored DCs for that skill.
+    await offerCheck('stealth', 12);
 
     const dc12Btn = await screen.findByRole('button', { name: /Attempt Stealth, DC 12/i });
     const dc18Btn = await screen.findByRole('button', { name: /Attempt Stealth, DC 18/i });
@@ -477,11 +559,41 @@ describe('P1-PLAYFIX Ship 2 — check id uniqueness (Iro MINOR-1)', () => {
     // The core of the fix: the two ids must NOT collide.
     expect(dc12DescribedBy).not.toBe(dc18DescribedBy);
 
-    expect(document.getElementById(dc12DescribedBy as string)).toHaveTextContent(
+    // DM-gated side effect: both DC12 and DC18 share the 'stealth' skill, so
+    // both are "offered" once Suzu invites Stealth — describedBy is now a
+    // two-id list (offered span + note span) per button. Pull out the note id
+    // specifically to confirm it still resolves to the button's own note.
+    const dc12NoteId = (dc12DescribedBy as string).split(' ').find((id) => id.startsWith('check-note-'));
+    const dc18NoteId = (dc18DescribedBy as string).split(' ').find((id) => id.startsWith('check-note-'));
+    expect(dc12NoteId).not.toBe(dc18NoteId);
+
+    expect(document.getElementById(dc12NoteId as string)).toHaveTextContent(
       'The easy route.',
     );
-    expect(document.getElementById(dc18DescribedBy as string)).toHaveTextContent(
+    expect(document.getElementById(dc18NoteId as string)).toHaveTextContent(
       'The bold, faster route.',
     );
+  });
+});
+
+// DM-gated core behavior (Leon, explicit — "DM must invite it"): the direct
+// on/off proof that an authored check is inert until Suzu offers it, and
+// becomes actionable the moment she does — the contract this whole file's
+// gating updates exist to protect.
+describe('P1-PLAYFIX-2 — authored check is DM-gated (core behavior)', () => {
+  it('does NOT render "Attempt {skill}" when the scene authors a check but Suzu has not offered it; renders it once a beat offers it', async () => {
+    mGetGrounding.mockResolvedValue(GROUNDING_TIMBERWOLF);
+    render(<PlayPage />);
+    await screen.findByRole('textbox');
+
+    // Authored (grounding.checks has stealth + survival) but not yet offered.
+    expect(screen.queryByRole('button', { name: /^Attempt/i })).not.toBeInTheDocument();
+
+    // Suzu invites the Stealth check in-fiction.
+    await offerCheck('stealth', 12);
+
+    expect(
+      screen.getByRole('button', { name: /Attempt Stealth, DC 12/i }),
+    ).toBeInTheDocument();
   });
 });
