@@ -24,6 +24,7 @@ jest.mock('../../lib/api/auth', () => ({
 
 jest.mock('../../lib/api/dnd', () => ({
   getCharacterSheet: jest.fn(),
+  levelUpCharacter: jest.fn(),
 }));
 
 import * as dnd from '../../lib/api/dnd';
@@ -129,5 +130,42 @@ describe('Character sheet', () => {
     await waitFor(() =>
       expect(screen.getByText(/can.?t find that one/i)).toBeInTheDocument(),
     );
+  });
+});
+
+describe('Character sheet — DDX-10 level-up button gating', () => {
+  it('owner + xp >= xp_next: Level up is shown and enabled', async () => {
+    mockGet.mockResolvedValue({ ...ROGUE, xp: 300, xp_next: 300 });
+    renderPage();
+
+    await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
+    expect(screen.getByRole('button', { name: /^level up$/i })).toBeEnabled();
+  });
+
+  it('owner + xp < xp_next: Level up is shown but disabled with a reason', async () => {
+    mockGet.mockResolvedValue({ ...ROGUE, xp: 100, xp_next: 300 });
+    renderPage();
+
+    await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
+    expect(screen.getByRole('button', { name: /^level up$/i })).toBeDisabled();
+    expect(screen.getByText('Needs 200 more XP.')).toBeInTheDocument();
+  });
+
+  it('level 20 (xp_next null): Level up is shown but disabled as max level', async () => {
+    mockGet.mockResolvedValue({ ...ROGUE, level: 20, xp: 355000, xp_next: null });
+    renderPage();
+
+    await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
+    expect(screen.getByRole('button', { name: /^level up$/i })).toBeDisabled();
+    expect(screen.getByText('Max level reached.')).toBeInTheDocument();
+  });
+
+  it('non-owner viewing the sheet: Level up is not rendered at all', async () => {
+    // ALICE (the logged-in user) is not this character's owner.
+    mockGet.mockResolvedValue({ ...ROGUE, owner_username: 'someone-else', xp: 300, xp_next: 300 });
+    renderPage();
+
+    await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
+    expect(screen.queryByRole('button', { name: /level up/i })).not.toBeInTheDocument();
   });
 });

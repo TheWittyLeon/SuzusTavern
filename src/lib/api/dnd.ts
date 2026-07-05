@@ -67,12 +67,33 @@ export const getCharacter = (
     { method: 'GET', signal },
   );
 
+/**
+ * DDX-10: level up a character (mechanical only — HP, hit dice, caster spell
+ * slots, and the new class-feature NAME list; no ASI/subclass choice UI yet,
+ * see the DDX-14/15 seam note on LevelUpButton).
+ * POST /api/dnd/characters/{id}/levelup
+ *
+ * Contract fix (same bug class as DDX-25's session-control wrappers): the
+ * engine's levelup_character route (NekoNova-DnDEngine routes/characters.py)
+ * always `return _ok({"message": result})` on success — the wire payload is
+ * `{message: string}`, never a Character. The pre-existing `apiCall<Character>`
+ * annotation was aspirational (zero UI call sites before DDX-10, so it was
+ * never exercised) and wrong; fixed here. Callers MUST refetch via
+ * getCharacterSheet to observe the new level/HP/slots/features — the engine
+ * is the source of truth, never this response.
+ *
+ * Also note: the engine's "not enough XP" refusal is ALSO a 200/`_ok` (the
+ * message text just says so) — routes/characters.py's `_classify()` only
+ * flags a handful of fixed prefixes as errors, and that refusal string isn't
+ * one of them. This resolving is therefore NOT proof a level-up happened;
+ * callers must confirm the level actually incremented on the refetched sheet.
+ */
 export const levelUpCharacter = (
   characterId: string,
   username: string,
   signal?: AbortSignal,
 ) =>
-  apiCall<Character>(
+  apiCall<{ message?: string }>(
     `/api/dnd/characters/${encodeURIComponent(characterId)}/levelup`,
     { method: 'POST', json: { username }, signal },
   );

@@ -16,6 +16,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import { getCharacterSheet } from '@/lib/api/dnd';
 import DeleteCharacterButton from '@/components/DeleteCharacterButton';
+import LevelUpButton from '@/components/LevelUpButton';
 import type { CharacterSheet } from '@/lib/api/types';
 import TavernShell from '@/components/TavernShell';
 import PageSkeleton from '@/components/PageSkeleton';
@@ -131,6 +132,12 @@ export default function CharacterPage() {
   const initial = (sheet.name || '?').charAt(0).toUpperCase();
   const ageHeightLine = [sheet.alignment, sheet.subrace].filter(Boolean).join(' · ');
   // Precomputed to avoid JSX inter-expression whitespace pitfalls.
+  // DDX-10: client-side UX gate only (mirrors every other owner/DM-only
+  // affordance in this repo — the engine's real ownership check is the Track A
+  // DND_REQUIRE_ACTOR kill-switch, default off). GET .../sheet has no ownership
+  // enforcement while that flag is off, so a non-owner really can view this
+  // page today; this only decides whether the Level-Up button renders at all.
+  const isOwner = !!username && sheet.owner_username.toLowerCase() === username.toLowerCase();
 
   return (
     <TavernShell
@@ -227,6 +234,17 @@ export default function CharacterPage() {
                 {sheet.xp_next != null ? ` / ${sheet.xp_next.toLocaleString()}` : ''}
               </p>
             </div>
+            {/* DDX-10: owner-only level-up affordance. Absent entirely for a
+                non-owner viewer (not merely disabled) — see the isOwner note
+                above. Full-width via .wrap/.result's grid-column: 1 / -1. */}
+            {username && isOwner && (
+              <LevelUpButton
+                characterId={id}
+                username={username}
+                sheet={sheet}
+                onLeveledUp={setSheet}
+              />
+            )}
           </Card>
 
           {/* Ability scores (ST-056) */}
