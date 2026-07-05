@@ -16,6 +16,10 @@
  *     tooltip "End or pause the fight to switch characters". Engine would still
  *     200 a direct API call (mid-fight rebind is a server-side no-op), but we
  *     prevent accidental confusion.
+ *   - DDX-25 R2 (D2-D4): when the session is paused/ended (`sessionLocked`),
+ *     button shown but disabled with a tooltip that says so — mirrors every
+ *     other player-action gate in the play page (Composer, combat rail,
+ *     skill check, Move on, DiceTray) which all now extend `sessionLocked`.
  *
  * Error handling (engine 400 reason codes):
  *   - not_your_character → "That character doesn't belong to you."
@@ -77,6 +81,10 @@ export interface RebindCharacterButtonProps {
   isDm: boolean;
   /** True when a combat is currently active — disables the button. */
   combatActive: boolean;
+  /** DDX-25 R2 (D2-D4): true when the session is paused or ended — disables
+   *  the button (mirrors combatActive). Optional/defaults to false so this
+   *  is backward-compatible for any other future call site. */
+  sessionLocked?: boolean;
   /** Called after a successful rebind so the parent can re-fetch participants. */
   onChanged: () => void;
 }
@@ -98,6 +106,7 @@ function RebindCharacterButtonInner({
   targetUsername,
   selfUsername,
   combatActive,
+  sessionLocked = false,
   onChanged,
 }: RebindCharacterButtonProps) {
   const { toast } = useToast();
@@ -239,11 +248,13 @@ function RebindCharacterButtonInner({
     }
   }, [busy, selected, sessionId, targetUsername, toast, onChanged, closePopover]);
 
-  const tooltip = combatActive
-    ? 'End or pause the fight to switch characters'
-    : isSelf
-      ? 'Change your character'
-      : `Change ${targetUsername}'s character`;
+  const tooltip = sessionLocked
+    ? "Session is paused or has ended — you can't switch characters right now"
+    : combatActive
+      ? 'End or pause the fight to switch characters'
+      : isSelf
+        ? 'Change your character'
+        : `Change ${targetUsername}'s character`;
 
   // Build option list for rendering (parallel array for roving tabindex tracking).
   // options[0] = "no character", options[1..] = characters.
@@ -268,8 +279,8 @@ function RebindCharacterButtonInner({
         aria-label={tooltip}
         aria-expanded={open}
         aria-controls={open ? dialogId : undefined}
-        disabled={combatActive}
-        onClick={() => { if (!combatActive) { setFocusedIdx(0); setOpen(true); } }}
+        disabled={combatActive || sessionLocked}
+        onClick={() => { if (!combatActive && !sessionLocked) { setFocusedIdx(0); setOpen(true); } }}
       >
         {/* Pencil/edit icon — inline SVG keeps the bundle lean */}
         <svg

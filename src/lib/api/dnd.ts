@@ -271,8 +271,17 @@ export const postSessionEvent = (
     { method: 'POST', json: req, signal },
   );
 
+// DDX-25 R2: DEAD code (zero production call sites — only exercised directly
+// by the api-dnd unit test) but retyped anyway for the same reason as
+// pauseSession/resumeSession/endSession/awardSessionXp below: the engine's
+// POST /sessions route resolves to `{message, session?}`, never a bare
+// Session — apiCall<Session> was never accurate to the wire shape.
 export const startSession = (req: SessionStartRequest, signal?: AbortSignal) =>
-  apiCall<Session>('/api/dnd/sessions', { method: 'POST', json: req, signal });
+  apiCall<{ message?: string; session?: Session }>('/api/dnd/sessions', {
+    method: 'POST',
+    json: req,
+    signal,
+  });
 
 /**
  * Create a session and return the structured session. ST-037.
@@ -287,22 +296,35 @@ export const createSession = (req: SessionStartRequest, signal?: AbortSignal) =>
     signal,
   }).then((d) => d.session ?? null);
 
+// DDX-25 R2: LIVE at lobby/page.tsx (fire-and-forget — the resolved value is
+// never read there), but retyped for the same reason as startSession above:
+// the engine's POST /sessions/{id}/join route resolves to `{message,
+// session?}`, never a bare Session.
 export const joinSession = (
   sessionId: string,
   req: SessionStartRequest,
   signal?: AbortSignal,
 ) =>
-  apiCall<Session>(
+  apiCall<{ message?: string; session?: Session }>(
     `/api/dnd/sessions/${encodeURIComponent(sessionId)}/join`,
     { method: 'POST', json: req, signal },
   );
 
+/**
+ * DDX-25: pause/resume/end/xp all wrap a chat-command string result as
+ * `_ok({"message": result})` engine-side (NekoNova-DnDEngine routes/sessions.py
+ * pause_session/resume_session/end_session/award_xp all `return _ok({"message":
+ * result})`) — the wire payload is `{message: string}`, never a Session. The
+ * `apiCall<Session>` annotation these four had before was aspirational, not
+ * accurate to the engine. Callers must GET /sessions/{id} again to observe the
+ * post-action status/xp_pool (see the play page's session-controls handlers).
+ */
 export const pauseSession = (
   sessionId: string,
   req: SessionStartRequest,
   signal?: AbortSignal,
 ) =>
-  apiCall<Session>(
+  apiCall<{ message?: string }>(
     `/api/dnd/sessions/${encodeURIComponent(sessionId)}/pause`,
     { method: 'POST', json: req, signal },
   );
@@ -312,7 +334,7 @@ export const resumeSession = (
   req: SessionStartRequest,
   signal?: AbortSignal,
 ) =>
-  apiCall<Session>(
+  apiCall<{ message?: string }>(
     `/api/dnd/sessions/${encodeURIComponent(sessionId)}/resume`,
     { method: 'POST', json: req, signal },
   );
@@ -322,7 +344,7 @@ export const endSession = (
   req: SessionStartRequest,
   signal?: AbortSignal,
 ) =>
-  apiCall<Session>(
+  apiCall<{ message?: string }>(
     `/api/dnd/sessions/${encodeURIComponent(sessionId)}/end`,
     { method: 'POST', json: req, signal },
   );
@@ -332,7 +354,7 @@ export const awardSessionXp = (
   req: XpAwardRequest,
   signal?: AbortSignal,
 ) =>
-  apiCall<Session>(
+  apiCall<{ message?: string }>(
     `/api/dnd/sessions/${encodeURIComponent(sessionId)}/xp`,
     { method: 'POST', json: req, signal },
   );

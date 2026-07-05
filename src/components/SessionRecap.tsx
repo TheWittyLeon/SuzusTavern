@@ -11,7 +11,7 @@
  * the digest. When assist is 'off' or unknown, NO narration request is issued —
  * honoring the S2.5 interlock.
  */
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { getSessionEvents } from '@/lib/api/dnd';
 import { streamDmNarration } from '@/lib/stream';
 import { buildRecap, type RecapResult } from '@/lib/dnd/recap';
@@ -33,8 +33,20 @@ export default function SessionRecap({ session, username, variant = 'card' }: Se
   const [open, setOpen] = useState(variant === 'card');
   const [dismissed, setDismissed] = useState(false);
   const uid = useId();
+  // DDX-25 R3: latch so the LLM "previously on" recap request fires at most
+  // ONCE per session, no matter how many times the `session` prop is later
+  // replaced with a new-but-equivalent object (the play page's session-status
+  // poll does exactly this every ~4s — see that poll's own comment). Keyed by
+  // session_id rather than a plain boolean so a genuinely NEW session — both
+  // callers already remount this component under `key={session.session_id}`,
+  // which would reset this ref anyway, but keying by id is defense-in-depth
+  // if a future caller omits the key — still recaps exactly once.
+  const requestedForRef = useRef<string | null>(null);
 
-  // Deterministic digest — zero LLM, always runs.
+  // Deterministic digest — zero LLM, always runs. Depends on the STABLE
+  // session_id, not the whole `session` object: a poll-driven identity change
+  // with no real content change must not re-fetch session_events on every
+  // tick, while a genuinely new session (new id) still recomputes it.
   useEffect(() => {
     const ctrl = new AbortController();
     (async () => {
@@ -45,10 +57,19 @@ export default function SessionRecap({ session, username, variant = 'card' }: Se
       setRecap(buildRecap(session, events));
     })();
     return () => ctrl.abort();
-  }, [session]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.session_id]);
 
   // Optional AI summary — HARD-GATED: only fires when assist is positively on.
   // 'off'/undefined ⇒ no narration request at all (the interlock guarantee).
+  // DDX-25 R3: dependency changed from the whole `session` object to the
+  // stable `session.session_id`, PLUS the requestedForRef latch above (belt
+  // and suspenders). Without this, a session-status poll tick that handed
+  // back a content-equal-but-new-identity session object re-ran this effect
+  // and re-issued a REAL LLM-backed "previously on" narration call every ~4s,
+  // indefinitely (live-observed: 20+ repeated recap requests per viewer). A
+  // pause/resume/status/xp change must NOT re-trigger this — only a
+  // genuinely new session does.
   useEffect(() => {
     const level = session.ai_assist_level;
     // Gate on fromEvents: never narrate a "previously on" from metadata alone —
@@ -56,6 +77,8 @@ export default function SessionRecap({ session, username, variant = 'card' }: Se
     if (!recap || recap.empty || !recap.facts || !recap.fromEvents) return;
     if (level !== 'full' && level !== 'assist') return;
     if (!username) return;
+    if (requestedForRef.current === session.session_id) return;
+    requestedForRef.current = session.session_id;
     const ctrl = new AbortController();
     (async () => {
       let full = '';
@@ -79,7 +102,8 @@ export default function SessionRecap({ session, username, variant = 'card' }: Se
       if (!ctrl.signal.aborted && full.trim()) setAiText(full.trim());
     })();
     return () => ctrl.abort();
-  }, [recap, session, username]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recap, session.session_id, username]);
 
   if (dismissed || !recap) return null;
   // Play-screen strip: only show when there's REAL play history. A fresh session

@@ -88,7 +88,10 @@ function renderLobby() {
 
 beforeEach(() => {
   mockListSessions.mockReset().mockResolvedValue([]);
-  mockJoin.mockReset().mockResolvedValue({} as Session);
+  // DDX-25 R2: joinSession's wire shape is `{message?, session?}`, not a bare
+  // Session (see dnd.ts) — the handler discards the resolved value either
+  // way, so an empty object (all-optional fields) is a sufficient mock.
+  mockJoin.mockReset().mockResolvedValue({});
   // Default: no characters — existing join tests stay unaffected.
   mockListChars.mockReset().mockResolvedValue([]);
 });

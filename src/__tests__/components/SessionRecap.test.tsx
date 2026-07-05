@@ -110,6 +110,54 @@ describe('SessionRecap', () => {
     expect(screen.getByRole('button', { name: /dismiss recap/i })).toBeInTheDocument();
   });
 
+  it('DDX-25 R3: does NOT re-issue the AI recap when `session` is replaced by a new-but-equivalent object (e.g. a poll re-render), but DOES recap again for a genuinely new session', async () => {
+    // Locks the consumer-hardening half of the R3 fix: the play page's
+    // session-status poll hands SessionRecap a freshly-deserialized `session`
+    // object every ~4s even when nothing changed. Before the fix, both
+    // effects depended on the whole `session` object, so every such update
+    // (even a no-op one) re-ran the LLM-backed effect and re-issued a real
+    // streamDmNarration call — see the poll-level regression test in
+    // play.ddx25-r3-recap-poll-churn.test.tsx for the end-to-end version.
+    mGetEvents.mockResolvedValue([
+      { event_type: 'scene_advance', description: 'The party fled the rising tide.' },
+    ]);
+    mStream.mockImplementation(async function* () {
+      yield { kind: 'chunk' as const, text: 'When last we met, the tide was rising.' };
+    });
+
+    const session = makeSession({ ai_assist_level: 'full' });
+    const { rerender } = render(<SessionRecap session={session} username="leon" />);
+    await waitFor(() => expect(mStream).toHaveBeenCalledTimes(1));
+
+    // Several re-renders with a BRAND NEW object (same session_id, identical
+    // content) — simulates repeated no-op poll ticks landing on this prop.
+    for (let i = 0; i < 3; i += 1) {
+      rerender(<SessionRecap session={{ ...session }} username="leon" />);
+    }
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mStream).toHaveBeenCalledTimes(1);
+
+    // Even a re-render with a genuinely DIFFERENT field (e.g. a live status
+    // flip via pause/resume) must not re-trigger the recap — only a new
+    // session_id should.
+    rerender(<SessionRecap session={{ ...session, status: 'paused' }} username="leon" />);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mStream).toHaveBeenCalledTimes(1);
+
+    // A genuinely NEW session (different session_id) must still recap once —
+    // the fix must not break the first-load/new-session behavior.
+    mGetEvents.mockResolvedValue([
+      { event_type: 'scene_advance', description: 'A new chapter begins.' },
+    ]);
+    rerender(
+      <SessionRecap
+        session={{ ...session, session_id: 's2' }}
+        username="leon"
+      />,
+    );
+    await waitFor(() => expect(mStream).toHaveBeenCalledTimes(2));
+  });
+
   it('renders the human name (not the slug) in the strip sub-label when session.name is set', async () => {
     // Post-fix Tavern session: name = human form value, channel = unique slug with suffix.
     // In the strip variant the title is rendered inside the toggle button as a <span>.
