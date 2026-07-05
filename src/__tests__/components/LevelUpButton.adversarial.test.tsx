@@ -177,7 +177,7 @@ describe('LevelUpButton adversarial — refetch failure after a successful mutat
     // catch with its own copy — distinct from an actual levelUpCharacter
     // failure.
     expect(
-      await screen.findByText('Leveled up — reload to see your updated sheet.'),
+      await screen.findByText("Couldn't refresh your sheet — reload to see the result."),
     ).toBeInTheDocument();
 
     // No false success: never shows the gain-summary "Leveled up! Lv.X →

@@ -750,9 +750,25 @@ export const castSpell = (req: SpellCastRequest, signal?: AbortSignal) =>
 export interface CatalogOpts {
   /** Content type filter: 'race' | 'class' | 'background' | ... */
   type?: string;
-  /** Comma-separated content-pack slugs. */
+  /**
+   * Comma-separated content-pack slugs.
+   *
+   * NOTE (DDX-21 SECURITY-3): on non-admin catalog paths, the BFF
+   * (`src/app/api/dnd/[...path]/route.ts`) strips any client-supplied
+   * `packs` query param before forwarding to the engine — this option has
+   * NO effect from an ordinary (non-admin-scoped) caller. Kept for a future
+   * admin-scoped caller (the strip only applies to non-admin paths), not
+   * deleted — don't reach for it expecting client-side pack filtering to
+   * work today.
+   */
   packs?: string;
-  /** Filter by owning user (homebrew). */
+  /**
+   * Filter by owning user (homebrew).
+   *
+   * NOTE (DDX-21 SECURITY-3): same caveat as `packs` above — stripped by the
+   * BFF on non-admin paths. Inert from the client outside an admin-scoped
+   * call.
+   */
   user?: string;
   limit?: number;
   offset?: number;

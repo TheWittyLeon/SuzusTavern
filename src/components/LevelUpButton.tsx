@@ -55,7 +55,7 @@
  * the class catalog's `subclass_level` — deliberately left as a DDX-14/15
  * follow-up rather than a fragile name-guess here.
  */
-import { useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import Button from '@/components/Button';
 import Icon from '@/components/Icon';
 import ConfirmDialog from '@/components/ConfirmDialog';
@@ -132,6 +132,9 @@ export default function LevelUpButton({
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [gain, setGain] = useState<LevelUpGain | null>(null);
+  // Micro-hardening: a hardcoded id would collide if two LevelUpButton
+  // instances ever render on the same page at once.
+  const reasonId = useId();
   /** D1: synchronous double-submit latch — see the header comment. React
    *  state (`busy`) can't close this gap because two same-tick clicks both
    *  read it before either dispatch's re-render commits; a ref mutation is
@@ -188,12 +191,15 @@ export default function LevelUpButton({
         }
         onLeveledUp(after);
       } catch {
-        // D2: the level-up itself succeeded — only this refetch failed. Say
-        // so, and don't say "try again" (that reads as "the level-up didn't
-        // happen yet", which is false and risks a real second level-up).
+        // D2: the level-up itself succeeded OR was refused — either way, only
+        // this refetch failed, and we don't actually know which happened
+        // (see the dnd.ts contract note: a resolved levelUpCharacter isn't
+        // proof of anything on its own). Don't assert an outcome we can't
+        // verify, and don't say "try again" (that reads as "nothing happened
+        // yet", which risks a real second level-up attempt).
         setConfirming(false);
         toast({
-          message: 'Leveled up — reload to see your updated sheet.',
+          message: "Couldn't refresh your sheet — reload to see the result.",
           tone: 'warn',
         });
       }
@@ -210,13 +216,13 @@ export default function LevelUpButton({
           variant="primary"
           leadingIcon={<Icon name="Crown" size={14} aria-hidden />}
           disabled={!canLevelUp}
-          aria-describedby={reason ? 'levelup-reason' : undefined}
+          aria-describedby={reason ? reasonId : undefined}
           onClick={() => setConfirming(true)}
         >
           Level up
         </Button>
         {reason && (
-          <span id="levelup-reason" className={styles.reason}>
+          <span id={reasonId} className={styles.reason}>
             {reason}
           </span>
         )}

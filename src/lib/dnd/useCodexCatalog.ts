@@ -56,7 +56,6 @@ export type FetchStatus = 'idle' | 'loading' | 'ok' | 'error';
 
 export interface UseCodexCatalogResult {
   counts: Record<string, number> | null;
-  countsStatus: FetchStatus;
   items: CatalogItem[];
   /**
    * DDX21-1: which kind `items` (and `status`, once it's not 'loading')
@@ -72,7 +71,6 @@ export interface UseCodexCatalogResult {
 
 export function useCodexCatalog(activeKind: CodexKind): UseCodexCatalogResult {
   const [counts, setCounts] = useState<Record<string, number> | null>(null);
-  const [countsStatus, setCountsStatus] = useState<FetchStatus>('loading');
 
   // Per-kind cache — survives tab switches for the life of the mount.
   const cacheRef = useRef<Partial<Record<CodexKind, CatalogItem[]>>>({});
@@ -85,17 +83,14 @@ export function useCodexCatalog(activeKind: CodexKind): UseCodexCatalogResult {
   // Counts — once, best-effort.
   useEffect(() => {
     const ac = new AbortController();
-    setCountsStatus('loading');
     getCatalogCounts(SYSTEM, {}, ac.signal)
       .then((res) => {
         if (ac.signal.aborted) return;
         setCounts(res.counts ?? {});
-        setCountsStatus('ok');
       })
       .catch(() => {
         if (ac.signal.aborted) return;
         setCounts(null);
-        setCountsStatus('error');
       });
     return () => ac.abort();
   }, []);
@@ -131,8 +126,7 @@ export function useCodexCatalog(activeKind: CodexKind): UseCodexCatalogResult {
         setStatus('error');
       });
     return () => ac.abort();
-
   }, [activeKind, retryTick]);
 
-  return { counts, countsStatus, items, itemsKind, status, retry };
+  return { counts, items, itemsKind, status, retry };
 }

@@ -49,7 +49,13 @@
 }
 
 .die:disabled {
-  opacity: 0.45;
+  /* DDX-25 Tier-3 (Aoi minor): .die's enabled resting state is already a very
+     faint 3%-tint background + hairline border, so opacity:0.45 (the app's
+     common disabled value) faded it to near-invisibility. Bumped to 0.6 —
+     matches the app's precedent for legibility-sensitive disabled controls
+     (e.g. TavernShell .menuRow:disabled) — without touching the enabled
+     look (:hover/:active/base rules are untouched). */
+  opacity: 0.6;
   cursor: not-allowed;
 }
 
@@ -80,7 +86,9 @@
 }
 
 .checkRow:disabled {
-  opacity: 0.45;
+  /* Same subtlety issue and fix as .die:disabled above — kept consistent
+     since both live in the same disableable DiceTray. */
+  opacity: 0.6;
   cursor: not-allowed;
 }
 

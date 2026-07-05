@@ -25,11 +25,13 @@
  *
  * Security — non-admin param strip (SECURITY-3, Kuro-Sec DDX-21):
  *   On NON-admin paths, any client-supplied `user` or `packs` query param is
- *   deleted before forwarding. Both drive server-side authorization (RLS
- *   app_user resolution and private-pack visibility) — a browser must never
- *   be able to assert its own identity or content scope. This is the interim
- *   guard while Track-A actor enforcement + the non-superuser RLS cutover
- *   (STORY-PLAYFIX-PRODRLS) are still pending.
+ *   deleted before forwarding, matched case-insensitively (`User`, `PACKS`,
+ *   etc. are also stripped — defense-in-depth, DDX-21 Tier-3). Both drive
+ *   server-side authorization (RLS app_user resolution and private-pack
+ *   visibility) — a browser must never be able to assert its own identity or
+ *   content scope. This is the interim guard while Track-A actor enforcement
+ *   + the non-superuser RLS cutover (STORY-PLAYFIX-PRODRLS) are still
+ *   pending.
  *
  * The admin token is never returned in any response and never logged.
  *
@@ -157,8 +159,17 @@ async function proxyRequest(
   if (isAdminPath && adminSession) {
     upstreamUrl.searchParams.set('user', adminSession.username);
   } else if (!isAdminPath) {
-    upstreamUrl.searchParams.delete('user');
-    upstreamUrl.searchParams.delete('packs');
+    // Case-insensitive strip (defense-in-depth): URLSearchParams.delete() is
+    // exact-match, so a client sending `?User=` or `?PACKS=` would sail
+    // through a naive delete('user')/delete('packs'). Collect the actual
+    // keys present (by lowercased name) first, then delete each verbatim key
+    // — deleting while iterating a live URLSearchParams can skip entries.
+    const keysToStrip: string[] = [];
+    upstreamUrl.searchParams.forEach((_value, key) => {
+      const lower = key.toLowerCase();
+      if (lower === 'user' || lower === 'packs') keysToStrip.push(key);
+    });
+    keysToStrip.forEach((key) => upstreamUrl.searchParams.delete(key));
   }
 
   // Forward relevant headers

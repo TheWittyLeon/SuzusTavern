@@ -536,6 +536,29 @@ describe('Security: non-admin param strip (SECURITY-3)', () => {
     expect(forwardedUrl.searchParams.has('packs')).toBe(false);
   });
 
+  it('strips a mixed-case ?User= param (case-insensitive defense-in-depth)', async () => {
+    mockUpstreamOk({ items: [], total: 0 });
+
+    const req = makeRequest(
+      'GET',
+      'http://localhost:3000/api/dnd/catalog?system=dnd5e&User=leon&PACKS=homebrew',
+    );
+    const ctx = makeContext(['catalog']);
+
+    const res = await GET(req, ctx);
+
+    expect(res.status).toBe(200);
+    const [[upstreamUrl]] = mockFetch.mock.calls as [[string]];
+    const forwardedUrl = new URL(String(upstreamUrl));
+    // Neither the mixed-case keys nor any lowercase equivalent should survive.
+    expect(forwardedUrl.searchParams.has('User')).toBe(false);
+    expect(forwardedUrl.searchParams.has('user')).toBe(false);
+    expect(forwardedUrl.searchParams.has('PACKS')).toBe(false);
+    expect(forwardedUrl.searchParams.has('packs')).toBe(false);
+    // Legitimate param still forwards untouched.
+    expect(forwardedUrl.searchParams.get('system')).toBe('dnd5e');
+  });
+
   it('still stamps user from the session on an admin/* path — unaffected by the strip', async () => {
     mockAuthMeOk(['admin']);
     mockUpstreamOk();
