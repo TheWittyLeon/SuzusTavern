@@ -3,6 +3,8 @@
  * Verifies dev defaults, prod-required throws, and optional field behaviour.
  */
 
+export {}; // module scope — avoids a global-scope setNodeEnv collision with sibling test files
+
 // Helper to set NODE_ENV (it's readonly in the type but writable at runtime in Node/Jest)
 function setNodeEnv(value: string) {
   Object.defineProperty(process.env, 'NODE_ENV', {
@@ -69,16 +71,23 @@ describe('env.ts', () => {
     }).toThrow('NEXT_PUBLIC_NEKANOVA_URL');
   });
 
-  it('throws when AUTH_API_URL is missing in production', () => {
+  // The server-side required-throw for AUTH_API_URL is covered in the node-env
+  // sibling file env.server.test.ts (jsdom always defines `window`, so a
+  // server context can't be simulated reliably here).
+
+  it('does NOT throw for a missing server-only AUTH_API_URL on the CLIENT (window present)', () => {
+    // Regression guard for the prod-build bug: env.ts is imported by client code;
+    // a server-only var absent in the client bundle must fall back, not throw at load.
     setNodeEnv('production');
     process.env.NEXT_PUBLIC_NEKANOVA_URL = 'http://neko:8080';
     delete process.env.AUTH_API_URL;
     jest.resetModules();
 
+    // jsdom window is present (client context) — server-only var must not throw.
     expect(() => {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       require('../../lib/env');
-    }).toThrow('AUTH_API_URL');
+    }).not.toThrow();
   });
 
   it('IS_PROD is true when NODE_ENV is production', () => {

@@ -46,10 +46,28 @@ function parseBool(raw: string | undefined): boolean | undefined {
 function loadEnv(): Env {
   const isProd = process.env.NODE_ENV === 'production';
 
-  function require(varName: string, devDefault: string): string {
-    const val = process.env[varName];
+  const isServer = typeof window === 'undefined';
+
+  // NEXT_PUBLIC_* vars MUST be referenced statically as `process.env.NEXT_PUBLIC_x`
+  // at the call site (below) so Next/Turbopack inlines the build-time value into
+  // the client bundle. A dynamic `process.env[name]` lookup is NOT inlined and
+  // resolves to undefined on the client — which threw at module load in prod.
+  function requirePublic(val: string | undefined, varName: string, devDefault: string): string {
     if (val) return val;
     if (isProd) {
+      throw new Error(
+        `Missing required environment variable "${varName}". Set this in your environment before starting the production server.`,
+      );
+    }
+    return devDefault;
+  }
+
+  // Server-only vars are never inlined into the client bundle, so only enforce
+  // them on the server; on the client they fall back to the dev default (they
+  // are never actually read client-side).
+  function requireServer(val: string | undefined, varName: string, devDefault: string): string {
+    if (val) return val;
+    if (isProd && isServer) {
       throw new Error(
         `Missing required environment variable "${varName}". Set this in your environment before starting the production server.`,
       );
@@ -70,8 +88,8 @@ function loadEnv(): Env {
     : 'prod';
 
   return Object.freeze({
-    NEKANOVA_URL: require('NEXT_PUBLIC_NEKANOVA_URL', 'http://localhost:8080'),
-    AUTH_API_URL: require('AUTH_API_URL', 'http://localhost:5000'),
+    NEKANOVA_URL: requirePublic(process.env.NEXT_PUBLIC_NEKANOVA_URL, 'NEXT_PUBLIC_NEKANOVA_URL', 'http://localhost:8080'),
+    AUTH_API_URL: requireServer(process.env.AUTH_API_URL, 'AUTH_API_URL', 'http://localhost:5000'),
     PUBLIC_AUTH_URL: process.env.NEXT_PUBLIC_AUTH_URL ?? null,
     IS_PROD: isProd,
     COOKIE_SECURE: cookieSecure,
