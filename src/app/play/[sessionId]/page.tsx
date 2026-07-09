@@ -420,6 +420,16 @@ export default function PlayPage() {
   // row that grows token-by-token (so the reader sees Suzu narrate inline in the
   // conversation, not just in the top strip). The row is created on the first
   // chunk and updated in place; finalized (or removed on error) after the beat.
+  //
+  // T1 (TAV-S1) — screen-reader flood fix: the in-progress row is marked
+  // `streaming: true` so ChatLog renders it `aria-hidden` (every token-by-
+  // token delta re-announcing the growing text floods a screen reader).
+  // `finalizeStreamNarration` below does NOT just flip that flag on the same
+  // node — it swaps in a brand-new row (fresh id/key) carrying the complete
+  // text, so React mounts a new, non-hidden DOM node and the finished
+  // narration is announced exactly once, rather than being the very node
+  // that was aria-hidden a moment ago (some AT/browser combos don't
+  // re-announce a node whose aria-hidden merely flips off in place).
   const streamRowIdRef = useRef<string | null>(null);
   const upsertStreamNarration = useCallback((text: string) => {
     // Decide create-vs-update and mutate the id/ref OUTSIDE the state updater —
@@ -433,7 +443,7 @@ export default function PlayPage() {
       streamRowIdRef.current = id;
       setLog((prev) => [
         ...prev,
-        { id, who: 'Suzu', kind: 'narration' as const, text, ts },
+        { id, who: 'Suzu', kind: 'narration' as const, text, ts, streaming: true },
       ]);
     }
   }, []);
@@ -441,6 +451,25 @@ export default function PlayPage() {
     const id = streamRowIdRef.current;
     streamRowIdRef.current = null;
     if (removeRow && id) setLog((prev) => prev.filter((r) => r.id !== id));
+  }, []);
+  /** T1 (TAV-S1) — finalize a completed stream beat by REMOUNTING a fresh,
+   *  non-hidden row in place of the aria-hidden streaming one (same position
+   *  in the log, new id) rather than mutating the streaming row's text in
+   *  place. See the streamRowIdRef comment above for why a fresh node matters
+   *  for SR announcement. No-ops (and clears the ref) if the streaming row
+   *  was somehow already removed from the log. */
+  const finalizeStreamNarration = useCallback((text: string) => {
+    const id = streamRowIdRef.current;
+    streamRowIdRef.current = null;
+    if (!id) return;
+    const newId = `r${(idRef.current += 1)}`;
+    setLog((prev) => {
+      const idx = prev.findIndex((r) => r.id === id);
+      if (idx === -1) return prev;
+      const next = [...prev];
+      next[idx] = { ...next[idx], id: newId, text, streaming: false };
+      return next;
+    });
   }, []);
 
   // ── load session + party ────────────────────────────────────────────────────
@@ -966,10 +995,12 @@ export default function PlayPage() {
       }
 
       if (streamRowIdRef.current) {
-        // Streamed path — the narration is already live in the bottom log;
-        // finalize it with the complete text (no second row appended).
-        upsertStreamNarration(full);
-        clearStreamNarration(false);
+        // Streamed path — the narration is already live in the bottom log as
+        // an aria-hidden streaming row. T1 (TAV-S1): finalize by REMOUNTING a
+        // fresh, non-hidden row (new id) in its place rather than mutating
+        // the same node's text — the fresh node is what the SR announces
+        // exactly once (see finalizeStreamNarration's own comment).
+        finalizeStreamNarration(full);
       } else {
         // Buffered / flag-OFF path — append the finished narration as before.
         appendLog({ who: 'Suzu', kind: 'narration', text: full });
@@ -1029,6 +1060,7 @@ export default function PlayPage() {
       appendLog,
       upsertStreamNarration,
       clearStreamNarration,
+      finalizeStreamNarration,
       refreshGrounding,
       refocusSceneHeadIfStranded,
       grounding,

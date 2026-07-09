@@ -43,6 +43,12 @@ export interface LogRow {
   color?: string;
   /** Present on roll rows — renders the Die + breakdown. */
   roll?: RollResult;
+  /** T1 (TAV-S1): true while this row is an in-progress DM-narration stream
+   *  that is still growing token-by-token. Hides the row from screen readers
+   *  (aria-hidden) so every incremental chunk isn't re-announced — the
+   *  finalized narration lands as a BRAND-NEW row (fresh id/key, this flag
+   *  unset) once streaming completes, so it's announced exactly once. */
+  streaming?: boolean;
 }
 
 export interface ChatLogProps {
@@ -124,7 +130,15 @@ const ChatLog = forwardRef<ChatLogHandle, ChatLogProps>(function ChatLog(
         }
 
         return (
-          <div key={r.id} className={`${styles.row} ${styles[r.kind]}`}>
+          <div
+            key={r.id}
+            className={`${styles.row} ${styles[r.kind]}`}
+            // T1 (TAV-S1): a growing in-progress stream row is hidden from
+            // screen readers — announcing every token-by-token delta floods
+            // the AT. The finalized row (a fresh id, `streaming` unset)
+            // replaces this one and IS announced, exactly once.
+            aria-hidden={r.streaming ? 'true' : undefined}
+          >
             <div className={styles.who} style={r.color ? { color: r.color } : undefined}>
               <span>
                 {r.who}

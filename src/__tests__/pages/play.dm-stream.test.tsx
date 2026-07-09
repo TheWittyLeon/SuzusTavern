@@ -291,3 +291,64 @@ describe('DM-STREAM — narrate() streamMode chunk handling', () => {
     });
   });
 });
+
+describe('T1 (TAV-S1) — screen-reader flood fix: aria-hidden stream row + finalize remount', () => {
+  it('hides the growing stream row from screen readers, then swaps in a NEW non-hidden node on finalize', async () => {
+    // Manually gate the generator between the last streamed delta and the
+    // beat's completion — gives a stable window to assert the mid-stream
+    // (aria-hidden) DOM state BEFORE finalizeStreamNarration() swaps the row.
+    let releaseGen: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      releaseGen = resolve;
+    });
+    mStream.mockImplementation(async function* () {
+      yield { kind: 'chunk', text: 'You step into the clearing.', streamMode: true };
+      await gate;
+      yield { kind: 'done' };
+    });
+    render(<PlayPage />);
+    await screen.findByRole('textbox');
+
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: 'I step forward.' } });
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' });
+    });
+
+    const log = await screen.findByRole('log');
+
+    // ── mid-stream: the row is aria-hidden while the generator is still
+    // paused on `gate` (beat not yet finalized) ─────────────────────────────
+    let midStreamNode: HTMLElement | undefined;
+    await waitFor(() => {
+      const textEl = within(log).getByText('You step into the clearing.');
+      const row = textEl.parentElement as HTMLElement;
+      expect(row.getAttribute('aria-hidden')).toBe('true');
+      midStreamNode = row;
+    });
+
+    // ── release the generator so the beat completes and
+    // finalizeStreamNarration() fires ───────────────────────────────────────
+    await act(async () => {
+      releaseGen();
+    });
+
+    // ── post-finalize: same cumulative text, but on a DIFFERENT DOM node
+    // (new React key -> real unmount/remount, not an in-place attribute
+    // flip) and NOT aria-hidden ─────────────────────────────────────────────
+    await waitFor(() => {
+      const textEl = within(log).getByText('You step into the clearing.');
+      const finalRow = textEl.parentElement as HTMLElement;
+      expect(finalRow.getAttribute('aria-hidden')).toBeNull();
+      expect(finalRow).not.toBe(midStreamNode);
+    });
+
+    // The old aria-hidden node was genuinely removed from the document (a
+    // true swap, not a second row appended alongside an orphaned hidden one
+    // — the "streaming:true left stamped forever" failure mode).
+    expect(midStreamNode?.isConnected).toBe(false);
+
+    // Exactly one row carries the finalized text — no duplicate/orphan.
+    expect(within(log).getAllByText('You step into the clearing.')).toHaveLength(1);
+  });
+});
