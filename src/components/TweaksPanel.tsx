@@ -26,14 +26,14 @@ import { useTheme } from '@/lib/theme/ThemeProvider';
 import {
   DENSITIES,
   DENSITY_LABELS,
-  VIBES,
-  VIBE_HINTS,
-  VIBE_LABELS,
+  VIBE_PREFS,
+  VIBE_PREF_HINTS,
+  VIBE_PREF_LABELS,
 } from '@/lib/theme/theme';
 import styles from './TweaksPanel.module.css';
 
 export default function TweaksPanel() {
-  const { vibe, density, setVibe, setDensity } = useTheme();
+  const { vibePref, density, setVibe, setDensity } = useTheme();
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -123,21 +123,21 @@ export default function TweaksPanel() {
           <fieldset className={styles.group}>
             <legend className={styles.legend}>Palette</legend>
             <div className={styles.options}>
-              {VIBES.map((v) => (
+              {VIBE_PREFS.map((v) => (
                 <label key={v} className={styles.option}>
                   <input
                     type="radio"
                     name="tavern-vibe"
                     value={v}
-                    checked={vibe === v}
+                    checked={vibePref === v}
                     onChange={() => setVibe(v)}
                     className={styles.radio}
                   />
                   <span className={styles.optionBody}>
                     <span className={`${styles.swatch} ${styles[`sw_${v.replace('-', '_')}`]}`} aria-hidden />
                     <span className={styles.optionText}>
-                      <span className={styles.optionLabel}>{VIBE_LABELS[v]}</span>
-                      <span className={styles.optionHint}>{VIBE_HINTS[v]}</span>
+                      <span className={styles.optionLabel}>{VIBE_PREF_LABELS[v]}</span>
+                      <span className={styles.optionHint}>{VIBE_PREF_HINTS[v]}</span>
                     </span>
                   </span>
                 </label>

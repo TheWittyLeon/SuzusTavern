@@ -133,6 +133,14 @@
 .sw_candlelit     { background: linear-gradient(135deg, #b5462a, #e8c898); }
 .sw_aetheric      { background: linear-gradient(135deg, #7ee8e2, #c4a3ff); }
 .sw_moonlit_grove { background: linear-gradient(135deg, #9cd6a8, #c8b6e6); }
+/* System = follow the device theme: a hard dark/light split reads as "either".
+   A fixed grey seam keeps the split legible on BOTH dark and light panels —
+   otherwise whichever half matches the panel blends in and the chip reads flat
+   (Iro-A11y MINOR-1). */
+.sw_system {
+  background: linear-gradient(135deg, #15101e 0 50%, #f5eee2 50% 100%);
+  border-color: rgba(128, 128, 128, 0.5);
+}
 
 .optionText {
   display: flex;

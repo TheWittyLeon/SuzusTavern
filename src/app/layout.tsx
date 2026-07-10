@@ -29,8 +29,9 @@ export default async function RootLayout({
 
   return (
     // suppressHydrationWarning: the no-flash script (below) rewrites data-vibe/
-    // data-density from localStorage before hydration; without this React would
-    // warn about the attribute mismatch on a non-default saved palette.
+    // data-density before hydration — from a saved palette, or (UIR2-TAV-4) from
+    // the OS prefers-color-scheme when none is pinned; without this React would
+    // warn about the attribute mismatch on any non-default resolved palette.
     <html lang="en" data-vibe="dusk-tavern" data-density="cozy" suppressHydrationWarning>
       <head>
         {/* Apply the saved palette/density before first paint — no theme flash. */}

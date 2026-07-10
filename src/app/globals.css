@@ -18,6 +18,10 @@
 :root,
 [data-vibe="dusk-tavern"] {
   /* ----- Dusk Tavern (default) — cozy, fireside, aubergine ----- */
+  /* color-scheme drives native UA controls (scrollbars, form widgets, date/
+     number spinners) so they match this dark palette instead of the browser's
+     default light chrome (UIR2-TAV-4). Tracks data-vibe declaratively. */
+  color-scheme: dark;
   --bg:         #15101e;
   --bg-2:       #1c1530;
   --bg-3:       #221a3a;
@@ -65,6 +69,7 @@
 
 [data-vibe="candlelit"] {
   /* ----- Candlelit — light parchment, ember accents ----- */
+  color-scheme: light; /* the one light palette — native controls render light */
   --bg:         #f5eee2;
   --bg-2:       #ebe1cf;
   --bg-3:       #e0d4be;
@@ -116,6 +121,7 @@
 }
 
 [data-vibe="aetheric"] {
+  color-scheme: dark;
   /* ----- Aetheric — deep midnight, arcane teal, amethyst ----- */
   --bg:         #0c0f1e;
   --bg-2:       #131830;
@@ -160,6 +166,7 @@
 }
 
 [data-vibe="moonlit-grove"] {
+  color-scheme: dark;
   /* ----- Moonlit Grove — mossy, silver, lavender mist ----- */
   --bg:         #0f1614;
   --bg-2:       #161f1c;
