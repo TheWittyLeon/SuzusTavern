@@ -29,6 +29,7 @@ import type {
   EndCombatResult,
   EngineSessionEvent,
   GameSystem,
+  GrantCurrencyResult,
   GroundingData,
   HpAdjustResult,
   Inventory,
@@ -54,6 +55,7 @@ import type {
   SpellCastRequest,
   SpellListResult,
   SpellSlotsResult,
+  SpendCurrencyResult,
   SubmitOverrideRequest,
   SystemDefinition,
   WriteSessionEventRequest,
@@ -257,6 +259,28 @@ export const adjustSpellSlot = (
   apiCall<SpellSlotsResult>(
     `/api/dnd/spells/${encodeURIComponent(characterId)}/slots/adjust`,
     { method: 'POST', json: { username, level, op }, signal },
+  );
+
+/**
+ * T12 (DDX-23t) — spend gold from the character's own purse (owner-auth).
+ * POST /api/dnd/characters/{id}/currency/spend
+ * No `username` in the body — unlike equip/unequip/give-item, the engine's
+ * SpendCurrencyRequest takes only `amount`; ownership is proven server-side
+ * by `guard_owner` against the verified actor (see the N7 proxy's
+ * `spend_character_currency` doc comment, api/routes/dnd_characters.py).
+ * `amount` must be a positive int — callers must guard before calling (see
+ * CurrencyPurse's `amountValid`, mirroring HpControl's convention). Response
+ * carries the FULL post-mutation balance so the purse can update immediately
+ * without waiting on a refetch, same as adjustHp.
+ */
+export const spendCurrency = (
+  characterId: string,
+  amount: number,
+  signal?: AbortSignal,
+) =>
+  apiCall<SpendCurrencyResult>(
+    `/api/dnd/characters/${encodeURIComponent(characterId)}/currency/spend`,
+    { method: 'POST', json: { amount }, signal },
   );
 
 /**
@@ -599,6 +623,27 @@ export const awardSessionXp = (
   apiCall<{ message?: string }>(
     `/api/dnd/sessions/${encodeURIComponent(sessionId)}/xp`,
     { method: 'POST', json: req, signal },
+  );
+
+/**
+ * T12 (DDX-23t) — DM grants gold to a character seated at this session.
+ * POST /api/dnd/sessions/{sessionId}/grant-currency
+ * No `username` field — DM identity is proven server-side by `guard_dm`
+ * against the verified actor (see the N7 proxy's `grant_session_currency`
+ * doc comment, api/routes/dnd_sessions.py); the target is named explicitly
+ * via `character_id`. `gold` must be a positive int — callers must guard
+ * before calling (mirrors spendCurrency's convention). Response carries the
+ * FULL post-grant balance of the TARGET character, not the caller's own.
+ */
+export const grantCurrency = (
+  sessionId: string,
+  characterId: string,
+  gold: number,
+  signal?: AbortSignal,
+) =>
+  apiCall<GrantCurrencyResult>(
+    `/api/dnd/sessions/${encodeURIComponent(sessionId)}/grant-currency`,
+    { method: 'POST', json: { character_id: characterId, gold }, signal },
   );
 
 /** Soft-delete (trash) a campaign the user runs (DM). Recoverable via restoreSession. */

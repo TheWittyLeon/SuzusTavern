@@ -27,6 +27,7 @@ import Pill from '@/components/Pill';
 import Icon from '@/components/Icon';
 import SuzuDM from '@/components/SuzuDM';
 import InventoryPanel from '@/components/InventoryPanel';
+import CurrencyPurse from '@/components/CurrencyPurse';
 import HpControl from '@/components/HpControl';
 import SpellSlotsPanel from '@/components/SpellSlotsPanel';
 import SpellbookPanel from '@/components/SpellbookPanel';
@@ -355,6 +356,19 @@ export default function CharacterPage() {
               isOwner={isOwner}
               inventory={sheet.inventory}
               inventoryWeight={sheet.inventory_weight}
+              onChanged={setSheet}
+            />
+          </Card>
+
+          {/* Purse (T12/DDX-23t): gold display + owner-only Spend. Own
+              small Card, right below Inventory — economy affordances live
+              together. */}
+          <Card>
+            <CurrencyPurse
+              characterId={id}
+              username={username ?? ''}
+              isOwner={isOwner}
+              currencyGp={sheet.currency_gp ?? 0}
               onChanged={setSheet}
             />
           </Card>

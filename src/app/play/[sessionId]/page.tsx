@@ -90,6 +90,7 @@ import PageSkeleton from '@/components/PageSkeleton';
 import NarratorStrip from '@/components/NarratorStrip';
 import CastSpellPanel from '@/components/CastSpellPanel';
 import ConditionsPanel from '@/components/ConditionsPanel';
+import GrantCurrencyPanel from '@/components/GrantCurrencyPanel';
 import SessionRecap from '@/components/SessionRecap';
 import ChatLog, { type ChatLogHandle, type LogRow } from '@/components/ChatLog';
 import PartyPanel from '@/components/PartyPanel';
@@ -2393,6 +2394,18 @@ export default function PlayPage() {
                 </div>
               </form>
             )}
+            {/* T12 (DDX-23t): DM grants gold to a chosen party member's
+                character. Session-scoped, not combat-scoped — sits in this
+                same isDm "Session controls" group as Award XP (not gated on
+                isHumanDM/combatIsActive like ConditionsPanel, since granting
+                gold is a session-economy action available to any DM seat).
+                Self-contained (own busy-latch/toast), renders nothing when
+                no participant has a bound character yet. */}
+            <GrantCurrencyPanel
+              sessionId={sessionId}
+              participants={participants}
+              disabled={sessionActionBusy !== null || isEnded}
+            />
           </div>
         )}
         <PartyPanel

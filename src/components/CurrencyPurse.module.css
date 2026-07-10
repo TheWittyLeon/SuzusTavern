@@ -1,0 +1,42 @@
+/* CurrencyPurse — T12 (DDX-23t currency UI). Token-driven; no hardcoded
+ * colors. Geometry mirrors HpControl's .wrap/.hpHead/.hpControls/.hpInput
+ * (the sibling "single-number economy control" on the sheet). */
+
+.wrap {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.label {
+  font-size: 13px;
+  font-weight: 700;
+  /* --warn as text on the .glass card: 5.82:1 (candlelit) – 11.27:1 (aetheric),
+     verified 2026-07-10 (Iro-A11y). */
+  color: var(--warn);
+}
+.amountNum {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.input {
+  flex: 1;
+  min-width: 60px;
+}
+/* Visual error affordance for an invalid amount — a signal beyond the
+   disabled button, for sighted users who don't rely on color alone. */
+.input[aria-invalid='true'] {
+  border-color: var(--bad);
+}

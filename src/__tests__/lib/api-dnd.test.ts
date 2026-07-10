@@ -31,6 +31,7 @@ import {
   equipItem,
   unequipItem,
   giveItem,
+  spendCurrency,
   getInventory,
   listMyCharacters,
   startSession,
@@ -44,6 +45,7 @@ import {
   resumeSession,
   endSession,
   awardSessionXp,
+  grantCurrency,
   attack,
   dodge,
   dash,
@@ -216,6 +218,29 @@ describe('Characters', () => {
     expect(url).toBe('/api/dnd/characters/char-1/inventory?username=player');
     expect(method).toBe('GET');
   });
+
+  // T12 (DDX-23t): spendCurrency — no `username` in the body (unlike
+  // equip/unequip/give-item above) — ownership is proven server-side by
+  // guard_owner against the verified actor, not a body field (see
+  // NekoNova-DnDEngine routes/characters.py::SpendCurrencyRequest, ~line 219).
+  it('spendCurrency — POST /api/dnd/characters/:id/currency/spend, body {amount} only', async () => {
+    await spendCurrency('char-1', 25);
+    const { url, method, body } = lastCall();
+    expect(url).toBe('/api/dnd/characters/char-1/currency/spend');
+    expect(method).toBe('POST');
+    expect(body).toEqual({ amount: 25 });
+  });
+
+  it('spendCurrency resolves to the real {currency_gp, spent} shape', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ success: true, data: { currency_gp: 75, spent: 25 } }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    const result = await spendCurrency('char-1', 25);
+    expect(result).toEqual({ currency_gp: 75, spent: 25 });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -261,6 +286,28 @@ describe('Sessions', () => {
     const { url, body } = lastCall();
     expect(url).toBe('/api/dnd/sessions/sess-1/xp');
     expect(body).toMatchObject({ amount: 100 });
+  });
+
+  // T12 (DDX-23t): grantCurrency — no `username` in the body; DM identity is
+  // proven server-side by guard_dm against the verified actor (see
+  // NekoNova-DnDEngine routes/sessions.py::GrantCurrencyRequest, ~line 221).
+  it('grantCurrency — POST /api/dnd/sessions/:id/grant-currency, body {character_id, gold}', async () => {
+    await grantCurrency('sess-1', 'char-1', 50);
+    const { url, method, body } = lastCall();
+    expect(url).toBe('/api/dnd/sessions/sess-1/grant-currency');
+    expect(method).toBe('POST');
+    expect(body).toEqual({ character_id: 'char-1', gold: 50 });
+  });
+
+  it('grantCurrency resolves to the real {currency_gp, granted} shape', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ success: true, data: { currency_gp: 150, granted: 50 } }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    const result = await grantCurrency('sess-1', 'char-1', 50);
+    expect(result).toEqual({ currency_gp: 150, granted: 50 });
   });
 });
 

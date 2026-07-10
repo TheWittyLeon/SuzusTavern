@@ -237,3 +237,51 @@ describe('Character sheet — T5 inventory: equip recomputes AC live', () => {
     expect(screen.getByText('equipped')).toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// T12 (DDX-23t) — CurrencyPurse mount, page-level. Unlike GrantCurrencyPanel
+// (whose ENTIRE isDm gate lives in the play page's JSX, see
+// play.grantcurrencypanel-gating.test.tsx), CurrencyPurse's own owner gate is
+// INSIDE the component (`{isOwner && (...)}`) — its own component test file
+// already proves that branch in isolation. What can only be proven by
+// mounting the real page: (1) the page's `isOwner` computation — the SAME
+// case-folding-prone variable already covered for Level-up/LevelChoicePicker
+// in character-id.adversarial.test.tsx — also correctly reaches CurrencyPurse
+// end to end, and (2) the `sheet.currency_gp ?? 0` fallback in page.tsx
+// itself (CurrencyPurse's own prop type is a plain required `number`, so the
+// optional-field-on-the-wire case can ONLY be exercised at this page-level
+// seam, not inside CurrencyPurse.test.tsx).
+// ---------------------------------------------------------------------------
+describe('Character sheet — T12 CurrencyPurse mount (page-level)', () => {
+  it('owner sees the Spend gold control', async () => {
+    mockGet.mockResolvedValue({ ...ROGUE, owner_username: 'alice', currency_gp: 40 });
+    renderPage();
+
+    await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
+    expect(screen.getByText('40 gp')).toBeInTheDocument();
+    expect(screen.getByLabelText('Gold amount')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Spend gold' })).toBeInTheDocument();
+  });
+
+  it('non-owner sees the purse read-only: no Spend control renders', async () => {
+    mockGet.mockResolvedValue({ ...ROGUE, owner_username: 'someone-else', currency_gp: 40 });
+    renderPage();
+
+    await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
+    expect(screen.getByText('40 gp')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Gold amount')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Spend gold' })).not.toBeInTheDocument();
+  });
+
+  it('a sheet with currency_gp undefined (optional field) renders "0 gp", never NaN, never a crash', async () => {
+    // ROGUE itself has no currency_gp key at all — the exact real-world shape
+    // named in the mandate (a pre-T12 fixture/snapshot with the field absent).
+    expect('currency_gp' in ROGUE).toBe(false);
+    mockGet.mockResolvedValue(ROGUE);
+    renderPage();
+
+    await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
+    expect(screen.getByText('0 gp')).toBeInTheDocument();
+    expect(screen.queryByText(/NaN/i)).not.toBeInTheDocument();
+  });
+});

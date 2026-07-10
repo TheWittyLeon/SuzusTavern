@@ -91,6 +91,31 @@ export interface SpellSlotsResult {
   remaining: number;
   used: number;
 }
+/** T12 (DDX-23t) — POST /characters/:id/currency/spend response. Confirmed
+ *  from NekoNova-DnDEngine routes/characters.py::spend_currency_route
+ *  (`_ok({"currency_gp": new_balance, "spent": body.amount})`, ~line 1385). */
+export interface SpendCurrencyResult {
+  currency_gp: number;
+  spent: number;
+}
+
+/** T12 (DDX-23t) — request body for POST /api/dnd/sessions/{id}/grant-currency.
+ *  No `username` field: the acting identity is the session's DM, proven
+ *  server-side by `guard_dm` against the verified actor — see
+ *  NekoNova-DnDEngine routes/sessions.py::GrantCurrencyRequest (~line 210). */
+export interface GrantCurrencyRequest {
+  character_id: string;
+  gold: number;
+}
+
+/** T12 (DDX-23t) — POST /sessions/:id/grant-currency response. Confirmed from
+ *  NekoNova-DnDEngine routes/sessions.py::grant_currency_route
+ *  (`_ok({"currency_gp": new_balance, "granted": body.gold})`, ~line 618). */
+export interface GrantCurrencyResult {
+  currency_gp: number;
+  granted: number;
+}
+
 export interface SheetSpellcasting { ability: string; save_dc: number; attack_bonus: number }
 
 // ── DnD: spell repertoire (T4 / DDX-11 sheet Spells tab) ────────────────────
@@ -275,6 +300,15 @@ export interface CharacterSheet {
    *  for the same fixture-blast-radius reason as `feats` above — the engine
    *  always sends `[]` when there is nothing pending. */
   pending_choices?: PendingLevelChoice[];
+  /** T12 (DDX-23t): gold purse. Confirmed on both engine backends —
+   *  `engine/commands/character_msm.py:349` and
+   *  `engine/commands/character_commands.py:517` both project
+   *  `currency_gp` onto the structured sheet (0 for a fresh character).
+   *  Optional for the same fixture-blast-radius reason as `feats`/
+   *  `pending_choices` above — the engine always sends a real int on the
+   *  live wire, this is purely so pre-existing `CharacterSheet` object
+   *  literals across the test suite keep compiling. */
+  currency_gp?: number;
 }
 
 // ── DnD: sessions ──────────────────────────────────────────────────────────
