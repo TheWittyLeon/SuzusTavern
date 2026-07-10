@@ -1,0 +1,704 @@
+'use client';
+/**
+ * LevelChoicePicker — T13 (DDX-14t/15t level-choice picker UI, character sheet).
+ *
+ * LevelUpButton (DDX-10) only bumps level/HP/hit dice/spell slots and lists
+ * gained feature NAMES — its own header comment flags that neither subclass
+ * selection nor Ability Score Improvement are actually pickable there. This
+ * component is that seam's payoff: for every entry in `sheet.pending_choices`
+ * (queued server-side by `_queue_level_choices`, NekoNova-DnDEngine
+ * engine/commands/character_msm.py), it surfaces a picker and resolves it via
+ * `POST /characters/{id}/level-choices/{choiceId}` (resolveLevelChoice,
+ * dnd.ts), then refetches the sheet — same refetch-after-mutate contract as
+ * every other mutating sheet component (LevelUpButton/InventoryPanel/
+ * HpControl/SpellSlotsPanel): the engine owns every derived number
+ * (subclass_features, ability_scores, hp, ac all recompute server-side), this
+ * component only renders what the fresh sheet says happened.
+ *
+ * Rendering is owner-gated by the CALLER (mirrors LevelUpButton's isOwner
+ * gate at character/[id]/page.tsx — a non-owner has no reason to resolve
+ * someone else's build decisions, and the engine route is OWNER-authed
+ * regardless). This component itself only checks `pending_choices` is
+ * non-empty; it renders nothing otherwise.
+ *
+ * Two choice `type`s exist today (engine's `_queue_level_choices`):
+ *   - `subclass` — pick an archetype. No `options` array ships on the
+ *     pending-choice record itself (just {id,type,level,class,label}), so
+ *     the options come from GET /api/dnd/catalog?type=subclass, filtered
+ *     client-side to `data.class` matching the choice's class — the SAME
+ *     filter `_resolve_subclass_choice` applies server-side, so an
+ *     ineligible choice can never even be offered here.
+ *   - `asi` — either a real Ability Score Improvement (+2 to one ability, or
+ *     +1 to two; 20 cap) or a feat instead. Modeled as a per-ability +/-
+ *     stepper with a 2-point budget: clicking "+" on one ability twice (then
+ *     confirming) is the +2-to-one shape; clicking "+" once on two
+ *     different abilities is the +1/+1 shape — the SAME two legal 5e shapes
+ *     `_resolve_asi_increase` validates server-side, so an illegal spread
+ *     can never be assembled in the UI to begin with. Each ability's "+" is
+ *     ALSO individually disabled the moment one more point would push that
+ *     ability's score past 20 (mirrors `_resolve_asi_increase`'s
+ *     `ability_cap_exceeded` guard, enforced here too so the disabled state
+ *     is visible before the click, not just refused after).
+ *
+ * T13 FIX PASS (Miko-QA defects + Kage-CR abort guard + Iro-A11y
+ * CHANGES-REQUIRED, folded in before first commit): mode-toggle now resets
+ * stale ASI state (DEFECT-1); all 3 radiogroups get arrow-key nav + roving
+ * tabIndex (CRITICAL-1, mirrors SpellbookPanel.tsx's tablist onKeyDown);
+ * the ability-stepper budget hint uses --ink-2 (CRITICAL-2); the stepper has
+ * an sr-only aria-live status region (CRITICAL-3); a successful resolve
+ * moves focus to the "Pending choices" heading when siblings remain
+ * (CRITICAL-4a — see character/[id]/page.tsx for the last-choice case);
+ * SubclassChoiceCard's Confirm button now passes Label-in-Name (SERIOUS-1);
+ * catalog/feat fetch states are aria-live (SERIOUS-2/3); the subclass
+ * catalog error now offers a Retry (SERIOUS-4/DEFECT-2); card titles are
+ * real headings, scoped per-choice so two pending ASI cards don't collide
+ * (MINOR-1/2, DEFECT-3); and the catalog/feat fetch `.catch`s no-op on an
+ * aborted controller instead of surfacing a stale error (Kage abort guard).
+ *
+ * DDX-SUBCLASS-OPTION-FILTER (P3, known caveat — NOT built here, per the
+ * story's explicit instruction): the SRD models a subclass's own
+ * "choose one of several" sub-features (e.g. a Fighting Style) as separate
+ * class_features records, not a nested choice on the subclass pending-choice
+ * itself. This picker resolves the SUBCLASS pick only (e.g. Champion vs
+ * Battle Master vs Eldritch Knight) — intra-subclass option filtering is a
+ * documented follow-up, same treatment as DDX-16's warlock-invocations
+ * "eligible menu, not yet chosen" placeholder.
+ */
+import { useEffect, useId, useRef, useState } from 'react';
+import Button from '@/components/Button';
+import { useToast } from '@/components/Toast';
+import { getCatalog, getCharacterSheet, resolveLevelChoice } from '@/lib/api/dnd';
+import { ABILITIES, type AbilityKey } from '@/lib/dnd/helpers';
+import type {
+  ApiError,
+  CatalogItem,
+  CharacterSheet,
+  PendingLevelChoice,
+} from '@/lib/api/types';
+import styles from './LevelChoicePicker.module.css';
+
+function isApiError(e: unknown): e is ApiError {
+  return e instanceof Error && 'status' in e;
+}
+
+/** Same body-shape probe as SpellbookPanel/CastSpellPanel's refusalReason. */
+function refusalReason(e: ApiError): string | undefined {
+  const body = e.body as { data?: { reason?: string }; reason?: string } | null | undefined;
+  return body?.data?.reason ?? body?.reason ?? e.code;
+}
+
+// Deterministic resolve_level_choice refusals (engine owns every rule — see
+// routes/characters.py::resolve_level_choice_route's docstring for the full
+// reason list). A reason NOT in this map, or a non-ApiError (network/
+// unknown), falls back to the generic transient message.
+const RESOLVE_REFUSAL_COPY: Record<string, string> = {
+  choice_not_found: 'That choice is no longer pending — reload to see the current state.',
+  invalid_subclass: "That archetype isn't available for this class.",
+  already_chosen: 'A subclass has already been chosen.',
+  not_owner: "That's not your character.",
+  unsupported_choice_type: "Suzu doesn't have a picker for that choice type yet.",
+  invalid_asi: "That selection doesn't match the expected shape.",
+  ability_cap_exceeded: 'That would push an ability above the maximum score of 20.',
+  unknown_feat: "That feat isn't available right now.",
+  feat_prereq_unmet: "This character doesn't meet that feat's prerequisites.",
+  feat_already_taken: 'That feat has already been taken.',
+};
+
+function resolveErrorMessage(err: unknown): string {
+  const fallback = 'Could not save that choice. Try again in a moment.';
+  if (!isApiError(err)) return fallback;
+  const reason = refusalReason(err);
+  return RESOLVE_REFUSAL_COPY[reason ?? ''] ?? fallback;
+}
+
+// SRD ASI feat slugs the engine will actually grant through this mechanic
+// today (NekoNova-DnDEngine engine/commands/character_msm.py::
+// _ASI_ELIGIBLE_FEATS). Manually mirrored here — there is no eligibility flag
+// on the catalog wire (same "no catalog endpoint exposes the real rule" gap
+// as conditions.ts's DND_CONDITIONS mirror of engine/rules.py::CONDITIONS).
+// A catalog `feat` row outside this set (e.g. the PF2e-shaped `power-attack`
+// row the engine's own docstring calls out) always refuses with
+// `unknown_feat` server-side even if offered here, so it's filtered out
+// rather than offered as a guaranteed dead end. Extend only when the
+// engine's own allowlist grows.
+const ASI_ELIGIBLE_FEAT_SLUGS = new Set<string>(['grappler']);
+
+const SYSTEM = 'dnd5e';
+
+/** A11Y (Iro CRITICAL-1): roving-tabindex radiogroup arrow-key nav, mirrors
+ *  SpellbookPanel.tsx's tablist onKeyDown (:362-388) — Up/Left move to the
+ *  previous option, Down/Right to the next (both wrap), Home/End jump to the
+ *  ends. Arrow-key movement ALSO selects (native radio-group semantics), so
+ *  callers select + refocus together. Returns null for any other key so the
+ *  caller can no-op without calling preventDefault. */
+function radioStepIndex(key: string, idx: number, length: number): number | null {
+  if (length === 0) return null;
+  const from = idx < 0 ? 0 : idx;
+  if (key === 'ArrowRight' || key === 'ArrowDown') return (from + 1) % length;
+  if (key === 'ArrowLeft' || key === 'ArrowUp') return (from - 1 + length) % length;
+  if (key === 'Home') return 0;
+  if (key === 'End') return length - 1;
+  return null;
+}
+
+export interface LevelChoicePickerProps {
+  characterId: string;
+  username: string;
+  sheet: CharacterSheet;
+  /** Fired with the freshly-refetched sheet after a successful resolve — the
+   *  parent page re-renders every panel (subclass/class_features/ability
+   *  scores/ac/hp/feats) off the new state. Same onChanged/onLeveledUp
+   *  contract every other mutating sheet component already uses. */
+  onResolved: (updated: CharacterSheet) => void;
+}
+
+export default function LevelChoicePicker({
+  characterId,
+  username,
+  sheet,
+  onResolved,
+}: LevelChoicePickerProps) {
+  const pending = sheet.pending_choices ?? [];
+  // A11Y (Iro CRITICAL-4a): focus-restore target after a card resolves. Only
+  // relevant when THIS component stays mounted (other choices still
+  // pending) — the just-resolved card unmounts out from under its own
+  // focused Confirm button, stranding focus at <body> otherwise. The
+  // last-choice case (pending_choices empties entirely) unmounts this whole
+  // component too, so that focus-restore lives one level up, in
+  // character/[id]/page.tsx.
+  const pendingHeadingRef = useRef<HTMLHeadingElement>(null);
+
+  function handleChildResolved(updated: CharacterSheet) {
+    onResolved(updated);
+    if ((updated.pending_choices?.length ?? 0) > 0) {
+      pendingHeadingRef.current?.focus();
+    }
+  }
+
+  if (pending.length === 0) return null;
+
+  return (
+    <div className={styles.wrap}>
+      <h3 ref={pendingHeadingRef} tabIndex={-1} className="label" style={{ margin: '0 0 4px' }}>
+        Pending choices
+      </h3>
+      {pending.map((choice) => {
+        if (choice.type === 'subclass') {
+          return (
+            <SubclassChoiceCard
+              key={choice.id}
+              characterId={characterId}
+              username={username}
+              sheet={sheet}
+              choice={choice}
+              onResolved={handleChildResolved}
+            />
+          );
+        }
+        if (choice.type === 'asi') {
+          return (
+            <AsiChoiceCard
+              key={choice.id}
+              characterId={characterId}
+              username={username}
+              sheet={sheet}
+              choice={choice}
+              onResolved={handleChildResolved}
+            />
+          );
+        }
+        // unsupported_choice_type — the engine queues only subclass/asi
+        // today; this is forward-compat scaffolding, not a live path.
+        return (
+          <div key={choice.id} className={styles.card}>
+            <h4 className={styles.cardLabel}>{choice.label}</h4>
+            <p className={styles.emptyRow}>
+              Suzu doesn&rsquo;t have a picker for this choice type yet.
+            </p>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+interface ChoiceCardProps {
+  characterId: string;
+  username: string;
+  sheet: CharacterSheet;
+  choice: PendingLevelChoice;
+  onResolved: (updated: CharacterSheet) => void;
+}
+
+function SubclassChoiceCard({
+  characterId,
+  username,
+  sheet,
+  choice,
+  onResolved,
+}: ChoiceCardProps) {
+  const { toast } = useToast();
+  const headingId = useId();
+  const charClass = choice.class || sheet.char_class;
+  const [options, setOptions] = useState<CatalogItem[] | null>(null);
+  const [loadState, setLoadState] = useState<'loading' | 'ok' | 'error'>('loading');
+  // A11Y/QA (SERIOUS-4, DEFECT-2): bump to retry a failed catalog fetch —
+  // mirrors AsiChoiceCard's feat-mode Retry (setFeatLoadState('idle')), just
+  // via an effect-dep counter instead of an idle state, since this effect
+  // isn't gated on an idle check the way the feat one is.
+  const [loadKey, setLoadKey] = useState(0);
+  const [selectedSlug, setSelectedSlug] = useState('');
+  const [busy, setBusy] = useState(false);
+  /** Synchronous double-submit latch — same useRef pattern as LevelUpButton's
+   *  levelUpBusyRef / InventoryPanel's mutationBusyRef (React state can't
+   *  close the same-tick double-click window). */
+  const busyRef = useRef(false);
+  // A11Y (Iro CRITICAL-1): option refs for arrow-key roving-tabindex focus.
+  const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  useEffect(() => {
+    const ac = new AbortController();
+    setLoadState('loading');
+    getCatalog(SYSTEM, { type: 'subclass' }, ac.signal)
+      .then((res) => {
+        const wanted = charClass.trim().toLowerCase();
+        const filtered = res.items.filter(
+          (item) => String((item.data as { class?: string }).class ?? '').trim().toLowerCase() === wanted,
+        );
+        setOptions(filtered);
+        setSelectedSlug((prev) => prev || filtered[0]?.slug || '');
+        setLoadState('ok');
+      })
+      .catch(() => {
+        // Kage abort guard: an aborted fetch (unmount / charClass change) is
+        // not a real failure — don't clobber loadState with a stale error.
+        if (ac.signal.aborted) return;
+        setLoadState('error');
+      });
+    return () => ac.abort();
+  }, [charClass, loadKey]);
+
+  async function handleResolve() {
+    if (busyRef.current || !selectedSlug) return;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      try {
+        await resolveLevelChoice(characterId, username, choice.id, { subclass: selectedSlug });
+      } catch (err) {
+        toast({ message: resolveErrorMessage(err), tone: 'error' });
+        return;
+      }
+      try {
+        const after = await getCharacterSheet(characterId, username);
+        onResolved(after);
+        const chosenName = options?.find((o) => o.slug === selectedSlug)?.name ?? 'Archetype';
+        // Announce success programmatically (a11y): the class_features/
+        // subclass re-render is visual-only, mirrors LevelUpButton's toast.
+        toast({ message: `${chosenName} chosen as ${sheet.name}'s archetype!`, tone: 'success' });
+      } catch {
+        toast({
+          message: "Couldn't refresh your sheet — reload to see the result.",
+          tone: 'warn',
+        });
+      }
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
+
+  const chosenName = options?.find((o) => o.slug === selectedSlug)?.name ?? 'archetype';
+
+  return (
+    <div className={styles.card} aria-busy={busy}>
+      <h4 id={headingId} className={styles.cardLabel}>
+        {choice.label}
+      </h4>
+      {loadState === 'loading' && (
+        <p className={styles.emptyRow} aria-busy="true" aria-live="polite" aria-atomic="true">
+          Loading options…
+        </p>
+      )}
+      {loadState === 'error' && (
+        <p className={styles.emptyRow} aria-live="polite" aria-atomic="true">
+          Couldn&rsquo;t load archetype options.{' '}
+          <Button variant="ghost" size="default" onClick={() => setLoadKey((k) => k + 1)}>
+            Retry
+          </Button>
+        </p>
+      )}
+      {loadState === 'ok' && options && options.length === 0 && (
+        <p className={styles.emptyRow} aria-live="polite" aria-atomic="true">
+          No archetypes are seeded for {charClass} yet.
+        </p>
+      )}
+      {loadState === 'ok' && options && options.length > 0 && (
+        <>
+          <div
+            className={styles.optionRow}
+            role="radiogroup"
+            aria-labelledby={headingId}
+            onKeyDown={(e) => {
+              const idx = options.findIndex((o) => o.slug === selectedSlug);
+              const next = radioStepIndex(e.key, idx, options.length);
+              if (next === null) return;
+              e.preventDefault();
+              setSelectedSlug(options[next].slug);
+              optionRefs.current[next]?.focus();
+            }}
+          >
+            {options.map((o, i) => (
+              <button
+                key={o.slug}
+                ref={(el) => {
+                  optionRefs.current[i] = el;
+                }}
+                type="button"
+                role="radio"
+                aria-checked={selectedSlug === o.slug}
+                tabIndex={selectedSlug === o.slug ? 0 : -1}
+                className={
+                  selectedSlug === o.slug ? `${styles.option} ${styles.optionOn}` : styles.option
+                }
+                disabled={busy}
+                onClick={() => setSelectedSlug(o.slug)}
+              >
+                {o.name}
+              </button>
+            ))}
+          </div>
+          <Button
+            variant="primary"
+            size="default"
+            aria-label={`Confirm archetype: ${chosenName}`}
+            aria-busy={busy}
+            disabled={busy || !selectedSlug}
+            onClick={() => void handleResolve()}
+          >
+            {busy ? '…' : 'Confirm archetype'}
+          </Button>
+        </>
+      )}
+    </div>
+  );
+}
+
+const ASI_MODE_ORDER: Array<'increase' | 'feat'> = ['increase', 'feat'];
+
+function AsiChoiceCard({ characterId, username, sheet, choice, onResolved }: ChoiceCardProps) {
+  const { toast } = useToast();
+  const headingId = useId();
+  const [mode, setMode] = useState<'increase' | 'feat'>('increase');
+  const [allocations, setAllocations] = useState<Partial<Record<AbilityKey, number>>>({});
+  const [feats, setFeats] = useState<CatalogItem[] | null>(null);
+  const [featLoadState, setFeatLoadState] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle');
+  const [selectedFeat, setSelectedFeat] = useState('');
+  const [busy, setBusy] = useState(false);
+  /** Synchronous double-submit latch — see SubclassChoiceCard's comment. */
+  const busyRef = useRef(false);
+  // A11Y (Iro CRITICAL-1): option refs for the mode-toggle + feat radiogroups.
+  const modeRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const featRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  // A11Y (Iro CRITICAL-3/MODERATE-2): sr-only live status for the ability
+  // steppers — the score/budget change is otherwise visual-only.
+  const [srMessage, setSrMessage] = useState('');
+
+  const totalAllocated = ABILITIES.reduce((sum, a) => sum + (allocations[a.key] ?? 0), 0);
+
+  useEffect(() => {
+    if (mode !== 'feat' || featLoadState !== 'idle') return;
+    const ac = new AbortController();
+    setFeatLoadState('loading');
+    getCatalog(SYSTEM, { type: 'feat' }, ac.signal)
+      .then((res) => {
+        const alreadyTaken = new Set((sheet.feats ?? []).map((f) => f.slug));
+        const eligible = res.items.filter(
+          (item) => ASI_ELIGIBLE_FEAT_SLUGS.has(item.slug) && !alreadyTaken.has(item.slug),
+        );
+        setFeats(eligible);
+        setSelectedFeat((prev) => prev || eligible[0]?.slug || '');
+        setFeatLoadState('ok');
+      })
+      .catch(() => {
+        // Kage abort guard — see SubclassChoiceCard's matching comment.
+        if (ac.signal.aborted) return;
+        setFeatLoadState('error');
+      });
+    return () => ac.abort();
+  }, [mode, featLoadState, sheet.feats]);
+
+  // QA (Miko DEFECT-1): switching ASI mode must not leave a stale allocation
+  // (or a stale feat pick) silently submittable from the OTHER mode — reset
+  // both, plus the stepper's own live announcement, on every toggle.
+  function handleModeChange(next: 'increase' | 'feat') {
+    if (busy || next === mode) return;
+    setMode(next);
+    setAllocations({});
+    setSelectedFeat('');
+    setSrMessage('');
+  }
+
+  function incAbility(key: AbilityKey) {
+    if (busy || totalAllocated >= 2) return;
+    const current = allocations[key] ?? 0;
+    if (current >= 2) return;
+    const score = sheet.ability_scores[key]?.score ?? 10;
+    // Mirrors _resolve_asi_increase's ability_cap_exceeded guard: disable the
+    // increment the moment the NEXT point would push this ability past 20 —
+    // a score of exactly 20 is legal, 21 never is.
+    if (score + current + 1 > 20) return;
+    const nextCurrent = current + 1;
+    const nextTotal = totalAllocated + 1;
+    setAllocations((prev) => ({ ...prev, [key]: nextCurrent }));
+    const name = ABILITIES.find((a) => a.key === key)?.name ?? key;
+    let msg = `${name} ${score + nextCurrent}, ${nextTotal} of 2 points spent.`;
+    if (nextTotal >= 2) {
+      msg += ' Budget spent — increase disabled.';
+    } else if (score + nextCurrent + 1 > 20) {
+      msg += ` ${name} at maximum.`;
+    }
+    setSrMessage(msg);
+  }
+
+  function decAbility(key: AbilityKey) {
+    if (busy) return;
+    const current = allocations[key] ?? 0;
+    if (current <= 0) return;
+    const nextCurrent = current - 1;
+    const nextTotal = totalAllocated - 1;
+    setAllocations((prev) => ({ ...prev, [key]: nextCurrent }));
+    const name = ABILITIES.find((a) => a.key === key)?.name ?? key;
+    const score = sheet.ability_scores[key]?.score ?? 10;
+    setSrMessage(`${name} ${score + nextCurrent}, ${nextTotal} of 2 points spent.`);
+  }
+
+  async function handleResolve() {
+    if (busyRef.current) return;
+    let selection: Record<string, unknown>;
+    let successMessage: string;
+    if (mode === 'increase') {
+      if (totalAllocated !== 2) return;
+      const nonZero: Record<string, number> = {};
+      for (const a of ABILITIES) {
+        const v = allocations[a.key] ?? 0;
+        if (v > 0) nonZero[a.key] = v;
+      }
+      selection = { mode: 'increase', allocations: nonZero };
+      const allocationNames = Object.entries(nonZero)
+        .map(([k, v]) => `${k.charAt(0).toUpperCase()}${k.slice(1)} +${v}`)
+        .join(', ');
+      successMessage = `${sheet.name}'s Ability Score Improvement: ${allocationNames}.`;
+    } else {
+      if (!selectedFeat) return;
+      selection = { mode: 'feat', feat: selectedFeat };
+      const featName = feats?.find((f) => f.slug === selectedFeat)?.name ?? selectedFeat;
+      successMessage = `${sheet.name} takes the ${featName} feat!`;
+    }
+
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      try {
+        await resolveLevelChoice(characterId, username, choice.id, selection);
+      } catch (err) {
+        toast({ message: resolveErrorMessage(err), tone: 'error' });
+        return;
+      }
+      try {
+        const after = await getCharacterSheet(characterId, username);
+        onResolved(after);
+        // Announce success programmatically (a11y): the ability_scores/hp/ac
+        // or feats re-render is visual-only, mirrors every other panel here.
+        toast({ message: successMessage, tone: 'success' });
+      } catch {
+        toast({
+          message: "Couldn't refresh your sheet — reload to see the result.",
+          tone: 'warn',
+        });
+      }
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
+
+  const canConfirm =
+    mode === 'increase' ? totalAllocated === 2 : !!selectedFeat && featLoadState === 'ok';
+
+  return (
+    <div className={styles.card} aria-busy={busy}>
+      <h4 id={headingId} className={styles.cardLabel}>
+        {choice.label}
+      </h4>
+      {/* A11Y (Iro CRITICAL-3/MODERATE-2): kept mounted across mode switches
+          (not conditional on `mode`) so the live region itself never
+          remounts — only its text content changes, the standard aria-live
+          pattern. */}
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {srMessage}
+      </div>
+
+      <div
+        className={styles.modeRow}
+        role="radiogroup"
+        aria-label={`Choice type (level ${choice.level})`}
+        onKeyDown={(e) => {
+          const idx = ASI_MODE_ORDER.indexOf(mode);
+          const next = radioStepIndex(e.key, idx, ASI_MODE_ORDER.length);
+          if (next === null) return;
+          e.preventDefault();
+          handleModeChange(ASI_MODE_ORDER[next]);
+          modeRefs.current[next]?.focus();
+        }}
+      >
+        <button
+          ref={(el) => {
+            modeRefs.current[0] = el;
+          }}
+          type="button"
+          role="radio"
+          aria-checked={mode === 'increase'}
+          tabIndex={mode === 'increase' ? 0 : -1}
+          className={mode === 'increase' ? `${styles.option} ${styles.optionOn}` : styles.option}
+          disabled={busy}
+          onClick={() => handleModeChange('increase')}
+        >
+          Increase abilities
+        </button>
+        <button
+          ref={(el) => {
+            modeRefs.current[1] = el;
+          }}
+          type="button"
+          role="radio"
+          aria-checked={mode === 'feat'}
+          tabIndex={mode === 'feat' ? 0 : -1}
+          className={mode === 'feat' ? `${styles.option} ${styles.optionOn}` : styles.option}
+          disabled={busy}
+          onClick={() => handleModeChange('feat')}
+        >
+          Take a feat
+        </button>
+      </div>
+
+      {mode === 'increase' && (
+        <>
+          <p className={styles.hint}>
+            Allocate 2 points — +2 to one ability, or +1 to two ({totalAllocated}/2 spent).
+          </p>
+          <div className={styles.abilityGrid}>
+            {ABILITIES.map((a) => {
+              const current = allocations[a.key] ?? 0;
+              const score = sheet.ability_scores[a.key]?.score ?? 10;
+              const nextWouldExceedCap = score + current + 1 > 20;
+              const budgetSpent = totalAllocated >= 2;
+              return (
+                <div key={a.key} className={styles.abilityStepper}>
+                  <span className={styles.abilityAbbr}>{a.abbr}</span>
+                  <span className={`mono ${styles.abilityScore}`}>
+                    {score}
+                    {current > 0 && <span className={styles.abilityDelta}> +{current}</span>}
+                  </span>
+                  <div className={styles.stepperBtns}>
+                    <button
+                      type="button"
+                      className={styles.stepBtn}
+                      aria-label={`Decrease ${a.name} allocation`}
+                      disabled={busy || current <= 0}
+                      onClick={() => decAbility(a.key)}
+                    >
+                      −
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.stepBtn}
+                      aria-label={`Increase ${a.name} allocation`}
+                      disabled={busy || budgetSpent || current >= 2 || nextWouldExceedCap}
+                      onClick={() => incAbility(a.key)}
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {mode === 'feat' && (
+        <>
+          {featLoadState === 'loading' && (
+            <p className={styles.emptyRow} aria-busy="true" aria-live="polite" aria-atomic="true">
+              Loading feats…
+            </p>
+          )}
+          {featLoadState === 'error' && (
+            <p className={styles.emptyRow} aria-live="polite" aria-atomic="true">
+              Couldn&rsquo;t load feats.{' '}
+              <Button variant="ghost" size="default" onClick={() => setFeatLoadState('idle')}>
+                Retry
+              </Button>
+            </p>
+          )}
+          {featLoadState === 'ok' && feats && feats.length === 0 && (
+            <p className={styles.emptyRow} aria-live="polite" aria-atomic="true">
+              No feats are available right now.
+            </p>
+          )}
+          {featLoadState === 'ok' && feats && feats.length > 0 && (
+            <div
+              className={styles.optionRow}
+              role="radiogroup"
+              aria-label={`Feat (level ${choice.level})`}
+              onKeyDown={(e) => {
+                const idx = feats.findIndex((f) => f.slug === selectedFeat);
+                const next = radioStepIndex(e.key, idx, feats.length);
+                if (next === null) return;
+                e.preventDefault();
+                setSelectedFeat(feats[next].slug);
+                featRefs.current[next]?.focus();
+              }}
+            >
+              {feats.map((f, i) => (
+                <button
+                  key={f.slug}
+                  ref={(el) => {
+                    featRefs.current[i] = el;
+                  }}
+                  type="button"
+                  role="radio"
+                  aria-checked={selectedFeat === f.slug}
+                  tabIndex={selectedFeat === f.slug ? 0 : -1}
+                  className={
+                    selectedFeat === f.slug ? `${styles.option} ${styles.optionOn}` : styles.option
+                  }
+                  disabled={busy}
+                  onClick={() => setSelectedFeat(f.slug)}
+                >
+                  {f.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      <Button
+        variant="primary"
+        size="default"
+        aria-label={
+          mode === 'increase'
+            ? `Confirm Ability Score Improvement (level ${choice.level})`
+            : `Confirm feat (level ${choice.level})`
+        }
+        aria-busy={busy}
+        disabled={busy || !canConfirm}
+        onClick={() => void handleResolve()}
+      >
+        {busy ? '…' : 'Confirm'}
+      </Button>
+    </div>
+  );
+}

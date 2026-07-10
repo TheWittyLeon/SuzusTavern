@@ -191,6 +191,36 @@ export interface SheetInventoryItem {
   quantity: number;
   equipped: boolean;
 }
+
+/** T13 (DDX-14t/15t): one already-taken feat, from the sheet's `feats` array
+ *  (NekoNova-DnDEngine engine/commands/character_msm.py::get_character_sheet_data
+ *  `feats_out`). Used by LevelChoicePicker to hide a feat the character
+ *  already has from the ASI "take a feat" option list. */
+export interface SheetFeat {
+  slug: string;
+  name: string;
+  description: string;
+}
+
+/**
+ * T13 (DDX-14t/15t): one queued level-up decision, from the sheet's
+ * `pending_choices` array (`_queue_level_choices` in
+ * NekoNova-DnDEngine engine/commands/character_msm.py). `type` is
+ * `'subclass'` or `'asi'` today (kept as `string`, not a union, since
+ * `resolve_level_choice` already has an `unsupported_choice_type` fallback
+ * for anything else — a future third type should render as "coming soon"
+ * rather than fail typechecking). `class` is the character's class name at
+ * queue time (subclass options are filtered to it); absent it should fall
+ * back to the sheet's own `char_class`.
+ */
+export interface PendingLevelChoice {
+  id: string;
+  type: string;
+  level: number;
+  class?: string;
+  label: string;
+}
+
 /** One skill entry returned by the engine's `skills` array on GET /sheet (A2). */
 export interface SheetSkill {
   name: string;
@@ -234,6 +264,17 @@ export interface CharacterSheet {
   inventory_weight: number;
   /** A2 — all 18 SRD skills with real modifiers, sorted. Present on engine ≥ A2. */
   skills?: SheetSkill[];
+  /** T13 (DDX-14t/15t): feats the character already has. Optional (not a bare
+   *  array default) purely so the ~13 pre-existing test fixtures across the
+   *  repo that construct this type as an object literal without the new
+   *  field keep compiling — the engine always sends it on the real wire
+   *  (`get_character_sheet_data`'s `feats_out`, default []). */
+  feats?: SheetFeat[];
+  /** T13 (DDX-14t/15t): queued level-up decisions awaiting the player's
+   *  resolution (subclass archetype / ability-score-improvement). Optional
+   *  for the same fixture-blast-radius reason as `feats` above — the engine
+   *  always sends `[]` when there is nothing pending. */
+  pending_choices?: PendingLevelChoice[];
 }
 
 // ── DnD: sessions ──────────────────────────────────────────────────────────

@@ -11,12 +11,13 @@
  * The engine is the source of mechanical truth — every number here comes from the
  * payload; the page only formats. Numbers use the mono font + tabular figures.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import { getCharacterSheet } from '@/lib/api/dnd';
 import DeleteCharacterButton from '@/components/DeleteCharacterButton';
 import LevelUpButton from '@/components/LevelUpButton';
+import LevelChoicePicker from '@/components/LevelChoicePicker';
 import type { CharacterSheet } from '@/lib/api/types';
 import TavernShell from '@/components/TavernShell';
 import PageSkeleton from '@/components/PageSkeleton';
@@ -75,6 +76,23 @@ export default function CharacterPage() {
     void load(ac.signal);
     return () => ac.abort();
   }, [username, load]);
+
+  // A11Y (Iro CRITICAL-4b): the LAST pending level-choice resolving unmounts
+  // the whole LevelChoicePicker Card (its own render gate below is
+  // `pending_choices.length > 0`), stranding focus at <body> — the picker's
+  // OWN focus-restore (its "Pending choices" heading) only helps while it's
+  // still mounted for a sibling choice, see LevelChoicePicker.tsx's header
+  // comment. Track the previous pending count so this only fires on a
+  // >0 -> 0 transition, never on the initial load (which may already be 0).
+  const abilityHeadingRef = useRef<HTMLHeadingElement>(null);
+  const prevPendingCountRef = useRef(sheet?.pending_choices?.length ?? 0);
+  useEffect(() => {
+    const count = sheet?.pending_choices?.length ?? 0;
+    if (prevPendingCountRef.current > 0 && count === 0) {
+      abilityHeadingRef.current?.focus();
+    }
+    prevPendingCountRef.current = count;
+  }, [sheet?.pending_choices]);
 
   if (!user) {
     return (
@@ -233,7 +251,36 @@ export default function CharacterPage() {
             )}
           </Card>
 
-          {/* Ability scores (ST-056) */}
+          {/* T13 (DDX-14t/15t): owner-only level-choice picker — subclass
+              archetype / Ability Score Improvement / feat. Same isOwner gate
+              as LevelUpButton above (a non-owner has no reason to resolve
+              someone else's build decisions, and the engine route is
+              OWNER-authed regardless); absent entirely when there is nothing
+              pending, not merely empty, mirroring LevelUpButton's own
+              own-Card-per-affordance split. */}
+          {username && isOwner && (sheet.pending_choices?.length ?? 0) > 0 && (
+            <Card>
+              <LevelChoicePicker
+                characterId={id}
+                username={username}
+                sheet={sheet}
+                onResolved={setSheet}
+              />
+            </Card>
+          )}
+
+          {/* Ability scores (ST-056). Heading added as a stable a11y focus
+              landmark (Iro CRITICAL-4b, see the effect above) — ref+
+              tabIndex=-1 so it's focusable programmatically without joining
+              the tab order. */}
+          <h3
+            ref={abilityHeadingRef}
+            tabIndex={-1}
+            className="label"
+            style={{ margin: '0 0 8px' }}
+          >
+            Ability scores
+          </h3>
           <div className={styles.abilityRow}>
             {ABILITIES.map((a) => {
               const block = sheet.ability_scores[a.key];

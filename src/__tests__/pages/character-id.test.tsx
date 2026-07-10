@@ -171,6 +171,28 @@ describe('Character sheet — DDX-10 level-up button gating', () => {
     await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
     expect(screen.queryByRole('button', { name: /level up/i })).not.toBeInTheDocument();
   });
+
+  // T13 (DDX-14t/15t) — LevelChoicePicker shares the exact same isOwner gate
+  // (page.tsx: `username && isOwner && (sheet.pending_choices?.length ?? 0) > 0`).
+  // dnd.ts is NOT mocked with getCatalog/resolveLevelChoice in this file's
+  // jest.mock above — if the gate ever regressed and rendered the picker for
+  // a non-owner, this test would fail loudly (undefined-is-not-a-function)
+  // rather than silently passing, which is a stronger guarantee than just
+  // checking for absent text.
+  it('non-owner viewing a sheet WITH pending_choices: the level-choice picker is not rendered at all', async () => {
+    mockGet.mockResolvedValue({
+      ...ROGUE,
+      owner_username: 'someone-else',
+      pending_choices: [
+        { id: 'subclass:3', type: 'subclass', level: 3, class: 'Rogue', label: 'Choose your Rogue archetype' },
+      ],
+    });
+    renderPage();
+
+    await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
+    expect(screen.queryByText(/pending choices/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('Choose your Rogue archetype')).not.toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------

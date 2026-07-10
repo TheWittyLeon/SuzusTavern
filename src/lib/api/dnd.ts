@@ -109,6 +109,46 @@ export const levelUpCharacter = (
   );
 
 /**
+ * T13 (DDX-14t/15t) — resolve one pending level-up choice queued by
+ * levelUpCharacter (subclass archetype pick, or an Ability Score
+ * Improvement — a real +2/+1+1 ability increase or a feat in its place).
+ * POST /api/dnd/characters/{id}/level-choices/{choiceId}
+ *
+ * `selection` shape depends on the pending choice's `type` (see
+ * NekoNova-DnDEngine routes/characters.py::LevelChoiceRequest +
+ * engine/commands/character_msm.py::resolve_level_choice):
+ *   - subclass -> {"subclass": "<slug or name>"}
+ *   - asi, ability increase -> {"mode": "increase", "allocations": {"<ability>": 1|2, ...}}
+ *     (every key one of the 6 full ability names; values sum to exactly 2;
+ *     at most 2 distinct abilities)
+ *   - asi, feat instead -> {"mode": "feat", "feat": "<slug>"}
+ *
+ * Same wire-shape bug class as levelUpCharacter/equipItem: the engine's
+ * route always `return _ok({"message": message})` on success — never the
+ * updated Character/sheet. Callers MUST refetch via getCharacterSheet to
+ * observe the new subclass/class_features, ability_scores/hp/ac (CON/DEX
+ * deltas recompute those), or feats list — same refetch-after-mutate
+ * contract as every other mutating dnd.ts wrapper.
+ *
+ * Throws ApiError with `body.data.reason` on refusal — see the engine
+ * route's docstring for the full set (choice_not_found, invalid_subclass,
+ * already_chosen, not_owner, unsupported_choice_type, invalid_asi,
+ * ability_cap_exceeded, unknown_feat, feat_prereq_unmet,
+ * feat_already_taken -> 400; save_failed -> 500; not_found -> 404).
+ */
+export const resolveLevelChoice = (
+  characterId: string,
+  username: string,
+  choiceId: string,
+  selection: Record<string, unknown>,
+  signal?: AbortSignal,
+) =>
+  apiCall<{ message?: string }>(
+    `/api/dnd/characters/${encodeURIComponent(characterId)}/level-choices/${encodeURIComponent(choiceId)}`,
+    { method: 'POST', json: { username, selection }, signal },
+  );
+
+/**
  * T5 (DDX-09 inventory slice) — contract fix, same bug class as levelUpCharacter/
  * pauseSession/resumeSession/etc above: NekoNova-DnDEngine's equip_item/
  * unequip_item routes (routes/characters.py) both `return _ok({"message":

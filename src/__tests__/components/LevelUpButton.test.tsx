@@ -161,7 +161,7 @@ describe('LevelUpButton — confirm -> levelUpCharacter -> refetch flow', () => 
     expect(screen.getByText(/lv\.2 0→2/i)).toBeInTheDocument();
   });
 
-  it('adds the DDX-14/15 ASI caveat when a gained feature is Ability Score Improvement', async () => {
+  it('points at the LevelChoicePicker (T13) when a gained feature is Ability Score Improvement', async () => {
     mockLevelUp.mockResolvedValue({ message: 'ok' });
     mockGetSheet.mockResolvedValue({
       ...BASE,
@@ -174,7 +174,7 @@ describe('LevelUpButton — confirm -> levelUpCharacter -> refetch flow', () => 
     fireEvent.click(screen.getByRole('button', { name: /level up/i }));
     fireEvent.click(screen.getByRole('button', { name: /^yes, level up$/i }));
 
-    expect(await screen.findByText(/pickable yet/i)).toBeInTheDocument();
+    expect(await screen.findByText(/pick your ability score improvement below/i)).toBeInTheDocument();
   });
 
   it('Cancel closes the dialog without calling the API', () => {

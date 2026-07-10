@@ -27,6 +27,7 @@ import {
   createCharacter,
   getCharacter,
   levelUpCharacter,
+  resolveLevelChoice,
   equipItem,
   unequipItem,
   giveItem,
@@ -106,6 +107,49 @@ describe('Characters', () => {
     expect(url).toBe('/api/dnd/characters/char-1/levelup');
     expect(method).toBe('POST');
     expect(body).toMatchObject({ username: 'player' });
+  });
+
+  // T13 (DDX-14t/15t)
+  it('resolveLevelChoice — POST /api/dnd/characters/:id/level-choices/:choiceId (subclass)', async () => {
+    await resolveLevelChoice('char-1', 'player', 'subclass:3', { subclass: 'champion' });
+    const { url, method, body } = lastCall();
+    expect(url).toBe('/api/dnd/characters/char-1/level-choices/subclass%3A3');
+    expect(method).toBe('POST');
+    expect(body).toEqual({ username: 'player', selection: { subclass: 'champion' } });
+  });
+
+  it('resolveLevelChoice — asi increase selection shape', async () => {
+    await resolveLevelChoice('char-1', 'player', 'asi:4', {
+      mode: 'increase',
+      allocations: { strength: 2 },
+    });
+    const { body } = lastCall();
+    expect(body).toEqual({
+      username: 'player',
+      selection: { mode: 'increase', allocations: { strength: 2 } },
+    });
+  });
+
+  it('resolveLevelChoice — asi feat selection shape', async () => {
+    await resolveLevelChoice('char-1', 'player', 'asi:4', { mode: 'feat', feat: 'grappler' });
+    const { body } = lastCall();
+    expect(body).toEqual({
+      username: 'player',
+      selection: { mode: 'feat', feat: 'grappler' },
+    });
+  });
+
+  it('resolveLevelChoice resolves to the real {message} shape', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ success: true, data: { message: '[DnD] Champion chosen!' } }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    const result = await resolveLevelChoice('char-1', 'player', 'subclass:3', {
+      subclass: 'champion',
+    });
+    expect(result).toEqual({ message: '[DnD] Champion chosen!' });
   });
 
   it('equipItem — POST /api/dnd/characters/:id/equip', async () => {

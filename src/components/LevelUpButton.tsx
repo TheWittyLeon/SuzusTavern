@@ -40,20 +40,13 @@
  *     a second, real one. The mutate and the refetch now have separate
  *     try/catch blocks so a refetch failure gets its own non-retry copy.
  *
- * DDX-14/15 seam: the engine grants a class feature literally named "Ability
- * Score Improvement" (or "Ability Score Improvement / ASI") as flavor text at
- * the levels 5e calls for it — no real ability-score increase happens, no UI
- * offers the choice yet. When a gained feature matches that name, the result
- * region adds a short "not pickable yet" caveat so the player doesn't think
- * the choice already occurred. NOT covered here: subclass selection. The
- * engine's "choose a subclass" text lives only in the class's internal
- * ClassFeature description (e.g. Barbarian's "Primal Path" feature), which
- * never reaches the wire — `class_features: string[]` on the sheet is names
- * only ("Primal Path", "Divine Domain", "Bard College", ...), and those names
- * are class-specific with no common substring to detect generically. Reliably
- * flagging "this level-up needs a subclass pick" would require also fetching
- * the class catalog's `subclass_level` — deliberately left as a DDX-14/15
- * follow-up rather than a fragile name-guess here.
+ * DDX-14/15 seam (T13 update): the engine grants a class feature literally
+ * named "Ability Score Improvement" (or "Ability Score Improvement / ASI")
+ * as flavor text at the levels 5e calls for it. That choice — and any queued
+ * subclass pick — is now actually resolvable: `character/[id]/page.tsx`
+ * mounts `LevelChoicePicker` right below this button whenever the freshly-
+ * refetched sheet's `pending_choices` is non-empty, so the result region here
+ * only needs to POINT at it, not apologize for a missing feature.
  */
 import { useId, useRef, useState } from 'react';
 import Button from '@/components/Button';
@@ -265,8 +258,7 @@ export default function LevelUpButton({
                 .map((s) => `Lv.${s.level} ${s.from}→${s.to}`)
                 .join(', ')}. `}
             {gain.newFeatures.length > 0 && `New: ${gain.newFeatures.join(', ')}.`}
-            {gain.hasAsiFeature &&
-              ' Ability score/subclass choices aren’t pickable yet — coming in a future update.'}
+            {gain.hasAsiFeature && ' Pick your Ability Score Improvement below.'}
           </p>
         )}
       </div>

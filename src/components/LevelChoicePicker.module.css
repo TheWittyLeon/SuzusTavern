@@ -1,0 +1,152 @@
+/* LevelChoicePicker — T13 (DDX-14t/15t level-choice picker UI). Token-driven;
+ * no hardcoded colors. `.card`/`.option` mirror CastSpellPanel's `.panel`/
+ * `.select` treatment (border-top separator, pill-like toggle buttons) rather
+ * than inventing a new visual language for this one component. */
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--accent) 6%, transparent);
+}
+
+.cardLabel {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.hint {
+  margin: 0;
+  font-size: 12px;
+  /* A11Y (Iro CRITICAL-2): this is load-bearing point-budget text, not a
+     caption — --ink-3 fails AA on the dusk/aetheric/moonlit palettes.
+     .emptyRow/.abilityAbbr are left on --ink-3 pending the systemic token
+     ticket (backlog, not fixed here). */
+  color: var(--ink-2);
+}
+
+.emptyRow {
+  font-size: 13px;
+  color: var(--ink-3);
+  font-style: italic;
+  margin: 0;
+}
+
+.optionRow,
+.modeRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.option {
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: color-mix(in oklab, var(--ink) 3%, transparent);
+  color: var(--ink);
+  font-size: 13px;
+  cursor: pointer;
+}
+/* Touch-target floor on the mobile / single-pane layout (matches the app's
+   44px convention — CastSpellPanel's own .select applies the same rule). */
+@media (max-width: 880px) {
+  .option {
+    min-height: 44px;
+  }
+}
+.option:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.optionOn {
+  border-color: var(--accent-2);
+  background: color-mix(in oklab, var(--accent-2) 16%, transparent);
+  color: var(--accent-2);
+  font-weight: 600;
+}
+.option:focus-visible {
+  outline: none;
+  border-color: var(--accent-2);
+  box-shadow: 0 0 0 2px var(--accent-2);
+}
+
+.abilityGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+}
+
+.abilityStepper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 6px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+}
+
+.abilityAbbr {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.abilityScore {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.abilityDelta {
+  color: var(--good, var(--accent-2));
+  font-weight: 700;
+}
+
+.stepperBtns {
+  display: flex;
+  gap: 6px;
+}
+
+.stepBtn {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: color-mix(in oklab, var(--ink) 3%, transparent);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+/* A11Y (Iro MODERATE-1): 44px touch-target floor on the mobile / single-pane
+   layout — matches .option's own rule above and the app's 44px convention. */
+@media (max-width: 880px) {
+  .stepBtn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+.stepBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.stepBtn:focus-visible {
+  outline: none;
+  border-color: var(--accent-2);
+  box-shadow: 0 0 0 2px var(--accent-2);
+}
