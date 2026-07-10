@@ -100,13 +100,26 @@ export const levelUpCharacter = (
     { method: 'POST', json: { username }, signal },
   );
 
+/**
+ * T5 (DDX-09 inventory slice) — contract fix, same bug class as levelUpCharacter/
+ * pauseSession/resumeSession/etc above: NekoNova-DnDEngine's equip_item/
+ * unequip_item routes (routes/characters.py) both `return _ok({"message":
+ * result})` where `result` is cmd_equip/cmd_unequip's plain chat-formatted
+ * string — the wire payload is `{message: string}`, NEVER a Character and
+ * NEVER a recomputed `ac` field (verified against the engine source; cmd_equip
+ * persists the new AC to the DB as a side effect but never returns it). The
+ * pre-existing `apiCall<Character>` annotations were the same kind of
+ * aspirational-not-accurate typing DDX-10/DDX-25 already fixed elsewhere.
+ * Callers MUST refetch via getCharacterSheet to observe the recomputed `ac`
+ * and the item's new `equipped` state — never read either off this response.
+ */
 export const equipItem = (
   characterId: string,
   username: string,
   itemName: string,
   signal?: AbortSignal,
 ) =>
-  apiCall<Character>(
+  apiCall<{ message?: string }>(
     `/api/dnd/characters/${encodeURIComponent(characterId)}/equip`,
     { method: 'POST', json: { username, item_name: itemName }, signal },
   );
@@ -117,9 +130,40 @@ export const unequipItem = (
   itemName: string,
   signal?: AbortSignal,
 ) =>
-  apiCall<Character>(
+  apiCall<{ message?: string }>(
     `/api/dnd/characters/${encodeURIComponent(characterId)}/unequip`,
     { method: 'POST', json: { username, item_name: itemName }, signal },
+  );
+
+/**
+ * T5 — self-service item add (DM/test command, OWNER-auth per the engine's
+ * DDX-GIVE-ITEM-AUTHZ docstring: a player may mint an item onto their OWN
+ * character; there is no session-scoped DM gate on this route today — see
+ * the engine docstring's TRIPWIRE note to re-decide this the moment
+ * multiplayer unparks). Same wire shape as equip/unequip: engine's give_item
+ * route also `return _ok({"message": result})` — no recomputed inventory or
+ * ac. `quantity` is accepted by the route's Pydantic model (default 1) but is
+ * NOT threaded through to cmd_give_item today (engine passes only item_name;
+ * add_item is always called with qty=1) — a pre-existing engine-side gap, out
+ * of scope for this Tavern-only slice; the param is kept here so the wrapper
+ * shape matches the real request model and starts working for free the
+ * moment the engine wires it through. Callers must refetch via
+ * getCharacterSheet to see the new item.
+ */
+export const giveItem = (
+  characterId: string,
+  username: string,
+  itemName: string,
+  quantity?: number,
+  signal?: AbortSignal,
+) =>
+  apiCall<{ message?: string }>(
+    `/api/dnd/characters/${encodeURIComponent(characterId)}/give-item`,
+    {
+      method: 'POST',
+      json: { username, item_name: itemName, ...(quantity != null ? { quantity } : {}) },
+      signal,
+    },
   );
 
 /** Structured character sheet (ST-054–058). Distinct from getCharacter, which

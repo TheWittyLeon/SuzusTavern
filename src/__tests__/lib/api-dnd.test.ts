@@ -29,6 +29,7 @@ import {
   levelUpCharacter,
   equipItem,
   unequipItem,
+  giveItem,
   getInventory,
   listMyCharacters,
   startSession,
@@ -113,12 +114,54 @@ describe('Characters', () => {
     expect(body).toMatchObject({ username: 'player', item_name: 'Sword' });
   });
 
+  // T5 — contract fix: the engine resolves to `{message: string}`, never a
+  // Character and never a recomputed `ac`. Proves the wrapper's return value
+  // matches the REAL envelope shape (same class of regression as
+  // levelUpCharacter's own contract test).
+  it('equipItem resolves to the real {message} shape, not a Character/ac', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ success: true, data: { message: '[DnD] Equipped Chain Mail.' } }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    const result = await equipItem('char-1', 'player', 'Chain Mail');
+    expect(result).toEqual({ message: '[DnD] Equipped Chain Mail.' });
+    expect((result as Record<string, unknown>)['ac']).toBeUndefined();
+  });
+
   it('unequipItem — POST /api/dnd/characters/:id/unequip', async () => {
     await unequipItem('char-1', 'player', 'Sword');
     const { url, method, body } = lastCall();
     expect(url).toBe('/api/dnd/characters/char-1/unequip');
     expect(method).toBe('POST');
     expect(body).toMatchObject({ item_name: 'Sword' });
+  });
+
+  it('unequipItem resolves to the real {message} shape, not a Character/ac', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ success: true, data: { message: '[DnD] Unequipped Chain Mail.' } }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    const result = await unequipItem('char-1', 'player', 'Chain Mail');
+    expect(result).toEqual({ message: '[DnD] Unequipped Chain Mail.' });
+  });
+
+  it('giveItem — POST /api/dnd/characters/:id/give-item', async () => {
+    await giveItem('char-1', 'player', 'Healing Potion');
+    const { url, method, body } = lastCall();
+    expect(url).toBe('/api/dnd/characters/char-1/give-item');
+    expect(method).toBe('POST');
+    expect(body).toMatchObject({ username: 'player', item_name: 'Healing Potion' });
+    expect((body as Record<string, unknown>)['quantity']).toBeUndefined();
+  });
+
+  it('giveItem passes an optional quantity through', async () => {
+    await giveItem('char-1', 'player', 'Torch', 3);
+    const { body } = lastCall();
+    expect(body).toMatchObject({ item_name: 'Torch', quantity: 3 });
   });
 
   it('getInventory — GET /api/dnd/characters/:id/inventory', async () => {

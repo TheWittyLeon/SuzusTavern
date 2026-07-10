@@ -3,7 +3,7 @@
  * Renders from the structured getCharacterSheet payload.
  */
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 const mockReplace = jest.fn();
@@ -25,6 +25,9 @@ jest.mock('../../lib/api/auth', () => ({
 jest.mock('../../lib/api/dnd', () => ({
   getCharacterSheet: jest.fn(),
   levelUpCharacter: jest.fn(),
+  equipItem: jest.fn(),
+  unequipItem: jest.fn(),
+  giveItem: jest.fn(),
 }));
 
 import * as dnd from '../../lib/api/dnd';
@@ -167,5 +170,48 @@ describe('Character sheet — DDX-10 level-up button gating', () => {
 
     await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
     expect(screen.queryByRole('button', { name: /level up/i })).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T5 / DDX-09 — inventory slice: equip → AC recomputes live on the sheet.
+// End-to-end through the REAL page + InventoryPanel (not a component-isolation
+// test — that's InventoryPanel.test.tsx). Proves the identity card's AC digit
+// updates after an equip round-trip, driven entirely by the page's own
+// onChanged={setSheet} wiring.
+// ---------------------------------------------------------------------------
+describe('Character sheet — T5 inventory: equip recomputes AC live', () => {
+  // AC values chosen to not collide with any ability score digit already on
+  // the page (9/16/13/12/10/14) or other rendered numbers (level 1, hp "9/9",
+  // xp "300", init "+3", prof "+2", speed "30 ft") — getByText does exact
+  // text-node matching, and a colliding value would make the query ambiguous.
+  const UNARMORED_ROGUE: CharacterSheet = {
+    ...ROGUE,
+    ac: 19,
+    inventory: [
+      { name: 'Chain Mail', item_type: 'armor', sub: 'heavy', quantity: 1, equipped: false },
+    ],
+  };
+
+  it('clicking Equip on an armor item updates the sheet AC without a page reload', async () => {
+    mockGet.mockResolvedValueOnce(UNARMORED_ROGUE);
+    const mockEquip = dnd.equipItem as jest.MockedFunction<typeof dnd.equipItem>;
+    mockEquip.mockResolvedValue({ message: '[DnD] Equipped Chain Mail.' });
+    // Second getCharacterSheet call is the panel's own refetch-after-mutate.
+    mockGet.mockResolvedValueOnce({
+      ...UNARMORED_ROGUE,
+      ac: 22,
+      inventory: [{ ...UNARMORED_ROGUE.inventory[0], equipped: true }],
+    });
+
+    renderPage();
+    await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
+    expect(screen.getByText('19')).toBeInTheDocument(); // pre-equip AC
+
+    fireEvent.click(screen.getByRole('button', { name: /^equip\b/i }));
+
+    await waitFor(() => expect(screen.getByText('22')).toBeInTheDocument());
+    expect(mockEquip).toHaveBeenCalledWith('abc-123', 'alice', 'Chain Mail');
+    expect(screen.getByText('equipped')).toBeInTheDocument();
   });
 });

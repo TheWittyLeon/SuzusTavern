@@ -23,20 +23,12 @@ import PageSkeleton from '@/components/PageSkeleton';
 import Card from '@/components/Card';
 import Button from '@/components/Button';
 import Pill from '@/components/Pill';
-import Icon, { type IconName } from '@/components/Icon';
+import Icon from '@/components/Icon';
 import SuzuDM from '@/components/SuzuDM';
+import InventoryPanel from '@/components/InventoryPanel';
 import { ABILITIES, SKILLS } from '@/lib/dnd/helpers';
 import { useSuzuNote } from '@/lib/dnd/useSuzuNote';
 import styles from './CharacterView.module.css';
-
-const ITEM_ICON: Record<string, IconName> = {
-  weapon: 'Sword',
-  armor: 'Shield',
-  shield: 'Shield',
-  potion: 'Potion',
-  tool: 'Scroll',
-  gear: 'Scroll',
-};
 
 function signed(n: number): string {
   return n >= 0 ? `+${n}` : `${n}`;
@@ -314,38 +306,16 @@ export default function CharacterPage() {
             </div>
           </Card>
 
-          {/* Inventory (ST-057) */}
+          {/* Inventory (ST-057, interactive equip/unequip — T5/DDX-09) */}
           <Card>
-            <div className={styles.cardHead}>
-              <h3 className="label" style={{ margin: 0 }}>
-                Inventory · weight {sheet.inventory_weight} lb
-              </h3>
-            </div>
-            {sheet.inventory.length === 0 ? (
-              <p className={styles.emptyRow}>Nothing in the pack yet.</p>
-            ) : (
-              <ul className={styles.itemList}>
-                {sheet.inventory.map((it, i) => (
-                  <li key={`${it.name}-${i}`} className={styles.itemRow}>
-                    <span className={styles.itemIcon} aria-hidden>
-                      <Icon name={ITEM_ICON[it.item_type] ?? 'Scroll'} size={16} />
-                    </span>
-                    <span className={styles.itemMeta}>
-                      <span className={styles.itemName}>
-                        {it.name}
-                        {it.equipped && (
-                          <Pill tone="good" className={styles.equipPill}>
-                            equipped
-                          </Pill>
-                        )}
-                      </span>
-                      {it.sub && <span className={`mono ${styles.itemSub}`}>{it.sub}</span>}
-                    </span>
-                    <span className={`mono ${styles.itemQty}`}>×{it.quantity}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <InventoryPanel
+              characterId={id}
+              username={username ?? ''}
+              isOwner={isOwner}
+              inventory={sheet.inventory}
+              inventoryWeight={sheet.inventory_weight}
+              onChanged={setSheet}
+            />
           </Card>
         </div>
 

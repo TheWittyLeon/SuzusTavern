@@ -1,0 +1,88 @@
+/* InventoryPanel — T5 / DDX-09 inventory slice. Token-driven; no hardcoded colors.
+ * Item-row styling mirrors the layout previously inline in
+ * character/[id]/CharacterView.module.css (ST-057) — geometry unchanged, just
+ * co-located with the component that now owns it. */
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.emptyRow {
+  font-size: 13px;
+  color: var(--ink-3);
+  font-style: italic;
+}
+
+.itemList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.itemRow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line-2);
+}
+.itemRow:last-child {
+  border-bottom: 0;
+}
+.itemIcon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--accent) 10%, transparent);
+  color: var(--accent);
+}
+.itemMeta {
+  flex: 1;
+  min-width: 0;
+}
+.itemName {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.equipPill {
+  padding: 1px 7px;
+}
+.itemSub {
+  display: block;
+  font-size: 11px;
+  color: var(--ink-3);
+  margin-top: 1px;
+  overflow-wrap: anywhere;
+}
+.itemQty {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+/* ── Equip/unequip control ───────────────────────────────────────────────── */
+.equipBtn {
+  flex-shrink: 0;
+  font-size: 12px;
+  padding: 4px 10px;
+}
+
+/* ── Give-item form ──────────────────────────────────────────────────────── */
+.giveItemForm {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.giveItemInput {
+  flex: 1;
+  min-width: 0;
+}
