@@ -239,7 +239,12 @@ export default function CastSpellPanel({
           combat_id: combatId,
           spell_name: selectedSpell.slug,
           ...(selectedSpell.is_cantrip ? {} : { slot_level: slotLevel ?? selectedSpell.level }),
-          ...(targetParticipant ? { target: targetParticipant.name } : {}),
+          // DDX-CAST-TARGETID-PLUMBING: send both — target_id is preferred by
+          // the engine (disambiguates two combatants with identical exact
+          // names), target stays for logs/graceful degradation.
+          ...(targetParticipant
+            ? { target_id: targetParticipant.participant_id, target: targetParticipant.name }
+            : {}),
         });
       } catch (err) {
         toast({ message: castErrorMessage(err, selectedSpell.name), tone: 'error' });

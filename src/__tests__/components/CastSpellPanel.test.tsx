@@ -398,24 +398,16 @@ describe('CastSpellPanel — target picker', () => {
     expect(names.some((t) => t?.includes('Fallen Goblin'))).toBe(true);
   });
 
-  it('DEFECT-CLASS (engine-side, not this diff): two participants with the IDENTICAL exact name produce the identical wire target string regardless of which dropdown option the player picked', async () => {
-    // Root cause lives in the engine, not here: routes/spells.py::CastSpellRequest
-    // has no target_id field at all (unlike /combat/attack, which prefers an
-    // explicit target_id and only falls back to name — see dnd.ts's own
-    // `attack()` doc comment), and cmd_cast's target resolution
-    // (engine/commands/spell_commands.py) is `p.name.lower() == target_name
-    // OR target_name in p.name.lower()`, first match in participant order
-    // wins. Reachable today: spawn_monster's own name_suffix disambiguation
-    // (" #2") only fires when a SINGLE /combat/spawn call spawns count>1 of
-    // the same monster — two SEPARATE count=1 spawns of the same slug (e.g.
-    // a DM adding reinforcements one at a time) produce two participants
-    // with the literal same name and no suffix at all. This test proves the
-    // Tavern UI has no way to disambiguate even when it wants to, since the
-    // only field the picker's <option value> can carry that the engine's
-    // contract accepts is the bare name. Locked as a passing characterization
-    // (not xfail — nothing crashes; it's a silent wrong-target hazard, not
-    // a client bug), flagged to Ren-Dev/Sora-Arch as a follow-up (engine
-    // needs a target_id path on /spells/cast, mirroring /combat/attack).
+  it('DDX-CAST-TARGETID-PLUMBING (fixed): two participants with the IDENTICAL exact name now send DIFFERENT target_id values, disambiguating the wire request', async () => {
+    // Was DEFECT-CLASS: routes/spells.py::CastSpellRequest had no target_id
+    // field (unlike /combat/attack, which already preferred an explicit
+    // target_id and only fell back to name — see dnd.ts's own `attack()` doc
+    // comment). cmd_cast now takes the same target_id kwarg and resolves by
+    // participant_id FIRST when supplied (engine/commands/spell_commands.py),
+    // mirroring cmd_attack — so two participants sharing an exact name (e.g.
+    // two separate count=1 spawns of the same monster slug, no " #2" suffix)
+    // are disambiguated by id even though `target` (the name, kept for
+    // logs/graceful-degradation) is still identical either way.
     const GOBLIN_A = participant({
       participant_id: 'p-goblin-a',
       entity_id: 'goblin-a',
@@ -455,19 +447,23 @@ describe('CastSpellPanel — target picker', () => {
     fireEvent.change(screen.getByLabelText('Target'), { target: { value: 'p-goblin-a' } });
     fireEvent.click(screen.getByRole('button', { name: 'Cast Sacred Flame' }));
     await flush();
-    const firstCallTarget = mockCastSpell.mock.calls[0][0].target;
+    const firstCall = mockCastSpell.mock.calls[0][0];
 
     mockCastSpell.mockClear();
     fireEvent.change(screen.getByLabelText('Target'), { target: { value: 'p-goblin-b' } });
     fireEvent.click(screen.getByRole('button', { name: 'Cast Sacred Flame' }));
     await flush();
-    const secondCallTarget = mockCastSpell.mock.calls[0][0].target;
+    const secondCall = mockCastSpell.mock.calls[0][0];
 
-    // Two DIFFERENT participant_ids were selected, but the wire request is
-    // byte-identical either way — the engine cannot tell them apart.
-    expect(firstCallTarget).toBe('Goblin');
-    expect(secondCallTarget).toBe('Goblin');
-    expect(firstCallTarget).toBe(secondCallTarget);
+    // `target` (the name) is still identical either way — kept for
+    // logs/graceful-degradation, never the disambiguator.
+    expect(firstCall.target).toBe('Goblin');
+    expect(secondCall.target).toBe('Goblin');
+    // `target_id` is what actually disambiguates the two DIFFERENT
+    // participant_ids selected — no longer a byte-identical wire request.
+    expect(firstCall.target_id).toBe('p-goblin-a');
+    expect(secondCall.target_id).toBe('p-goblin-b');
+    expect(firstCall.target_id).not.toBe(secondCall.target_id);
   });
 
   it('a LEVELED (non-cantrip) spell cast with no target selected omits `target` entirely — never sends an empty string, never sends target_id', async () => {
@@ -510,6 +506,7 @@ describe('CastSpellPanel — cast wiring', () => {
       combat_id: 'combat-1',
       spell_name: 'cure-wounds',
       slot_level: 2,
+      target_id: 'p-ally',
       target: 'Twilight',
     });
     expect(onCast).toHaveBeenCalledWith('You heal Twilight for 8 HP.');

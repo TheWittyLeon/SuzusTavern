@@ -122,7 +122,7 @@ describe('ConditionsPanel — rendering', () => {
 });
 
 describe('ConditionsPanel — apply wiring', () => {
-  it('calls applyCondition with combat_id/target(name)/condition/duration_rounds/username', async () => {
+  it('calls applyCondition with combat_id/target_id/target(name)/condition/duration_rounds/username', async () => {
     mockApply.mockResolvedValue({ message: 'Poisoned Velka.' });
     const { onApplied, onStateRefresh } = renderPanel();
 
@@ -134,6 +134,7 @@ describe('ConditionsPanel — apply wiring', () => {
 
     expect(mockApply).toHaveBeenCalledWith({
       combat_id: 'combat-1',
+      target_id: 'p-velka',
       target: 'Velka',
       condition: 'poisoned',
       duration_rounds: 3,
@@ -352,8 +353,8 @@ describe('ConditionsPanel — apply wiring', () => {
   });
 });
 
-describe('ConditionsPanel — duplicate-name wire-target risk (client-side manifestation)', () => {
-  it('two participants with byte-identical names, selected by two DIFFERENT participant_ids, produce a byte-identical wire target string — the client has no way to disambiguate once sent (engine resolves by name, see _resolve_condition_target in NekoNova-DnDEngine)', async () => {
+describe('ConditionsPanel — duplicate-name wire-target disambiguation (DDX-CAST-TARGETID-PLUMBING)', () => {
+  it('two participants with byte-identical names, selected by two DIFFERENT participant_ids, now send DIFFERENT target_id values — target_id (not the name) is what the engine\'s _resolve_condition_target prefers when both are supplied', async () => {
     const GOBLIN_A = participant({ participant_id: 'p-a', entity_id: 'e-a', name: 'Goblin' });
     const GOBLIN_B = participant({ participant_id: 'p-b', entity_id: 'e-b', name: 'Goblin' });
     mockApply.mockResolvedValue({ message: 'ok' });
@@ -362,17 +363,22 @@ describe('ConditionsPanel — duplicate-name wire-target risk (client-side manif
     fireEvent.change(screen.getByLabelText('Target'), { target: { value: 'p-a' } });
     fireEvent.click(screen.getByRole('button', { name: /^Apply /i }));
     await flush();
-    const firstTarget = mockApply.mock.calls[0][0].target;
+    const firstCall = mockApply.mock.calls[0][0];
 
     mockApply.mockClear();
     fireEvent.change(screen.getByLabelText('Target'), { target: { value: 'p-b' } });
     fireEvent.click(screen.getByRole('button', { name: /^Apply /i }));
     await flush();
-    const secondTarget = mockApply.mock.calls[0][0].target;
+    const secondCall = mockApply.mock.calls[0][0];
 
-    expect(firstTarget).toBe('Goblin');
-    expect(secondTarget).toBe('Goblin');
-    expect(firstTarget).toBe(secondTarget);
+    // `target` (the name) is still identical either way — kept for
+    // logs/graceful-degradation, never the disambiguator.
+    expect(firstCall.target).toBe('Goblin');
+    expect(secondCall.target).toBe('Goblin');
+    // `target_id` is what actually disambiguates the two selections.
+    expect(firstCall.target_id).toBe('p-a');
+    expect(secondCall.target_id).toBe('p-b');
+    expect(firstCall.target_id).not.toBe(secondCall.target_id);
   });
 });
 
@@ -465,7 +471,7 @@ describe('ConditionsPanel — refetch reflection (not optimistic)', () => {
 });
 
 describe('ConditionsPanel — remove wiring', () => {
-  it('calls removeCondition with combat_id/target(name)/condition/username', async () => {
+  it('calls removeCondition with combat_id/target_id/target(name)/condition/username', async () => {
     mockRemove.mockResolvedValue({ message: 'Poison wears off Goblin.' });
     const { onApplied, onStateRefresh } = renderPanel();
 
@@ -474,6 +480,7 @@ describe('ConditionsPanel — remove wiring', () => {
 
     expect(mockRemove).toHaveBeenCalledWith({
       combat_id: 'combat-1',
+      target_id: 'p-goblin',
       target: 'Goblin',
       condition: 'poisoned',
       username: 'suzu',

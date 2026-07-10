@@ -27,9 +27,11 @@
  *     poll stays the single source of truth and catches any other concurrent
  *     change (e.g. a round-boundary auto-expiry tick) the snapshot might miss.
  *
- * `target` is resolved by the engine via case-insensitive NAME match (see
- * ApplyConditionRequest's doc comment in lib/api/types.ts) — this panel looks
- * up the chosen participant_id back to its `.name` before sending.
+ * DDX-CAST-TARGETID-PLUMBING: this panel sends both `target_id` (the chosen
+ * participant_id directly — preferred by the engine's
+ * `_resolve_condition_target`, disambiguates two combatants sharing an exact
+ * name) and `target` (the participant's `.name`, kept for logs/graceful
+ * degradation — see ApplyConditionRequest's doc comment in lib/api/types.ts).
  */
 import { useEffect, useId, useRef, useState } from 'react';
 import ConditionChipList from '@/components/ConditionChipList';
@@ -144,6 +146,7 @@ export default function ConditionsPanel({
       try {
         res = await applyCondition({
           combat_id: combatId,
+          target_id: targetParticipant.participant_id,
           target: targetParticipant.name,
           condition,
           ...(durationValue != null ? { duration_rounds: durationValue } : {}),
@@ -183,6 +186,7 @@ export default function ConditionsPanel({
       try {
         res = await removeCondition({
           combat_id: combatId,
+          target_id: participant.participant_id,
           target: participant.name,
           condition: cond,
           ...(dmUsername ? { username: dmUsername } : {}),

@@ -418,16 +418,19 @@ export interface SpellCastRequest extends CombatActionRequest {
   slot_level?: number;
 }
 
-/** T7 (DDX-17e): DM-only apply-condition body. `target` is resolved by the
- *  engine's `_resolve_condition_target` (case-insensitive NAME match against
- *  CombatParticipantState.name — NOT participant_id; unlike attack/cast this
- *  route has no `target_id` alternative). `username` is optional — the engine
- *  gates on "is the caller the DM" (guard_dm), not on turn ownership, so
- *  there's no per-caller identity the command itself needs to compare against
- *  (see NekoNova-DnDEngine routes/combat.py::ApplyConditionRequest). */
+/** T7 (DDX-17e): DM-only apply-condition body. DDX-CAST-TARGETID-PLUMBING:
+ *  `target_id` (participant_id, from CombatState.participants[]) is now sent
+ *  alongside `target` and is preferred by the engine's
+ *  `_resolve_condition_target` when both are supplied — resolves by exact
+ *  participant_id match first, falling back to `target`'s case-insensitive
+ *  NAME match only when `target_id` is omitted. `username` is optional — the
+ *  engine gates on "is the caller the DM" (guard_dm), not on turn ownership,
+ *  so there's no per-caller identity the command itself needs to compare
+ *  against (see NekoNova-DnDEngine routes/combat.py::ApplyConditionRequest). */
 export interface ApplyConditionRequest {
   combat_id: string;
   target: string;
+  target_id?: string;
   condition: string;
   /** Rounds-remaining before auto-expiry; omitted = indefinite (DM must
    *  remove manually). Engine caps 1-1000 (Pydantic Field(gt=0, le=1000)). */
@@ -435,12 +438,14 @@ export interface ApplyConditionRequest {
   username?: string;
 }
 
-/** T7 (DDX-17e): DM-only remove-condition body. Same `target`-by-name
- *  resolution as ApplyConditionRequest; idempotent on the engine side
- *  (removing an absent condition still returns ok). */
+/** T7 (DDX-17e): DM-only remove-condition body. Same `target`/`target_id`
+ *  resolution as ApplyConditionRequest (id preferred when both supplied);
+ *  idempotent on the engine side (removing an absent condition still returns
+ *  ok). */
 export interface RemoveConditionRequest {
   combat_id: string;
   target: string;
+  target_id?: string;
   condition: string;
   username?: string;
 }
