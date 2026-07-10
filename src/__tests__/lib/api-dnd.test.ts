@@ -49,6 +49,8 @@ import {
   endTurn,
   getCombatStatus,
   castSpell,
+  applyCondition,
+  removeCondition,
   deleteCharacter,
   restoreCharacter,
   listTrashedCharacters,
@@ -261,6 +263,43 @@ describe('Combat', () => {
     const { url, body } = lastCall();
     expect(url).toBe('/api/dnd/spells/cast');
     expect(body).toMatchObject({ spell_name: 'Fireball' });
+  });
+
+  // T7 (DDX-17e): `target` is the combatant NAME (engine resolves by
+  // case-insensitive name match, not participant_id — see ApplyConditionRequest's
+  // doc comment in lib/api/types.ts).
+  it('applyCondition — POST /api/dnd/combat/apply-condition, with duration_rounds', async () => {
+    await applyCondition({
+      combat_id: 'c1',
+      target: 'Goblin',
+      condition: 'poisoned',
+      duration_rounds: 3,
+      username: 'leon',
+    });
+    const { url, method, body } = lastCall();
+    expect(url).toBe('/api/dnd/combat/apply-condition');
+    expect(method).toBe('POST');
+    expect(body).toMatchObject({
+      combat_id: 'c1',
+      target: 'Goblin',
+      condition: 'poisoned',
+      duration_rounds: 3,
+      username: 'leon',
+    });
+  });
+
+  it('applyCondition — omits duration_rounds entirely when not supplied (indefinite)', async () => {
+    await applyCondition({ combat_id: 'c1', target: 'Goblin', condition: 'prone' });
+    const { body } = lastCall();
+    expect(body).not.toHaveProperty('duration_rounds');
+  });
+
+  it('removeCondition — POST /api/dnd/combat/remove-condition', async () => {
+    await removeCondition({ combat_id: 'c1', target: 'Goblin', condition: 'poisoned', username: 'leon' });
+    const { url, method, body } = lastCall();
+    expect(url).toBe('/api/dnd/combat/remove-condition');
+    expect(method).toBe('POST');
+    expect(body).toMatchObject({ combat_id: 'c1', target: 'Goblin', condition: 'poisoned', username: 'leon' });
   });
 });
 

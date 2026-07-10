@@ -6,6 +6,7 @@ import { apiCall } from './client';
 import type {
   AdvanceSceneRequest,
   AdvanceSceneResult,
+  ApplyConditionRequest,
   AvailableSpellsResult,
   BindCharacterRequest,
   BindCharacterResult,
@@ -40,6 +41,7 @@ import type {
   PrepareSpellResult,
   ResolveCheckRequest,
   ResolveCheckResult,
+  RemoveConditionRequest,
   RollRequest,
   RollResult,
   SceneCheck,
@@ -633,6 +635,29 @@ export const rollInitiative = (req: CombatInitiativeRequest, signal?: AbortSigna
 /** Drive the current monster's turn (ST-064). */
 export const monsterTurn = (req: CombatMonsterTurnRequest, signal?: AbortSignal) =>
   apiCall<CombatMessageResult>('/api/dnd/combat/monster-turn', {
+    method: 'POST',
+    json: req,
+    signal,
+  });
+
+/**
+ * DM-only: apply a (optionally timed) condition to a combatant (DDX-17e / T7).
+ * `target` must be the combatant's `name` (CombatParticipantState.name) — the
+ * engine resolves by case-insensitive name match, not participant_id (see
+ * ApplyConditionRequest's doc comment). Response carries the fresh CombatState
+ * under `data.state` like every other mutating combat route.
+ */
+export const applyCondition = (req: ApplyConditionRequest, signal?: AbortSignal) =>
+  apiCall<CombatMessageResult>('/api/dnd/combat/apply-condition', {
+    method: 'POST',
+    json: req,
+    signal,
+  });
+
+/** DM-only: remove a condition (and any pending duration) from a combatant.
+ *  DDX-17e / T7. Same name-based `target` resolution as applyCondition. */
+export const removeCondition = (req: RemoveConditionRequest, signal?: AbortSignal) =>
+  apiCall<CombatMessageResult>('/api/dnd/combat/remove-condition', {
     method: 'POST',
     json: req,
     signal,

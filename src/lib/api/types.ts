@@ -342,6 +342,33 @@ export interface SpellCastRequest extends CombatActionRequest {
   spell_name: string;
   slot_level?: number;
 }
+
+/** T7 (DDX-17e): DM-only apply-condition body. `target` is resolved by the
+ *  engine's `_resolve_condition_target` (case-insensitive NAME match against
+ *  CombatParticipantState.name — NOT participant_id; unlike attack/cast this
+ *  route has no `target_id` alternative). `username` is optional — the engine
+ *  gates on "is the caller the DM" (guard_dm), not on turn ownership, so
+ *  there's no per-caller identity the command itself needs to compare against
+ *  (see NekoNova-DnDEngine routes/combat.py::ApplyConditionRequest). */
+export interface ApplyConditionRequest {
+  combat_id: string;
+  target: string;
+  condition: string;
+  /** Rounds-remaining before auto-expiry; omitted = indefinite (DM must
+   *  remove manually). Engine caps 1-1000 (Pydantic Field(gt=0, le=1000)). */
+  duration_rounds?: number;
+  username?: string;
+}
+
+/** T7 (DDX-17e): DM-only remove-condition body. Same `target`-by-name
+ *  resolution as ApplyConditionRequest; idempotent on the engine side
+ *  (removing an absent condition still returns ok). */
+export interface RemoveConditionRequest {
+  combat_id: string;
+  target: string;
+  condition: string;
+  username?: string;
+}
 export interface CombatStatus {
   combat_id: string;
   session_id: string;
@@ -383,6 +410,13 @@ export interface CombatParticipantState {
   hp_max: number;
   ac: number;
   conditions: string[];
+  /** T7 (DDX-17): rounds-remaining for a SUBSET of `conditions`, keyed by the
+   *  lower-cased condition string (engine/combat.py::build_combat_state — a
+   *  condition absent here is indefinite, no auto-expiry). Optional (not `?:`
+   *  on `conditions` itself) purely so pre-existing test fixtures across the
+   *  repo that construct CombatParticipantState literals without this field
+   *  keep compiling; the engine always sends the key on the real wire. */
+  condition_durations?: Record<string, number>;
   /** is_active (Participant.is_active). */
   is_alive: boolean;
   /** Friendly-unit targeting advisory: alive + hp > 0 for monsters; see design A3. */

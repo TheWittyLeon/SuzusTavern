@@ -89,6 +89,7 @@ import Pill from '@/components/Pill';
 import PageSkeleton from '@/components/PageSkeleton';
 import NarratorStrip from '@/components/NarratorStrip';
 import CastSpellPanel from '@/components/CastSpellPanel';
+import ConditionsPanel from '@/components/ConditionsPanel';
 import SessionRecap from '@/components/SessionRecap';
 import ChatLog, { type ChatLogHandle, type LogRow } from '@/components/ChatLog';
 import PartyPanel from '@/components/PartyPanel';
@@ -2554,6 +2555,28 @@ export default function PlayPage() {
                 setCombatState(cs);
               }
             }}
+          />
+        )}
+        {/* T7 (DDX-17e): condition apply/remove — human DM seat only, during
+            active combat. Mounts alongside DmNarrationPanel (both DM-only,
+            not mutually exclusive with it — a DM can drive a monster's turn
+            AND apply/remove a condition). Chips themselves render for every
+            client via InitiativeTracker; this panel is the mutate surface. */}
+        {isHumanDM && combatIsActive && combatState && combatId && (
+          <ConditionsPanel
+            combatId={combatId}
+            dmUsername={session?.dm_username ?? username ?? ''}
+            participants={combatState.participants}
+            disabled={combatBusy || sessionLocked}
+            onApplied={(text) => appendLog({ who: 'Suzu', kind: 'system', text })}
+            onStateRefresh={async () => {
+              const cs = await getCombatState(combatId).catch(() => null);
+              if (cs) {
+                stateSeqRef.current += 1;
+                setCombatState(cs);
+              }
+            }}
+            onBusyChange={setCombatBusy}
           />
         )}
         {/* T6 (DDX-12): cast-in-combat picker — bound caster only, during active

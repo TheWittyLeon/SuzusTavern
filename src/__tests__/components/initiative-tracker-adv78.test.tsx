@@ -152,6 +152,56 @@ describe('InitiativeTracker — structured (engine-driven) props', () => {
   });
 });
 
+// ── T7 (DDX-17e): condition chips (read-only, all-clients) ──────────────────
+
+describe('InitiativeTracker — T7 condition chips', () => {
+  const POISONED_VELKA: CombatParticipantState = {
+    ...VELKA,
+    conditions: ['poisoned'],
+    condition_durations: { poisoned: 3 },
+  };
+
+  it('renders a chip with the condition name + duration when the engine tracks one', () => {
+    render(<InitiativeTracker participants={[POISONED_VELKA, GOBLIN]} round={1} />);
+    expect(screen.getByText('Poisoned · 3')).toBeInTheDocument();
+  });
+
+  it('renders a name-only chip when the condition has no tracked duration (indefinite)', () => {
+    const PRONE_GOBLIN: CombatParticipantState = { ...GOBLIN, conditions: ['prone'] };
+    render(<InitiativeTracker participants={[VELKA, PRONE_GOBLIN]} round={1} />);
+    // A11Y follow-up: ConditionChipList now renders a visible (aria-hidden)
+    // label alongside an sr-only duration-spelled-out sibling — for a
+    // no-duration condition the two are byte-identical text, so scope to
+    // the visual span specifically.
+    expect(screen.getByText('Prone', { selector: 'span[aria-hidden]' })).toBeInTheDocument();
+  });
+
+  it('renders multiple chips for a combatant with more than one active condition', () => {
+    const MULTI: CombatParticipantState = {
+      ...VELKA,
+      conditions: ['poisoned', 'prone'],
+      condition_durations: { poisoned: 2 },
+    };
+    render(<InitiativeTracker participants={[MULTI, GOBLIN]} round={1} />);
+    expect(screen.getByText('Poisoned · 2')).toBeInTheDocument();
+    // A11Y follow-up: ConditionChipList now renders a visible (aria-hidden)
+    // label alongside an sr-only duration-spelled-out sibling — for a
+    // no-duration condition the two are byte-identical text, so scope to
+    // the visual span specifically.
+    expect(screen.getByText('Prone', { selector: 'span[aria-hidden]' })).toBeInTheDocument();
+  });
+
+  it('renders no chips when a participant has no active conditions', () => {
+    render(<InitiativeTracker participants={[VELKA, GOBLIN]} round={1} />);
+    expect(screen.queryByText(/·/)).not.toBeInTheDocument();
+  });
+
+  it('never renders a remove control — InitiativeTracker is read-only for every client', () => {
+    render(<InitiativeTracker participants={[POISONED_VELKA]} round={1} />);
+    expect(screen.queryByRole('button', { name: /remove/i })).not.toBeInTheDocument();
+  });
+});
+
 // ── Legacy renderer (backward compat) ────────────────────────────────────────
 
 describe('InitiativeTracker — legacy InitEntry props (backward compat)', () => {

@@ -1,0 +1,64 @@
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  /* Slightly tighter than the default .pill padding — these sit inline with
+     an HP bar / name row rather than as a standalone status pill. */
+  padding-block: 1px;
+  font-size: 11px;
+}
+
+.remove {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 999px;
+  opacity: 0.75;
+}
+
+/* A11Y (Iro CRITICAL): the visual glyph stays 12px (compact chip), but the
+   hit target is enlarged via an invisible pseudo-element hit-slop —
+   inset: -6px on each side gives a 24px square (12 + 6 + 6); the mobile
+   breakpoint widens that to 44px (12 + 16 + 16), matching the WCAG 2.5.5
+   target size the rest of the app's :not(desktop) controls hit. */
+.remove::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+}
+
+@media (max-width: 880px) {
+  .remove::before {
+    inset: -16px;
+  }
+}
+
+.remove:hover:not(:disabled) {
+  opacity: 1;
+  background: color-mix(in oklab, currentColor 18%, transparent);
+}
+
+.remove:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.remove:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 1px;
+}

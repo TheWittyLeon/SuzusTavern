@@ -12,7 +12,14 @@
  *   - aria-live="polite" on the round indicator so turn changes are announced.
  *   - Downed PC shows a distinct "downed" indicator with aria-label.
  *   - Dead / untargetable entries rendered at reduced opacity with role="note".
+ *
+ * T7 (DDX-17e): each row also renders the combatant's active conditions as
+ * read-only chips (name + rounds-remaining when the engine tracks a duration)
+ * via ConditionChipList — this is the ALL-CLIENTS visibility surface for
+ * conditions (fed by the same combat-state poll as everything else here); the
+ * DM-only apply/remove controls live in ConditionsPanel, mounted separately.
  */
+import ConditionChipList from '@/components/ConditionChipList';
 import type { CombatParticipantState } from '@/lib/api/types';
 import styles from './InitiativeTracker.module.css';
 
@@ -149,6 +156,11 @@ function StructuredTracker({
                     />
                   </div>
                 )}
+                <ConditionChipList
+                  conditions={p.conditions}
+                  durations={p.condition_durations}
+                  combatantName={p.name}
+                />
               </span>
               <div className={styles.rightCol}>
                 {p.ac > 0 && (
