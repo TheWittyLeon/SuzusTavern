@@ -36,6 +36,8 @@ import type {
   Participant,
   ResolveCheckRequest,
   ResolveCheckResult,
+  RollRequest,
+  RollResult,
   SceneCheck,
   Session,
   SessionEvent,
@@ -607,6 +609,31 @@ export const resolveCheck = (
 ) =>
   apiCall<ResolveCheckResult>(
     `/api/dnd/sessions/${encodeURIComponent(sessionId)}/check`,
+    { method: 'POST', json: req, signal },
+  );
+
+/**
+ * DDX-08 / T3 — server-authoritative dice roll.
+ * POST /api/dnd/sessions/{sessionId}/roll (proxies to the engine's
+ * POST /sessions/{id}/roll, DDX-07). The engine resolves the outcome AND
+ * persists it as a `dice_roll` session event in the same call — this
+ * response is a convenience echo for the caller (e.g. to auto-narrate off
+ * immediately); every client (including this one) renders the roll from the
+ * session-events poll, not from this response, so a roll triggered on one
+ * client shows up on every other client watching the same session.
+ *
+ * Engine refusal reasons forwarded intact:
+ *   400 reason='character_not_in_session' | 'no_bound_character'
+ *   404 reason='session_not_found'
+ *   503 reason='msm_disabled'
+ */
+export const postRoll = (
+  sessionId: string,
+  req: RollRequest,
+  signal?: AbortSignal,
+) =>
+  apiCall<RollResult>(
+    `/api/dnd/sessions/${encodeURIComponent(sessionId)}/roll`,
     { method: 'POST', json: req, signal },
   );
 

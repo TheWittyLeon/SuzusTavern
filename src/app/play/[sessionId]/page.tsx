@@ -67,6 +67,7 @@ import {
   dodge as combatDodge,
   dash as combatDash,
   endTurn as combatEndTurn,
+  postRoll,
 } from '@/lib/api/dnd';
 import { streamDmNarration } from '@/lib/stream';
 import { eventToLogRow, formatEventTimestamp as formatOpeningTimestamp } from '@/lib/rehydration';
@@ -81,7 +82,7 @@ import type {
   Session,
 } from '@/lib/api/types';
 import RebindCharacterButton from '@/components/RebindCharacterButton';
-import type { QuickCheck } from '@/components/DiceTray';
+import type { QuickCheck, RollTrigger } from '@/components/DiceTray';
 import Icon from '@/components/Icon';
 import Pill from '@/components/Pill';
 import PageSkeleton from '@/components/PageSkeleton';
@@ -131,18 +132,6 @@ const POLL_INTERVAL_MS = 4000;
 
 function nowStamp(): string {
   return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
-
-function rollDie(sides: number): number {
-  return Math.floor(Math.random() * sides) + 1;
-}
-
-/** Roll a d20 honouring advantage/disadvantage (highest/lowest of two). */
-function rollWithAdvantage(advantage: Advantage): number {
-  if (advantage === 'none') return rollDie(20);
-  const a = rollDie(20);
-  const b = rollDie(20);
-  return advantage === 'adv' ? Math.max(a, b) : Math.min(a, b);
 }
 
 /**
@@ -330,6 +319,17 @@ export default function PlayPage() {
   // B1-4: fire-once "no character bound" toast when combat becomes active.
   const noCharToastFiredRef = useRef(false);
 
+  // DDX-08 / T3: highest session-event `seq` already rendered into the log
+  // (set once by rehydration, then advanced by the dice-roll events poll
+  // below). Lets the poll fetch the full event list every tick (the engine
+  // has no "since seq" filter) while only ever appending NEW rows.
+  const lastEventSeqRef = useRef(0);
+  // Synchronous double-submit latch for roll buttons (mirrors checkBusyRef /
+  // sceneAdvanceBusyRef) — a roll is a real server write (persists a
+  // `dice_roll` event), so a same-tick double-click must not fire it twice.
+  const rollBusyRef = useRef(false);
+  const [rollBusy, setRollBusy] = useState(false);
+
   // Monotone sequence guard: combatState updates from polls must not overwrite
   // a more-recent mutation response. Mutations bump this; polls gate on it.
   const stateSeqRef = useRef(0);
@@ -379,6 +379,11 @@ export default function PlayPage() {
   // callback can read the current status without being a dep of the poll
   // effect (mirrors combatStateRef's role for the combat-state poll below).
   const sessionRef = useRef<Session | null>(null);
+
+  // DDX-08 / T3: interval handle for the dice-roll events poll (separate
+  // lifetime again — starts as soon as the session is loaded and runs for
+  // the whole session, independent of combat/session-status polling).
+  const diceRollPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Iro Ship 2 CRITICAL-1: a resolved check / taken transition unmounts the
   // just-clicked button once `refreshGrounding()` recomputes availableChecks /
@@ -548,6 +553,10 @@ export default function PlayPage() {
           }
           setLog(rows);
           rehydratedRef.current = true;
+          // DDX-08 / T3: the events poll below only appends seq > this —
+          // every rehydrated row (including any past dice_roll) is already
+          // in `rows`, so start the poll's watermark at the newest seq seen.
+          lastEventSeqRef.current = sorted.reduce((m, e) => Math.max(m, e.seq ?? 0), 0);
         }
 
         // A2 — fetch the bound character's sheet to build real quick-checks.
@@ -579,7 +588,10 @@ export default function PlayPage() {
                   const display = sk.name
                     .replace(/_/g, ' ')
                     .replace(/\b\w/g, (c) => c.toUpperCase());
-                  return { name: display, mod: sk.modifier };
+                  // DDX-08 / T3: `skill` carries the raw engine slug — the
+                  // server resolves its own modifier off the sheet at roll
+                  // time, so `mod` here is DISPLAY-ONLY (never sent to /roll).
+                  return { name: display, skill: sk.name, mod: sk.modifier };
                 })
                 .filter((c): c is QuickCheck => c !== null);
               setQuickChecks(checks);
@@ -731,6 +743,60 @@ export default function PlayPage() {
       if (sessionPollIntervalRef.current) {
         clearInterval(sessionPollIntervalRef.current);
         sessionPollIntervalRef.current = null;
+      }
+    };
+  }, [sessionId, state]);
+
+  // ── dice-roll events poll (4s, foregrounded) ────────────────────────────────
+  // DDX-08 / T3: dice rolls are server-authoritative (POST /roll persists a
+  // `dice_roll` session event, DDX-07) — this poll is what makes a roll
+  // triggered on ANY client (including this one; onRoll never appends a row
+  // locally) show up on EVERY client watching the session, without a reload.
+  // Mirrors the session-status poll immediately above: same cadence, same
+  // document.hidden gate, same cleanup-on-unmount shape.
+  //
+  // The engine's GET /events has no "since seq" filter, so every tick refetches
+  // the full (capped) event list and appends only rows with seq strictly
+  // greater than lastEventSeqRef.current (set once by rehydration, advanced
+  // here after each tick). Only `dice_roll` events are rendered by this
+  // poll — other kinds (player_action/narration/...) are already reflected
+  // through their own optimistic-append/streaming paths and are intentionally
+  // left to a future unified events poll (DDX-20) to avoid duplicating rows
+  // for the client that originated them.
+  useEffect(() => {
+    if (!sessionId || state !== 'ok') return;
+
+    const poll = async () => {
+      if (document.hidden) return;
+      try {
+        const events = await getSessionEventsRaw(sessionId);
+        if (!events || events.length === 0) return;
+        const newOnes = events
+          .filter((e) => (e.seq ?? 0) > lastEventSeqRef.current)
+          .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+        if (newOnes.length === 0) return;
+        const rows = newOnes
+          .filter((e) => e.kind === 'dice_roll')
+          .map(eventToLogRow)
+          .filter((r): r is LogRow => r !== null);
+        if (rows.length > 0) {
+          setLog((prev) => [...prev, ...rows]);
+        }
+        lastEventSeqRef.current = newOnes.reduce(
+          (m, e) => Math.max(m, e.seq ?? 0),
+          lastEventSeqRef.current,
+        );
+      } catch {
+        // Poll errors are non-fatal — the next tick will retry.
+      }
+    };
+
+    diceRollPollIntervalRef.current = setInterval(poll, POLL_INTERVAL_MS);
+
+    return () => {
+      if (diceRollPollIntervalRef.current) {
+        clearInterval(diceRollPollIntervalRef.current);
+        diceRollPollIntervalRef.current = null;
       }
     };
   }, [sessionId, state]);
@@ -1205,44 +1271,79 @@ export default function PlayPage() {
   );
 
   // ── dice ────────────────────────────────────────────────────────────────────
+  // DDX-08 / T3: rolls are server-authoritative (POST /roll persists a
+  // `dice_roll` session event, DDX-07/DDX-08). This handler only forwards the
+  // trigger — it does NOT append a row to the log or compute an outcome. The
+  // result is rendered by the dice-roll events poll above, exactly like on
+  // every other client watching this session, so the roller sees their own
+  // roll the same way everyone else does and a roll from client A always
+  // shows up on client B without a reload.
   const onRoll = useCallback(
-    (sides: number, label?: string, mod?: number) => {
-      const modifier = mod ?? 0;
-      const value = sides === 20 ? rollWithAdvantage(advantage) : rollDie(sides);
-      const crit = sides === 20 && value === 20;
-      const fumble = sides === 20 && value === 1;
-      const lbl = label ?? `d${sides}`;
-      appendLog({
-        who: username ?? 'You',
-        kind: 'roll',
-        text: `${lbl}${modifier ? ` ${modifier >= 0 ? '+' : ''}${modifier}` : ''}`,
-        color: 'var(--accent)',
-        roll: { sides, value, modifier, crit, fumble, label: lbl },
-      });
-      // S5.5: skip auto-narration when AI is off or assist-only.
-      const sessionAiLevel = session?.ai_assist_level;
-      // DDX-25 R2 (D2): a paused/ended session must not auto-fire narration
-      // either — the DiceTray `disabled` prop already blocks the click that
-      // reaches here (see its own sessionLocked gate further down), but this
-      // is checked again here too, mirroring the double-gate convention this
-      // file already uses for `talking` in onMoveOn/onAttemptCheck.
-      if (
-        sides === 20 &&
-        mod !== undefined &&
-        !talking &&
-        !combatBusy &&
-        !isSessionLocked(session) &&
-        sessionAiLevel !== 'off' &&
-        sessionAiLevel !== 'assist'
-      ) {
-        const total = value + modifier;
-        const mech = `${lbl} check: ${value} + ${modifier} = ${total}${
-          crit ? ' (natural 20)' : fumble ? ' (natural 1)' : ''
-        }. Narrate the outcome.`;
-        void narrate(`I roll ${lbl}.`, mech, 'act');
+    async (trigger: RollTrigger) => {
+      // rollBusyRef: synchronous double-submit latch (mirrors checkBusyRef /
+      // sceneAdvanceBusyRef) — a roll is a real server write, so a same-tick
+      // double-click must not fire it twice.
+      if (!session || !username || rollBusyRef.current || isSessionLocked(session)) return;
+      rollBusyRef.current = true;
+      setRollBusy(true);
+      try {
+        const advantageWire: 'straight' | 'advantage' | 'disadvantage' =
+          advantage === 'adv' ? 'advantage' : advantage === 'dis' ? 'disadvantage' : 'straight';
+
+        if (trigger.kind === 'check') {
+          const result = await postRoll(session.session_id, {
+            username,
+            kind: 'skill',
+            skill: trigger.skill,
+            advantage: advantageWire,
+          });
+          // S5.5: skip auto-narration when AI is off or assist-only.
+          const sessionAiLevel = session.ai_assist_level;
+          // DDX-25 R2 (D2): a paused/ended session must not auto-fire
+          // narration either — the DiceTray `disabled` prop already blocks
+          // the click that reaches here (see its own sessionLocked gate
+          // further down), but this is checked again here too, mirroring the
+          // double-gate convention this file already uses for `talking` in
+          // onMoveOn/onAttemptCheck.
+          if (
+            !talking &&
+            !combatBusy &&
+            !isSessionLocked(session) &&
+            sessionAiLevel !== 'off' &&
+            sessionAiLevel !== 'assist'
+          ) {
+            void narrate(
+              `I roll ${trigger.label}.`,
+              `${result.description} Narrate the outcome.`,
+              'act',
+            );
+          }
+        } else if (trigger.sides === 20) {
+          // Plain d20 button: a bare (unmodified) d20 — kind='raw' with no
+          // notation still honours the advantage/disadvantage pill
+          // server-side, it just has no character/modifier attached.
+          await postRoll(session.session_id, {
+            username,
+            kind: 'raw',
+            advantage: advantageWire,
+          });
+        } else {
+          // Any other plain die (d4/d6/d8/d10/d12): notation always wins
+          // over `kind` server-side and rolls straight — advantage only
+          // applies to the d20 case above (mirrors the pre-DDX-08 behaviour).
+          await postRoll(session.session_id, {
+            username,
+            notation: `1d${trigger.sides}`,
+          });
+        }
+      } catch {
+        toast({ tone: 'error', message: 'Could not roll — try again.' });
+      } finally {
+        rollBusyRef.current = false;
+        setRollBusy(false);
       }
     },
-    [advantage, username, talking, combatBusy, session, appendLog, narrate],
+    [session, username, advantage, talking, combatBusy, narrate, toast],
   );
 
   // ── scene advance (ADV-7T / CUI-12) ─────────────────────────────────────────
@@ -2734,7 +2835,7 @@ export default function PlayPage() {
             quickChecks={quickChecks ?? []}
             advantage={advantage}
             onAdvantage={setAdvantage}
-            disabled={talking || combatBusy || sessionLocked}
+            disabled={talking || combatBusy || sessionLocked || rollBusy}
           />
         </div>
 

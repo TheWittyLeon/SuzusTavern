@@ -64,6 +64,22 @@ const mockGetGrounding = jest.fn<Promise<unknown>, unknown[]>(() => Promise.reso
 const mockGetCombatState = jest.fn<Promise<unknown>, unknown[]>(() => Promise.resolve(null));
 const mockGetCharacterSheet = jest.fn<Promise<unknown>, unknown[]>(() => Promise.resolve(null));
 const mockPostSessionEvent = jest.fn<Promise<unknown>, unknown[]>(() => Promise.resolve({ seq: 1 }));
+const mockPostRoll = jest.fn<Promise<unknown>, unknown[]>(() =>
+  Promise.resolve({
+    kind: 'raw',
+    notation: null,
+    skill: null,
+    ability: null,
+    character_id: null,
+    modifier: 0,
+    advantage: 'straight',
+    rolls: [10],
+    kept: null,
+    total: 10,
+    description: 'Rolled d20: 10.',
+    event_seq: 1,
+  }),
+);
 const mockNpcAction = jest.fn<Promise<unknown>, unknown[]>();
 const mockSubmitOverride = jest.fn<Promise<unknown>, unknown[]>();
 const mockSetSessionPolicy = jest.fn<Promise<unknown>, unknown[]>();
@@ -82,6 +98,7 @@ jest.mock('../../lib/api/dnd', () => ({
   getCombatState: (...args: Parameters<AnyFn>) => mockGetCombatState(...args),
   getCharacterSheet: (...args: Parameters<AnyFn>) => mockGetCharacterSheet(...args),
   postSessionEvent: (...args: Parameters<AnyFn>) => mockPostSessionEvent(...args),
+  postRoll: (...args: Parameters<AnyFn>) => mockPostRoll(...args),
   npcAction: (...args: Parameters<AnyFn>) => mockNpcAction(...args),
   submitOverride: (...args: Parameters<AnyFn>) => mockSubmitOverride(...args),
   setSessionPolicy: (...args: Parameters<AnyFn>) => mockSetSessionPolicy(...args),

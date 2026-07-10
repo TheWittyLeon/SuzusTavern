@@ -64,14 +64,19 @@ describe('DiceTray', () => {
     const onRoll = jest.fn();
     render(<DiceTray onRoll={onRoll} />);
     fireEvent.click(screen.getByRole('button', { name: /d20/i }));
-    expect(onRoll).toHaveBeenCalledWith(20, 'd20');
+    expect(onRoll).toHaveBeenCalledWith({ kind: 'die', sides: 20 });
   });
 
-  it('rolls a named quick check with its modifier', () => {
+  it('rolls a named quick check with its skill slug', () => {
     const onRoll = jest.fn();
-    render(<DiceTray onRoll={onRoll} quickChecks={[{ name: 'Perception', mod: 3 }]} />);
+    render(
+      <DiceTray
+        onRoll={onRoll}
+        quickChecks={[{ name: 'Perception', skill: 'perception', mod: 3 }]}
+      />,
+    );
     fireEvent.click(screen.getByRole('button', { name: /Perception/i }));
-    expect(onRoll).toHaveBeenCalledWith(20, 'Perception', 3);
+    expect(onRoll).toHaveBeenCalledWith({ kind: 'check', skill: 'perception', label: 'Perception' });
   });
 
   it('toggles advantage', () => {

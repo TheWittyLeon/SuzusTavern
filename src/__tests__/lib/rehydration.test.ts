@@ -143,6 +143,101 @@ describe('eventToLogRow — kind mapping', () => {
     expect(eventToLogRow({ seq: 23, kind: 'check_resolved', data: {} })).toBeNull();
   });
 
+  // DDX-08 / T3 — server-authoritative dice roll rehydration.
+  it('dice_roll (skill) -> roll row with kept as the die value and the sheet modifier', () => {
+    const e: EngineSessionEvent = {
+      seq: 30,
+      kind: 'dice_roll',
+      actor: 'leon',
+      data: {
+        kind: 'skill',
+        notation: null,
+        skill: 'perception',
+        ability: null,
+        character_id: 'c1',
+        modifier: 3,
+        advantage: 'straight',
+        rolls: [15],
+        kept: 15,
+        total: 18,
+        description: 'Perception check: rolled 15 + 3 = 18.',
+      },
+    };
+    const row = eventToLogRow(e);
+    expect(row).toMatchObject({
+      who: 'leon',
+      kind: 'roll',
+      text: 'Perception +3',
+      roll: { sides: 20, value: 15, modifier: 3, crit: false, fumble: false, label: 'Perception' },
+    });
+  });
+
+  it('dice_roll (raw notation) -> roll row sized off the notation, modifier 0', () => {
+    const e: EngineSessionEvent = {
+      seq: 31,
+      kind: 'dice_roll',
+      actor: 'leon',
+      data: {
+        kind: 'raw',
+        notation: '1d6',
+        skill: null,
+        ability: null,
+        character_id: null,
+        modifier: 0,
+        advantage: 'straight',
+        rolls: [4],
+        kept: null,
+        total: 4,
+        description: 'Rolled 1d6: [4] -> 4.',
+      },
+    };
+    const row = eventToLogRow(e);
+    expect(row).toMatchObject({
+      kind: 'roll',
+      text: '1d6',
+      roll: { sides: 6, value: 4, modifier: 0, crit: false, fumble: false, label: '1d6' },
+    });
+  });
+
+  it('dice_roll natural 20 on a d20 sets crit; natural 1 sets fumble', () => {
+    const nat20: EngineSessionEvent = {
+      seq: 32,
+      kind: 'dice_roll',
+      data: {
+        kind: 'raw',
+        notation: null,
+        modifier: 0,
+        advantage: 'straight',
+        rolls: [20],
+        kept: 20,
+        total: 20,
+        description: 'Rolled d20: 20.',
+      },
+    };
+    expect(eventToLogRow(nat20)?.roll?.crit).toBe(true);
+
+    const nat1: EngineSessionEvent = {
+      seq: 33,
+      kind: 'dice_roll',
+      data: {
+        kind: 'raw',
+        notation: null,
+        modifier: 0,
+        advantage: 'straight',
+        rolls: [1],
+        kept: 1,
+        total: 1,
+        description: 'Rolled d20: 1.',
+      },
+    };
+    expect(eventToLogRow(nat1)?.roll?.fumble).toBe(true);
+  });
+
+  it('dice_roll without data.description is skipped', () => {
+    expect(eventToLogRow({ seq: 34, kind: 'dice_roll', data: {} })).toBeNull();
+    expect(eventToLogRow({ seq: 35, kind: 'dice_roll', data: null })).toBeNull();
+  });
+
   it('opening_narrated is never a plain row (caller reconstructs it specially)', () => {
     const e: EngineSessionEvent = {
       seq: 15,

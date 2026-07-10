@@ -714,6 +714,48 @@ export interface ResolveCheckResult {
 }
 
 /**
+ * DDX-08 / T3 — request body for POST /api/dnd/sessions/{id}/roll.
+ * Mirrors the engine's RollRequest exactly (extra='forbid' upstream — an
+ * unrecognised field 422s rather than being silently dropped). There is
+ * deliberately no client-supplied modifier field: for kind in
+ * {skill, save, ability} the modifier is always resolved server-side off the
+ * character's own sheet.
+ */
+export interface RollRequest {
+  username: string;
+  /** Arbitrary dice notation (e.g. "1d6"). When present it always wins over
+   *  `kind` — a pure dice roll, no character/modifier involved. */
+  notation?: string;
+  kind?: 'raw' | 'skill' | 'save' | 'ability';
+  character_id?: number;
+  skill?: string;
+  ability?: string;
+  save?: string;
+  advantage?: 'straight' | 'advantage' | 'disadvantage';
+}
+
+/**
+ * DDX-08 / T3 — response from POST /api/dnd/sessions/{id}/roll.
+ * The SAME shape is persisted as the `dice_roll` session event's `data`
+ * (see engine routes/sessions.py::roll_dice_route) — this is the
+ * server-authoritative roll outcome; the client never computes it.
+ */
+export interface RollResult {
+  kind: string;
+  notation: string | null;
+  skill: string | null;
+  ability: string | null;
+  character_id: number | null;
+  modifier: number;
+  advantage: 'straight' | 'advantage' | 'disadvantage';
+  rolls: number[];
+  kept: number | null;
+  total: number;
+  description: string;
+  event_seq?: number | null;
+}
+
+/**
  * B3: DM-chooser outcome values. 'tpk' and 'alert' exist on the engine but are
  * reserved for system-driven resolution paths — intentionally excluded from the
  * UI chooser.

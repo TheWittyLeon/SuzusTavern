@@ -2,11 +2,14 @@
 /**
  * DiceTray (ST-017 / ST-065) — the right-pane dice roller.
  *
- * Buttons emit a roll request to the play screen, which performs the client-side
- * Die animation and logs the result into the chat (server-authoritative /roll is
- * deferred — there's no engine roll endpoint yet, so these rolls are flavour, and
- * combat math stays engine-owned via the combat routes). Quick-check rows roll a
- * named d20 with the listed modifier.
+ * DDX-08 / T3: buttons emit a `RollTrigger` describing WHAT to roll — they no
+ * longer compute an outcome. The play screen POSTs the trigger to the
+ * server-authoritative /roll route (DDX-07); the engine resolves the dice AND
+ * any character-sheet modifier and persists the result as a session event.
+ * Every client (including the one that clicked) renders the roll from that
+ * event stream, never from a local computation — see page.tsx's onRoll.
+ * Quick-check rows carry the engine skill slug (`skill`) alongside the
+ * display name/modifier so the request names a real sheet skill.
  */
 import Icon, { type IconName } from '@/components/Icon';
 import styles from './DiceTray.module.css';
@@ -14,12 +17,23 @@ import styles from './DiceTray.module.css';
 export type Advantage = 'none' | 'adv' | 'dis';
 
 export interface QuickCheck {
+  /** Display name, title-cased (e.g. "Sleight of Hand"). */
   name: string;
+  /** Engine skill slug, snake_case (e.g. "sleight_of_hand") — sent to /roll. */
+  skill: string;
+  /** Sheet modifier — display-only (the server independently resolves its
+   *  own modifier off the character's sheet; this is never sent to /roll). */
   mod: number;
 }
 
+/** What to roll. The plain dice grid rolls a raw d{sides}; quick-check rows
+ *  roll a named skill (server resolves the modifier + advantage). */
+export type RollTrigger =
+  | { kind: 'die'; sides: number }
+  | { kind: 'check'; skill: string; label: string };
+
 export interface DiceTrayProps {
-  onRoll: (sides: number, label?: string, mod?: number) => void;
+  onRoll: (trigger: RollTrigger) => void;
   quickChecks?: QuickCheck[];
   advantage?: Advantage;
   onAdvantage?: (next: Advantage) => void;
@@ -56,7 +70,7 @@ export default function DiceTray({
             type="button"
             className={styles.die}
             aria-label={`Roll d${sides}`}
-            onClick={() => onRoll(sides, `d${sides}`)}
+            onClick={() => onRoll({ kind: 'die', sides })}
             disabled={disabled}
           >
             <Icon name={icon} size={18} aria-hidden />
@@ -81,7 +95,7 @@ export default function DiceTray({
                   type="button"
                   className={styles.checkRow}
                   aria-label={`Roll ${q.name} check, modifier ${q.mod >= 0 ? '+' : ''}${q.mod}`}
-                  onClick={() => onRoll(20, q.name, q.mod)}
+                  onClick={() => onRoll({ kind: 'check', skill: q.skill, label: q.name })}
                   disabled={disabled}
                 >
                   <span>{q.name}</span>
