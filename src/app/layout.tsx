@@ -6,7 +6,15 @@ import ErrorBoundary from "@/components/ErrorBoundary";
 import { ToastProvider } from "@/components/Toast";
 import { ThemeProvider } from "@/lib/theme/ThemeProvider";
 import { NO_FLASH_SCRIPT } from "@/lib/theme/theme";
-import EnvBanner from "@/components/EnvBanner";
+import EnvBanner, { ENV_BANNER_HEIGHT_PX, ENV_BANNER_VISIBLE } from "@/components/EnvBanner";
+
+// TAV-21: `--env-banner-h` is exposed on <html> (the CSS :root) so any
+// full-height layout that needs the *actual* available viewport can do
+// `height: calc(100dvh - var(--env-banner-h, 0px))` instead of a bare
+// `100dvh` that ignores the in-flow banner above it. Computed here (not via
+// a client effect in EnvBanner) because DEPLOY_ENV is a build-time constant
+// known at render time — an SSR value avoids a post-hydration layout shift.
+const envBannerHeightVar = ENV_BANNER_VISIBLE ? `${ENV_BANNER_HEIGHT_PX}px` : "0px";
 
 export const metadata: Metadata = {
   title: "Aurora Tavern",
@@ -32,7 +40,13 @@ export default async function RootLayout({
     // data-density before hydration — from a saved palette, or (UIR2-TAV-4) from
     // the OS prefers-color-scheme when none is pinned; without this React would
     // warn about the attribute mismatch on any non-default resolved palette.
-    <html lang="en" data-vibe="dusk-tavern" data-density="cozy" suppressHydrationWarning>
+    <html
+      lang="en"
+      data-vibe="dusk-tavern"
+      data-density="cozy"
+      suppressHydrationWarning
+      style={{ '--env-banner-h': envBannerHeightVar } as React.CSSProperties}
+    >
       <head>
         {/* Apply the saved palette/density before first paint — no theme flash. */}
         <script dangerouslySetInnerHTML={{ __html: NO_FLASH_SCRIPT }} />

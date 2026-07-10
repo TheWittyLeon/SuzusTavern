@@ -1118,8 +1118,18 @@ export interface DmNarrationRequest {
   transcript?: string[];
   mode?: 'say' | 'act' | 'ooc' | 'dm_narration';
   session_id?: string;
-  /** A1 — beat kind. 'opening' = system-authored scene open; default 'beat'. */
-  kind?: 'beat' | 'opening';
+  /**
+   * A1 — beat kind. 'opening' = system-authored scene open; default 'beat'.
+   * TAV-7 / N1: 'recap' = system-authored "previously on" beat — like
+   * 'opening', the server treats `message` as NOT a player line: it skips the
+   * player_action persist (so SessionRecap's internal request prompt never
+   * echoes into the visible log as a fake user message) and instead persists
+   * the reply, if anything, under its own `kind:'recap'` session-event kind.
+   * SessionRecap.tsx is the only caller today. See
+   * ProjectNekoNova/api/routes/narration.py::_persist_player_action /
+   * _persist_narration for the server-side contract this mirrors.
+   */
+  kind?: 'beat' | 'opening' | 'recap';
   /**
    * P1-PLAYFIX-2 gate fix (Kage #1 / Miko DEFECT-2) — true ONLY on the
    * client's own synthetic confirmation beats (the `narrate()` call an

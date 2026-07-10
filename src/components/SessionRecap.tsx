@@ -91,6 +91,13 @@ export default function SessionRecap({ session, username, variant = 'card' }: Se
             mechanics: recap.facts, // ground the prose in the deterministic facts
             mode: 'act',
             session_id: session.session_id,
+            // TAV-7: without this, the server has no way to distinguish this
+            // internal recap-request prompt from a real player line — it was
+            // being persisted (and, on rehydration, rendered in ChatLog) as
+            // an ordinary USER chat row. kind:'recap' tells the server this
+            // is a system-authored meta-action, same treatment as 'opening':
+            // the prompt itself is never persisted as a player_action event.
+            kind: 'recap',
           },
           { signal: ctrl.signal },
         )) {

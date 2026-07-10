@@ -316,4 +316,40 @@ describe('PLAY-PERSIST rehydration — resilience', () => {
     );
     expect(screen.queryByText('should never render')).not.toBeInTheDocument();
   });
+
+  // MIKO ADVERSARIAL FINDING — FIXED (Ren-Dev, rehydration.ts:41): contrast
+  // this with the "unknown event kind" test directly above — an unrecognized
+  // *kind* string always degraded gracefully (skipped, log renders); a
+  // malformed *data value* on a KNOWN kind used to NOT (it threw inside the
+  // mount-time `for` loop's un-try/catch'd `eventToLogRow` call, propagating
+  // to the outer catch and calling `setState('error')` — the ENTIRE play
+  // screen replaced by "The table is unreachable." for every future load of
+  // that session). decodeHtmlEntities now guards with
+  // `if (typeof s !== 'string' || !s) return s;`, so the malformed value
+  // (12345) passes through untouched: eventToLogRow returns a real row
+  // (`text: 12345`, not skipped — the truthy non-string value survives the
+  // `if (!text) return null` check same as any other truthy text), the row
+  // renders inertly (React stringifies the number child), and the rest of
+  // the play screen loads completely normally. This test now locks the
+  // FIXED, resilient behavior — see rehydration.test.ts's sibling
+  // isolated-function locks for the same fix at the unit level.
+  it('a malformed historical event (non-string data.text on a KNOWN kind) no longer crashes the mount — the play screen loads normally and the row renders inertly instead of tanking the whole transcript', async () => {
+    mGetSessionEventsRaw.mockResolvedValue([
+      { seq: 1, kind: 'player_action', actor: 'leon', data: { who: 'leon', text: 12345 } },
+    ]);
+    mGetSessionEvents.mockResolvedValue([]);
+
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+
+    // Normal load — NOT the error/notfound fallback.
+    expect(screen.queryByText(/table is unreachable/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/table has closed/i)).not.toBeInTheDocument();
+
+    // The log itself renders — the whole screen did not tank.
+    await waitFor(() => expect(screen.getByRole('log')).toBeInTheDocument());
+    // The malformed row degrades inertly: the non-string value renders as
+    // plain text (React stringifies a number child) rather than crashing.
+    expect(screen.getByText('12345')).toBeInTheDocument();
+  });
 });

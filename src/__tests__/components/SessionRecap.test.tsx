@@ -63,6 +63,25 @@ describe('SessionRecap', () => {
     expect(mStream.mock.calls[0][0].mechanics).toMatch(/rising tide/i);
   });
 
+  // TAV-7: the internal recap-request prompt must never be persisted/rendered
+  // as a real user chat message. kind:'recap' is the contract that tells the
+  // server (api/routes/narration.py::_persist_player_action) this is a
+  // system-authored meta-action — same treatment as kind:'opening' — so it
+  // skips the player_action persist that used to echo the raw prompt into
+  // ChatLog as a fake USER row (locked at the mapping layer too, see
+  // rehydration.test.ts's "never builds a visible row" case).
+  it('TAV-7: marks the request kind:"recap" so the server never persists the internal prompt as a player chat row', async () => {
+    mGetEvents.mockResolvedValue([
+      { event_type: 'scene_advance', description: 'The party fled the rising tide.' },
+    ]);
+    mStream.mockImplementation(async function* () {
+      yield { kind: 'chunk' as const, text: 'When last we met, the tide was rising.' };
+    });
+    render(<SessionRecap session={makeSession({ ai_assist_level: 'full' })} username="leon" />);
+    await waitFor(() => expect(mStream).toHaveBeenCalledTimes(1));
+    expect(mStream.mock.calls[0][0].kind).toBe('recap');
+  });
+
   it('does NOT narrate a recap for a fresh session (metadata only, no events) — the fabrication guard', async () => {
     // The bug this locks: metadata-only recap fired an AI "previously on" that
     // hallucinated a nonexistent past. fromEvents=false ⇒ zero narration calls.

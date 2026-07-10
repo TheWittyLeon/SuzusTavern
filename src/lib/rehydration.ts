@@ -9,6 +9,44 @@
 import type { EngineSessionEvent } from '@/lib/api/types';
 import type { LogRow } from '@/components/ChatLog';
 
+/**
+ * TAV-7 — reverse NekoNova's `html.escape(v, quote=True)` (Python) applied to
+ * every free-text field it validates (username/message/mechanics/adventure —
+ * see api/validation.py::DMNarrationStreamRequest.sanitize_string). That
+ * escaping is meant to defend places the string might later be inserted as
+ * markup; ChatLog never does that (plain JSX text nodes only, always safe
+ * regardless of content) — so a persisted `"` shows up on screen as the
+ * literal, un-rendered characters `&quot;` instead of a real quote. Decoding
+ * here (the single chokepoint every rehydrated/session-event-sourced row
+ * passes through) is safe: it only ever turns entity syntax back into plain
+ * characters before a React text node renders it — it can NEVER cause markup
+ * to be interpreted, so there's no XSS surface reintroduced by decoding.
+ *
+ * Order matters and is the EXACT reverse of html.escape's own replacement
+ * order (which does `&` first, so no substitution downstream of it can ever
+ * introduce a fresh bare `&`): decode `&amp;` LAST here, so a literal
+ * "&lt;" a real player typed (escaped once to "&amp;lt;") round-trips back
+ * to "&lt;" rather than being over-decoded to "<".
+ *
+ * Confirmed against the live-persisted shape (not guessed) — read via a
+ * direct suzu_dnd_dev query, e.g. `data->>'text'` = 'Give a short
+ * &quot;previously on&quot; recap of our last session.' for a player_action
+ * row sourced from SessionRecap's request message.
+ */
+export function decodeHtmlEntities(s: string): string {
+  // Defensive: callers cast unvalidated JSONB `data.*` as string; a truthy
+  // non-string (corrupted/legacy row or engine schema drift) would otherwise
+  // throw `s.replace is not a function` and crash the whole play screen via the
+  // rehydration mount catch (Miko-QA). Pass non-strings through untouched.
+  if (typeof s !== 'string' || !s) return s;
+  return s
+    .replace(/&#x27;/gi, "'")
+    .replace(/&quot;/gi, '"')
+    .replace(/&gt;/gi, '>')
+    .replace(/&lt;/gi, '<')
+    .replace(/&amp;/gi, '&');
+}
+
 /** Format an event's `created_at` ISO timestamp the same way live rows are
  *  stamped (nowStamp() in page.tsx). Empty string on missing/invalid input —
  *  a rehydrated row should never crash on a malformed timestamp. Exported so
@@ -103,15 +141,22 @@ function diceRollLogRow(e: EngineSessionEvent): LogRow | null {
  */
 export function eventToLogRow(e: EngineSessionEvent): LogRow | null {
   const data = e.data ?? null;
-  const text = (data?.['text'] as string | undefined) || undefined;
-  const who = (data?.['who'] as string | undefined) || undefined;
+  // TAV-7: every free-text field here (text/who/description/actor) may have
+  // been through NekoNova's DMNarrationStreamRequest.sanitize_string
+  // (html.escape) on the way in — decode once, right at extraction, so every
+  // branch below renders the real characters instead of literal entity text.
+  const rawText = (data?.['text'] as string | undefined) || undefined;
+  const text = rawText ? decodeHtmlEntities(rawText) : undefined;
+  const rawWho = (data?.['who'] as string | undefined) || undefined;
+  const who = rawWho ? decodeHtmlEntities(rawWho) : undefined;
+  const actor = e.actor ? decodeHtmlEntities(e.actor) : undefined;
   const id = `ev${e.seq ?? `${e.kind ?? 'unknown'}-${e.created_at ?? ''}`}`;
   const ts = formatEventTimestamp(e.created_at);
 
   switch (e.kind) {
     case 'player_action':
       if (!text) return null;
-      return { id, ts, who: who ?? e.actor ?? 'You', kind: 'player', text, color: 'var(--accent)' };
+      return { id, ts, who: who ?? actor ?? 'You', kind: 'player', text, color: 'var(--accent)' };
 
     case 'narration':
       if (!text) return null;
@@ -119,12 +164,13 @@ export function eventToLogRow(e: EngineSessionEvent): LogRow | null {
 
     case 'dm_narration':
       if (!text) return null;
-      return { id, ts, who: who ?? e.actor ?? 'DM', kind: 'dm_narration', text };
+      return { id, ts, who: who ?? actor ?? 'DM', kind: 'dm_narration', text };
 
     case 'scene_advance':
     case 'encounter_resolved':
     case 'check_resolved': {
-      const description = (data?.['description'] as string | undefined) || undefined;
+      const rawDescription = (data?.['description'] as string | undefined) || undefined;
+      const description = rawDescription ? decodeHtmlEntities(rawDescription) : undefined;
       if (!description) return null;
       return { id, ts, who: 'Suzu', kind: 'system', text: description };
     }
@@ -134,8 +180,12 @@ export function eventToLogRow(e: EngineSessionEvent): LogRow | null {
 
     // opening_narrated: not a plain row — the caller reconstructs the
     // read-aloud block (or a compact marker) from current grounding (§6.4).
-    // rebind / session_start / session_created / unknown kinds: structural or
-    // forward-compatible — skipped so a future event kind can't crash the log.
+    // recap: the AI "previously on…" summary is persisted under its own kind
+    // (not 'narration') and is surfaced by the SessionRecap card, so it is
+    // intentionally dropped here rather than duplicated into the transcript
+    // (TAV-7). rebind / session_start / session_created / unknown kinds:
+    // structural or forward-compatible — skipped so a future event kind can't
+    // crash the log.
     default:
       return null;
   }

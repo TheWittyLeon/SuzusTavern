@@ -1,7 +1,13 @@
 .grid {
   display: grid;
   grid-template-columns: 220px 1fr 260px;
-  height: 100dvh;
+  /* TAV-21: a bare 100dvh ignores the in-flow EnvBanner (dev/local only, 32px,
+     rendered above this in the document). --env-banner-h is set on <html> by
+     layout.tsx (0px on prod, where there's no banner) — subtracting it here
+     keeps this fixed-height 3-pane layout (overflow: hidden below) from
+     pushing its bottom edge (composer/send button) off-screen. The `, 0px`
+     fallback is defensive only — layout.tsx always sets the var today. */
+  height: calc(100dvh - var(--env-banner-h, 0px));
   width: 100%;
   background: var(--bg);
   /* No full-bleed ::before here — overflow-x is clipped to avoid the phantom

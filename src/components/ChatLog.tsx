@@ -100,6 +100,11 @@ const ChatLog = forwardRef<ChatLogHandle, ChatLogProps>(function ChatLog(
       onScroll={onScroll}
       role="log"
       aria-live="polite"
+      aria-label="Story log"
+      // TAV-19: focusable so keyboard users (no pointer) can scroll the
+      // transcript — it previously had a scroll ref but no tab stop at all.
+      // Focus ring is the :focus-visible rule in ChatLog.module.css below.
+      tabIndex={0}
     >
       {rows.map((r) => {
         // P1-READALOUD: verbatim scene-set block. Rendered without typewriter

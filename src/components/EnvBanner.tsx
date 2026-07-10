@@ -12,9 +12,25 @@
  *   - Cannot be user-toggled — the value is baked at build/container time.
  *
  * Mount in src/app/layout.tsx, directly inside <body>, before other children.
+ *
+ * TAV-21: the banner is IN FLOW above the page content, so any full-height
+ * layout (`height: 100dvh`, not `min-height`) elsewhere in the app must
+ * subtract its height or its bottom edge sits off-screen. Since DEPLOY_ENV is
+ * a build-time constant (not user-toggleable — see above), layout.tsx exposes
+ * this height as the `--env-banner-h` CSS var directly via SSR (no client
+ * effect / no document.documentElement mutation needed, so there's no
+ * post-hydration layout flash the way a runtime-only value would need). Kept
+ * here, next to the component that owns the real height, so the two can't
+ * drift silently — mirrored again in EnvBanner.module.css's `.banner { height }`.
  */
 import styles from './EnvBanner.module.css';
 import { env } from '@/lib/env';
+
+/** Must match `.banner { height }` in EnvBanner.module.css. */
+export const ENV_BANNER_HEIGHT_PX = 32;
+
+/** True whenever <EnvBanner/> below actually renders a bar (dev/local, never prod). */
+export const ENV_BANNER_VISIBLE = env.DEPLOY_ENV !== 'prod';
 
 const ENV_LABEL: Record<'dev' | 'local', string> = {
   dev: 'DEV ENVIRONMENT',
@@ -27,6 +43,11 @@ const ENV_DESCRIPTION: Record<'dev' | 'local', string> = {
 };
 
 export default function EnvBanner() {
+  // Checked directly on env.DEPLOY_ENV (not the ENV_BANNER_VISIBLE constant
+  // above) so TS control-flow narrows the 'dev' | 'local' lookups below —
+  // narrowing only applies to a direct check on the same expression, not
+  // through an indirect boolean proxy. ENV_BANNER_VISIBLE stays in sync by
+  // construction (both are `env.DEPLOY_ENV !== 'prod'`).
   if (env.DEPLOY_ENV === 'prod') {
     return null;
   }
