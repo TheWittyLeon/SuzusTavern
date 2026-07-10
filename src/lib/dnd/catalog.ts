@@ -11,7 +11,9 @@ import {
   RACE_DECORATION,
   CLASS_DECORATION,
   BACKGROUND_DECORATION,
+  CLASS_CASTER_KIND,
   type AbilityKey,
+  type CasterKind,
 } from './helpers';
 import type { IconName } from '@/components/Icon';
 import type { CatalogItem, CatalogRaceData, CatalogClassData, CatalogBackgroundData } from '@/lib/api/types';
@@ -45,6 +47,12 @@ export interface WizardClass {
   /** Contrast-safe TEXT variant of the accent for the selected bonus label. */
   accentInk?: string;
   flavor: string;
+  /** T4/DDX-11t — true for the 6 classes with a real spell budget at level 1
+   *  (see CLASS_CASTER_KIND in helpers.ts). Gates the wizard's Spells step. */
+  isCaster: boolean;
+  /** Undefined for a non-caster; see CLASS_CASTER_KIND's docstring for what
+   *  each kind means for the creation-time learn/prepare hop. */
+  casterKind?: CasterKind;
 }
 
 export interface WizardBackground {
@@ -101,6 +109,7 @@ export function catalogItemToClass(item: CatalogItem): WizardClass {
   const saves = ((d.saving_throws ?? []) as string[]).filter(
     (s): s is AbilityKey => s in ABILITY_ABBR,
   );
+  const casterKind = CLASS_CASTER_KIND[item.slug];
   return {
     id: item.slug,
     name: item.name,
@@ -110,6 +119,8 @@ export function catalogItemToClass(item: CatalogItem): WizardClass {
     accent: deco.accent,
     accentInk: deco.accentInk,
     flavor: deco.flavor,
+    isCaster: casterKind !== undefined,
+    casterKind,
   };
 }
 

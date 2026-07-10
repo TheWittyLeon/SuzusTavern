@@ -70,6 +70,7 @@ const defaultCatalog = {
         icon: 'Rogue' as const,
         accent: 'var(--accent)',
         flavor: 'Sneak, stab, vanish.',
+        isCaster: false,
       },
       {
         id: 'wizard',
@@ -79,6 +80,8 @@ const defaultCatalog = {
         icon: 'Wizard' as const,
         accent: 'var(--cool)',
         flavor: 'A spell for every problem.',
+        isCaster: true,
+        casterKind: 'spellbook' as const,
       },
     ],
     backgrounds: [
@@ -107,6 +110,7 @@ jest.mock('../../lib/stream', () => ({
 import * as dnd from '../../lib/api/dnd';
 import { AuthProvider } from '../../lib/auth/AuthProvider';
 import { ThemeProvider } from '../../lib/theme/ThemeProvider';
+import { ToastProvider } from '../../components/Toast';
 import CharacterNewPage from '../../app/character/new/page';
 import type { User } from '../../lib/api/types';
 
@@ -115,9 +119,9 @@ const ALICE: User = { id: 1, username: 'alice', email: null };
 
 function renderWizard() {
   return render(
-    <ThemeProvider><AuthProvider initialUser={ALICE}>
+    <ThemeProvider><ToastProvider><AuthProvider initialUser={ALICE}>
       <CharacterNewPage />
-    </AuthProvider></ThemeProvider>,
+    </AuthProvider></ToastProvider></ThemeProvider>,
   );
 }
 

@@ -279,6 +279,34 @@ describe('catalogItemToClass', () => {
     const cls = catalogItemToClass(item);
     expect(cls.saves).toEqual(['intelligence', 'wisdom']);
   });
+
+  // T4/DDX-11t — creation-wizard Spells step caster gate.
+  it('marks a full-caster class (wizard) isCaster with its casterKind', () => {
+    const item = makeItem('wizard', 'Wizard', 'class', { hit_die: 6, saving_throws: [] });
+    const cls = catalogItemToClass(item);
+    expect(cls.isCaster).toBe(true);
+    expect(cls.casterKind).toBe('spellbook');
+  });
+
+  it('marks a prepared caster (cleric) with casterKind "prepared"', () => {
+    const item = makeItem('cleric', 'Cleric', 'class', { hit_die: 8, saving_throws: [] });
+    const cls = catalogItemToClass(item);
+    expect(cls.isCaster).toBe(true);
+    expect(cls.casterKind).toBe('prepared');
+  });
+
+  it('marks a non-caster class (fighter) isCaster false with no casterKind', () => {
+    const item = makeItem('fighter', 'Fighter', 'class', { hit_die: 10, saving_throws: [] });
+    const cls = catalogItemToClass(item);
+    expect(cls.isCaster).toBe(false);
+    expect(cls.casterKind).toBeUndefined();
+  });
+
+  it('marks a level-1 half-caster (paladin) isCaster false (no budget until level 2)', () => {
+    const item = makeItem('paladin', 'Paladin', 'class', { hit_die: 10, saving_throws: [] });
+    const cls = catalogItemToClass(item);
+    expect(cls.isCaster).toBe(false);
+  });
 });
 
 describe('catalogItemToBackground', () => {

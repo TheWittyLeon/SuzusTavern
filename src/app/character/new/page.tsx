@@ -7,12 +7,41 @@
  * deleted (S2.4). If the catalog fetch fails, the wizard shows an error/retry
  * state — it does not fall back to a hardcoded list.
  *
- * 5 steps: Race → Class → Abilities (27-point buy) → Background → Review.
- * All choices are held in local React state; the only server call is the final
- * POST /api/dnd/characters (ST-052). The engine validates race/class and the
- * point-buy spread server-side and applies racial bonuses — we POST the BASE
- * (pre-racial) scores; the review preview applies bonuses locally only for
- * display, mirroring the engine so what you see equals what gets saved.
+ * 5 steps for a non-caster: Race → Class → Abilities (27-point buy) →
+ * Background → Review. A CASTER class (wizard/cleric/sorcerer/…, gated on
+ * WizardClass.isCaster — see helpers.ts's CLASS_CASTER_KIND) gets a 6th
+ * "Spells" step inserted between Background and Review (T4/DDX-11t).
+ *
+ * Most choices are held in local React state and POSTed once, at Review's
+ * final "Begin your campaign" — POST /api/dnd/characters (ST-052). The
+ * engine validates race/class and the point-buy spread server-side and
+ * applies racial bonuses — we POST the BASE (pre-racial) scores; the review
+ * preview applies bonuses locally only for display, mirroring the engine so
+ * what you see equals what gets saved.
+ *
+ * Spells are the ONE exception to "only POSTed at Review": the engine has no
+ * pre-create spell-selection endpoint — GET /spells/{id}/available (the
+ * server-computed pool + budget) requires a real character_id (verified by
+ * reading NekoNova-DnDEngine's routes/spells.py + engine/spells_msm.py: every
+ * spell route is character-scoped, and CharacterCreateRequest has no spells/
+ * cantrips field for the engine to consume even if we wanted to send one).
+ * So for a caster, the character is created SILENTLY when leaving the
+ * Background step (Continue → Spells) rather than at Review — the Spells
+ * step then fetches the real pool/budget for that just-created character via
+ * getAvailableSpells, same hop the shipped sheet Spells tab (SpellbookPanel)
+ * uses. Review still reads as the final look (now including the spells you
+ * picked) and "Begin your campaign" still does exactly one thing per path:
+ * non-caster → create the character; caster → the character already exists,
+ * so this batch-applies the picks via learnSpell/prepareSpell (sequential,
+ * best-effort — a failed pick surfaces a toast but does not block navigating
+ * to the new sheet, since the character itself was already created).
+ *
+ * Edit-after-create caveat: changing race/abilities/background/name AFTER a
+ * caster's character has been silently created does NOT retroactively
+ * update it (known limitation, documented in the DDX-11t handoff — the
+ * straight-through creation flow this ships for is unaffected). Changing
+ * CLASS after creation, however, invalidates the stale character (and its
+ * picks) outright so Review never POSTs spells against the wrong class.
  *
  * Accessibility:
  *  - Race/Class/Background are native <input type="radio"> grids.
@@ -30,7 +59,7 @@ import {
 } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth/AuthProvider';
-import { createCharacter } from '@/lib/api/dnd';
+import { createCharacter, getAvailableSpells, learnSpell, prepareSpell } from '@/lib/api/dnd';
 import { useCatalog } from '@/lib/dnd/useCatalog';
 import { useWizardCommentary } from '@/lib/dnd/useWizardCommentary';
 import TavernShell from '@/components/TavernShell';
@@ -41,6 +70,7 @@ import Pill from '@/components/Pill';
 import Icon from '@/components/Icon';
 import SuzuDM from '@/components/SuzuDM';
 import Waveform from '@/components/Waveform';
+import { useToast } from '@/components/Toast';
 import {
   ABILITIES,
   DEFAULT_SCORES,
@@ -48,6 +78,7 @@ import {
   POINT_BUY_MAX,
   POINT_BUY_MIN,
   SUZU_LINES,
+  WIZARD_LEVEL1_SPELLBOOK_SIZE,
   applyRacialBonuses,
   costFor,
   derivedStats,
@@ -58,45 +89,70 @@ import {
   type AbilityScores,
 } from '@/lib/dnd/helpers';
 import type { WizardRace, WizardClass, WizardBackground } from '@/lib/dnd/catalog';
+import type { AvailableSpellEntry, AvailableSpellsResult } from '@/lib/api/types';
 import styles from './CharacterCreate.module.css';
 
-const STEP_META = [
+type StepKey = 'race' | 'class' | 'abilities' | 'background' | 'spells' | 'review';
+
+interface StepMeta {
+  key: StepKey;
+  t: string;
+  heading: string;
+  intro: string;
+}
+
+// Base 5 steps, always present. "Spells" (T4/DDX-11t) is spliced in between
+// Background and Review — ONLY for a caster class — by buildSteps below, so
+// the kicker ("Step N of TOTAL") and every index-sensitive bit of UI derives
+// from the built array's length/position rather than a hardcoded "of 5".
+const BASE_STEPS: readonly StepMeta[] = [
   {
+    key: 'race',
     t: 'Race',
-    kicker: 'Step 1 of 5',
     heading: 'Who, broadly speaking, are you?',
     intro:
       'Race shapes the small things — how tall you are, what you can see in the dark, what languages you know without thinking. Pick one. You can come back.',
   },
   {
+    key: 'class',
     t: 'Class',
-    kicker: 'Step 2 of 5',
     heading: 'And what do you do when things go sideways?',
     intro: 'Class is the verb. Sneak, smite, study, summon, sing. Pick your verb.',
   },
   {
+    key: 'abilities',
     t: 'Abilities',
-    kicker: 'Step 3 of 5',
     heading: 'How are you wired?',
     intro:
       'Point-buy. 27 points. Every score starts at 8; raising it costs more the higher you go. Racial bonuses come after.',
   },
   {
+    key: 'background',
     t: 'Background',
-    kicker: 'Step 4 of 5',
     heading: 'Where did you come from?',
     intro:
       'Background gives Suzu something to needle you about for forty sessions. Pick one. Tell her your name.',
   },
-  {
-    t: 'Review',
-    kicker: 'Step 5 of 5',
-    heading: 'Sound about right?',
-    intro: "A last look. Once you confirm, Suzu writes it down. (She doesn't forget.)",
-  },
-] as const;
+];
 
-const TOTAL_STEPS = STEP_META.length;
+const SPELLS_STEP: StepMeta = {
+  key: 'spells',
+  t: 'Spells',
+  heading: 'What do you already know?',
+  intro:
+    "Cantrips you can always call on; a handful of first-level spells to start. Suzu created your sheet a step early so she could show you the real list — not a guess.",
+};
+
+const REVIEW_STEP: StepMeta = {
+  key: 'review',
+  t: 'Review',
+  heading: 'Sound about right?',
+  intro: "A last look. Once you confirm, Suzu writes it down. (She doesn't forget.)",
+};
+
+function buildSteps(isCaster: boolean): StepMeta[] {
+  return isCaster ? [...BASE_STEPS, SPELLS_STEP, REVIEW_STEP] : [...BASE_STEPS, REVIEW_STEP];
+}
 
 // ── Suzu commentary for the abilities step (ST-053 v1) ─────────────────────────
 function abilitiesComment(scores: AbilityScores): string {
@@ -117,6 +173,7 @@ function abilitiesComment(scores: AbilityScores): string {
 export default function CharacterNewPage(): ReactNode {
   const { user, loading, maybeAuthed } = useAuth();
   const router = useRouter();
+  const { toast } = useToast();
 
   const catalog = useCatalog();
 
@@ -128,6 +185,14 @@ export default function CharacterNewPage(): ReactNode {
   const [name, setName] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // T4/DDX-11t — set the moment a caster's character is silently created
+  // (leaving Background → Spells); reused unchanged by Review's final submit.
+  // A class change invalidates it (see the effect below) so Review never
+  // POSTs spell picks against a character created for a different class.
+  const [characterId, setCharacterId] = useState<string | null>(null);
+  const [spellCantrips, setSpellCantrips] = useState<Set<string>>(new Set());
+  const [spellLeveled, setSpellLeveled] = useState<Set<string>>(new Set());
 
   const headingRef = useRef<HTMLHeadingElement>(null);
   const errorRetryRef = useRef<HTMLButtonElement>(null);
@@ -164,6 +229,33 @@ export default function CharacterNewPage(): ReactNode {
   const raceObj = catalog.data.races.find((r) => r.id === race);
   const clsObj = catalog.data.classes.find((c) => c.id === cls);
   const bgObj = catalog.data.backgrounds.find((b) => b.id === background);
+  const isCasterClass = !!clsObj?.isCaster;
+
+  // T4/DDX-11t — the step list adapts to the chosen class (Spells only for a
+  // caster). Recomputed whenever the class changes.
+  const steps = useMemo(() => buildSteps(isCasterClass), [isCasterClass]);
+  const stepKey: StepKey = steps[Math.min(step, steps.length - 1)]?.key ?? 'race';
+
+  // A shorter/longer step list (class toggled caster<->non-caster after the
+  // user had already advanced past it) can leave `step` pointing past the end
+  // — clamp back onto the new last step (Review) rather than crash.
+  useEffect(() => {
+    setStep((s) => Math.min(s, steps.length - 1));
+  }, [steps.length]);
+
+  // Changing class invalidates any character silently created for the
+  // PREVIOUS class (see the module doc comment) — Review must never learn/
+  // prepare spells, or navigate to a sheet, for the wrong class.
+  const prevClsRef = useRef(cls);
+  useEffect(() => {
+    if (prevClsRef.current !== cls) {
+      prevClsRef.current = cls;
+      setCharacterId(null);
+      setSpellCantrips(new Set());
+      setSpellLeveled(new Set());
+    }
+  }, [cls]);
+
   const remaining = pointsRemaining(scores);
   const finalScores = useMemo(
     () => applyRacialBonuses(scores, raceObj?.bonuses),
@@ -185,61 +277,142 @@ export default function CharacterNewPage(): ReactNode {
   }, []);
 
   const canContinue = useMemo(() => {
-    switch (step) {
-      case 0:
+    switch (stepKey) {
+      case 'race':
         return !!race;
-      case 1:
+      case 'class':
         return !!cls;
-      case 2:
+      case 'abilities':
         return remaining >= 0;
-      case 3:
+      case 'background':
         return !!background && name.trim().length > 0;
+      // 'spells' and 'review' — the Spells step is optional (pick as few or
+      // as many as you like up to budget); Review's Continue is the submit
+      // button, gated separately by canSubmit below.
       default:
         return true;
     }
-  }, [step, race, cls, remaining, background, name]);
+  }, [stepKey, race, cls, remaining, background, name]);
 
-  const canSubmit =
-    !!username &&
-    !!raceObj &&
-    !!clsObj &&
-    !!bgObj &&
-    name.trim().length > 0 &&
-    remaining >= 0 &&
-    !submitting;
+  const canCreatePrereqs =
+    !!username && !!raceObj && !!clsObj && !!bgObj && name.trim().length > 0 && remaining >= 0;
+
+  const canSubmit = canCreatePrereqs && !submitting;
+
+  // POST /api/dnd/characters. Shared by handleContinue's silent caster-path
+  // create (leaving Background) and handleSubmit's non-caster-path create
+  // (Review) — same payload either way.
+  const createNow = useCallback(async (): Promise<string> => {
+    if (!username || !raceObj || !clsObj || !bgObj || !name.trim()) {
+      throw new Error('missing required fields');
+    }
+    const created = await createCharacter({
+      username,
+      name: name.trim(),
+      race: raceObj.name,
+      char_class: clsObj.name,
+      background: bgObj.name,
+      ability_scores: scores,
+    });
+    if (!created.character_id) throw new Error('missing character_id');
+    return created.character_id;
+  }, [username, raceObj, clsObj, bgObj, name, scores]);
+
+  // Nav "Continue" — the ONE special case is Background -> Spells for a
+  // caster: the character must exist before the Spells step can fetch a real
+  // pool/budget (see the module doc comment), so this is async there and
+  // synchronous everywhere else.
+  const handleContinue = useCallback(async () => {
+    const idx = steps.findIndex((s) => s.key === stepKey);
+    const next = steps[idx + 1];
+    if (stepKey === 'background' && next?.key === 'spells' && !characterId) {
+      if (!canCreatePrereqs) return;
+      setSubmitting(true);
+      setError(null);
+      try {
+        const id = await createNow();
+        setCharacterId(id);
+        setStep((s) => Math.min(steps.length - 1, s + 1));
+      } catch {
+        setError(
+          "Suzu couldn’t write that down. Check your choices and try again in a moment.",
+        );
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+    setStep((s) => Math.min(steps.length - 1, s + 1));
+  }, [steps, stepKey, characterId, canCreatePrereqs, createNow]);
 
   const handleSubmit = useCallback(async () => {
-    if (!username || !raceObj || !clsObj || !bgObj || !name.trim()) return;
+    if (!canCreatePrereqs && !characterId) return;
     setSubmitting(true);
     setError(null);
     try {
-      const created = await createCharacter({
-        username,
-        name: name.trim(),
-        race: raceObj.name,
-        char_class: clsObj.name,
-        background: bgObj.name,
-        ability_scores: scores,
-      });
-      if (!created.character_id) throw new Error('missing character_id');
-      router.push(`/character/${encodeURIComponent(created.character_id)}`);
+      let charId = characterId;
+      if (!charId) charId = await createNow();
+
+      // Caster path: the character already existed (silently created leaving
+      // Background) — batch-apply the picks now. Cantrips are always a
+      // `learn`; leveled picks are `learn` for known/spellbook casters or
+      // `prepare` for a prepared caster (cleric/druid — see
+      // CLASS_CASTER_KIND's docstring in helpers.ts). Best-effort: a failed
+      // pick surfaces a toast but never blocks navigating to the new sheet —
+      // the character itself was already created successfully.
+      if (isCasterClass && username) {
+        const leveledAction = clsObj?.casterKind === 'prepared' ? 'prepare' : 'learn';
+        const picks: Promise<unknown>[] = [
+          ...Array.from(spellCantrips, (slug) => learnSpell(charId as string, username, slug)),
+          ...Array.from(spellLeveled, (slug) =>
+            leveledAction === 'prepare'
+              ? prepareSpell(charId as string, username, slug, true)
+              : learnSpell(charId as string, username, slug),
+          ),
+        ];
+        if (picks.length > 0) {
+          const results = await Promise.allSettled(picks);
+          const failed = results.filter((r) => r.status === 'rejected').length;
+          if (failed > 0) {
+            toast({
+              message: `Character created, but ${failed} starting spell${failed > 1 ? 's' : ''} couldn’t be added. You can add ${failed > 1 ? 'them' : 'it'} from the sheet.`,
+              tone: 'warn',
+            });
+          }
+        }
+      }
+
+      router.push(`/character/${encodeURIComponent(charId)}`);
     } catch {
       setError(
         "Suzu couldn’t write that down. Check your choices and try again in a moment.",
       );
       setSubmitting(false);
     }
-  }, [username, raceObj, clsObj, bgObj, name, scores, router]);
+  }, [
+    canCreatePrereqs,
+    characterId,
+    createNow,
+    isCasterClass,
+    username,
+    clsObj,
+    spellCantrips,
+    spellLeveled,
+    toast,
+    router,
+  ]);
 
   // ── Suzu's line for the current step ──────────────────────────────────────────
   let suzuLine: string;
-  if (step === 0) suzuLine = race ? (SUZU_LINES.race[race] ?? 'An unusual choice. Suzu is intrigued.') : 'Take your time. The tavern will keep.';
-  else if (step === 1) suzuLine = cls ? (SUZU_LINES.class[cls] ?? 'An interesting calling.') : 'Pick a verb.';
-  else if (step === 2) suzuLine = abilitiesComment(scores);
-  else if (step === 3)
+  if (stepKey === 'race') suzuLine = race ? (SUZU_LINES.race[race] ?? 'An unusual choice. Suzu is intrigued.') : 'Take your time. The tavern will keep.';
+  else if (stepKey === 'class') suzuLine = cls ? (SUZU_LINES.class[cls] ?? 'An interesting calling.') : 'Pick a verb.';
+  else if (stepKey === 'abilities') suzuLine = abilitiesComment(scores);
+  else if (stepKey === 'background')
     suzuLine = name.trim()
       ? `${name.trim()}. Suzu likes the sound of it.`
       : 'Names matter. Even the ones you change later.';
+  else if (stepKey === 'spells')
+    suzuLine = 'Cantrips are free tricks. First-level spells are the ones that cost you a slot — spend wisely.';
   else
     suzuLine = name.trim()
       ? `${name.trim()}, I'll have a table ready by Tuesday. Bring a coat — the coast is colder than the brochure suggests.`
@@ -251,17 +424,19 @@ export default function CharacterNewPage(): ReactNode {
   // The streamed text is primary; `suzuLine` above is the deterministic fallback
   // shown while waiting or if the stream is unavailable (graceful — AC#3).
   const aiAssistLevel: 'full' | 'assist' | 'off' = 'full';
-  const commentaryKey = `${step}|${race ?? ''}|${cls ?? ''}|${background ?? ''}`;
+  const commentaryKey = `${stepKey}|${race ?? ''}|${cls ?? ''}|${background ?? ''}`;
   const commentaryPrompt =
-    step === 0
+    stepKey === 'race'
       ? `In one wry sentence, react to my new D&D character being a ${raceObj?.name ?? 'race I haven’t picked yet'}.`
-      : step === 1
+      : stepKey === 'class'
         ? `In one wry sentence, react to my character's class: ${clsObj?.name ?? 'undecided'}.`
-        : step === 2
+        : stepKey === 'abilities'
           ? `In one wry sentence, react to how I've spread my character's ability scores.`
-          : step === 3
+          : stepKey === 'background'
             ? `In one wry sentence, react to my character's name and background: ${name.trim() || 'unnamed'}, ${bgObj?.name ?? 'no background yet'}.`
-            : `In one wry sentence, send off my finished character ${name.trim() || 'the adventurer'}, a ${raceObj?.name ?? ''} ${clsObj?.name ?? ''}.`;
+            : stepKey === 'spells'
+              ? `In one wry sentence, react to my ${clsObj?.name ?? 'caster'} picking their starting spells.`
+              : `In one wry sentence, send off my finished character ${name.trim() || 'the adventurer'}, a ${raceObj?.name ?? ''} ${clsObj?.name ?? ''}.`;
   const {
     enabled: suzuEnabled,
     text: suzuStream,
@@ -270,20 +445,30 @@ export default function CharacterNewPage(): ReactNode {
   const suzuDisplay = suzuStream.trim() || suzuLine;
 
   const continueHint =
-    step === 0
+    stepKey === 'race'
       ? 'Select a race to continue.'
-      : step === 1
+      : stepKey === 'class'
         ? 'Select a class to continue.'
-        : step === 3
+        : stepKey === 'background'
           ? 'Enter a name and choose a background to continue.'
           : '';
 
-  const railSub = (i: number): string => {
-    if (i === 0) return raceObj?.name ?? '—';
-    if (i === 1) return clsObj?.name ?? '—';
-    if (i === 2) return `${POINT_BUY_BUDGET - remaining} pts spent`;
-    if (i === 3) return bgObj?.name ?? (name.trim() ? name.trim() : '—');
-    return 'all done';
+  const totalSpellPicks = spellCantrips.size + spellLeveled.size;
+  const railSub = (key: StepKey): string => {
+    switch (key) {
+      case 'race':
+        return raceObj?.name ?? '—';
+      case 'class':
+        return clsObj?.name ?? '—';
+      case 'abilities':
+        return `${POINT_BUY_BUDGET - remaining} pts spent`;
+      case 'background':
+        return bgObj?.name ?? (name.trim() ? name.trim() : '—');
+      case 'spells':
+        return totalSpellPicks > 0 ? `${totalSpellPicks} chosen` : '—';
+      default:
+        return 'all done';
+    }
   };
 
   if (!user) {
@@ -339,7 +524,7 @@ export default function CharacterNewPage(): ReactNode {
     );
   }
 
-  const meta = STEP_META[step];
+  const meta = steps[step] ?? steps[steps.length - 1];
 
   return (
     <TavernShell
@@ -358,18 +543,18 @@ export default function CharacterNewPage(): ReactNode {
             Steps
           </p>
           <ol className={styles.railList}>
-            {STEP_META.map((s, i) => {
+            {steps.map((s, i) => {
               const state = i === step ? 'active' : i < step ? 'done' : 'todo';
               return (
-                <li key={s.t}>
+                <li key={s.key}>
                   <button
                     type="button"
                     className={styles.railStep}
                     data-state={state}
                     aria-current={i === step ? 'step' : undefined}
-                    disabled={i > step}
+                    disabled={i > step || submitting}
                     onClick={() => {
-                      if (i <= step) setStep(i);
+                      if (i <= step && !submitting) setStep(i);
                     }}
                   >
                     <span className={styles.railDot} aria-hidden>
@@ -377,7 +562,7 @@ export default function CharacterNewPage(): ReactNode {
                     </span>
                     <span className={styles.railText}>
                       <span className={styles.railTitle}>{s.t}</span>
-                      <span className={styles.railSub}>{railSub(i)}</span>
+                      <span className={styles.railSub}>{railSub(s.key)}</span>
                     </span>
                   </button>
                 </li>
@@ -389,7 +574,7 @@ export default function CharacterNewPage(): ReactNode {
         {/* Main step */}
         <div className={styles.main}>
           <header className={styles.stepHead}>
-            <p className="label">{meta.kicker}</p>
+            <p className="label">{`Step ${step + 1} of ${steps.length}`}</p>
             <h2 ref={headingRef} tabIndex={-1} className={styles.stepHeading}>
               {meta.heading}
             </h2>
@@ -397,24 +582,24 @@ export default function CharacterNewPage(): ReactNode {
           </header>
 
           <div className={styles.stepBody}>
-            {step === 0 && (
+            {stepKey === 'race' && (
               <RaceStep
                 races={catalog.data.races}
                 value={race}
                 onChange={setRace}
               />
             )}
-            {step === 1 && (
+            {stepKey === 'class' && (
               <ClassStep
                 classes={catalog.data.classes}
                 value={cls}
                 onChange={setCls}
               />
             )}
-            {step === 2 && (
+            {stepKey === 'abilities' && (
               <AbilitiesStep scores={scores} remaining={remaining} onStep={setScore} />
             )}
-            {step === 3 && (
+            {stepKey === 'background' && (
               <BackgroundStep
                 backgrounds={catalog.data.backgrounds}
                 value={background}
@@ -423,15 +608,33 @@ export default function CharacterNewPage(): ReactNode {
                 onName={setName}
               />
             )}
-            {step === 4 && (
+            {stepKey === 'spells' && username && (
+              <SpellsStep
+                characterId={characterId}
+                username={username}
+                clsObj={clsObj}
+                cantrips={spellCantrips}
+                onCantrips={setSpellCantrips}
+                leveled={spellLeveled}
+                onLeveled={setSpellLeveled}
+              />
+            )}
+            {stepKey === 'review' && (
               <ReviewStep
                 name={name}
                 onName={setName}
+                // Once a caster's character is silently created (leaving
+                // Background), a Review-step name edit would be silently
+                // dropped (submit only re-creates when characterId is null),
+                // so lock the field here and point the user at the sheet.
+                nameLocked={!!characterId}
                 raceObj={raceObj}
                 clsObj={clsObj}
                 bgObj={bgObj}
                 finalScores={finalScores}
                 derived={derived}
+                spellCantripCount={isCasterClass ? spellCantrips.size : undefined}
+                spellLeveledCount={isCasterClass ? spellLeveled.size : undefined}
               />
             )}
           </div>
@@ -446,13 +649,13 @@ export default function CharacterNewPage(): ReactNode {
             <Button
               variant="ghost"
               onClick={() => setStep((s) => Math.max(0, s - 1))}
-              disabled={step === 0}
+              disabled={step === 0 || submitting}
               aria-label="Back"
             >
               ← Back
             </Button>
             <span className={`mono ${styles.navCount}`}>
-              {step + 1} / {TOTAL_STEPS}
+              {step + 1} / {steps.length}
             </span>
             <span className={styles.navSpacer} />
             {!canContinue && continueHint && (
@@ -460,15 +663,15 @@ export default function CharacterNewPage(): ReactNode {
                 {continueHint}
               </span>
             )}
-            {step < TOTAL_STEPS - 1 ? (
+            {step < steps.length - 1 ? (
               <Button
                 variant="primary"
                 size="lg"
-                onClick={() => setStep((s) => Math.min(TOTAL_STEPS - 1, s + 1))}
-                disabled={!canContinue}
+                onClick={() => void handleContinue()}
+                disabled={!canContinue || submitting}
                 aria-describedby={!canContinue && continueHint ? 'continue-hint' : undefined}
               >
-                Continue
+                {submitting ? 'Creating…' : 'Continue'}
               </Button>
             ) : (
               <Button
@@ -730,19 +933,29 @@ function BackgroundStep({
 function ReviewStep({
   name,
   onName,
+  nameLocked,
   raceObj,
   clsObj,
   bgObj,
   finalScores,
   derived,
+  spellCantripCount,
+  spellLeveledCount,
 }: {
   name: string;
   onName: (v: string) => void;
+  /** True once a caster's character has been silently created — the name is
+   *  already persisted, so editing it here would be lost; lock + hint instead. */
+  nameLocked?: boolean;
   raceObj: WizardRace | undefined;
   clsObj: WizardClass | undefined;
   bgObj: WizardBackground | undefined;
   finalScores: AbilityScores;
   derived: ReturnType<typeof derivedStats>;
+  /** T4/DDX-11t — undefined for a non-caster (no Spells step ran); a number
+   *  (0 is valid — the picks are optional) once the Spells step has run. */
+  spellCantripCount?: number;
+  spellLeveledCount?: number;
 }) {
   const initial = (name.trim() || '?').charAt(0).toUpperCase();
   const derivedRows: { label: string; value: string }[] = [
@@ -830,6 +1043,15 @@ function ReviewStep({
               {!clsObj && <span className={styles.profEmpty}>pick a class</span>}
             </div>
           </div>
+          {spellCantripCount !== undefined && (
+            <div className={styles.profGroup}>
+              <span className={styles.profLabel}>Starting spells</span>
+              <div className={styles.profPills}>
+                <Pill tone="lav">{spellCantripCount} cantrip{spellCantripCount === 1 ? '' : 's'}</Pill>
+                <Pill tone="lav">{spellLeveledCount ?? 0} 1st-level</Pill>
+              </div>
+            </div>
+          )}
         </Card>
       </div>
 
@@ -849,8 +1071,178 @@ function ReviewStep({
           placeholder="Velka of Little Hollow"
           maxLength={30}
           autoComplete="off"
+          disabled={nameLocked}
+          aria-describedby={nameLocked ? 'char-name-review-hint' : undefined}
         />
+        {nameLocked && (
+          <p id="char-name-review-hint" className={styles.spellHint} style={{ marginTop: 6 }}>
+            Name is set. You can rename from the character sheet later.
+          </p>
+        )}
       </Card>
+    </div>
+  );
+}
+
+// ── Step: Spells (T4/DDX-11t) ─────────────────────────────────────────────────
+// Only rendered when the chosen class isCaster (see buildSteps). Fetches the
+// REAL pool + budget for the character silently created leaving Background —
+// same getAvailableSpells hop the shipped sheet Spells tab (SpellbookPanel)
+// uses — rather than reimplementing the engine's per-class spell tables.
+type SpellFetchState = 'loading' | 'ok' | 'error';
+
+function SpellsStep({
+  characterId,
+  username,
+  clsObj,
+  cantrips,
+  onCantrips,
+  leveled,
+  onLeveled,
+}: {
+  characterId: string | null;
+  username: string;
+  clsObj: WizardClass | undefined;
+  cantrips: Set<string>;
+  onCantrips: (next: Set<string>) => void;
+  leveled: Set<string>;
+  onLeveled: (next: Set<string>) => void;
+}) {
+  const [available, setAvailable] = useState<AvailableSpellsResult | null>(null);
+  const [fetchState, setFetchState] = useState<SpellFetchState>('loading');
+
+  useEffect(() => {
+    if (!characterId) return;
+    let cancelled = false;
+    setFetchState('loading');
+    getAvailableSpells(characterId, username)
+      .then((data) => {
+        if (cancelled) return;
+        setAvailable(data);
+        setFetchState('ok');
+      })
+      .catch(() => {
+        if (!cancelled) setFetchState('error');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [characterId, username]);
+
+  function toggle(picked: Set<string>, onChange: (n: Set<string>) => void, slug: string, cap: number) {
+    const next = new Set(picked);
+    if (next.has(slug)) {
+      next.delete(slug);
+    } else if (next.size < cap) {
+      next.add(slug);
+    }
+    onChange(next);
+  }
+
+  if (!characterId || fetchState === 'loading') {
+    return (
+      <p className={styles.spellHint} aria-busy="true">
+        Setting up your spellbook…
+      </p>
+    );
+  }
+
+  if (fetchState === 'error' || !available) {
+    return (
+      <p className={styles.spellHint}>
+        Suzu couldn&rsquo;t load your class&rsquo;s spell list right now — that&rsquo;s all
+        right, you can pick your starting spells from the character sheet once it&rsquo;s
+        created instead.
+      </p>
+    );
+  }
+
+  const cantripCap = available.budget.cantrips_max;
+  const leveledKind = clsObj?.casterKind ?? 'known';
+  const leveledCap =
+    leveledKind === 'known'
+      ? (available.budget.spells_max ?? 0)
+      : leveledKind === 'prepared'
+        ? (available.budget.prepared_max ?? 0)
+        : WIZARD_LEVEL1_SPELLBOOK_SIZE;
+  const level1 = available.by_level['1'] ?? [];
+
+  const renderRow = (
+    s: AvailableSpellEntry,
+    picked: Set<string>,
+    onChange: (n: Set<string>) => void,
+    cap: number,
+  ) => {
+    const checked = picked.has(s.slug);
+    const disabled = !checked && picked.size >= cap;
+    return (
+      <li key={s.slug} className={styles.spellRow}>
+        <label className={styles.spellRowLabel}>
+          <input
+            type="checkbox"
+            className={styles.spellCheckbox}
+            checked={checked}
+            disabled={disabled}
+            onChange={() => toggle(picked, onChange, s.slug, cap)}
+          />
+          <span className={styles.spellRowName}>{s.name}</span>
+          <span className={`mono ${styles.spellRowSchool}`}>{s.school}</span>
+        </label>
+      </li>
+    );
+  };
+
+  return (
+    <div>
+      <div className={styles.spellSection}>
+        <div className={styles.budget}>
+          <span
+            className={styles.budgetNum}
+            aria-live="polite"
+            aria-atomic="true"
+            aria-label={`${cantrips.size} of ${cantripCap} cantrips chosen`}
+          >
+            {cantrips.size}/{cantripCap}
+          </span>
+          <span>
+            <span className={styles.budgetTitle}>Cantrips</span>
+            <span className={styles.budgetSub}>Free tricks — cast any time, no slot spent.</span>
+          </span>
+        </div>
+        <ul className={styles.spellList}>
+          {available.cantrips.length === 0 && (
+            <li className={styles.spellEmpty}>No cantrips for this class.</li>
+          )}
+          {available.cantrips.map((s) => renderRow(s, cantrips, onCantrips, cantripCap))}
+        </ul>
+      </div>
+
+      <div className={styles.spellSection}>
+        <div className={styles.budget}>
+          <span
+            className={styles.budgetNum}
+            aria-live="polite"
+            aria-atomic="true"
+            aria-label={`${leveled.size} of ${leveledCap} first level spells chosen`}
+          >
+            {leveled.size}/{leveledCap}
+          </span>
+          <span>
+            <span className={styles.budgetTitle}>1st-level spells</span>
+            <span className={styles.budgetSub}>
+              {leveledKind === 'prepared'
+                ? 'Chosen from your full class list — you re-prepare daily once you adventure.'
+                : 'Learned into your repertoire for good.'}
+            </span>
+          </span>
+        </div>
+        <ul className={styles.spellList}>
+          {level1.length === 0 && (
+            <li className={styles.spellEmpty}>No 1st-level spells for this class yet.</li>
+          )}
+          {level1.map((s) => renderRow(s, leveled, onLeveled, leveledCap))}
+        </ul>
+      </div>
     </div>
   );
 }

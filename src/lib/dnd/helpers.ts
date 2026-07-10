@@ -234,6 +234,50 @@ export const CLASS_DECORATION: Record<
   monk:      { icon: 'Monk',      accent: 'var(--accent-2)', flavor: 'Fists, focus, ki.' },
 };
 
+// ── Caster gate (T4/DDX-11t creation slice) ───────────────────────────────────
+// Mirrors engine/classes.py's SpellcastingProfile setup (verified by read,
+// NekoNova-DnDEngine 2026-07-09): the 6 classes below get real cantrips AND
+// 1st-level slots at character level 1. Paladin/ranger DO set a
+// spellcasting_ability (surfaced by the catalog's CatalogClassData) but their
+// `cantrips_known` table is empty and their half-caster slot table starts at
+// level 2 (see spellbook.py's max_castable_spell_level docstring) — so they
+// have a ZERO spell budget at creation and are correctly excluded here. This
+// is the "class -> caster" map the DDX-11t creation-wizard slice uses to gate
+// the Spells step; it does NOT reflect casters unlocked by subclass (e.g.
+// Eldritch Knight/Arcane Trickster at level 3), which are out of scope for a
+// level-1 creation flow.
+//
+// `kind` mirrors engine/spellbook.py's caster_kind() classification and
+// decides which hop the creation wizard uses for a chosen 1st-level spell:
+//  - 'known'     (bard/sorcerer/warlock) -> learnSpell, capped by
+//                 AvailableSpellsResult.budget.spells_max.
+//  - 'prepared'  (cleric/druid) -> prepareSpell(slug, true), capped by
+//                 budget.prepared_max (they auto-know the full class list;
+//                 5e "preparing" a spell for the first time IS how they add
+//                 it to today's repertoire — see spells_msm.py's set_prepared,
+//                 kind=='prepared' branch, which upserts a new row).
+//  - 'spellbook' (wizard) -> learnSpell, capped by WIZARD_LEVEL1_SPELLBOOK_SIZE
+//                 (the engine's wire budget only exposes wizard's *prepared*
+//                 cap, not spellbook capacity — see spellbook.py's
+//                 wizard_spellbook_size, a static SRD formula not on the wire).
+export type CasterKind = 'known' | 'prepared' | 'spellbook';
+
+export const CLASS_CASTER_KIND: Record<string, CasterKind> = {
+  bard: 'known',
+  sorcerer: 'known',
+  warlock: 'known',
+  cleric: 'prepared',
+  druid: 'prepared',
+  wizard: 'spellbook',
+};
+
+/** SRD wizard spellbook size at level 1 (engine/spellbook.py:110,
+ *  `wizard_spellbook_size`: `6 + 2 * (level - 1)`). Hardcoded here because a
+ *  freshly created character is always level 1 and this figure is not part
+ *  of the wire budget — the engine still enforces the real cap server-side
+ *  on learn (over_spellbook_limit), this is only a client-side UX hint. */
+export const WIZARD_LEVEL1_SPELLBOOK_SIZE = 6;
+
 export const BACKGROUND_DECORATION: Record<string, { blurb: string }> = {
   acolyte:       { blurb: 'you were good at the prayers and bad at the meetings.' },
   charlatan:     { blurb: "you've lied your way out of three towns; the fourth is suspicious." },

@@ -450,6 +450,69 @@
   margin-top: 2px;
 }
 
+/* ── Spells step (T4/DDX-11t) ─────────────────────────────────────────────────
+   Checkbox-list variant of SpellbookPanel's spellList/spellRow/emptyRow
+   idioms (component-scoped CSS Modules — no cross-file class sharing, so
+   these are re-declared here rather than imported). */
+.spellSection {
+  margin-top: 22px;
+}
+.spellSection:first-child {
+  margin-top: 0;
+}
+.spellList {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+.spellRow {
+  border-bottom: 1px solid var(--line-2);
+}
+.spellRow:last-child {
+  border-bottom: 0;
+}
+.spellRowLabel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px; /* WCAG 2.5.8 touch target */
+  padding: 6px 2px;
+  cursor: pointer;
+}
+.spellRowLabel:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.spellCheckbox {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+}
+.spellRowName {
+  flex: 1;
+  min-width: 120px;
+  font-size: 13px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.spellRowSchool {
+  font-size: 11px;
+  color: var(--ink-3);
+  text-transform: capitalize;
+}
+.spellEmpty {
+  font-size: 13px;
+  color: var(--ink-3);
+  font-style: italic;
+  padding: 8px 0;
+}
+.spellHint {
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+
 /* ── Review step ─────────────────────────────────────────────────────────────── */
 .review {
   display: grid;
