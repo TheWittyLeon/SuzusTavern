@@ -84,6 +84,7 @@ import {
   costFor,
   derivedStats,
   formatMod,
+  hasBackgroundBlurb,
   humanizeSkill,
   pointsRemaining,
   type AbilityKey,
@@ -914,7 +915,12 @@ function BackgroundStep({
               className={styles.srOnly}
             />
             <span className={styles.bgName}>{b.name}</span>
-            <span className={styles.bgBlurb}>&ldquo;{b.blurb}&rdquo;</span>
+            {/* UIR2-TAV-22: an empty/whitespace-only blurb (background not
+                yet decorated in BACKGROUND_DECORATION) must render nothing —
+                never a literal "" — so the quote wrapper is guarded. */}
+            {hasBackgroundBlurb(b.blurb) && (
+              <span className={styles.bgBlurb}>&ldquo;{b.blurb}&rdquo;</span>
+            )}
             <span className={styles.bgSkills}>
               {b.skills.map((s) => humanizeSkill(s)).join(' · ')}
             </span>

@@ -15,6 +15,7 @@
 
 import {
   ABILITY_KEYS,
+  BACKGROUND_DECORATION,
   DEFAULT_SCORES,
   POINT_BUY_BUDGET,
   abilityMod,
@@ -22,6 +23,7 @@ import {
   costFor,
   derivedStats,
   formatMod,
+  hasBackgroundBlurb,
   humanizeSkill,
   pointsRemaining,
   pointsSpent,
@@ -82,6 +84,25 @@ describe('humanizeSkill (helpers)', () => {
     expect(humanizeSkill('sleight_of_hand')).toBe('Sleight Of Hand');
     expect(humanizeSkill('animal_handling')).toBe('Animal Handling');
     expect(humanizeSkill('stealth')).toBe('Stealth');
+  });
+});
+
+describe('hasBackgroundBlurb (helpers — UIR2-TAV-22 render guard)', () => {
+  it('true for a normal flavor string', () => {
+    expect(hasBackgroundBlurb('you were good at the prayers.')).toBe(true);
+  });
+
+  it('false for an empty string', () => {
+    expect(hasBackgroundBlurb('')).toBe(false);
+  });
+
+  it('false for a whitespace-only string', () => {
+    expect(hasBackgroundBlurb('   ')).toBe(false);
+  });
+
+  it('false for null/undefined (defensive — WizardBackground.blurb is a plain string today)', () => {
+    expect(hasBackgroundBlurb(null)).toBe(false);
+    expect(hasBackgroundBlurb(undefined)).toBe(false);
   });
 });
 
@@ -337,5 +358,72 @@ describe('catalogItemToBackground', () => {
     const item = makeItem('acolyte', 'Acolyte', 'background', {});
     const bg = catalogItemToBackground(item);
     expect(bg.skills).toEqual([]);
+  });
+
+  // UIR2-TAV-22 regression: the engine slugifies a multi-word background name
+  // as "name.replace(' ', '-')" (NekoNova-DnDEngine scripts/import_srd.py::
+  // build_backgrounds + engine/rules_catalog.py::_slugify) — e.g. "Folk Hero"
+  // arrives as slug 'folk-hero', never 'folk hero'. BACKGROUND_DECORATION
+  // previously keyed these two with a space, so the lookup silently missed
+  // and the wizard rendered a literal "" flavor line.
+  it('resolves Folk Hero flavor by its real dash-form catalog slug', () => {
+    const item = makeItem('folk-hero', 'Folk Hero', 'background', {
+      skills: ['animal_handling', 'survival'],
+    });
+    const bg = catalogItemToBackground(item);
+    expect(bg.blurb).not.toBe('');
+  });
+
+  it('resolves Guild Artisan flavor by its real dash-form catalog slug', () => {
+    const item = makeItem('guild-artisan', 'Guild Artisan', 'background', {
+      skills: ['insight', 'persuasion'],
+    });
+    const bg = catalogItemToBackground(item);
+    expect(bg.blurb).not.toBe('');
+  });
+
+  // Every background the engine actually seeds (engine/rules_catalog.py::
+  // _BACKGROUND_SKILLS, dash-slugified the same way build_backgrounds does)
+  // must resolve a real flavor line — guards against BACKGROUND_DECORATION
+  // silently losing coverage again (UIR2-TAV-22 was 12 of these 23 blank).
+  //
+  // CAUTION (Miko-QA, UIR2-TAV-22 gate, 2026-07-10): this list is a
+  // hand-copied snapshot of the engine's Python dict
+  // (NekoNova-DnDEngine engine/rules_catalog.py::_BACKGROUND_SKILLS), not
+  // fetched or generated from it — there is no cross-repo/cross-language
+  // mechanism anywhere in this workspace that keeps the two in sync
+  // automatically. Verified byte-for-byte accurate as of 2026-07-10 (23/23
+  // keys match, dash-slugified). If the engine ever adds a 24th background or
+  // renames one of these 23, THIS list will NOT notice on its own — it will
+  // keep passing 23/23 green against a now-incomplete or stale set. The
+  // sibling test below only closes the IN-REPO half of that risk (this list
+  // vs. BACKGROUND_DECORATION's own keys silently drifting apart from each
+  // other); closing the engine-side half needs either a live-engine-gated
+  // integration test or a generated/vendored fixture with a sync check —
+  // flagged as a follow-up, not built here.
+  const ENGINE_BACKGROUND_SLUGS = [
+    'acolyte', 'charlatan', 'criminal', 'entertainer', 'folk-hero',
+    'guild-artisan', 'hermit', 'noble', 'outlander', 'sage', 'sailor',
+    'soldier', 'urchin', 'spy', 'pirate', 'knight', 'gladiator',
+    'haunted-one', 'far-traveler', 'city-watch', 'clan-crafter', 'courtier',
+    'inheritor',
+  ];
+
+  it('every engine-seeded background slug resolves a non-empty flavor line', () => {
+    for (const slug of ENGINE_BACKGROUND_SLUGS) {
+      const item = makeItem(slug, slug, 'background', { skills: [] });
+      const bg = catalogItemToBackground(item);
+      expect(bg.blurb.trim().length).toBeGreaterThan(0);
+    }
+  });
+
+  // In-repo desync guard: if someone edits BACKGROUND_DECORATION's key set
+  // (add/remove/rename) without updating ENGINE_BACKGROUND_SLUGS to match —
+  // or vice versa — this fails loudly instead of the exhaustive test above
+  // silently continuing to test a stale or incomplete list forever.
+  it("ENGINE_BACKGROUND_SLUGS matches BACKGROUND_DECORATION's own key set exactly", () => {
+    expect(Object.keys(BACKGROUND_DECORATION).sort()).toEqual(
+      [...ENGINE_BACKGROUND_SLUGS].sort(),
+    );
   });
 });

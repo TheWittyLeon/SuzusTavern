@@ -210,6 +210,33 @@ describe('Character creation wizard', () => {
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/character/abc-123'));
   });
 
+  // UIR2-TAV-22: a background with no flavor line (blurb: '') must render no
+  // quote element at all — never a literal "" — while the rest of the card
+  // (name, skills) still renders normally.
+  it('never renders a literal "" for a background with no flavor line (UIR2-TAV-22)', () => {
+    catalogOverride = {
+      ...defaultCatalog,
+      data: {
+        ...defaultCatalog.data,
+        backgrounds: [
+          ...defaultCatalog.data.backgrounds,
+          { id: 'city-watch', name: 'City Watch', skills: ['athletics', 'insight'], blurb: '' },
+        ],
+      },
+    };
+    renderWizard();
+    advanceToAbilities();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Background
+
+    expect(screen.getByRole('radio', { name: /City Watch/i })).toBeInTheDocument();
+    // The curly-quote pair BackgroundStep wraps a real blurb in must never
+    // appear on its own with nothing between the quotes.
+    expect(screen.queryByText('“”')).not.toBeInTheDocument();
+    // A background WITH a blurb (Acolyte, from the default fixture) still
+    // renders its flavor line normally — the guard doesn't hide everything.
+    expect(screen.getByText('“you were good at the prayers.”')).toBeInTheDocument();
+  });
+
   it('keeps Continue disabled on the background step until a name is entered (ST-051)', () => {
     renderWizard();
     advanceToAbilities();

@@ -278,21 +278,50 @@ export const CLASS_CASTER_KIND: Record<string, CasterKind> = {
  *  on learn (over_spellbook_limit), this is only a client-side UX hint. */
 export const WIZARD_LEVEL1_SPELLBOOK_SIZE = 6;
 
+// Keyed by the catalog slug the engine actually emits for a background — SRD
+// display names are slugified as name.replace(" ", "-") (see
+// NekoNova-DnDEngine scripts/import_srd.py::build_backgrounds and
+// engine/rules_catalog.py::_slugify), e.g. "Folk Hero" -> 'folk-hero', NOT
+// 'folk hero'. A key here that uses a space instead of a dash silently misses
+// catalogItemToBackground's lookup and falls back to blurb: '' — that WAS the
+// bug for 'folk hero'/'guild artisan' below, on top of 10 backgrounds that had
+// no entry at all (UIR2-TAV-22). BackgroundStep's render guard in page.tsx
+// (hasBackgroundBlurb) is the defense-in-depth fix for any future gap here.
 export const BACKGROUND_DECORATION: Record<string, { blurb: string }> = {
-  acolyte:       { blurb: 'you were good at the prayers and bad at the meetings.' },
-  charlatan:     { blurb: "you've lied your way out of three towns; the fourth is suspicious." },
-  criminal:      { blurb: 'a friend you cannot name owes you a favor in a city you cannot enter.' },
-  entertainer:   { blurb: "the crowd remembered you. You wish they hadn't." },
-  'folk hero':   { blurb: 'one town tells a story about you. You were there; it went differently.' },
-  'guild artisan': { blurb: 'you make a thing well, and you will tell anyone who stands still.' },
-  hermit:        { blurb: 'you learned something in the quiet. You are not sure who to tell.' },
-  noble:         { blurb: 'you have a house. Or you used to. Or you said you did.' },
-  outlander:     { blurb: 'you slept under sky more nights than under roof. The roofs feel small.' },
-  sage:          { blurb: 'you grew up in a library. You still suspect the library.' },
-  sailor:        { blurb: 'the sea took something of yours and you keep going back for it.' },
-  soldier:       { blurb: 'you took an oath, broke it once, and never spoke of it again.' },
-  urchin:        { blurb: 'you knew every roof in the city before you knew your letters.' },
+  acolyte:         { blurb: 'you were good at the prayers and bad at the meetings.' },
+  charlatan:       { blurb: "you've lied your way out of three towns; the fourth is suspicious." },
+  'city-watch':    { blurb: "you know which alleys the lamplight skips. You used to patrol them for a badge; now it's habit." },
+  'clan-crafter':  { blurb: "your clan's mark is stamped into the work. You've never signed a piece you weren't proud of." },
+  courtier:        { blurb: 'you learned to read a room before you learned to read. This one is lying to you, politely.' },
+  criminal:        { blurb: 'a friend you cannot name owes you a favor in a city you cannot enter.' },
+  entertainer:     { blurb: "the crowd remembered you. You wish they hadn't." },
+  'far-traveler':  { blurb: "you crossed a very long way to sit at this table. People still ask where you're really from." },
+  'folk-hero':     { blurb: 'one town tells a story about you. You were there; it went differently.' },
+  gladiator:       { blurb: 'the crowd learned your name before you learned to duck. You bow better than you block.' },
+  'guild-artisan': { blurb: 'you make a thing well, and you will tell anyone who stands still.' },
+  'haunted-one':   { blurb: "something followed you out of somewhere. You stopped looking behind you; it didn't stop." },
+  hermit:          { blurb: 'you learned something in the quiet. You are not sure who to tell.' },
+  inheritor:       { blurb: "something was left to you — a map, a key, a debt. You still haven't worked out which." },
+  knight:          { blurb: 'you swore an oath in front of witnesses who are still watching to see if you meant it.' },
+  noble:           { blurb: 'you have a house. Or you used to. Or you said you did.' },
+  outlander:       { blurb: 'you slept under sky more nights than under roof. The roofs feel small.' },
+  pirate:          { blurb: "you signed articles in blood, or close enough. The ship's gone; the habits kept sailing." },
+  sage:            { blurb: 'you grew up in a library. You still suspect the library.' },
+  sailor:          { blurb: 'the sea took something of yours and you keep going back for it.' },
+  soldier:         { blurb: 'you took an oath, broke it once, and never spoke of it again.' },
+  spy:             { blurb: "you work for someone who denies knowing you. That was the deal; you're still holding up your end." },
+  urchin:          { blurb: 'you knew every roof in the city before you knew your letters.' },
 };
+
+/**
+ * Whether a background's flavor line has real content worth showing.
+ * BackgroundStep wraps a non-empty blurb in curly quotes — an empty, missing,
+ * or whitespace-only blurb (e.g. a catalog background not yet decorated
+ * above) must render nothing at all, never a literal `""` (UIR2-TAV-22).
+ */
+export function hasBackgroundBlurb(blurb: string | null | undefined): boolean {
+  return typeof blurb === 'string' && blurb.trim().length > 0;
+}
 
 // ── Suzu commentary (ST-053 v1 — hardcoded) ───────────────────────────────────
 
