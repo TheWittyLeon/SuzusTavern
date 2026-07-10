@@ -110,7 +110,13 @@ export default function SpellSlotsPanel({
         });
         return;
       }
-      setSlots(res.slots);
+      // The adjust response is the ONE affected level (flat {level,max,
+      // remaining,used}) — merge it into the by-level map for immediate pip
+      // feedback; the refetch below then reconciles every level.
+      setSlots((prev) => ({
+        ...prev,
+        [String(res.level)]: { max: res.max, used: res.used, remaining: res.remaining },
+      }));
       try {
         const after = await getCharacterSheet(characterId, username);
         onChanged(after);

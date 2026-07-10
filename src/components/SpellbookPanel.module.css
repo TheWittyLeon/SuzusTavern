@@ -1,0 +1,102 @@
+/* SpellbookPanel — T4 / DDX-11t sheet Spells tab slice. Token-driven; no
+ * hardcoded colors. .cardHead/.emptyRow duplicated from InventoryPanel/
+ * SpellSlotsPanel (component-scoped CSS Modules, not shared) — same
+ * precedent both of those already established. .tabs/.tab/.tabOn mirror
+ * Composer's mode-tablist geometry (Composer.module.css) at a smaller scale
+ * for this card's own tablist. */
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.emptyRow {
+  font-size: 13px;
+  color: var(--ink-3);
+  font-style: italic;
+}
+
+.tabs {
+  display: flex;
+  gap: 2px;
+  background: color-mix(in oklab, var(--ink) 4%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 2px;
+  margin-bottom: 12px;
+  width: fit-content;
+}
+.tab {
+  padding: 5px 12px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.tabOn {
+  background: color-mix(in oklab, var(--accent) 16%, transparent);
+  color: var(--ink);
+}
+
+.levelHead {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+  margin: 12px 0 4px;
+}
+.levelHead:first-child {
+  margin-top: 0;
+}
+
+.spellList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.spellRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line-2);
+  flex-wrap: wrap;
+}
+.spellRow:last-child {
+  border-bottom: 0;
+}
+.spellName {
+  flex: 1;
+  min-width: 120px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.spellPill {
+  padding: 1px 7px;
+}
+.spellSchool {
+  font-size: 11px;
+  color: var(--ink-3);
+  text-transform: capitalize;
+}
+
+/* ── Learn/prepare controls ──────────────────────────────────────────────── */
+.spellBtns {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.spellBtn {
+  font-size: 12px;
+  padding: 4px 10px;
+  flex-shrink: 0;
+}

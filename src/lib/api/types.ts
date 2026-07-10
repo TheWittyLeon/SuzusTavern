@@ -81,13 +81,109 @@ export interface HpAdjustResult {
   temp_hp: number;
   is_down: boolean;
 }
-/** T5 — GET /spells/:id/slots and POST /spells/:id/slots/adjust both resolve
- *  to this shape: keyed by slot level "1".."9", same per-level shape as the
- *  sheet's own `spell_slots`. */
+/** T5 — POST /spells/:id/slots/adjust returns the ONE adjusted level, flat:
+ *  `{level, max, remaining, used}` — NOT a slots-by-level map. (The sheet's
+ *  `spell_slots` is the by-level map; this is a single-level delta the panel
+ *  merges into its state.) */
 export interface SpellSlotsResult {
-  slots: Record<string, SheetSpellSlot>;
+  level: number;
+  max: number;
+  remaining: number;
+  used: number;
 }
 export interface SheetSpellcasting { ability: string; save_dc: number; attack_bonus: number }
+
+// ── DnD: spell repertoire (T4 / DDX-11 sheet Spells tab) ────────────────────
+// Shapes of GET /spells/:id/list, GET /spells/:id/available, POST
+// /spells/:id/learn, POST /spells/:id/prepare — engine's
+// engine/spells_msm.py (list_repertoire / available_spells / learn_spell /
+// set_prepared) is the source of truth; the NekoNova proxy
+// (api/routes/dnd_combat.py) forwards `result.get("data", {})` verbatim, and
+// the Tavern BFF catch-all forwards THAT verbatim, so the wire shape here is
+// identical to the engine's own `data` payload — no proxy-side reshaping.
+
+/** How a class's repertoire model works — drives which mutating affordances
+ *  a caster gets: 'known' casters (sorcerer/bard) only ever learn; 'prepared'
+ *  casters (cleric/druid/paladin) prepare straight off the full class list;
+ *  'spellbook' (wizard) learns into the book, then separately prepares;
+ *  'none' = non-caster. */
+export type SpellCasterKind = 'none' | 'known' | 'prepared' | 'spellbook';
+
+/** Shared `data.budget` block on both the list and available endpoints.
+ *  spells_known/spells_max are null for anything but a 'known' caster;
+ *  prepared_used/prepared_max are null for anything but 'prepared'/'spellbook'. */
+export interface SpellBudget {
+  cantrips_known: number;
+  cantrips_max: number;
+  spells_known: number | null;
+  spells_max: number | null;
+  prepared_used: number | null;
+  prepared_max: number | null;
+}
+
+/** One entry in the character's own repertoire (GET /spells/:id/list). */
+export interface SheetSpellEntry {
+  slug: string;
+  name: string;
+  level: number;
+  school: string;
+  source: string;
+  prepared: boolean;
+  is_cantrip: boolean;
+  concentration: boolean;
+  ritual: boolean;
+  castable_now: boolean;
+  /** Present on leveled (non-cantrip) entries only. */
+  min_slot_level?: number;
+}
+
+/** GET /api/dnd/spells/:id/list response data. */
+export interface SpellListResult {
+  is_spellcaster: boolean;
+  caster_kind: SpellCasterKind;
+  ability: string | null;
+  budget: SpellBudget;
+  cantrips: SheetSpellEntry[];
+  spells: SheetSpellEntry[];
+}
+
+/** One entry in the class's learnable/preparable pool (GET
+ *  /spells/:id/available). Distinct from SheetSpellEntry — no `source`/
+ *  `castable_now`/`is_cantrip`/`min_slot_level`; adds `in_repertoire`. */
+export interface AvailableSpellEntry {
+  slug: string;
+  name: string;
+  level: number;
+  school: string;
+  concentration: boolean;
+  ritual: boolean;
+  in_repertoire: boolean;
+  prepared: boolean;
+}
+
+/** GET /api/dnd/spells/:id/available response data. */
+export interface AvailableSpellsResult {
+  cantrips: AvailableSpellEntry[];
+  /** Keyed by spell level "1".."9" (string keys, matches spell_slots convention). */
+  by_level: Record<string, AvailableSpellEntry[]>;
+  can_learn: boolean;
+  can_prepare: boolean;
+  budget: SpellBudget;
+}
+
+/** POST /api/dnd/spells/:id/learn response data. */
+export interface LearnSpellResult {
+  learned: boolean;
+  budget: SpellBudget;
+}
+
+/** POST /api/dnd/spells/:id/prepare response data. */
+export interface PrepareSpellResult {
+  prepared: boolean;
+  prepared_used: number;
+  prepared_max: number;
+}
+
 export interface SheetInventoryItem {
   name: string;
   item_type: string;

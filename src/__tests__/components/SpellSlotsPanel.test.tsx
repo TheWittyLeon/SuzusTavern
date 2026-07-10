@@ -149,9 +149,8 @@ describe('SpellSlotsPanel — read-only rendering', () => {
 
 describe('SpellSlotsPanel — spend calls the right endpoint and updates pips', () => {
   it('clicking Spend on level 1 calls adjustSpellSlot(1, "spend"), applies the response, then refetches', async () => {
-    mockAdjustSlot.mockResolvedValue({
-      slots: { '1': { max: 4, used: 2, remaining: 2 }, '2': { max: 2, used: 0, remaining: 2 } },
-    });
+    // Real adjust response: the ONE affected level, flat.
+    mockAdjustSlot.mockResolvedValue({ level: 1, max: 4, used: 2, remaining: 2 });
     mockGetSheet.mockResolvedValue({
       ...BASE_SHEET,
       spell_slots: { '1': { max: 4, used: 2, remaining: 2 }, '2': { max: 2, used: 0, remaining: 2 } },
@@ -175,9 +174,7 @@ describe('SpellSlotsPanel — spend calls the right endpoint and updates pips', 
 
 describe('SpellSlotsPanel — restore calls the right endpoint and updates pips', () => {
   it('clicking Restore on level 1 calls adjustSpellSlot(1, "restore")', async () => {
-    mockAdjustSlot.mockResolvedValue({
-      slots: { '1': { max: 4, used: 0, remaining: 4 }, '2': { max: 2, used: 0, remaining: 2 } },
-    });
+    mockAdjustSlot.mockResolvedValue({ level: 1, max: 4, used: 0, remaining: 4 });
     mockGetSheet.mockResolvedValue({
       ...BASE_SHEET,
       spell_slots: { '1': { max: 4, used: 0, remaining: 4 }, '2': { max: 2, used: 0, remaining: 2 } },
@@ -200,7 +197,7 @@ describe('SpellSlotsPanel — restore calls the right endpoint and updates pips'
 
 describe('SpellSlotsPanel — success toast announcement', () => {
   it('announces spend and restore', async () => {
-    mockAdjustSlot.mockResolvedValue({ slots: SLOTS });
+    mockAdjustSlot.mockResolvedValue({ level: 1, max: 4, used: 1, remaining: 3 });
     mockGetSheet.mockResolvedValue({ ...BASE_SHEET });
     renderPanel();
 
@@ -212,7 +209,7 @@ describe('SpellSlotsPanel — success toast announcement', () => {
 
 describe('SpellSlotsPanel — busy-latch double-submit protection', () => {
   it('back-to-back clicks on Spend in the same React batch call adjustSpellSlot only once', async () => {
-    mockAdjustSlot.mockResolvedValue({ slots: SLOTS });
+    mockAdjustSlot.mockResolvedValue({ level: 1, max: 4, used: 1, remaining: 3 });
     mockGetSheet.mockResolvedValue({ ...BASE_SHEET });
     renderPanel();
 
@@ -228,7 +225,7 @@ describe('SpellSlotsPanel — busy-latch double-submit protection', () => {
 
   it('releases the latch on a failed mutate — a subsequent click tries again', async () => {
     mockAdjustSlot.mockRejectedValueOnce(new Error('network blip'));
-    mockAdjustSlot.mockResolvedValueOnce({ slots: SLOTS });
+    mockAdjustSlot.mockResolvedValueOnce({ level: 1, max: 4, used: 1, remaining: 3 });
     mockGetSheet.mockResolvedValue({ ...BASE_SHEET });
     renderPanel();
 
@@ -245,7 +242,7 @@ describe('SpellSlotsPanel — busy-latch double-submit protection', () => {
   });
 
   it('spend on level 1 and restore on level 2 fired in the same batch share the one ref: only the first dispatch mutates', async () => {
-    mockAdjustSlot.mockResolvedValue({ slots: SLOTS });
+    mockAdjustSlot.mockResolvedValue({ level: 1, max: 4, used: 1, remaining: 3 });
     mockGetSheet.mockResolvedValue({ ...BASE_SHEET });
     renderPanel();
 
@@ -264,9 +261,7 @@ describe('SpellSlotsPanel — busy-latch double-submit protection', () => {
 
 describe('SpellSlotsPanel — refetch failure after a successful mutate (D2 pattern)', () => {
   it('getCharacterSheet throwing after a resolved adjustSpellSlot gets its own warn toast, never onChanged, and releases the latch', async () => {
-    mockAdjustSlot.mockResolvedValue({
-      slots: { '1': { max: 4, used: 2, remaining: 2 }, '2': { max: 2, used: 0, remaining: 2 } },
-    });
+    mockAdjustSlot.mockResolvedValue({ level: 1, max: 4, used: 2, remaining: 2 });
     mockGetSheet.mockRejectedValue(new Error('network blip'));
     const { onChanged } = renderPanel();
 
@@ -307,7 +302,7 @@ describe('Miko adversarial — cross-row busy-latch is a GLOBAL/shared gate, not
 
     expect(restoreL2Btn).toBeDisabled();
 
-    resolveAdjust({ slots: SLOTS });
+    resolveAdjust({ level: 1, max: 4, used: 1, remaining: 3 });
     await flush();
   });
 
@@ -330,7 +325,7 @@ describe('Miko adversarial — cross-row busy-latch is a GLOBAL/shared gate, not
     expect(level1Row).toHaveAttribute('aria-busy', 'true');
     expect(level2Row).toHaveAttribute('aria-busy', 'false');
 
-    resolveAdjust({ slots: SLOTS });
+    resolveAdjust({ level: 1, max: 4, used: 1, remaining: 3 });
     await flush();
   });
 });
@@ -354,7 +349,7 @@ describe('Miko adversarial — malformed spell_slots shape from the sheet (defen
 describe('Miko adversarial — busy-latch releases on error for BOTH spend and restore (not just spend)', () => {
   it('restore: a rejected adjustSpellSlot releases the latch — a subsequent restore click tries again', async () => {
     mockAdjustSlot.mockRejectedValueOnce(new Error('network blip'));
-    mockAdjustSlot.mockResolvedValueOnce({ slots: SLOTS });
+    mockAdjustSlot.mockResolvedValueOnce({ level: 1, max: 4, used: 1, remaining: 3 });
     mockGetSheet.mockResolvedValue({ ...BASE_SHEET });
     // remaining < max on level 2 so Restore is actually enabled (the default
     // SLOTS fixture has level 2 already at max, where Restore is correctly

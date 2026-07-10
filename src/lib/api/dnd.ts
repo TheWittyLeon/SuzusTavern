@@ -6,6 +6,7 @@ import { apiCall } from './client';
 import type {
   AdvanceSceneRequest,
   AdvanceSceneResult,
+  AvailableSpellsResult,
   BindCharacterRequest,
   BindCharacterResult,
   CatalogCounts,
@@ -30,11 +31,13 @@ import type {
   GroundingData,
   HpAdjustResult,
   Inventory,
+  LearnSpellResult,
   NpcActionRequest,
   NpcActionResult,
   OpeningLine,
   OverrideResult,
   Participant,
+  PrepareSpellResult,
   ResolveCheckRequest,
   ResolveCheckResult,
   RollRequest,
@@ -47,6 +50,7 @@ import type {
   SessionStartRequest,
   SetFlagRequest,
   SpellCastRequest,
+  SpellListResult,
   SpellSlotsResult,
   SubmitOverrideRequest,
   SystemDefinition,
@@ -193,25 +197,6 @@ export const adjustHp = (
   );
 
 /**
- * T5 — read a caster's current spell slots.
- * GET /api/dnd/spells/{id}/slots?username=...
- * Not on SpellSlotsPanel's hot path today — the sheet's own `spell_slots`
- * (already carried by getCharacterSheet) is the panel's initial/synced data,
- * so a redundant GET on mount would be wasted. Kept for contract parity with
- * the engine and any future standalone-refresh call site (e.g. a play-screen
- * HUD that doesn't otherwise hold a full sheet).
- */
-export const getSpellSlots = (
-  characterId: string,
-  username: string,
-  signal?: AbortSignal,
-) =>
-  apiCall<SpellSlotsResult>(
-    `/api/dnd/spells/${encodeURIComponent(characterId)}/slots?username=${encodeURIComponent(username)}`,
-    { method: 'GET', signal },
-  );
-
-/**
  * T5 — spend/restore one spell slot at a given level.
  * POST /api/dnd/spells/{id}/slots/adjust
  * `level` must be a real int 1-9 (the proxy rejects bool/non-int per the
@@ -230,6 +215,88 @@ export const adjustSpellSlot = (
   apiCall<SpellSlotsResult>(
     `/api/dnd/spells/${encodeURIComponent(characterId)}/slots/adjust`,
     { method: 'POST', json: { username, level, op }, signal },
+  );
+
+/**
+ * T4 (DDX-11t sheet Spells tab) — the character's own repertoire (cantrips +
+ * known/prepared leveled spells), annotated with current castability.
+ * GET /api/dnd/spells/{id}/list?username=...
+ *
+ * msm-only: 503 reason='msm_disabled' when SUZU_DND_MSM is off (proxy
+ * forwards the engine's 503 verbatim). A non-caster gets a clean 200 with
+ * `is_spellcaster:false` and empty cantrips/spells — never a 4xx.
+ */
+export const getKnownSpells = (
+  characterId: string,
+  username: string,
+  signal?: AbortSignal,
+) =>
+  apiCall<SpellListResult>(
+    `/api/dnd/spells/${encodeURIComponent(characterId)}/list?username=${encodeURIComponent(username)}`,
+    { method: 'GET', signal },
+  );
+
+/**
+ * T4 — the server-computed selection pool: what this character's class+level
+ * may learn/prepare. GET /api/dnd/spells/{id}/available?username=...
+ * `can_learn`/`can_prepare` tell the UI which affordances to offer; a
+ * non-caster gets both false and empty pools, not a 4xx.
+ */
+export const getAvailableSpells = (
+  characterId: string,
+  username: string,
+  signal?: AbortSignal,
+) =>
+  apiCall<AvailableSpellsResult>(
+    `/api/dnd/spells/${encodeURIComponent(characterId)}/available?username=${encodeURIComponent(username)}`,
+    { method: 'GET', signal },
+  );
+
+/**
+ * T4 — add a spell to the repertoire (known casters + wizard spellbook +
+ * cantrips for any caster). POST /api/dnd/spells/{id}/learn.
+ * Count-enforced server-side (over_known_limit / over_cantrip_limit /
+ * over_spellbook_limit / not_on_class_list / already_known / etc — the
+ * engine owns every rule; this wrapper only shapes the request). `source`
+ * defaults to 'class' engine-side when omitted.
+ * Throws ApiError on refusal (400/404/500 per the engine's reason code,
+ * carried in `err.body.data.reason` — apiCall throws whenever the envelope
+ * is {success:false}, so a resolved promise here IS a real success).
+ */
+export const learnSpell = (
+  characterId: string,
+  username: string,
+  slug: string,
+  source?: string,
+  signal?: AbortSignal,
+) =>
+  apiCall<LearnSpellResult>(
+    `/api/dnd/spells/${encodeURIComponent(characterId)}/learn`,
+    {
+      method: 'POST',
+      json: { username, slug, ...(source ? { source } : {}) },
+      signal,
+    },
+  );
+
+/**
+ * T4 — toggle preparation for a prepared/spellbook caster's spell.
+ * POST /api/dnd/spells/{id}/prepare. Count-enforced only when preparing
+ * (unpreparing can only shrink the prepared count). Refused with
+ * 'cannot_prepare_cantrip' for a cantrip slug, 'not_a_prepared_caster' for a
+ * 'known'-kind caster — the engine owns these rules; this wrapper only wires
+ * the hop.
+ */
+export const prepareSpell = (
+  characterId: string,
+  username: string,
+  slug: string,
+  prepared: boolean,
+  signal?: AbortSignal,
+) =>
+  apiCall<PrepareSpellResult>(
+    `/api/dnd/spells/${encodeURIComponent(characterId)}/prepare`,
+    { method: 'POST', json: { username, slug, prepared }, signal },
   );
 
 /** Structured character sheet (ST-054–058). Distinct from getCharacter, which

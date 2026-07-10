@@ -28,6 +28,7 @@ import SuzuDM from '@/components/SuzuDM';
 import InventoryPanel from '@/components/InventoryPanel';
 import HpControl from '@/components/HpControl';
 import SpellSlotsPanel from '@/components/SpellSlotsPanel';
+import SpellbookPanel from '@/components/SpellbookPanel';
 import { ABILITIES, SKILLS } from '@/lib/dnd/helpers';
 import { useSuzuNote } from '@/lib/dnd/useSuzuNote';
 import styles from './CharacterView.module.css';
@@ -346,6 +347,23 @@ export default function CharacterPage() {
                 spellcasting={sheet.spellcasting}
                 spellSlots={sheet.spell_slots}
                 onChanged={setSheet}
+              />
+            </Card>
+          )}
+
+          {/* Spells tab — sheet Spells tab slice (T4 / DDX-11t): browse/learn/
+              prepare the actual repertoire. Separate Card from SpellSlotsPanel
+              above (that one owns numbered slot pips; this one owns WHICH
+              spells the character has) — same is_spellcaster gate, same
+              parent-owns-Card / component-owns-content split, and
+              SpellbookPanel ALSO self-guards on its own isCaster prop. */}
+          {sheet.is_spellcaster && (
+            <Card>
+              <SpellbookPanel
+                characterId={id}
+                username={username ?? ''}
+                isOwner={isOwner}
+                isCaster={sheet.is_spellcaster}
               />
             </Card>
           )}
