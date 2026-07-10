@@ -1,0 +1,53 @@
+/* HpControl — T5 / DDX-09 HP + spell-slots slice. Token-driven; no hardcoded
+ * colors. .hpBar/.hpFill geometry moved verbatim out of
+ * character/[id]/CharacterView.module.css (ST-055) — co-located with the
+ * component that now owns HP rendering, same precedent as InventoryPanel's
+ * item-row move. */
+
+.wrap {
+  margin-top: 12px;
+}
+.hpHead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.hpLabel {
+  font-size: 13px;
+  font-weight: 700;
+}
+.hpNum {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.hpBar {
+  margin-top: 6px;
+  height: 8px;
+  width: min(280px, 100%);
+  border-radius: 99px;
+  background: color-mix(in oklab, var(--ink) 10%, transparent);
+  overflow: hidden;
+}
+.hpFill {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, var(--good), var(--accent));
+}
+.hpControls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.hpInput {
+  flex: 1;
+  min-width: 60px;
+}
+/* Visual error affordance for an invalid amount — a signal beyond the disabled
+   button, for sighted users who don't rely on color alone. */
+.hpInput[aria-invalid='true'] {
+  border-color: var(--bad);
+}

@@ -74,6 +74,19 @@ export interface Inventory { items: InventoryItem[] }
 // Distinct from the loose `Character` above and from the cmd_sheet display string.
 export interface AbilityBlock { score: number; modifier: number }
 export interface SheetSpellSlot { max: number; used: number; remaining: number }
+/** T5 (DDX-09 HP + spell-slots slice) — POST /characters/:id/hp response. */
+export interface HpAdjustResult {
+  current_hp: number;
+  max_hp: number;
+  temp_hp: number;
+  is_down: boolean;
+}
+/** T5 — GET /spells/:id/slots and POST /spells/:id/slots/adjust both resolve
+ *  to this shape: keyed by slot level "1".."9", same per-level shape as the
+ *  sheet's own `spell_slots`. */
+export interface SpellSlotsResult {
+  slots: Record<string, SheetSpellSlot>;
+}
 export interface SheetSpellcasting { ability: string; save_dc: number; attack_bonus: number }
 export interface SheetInventoryItem {
   name: string;

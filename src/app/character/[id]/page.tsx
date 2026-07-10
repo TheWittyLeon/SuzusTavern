@@ -26,6 +26,8 @@ import Pill from '@/components/Pill';
 import Icon from '@/components/Icon';
 import SuzuDM from '@/components/SuzuDM';
 import InventoryPanel from '@/components/InventoryPanel';
+import HpControl from '@/components/HpControl';
+import SpellSlotsPanel from '@/components/SpellSlotsPanel';
 import { ABILITIES, SKILLS } from '@/lib/dnd/helpers';
 import { useSuzuNote } from '@/lib/dnd/useSuzuNote';
 import styles from './CharacterView.module.css';
@@ -120,7 +122,6 @@ export default function CharacterPage() {
     `${sheet.char_class} ${sheet.level}`,
     sheet.subclass || null,
   ].filter(Boolean);
-  const hpPct = sheet.hp.max > 0 ? Math.max(0, Math.min(100, (sheet.hp.current / sheet.hp.max) * 100)) : 0;
   const initial = (sheet.name || '?').charAt(0).toUpperCase();
   const ageHeightLine = [sheet.alignment, sheet.subrace].filter(Boolean).join(' · ');
   // Precomputed to avoid JSX inter-expression whitespace pitfalls.
@@ -175,13 +176,6 @@ export default function CharacterPage() {
               </p>
               <dl className={`mono ${styles.idStats}`}>
                 <div className={styles.idStat}>
-                  <dt style={{ color: 'var(--good)' }}>HP</dt>
-                  <dd>
-                    {sheet.hp.current}/{sheet.hp.max}
-                    {sheet.hp.temp > 0 ? ` (+${sheet.hp.temp})` : ''}
-                  </dd>
-                </div>
-                <div className={styles.idStat}>
                   <dt style={{ color: 'var(--cool-ink)' }}>AC</dt>
                   <dd>{sheet.ac}</dd>
                 </div>
@@ -198,16 +192,15 @@ export default function CharacterPage() {
                   <dd>{sheet.speed} ft</dd>
                 </div>
               </dl>
-              <div
-                className={styles.hpBar}
-                role="meter"
-                aria-label={`Hit points ${sheet.hp.current} of ${sheet.hp.max}`}
-                aria-valuenow={sheet.hp.current}
-                aria-valuemin={0}
-                aria-valuemax={sheet.hp.max}
-              >
-                <span className={styles.hpFill} style={{ width: `${hpPct}%` }} />
-              </div>
+              {/* HP (T5/DDX-09): interactive damage/heal, replaces the old
+                  static HP dt/dd + hpBar (now owned by HpControl). */}
+              <HpControl
+                characterId={id}
+                username={username ?? ''}
+                isOwner={isOwner}
+                hp={sheet.hp}
+                onChanged={setSheet}
+              />
               {sheet.conditions.length > 0 && (
                 <div className={styles.conditions}>
                   {sheet.conditions.map((c) => (
@@ -338,50 +331,22 @@ export default function CharacterPage() {
             <p className={styles.suzuQuote}>&ldquo;{suzuNote}&rdquo;</p>
           </Card>
 
-          {/* Spells (ST-058) — only for casters */}
+          {/* Spells (ST-058, interactive spend/restore — T5/DDX-09) — only
+              for casters. The Card wrapper + is_spellcaster gate stay here
+              (same split as InventoryPanel: parent owns the Card, the
+              component owns the content); SpellSlotsPanel ALSO self-guards
+              on its own isCaster prop, see its header comment. */}
           {sheet.is_spellcaster && (
             <Card>
-              <div className={styles.cardHead}>
-                <h3 className="label" style={{ margin: 0 }}>
-                  Spells
-                  {sheet.spellcasting
-                    ? ` · ${ABILITIES.find((a) => a.key === sheet.spellcasting?.ability)?.abbr.toLowerCase() ?? ''} (DC ${sheet.spellcasting.save_dc})`
-                    : ''}
-                </h3>
-                {sheet.spellcasting && (
-                  <span className={`mono ${styles.castAtk}`}>
-                    atk {signed(sheet.spellcasting.attack_bonus)}
-                  </span>
-                )}
-              </div>
-              {Object.keys(sheet.spell_slots).length === 0 ? (
-                <p className={styles.emptyRow}>No spell slots at this level yet.</p>
-              ) : (
-                <ul className={styles.slotList}>
-                  {Object.entries(sheet.spell_slots)
-                    .sort((a, b) => Number(a[0]) - Number(b[0]))
-                    .map(([lvl, slot]) => (
-                      <li key={lvl} className={styles.slotRow}>
-                        <span className={styles.slotLvl} aria-hidden>
-                          {lvl}
-                        </span>
-                        <span className={styles.slotLabel}>Level {lvl}</span>
-                        <span className={styles.slotPips} aria-label={`${slot.remaining} of ${slot.max} level ${lvl} slots remaining`}>
-                          {Array.from({ length: slot.max }).map((_, i) => (
-                            <span
-                              key={i}
-                              className={`${styles.pip} ${i < slot.remaining ? styles.pipOn : ''}`}
-                              aria-hidden
-                            />
-                          ))}
-                        </span>
-                        <span className={`mono ${styles.slotCount}`}>
-                          {slot.remaining}/{slot.max}
-                        </span>
-                      </li>
-                    ))}
-                </ul>
-              )}
+              <SpellSlotsPanel
+                characterId={id}
+                username={username ?? ''}
+                isOwner={isOwner}
+                isCaster={sheet.is_spellcaster}
+                spellcasting={sheet.spellcasting}
+                spellSlots={sheet.spell_slots}
+                onChanged={setSheet}
+              />
             </Card>
           )}
 

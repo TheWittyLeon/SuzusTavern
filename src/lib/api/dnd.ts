@@ -28,6 +28,7 @@ import type {
   EngineSessionEvent,
   GameSystem,
   GroundingData,
+  HpAdjustResult,
   Inventory,
   NpcActionRequest,
   NpcActionResult,
@@ -46,6 +47,7 @@ import type {
   SessionStartRequest,
   SetFlagRequest,
   SpellCastRequest,
+  SpellSlotsResult,
   SubmitOverrideRequest,
   SystemDefinition,
   WriteSessionEventRequest,
@@ -164,6 +166,70 @@ export const giveItem = (
       json: { username, item_name: itemName, ...(quantity != null ? { quantity } : {}) },
       signal,
     },
+  );
+
+/**
+ * T5 (DDX-09 HP + spell-slots slice) — adjust a character's HP.
+ * POST /api/dnd/characters/{id}/hp
+ * `op` is 'damage' | 'heal' | 'set_temp'; `amount` must be a non-negative
+ * int (the proxy rejects a bool/NaN/non-int — callers must guard before
+ * calling, see HpControl's `amountValid`). Returns the FULL post-mutation HP
+ * state — current_hp/max_hp/temp_hp/is_down — so callers can update the HP
+ * bar immediately without waiting on a refetch; HpControl still refetches
+ * via getCharacterSheet afterward to keep every other derived sheet field
+ * (e.g. conditions) in sync, mirroring InventoryPanel's
+ * refetch-after-mutate convention.
+ */
+export const adjustHp = (
+  characterId: string,
+  username: string,
+  op: 'damage' | 'heal' | 'set_temp',
+  amount: number,
+  signal?: AbortSignal,
+) =>
+  apiCall<HpAdjustResult>(
+    `/api/dnd/characters/${encodeURIComponent(characterId)}/hp`,
+    { method: 'POST', json: { username, op, amount }, signal },
+  );
+
+/**
+ * T5 — read a caster's current spell slots.
+ * GET /api/dnd/spells/{id}/slots?username=...
+ * Not on SpellSlotsPanel's hot path today — the sheet's own `spell_slots`
+ * (already carried by getCharacterSheet) is the panel's initial/synced data,
+ * so a redundant GET on mount would be wasted. Kept for contract parity with
+ * the engine and any future standalone-refresh call site (e.g. a play-screen
+ * HUD that doesn't otherwise hold a full sheet).
+ */
+export const getSpellSlots = (
+  characterId: string,
+  username: string,
+  signal?: AbortSignal,
+) =>
+  apiCall<SpellSlotsResult>(
+    `/api/dnd/spells/${encodeURIComponent(characterId)}/slots?username=${encodeURIComponent(username)}`,
+    { method: 'GET', signal },
+  );
+
+/**
+ * T5 — spend/restore one spell slot at a given level.
+ * POST /api/dnd/spells/{id}/slots/adjust
+ * `level` must be a real int 1-9 (the proxy rejects bool/non-int per the
+ * DDX-09 handoff) — SpellSlotsPanel only ever sends `Number(lvl)` off the
+ * rendered slot-level keys, never a user-typed value, so this is enforced by
+ * construction rather than a runtime guard here. Returns the updated slots
+ * for the SAME shape as getSpellSlots.
+ */
+export const adjustSpellSlot = (
+  characterId: string,
+  username: string,
+  level: number,
+  op: 'spend' | 'restore',
+  signal?: AbortSignal,
+) =>
+  apiCall<SpellSlotsResult>(
+    `/api/dnd/spells/${encodeURIComponent(characterId)}/slots/adjust`,
+    { method: 'POST', json: { username, level, op }, signal },
   );
 
 /** Structured character sheet (ST-054–058). Distinct from getCharacter, which

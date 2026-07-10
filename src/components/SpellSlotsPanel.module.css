@@ -1,0 +1,91 @@
+/* SpellSlotsPanel — T5 / DDX-09 HP + spell-slots slice. Token-driven; no
+ * hardcoded colors. Slot-row styling moved verbatim out of
+ * character/[id]/CharacterView.module.css (ST-058) — co-located with the
+ * component that now owns spell-slot rendering, same precedent as
+ * InventoryPanel's item-row move. .cardHead/.emptyRow are duplicated
+ * (component-scoped CSS Modules, not shared) — same precedent as
+ * InventoryPanel.module.css. */
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.emptyRow {
+  font-size: 13px;
+  color: var(--ink-3);
+  font-style: italic;
+}
+.castAtk {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.slotList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.slotRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line-2);
+  flex-wrap: wrap;
+}
+.slotRow:last-child {
+  border-bottom: 0;
+}
+.slotLvl {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--accent-2) 12%, transparent);
+  color: var(--accent-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+}
+.slotLabel {
+  flex: 1;
+  min-width: 70px;
+  font-size: 13px;
+  color: var(--ink);
+}
+.slotPips {
+  display: flex;
+  gap: 4px;
+}
+.pip {
+  width: 9px;
+  height: 9px;
+  border-radius: 99px;
+  border: 1.5px solid var(--accent-2);
+  background: transparent;
+}
+.pipOn {
+  background: var(--accent-2);
+}
+.slotCount {
+  font-size: 12px;
+  color: var(--ink-2);
+  min-width: 32px;
+  text-align: right;
+}
+
+/* ── Spend/restore controls ──────────────────────────────────────────────── */
+.slotBtns {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.slotBtn {
+  font-size: 12px;
+  padding: 4px 10px;
+}
