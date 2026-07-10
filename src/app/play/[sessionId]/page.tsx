@@ -73,6 +73,7 @@ import { streamDmNarration } from '@/lib/stream';
 import { eventToLogRow, formatEventTimestamp as formatOpeningTimestamp } from '@/lib/rehydration';
 import { matchKeywordIntent } from '@/lib/dnd/intentFastPath';
 import type {
+  CharacterSheet,
   CombatParticipantState,
   CombatState,
   EndCombatOutcome,
@@ -87,6 +88,7 @@ import Icon from '@/components/Icon';
 import Pill from '@/components/Pill';
 import PageSkeleton from '@/components/PageSkeleton';
 import NarratorStrip from '@/components/NarratorStrip';
+import CastSpellPanel from '@/components/CastSpellPanel';
 import SessionRecap from '@/components/SessionRecap';
 import ChatLog, { type ChatLogHandle, type LogRow } from '@/components/ChatLog';
 import PartyPanel from '@/components/PartyPanel';
@@ -284,6 +286,13 @@ export default function PlayPage() {
   // B1-4: the logged-in user's bound character_id (stringified) for per-user
   // turn resolution. Populated from the participants endpoint on load + on rebind.
   const [myCharacterIdStr, setMyCharacterIdStr] = useState<string | null>(null);
+
+  // T6 (DDX-12): the bound character's own sheet, needed for CastSpellPanel
+  // (is_spellcaster gate + spell_slots for the upcast range / live pips).
+  // Populated by the same getCharacterSheet call that already builds
+  // quickChecks below; refreshed by CastSpellPanel itself after a successful
+  // cast (onSheetChanged), mirroring SpellSlotsPanel's onChanged contract.
+  const [mySheet, setMySheet] = useState<CharacterSheet | null>(null);
 
   // B3-1: outcome chooser state (null = chooser closed).
   const [outcomeChooserOpen, setOutcomeChooserOpen] = useState(false);
@@ -572,6 +581,10 @@ export default function PlayPage() {
           getCharacterSheet(boundCharId, username, ctrl.signal)
             .then((sheet) => {
               if (ctrl.signal.aborted) return;
+              // T6 (DDX-12): stash the whole sheet regardless of the
+              // quick-checks branch below — CastSpellPanel needs
+              // is_spellcaster + spell_slots even for a sheet with no skills.
+              setMySheet(sheet);
               if (!sheet?.skills?.length) {
                 setQuickChecks([]);
                 return;
@@ -601,8 +614,9 @@ export default function PlayPage() {
               if (!ctrl.signal.aborted) setQuickChecks([]);
             });
         } else {
-          // DM-only or no character bound: hide quick-checks.
+          // DM-only or no character bound: hide quick-checks + CastSpellPanel.
           setQuickChecks([]);
+          setMySheet(null);
         }
 
         // If there's an active combat, fetch its state immediately.
@@ -2542,6 +2556,37 @@ export default function PlayPage() {
             }}
           />
         )}
+        {/* T6 (DDX-12): cast-in-combat picker — bound caster only, during active
+            combat. Mirrors DmNarrationPanel's mount gate immediately above (same
+            spot in the layout, mutually exclusive: a human DM sees the monster
+            panel, a caster PC sees this). Disabled (not hidden) off-turn, same
+            convention as the ActionRail inside Composer below. */}
+        {!isHumanDM &&
+          combatIsActive &&
+          combatState &&
+          combatId &&
+          myCharacterIdStr &&
+          mySheet?.is_spellcaster && (
+            <CastSpellPanel
+              combatId={combatId}
+              characterId={myCharacterIdStr}
+              username={username ?? ''}
+              participants={combatState.participants}
+              spellSlots={mySheet.spell_slots}
+              isPlayerTurn={isPlayerTurn}
+              disabled={combatBusy || sessionLocked}
+              onCast={(text) => appendLog({ who: username ?? 'you', kind: 'system', text })}
+              onSheetChanged={setMySheet}
+              onStateRefresh={async () => {
+                const cs = await getCombatState(combatId).catch(() => null);
+                if (cs) {
+                  stateSeqRef.current += 1;
+                  setCombatState(cs);
+                }
+              }}
+              onBusyChange={setCombatBusy}
+            />
+          )}
         <Composer
           value={msg}
           onChange={setMsg}

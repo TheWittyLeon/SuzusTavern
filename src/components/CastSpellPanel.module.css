@@ -1,0 +1,93 @@
+/* CastSpellPanel — T6 (DDX-12 cast-in-combat UI). Token-driven; no hardcoded
+   colors. Mirrors DmNarrationPanel's .panel/.panelLabel border-top separator
+   convention (both mount just above the Composer during active combat) and
+   DmOverrideModal's .field/.select shapes. */
+
+.panel {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.panelLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin: 0;
+}
+
+.emptyRow {
+  font-size: 13px;
+  color: var(--ink-3);
+  font-style: italic;
+  margin: 0;
+}
+
+.row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 130px;
+  flex: 1 1 130px;
+}
+
+.fieldLabel {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.select {
+  height: 38px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: color-mix(in oklab, var(--ink) 3%, transparent);
+  color: var(--ink);
+  font-size: 13px;
+  cursor: pointer;
+  appearance: auto;
+}
+/* Touch-target floor on the mobile / single-pane layout (matches the app's
+   44px convention; the Cast button gets this via .btn, the bespoke selects
+   don't otherwise). */
+@media (max-width: 880px) {
+  .select {
+    min-height: 44px;
+  }
+}
+
+.select:focus {
+  outline: none;
+  border-color: var(--accent-2);
+  box-shadow: 0 0 0 2px var(--accent-2);
+}
+
+.select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.castBtn {
+  flex-shrink: 0;
+  height: 38px;
+}
+
+.notYourTurn {
+  font-size: 12px;
+  color: var(--ink-3);
+  margin: 0;
+}
