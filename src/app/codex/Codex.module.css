@@ -222,6 +222,19 @@
   flex-direction: column;
   gap: 12px;
   min-width: 0;
+  /* UIR2-TAV-6: bound the whole list column to the same viewport-relative
+     cap .drawer already uses below (max-height: calc(100vh - 140px)). With
+     ~319 rows in the largest catalog kind (spells) and no height limit
+     here, .rows used to grow this column — and therefore the whole grid
+     row .drawer's own sticky containing block sits in — to 20,000-36,000px,
+     so the sticky drawer only stayed pinned for a fraction of that scroll
+     before detaching, with a long "dead" scroll tail below the last row.
+     .rows becomes its own internal scroll region (flex/min-height:0/
+     overflow-y:auto below) so .listHead stays put and only the row list
+     scrolls — same bounded-region shape as ChatLog.module.css's .log and
+     Play.module.css's transcript pane. */
+  max-height: calc(100vh - 140px);
+  overflow: hidden;
 }
 .listHead {
   display: flex;
@@ -230,6 +243,7 @@
   padding: 0 4px;
   font-size: 13px;
   color: var(--ink-2);
+  flex-shrink: 0;
 }
 .listHead b {
   color: var(--ink);
@@ -240,6 +254,17 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
+  /* UIR2-TAV-6: the actual scroll region. A native scrollable listbox is
+     the expected APG shape for a long list, not a deviation — the existing
+     roving/virtual-focus nav (onListboxKeyDown, page.tsx) already calls
+     scrollIntoView on every arrow/Home/End/typeahead move. */
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* 2px horizontal clearance so .rowFocused's outward focus ring (outline +
+     2px offset) isn't shaved at this scroll container's clipping edge
+     (Iro-A11y / Miko-QA follow-up on the new overflow). */
+  padding: 0 2px;
 }
 
 .row {
@@ -258,6 +283,20 @@
   overflow: hidden;
   transition: transform var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
     background var(--dur-fast) var(--ease);
+  /* UIR2-TAV-6: skip layout/paint for rows scrolled out of .rows' own
+     viewport (render perf on ~319-row lists, no virtualization dependency)
+     — content-visibility:auto only has an off-screen window to skip because
+     .rows above is now a real scroll container. contain-intrinsic-size
+     reserves a placeholder block-size (~78px: 2x12px .rowSpine padding +
+     an 18px icon, the tallest single-line column) so scrollbar geometry
+     stays stable before a row has ever been laid out; the leading "auto"
+     remembers each row's REAL height after its first paint, so a wrapped
+     multi-chip row still ends up its true size. Safe with the existing
+     aria-activedescendant nav: scrollRowIntoView (page.tsx) calls
+     scrollIntoView on every focus move, which the spec guarantees un-skips
+     the target row synchronously. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 78px;
 }
 .row:hover {
   transform: translateY(-1px);

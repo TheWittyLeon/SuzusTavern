@@ -99,3 +99,56 @@ describe('Codex.module.css — .drawer hidden below 1280px, override AFTER base 
     expect(mediaIdx).toBeGreaterThan(baseIdx);
   });
 });
+
+describe('Codex.module.css — .rows is a bounded internal scroll region, not the window (UIR2-TAV-6)', () => {
+  // Before this fix .list/.rows had no height cap at all: a ~319-row catalog
+  // (spells) grew the whole center column to 20,000-36,000px, which also grew
+  // the CSS Grid row track .drawer's sticky containing block sits in, so the
+  // drawer only stayed pinned for a fraction of the page's scroll. Real
+  // layout/scroll geometry (which element actually receives scrollIntoView,
+  // whether the drawer stays pinned) is not observable in jsdom — see this
+  // file's header comment — so this guards the CSS *shape* the live-browser
+  // verify already confirmed produces the right runtime behavior, the same
+  // pattern the two describe blocks above use for the .rail/.drawer fixes.
+  let cssContent: string;
+
+  beforeAll(() => {
+    cssContent = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/app/codex/Codex.module.css'),
+      'utf8',
+    );
+  });
+
+  function ruleBlock(selector: string): string {
+    const start = cssContent.indexOf(`${selector} {`);
+    expect(start).toBeGreaterThan(-1);
+    const end = cssContent.indexOf('\n}', start);
+    return cssContent.slice(start, end);
+  }
+
+  it('.list caps its own height and clips — the same viewport-relative budget .drawer already uses, which keeps the shared CSS Grid row track (and therefore .drawer\'s sticky containing block) bounded', () => {
+    const block = ruleBlock('.list');
+    expect(block).toContain('max-height: calc(100vh - 140px)');
+    expect(block).toContain('overflow: hidden');
+  });
+
+  it('.listHead never shrinks, so the result count stays pinned above the scrolling rows', () => {
+    expect(ruleBlock('.listHead')).toContain('flex-shrink: 0');
+  });
+
+  it('.rows (the role="listbox" element scrollRowIntoView targets) is the actual bounded scroll region — not .list itself, which must stay non-scrolling to avoid nested/duplicate scrollbars for the same content', () => {
+    const rows = ruleBlock('.rows');
+    expect(rows).toContain('flex: 1');
+    expect(rows).toContain('min-height: 0');
+    expect(rows).toContain('overflow-y: auto');
+    const list = ruleBlock('.list');
+    expect(list).not.toContain('overflow-y: auto');
+    expect(list).not.toContain('overflow: auto');
+  });
+
+  it('.row uses content-visibility:auto with a remembered-size ("auto <length>") placeholder, not a bare fixed size that would freeze wrapped multi-chip rows at the wrong height', () => {
+    const block = ruleBlock('.row');
+    expect(block).toContain('content-visibility: auto');
+    expect(block).toMatch(/contain-intrinsic-size:\s*auto\s+\d+px/);
+  });
+});
