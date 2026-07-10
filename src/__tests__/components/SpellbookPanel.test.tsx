@@ -656,6 +656,90 @@ describe('SpellbookPanel — REN fix 2: engine refusal reason mapping', () => {
   });
 });
 
+describe('SpellbookPanel — Iro a11y follow-up (tablist keyboard nav + focus restore)', () => {
+  it('ArrowRight on the tablist moves selection AND keyboard focus from Known to Browse (roving tabindex, mirrors Composer)', async () => {
+    mockGetKnown.mockResolvedValue(KNOWN_WIZARD);
+    mockGetAvailable.mockResolvedValue(AVAILABLE_WIZARD);
+    renderPanel();
+    await flush();
+
+    const knownTab = screen.getByRole('tab', { name: 'Known' });
+    knownTab.focus();
+    expect(knownTab).toHaveAttribute('aria-selected', 'true');
+
+    fireEvent.keyDown(knownTab, { key: 'ArrowRight' });
+    await flush();
+
+    const browseTab = screen.getByRole('tab', { name: 'Browse' });
+    expect(browseTab).toHaveAttribute('aria-selected', 'true');
+    expect(browseTab).toHaveFocus();
+    expect(knownTab).toHaveAttribute('tabIndex', '-1');
+  });
+
+  it('ArrowLeft from Browse wraps back around to Known (Home/End style cycling)', async () => {
+    mockGetKnown.mockResolvedValue(KNOWN_WIZARD);
+    mockGetAvailable.mockResolvedValue(AVAILABLE_WIZARD);
+    renderPanel();
+    await flush();
+    fireEvent.click(screen.getByRole('tab', { name: 'Browse' }));
+    await flush();
+
+    const browseTab = screen.getByRole('tab', { name: 'Browse' });
+    browseTab.focus();
+    fireEvent.keyDown(browseTab, { key: 'ArrowLeft' });
+    await flush();
+
+    const knownTab = screen.getByRole('tab', { name: 'Known' });
+    expect(knownTab).toHaveAttribute('aria-selected', 'true');
+    expect(knownTab).toHaveFocus();
+  });
+
+  it('tab buttons and panels are ARIA-linked via id/aria-controls/aria-labelledby (no more plain panel aria-label)', async () => {
+    mockGetKnown.mockResolvedValue(KNOWN_WIZARD);
+    renderPanel();
+    await flush();
+
+    const knownTab = screen.getByRole('tab', { name: 'Known' });
+    const knownPanel = screen.getByRole('tabpanel');
+    expect(knownTab).toHaveAttribute('id', 'spellbook-tab-known');
+    expect(knownTab).toHaveAttribute('aria-controls', 'spellbook-panel-known');
+    expect(knownPanel).toHaveAttribute('id', 'spellbook-panel-known');
+    expect(knownPanel).toHaveAttribute('aria-labelledby', 'spellbook-tab-known');
+    expect(knownPanel).not.toHaveAttribute('aria-label');
+  });
+
+  it('focus is restored to the spell row (not stranded at body) after a successful Learn on Browse', async () => {
+    mockGetKnown.mockResolvedValue(KNOWN_WIZARD);
+    mockGetAvailable.mockResolvedValue(AVAILABLE_WIZARD);
+    mockLearn.mockResolvedValue({ learned: true, budget: BUDGET });
+    renderPanel();
+    await flush();
+    fireEvent.click(screen.getByRole('tab', { name: 'Browse' }));
+    await flush();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Learn Sleep' }));
+    await flush();
+
+    // The Learn button unmounts once Sleep becomes in_repertoire (refetch
+    // swaps it for a Prepare button) — the stable target is the <li> row.
+    const sleepRow = screen.getByText('Sleep').closest('li');
+    expect(sleepRow).toHaveFocus();
+  });
+
+  it('focus is restored to the spell row after a successful Prepare on the Known tab', async () => {
+    mockGetKnown.mockResolvedValue(KNOWN_WIZARD);
+    mockPrepare.mockResolvedValue({ prepared: true, prepared_used: 2, prepared_max: 3 });
+    renderPanel();
+    await flush();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare Shield' }));
+    await flush();
+
+    const shieldRow = screen.getByText('Shield').closest('li');
+    expect(shieldRow).toHaveFocus();
+  });
+});
+
 describe('SpellbookPanel — REN fix 3: Browse Prepare requires in_repertoire', () => {
   it('an un-learned wizard spell (in_repertoire:false) shows Learn but never a Prepare/Unprepare button on Browse', async () => {
     mockGetKnown.mockResolvedValue(KNOWN_WIZARD);

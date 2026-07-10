@@ -165,6 +165,29 @@ export default function SpellbookPanel({
   /** Synchronous double-submit latch — see InventoryPanel's header comment. */
   const mutationBusyRef = useRef(false);
 
+  // A11Y (Iro CRITICAL-1/MAJOR-2): roving-tabindex refs for the tab buttons
+  // (indexed by tabOrder position, mirrors Composer.tsx's mode tablist) and
+  // per-panel refs for the MODERATE-1 focus-on-open behavior below.
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const knownPanelRef = useRef<HTMLDivElement>(null);
+  const browsePanelRef = useRef<HTMLDivElement>(null);
+  const panelRefs = { known: knownPanelRef, browse: browsePanelRef } as const;
+  const tabOrder: Tab[] = isOwner ? ['known', 'browse'] : ['known'];
+  const TAB_LABEL: Record<Tab, string> = { known: 'Known', browse: 'Browse' };
+
+  // A11Y (Iro MAJOR-3): focus-restore target after a Learn/Prepare mutate —
+  // the disabled-while-busy button either re-enables in place (Known tab) or
+  // unmounts entirely (Browse Learn -> Prepare swap), so the <li> itself,
+  // not the button, is the reliable thing to refocus. Keyed by slug; only
+  // one of Known/Browse is ever mounted at a time so key collisions are moot.
+  const rowRefs = useRef<Map<string, HTMLLIElement | null>>(new Map());
+  function setRowRef(slug: string) {
+    return (el: HTMLLIElement | null) => {
+      if (el) rowRefs.current.set(slug, el);
+      else rowRefs.current.delete(slug);
+    };
+  }
+
   /**
    * `silent` distinguishes the two callers: a plain mount/tab-open load shows
    * its own loading spinner and flips to an 'error' empty-state on failure
@@ -231,6 +254,12 @@ export default function SpellbookPanel({
     if (next === 'browse' && (availableState === 'idle' || availableState === 'error')) {
       void loadAvailable();
     }
+    // A11Y (Iro MODERATE-1): move focus onto the panel so its aria-live
+    // loading/error/empty announcements land somewhere perceivable. The
+    // keyboard arrow-key handler below re-focuses the tab button afterward,
+    // which wins for that path (Composer's own tablist convention); this is
+    // the resting focus for a plain tab click.
+    panelRefs[next].current?.focus();
   }
 
   /** Shared refetch-after-mutate: always re-pull Known (its budget/entries
@@ -272,6 +301,10 @@ export default function SpellbookPanel({
       mutationBusyRef.current = false;
       setBusy(false);
       setBusyKey(null);
+      // A11Y (Iro MAJOR-3): the button this click came from is either
+      // re-enabling in place or unmounting (Browse Learn -> Prepare swap) —
+      // refocus the stable row instead of letting focus strand at <body>.
+      rowRefs.current.get(slug)?.focus();
     }
   }
 
@@ -304,6 +337,8 @@ export default function SpellbookPanel({
       mutationBusyRef.current = false;
       setBusy(false);
       setBusyKey(null);
+      // A11Y (Iro MAJOR-3): see handleLearn's matching comment.
+      rowRefs.current.get(slug)?.focus();
     }
   }
 
@@ -324,33 +359,62 @@ export default function SpellbookPanel({
         className={styles.tabs}
         role="tablist"
         aria-label="Spellbook view"
+        onKeyDown={(e) => {
+          // A11Y (Iro CRITICAL-1): arrow-key roving tabindex, mirrors
+          // Composer.tsx's mode tablist exactly (ArrowLeft/Right cycle,
+          // Home/End jump to the ends).
+          const idx = tabOrder.indexOf(tab);
+          let next = idx;
+          if (e.key === 'ArrowRight') {
+            e.preventDefault();
+            next = (idx + 1) % tabOrder.length;
+          } else if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            next = (idx - 1 + tabOrder.length) % tabOrder.length;
+          } else if (e.key === 'Home') {
+            e.preventDefault();
+            next = 0;
+          } else if (e.key === 'End') {
+            e.preventDefault();
+            next = tabOrder.length - 1;
+          }
+          if (next !== idx) {
+            openTab(tabOrder[next]);
+            // Move focus to the newly-active tab, not just the selection —
+            // this runs after openTab's own panel-focus call above, so it
+            // wins for the keyboard path.
+            tabRefs.current[next]?.focus();
+          }
+        }}
       >
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'known'}
-          tabIndex={tab === 'known' ? 0 : -1}
-          className={tab === 'known' ? `${styles.tab} ${styles.tabOn}` : styles.tab}
-          onClick={() => openTab('known')}
-        >
-          Known
-        </button>
-        {isOwner && (
+        {tabOrder.map((k, i) => (
           <button
+            key={k}
+            ref={(el) => {
+              tabRefs.current[i] = el;
+            }}
             type="button"
             role="tab"
-            aria-selected={tab === 'browse'}
-            tabIndex={tab === 'browse' ? 0 : -1}
-            className={tab === 'browse' ? `${styles.tab} ${styles.tabOn}` : styles.tab}
-            onClick={() => openTab('browse')}
+            id={`spellbook-tab-${k}`}
+            aria-controls={`spellbook-panel-${k}`}
+            aria-selected={tab === k}
+            tabIndex={tab === k ? 0 : -1}
+            className={tab === k ? `${styles.tab} ${styles.tabOn}` : styles.tab}
+            onClick={() => openTab(k)}
           >
-            Browse
+            {TAB_LABEL[k]}
           </button>
-        )}
+        ))}
       </div>
 
       {tab === 'known' && (
-        <div role="tabpanel" aria-label="Known spells">
+        <div
+          ref={knownPanelRef}
+          role="tabpanel"
+          id="spellbook-panel-known"
+          aria-labelledby="spellbook-tab-known"
+          tabIndex={-1}
+        >
           {knownState === 'loading' && !known && (
             <p className={styles.emptyRow} aria-busy="true">
               Loading spellbook…
@@ -370,7 +434,12 @@ export default function SpellbookPanel({
                       <p className={styles.levelHead}>Cantrips</p>
                       <ul className={styles.spellList}>
                         {known.cantrips.map((s) => (
-                          <li key={s.slug} className={styles.spellRow}>
+                          <li
+                            key={s.slug}
+                            ref={setRowRef(s.slug)}
+                            className={styles.spellRow}
+                            tabIndex={-1}
+                          >
                             <span className={styles.spellName}>{s.name}</span>
                             <span className={`mono ${styles.spellSchool}`}>{s.school}</span>
                           </li>
@@ -386,7 +455,13 @@ export default function SpellbookPanel({
                           const key = `prepare:${s.slug}`;
                           const rowBusy = busy && busyKey === key;
                           return (
-                            <li key={s.slug} className={styles.spellRow} aria-busy={rowBusy}>
+                            <li
+                              key={s.slug}
+                              ref={setRowRef(s.slug)}
+                              className={styles.spellRow}
+                              aria-busy={rowBusy}
+                              tabIndex={-1}
+                            >
                               <span className={styles.spellName}>
                                 {s.name}
                                 {s.prepared && (
@@ -423,14 +498,20 @@ export default function SpellbookPanel({
       )}
 
       {tab === 'browse' && isOwner && (
-        <div role="tabpanel" aria-label="Browse spells">
+        <div
+          ref={browsePanelRef}
+          role="tabpanel"
+          id="spellbook-panel-browse"
+          aria-labelledby="spellbook-tab-browse"
+          tabIndex={-1}
+        >
           {availableState === 'loading' && !available && (
-            <p className={styles.emptyRow} aria-busy="true">
+            <p className={styles.emptyRow} aria-busy="true" aria-live="polite" aria-atomic="true">
               Loading available spells…
             </p>
           )}
           {availableState === 'error' && (
-            <p className={styles.emptyRow}>
+            <p className={styles.emptyRow} aria-live="polite" aria-atomic="true">
               Couldn&rsquo;t load available spells.{' '}
               <Button
                 variant="ghost"
@@ -446,7 +527,9 @@ export default function SpellbookPanel({
             <>
               {available.cantrips.length === 0 &&
               Object.values(available.by_level).every((l) => l.length === 0) ? (
-                <p className={styles.emptyRow}>Nothing left to learn at your level.</p>
+                <p className={styles.emptyRow} aria-live="polite" aria-atomic="true">
+                  Nothing left to learn at your level.
+                </p>
               ) : (
                 <>
                   {available.cantrips.length > 0 && (
@@ -459,6 +542,7 @@ export default function SpellbookPanel({
                       busyKey={busyKey}
                       onLearn={handleLearn}
                       onPrepare={handlePrepare}
+                      setRowRef={setRowRef}
                     />
                   )}
                   {Object.entries(available.by_level)
@@ -475,6 +559,7 @@ export default function SpellbookPanel({
                           busyKey={busyKey}
                           onLearn={handleLearn}
                           onPrepare={handlePrepare}
+                          setRowRef={setRowRef}
                         />
                       ),
                     )}
@@ -497,6 +582,9 @@ interface BrowseLevelGroupProps {
   busyKey: string | null;
   onLearn: (slug: string, name: string) => void;
   onPrepare: (slug: string, name: string, prepared: boolean) => void;
+  /** A11Y (Iro MAJOR-3): row-focus-restore target, shared with the parent's
+   *  rowRefs Map — see SpellbookPanel's header comment. */
+  setRowRef: (slug: string) => (el: HTMLLIElement | null) => void;
 }
 
 function BrowseLevelGroup({
@@ -508,6 +596,7 @@ function BrowseLevelGroup({
   busyKey,
   onLearn,
   onPrepare,
+  setRowRef,
 }: BrowseLevelGroupProps) {
   return (
     <div>
@@ -520,7 +609,13 @@ function BrowseLevelGroup({
           const prepareBusy = busy && busyKey === prepareKey;
           const rowBusy = learnBusy || prepareBusy;
           return (
-            <li key={s.slug} className={styles.spellRow} aria-busy={rowBusy}>
+            <li
+              key={s.slug}
+              ref={setRowRef(s.slug)}
+              className={styles.spellRow}
+              aria-busy={rowBusy}
+              tabIndex={-1}
+            >
               <span className={styles.spellName}>
                 {s.name}
                 {s.in_repertoire && (

@@ -1141,7 +1141,7 @@ function SpellsStep({
 
   if (!characterId || fetchState === 'loading') {
     return (
-      <p className={styles.spellHint} aria-busy="true">
+      <p className={styles.spellHint} aria-busy="true" aria-live="polite">
         Setting up your spellbook…
       </p>
     );
@@ -1149,7 +1149,7 @@ function SpellsStep({
 
   if (fetchState === 'error' || !available) {
     return (
-      <p className={styles.spellHint}>
+      <p className={styles.spellHint} role="alert">
         Suzu couldn&rsquo;t load your class&rsquo;s spell list right now — that&rsquo;s all
         right, you can pick your starting spells from the character sheet once it&rsquo;s
         created instead.
@@ -1186,7 +1186,12 @@ function SpellsStep({
             onChange={() => toggle(picked, onChange, s.slug, cap)}
           />
           <span className={styles.spellRowName}>{s.name}</span>
-          <span className={`mono ${styles.spellRowSchool}`}>{s.school}</span>
+          {/* Iro MINOR-1: hide the school from the checkbox's accessible name —
+           * without this a screen reader announces "Fire Bolt evocation" as
+           * the label instead of just the spell name. */}
+          <span className={`mono ${styles.spellRowSchool}`} aria-hidden="true">
+            {s.school}
+          </span>
         </label>
       </li>
     );

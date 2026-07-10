@@ -478,6 +478,7 @@
   min-height: 44px; /* WCAG 2.5.8 touch target */
   padding: 6px 2px;
   cursor: pointer;
+  flex-wrap: wrap;
 }
 .spellRowLabel:has(input:disabled) {
   cursor: not-allowed;
