@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth/AuthProvider';
+import { useAuthGate } from '@/lib/auth/useAuthGate';
 import { useToast } from '@/components/Toast';
 import { createSession, getCatalog, listMyCharacters } from '@/lib/api/dnd';
 import type { AdventureCatalogItem, Character, ContentRating, DmMode, Visibility } from '@/lib/api/types';
@@ -469,6 +470,16 @@ export default function ModulesPage() {
   useEffect(() => {
     if (status === 'error') retryRef.current?.focus();
   }, [status]);
+
+  // UIR2-TAV-3: this page previously had NO auth gate at all — it rendered
+  // <TavernShell> unconditionally, so TavernShell's own useAuth() call could
+  // see a null user (resolving, or a failed silent refresh) and UserMenu's
+  // `?? 'Adventurer'` fallback would surface as if it were a real identity.
+  const gate = useAuthGate({
+    skeleton: <PageSkeleton variant="card" lines={4} />,
+    label: 'Loading adventures',
+  });
+  if (gate) return gate;
 
   return (
     <TavernShell active="modules" title="Start a campaign">

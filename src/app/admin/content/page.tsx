@@ -14,6 +14,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuthGate } from '@/lib/auth/useAuthGate';
 import TavernShell from '@/components/TavernShell';
 import Button from '@/components/Button';
 import Pill from '@/components/Pill';
@@ -149,19 +150,20 @@ function QueueCardList({ items }: { items: ContentDraftListItem[] }) {
 
 export default function AdminContentQueuePage() {
   const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
+  const { user } = useAuth();
   const [queueState, setQueueState] = useState<QueueState>({ status: 'loading' });
   const [packFilter, setPackFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
   const [retryKey, setRetryKey] = useState(0);
 
-  // Client-side admin gate: redirect non-admin sessions to /dashboard.
-  // The real gate is server-side in the proxy; this is UX only.
+  // Admin-role gate: redirect authenticated-but-non-admin sessions to
+  // /dashboard. The real gate is server-side in the proxy; this is UX only.
+  // Auth itself (unauthenticated / resolving / failed refresh) is handled by
+  // useAuthGate below (UIR2-TAV-3) — this effect only runs the ROLE check,
+  // and only once a real user is present.
   useEffect(() => {
-    if (authLoading) return;
-    if (!user) { router.replace('/login'); return; }
-    if (!user.roles?.includes('admin')) { router.replace('/dashboard'); return; }
-  }, [user, authLoading, router]);
+    if (user && !user.roles?.includes('admin')) router.replace('/dashboard');
+  }, [user, router]);
 
   // Fetch queue data. Initial 'loading' state comes from the useState initializer.
   // Subsequent fetches (retry) flip back to loading via the retry callback before
@@ -218,9 +220,15 @@ export default function AdminContentQueuePage() {
 
   const pendingCount = queueState.status === 'success' ? queueState.total : 0;
 
-  if (authLoading || (!user?.roles?.includes('admin') && !authLoading)) {
-    return null; // Wait for auth or redirect
-  }
+  // Resolving (silent refresh) → bounded skeleton; failed refresh → re-auth
+  // prompt; genuinely logged out → redirect to /login (UIR2-TAV-3).
+  const gate = useAuthGate({
+    skeleton: <PageSkeleton variant="list" lines={8} />,
+    label: 'Loading the review queue',
+  });
+  if (gate) return gate;
+  if (!user) return null; // narrows for TS — useAuthGate already guarantees this
+  if (!user.roles?.includes('admin')) return null; // role-redirect effect above is in flight
 
   return (
     <ToastProvider>

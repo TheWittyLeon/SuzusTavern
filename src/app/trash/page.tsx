@@ -19,8 +19,8 @@
  * an error screen.
  */
 import { useCallback, useEffect, useRef, useState, type Ref } from 'react';
-import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth/AuthProvider';
+import { useAuthGate } from '@/lib/auth/useAuthGate';
 import { useToast } from '@/components/Toast';
 import { listTrashedCharacters, restoreCharacter } from '@/lib/api/dnd';
 import type { Character } from '@/lib/api/types';
@@ -82,9 +82,8 @@ function TrashRow({
 }
 
 export default function TrashPage() {
-  const { user, loading, maybeAuthed } = useAuth();
+  const { user } = useAuth();
   const { toast } = useToast();
-  const router = useRouter();
   const [characters, setCharacters] = useState<Character[] | null>(null);
   const [restoringId, setRestoringId] = useState<string | null>(null);
 
@@ -112,13 +111,6 @@ export default function TrashPage() {
     },
     [username],
   );
-
-  // Redirect unauthenticated visitors (mirrors the dashboard).
-  useEffect(() => {
-    if (!loading && !user && !maybeAuthed) {
-      router.replace('/login');
-    }
-  }, [loading, user, maybeAuthed, router]);
 
   useEffect(() => {
     if (!username) return;
@@ -165,19 +157,13 @@ export default function TrashPage() {
     [username, characters, toast, load],
   );
 
-  // First-paint: skeleton until we have a user (covers the silent-refresh window
-  // for returning users — no logged-out flash).
-  if (!user) {
-    return (
-      <main
-        aria-busy="true"
-        aria-label="Loading your trash"
-        style={{ padding: 28 }}
-      >
-        <PageSkeleton variant="list" lines={3} />
-      </main>
-    );
-  }
+  // Resolving (silent refresh) → bounded skeleton; failed refresh → re-auth
+  // prompt; genuinely logged out → redirect to /login (UIR2-TAV-3).
+  const gate = useAuthGate({
+    skeleton: <PageSkeleton variant="list" lines={3} />,
+    label: 'Loading your trash',
+  });
+  if (gate) return gate;
 
   const dataLoading = characters === null;
   const items = characters ?? [];

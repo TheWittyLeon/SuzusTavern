@@ -24,6 +24,17 @@ import React, {
 import type { User } from '@/lib/api/types';
 import * as authApi from '@/lib/api/auth';
 
+/**
+ * UIR2-TAV-3: distinguishes WHY the user is unauthenticated once we've
+ * actually tried and failed, so consumers (useAuthGate) can prompt re-auth
+ * instead of hanging in a skeleton or silently rendering a null user.
+ *   - 'expired': refresh/me failed for any other reason (401, network, etc.)
+ *   - 'rate_limited': refresh/me failed with a 429
+ * `null` means "no known auth failure" — covers both "never tried" and
+ * "genuinely logged out" (useAuthGate tells those apart via loading/maybeAuthed).
+ */
+export type AuthError = null | 'expired' | 'rate_limited';
+
 export interface AuthContextValue {
   user: User | null;
   loading: boolean;
@@ -36,6 +47,12 @@ export interface AuthContextValue {
    * from "genuinely logged out".
    */
   maybeAuthed: boolean;
+  /**
+   * Set when a silent refresh/me actually failed (as opposed to never having
+   * run, or a genuine logout). Consumers (useAuthGate) use this to show a
+   * re-auth prompt instead of an unbounded skeleton or a silent redirect.
+   */
+  authError: AuthError;
   /** Returns 'ok' or '2fa'; throws on bad creds / network. */
   login(username: string, password: string): Promise<'ok' | '2fa'>;
   /** Completes the 2FA half-step. Throws on bad TOTP or network error. */
@@ -44,6 +61,8 @@ export interface AuthContextValue {
   logout(): Promise<void>;
   /** Force a silent /api/auth/refresh. Returns true on success. */
   refresh(): Promise<boolean>;
+  /** Re-attempt refresh+me after an authError (e.g. the rate-limited retry CTA). */
+  retryAuth(): Promise<void>;
 }
 
 // No-op fallback — returned by useAuth() outside a provider.
@@ -53,10 +72,12 @@ const NO_OP_CONTEXT: AuthContextValue = {
   loading: false,
   isAuthenticated: false,
   maybeAuthed: false,
+  authError: null,
   login: async () => 'ok',
   verify2FA: async () => { /* no-op */ },
   logout: async () => { /* no-op */ },
   refresh: async () => false,
+  retryAuth: async () => { /* no-op */ },
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -80,11 +101,17 @@ export function AuthProvider({
   // Start loading if we think the user is authed but need to confirm via refresh.
   const [loading, setLoading] = useState(initialMaybeAuthed && !initialUser);
   const [maybeAuthed, setMaybeAuthed] = useState(initialMaybeAuthed && !initialUser);
+  // UIR2-TAV-3: set only on an ACTUAL refresh/me failure — see silentRefresh's
+  // catch and retryAuth below. Cleared on any successful auth transition.
+  const [authError, setAuthError] = useState<AuthError>(null);
 
   // Guard against React 18/19 strict-mode double-invoke of useEffect.
   // client.ts already single-flights /api/auth/refresh, but we also prevent
   // a second mount effect from running the whole refresh+me sequence again.
   const silentRefreshRan = useRef(false);
+  // In-flight guard for retryAuth (UIR2-TAV-3 / Miko-QA): prevents two calls in
+  // the same tick from letting a later failure clobber an earlier success.
+  const retryingRef = useRef(false);
 
   useEffect(() => {
     // Only run the silent refresh if we mounted in the "maybeAuthed" loading state.
@@ -99,11 +126,17 @@ export function AuthProvider({
         const data = await authApi.me();
         if (!cancelled) {
           setUser(data.user);
+          setAuthError(null);
         }
-      } catch {
-        // Refresh or me() failed — leave user as null (logged out).
-        // proxy.ts would have redirected if the refresh token was absent;
-        // if it's here and fails, the token expired during the request.
+      } catch (e) {
+        // Refresh or me() failed — leave user as null (logged out), but
+        // record WHY so useAuthGate can prompt re-auth instead of hanging in
+        // a skeleton forever. proxy.ts would have redirected if the refresh
+        // token was absent; if it's here and fails, the token expired (or
+        // the refresh endpoint is rate-limiting us) during the request.
+        if (!cancelled) {
+          setAuthError((e as { status?: number })?.status === 429 ? 'rate_limited' : 'expired');
+        }
       } finally {
         if (!cancelled) {
           setLoading(false);
@@ -125,6 +158,7 @@ export function AuthProvider({
       const result = await authApi.login(username, password);
       if (result.kind === 'ok') {
         setUser(result.user);
+        setAuthError(null);
         return 'ok';
       }
       // 2FA required — partial_token stored in httpOnly st_partial cookie by BFF
@@ -139,6 +173,7 @@ export function AuthProvider({
     try {
       const result = await authApi.verify2FA(totp_code);
       setUser(result.user);
+      setAuthError(null);
     } finally {
       setLoading(false);
     }
@@ -148,6 +183,9 @@ export function AuthProvider({
     // Clear user immediately — UI unblocks before the network call completes
     setUser(null);
     setMaybeAuthed(false);
+    // Clear any stale re-auth error so a prior failed retry can't surface a
+    // "Try again" prompt on the next protected-page visit (Miko-QA).
+    setAuthError(null);
     try {
       await authApi.logout();
     } catch {
@@ -158,9 +196,34 @@ export function AuthProvider({
   const refresh = useCallback(async (): Promise<boolean> => {
     try {
       await authApi.refresh();
+      setAuthError(null);
       return true;
     } catch {
       return false;
+    }
+  }, []);
+
+  // UIR2-TAV-3: re-attempt refresh+me after an authError — wired to
+  // SessionExpired's 'rate_limited' retry CTA via useAuthGate. Mirrors the
+  // mount-time silentRefresh sequence, but is caller-invoked rather than
+  // effect-driven. The retryingRef guard prevents a same-tick double invoke
+  // from letting a later failure clobber an earlier success's cleared error.
+  const retryAuth = useCallback(async (): Promise<void> => {
+    if (retryingRef.current) return;
+    retryingRef.current = true;
+    setLoading(true);
+    setAuthError(null);
+    try {
+      await authApi.refresh();
+      const data = await authApi.me();
+      setUser(data.user);
+      setAuthError(null);
+      setMaybeAuthed(false);
+    } catch (e) {
+      setAuthError((e as { status?: number })?.status === 429 ? 'rate_limited' : 'expired');
+    } finally {
+      retryingRef.current = false;
+      setLoading(false);
     }
   }, []);
 
@@ -169,10 +232,12 @@ export function AuthProvider({
     loading,
     isAuthenticated: user !== null,
     maybeAuthed,
+    authError,
     login,
     verify2FA,
     logout,
     refresh,
+    retryAuth,
   };
 
   return (

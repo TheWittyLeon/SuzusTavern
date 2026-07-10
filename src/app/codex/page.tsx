@@ -42,6 +42,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuthGate } from '@/lib/auth/useAuthGate';
 import TavernShell from '@/components/TavernShell';
 import Card from '@/components/Card';
 import Button from '@/components/Button';
@@ -342,6 +343,18 @@ export default function CodexPage() {
     setActiveKind(CODEX_KINDS[next].kind);
     railRefs.current[next]?.focus();
   };
+
+  // UIR2-TAV-3: this page previously had NO auth gate at all — it rendered
+  // <TavernShell> unconditionally, so TavernShell's own useAuth() call could
+  // see a null user (resolving, or a failed silent refresh) and UserMenu's
+  // `?? 'Adventurer'` fallback would surface as if it were a real identity.
+  // Sits after every hook above (Rules of Hooks) and before the real UI —
+  // same position as the CODEX_ENABLED guard right below it.
+  const gate = useAuthGate({
+    skeleton: <PageSkeleton variant="list" lines={6} />,
+    label: 'Loading the codex',
+  });
+  if (gate) return gate;
 
   // DDX-21 follow-up: render guard for CODEX_ENABLED — sits after every hook
   // above (Rules of Hooks: hooks must still run unconditionally every render)

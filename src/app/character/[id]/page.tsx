@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth/AuthProvider';
+import { useAuthGate } from '@/lib/auth/useAuthGate';
 import { getCharacterSheet } from '@/lib/api/dnd';
 import DeleteCharacterButton from '@/components/DeleteCharacterButton';
 import LevelUpButton from '@/components/LevelUpButton';
@@ -95,13 +96,15 @@ export default function CharacterPage() {
     prevPendingCountRef.current = count;
   }, [sheet?.pending_choices]);
 
-  if (!user) {
-    return (
-      <main aria-busy="true" aria-label="Loading character" style={{ padding: '32px 28px' }}>
-        <PageSkeleton variant="card" lines={4} />
-      </main>
-    );
-  }
+  // UIR2-TAV-3: this used to be `if (!user) return <skeleton>` with no
+  // escape hatch — a failed silent refresh left `user` null forever, so the
+  // skeleton never resolved. useAuthGate bounds it: resolving → skeleton,
+  // failed refresh → re-auth prompt, genuinely logged out → /login.
+  const gate = useAuthGate({
+    skeleton: <PageSkeleton variant="card" lines={4} />,
+    label: 'Loading character',
+  });
+  if (gate) return gate;
 
   if (state === 'error') {
     return (

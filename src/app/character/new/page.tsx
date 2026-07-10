@@ -59,6 +59,7 @@ import {
 } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth/AuthProvider';
+import { useAuthGate } from '@/lib/auth/useAuthGate';
 import { createCharacter, getAvailableSpells, learnSpell, prepareSpell } from '@/lib/api/dnd';
 import { useCatalog } from '@/lib/dnd/useCatalog';
 import { useWizardCommentary } from '@/lib/dnd/useWizardCommentary';
@@ -171,7 +172,7 @@ function abilitiesComment(scores: AbilityScores): string {
 }
 
 export default function CharacterNewPage(): ReactNode {
-  const { user, loading, maybeAuthed } = useAuth();
+  const { user } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
 
@@ -199,11 +200,6 @@ export default function CharacterNewPage(): ReactNode {
   const mountedRef = useRef(false);
 
   const username = user?.username ?? null;
-
-  // Redirect out if genuinely logged out.
-  useEffect(() => {
-    if (!loading && !user && !maybeAuthed) router.replace('/login');
-  }, [loading, user, maybeAuthed, router]);
 
   // Move focus to the step heading on step change — but not on first mount.
   useEffect(() => {
@@ -471,13 +467,13 @@ export default function CharacterNewPage(): ReactNode {
     }
   };
 
-  if (!user) {
-    return (
-      <main aria-busy="true" aria-label="Loading character creation" style={{ padding: '32px 28px' }}>
-        <PageSkeleton variant="card" lines={4} />
-      </main>
-    );
-  }
+  // Resolving (silent refresh) → bounded skeleton; failed refresh → re-auth
+  // prompt; genuinely logged out → redirect to /login (UIR2-TAV-3).
+  const gate = useAuthGate({
+    skeleton: <PageSkeleton variant="card" lines={4} />,
+    label: 'Loading character creation',
+  });
+  if (gate) return gate;
 
   // ── Catalog error state — surface a retry UI, not a crash ─────────────────────
   if (catalog.status === 'error') {

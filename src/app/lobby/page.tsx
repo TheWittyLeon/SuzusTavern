@@ -17,8 +17,8 @@
  * listSessions throws → treated as an empty list (clean "no tables" state).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
 import { useAuth } from '@/lib/auth/AuthProvider';
+import { useAuthGate } from '@/lib/auth/useAuthGate';
 import { useToast } from '@/components/Toast';
 import { listSessions, joinSession, listMyCharacters } from '@/lib/api/dnd';
 import type { Character, Session } from '@/lib/api/types';
@@ -152,7 +152,7 @@ function TableCard({
 }
 
 export default function LobbyPage() {
-  const { user, loading, maybeAuthed } = useAuth();
+  const { user } = useAuth();
   const { toast } = useToast();
   const [sessions, setSessions] = useState<Session[] | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
@@ -214,13 +214,16 @@ export default function LobbyPage() {
     [username, toast, load],
   );
 
-  if (loading && maybeAuthed) {
-    return (
-      <main aria-busy="true" aria-label="Loading tables" style={{ padding: 28 }}>
-        <PageSkeleton variant="list" lines={4} />
-      </main>
-    );
-  }
+  // Resolving (silent refresh) → bounded skeleton; failed refresh → re-auth
+  // prompt; genuinely logged out → redirect to /login. Previously this only
+  // skeletoned while `loading && maybeAuthed`, then fell through to render
+  // TavernShell with a null user — UserMenu's `?? 'Adventurer'` fallback
+  // surfaced as if it were real (UIR2-TAV-3).
+  const gate = useAuthGate({
+    skeleton: <PageSkeleton variant="list" lines={4} />,
+    label: 'Loading tables',
+  });
+  if (gate) return gate;
 
   const dataLoading = sessions === null;
   const visible = (sessions ?? []).filter((s) => {

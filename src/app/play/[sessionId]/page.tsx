@@ -40,6 +40,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth/AuthProvider';
+import { useAuthGate } from '@/lib/auth/useAuthGate';
 import { useToast } from '@/components/Toast';
 import { useReducedMotion } from '@/lib/useReducedMotion';
 import { sessionTitle } from '@/lib/format';
@@ -2123,6 +2124,18 @@ export default function PlayPage() {
     availableTransitions,
     onMoveOn,
   ]);
+
+  // ── auth gate (UIR2-TAV-3) ──────────────────────────────────────────────────
+  // A SEPARATE, earlier guard from the session `state` machine below — this
+  // page never had ANY auth gate before, so it rendered its play UI (and the
+  // party/DM panels, wired to `username`) even while `user` was null. Must
+  // run after every hook above and before the session-state render guards,
+  // without touching that state machine at all.
+  const gate = useAuthGate({
+    skeleton: <PageSkeleton variant="card" lines={4} />,
+    label: 'Loading your table',
+  });
+  if (gate) return gate;
 
   // ── render states ───────────────────────────────────────────────────────────
   if (state === 'loading') return <PageSkeleton />;

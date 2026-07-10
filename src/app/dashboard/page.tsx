@@ -8,16 +8,17 @@
  * mock data; cf. the Sprint-4 landing-stats cut).
  *
  * States (driven by the real session list):
- *  - loading + maybeAuthed → skeleton (M2 first-paint fix, no logged-out flash)
+ *  - resolving auth (loading/maybeAuthed) → skeleton; failed refresh → re-auth
+ *    prompt; genuinely logged out → /login (useAuthGate, UIR2-TAV-3)
  *  - no sessions → the way-to-start hub (Option B): three doors + Suzu welcome.
  *    This is also exactly what graceful-degradation lands on if the session-list
  *    backend isn't deployed yet (listSessions throws → treated as []).
  *  - has sessions → resume hero + my campaigns + my characters grid.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth/AuthProvider';
+import { useAuthGate } from '@/lib/auth/useAuthGate';
 import { listSessions, listMyCharacters } from '@/lib/api/dnd';
 import type { Character, Session } from '@/lib/api/types';
 import TavernShell from '@/components/TavernShell';
@@ -310,21 +311,8 @@ function DashActive({
   );
 }
 
-// ── Skeleton ──────────────────────────────────────────────────────────────────
-function DashboardSkeleton() {
-  return (
-    <main aria-busy="true" aria-label="Loading your dashboard" style={{ padding: '32px 28px' }}>
-      <PageSkeleton variant="card" lines={3} />
-      <div style={{ marginTop: 20 }}>
-        <PageSkeleton variant="list" lines={4} />
-      </div>
-    </main>
-  );
-}
-
 export default function DashboardPage() {
-  const { user, loading, maybeAuthed } = useAuth();
-  const router = useRouter();
+  const { user } = useAuth();
   const [sessions, setSessions] = useState<Session[] | null>(null);
   const [characters, setCharacters] = useState<Character[]>([]);
 
@@ -349,12 +337,6 @@ export default function DashboardPage() {
   );
 
   useEffect(() => {
-    if (!loading && !user && !maybeAuthed) {
-      router.replace('/login');
-    }
-  }, [loading, user, maybeAuthed, router]);
-
-  useEffect(() => {
     if (!username) return;
     const ac = new AbortController();
     void load(ac.signal);
@@ -367,12 +349,24 @@ export default function DashboardPage() {
     void load(ac.signal);
   }, [load]);
 
-  // First-paint: show skeleton until we have a user. `loading` is only ever true
-  // alongside maybeAuthed && !user, so `!user` covers the silent-refresh window
-  // too (no logged-out flash for returning users — M2).
-  if (!user) {
-    return <DashboardSkeleton />;
-  }
+  // Resolving (silent refresh) → bounded skeleton; failed refresh → re-auth
+  // prompt; genuinely logged out → redirect to /login. Never an infinite
+  // skeleton or a page rendered with a null user (UIR2-TAV-3).
+  const gate = useAuthGate({
+    skeleton: (
+      <>
+        <PageSkeleton variant="card" lines={3} />
+        <div style={{ marginTop: 20 }}>
+          <PageSkeleton variant="list" lines={4} />
+        </div>
+      </>
+    ),
+    label: 'Loading your dashboard',
+  });
+  if (gate) return gate;
+  // useAuthGate only returns null once `user` is non-null, but that
+  // invariant lives in a different hook — this satisfies TS's narrowing.
+  if (!user) return null;
 
   const name = user.username ?? '';
   const greetName = name ? `, ${name}` : '';

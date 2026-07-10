@@ -19,6 +19,7 @@ import Pill from '@/components/Pill';
 import PageSkeleton from '@/components/PageSkeleton';
 import { ToastProvider, useToast } from '@/components/Toast';
 import { useAuth } from '@/lib/auth/AuthProvider';
+import { useAuthGate } from '@/lib/auth/useAuthGate';
 import { useReducedMotion } from '@/lib/useReducedMotion';
 import {
   listInvitations,
@@ -409,7 +410,7 @@ type PageState =
 
 function InvitationsPageContent() {
   const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
+  const { user } = useAuth();
   const { toast } = useToast();
 
   const [pageState, setPageState] = useState<PageState>({ status: 'loading' });
@@ -418,12 +419,14 @@ function InvitationsPageContent() {
   const [mintedInfo, setMintedInfo] = useState<MintedInfo | null>(null);
   const [revoking, setRevoking] = useState<number | null>(null);
 
-  // Client-side admin gate
+  // Admin-role gate: redirect authenticated-but-non-admin sessions to
+  // /dashboard. The real gate is server-side in the proxy; this is UX only.
+  // Auth itself (unauthenticated / resolving / failed refresh) is handled by
+  // useAuthGate below (UIR2-TAV-3) — this effect only runs the ROLE check,
+  // and only once a real user is present.
   useEffect(() => {
-    if (authLoading) return;
-    if (!user) { router.replace('/login'); return; }
-    if (!user.roles?.includes('admin')) { router.replace('/dashboard'); return; }
-  }, [user, authLoading, router]);
+    if (user && !user.roles?.includes('admin')) router.replace('/dashboard');
+  }, [user, router]);
 
   useEffect(() => {
     if (!user?.roles?.includes('admin')) return;
@@ -466,9 +469,15 @@ function InvitationsPageContent() {
     void inv;
   }, [toast]);
 
-  if (authLoading || (!user?.roles?.includes('admin') && !authLoading)) {
-    return null;
-  }
+  // Resolving (silent refresh) → bounded skeleton; failed refresh → re-auth
+  // prompt; genuinely logged out → redirect to /login (UIR2-TAV-3).
+  const gate = useAuthGate({
+    skeleton: <PageSkeleton variant="list" lines={5} />,
+    label: 'Loading invite codes',
+  });
+  if (gate) return gate;
+  if (!user) return null; // narrows for TS — useAuthGate already guarantees this
+  if (!user.roles?.includes('admin')) return null; // role-redirect effect above is in flight
 
   const invitations = pageState.status === 'success' ? pageState.invitations : [];
 

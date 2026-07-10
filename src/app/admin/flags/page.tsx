@@ -16,6 +16,7 @@ import TavernShell from '@/components/TavernShell';
 import PageSkeleton from '@/components/PageSkeleton';
 import Button from '@/components/Button';
 import { useAuth } from '@/lib/auth/AuthProvider';
+import { useAuthGate } from '@/lib/auth/useAuthGate';
 import { listFlags, type FeatureFlag, type ResolutionSource } from '@/lib/api/adminFlags';
 import styles from './Flags.module.css';
 
@@ -126,16 +127,18 @@ type PageState =
 
 function FlagsPageContent() {
   const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
+  const { user } = useAuth();
   const [pageState, setPageState] = useState<PageState>({ status: 'loading' });
   const [retryKey, setRetryKey] = useState(0);
 
-  // Client-side admin gate
+  // Admin-role gate: redirect authenticated-but-non-admin sessions to
+  // /dashboard. The real gate is server-side in the proxy; this is UX only.
+  // Auth itself (unauthenticated / resolving / failed refresh) is handled by
+  // useAuthGate below (UIR2-TAV-3) — this effect only runs the ROLE check,
+  // and only once a real user is present.
   useEffect(() => {
-    if (authLoading) return;
-    if (!user) { router.replace('/login'); return; }
-    if (!user.roles?.includes('admin')) { router.replace('/dashboard'); return; }
-  }, [user, authLoading, router]);
+    if (user && !user.roles?.includes('admin')) router.replace('/dashboard');
+  }, [user, router]);
 
   useEffect(() => {
     if (!user?.roles?.includes('admin')) return;
@@ -153,9 +156,15 @@ function FlagsPageContent() {
     return () => controller.abort();
   }, [user, retryKey]);
 
-  if (authLoading || (!user?.roles?.includes('admin') && !authLoading)) {
-    return null;
-  }
+  // Resolving (silent refresh) → bounded skeleton; failed refresh → re-auth
+  // prompt; genuinely logged out → redirect to /login (UIR2-TAV-3).
+  const gate = useAuthGate({
+    skeleton: <PageSkeleton variant="list" lines={7} />,
+    label: 'Loading feature flags',
+  });
+  if (gate) return gate;
+  if (!user) return null; // narrows for TS — useAuthGate already guarantees this
+  if (!user.roles?.includes('admin')) return null; // role-redirect effect above is in flight
 
   const flags = pageState.status === 'success' ? pageState.flags : [];
   const phase = pageState.status === 'success' ? pageState.phase : 1;
