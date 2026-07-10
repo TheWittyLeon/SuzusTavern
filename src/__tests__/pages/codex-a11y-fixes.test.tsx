@@ -396,6 +396,27 @@ describe('Codex A11Y fixes (DDX-21)', () => {
       expect(spellsTab).toHaveAttribute('aria-selected', 'true');
     });
 
+    it('TAV-2: the tablist contains ONLY role="tab" children — the subfilter <select> is a sibling, not mis-parented inside it (aria-required-children)', async () => {
+      mockMatchMedia([]);
+      renderCodex();
+      await screen.findAllByRole('tab');
+
+      const tablist = screen.getByRole('tablist', { name: /content type/i });
+      // All the kind tabs live inside the tablist...
+      expect(within(tablist).getAllByRole('tab').length).toBeGreaterThan(0);
+      // ...and the subfilter <select> does NOT: a tablist may only contain
+      // role="tab" children — a combobox child is the axe-critical
+      // aria-required-children violation this fix removed.
+      expect(within(tablist).queryByRole('combobox')).toBeNull();
+
+      // When the active kind exposes a subfilter, the <select> still renders —
+      // as a SIBLING outside the tablist, elsewhere on the page.
+      const subfilter = screen.queryByRole('combobox');
+      if (subfilter) {
+        expect(tablist).not.toContainElement(subfilter);
+      }
+    });
+
     it('ArrowUp/ArrowDown move the active tab regardless of viewport width', async () => {
       mockMatchMedia([RAIL_HORIZONTAL, NARROW_DRAWER]);
       renderCodex();

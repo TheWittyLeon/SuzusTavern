@@ -82,6 +82,18 @@
    (unconditional) and onRailKeyDown (Up/Down only) in page.tsx. A deliberate
    "compact mobile tabs" single-row horizontal scroller is a real future
    option but is a separate UX decision, not this revert. */
+/* TAV-2: the ARIA tablist wraps ONLY the tab buttons — the per-kind subfilter
+   <select> is a sibling inside .rail, NOT inside the tablist (a tablist must
+   contain only role="tab" children, else axe flags aria-required-children and
+   AT tab-navigation breaks). This inner flex column preserves the original
+   3px inter-tab spacing; .rail's gap:3px still sits between the tablist block
+   and the subfilter, exactly as before. */
+.tablist {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
 .rail {
   display: flex;
   flex-direction: column;

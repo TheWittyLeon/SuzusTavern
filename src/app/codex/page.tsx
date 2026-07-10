@@ -371,40 +371,44 @@ export default function CodexPage() {
     >
       <div className={styles.body}>
         {/* ---------- LEFT RAIL: content-type tabs ---------- */}
-        <div
-          className={styles.rail}
-          role="tablist"
-          aria-orientation="vertical"
-          aria-label="Content type"
-          onKeyDown={onRailKeyDown}
-        >
-          {CODEX_KINDS.map((m, i) => {
-            const on = m.kind === activeKind;
-            const count = counts?.[m.kind];
-            return (
-              <button
-                key={m.kind}
-                ref={(el) => {
-                  railRefs.current[i] = el;
-                }}
-                type="button"
-                role="tab"
-                id={`${panelId}-tab-${m.kind}`}
-                aria-selected={on}
-                aria-controls={panelId}
-                tabIndex={on ? 0 : -1}
-                className={`${styles.railItem} ${on ? styles.railItemOn : ''}`}
-                style={{ ['--tone' as string]: toneVar(m.tone) }}
-                onClick={() => setActiveKind(m.kind)}
-              >
-                <span className="ic">
-                  <Icon name={m.icon} size={14} aria-hidden />
-                </span>
-                <span className={styles.railLbl}>{m.label}</span>
-                {count != null && <span className={styles.railCount}>{count}</span>}
-              </button>
-            );
-          })}
+        <div className={styles.rail}>
+          {/* TAV-2: role="tablist" wraps ONLY the tabs; the subfilter <select>
+              below is a sibling, not a tablist child (aria-required-children). */}
+          <div
+            className={styles.tablist}
+            role="tablist"
+            aria-orientation="vertical"
+            aria-label="Content type"
+            onKeyDown={onRailKeyDown}
+          >
+            {CODEX_KINDS.map((m, i) => {
+              const on = m.kind === activeKind;
+              const count = counts?.[m.kind];
+              return (
+                <button
+                  key={m.kind}
+                  ref={(el) => {
+                    railRefs.current[i] = el;
+                  }}
+                  type="button"
+                  role="tab"
+                  id={`${panelId}-tab-${m.kind}`}
+                  aria-selected={on}
+                  aria-controls={panelId}
+                  tabIndex={on ? 0 : -1}
+                  className={`${styles.railItem} ${on ? styles.railItemOn : ''}`}
+                  style={{ ['--tone' as string]: toneVar(m.tone) }}
+                  onClick={() => setActiveKind(m.kind)}
+                >
+                  <span className="ic">
+                    <Icon name={m.icon} size={14} aria-hidden />
+                  </span>
+                  <span className={styles.railLbl}>{m.label}</span>
+                  {count != null && <span className={styles.railCount}>{count}</span>}
+                </button>
+              );
+            })}
+          </div>
 
           {subfilterOptions.length > 0 && (
             <div className={styles.subfilter}>
