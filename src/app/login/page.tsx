@@ -489,19 +489,13 @@ function LoginForm() {
 
   return (
     <main id="main-content" className={`aurora ${styles.wrapper}`} tabIndex={-1}>
-      <Card
-        pop
-        padding={false}
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          maxWidth: 980,
-          width: '100%',
-          borderRadius: 'var(--radius-lg)',
-          overflow: 'hidden',
-        }}
-        className={styles.twoPane}
-      >
+      {/* Layout lives entirely in `.twoPane` (globals-token grid) so the ≤900px /
+          ≤640px media queries can collapse the two-pane split to a single column.
+          An earlier inline `grid-template-columns: 1fr 1fr` here duplicated the
+          class but, as an inline style, out-specified those media queries — pinning
+          two columns at 880px and leaving the left brand pane an empty ~415px
+          panel (UIR2-TAV-5). Keep layout in the stylesheet. */}
+      <Card pop padding={false} className={styles.twoPane}>
         {/* ── Left pane — decorative ─────────────────────────────────────── */}
         <div className={styles.leftPane} aria-hidden="true">
           {/* Brand lockup */}
