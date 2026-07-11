@@ -106,6 +106,7 @@ import Composer, {
 } from '@/components/Composer';
 import DmNarrationPanel from '@/components/DmNarrationPanel';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import JournalPane, { JOURNAL_HEADING_ID } from '@/components/JournalPane';
 import styles from './Play.module.css';
 
 /**
@@ -136,6 +137,17 @@ const STRUCTURAL_EVENT_KINDS = new Set([
 
 /** Poll interval in milliseconds. */
 const POLL_INTERVAL_MS = 4000;
+
+/**
+ * DDX-22 — generic Tab-trap query for the Journal drawer. Unlike
+ * ConfirmDialog's hardcoded 2-button trap (it always has exactly Cancel +
+ * Confirm), the journal's focusable set varies with content (close button,
+ * the notes textarea, a growing NPC/recap list has no interactive elements
+ * of its own today but may in a later phase) — so the trap below queries
+ * this selector fresh on every Tab keydown rather than caching two refs.
+ */
+const JOURNAL_FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /**
  * DDX-26 — event kinds that count as a "narration beat" for the X-card
@@ -307,7 +319,20 @@ export default function PlayPage() {
   // composer mode once (human DM should default to dm_narration, not 'say').
   const modeSyncedRef = useRef(false);
   const [advantage, setAdvantage] = useState<Advantage>('none');
-  const [mobileView, setMobileView] = useState<'log' | 'party' | 'scene'>('log');
+  const [mobileView, setMobileView] = useState<'log' | 'party' | 'scene' | 'journal'>('log');
+
+  // DDX-22: Journal / Memory pane. `journalEvents` mirrors the SAME raw
+  // session-event log rehydration + the dice-roll/events poll already fetch
+  // below (getSessionEventsRaw) — no new poll is added for this. `journalOpen`
+  // is the DESKTOP drawer's own open/closed state; it is intentionally
+  // independent of `mobileView` (the drawer and the mobile tab are two
+  // different presentations of the same always-mounted <aside>, gated apart
+  // by CSS media queries — see Play.module.css).
+  const [journalEvents, setJournalEvents] = useState<EngineSessionEvent[]>([]);
+  const [journalOpen, setJournalOpen] = useState(false);
+  const journalDialogRef = useRef<HTMLElement>(null);
+  const journalCloseBtnRef = useRef<HTMLButtonElement>(null);
+  const journalPreviouslyFocusedRef = useRef<HTMLElement | null>(null);
 
   const [combatId, setCombatId] = useState<string | null>(null);
   const [combatState, setCombatState] = useState<CombatState | null>(null);
@@ -611,6 +636,14 @@ export default function PlayPage() {
         if (g) setGrounding(g);
         setParticipants(party);
 
+        // DDX-22: seed the Journal pane from the SAME rehydration fetch —
+        // no separate request. Sorted defensively (the engine's GET /events
+        // has no ordering guarantee, matching the LogRow rehydration sort
+        // just below) so JournalPane's derivations can assume ascending seq.
+        if (rawEvents) {
+          setJournalEvents([...rawEvents].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0)));
+        }
+
         // PLAY-PERSIST §6.2 — rehydrate the transcript ONCE on mount, before the
         // opening path can fire. rawEvents === null means the engine was
         // unreachable — skip rehydration and render what we have (resilient,
@@ -903,6 +936,16 @@ export default function PlayPage() {
           .filter((e) => (e.seq ?? 0) > lastEventSeqRef.current)
           .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
         if (newOnes.length === 0) return;
+        // Miko poll-churn fix: this used to run BEFORE the newOnes.length
+        // guard above, so a fresh (but content-identical) array from
+        // getSessionEventsRaw re-rendered the whole page + re-ran all 3
+        // JournalPane derivations on EVERY 4s tick forever, even when
+        // nothing new happened. Mirrors the sibling session-status poll's
+        // own sessionsEqual no-op guard: only touch state when something
+        // actually changed. The mount-time rehydration effect already seeds
+        // journalEvents once on load — this only keeps it current on ticks
+        // that have real new activity.
+        setJournalEvents([...events].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0)));
         const rows = newOnes
           .filter((e) => e.kind === 'dice_roll' || e.kind === 'x_card')
           .map(eventToLogRow)
@@ -942,6 +985,72 @@ export default function PlayPage() {
   useEffect(() => {
     if (mobileView === 'log') chatLogRef.current?.scrollToBottom('instant');
   }, [mobileView]);
+
+  // DDX-22 — Journal: true whenever the journal is actually presented to the
+  // user in ANY form (open desktop drawer OR the active mobile tab). Drives
+  // `inert` on the always-mounted <aside> below so a CLOSED-but-still-mounted
+  // desktop drawer (kept mounted purely so its slide-out transition has a
+  // "from" state) is removed from the tab order / a11y tree, while the
+  // mobile tab (governed entirely by CSS, not `journalOpen`) is never
+  // accidentally made inert by the drawer's own closed state.
+  const journalVisible = journalOpen || mobileView === 'journal';
+
+  // "Close" is one unified action regardless of which presentation is active:
+  // on desktop it closes the drawer; on the mobile tab (where there's no
+  // drawer to close) it's the natural "back to the table" affordance,
+  // switching back to Story. Neither branch is a no-op-turned-bug at the
+  // OTHER breakpoint's default state.
+  const closeJournal = useCallback(() => {
+    setJournalOpen(false);
+    setMobileView((v) => (v === 'journal' ? 'log' : v));
+  }, []);
+
+  // Focus management on open/close — mirrors ConfirmDialog exactly: remember
+  // whatever was focused (in practice, always the toggle button below, since
+  // that's the only way to open), focus the drawer's close button after
+  // paint, and restore focus on close via the effect's own cleanup (fires
+  // for EVERY path journalOpen flips false: Esc, scrim click, or the close
+  // button itself) — one source of truth instead of three ad-hoc refocuses.
+  useEffect(() => {
+    if (!journalOpen) return;
+    journalPreviouslyFocusedRef.current = document.activeElement as HTMLElement | null;
+    const t = setTimeout(() => journalCloseBtnRef.current?.focus(), 0);
+    return () => {
+      clearTimeout(t);
+      journalPreviouslyFocusedRef.current?.focus?.();
+    };
+  }, [journalOpen]);
+
+  // Esc + a generic Tab-trap (only while acting as the desktop drawer —
+  // never wired on the mobile tab, see the conditional onKeyDown prop below).
+  // The trap queries focusable descendants fresh on every Tab (content is
+  // dynamic — the notes textarea, a growing NPC/recap list), unlike
+  // ConfirmDialog's hardcoded 2-button trap.
+  const onJournalKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        closeJournal();
+        return;
+      }
+      if (e.key === 'Tab' && journalDialogRef.current) {
+        const focusables = Array.from(
+          journalDialogRef.current.querySelectorAll<HTMLElement>(JOURNAL_FOCUSABLE_SELECTOR),
+        );
+        if (focusables.length === 0) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    },
+    [closeJournal],
+  );
 
   // B1-4: fire-once toast when combat becomes active and the user has no bound
   // character (they can observe but not act).
@@ -2458,7 +2567,9 @@ export default function PlayPage() {
       ? styles.showScene
       : mobileView === 'party'
         ? styles.showParty
-        : styles.showLog;
+        : mobileView === 'journal'
+          ? styles.showJournal
+          : styles.showLog;
 
   // Find the selfParticipantId for the "you" badge in the tracker.
   // B1-4: prefer entity_id match (precise); fall back to name match for older engine.
@@ -2509,6 +2620,17 @@ export default function PlayPage() {
           onClick={() => setMobileView('scene')}
         >
           <Icon name="Map" size={13} aria-hidden /> Scene
+        </button>
+        {/* DDX-22: 4th mobile tab — joins the existing group exactly like the
+            three above (same aria-pressed/aria-controls/44px-target shape). */}
+        <button
+          type="button"
+          className={mobileView === 'journal' ? styles.tabOn : undefined}
+          aria-pressed={mobileView === 'journal'}
+          aria-controls="play-pane-journal"
+          onClick={() => setMobileView('journal')}
+        >
+          <Icon name="Lantern" size={13} aria-hidden /> Journal
         </button>
       </div>
 
@@ -2583,6 +2705,23 @@ export default function PlayPage() {
             <div className={styles.kicker}>Session</div>
             <div className={styles.sessionTitle}>{title}</div>
           </div>
+          {/* DDX-22: Journal drawer toggle — visible to every seat (not
+              isDm-gated like .sessionControls below; the journal is a
+              per-player surface, not a DM tool). Desktop-only in practice:
+              the drawer chrome it opens is media-gated to >880px, so this
+              button simply has no visual effect at mobile widths (the 4th
+              mobile tab above is how the journal is reached there). */}
+          <button
+            type="button"
+            className={styles.journalToggleBtn}
+            onClick={() => setJournalOpen((v) => !v)}
+            aria-haspopup="dialog"
+            aria-expanded={journalOpen}
+            aria-controls="play-pane-journal"
+            aria-label="Open journal"
+          >
+            <Icon name="Lantern" size={16} aria-hidden />
+          </button>
         </div>
         {/* DDX-25: DM-only session lifecycle controls (Pause/Resume, End,
             Award XP). Reuses the isDm gate computed above (B2-4) — the same
@@ -3288,6 +3427,71 @@ export default function PlayPage() {
             </button>
           </div>
         </div>
+      </aside>
+
+      {/* DDX-22: Journal / Memory pane — right-edge slide-over drawer on
+          desktop (position:fixed, entirely OUT of the .grid's flow above —
+          the grid's columns/areas are untouched) + 4th mobile tab (joins the
+          existing .left/.center/.right pane-collapse group via
+          styles.journalPane). Always mounted, even while closed/inactive, so
+          the desktop slide-out transition has a "from" state to animate —
+          `inert` removes it from the tab order/a11y tree whenever it isn't
+          actually presented (see journalVisible above). Dialog SEMANTICS
+          (role/aria-modal/focus-trap) are wired ONLY while acting as the
+          desktop drawer (`journalOpen`) — the mobile tab is a plain pane,
+          matching Story/Party/Scene, never a dialog.
+          Miko LOW-MED / Iro (cross-breakpoint desync): the visual
+          `.journalDrawerOpen` class + the scrim's render condition key off
+          `journalVisible` (not `journalOpen`) — after the CRITICAL-1 fix
+          above, `journalOpen` can only be set true via the desktop toggle,
+          but a journal opened via the MOBILE tab (`mobileView==='journal'`)
+          and then resized up past 880px would otherwise leave the drawer
+          transformed off-screen (no `.journalDrawerOpen`) while still
+          `inert={false}` — a focusable-but-invisible drawer. Keying both off
+          the SAME `journalVisible` value used for `inert`/`aria-hidden`
+          means the two can never desync, regardless of when the breakpoint
+          crosses. This does not change desktop open/close via the toggle
+          button: opening sets `journalOpen` true, which also makes
+          `journalVisible` true (it's `journalOpen || ...`), and closing
+          clears both together. */}
+      {journalVisible && (
+        <div className={styles.journalScrim} onClick={closeJournal} />
+      )}
+      <aside
+        id="play-pane-journal"
+        ref={journalDialogRef}
+        className={`${styles.journalPane} ${styles.journalDrawer} ${
+          journalVisible ? styles.journalDrawerOpen : ''
+        }`}
+        role={journalOpen ? 'dialog' : undefined}
+        aria-modal={journalOpen ? true : undefined}
+        // Iro MINOR-5: unconditional (was `journalOpen ? ... : undefined`)
+        // so the region is named in the mobile-tab presentation too, not
+        // just while acting as the desktop dialog — harmless when `inert`/
+        // `aria-hidden` removes it from the tree entirely.
+        aria-labelledby={JOURNAL_HEADING_ID}
+        // Belt-and-suspenders: `inert` is the real mechanism (blocks focus +
+        // pointer events + a11y-tree presence natively in every evergreen
+        // browser), but jsdom does not implement its side effects at all
+        // (confirmed: neither jsdom nor dom-accessibility-api reference
+        // `inert`) — without aria-hidden too, a closed-but-mounted drawer's
+        // content (e.g. the notes textarea) would still surface in any
+        // role-based test query, colliding with the Composer's own textbox.
+        // aria-hidden alone IS honored by dom-accessibility-api's
+        // isInaccessible(), so pairing them is correct in both real browsers
+        // and this test environment, not merely a test workaround.
+        aria-hidden={journalVisible ? undefined : true}
+        inert={!journalVisible}
+        tabIndex={journalOpen ? -1 : undefined}
+        onKeyDown={journalOpen ? onJournalKeyDown : undefined}
+      >
+        <JournalPane
+          sessionId={sessionId}
+          events={journalEvents}
+          grounding={grounding}
+          onClose={closeJournal}
+          closeButtonRef={journalCloseBtnRef}
+        />
       </aside>
 
       {/* DDX-25: portal-rendered to document.body (ConfirmDialog does this

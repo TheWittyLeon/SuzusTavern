@@ -1,0 +1,126 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  color: var(--ink);
+  margin: 0;
+}
+
+/* Mirrors the play page's own .back button: visual 32x32, content-box
+   padding trick brings the hit target to 44x44. */
+.closeBtn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink-2);
+  flex-shrink: 0;
+  box-sizing: content-box;
+  padding: 6px;
+  margin: -6px;
+  cursor: pointer;
+}
+
+.closeBtn:hover {
+  border-color: color-mix(in oklab, var(--accent) 35%, transparent);
+  color: var(--ink);
+}
+
+.section {
+  flex-shrink: 0;
+}
+
+.sectionHeading {
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin: 0 0 8px;
+}
+
+.objective {
+  font-size: 0.875rem;
+  color: var(--ink);
+  font-style: italic;
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+
+.empty {
+  font-size: 0.8125rem;
+  color: var(--ink-3);
+  margin: 0;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.list li {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--ink-2);
+  padding-left: 10px;
+  border-left: 2px solid color-mix(in oklab, var(--accent) 30%, transparent);
+}
+
+.who {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.notesLabel {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.notesTextarea {
+  height: auto;
+  min-height: 6rem;
+  padding: 10px 12px;
+  resize: vertical;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.notesHint {
+  font-size: 0.6875rem;
+  color: var(--ink-3);
+  margin: 6px 0 0;
+}
+
+/* Iro MINOR-2: visible save-status text (not sr-only-only), same small
+   caption treatment as .notesHint. min-height reserves space for the text
+   so it appearing/disappearing across the saving->saved->idle cycle never
+   shifts the layout beneath it. */
+.saveStatus {
+  font-size: 0.6875rem;
+  color: var(--ink-3);
+  margin: 4px 0 0;
+  min-height: 1em;
+}

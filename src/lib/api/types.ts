@@ -855,6 +855,24 @@ export interface OpeningLine {
   speaker_display_name: string;
 }
 
+/** DDX-22 — a resolved NPC entry as projected server-side by the engine's
+ *  `project_npc_for_wire()` (engine/world_content_check.py) onto
+ *  `current_scene.npcs_present`. Only `name` is guaranteed present; the rest
+ *  mirror the helper's documented INCLUDE list. Used by JournalPane's
+ *  "NPCs met" section (merged with the event-sourced `npcs_introduced`
+ *  union — see src/lib/dnd/journal.ts). */
+export interface SceneNpc {
+  name: string;
+  id?: string;
+  role?: string;
+  motivation?: string;
+  appearance?: string;
+  location?: string;
+  lineage?: string;
+  aliases?: string[];
+  [k: string]: unknown;
+}
+
 /**
  * P1-PLAYFIX §3.4 — an authored skill check offered by the current scene.
  * Deliberately omits `on_success`/`on_failure` (the authored flag names): the
@@ -891,6 +909,11 @@ export interface GroundingData {
    *  Always an array (empty when the scene has none). Projected server-side via
    *  project_opening_line_for_wire(); each entry carries speaker_display_name. */
   opening_lines?: OpeningLine[];
+  /** DDX-22 — resolved NPCs present in the current scene (engine:
+   *  `current_scene.npcs_present`, projected via project_npc_for_wire()).
+   *  Always an array (empty when the scene has none, no scene yet, or a
+   *  pre-DDX-22 engine). Used by JournalPane's "NPCs met" section. */
+  npcs_present?: SceneNpc[];
   [k: string]: unknown;
 }
 

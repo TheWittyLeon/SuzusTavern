@@ -46,6 +46,7 @@ import type {
   RollRequest,
   RollResult,
   SceneCheck,
+  SceneNpc,
   Session,
   SessionEvent,
   SessionPolicyRequest,
@@ -1008,6 +1009,18 @@ const normalizeGrounding = (raw: unknown): GroundingData | null => {
     // default [] when the scene has none or the engine is pre-READALOUD).
     opening_lines: Array.isArray(scene.opening_lines)
       ? (scene.opening_lines as OpeningLine[])
+      : [],
+    // DDX-22: resolved current-scene NPCs (engine: current_scene.npcs_present,
+    // projected via project_npc_for_wire — see engine/world_content_check.py).
+    // `...r` above does NOT flatten this (it's nested under current_scene, not
+    // a top-level key), so JournalPane's "NPCs met" section needs this mapped
+    // field rather than reading grounding.current_scene directly. Filtered to
+    // entries with a real `name` — a malformed/legacy row degrades to absent
+    // rather than crashing the NPC list.
+    npcs_present: Array.isArray(scene.npcs_present)
+      ? (scene.npcs_present as SceneNpc[]).filter(
+          (n): n is SceneNpc => !!n && typeof n.name === 'string',
+        )
       : [],
   };
 };

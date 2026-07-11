@@ -108,6 +108,40 @@
   color: var(--ink);
 }
 
+/* DDX-22: Journal drawer toggle, right-aligned in .sessionHead (a flex row).
+   Visual 36×36 / 44×44 content-box tap target — same trick as .back above. */
+.journalToggleBtn {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink-2);
+  flex-shrink: 0;
+  box-sizing: content-box;
+  padding: 4px;
+  margin: -4px -4px -4px auto;
+  cursor: pointer;
+}
+
+.journalToggleBtn:hover {
+  border-color: color-mix(in oklab, var(--accent) 35%, transparent);
+  color: var(--ink);
+}
+
+.journalToggleBtn[aria-expanded='true'] {
+  background: color-mix(in oklab, var(--accent) 14%, transparent);
+  border-color: color-mix(in oklab, var(--accent) 30%, transparent);
+  color: var(--ink);
+}
+
+.journalToggleBtn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 /* ── right pane ── */
 .sceneHead {
   margin-bottom: 10px;
@@ -708,6 +742,52 @@
   flex-shrink: 0;
 }
 
+/* ── DDX-22: Journal pane — right-edge slide-over drawer (desktop only).
+   Only the WRAPPER differs by breakpoint; <JournalPane>'s own markup is
+   identical either way. Scoped to >880px so mobile (which uses the shared
+   .journalPane grid-area collapse in the mobile media query below instead)
+   never sees this fixed/transform chrome at all — no override-fighting
+   between the two breakpoints' rules.
+   `top`/`height` subtract --env-banner-h (set on <html> by layout.tsx; 0px
+   on prod) so the dev/local EnvBanner strip never gets covered by — or lets
+   this drawer overflow past — the actual available viewport (the exact
+   fixed-height-ignores-the-banner trap .grid's own height already guards
+   against, see the top of this file). */
+@media (min-width: 881px) {
+  .journalDrawer {
+    position: fixed;
+    top: var(--env-banner-h, 0px);
+    right: 0;
+    z-index: 900;
+    height: calc(100dvh - var(--env-banner-h, 0px));
+    width: min(380px, 90vw);
+    padding: 16px;
+    overflow-y: auto;
+    background: var(--bg-2);
+    border-left: 1px solid var(--line);
+    box-shadow: var(--shadow-pop);
+    transform: translateX(100%);
+    transition: transform var(--dur) var(--ease);
+  }
+
+  .journalDrawerOpen {
+    transform: none;
+  }
+
+  .journalScrim {
+    position: fixed;
+    inset: 0;
+    z-index: 899;
+    background: rgba(10, 7, 18, 0.45);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .journalDrawer {
+    transition: none;
+  }
+}
+
 /* ── mobile: single column, tab-switch story ↔ scene ── */
 @media (max-width: 880px) {
   .grid {
@@ -728,6 +808,13 @@
     gap: 4px;
     padding: 8px 12px;
     border-bottom: 1px solid var(--line);
+    /* Iro CRITICAL-2: safety net so a tab is never clipped by .grid's
+       overflow:hidden — 4 pills ("Journal" is the longest label) can exceed
+       the available width on a narrow phone even after the max-width:400px
+       tightening below. If they ever overflow, this lets the bar scroll
+       horizontally instead of silently hiding the last tab. */
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .mobileTabs button {
@@ -750,15 +837,27 @@
     border-color: color-mix(in oklab, var(--accent) 30%, transparent) !important;
   }
 
+  /* Kage IMPORTANT / Iro CRITICAL-1: .journalToggleBtn lives in .sessionHead,
+     inside .left (the Party pane) — visible on mobile whenever the Party tab
+     is active. Tapping it set journalOpen=true, firing the drawer's dialog
+     semantics (role="dialog"/aria-modal/focus-trap/Esc-hijack) on
+     #play-pane-journal even though the journal is reached on mobile via its
+     own 4th TAB, not this drawer toggle. Hiding it here is the fix — the
+     journal stays fully reachable via the Journal tab below. */
+  .journalToggleBtn {
+    display: none;
+  }
+
   /* One pane fills the 1fr row at a time; the mobile tabs switch between them.
-     All three share the same "pane" grid-area (DDX-26) — display:none simply
-     excludes whichever two aren't active from the grid, so exactly one is
-     ever in flow, landing in that shared row. The left pane (party +
-     initiative) is reachable via the Party tab — it used to be display:none
-     with no mobile affordance at all (S3.3 fix). */
+     All four share the same "pane" grid-area (DDX-26; DDX-22 adds the 4th) —
+     display:none simply excludes whichever three aren't active from the
+     grid, so exactly one is ever in flow, landing in that shared row. The
+     left pane (party + initiative) is reachable via the Party tab — it used
+     to be display:none with no mobile affordance at all (S3.3 fix). */
   .left,
   .center,
-  .right {
+  .right,
+  .journalPane {
     grid-area: pane;
     display: none;
   }
@@ -770,5 +869,30 @@
   }
   .showScene .right {
     display: flex;
+  }
+  /* DDX-22: the journal becomes a plain in-flow pane on mobile — its own
+     padding/scroll (mirrors .pane's look without depending on cascade order
+     against a class declared ~700 lines earlier in this file). */
+  .showJournal .journalPane {
+    display: flex;
+    flex-direction: column;
+    padding: 16px;
+    overflow-y: auto;
+  }
+}
+
+/* Iro CRITICAL-2: at 360px/320px widths, 4 pills (Story/Party/Scene/Journal
+   — "Journal" is the longest label) exceed the ~336px actually available
+   after .mobileTabs's own 12px×2 padding, clipped by .grid's overflow:hidden
+   with no wrap/scroll. Tighten the tightest case specifically: shave
+   horizontal padding + the icon/label gap so all 4 fit without scrolling on
+   most narrow phones; .mobileTabs's own overflow-x:auto above is the
+   safety net for anything narrower still. The 44px min-height touch target
+   is untouched — only horizontal padding/gap shrink. */
+@media (max-width: 400px) {
+  .mobileTabs button {
+    padding-left: 8px;
+    padding-right: 8px;
+    gap: 4px;
   }
 }
