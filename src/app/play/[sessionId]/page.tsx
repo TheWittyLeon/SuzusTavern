@@ -407,6 +407,27 @@ export default function PlayPage() {
   const checkWrapRef = useRef<HTMLDivElement>(null);
   const transitionWrapRef = useRef<HTMLDivElement>(null);
 
+  // Tora MAJOR-2: same stranded-focus problem as above, but at a combat
+  // turn boundary — a rail button (player Attack/Dodge/Dash/End-turn, or DM
+  // per-monster Attack/Skip/Move) that triggers a turn flip becomes
+  // `disabled` and the browser force-blurs it to <body>. These anchor the
+  // newly-enabled rail so `refocusOnTurnFlip` below (mirrors
+  // `refocusSceneHeadIfStranded`'s rAF-after-commit stranding check) can land
+  // focus there instead of forcing a full re-tab. Falls back to sceneHeadRef.
+  const composerRailAnchorRef = useRef<HTMLDivElement>(null);
+  const dmPanelAnchorRef = useRef<HTMLElement>(null);
+  const prevActiveParticipantIdRef = useRef<string | null>(null);
+  // Iro CRITICAL-1: provenance gate for the turn-flip refocus effect below.
+  // combatState is synced to EVERY client via the 4s poll, so without this the
+  // refocus effect would also fire on bystander tabs (including a screen-reader
+  // user mid-read on another player's turn). ActionRail's fire() (Composer.tsx)
+  // and MonsterRow's fireAction() (DmNarrationPanel.tsx) set this to true
+  // synchronously, at click time and BEFORE their mutation, only when focus was
+  // inside their own rail — mirroring hadFocusInCheckWrap/hadFocusInTransitionWrap
+  // above. The effect reads + clears it; `activeElement === body` is then a
+  // CONFIRMATION of an already-known local cause, never a standalone signal.
+  const localTurnActionRef = useRef(false);
+
   // Latest-log ref so narrate() can read recent transcript without re-creating
   // itself on every log change. Synced in an effect (never written during render).
   const logRef = useRef<LogRow[]>([]);
@@ -1967,6 +1988,66 @@ export default function PlayPage() {
     };
   }, [combatState, combatId, username, session, appendLog, handleSceneAdvance]);
 
+  // Tora MAJOR-2: refocus the newly-enabled rail's container when a combat
+  // action flips the active turn and disabling the just-clicked button
+  // stranded focus on <body>. Reacts to combatState.active_participant_id
+  // changing rather than hooking into onCombatAction/MonsterRow.fireAction
+  // directly — both mutation paths already funnel into setCombatState (via
+  // onStateUpdate / the response's own newState), so one generic effect here
+  // covers a player Attack/Dodge/Dash/End-turn AND a DM per-monster
+  // Attack/Skip/Move without touching either handler's control flow (kept
+  // intentionally narrow per the review guardrail on this item). Mirrors
+  // refocusSceneHeadIfStranded's rAF-after-commit stranding check, falling
+  // back to sceneHeadRef when neither rail applies to this viewer.
+  useEffect(() => {
+    const active = combatId && combatState?.state !== 'ended' ? combatState : null;
+    const current = active?.active_participant_id ?? null;
+    const prev = prevActiveParticipantIdRef.current;
+    prevActiveParticipantIdRef.current = current;
+
+    // Consume the provenance flag on every pass (even early-return ones) so a
+    // local click that didn't end up changing the active participant can't
+    // leak forward and get misattributed to a later, unrelated turn change.
+    const causedByLocalClick = localTurnActionRef.current;
+    localTurnActionRef.current = false;
+
+    if (prev == null || current == null || prev === current) return;
+    // Provenance gate (Iro CRITICAL-1): only proceed when THIS client's own
+    // disabling click caused this transition — never for a transition that
+    // arrived purely via the poll (another client's action).
+    if (!causedByLocalClick) return;
+
+    const isDmSeat = !!(
+      session?.dm_username &&
+      username &&
+      session.dm_username.toLowerCase() === username.toLowerCase() &&
+      session?.dm_mode === 'human'
+    );
+    const newActiveParticipant =
+      active?.participants.find((p) => p.participant_id === current) ?? null;
+    // Ownership gate (Iro CRITICAL-1): reuses the `activeIsMine` pattern below
+    // — the composer/cast rail is only refocused when the newly active
+    // participant is THIS viewer's OWN bound PC, never another player's rail
+    // for their turn. This also subsumes the old dmPlayingOwnPc/hasComposerRail
+    // check: a DM with a bound PC gets this branch exactly when it becomes
+    // their own PC's turn.
+    const newActiveIsMine =
+      !!newActiveParticipant?.is_pc &&
+      myCharacterIdStr != null &&
+      newActiveParticipant.entity_id === myCharacterIdStr;
+
+    requestAnimationFrame(() => {
+      if (document.activeElement !== document.body) return;
+      if (newActiveIsMine) {
+        composerRailAnchorRef.current?.focus({ preventScroll: true });
+      } else if (!newActiveParticipant?.is_pc && isDmSeat) {
+        dmPanelAnchorRef.current?.focus({ preventScroll: true });
+      } else {
+        sceneHeadRef.current?.focus({ preventScroll: true });
+      }
+    });
+  }, [combatState, combatId, session, username, myCharacterIdStr]);
+
   // ── derived combat UI state ──────────────────────────────────────────────────
 
   // Participants that are valid targets (living, targetable enemies).
@@ -2170,6 +2251,14 @@ export default function PlayPage() {
   //   - AI narrate() path is gated off (early return in narrate())
   //   - DmNarrationPanel renders in the centre pane during combat
   const isHumanDM = isDm && session?.dm_mode === 'human';
+
+  // TAV-SOLO-DM-CAST-RAIL: a solo-table human DM who ALSO has a bound
+  // character (the GM-PC pattern) keeps their DM controls (DmNarrationPanel /
+  // ConditionsPanel below stay gated on isHumanDM alone) but additionally
+  // gets the player rail (CastSpellPanel + Composer's combat action rail) so
+  // they can drive their own PC. Turn-gating (isPlayerTurn, further down)
+  // already keys off myCharacterIdStr — it's unaffected by this flag.
+  const isDmPlayingOwnPc = isHumanDM && !!myCharacterIdStr && !!mySheet;
 
   // DDX-25: session lifecycle status, read directly from the server-loaded
   // session (same "no stale snapshot" rule as aiLevel below) — status can now
@@ -2459,11 +2548,28 @@ export default function PlayPage() {
                         const self = updated.find(
                           (q) => q.username.toLowerCase() === (username ?? '').toLowerCase(),
                         );
-                        setMyCharacterIdStr(
+                        const newCharId =
                           self?.character?.character_id != null
                             ? String(self.character.character_id)
-                            : null,
-                        );
+                            : null;
+                        setMyCharacterIdStr(newCharId);
+                        // Miko additional: mySheet was left stale on rebind — it's
+                        // populated once on load (~line 584) and only otherwise
+                        // refreshed by CastSpellPanel's own onSheetChanged after a
+                        // cast. Without refetching here, a rebind to a DIFFERENT
+                        // character out-of-combat leaves mySheet (spell_slots etc.)
+                        // pointing at the PREVIOUS character until some unrelated
+                        // mutation happens to refresh it — CastSpellPanel could
+                        // offer the wrong slots once combat starts. Refetch via the
+                        // same getCharacterSheet call the load path uses.
+                        if (newCharId) {
+                          const sheet = await getCharacterSheet(newCharId, username ?? '').catch(
+                            () => null,
+                          );
+                          setMySheet(sheet);
+                        } else {
+                          setMySheet(null);
+                        }
                       }
                     }}
                   />
@@ -2551,81 +2657,60 @@ export default function PlayPage() {
             {turnStatusText}
           </div>
         )}
-        {/* S5.3 + S5.4: monster control panel — human DM seat only, during active combat. */}
+        {/* Tora MAJOR-1: DmNarrationPanel + ConditionsPanel are the DM-side
+            controls; wrapped in one labeled group so AT users browsing by
+            landmark/group get a "DM" vs "your character" cue now that both
+            rails can co-render for a solo human-DM playing their own PC
+            (TAV-SOLO-DM-CAST-RAIL). This wrapper is a single flex child of
+            `.center`, so `.center`'s own gap no longer applies between the two
+            panels — `.dmControlsGroup` restores it (Kage). Each panel still
+            carries its own visible kicker ("Monster control"/"Conditions");
+            this only adds the outer semantic grouping + restored spacing. */}
         {isHumanDM && combatIsActive && combatState && combatId && (
-          <DmNarrationPanel
-            combatId={combatId}
-            combatState={combatState}
-            sessionId={sessionId}
-            dmUsername={session?.dm_username ?? username ?? ''}
-            overridePlayerVisible={session?.dm_override_player_visible ?? true}
-            onMessage={(text) =>
-              appendLog({ who: 'Suzu', kind: 'system', text })
-            }
-            onOverrideMessage={(text) =>
-              appendLog({
-                who: `DM (${session?.dm_username ?? username ?? 'DM'})`,
-                kind: 'dm_override',
-                text: `DM ruled: ${text}`,
-              })
-            }
-            onStateUpdate={(newState) => {
-              stateSeqRef.current += 1;
-              setCombatState(newState);
-            }}
-            onStateRefresh={async () => {
-              if (!combatId) return;
-              const cs = await getCombatState(combatId).catch(() => null);
-              if (cs) {
-                stateSeqRef.current += 1;
-                setCombatState(cs);
-              }
-            }}
-          />
-        )}
-        {/* T7 (DDX-17e): condition apply/remove — human DM seat only, during
-            active combat. Mounts alongside DmNarrationPanel (both DM-only,
-            not mutually exclusive with it — a DM can drive a monster's turn
-            AND apply/remove a condition). Chips themselves render for every
-            client via InitiativeTracker; this panel is the mutate surface. */}
-        {isHumanDM && combatIsActive && combatState && combatId && (
-          <ConditionsPanel
-            combatId={combatId}
-            dmUsername={session?.dm_username ?? username ?? ''}
-            participants={combatState.participants}
-            disabled={combatBusy || sessionLocked}
-            onApplied={(text) => appendLog({ who: 'Suzu', kind: 'system', text })}
-            onStateRefresh={async () => {
-              const cs = await getCombatState(combatId).catch(() => null);
-              if (cs) {
-                stateSeqRef.current += 1;
-                setCombatState(cs);
-              }
-            }}
-            onBusyChange={setCombatBusy}
-          />
-        )}
-        {/* T6 (DDX-12): cast-in-combat picker — bound caster only, during active
-            combat. Mirrors DmNarrationPanel's mount gate immediately above (same
-            spot in the layout, mutually exclusive: a human DM sees the monster
-            panel, a caster PC sees this). Disabled (not hidden) off-turn, same
-            convention as the ActionRail inside Composer below. */}
-        {!isHumanDM &&
-          combatIsActive &&
-          combatState &&
-          combatId &&
-          myCharacterIdStr &&
-          mySheet?.is_spellcaster && (
-            <CastSpellPanel
+          <div role="group" aria-label="DM controls" className={styles.dmControlsGroup}>
+            {/* S5.3 + S5.4: monster control panel — human DM seat only, during active combat. */}
+            <DmNarrationPanel
               combatId={combatId}
-              characterId={myCharacterIdStr}
-              username={username ?? ''}
+              combatState={combatState}
+              sessionId={sessionId}
+              dmUsername={session?.dm_username ?? username ?? ''}
+              overridePlayerVisible={session?.dm_override_player_visible ?? true}
+              panelRef={dmPanelAnchorRef}
+              localTurnActionRef={localTurnActionRef}
+              onMessage={(text) =>
+                appendLog({ who: 'Suzu', kind: 'system', text })
+              }
+              onOverrideMessage={(text) =>
+                appendLog({
+                  who: `DM (${session?.dm_username ?? username ?? 'DM'})`,
+                  kind: 'dm_override',
+                  text: `DM ruled: ${text}`,
+                })
+              }
+              onStateUpdate={(newState) => {
+                stateSeqRef.current += 1;
+                setCombatState(newState);
+              }}
+              onStateRefresh={async () => {
+                if (!combatId) return;
+                const cs = await getCombatState(combatId).catch(() => null);
+                if (cs) {
+                  stateSeqRef.current += 1;
+                  setCombatState(cs);
+                }
+              }}
+            />
+            {/* T7 (DDX-17e): condition apply/remove — human DM seat only, during
+                active combat. Mounts alongside DmNarrationPanel (both DM-only,
+                not mutually exclusive with it — a DM can drive a monster's turn
+                AND apply/remove a condition). Chips themselves render for every
+                client via InitiativeTracker; this panel is the mutate surface. */}
+            <ConditionsPanel
+              combatId={combatId}
+              dmUsername={session?.dm_username ?? username ?? ''}
               participants={combatState.participants}
-              spellSlots={mySheet.spell_slots}
-              isPlayerTurn={isPlayerTurn}
               disabled={combatBusy || sessionLocked}
-              onCast={(text) => appendLog({ who: username ?? 'you', kind: 'system', text })}
-              onSheetChanged={setMySheet}
+              onApplied={(text) => appendLog({ who: 'Suzu', kind: 'system', text })}
               onStateRefresh={async () => {
                 const cs = await getCombatState(combatId).catch(() => null);
                 if (cs) {
@@ -2635,6 +2720,46 @@ export default function PlayPage() {
               }}
               onBusyChange={setCombatBusy}
             />
+          </div>
+        )}
+        {/* T6 (DDX-12): cast-in-combat picker — bound caster only, during active
+            combat. Mirrors DmNarrationPanel's mount gate immediately above (same
+            spot in the layout, mutually exclusive: a human DM sees the monster
+            panel, a caster PC sees this) — UNLESS the DM also has a bound
+            character (TAV-SOLO-DM-CAST-RAIL's GM-PC pattern), in which case
+            both mount side by side. Disabled (not hidden) off-turn, same
+            convention as the ActionRail inside Composer below. */}
+        {(isDmPlayingOwnPc || !isHumanDM) &&
+          combatIsActive &&
+          combatState &&
+          combatId &&
+          myCharacterIdStr &&
+          mySheet?.is_spellcaster && (
+            // Tora MAJOR-1: CastSpellPanel is a "your character" control,
+            // grouped the same way as the DM controls above — pairs with
+            // Composer's own internally-labeled "Your character's actions"
+            // rail group just below.
+            <div role="group" aria-label="Your character's controls">
+              <CastSpellPanel
+                combatId={combatId}
+                characterId={myCharacterIdStr}
+                username={username ?? ''}
+                participants={combatState.participants}
+                spellSlots={mySheet.spell_slots}
+                isPlayerTurn={isPlayerTurn}
+                disabled={combatBusy || sessionLocked}
+                onCast={(text) => appendLog({ who: username ?? 'you', kind: 'system', text })}
+                onSheetChanged={setMySheet}
+                onStateRefresh={async () => {
+                  const cs = await getCombatState(combatId).catch(() => null);
+                  if (cs) {
+                    stateSeqRef.current += 1;
+                    setCombatState(cs);
+                  }
+                }}
+                onBusyChange={setCombatBusy}
+              />
+            </div>
           )}
         <Composer
           value={msg}
@@ -2652,10 +2777,14 @@ export default function PlayPage() {
           availableModes={composerModes}
           pending={dmNarrationPending}
           sendError={mode === 'dm_narration' ? dmNarrationError : null}
+          railRef={composerRailAnchorRef}
+          localTurnActionRef={localTurnActionRef}
           combat={
             // S5.2: human DM doesn't see the player action rail (Attack/Dodge/etc.).
-            // The DmNarrationPanel above handles monster control separately.
-            isHumanDM
+            // The DmNarrationPanel above handles monster control separately —
+            // UNLESS the DM also has a bound character (isDmPlayingOwnPc), in
+            // which case they get the rail for their own PC's turn too.
+            isHumanDM && !isDmPlayingOwnPc
               ? null
               : combatIsActive
                 ? {

@@ -4,16 +4,20 @@
  * CastSpellPanel itself has NO internal `is_spellcaster`/DM guard (unlike
  * SpellSlotsPanel's own defense-in-depth `if (!isCaster) return null`) — the
  * ENTIRE gate lives in the parent page's JSX conditional
- * (`src/app/play/[sessionId]/page.tsx` ~2564-2591):
- *   !isHumanDM && combatIsActive && combatState && combatId &&
- *   myCharacterIdStr && mySheet?.is_spellcaster
- * That means "DM doesn't see it" / "non-caster doesn't see it" / "caster
- * off-combat doesn't see it" are NOT unit-testable against CastSpellPanel in
- * isolation (it would always render, proving nothing) — they can only be
- * proven by mounting the real page. This file is that proof, one axis at a
- * time, isolating each condition rather than conflating them (in particular:
- * a DM WITH a bound caster-shaped sheet still must not see the panel, so the
- * isHumanDM gate is proven independently of the myCharacterIdStr gate).
+ * (`src/app/play/[sessionId]/page.tsx` ~2613-2638):
+ *   (isDmPlayingOwnPc || !isHumanDM) && combatIsActive && combatState &&
+ *   combatId && myCharacterIdStr && mySheet?.is_spellcaster
+ * That means "DM-only doesn't see it" / "non-caster doesn't see it" /
+ * "caster off-combat doesn't see it" are NOT unit-testable against
+ * CastSpellPanel in isolation (it would always render, proving nothing) —
+ * they can only be proven by mounting the real page. This file is that
+ * proof, one axis at a time, isolating each condition rather than
+ * conflating them.
+ *
+ * TAV-SOLO-DM-CAST-RAIL (2026-07-10): a human DM who ALSO has a bound
+ * character (the GM-PC pattern) now DOES see this panel — isDmPlayingOwnPc
+ * lifts the isHumanDM suppression. A DM with no bound character still never
+ * sees it.
  */
 import React from 'react';
 import { render, screen, waitFor, act } from '@testing-library/react';
@@ -269,9 +273,10 @@ describe('T6 — CastSpellPanel mount gate (page-level, per-axis)', () => {
     expect(screen.queryByText('Cast a spell')).not.toBeInTheDocument();
   });
 
-  it('hides the panel for a human DM even when the DM ALSO has a caster-shaped bound sheet (isolates the isHumanDM gate from the myCharacterIdStr gate)', async () => {
+  it('TAV-SOLO-DM-CAST-RAIL: shows the panel for a human DM who ALSO has a caster-shaped bound sheet (GM-PC pattern lifts the isHumanDM suppression)', async () => {
     // dm_username === logged-in username AND dm_mode 'human' => isHumanDM true,
-    // regardless of what the sheet/combat state look like.
+    // but the same account also has a bound caster PC => isDmPlayingOwnPc true,
+    // which lifts the CastSpellPanel suppression.
     mGetSession.mockResolvedValue(
       sessionFixture({ dm_username: 'leon', dm_mode: 'human', active_combat_id: 'combat-1' }),
     );
@@ -280,11 +285,7 @@ describe('T6 — CastSpellPanel mount gate (page-level, per-axis)', () => {
     mGetCombatState.mockResolvedValue(ACTIVE_COMBAT);
 
     render(<PlayPage />);
-    await waitFor(() => expect(mGetCharacterSheet).toHaveBeenCalled());
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(screen.queryByText('Cast a spell')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('Cast a spell')).toBeInTheDocument());
   });
 
   it('hides the panel for a DM-only participant (no character bound) during active combat', async () => {

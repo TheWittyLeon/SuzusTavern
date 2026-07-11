@@ -150,6 +150,10 @@ describe('Composer', () => {
     );
     const attackBtn = screen.getByRole('button', { name: /Attack.*not your turn/i });
     expect(attackBtn).toBeDisabled();
+    // Miko minor: mirrors CastSpellPanel's hostile-turn test — a forced click
+    // on a disabled control must never reach onAction.
+    fireEvent.click(attackBtn);
+    expect(onAction).not.toHaveBeenCalled();
   });
 
   it('shows refused reason text when refusedReason is set', () => {

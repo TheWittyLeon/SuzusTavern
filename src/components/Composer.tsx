@@ -13,7 +13,7 @@
  * callback receives the participant_id (not the name) as payload for attack so the
  * play page can send target_id to the engine (name fallback retained for compat).
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import Icon from '@/components/Icon';
 import styles from './Composer.module.css';
 
@@ -56,6 +56,17 @@ export interface ComposerProps {
   sendError?: string | null;
   /** When true the send button shows a spinner (submit pending). */
   pending?: boolean;
+  /** Tora MAJOR-2: exposes the action rail's own container so the play page
+   *  can refocus it if a turn-transition disables the button the user was
+   *  just on, stranding focus on <body> (mirrors the sceneHeadRef tabIndex={-1}
+   *  anchor pattern already used for scene/transition mutations). */
+  railRef?: RefObject<HTMLDivElement | null>;
+  /** Iro CRITICAL-1: provenance flag for the play page's turn-flip refocus
+   *  effect. Set to true synchronously, at click time and BEFORE the mutation
+   *  fires, when focus was inside this rail — so the effect can tell "my own
+   *  disabling click stranded focus" apart from "combatState just arrived via
+   *  the poll" (which never sets this). */
+  localTurnActionRef?: RefObject<boolean>;
 }
 
 const PLACEHOLDER: Record<ComposeMode, string> = {
@@ -71,7 +82,15 @@ const DEFAULT_MODES: [ComposeMode, string][] = [
   ['ooc', 'OOC'],
 ];
 
-function ActionRail({ combat }: { combat: ComposerCombat }) {
+function ActionRail({
+  combat,
+  outerRailRef,
+  localTurnActionRef,
+}: {
+  combat: ComposerCombat;
+  outerRailRef?: RefObject<HTMLDivElement | null>;
+  localTurnActionRef?: RefObject<boolean>;
+}) {
   const [targetOpen, setTargetOpen] = useState(false);
   const railRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -117,6 +136,15 @@ function ActionRail({ combat }: { combat: ComposerCombat }) {
   }, [targetOpen]);
 
   const fire = (a: CombatAction, payload?: string) => {
+    // Iro CRITICAL-1: capture BEFORE the mutation — the browser focuses a
+    // clicked button synchronously, so this is the only reliable moment to
+    // know the disabling click originated inside this rail (mirrors
+    // hadFocusInCheckWrap/hadFocusInTransitionWrap in page.tsx). The play
+    // page's turn-flip refocus effect only proceeds when this was set by a
+    // local click for this transition.
+    if (localTurnActionRef) {
+      localTurnActionRef.current = railRef.current?.contains(document.activeElement) ?? false;
+    }
     combat.onAction(a, payload);
     setTargetOpen(false);
   };
@@ -150,7 +178,28 @@ function ActionRail({ combat }: { combat: ComposerCombat }) {
   const actionDisabled = combat.busy || notYourTurn;
 
   return (
-    <div className={styles.rail} ref={railRef}>
+    <div
+      className={styles.rail}
+      ref={(el) => {
+        railRef.current = el;
+        if (outerRailRef) outerRailRef.current = el;
+      }}
+      // Tora MAJOR-1: before this, nothing distinguished "your character's
+      // controls" from DmNarrationPanel's "DM monster control" region — the
+      // two now co-render for a solo human-DM playing their own PC
+      // (TAV-SOLO-DM-CAST-RAIL). role="group" + aria-label gives AT users the
+      // same region cue DmNarrationPanel's <section aria-label="DM monster
+      // control"> already provides.
+      role="group"
+      aria-label="Your character's actions"
+      // Tora MAJOR-2: programmatic focus anchor (mirrors sceneHeadRef) — the
+      // play page refocuses this container if a turn flip disables the
+      // button the user was just on, stranding focus on <body>.
+      tabIndex={-1}
+    >
+      {/* Visible uppercase kicker, matching the panelLabel convention shared
+          by DmNarrationPanel/ConditionsPanel/CastSpellPanel. */}
+      <div className={styles.railLabel}>Your character&rsquo;s actions</div>
       {/* A11Y (Iro HIGH-3): polite live-region fires once when it becomes the player's
           turn. Kept visually hidden; the text clears after 4s to avoid stale state. */}
       <div
@@ -271,6 +320,8 @@ export default function Composer({
   availableModes,
   sendError = null,
   pending = false,
+  railRef,
+  localTurnActionRef,
 }: ComposerProps) {
   // Use caller-supplied mode list if provided; default to the standard 3-tab set.
   const MODES = availableModes ?? DEFAULT_MODES;
@@ -298,7 +349,9 @@ export default function Composer({
 
   return (
     <div className={styles.composer}>
-      {combat && <ActionRail combat={combat} />}
+      {combat && (
+        <ActionRail combat={combat} outerRailRef={railRef} localTurnActionRef={localTurnActionRef} />
+      )}
       {/* S5.2: inline error banner — text is preserved in the textarea on error. */}
       {sendError && (
         <div

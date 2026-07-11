@@ -52,6 +52,15 @@
   overflow: hidden;
 }
 
+/* Kage: the "DM controls" role="group" wrapper around DmNarrationPanel +
+   ConditionsPanel is a single flex child of .center, so .center's own 12px
+   gap no longer applies between the two panels it wraps — restore it here. */
+.dmControlsGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 /* ── left header ── */
 .sessionHead {
   display: flex;

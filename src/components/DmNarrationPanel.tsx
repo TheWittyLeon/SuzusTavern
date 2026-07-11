@@ -21,7 +21,7 @@
  *   onStateUpdate — called with a new CombatState after a successful npc-action
  *   onStateRefresh — called when a stale error arrives; triggers a getCombatState poll
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { npcAction, postSessionEvent, setSessionPolicy } from '@/lib/api/dnd';
 import type { CombatParticipantState, CombatState } from '@/lib/api/types';
 import DmOverrideModal from '@/components/DmOverrideModal';
@@ -41,6 +41,15 @@ export interface DmNarrationPanelProps {
   onOverrideMessage?: (text: string) => void;
   onStateUpdate: (state: CombatState) => void;
   onStateRefresh: () => void;
+  /** Tora MAJOR-2: exposes this panel's own section so the play page can
+   *  refocus it if a turn-transition strands focus on <body> when the
+   *  monster's turn starts (mirrors Composer's railRef anchor + the
+   *  pre-existing sceneHeadRef pattern). */
+  panelRef?: RefObject<HTMLElement | null>;
+  /** Iro CRITICAL-1: provenance flag for the play page's turn-flip refocus
+   *  effect — see Composer.tsx's ComposerProps.localTurnActionRef for the
+   *  full contract. Threaded down to each MonsterRow's fireAction(). */
+  localTurnActionRef?: RefObject<boolean>;
 }
 
 /** Engine refusal codes → readable copy. */
@@ -71,6 +80,8 @@ interface MonsterRowProps {
   onMessage: (text: string) => void;
   onStateUpdate: (state: CombatState) => void;
   onStateRefresh: () => void;
+  /** Iro CRITICAL-1: see DmNarrationPanelProps.localTurnActionRef. */
+  localTurnActionRef?: RefObject<boolean>;
 }
 
 function MonsterRow({
@@ -83,6 +94,7 @@ function MonsterRow({
   onMessage,
   onStateUpdate,
   onStateRefresh,
+  localTurnActionRef,
 }: MonsterRowProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -94,6 +106,9 @@ function MonsterRow({
   const busyRef = useRef(false);
   const attackBtnRef = useRef<HTMLButtonElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  // Iro CRITICAL-1: wraps the whole Attack/Skip/Move action row (not just the
+  // attack dropdown) so the provenance check below catches all three buttons.
+  const actionsWrapRef = useRef<HTMLDivElement>(null);
 
   // MAJOR-1: outside-click dismissal for the NPC attack target menu.
   // Uses mousedown (not click) so the triggering Attack button click doesn't
@@ -120,6 +135,16 @@ function MonsterRow({
     targetId?: string,
   ) => {
     if (busyRef.current) return;
+    // Iro CRITICAL-1: capture BEFORE the mutation/await — the browser focuses
+    // a clicked button synchronously, so this is the only reliable moment to
+    // know the disabling click originated inside this monster's action row
+    // (mirrors ActionRail's fire() in Composer.tsx). The play page's
+    // turn-flip refocus effect only proceeds when this was set by a local
+    // click for this transition.
+    if (localTurnActionRef) {
+      localTurnActionRef.current =
+        actionsWrapRef.current?.contains(document.activeElement) ?? false;
+    }
     busyRef.current = true;
     setBusy(true);
     setError(null);
@@ -234,7 +259,7 @@ function MonsterRow({
 
       {/* Action buttons — only on this monster's turn */}
       {isCurrentTurn && !isDown && (
-        <div className={styles.npcActions}>
+        <div className={styles.npcActions} ref={actionsWrapRef}>
           {/* Attack dropdown */}
           <div className={styles.npcAttackWrap} ref={wrapRef}>
             <button
@@ -245,7 +270,11 @@ function MonsterRow({
               aria-disabled={busy || pcTargets.length === 0}
               aria-expanded={targetOpen}
               aria-haspopup="menu"
-              aria-label={pcTargets.length === 0 ? 'Attack (no valid targets)' : 'Attack — pick target'}
+              aria-label={
+                pcTargets.length === 0
+                  ? 'Monster attack (no valid targets)'
+                  : 'Attack — pick target'
+              }
               onClick={() =>
                 !busy && pcTargets.length > 0 && setTargetOpen((o) => !o)
               }
@@ -383,6 +412,8 @@ export default function DmNarrationPanel({
   onOverrideMessage,
   onStateUpdate,
   onStateRefresh,
+  panelRef,
+  localTurnActionRef,
 }: DmNarrationPanelProps) {
   const monsters = combatState.participants.filter(
     (p) => !p.is_pc,
@@ -439,6 +470,13 @@ export default function DmNarrationPanel({
 
   return (
     <section
+      ref={(el) => {
+        if (panelRef) panelRef.current = el;
+      }}
+      // Tora MAJOR-2: programmatic focus anchor (mirrors sceneHeadRef /
+      // Composer's rail) — the play page refocuses this section if a turn
+      // flip to a monster strands focus on <body>.
+      tabIndex={-1}
       className={styles.panel}
       aria-label="DM monster control"
     >
@@ -488,6 +526,7 @@ export default function DmNarrationPanel({
           onMessage={onMessage}
           onStateUpdate={onStateUpdate}
           onStateRefresh={onStateRefresh}
+          localTurnActionRef={localTurnActionRef}
         />
       ))}
 
