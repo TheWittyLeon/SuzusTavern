@@ -224,7 +224,8 @@ describe('Tora MAJOR-1 — handleBegin finally block', () => {
 
     await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
     // router.push was called → the success path (including finally) completed cleanly.
-    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/dashboard'));
+    // Begin now lands directly in the new session (TAV-PLAY-BEGIN-REDIRECT).
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/play/s9'));
   });
 
   it('submitting resets to false after a failed createSession (catch + finally)', async () => {

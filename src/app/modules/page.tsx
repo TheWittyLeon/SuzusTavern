@@ -260,7 +260,13 @@ function StarterForm({
         title: 'Table set',
         message: successMsg,
       });
-      router.push('/dashboard');
+      // Land directly in the new session (mirrors dashboard/page.tsx's Resume link).
+      // Pre-upgrade backends can return a null session — fall back to /dashboard.
+      if (session?.session_id) {
+        router.push(`/play/${encodeURIComponent(session.session_id)}`);
+      } else {
+        router.push('/dashboard');
+      }
     } catch {
       toast({
         tone: 'error',

@@ -228,7 +228,7 @@ it('Begin sends adventure_ref = public_id from the catalog item', async () => {
   });
 });
 
-it('Begin creates a session with a unique-suffixed channel, verbatim name, and routes to the dashboard', async () => {
+it('Begin creates a session with a unique-suffixed channel, verbatim name, and routes to the new session', async () => {
   await openForm();
   await act(async () => {
     fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
@@ -246,6 +246,16 @@ it('Begin creates a session with a unique-suffixed channel, verbatim name, and r
     expect(call['visibility']).toBe('private');
     expect(call['content_rating']).toBe('sfw');
     expect(call['adventure_ref']).toBe('dnd5e:adventure:hollow-tide-cave');
+  });
+  // Begin now lands directly in the new session rather than /dashboard (TAV-PLAY-BEGIN-REDIRECT).
+  await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/play/s9'));
+});
+
+it('Begin falls back to /dashboard when createSession resolves null (pre-upgrade backend)', async () => {
+  mockCreate.mockResolvedValue(null);
+  await openForm();
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
   });
   await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/dashboard'));
 });
