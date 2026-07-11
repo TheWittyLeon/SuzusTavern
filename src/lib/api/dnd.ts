@@ -537,6 +537,39 @@ export const postSessionEvent = (
     { method: 'POST', json: req, signal },
   );
 
+/**
+ * DDX-26 — raise the X-card: a durable, cross-client safety signal.
+ * POST /api/dnd/sessions/{id}/x-card — empty body; the engine stamps the
+ * raiser from the verified actor (same cookie-BFF identity convention as
+ * every other mutating session route — callers must NOT send a username).
+ * Persists an `x_card` session event (seq/actor/created_at) that every open
+ * client observes via the existing events poll (getSessionEventsRaw) — there
+ * is no bespoke read path for this feature, and no new poll is introduced.
+ *
+ * Anonymous-to-players / DM-sees-raiser is a CLIENT-side render decision (see
+ * the play screen's isDm gate) — the engine always records the true raiser
+ * in `actor` here; the client simply chooses who it shows that field to.
+ *
+ * Wire shape (Kage IMPORTANT-1): the engine returns the event NESTED —
+ * `_ok({"event": {seq, kind, actor, created_at, visibility}})` — and the BFF
+ * passes it through verbatim, so this resolves to `{ event: {...} }`, never a
+ * flat `{seq, kind, actor, created_at}`. Do NOT flatten this on a future edit;
+ * callers must read `result?.event?.seq` / `result?.event?.actor`.
+ */
+export const postXCard = (sessionId: string, signal?: AbortSignal) =>
+  apiCall<{
+    event?: {
+      seq: number;
+      kind: string;
+      actor: string | null;
+      created_at?: string;
+      visibility?: string;
+    };
+  }>(`/api/dnd/sessions/${encodeURIComponent(sessionId)}/x-card`, {
+    method: 'POST',
+    signal,
+  });
+
 // DDX-25 R2: DEAD code (zero production call sites — only exercised directly
 // by the api-dnd unit test) but retyped anyway for the same reason as
 // pauseSession/resumeSession/endSession/awardSessionXp below: the engine's

@@ -69,6 +69,7 @@ import {
   dash as combatDash,
   endTurn as combatEndTurn,
   postRoll,
+  postXCard,
 } from '@/lib/api/dnd';
 import { streamDmNarration } from '@/lib/stream';
 import { eventToLogRow, formatEventTimestamp as formatOpeningTimestamp } from '@/lib/rehydration';
@@ -78,6 +79,7 @@ import type {
   CombatParticipantState,
   CombatState,
   EndCombatOutcome,
+  EngineSessionEvent,
   GroundingData,
   OfferedCheck,
   Participant,
@@ -134,6 +136,49 @@ const STRUCTURAL_EVENT_KINDS = new Set([
 
 /** Poll interval in milliseconds. */
 const POLL_INTERVAL_MS = 4000;
+
+/**
+ * DDX-26 — event kinds that count as a "narration beat" for the X-card
+ * banner's auto-ease-off. Mirrors the engine's own soft-redirect auto-clear
+ * EXACTLY (Kage IMPORTANT-2): the engine only clears soft_redirect on
+ * 'dm_narration'/'narration' — NOT on 'player_action'. A player_action event
+ * persists up front, before Suzu's narration streams back, so counting it
+ * here would ease the banner off for the whole streaming turn (or
+ * indefinitely on an abandoned turn) while the engine is still steering, and
+ * could clear the banner on an ESCALATING player action — the opposite of
+ * "the table eased off". Once the table has actually moved on to a new
+ * narration beat, the banner steps aside on its own (no dismiss required) —
+ * the raised signal is still permanent in the durable log (eventToLogRow's
+ * 'x_card' case), only the live banner clears.
+ */
+const NARRATION_BEAT_KINDS = new Set(['dm_narration', 'narration']);
+
+/**
+ * DDX-26 — scan a batch of raw session events (any order, any kind) for the
+ * highest-seq 'x_card' event and the highest-seq narration-beat event. Pure,
+ * shared by both the mount-time rehydration path (full history) and the
+ * recurring events poll (only the newly-observed slice) so "what's active"
+ * is computed identically regardless of which path fed it. Seq+actor are
+ * returned as one pair (never two independently-tracked values) so a batch
+ * containing multiple x_card events always attributes the actor belonging
+ * to the highest seq, never a stale one from an earlier raise in the batch.
+ */
+function scanXCardTracking(events: EngineSessionEvent[]): {
+  xCard: { seq: number; actor?: string } | null;
+  narrationSeq: number | null;
+} {
+  let xCard: { seq: number; actor?: string } | null = null;
+  let narrationSeq: number | null = null;
+  for (const e of events) {
+    const seq = e.seq ?? 0;
+    if (e.kind === 'x_card') {
+      if (!xCard || seq > xCard.seq) xCard = { seq, actor: e.actor };
+    } else if (e.kind && NARRATION_BEAT_KINDS.has(e.kind)) {
+      if (narrationSeq == null || seq > narrationSeq) narrationSeq = seq;
+    }
+  }
+  return { xCard, narrationSeq };
+}
 
 function nowStamp(): string {
   return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -341,6 +386,34 @@ export default function PlayPage() {
   // `dice_roll` event), so a same-tick double-click must not fire it twice.
   const rollBusyRef = useRef(false);
   const [rollBusy, setRollBusy] = useState(false);
+
+  // DDX-26 — durable X-card tracking, derived from the SAME events poll as
+  // dice rolls (no new poll). `xCardEvent` pairs seq+actor so a batch never
+  // attributes the wrong raiser (see scanXCardTracking above). Both this and
+  // `latestNarrationSeq` are updated via the functional setState form
+  // (`setXCardEvent((prev) => ...)`), which always reads the CURRENT
+  // committed state at update time — the poll effect's deps are [sessionId,
+  // state] (mirrors the dice-roll poll's own reasoning), so a plain closure
+  // read of these values inside `poll()` would be stale; the functional
+  // updater sidesteps that without needing a ref-mirror.
+  const [xCardEvent, setXCardEvent] = useState<{ seq: number; actor?: string } | null>(null);
+  const [latestNarrationSeq, setLatestNarrationSeq] = useState<number | null>(null);
+  // Per-client dismiss, keyed to the seq it was raised for the seat's active
+  // banner (dismisses only unnamed on the exact raise) — a NEW x_card (higher
+  // seq) is a different raise and re-shows regardless of this value.
+  const [dismissedXCardSeq, setDismissedXCardSeq] = useState<number | null>(null);
+  // Synchronous double-submit latch for the X-card button (mirrors
+  // rollBusyRef) — raising is a real server write (persists an `x_card`
+  // event); a same-tick double-click must not fire it twice.
+  const xCardBusyRef = useRef(false);
+  const [xCardBusy, setXCardBusy] = useState(false);
+  // Iro MAJOR-2: the banner wrapper is a PERMANENT, always-mounted anchor
+  // (see the render below — only its children toggle) so it's stable
+  // regardless of `mobileView`, mirroring the sceneHeadRef/endCombatBtnRef
+  // refocus convention above. Dismiss unmounts the focused Dismiss button;
+  // refocusing this wrapper (tabIndex={-1}) before that unmount lands focus
+  // here instead of dropping it to <body>.
+  const xCardBannerRef = useRef<HTMLDivElement>(null);
 
   // Monotone sequence guard: combatState updates from polls must not overwrite
   // a more-recent mutation response. Mutations bump this; polls gate on it.
@@ -590,6 +663,16 @@ export default function PlayPage() {
           // every rehydrated row (including any past dice_roll) is already
           // in `rows`, so start the poll's watermark at the newest seq seen.
           lastEventSeqRef.current = sorted.reduce((m, e) => Math.max(m, e.seq ?? 0), 0);
+
+          // DDX-26 — run the banner's active-computation over the REHYDRATED
+          // history too (not just future poll ticks), so a reloading client
+          // sees an active, undismissed X-card banner for a still-unresolved
+          // signal. dismissedXCardSeq intentionally is NOT restored here — it
+          // resets to null on every fresh mount (a reload re-surfaces an
+          // unresolved signal, the safe direction per the design decision).
+          const { xCard, narrationSeq } = scanXCardTracking(sorted);
+          if (xCard) setXCardEvent(xCard);
+          if (narrationSeq != null) setLatestNarrationSeq(narrationSeq);
         }
 
         // A2 — fetch the bound character's sheet to build real quick-checks.
@@ -796,11 +879,18 @@ export default function PlayPage() {
   // The engine's GET /events has no "since seq" filter, so every tick refetches
   // the full (capped) event list and appends only rows with seq strictly
   // greater than lastEventSeqRef.current (set once by rehydration, advanced
-  // here after each tick). Only `dice_roll` events are rendered by this
-  // poll — other kinds (player_action/narration/...) are already reflected
-  // through their own optimistic-append/streaming paths and are intentionally
-  // left to a future unified events poll (DDX-20) to avoid duplicating rows
-  // for the client that originated them.
+  // here after each tick). Only `dice_roll` and `x_card` (DDX-26) events are
+  // rendered as ROWS by this poll — other kinds (player_action/narration/...)
+  // are already reflected through their own optimistic-append/streaming paths
+  // and are intentionally left to a future unified events poll (DDX-20) to
+  // avoid duplicating rows for the client that originated them.
+  //
+  // DDX-26: this same tick also feeds `newOnes` (every kind, not just the
+  // rendered ones) to scanXCardTracking so the X-card banner's active-state
+  // (xCardEvent / latestNarrationSeq) converges on every open client — the
+  // raiser's own tab included, since the raise handler only sets an
+  // optimistic local value and relies on this poll for the durable/cross-tab
+  // truth, exactly like onRoll relies on this poll for dice_roll rows.
   useEffect(() => {
     if (!sessionId || state !== 'ok') return;
 
@@ -814,11 +904,20 @@ export default function PlayPage() {
           .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
         if (newOnes.length === 0) return;
         const rows = newOnes
-          .filter((e) => e.kind === 'dice_roll')
+          .filter((e) => e.kind === 'dice_roll' || e.kind === 'x_card')
           .map(eventToLogRow)
           .filter((r): r is LogRow => r !== null);
         if (rows.length > 0) {
           setLog((prev) => [...prev, ...rows]);
+        }
+        const { xCard, narrationSeq } = scanXCardTracking(newOnes);
+        if (xCard) {
+          setXCardEvent((prev) => (!prev || xCard.seq > prev.seq ? xCard : prev));
+        }
+        if (narrationSeq != null) {
+          setLatestNarrationSeq((prev) =>
+            prev == null || narrationSeq > prev ? narrationSeq : prev,
+          );
         }
         lastEventSeqRef.current = newOnes.reduce(
           (m, e) => Math.max(m, e.seq ?? 0),
@@ -1383,6 +1482,38 @@ export default function PlayPage() {
     },
     [session, username, advantage, talking, combatBusy, narrate, toast],
   );
+
+  // ── safety: X-card (DDX-26) ──────────────────────────────────────────────
+  // Durable, cross-client safety signal. Deliberately NOT gated on
+  // sessionLocked/talking — a safety tool must stay reachable regardless of
+  // table state. xCardBusyRef: synchronous double-submit latch (mirrors
+  // rollBusyRef) — this is a real server write (persists an `x_card` event),
+  // so a same-tick double-click must not fire it twice.
+  const onRaiseXCard = useCallback(async () => {
+    if (!session || xCardBusyRef.current) return;
+    xCardBusyRef.current = true;
+    setXCardBusy(true);
+    try {
+      const result = await postXCard(session.session_id);
+      // Optimistic local banner — the events poll above will also observe
+      // this same event (durable truth) and converge every other open tab,
+      // exactly like a dice roll converges via the same poll.
+      // Kage IMPORTANT-1: the engine (and the BFF passthrough) nests the
+      // event under `.event` — read seq/actor from there, never off the
+      // top-level result, or this optimistic banner silently never fires.
+      const seq = result?.event?.seq;
+      if (seq != null) {
+        const xCard = { seq, actor: result?.event?.actor ?? username ?? undefined };
+        setXCardEvent((prev) => (!prev || xCard.seq > prev.seq ? xCard : prev));
+      }
+      toast({ tone: 'info', message: 'X-card noted. The table eases off.' });
+    } catch {
+      toast({ tone: 'error', message: 'Could not raise the X-card — try again.' });
+    } finally {
+      xCardBusyRef.current = false;
+      setXCardBusy(false);
+    }
+  }, [session, username, toast]);
 
   // ── scene advance (ADV-7T / CUI-12) ─────────────────────────────────────────
 
@@ -2260,6 +2391,20 @@ export default function PlayPage() {
   // already keys off myCharacterIdStr — it's unaffected by this flag.
   const isDmPlayingOwnPc = isHumanDM && !!myCharacterIdStr && !!mySheet;
 
+  // DDX-26 — X-card banner active-state: the raised signal is still the
+  // newest "beat" on the table (no later narration beat has superseded it)
+  // AND this client hasn't already dismissed THIS specific raise (dismissal
+  // is keyed to seq, so a fresh higher-seq x_card always re-shows even if a
+  // stale one was dismissed — this is what fixes UIR2-TAV-25's
+  // persists-after-dismiss bug: the old client-local toast had no seq to key
+  // off at all). Mirrors the engine's own soft-redirect auto-clear: once
+  // `latestNarrationSeq` overtakes the raise, the table has "eased off" and
+  // the banner steps aside on its own, no dismiss required.
+  const xCardActive =
+    xCardEvent != null &&
+    (latestNarrationSeq == null || xCardEvent.seq > latestNarrationSeq) &&
+    xCardEvent.seq > (dismissedXCardSeq ?? -1);
+
   // DDX-25: session lifecycle status, read directly from the server-loaded
   // session (same "no stale snapshot" rule as aiLevel below) — status can now
   // change via the session controls without a full page reload.
@@ -2365,6 +2510,67 @@ export default function PlayPage() {
         >
           <Icon name="Map" size={13} aria-hidden /> Scene
         </button>
+      </div>
+
+      {/* DDX-26 — durable, cross-client X-card banner.
+          Iro CRITICAL-1: HOISTED here, as a sibling of .mobileTabs directly
+          inside the top-level .grid (its own "banner" grid-area — see
+          Play.module.css), so it renders on EVERY mobile tab + desktop
+          regardless of `mobileView`. It used to live inside <main
+          id="play-pane-story"> (.center), which is display:none on mobile
+          unless the Story tab is active — so a participant on another tab
+          (INCLUDING THE RAISER, whose X-card button lives in the Scene pane)
+          got no banner and no SR announcement at all.
+          Iro MAJOR-1/MINOR-1: the wrapper is PERMANENTLY mounted with
+          role="status" + aria-live="polite" + aria-atomic="true" — only the
+          CHILDREN (text + Dismiss button) toggle in/out. Some AT skip an
+          announcement when the whole live region is inserted with text
+          already in place; a stable, always-present region + content churn
+          is the reliable pattern (mirrors ToastViewport in Toast.tsx). The
+          `:empty` rule in Play.module.css collapses it to zero footprint
+          without display:none/visibility:hidden (both of which would also
+          remove it from the a11y tree, defeating the point).
+          Iro MAJOR-2: tabIndex={-1} + ref makes this wrapper a stable
+          refocus anchor (mirrors sceneHeadRef/endCombatBtnRef) — Dismiss
+          refocuses here before its own button unmounts, so focus never
+          drops to <body>.
+          Discreet by design: aria-live="polite" (not assertive — must not
+          interrupt), state conveyed by TEXT never color alone. Anonymous to
+          players; the DM additionally sees the raiser (never leaked to a
+          non-DM client — isDm is the same gate DmNarrationPanel/session
+          controls already use). Per-client dismiss only hides THIS raise
+          (see xCardActive's seq-keyed comment above) — the event itself is
+          permanent in the transcript via eventToLogRow's 'x_card' case. */}
+      <div
+        ref={xCardBannerRef}
+        tabIndex={-1}
+        className={styles.xCardBanner}
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {xCardActive && xCardEvent && (
+          <>
+            <span className={styles.xCardBannerText}>
+              A safety signal was raised — the table eases off.
+              {isDm && xCardEvent.actor ? ` X-card raised by ${xCardEvent.actor}.` : ''}
+            </span>
+            <button
+              type="button"
+              className={styles.xCardBannerDismiss}
+              onClick={() => {
+                // Iro MAJOR-2: refocus BEFORE this button unmounts (setting
+                // dismissedXCardSeq re-renders xCardActive to false, dropping
+                // this button) — otherwise the browser force-blurs to <body>.
+                xCardBannerRef.current?.focus({ preventScroll: true });
+                setDismissedXCardSeq(xCardEvent.seq);
+              }}
+              aria-label="Dismiss safety signal banner"
+            >
+              Dismiss
+            </button>
+          </>
+        )}
       </div>
 
       {/* LEFT — party + initiative */}
@@ -3066,16 +3272,17 @@ export default function PlayPage() {
           <div className={styles.safetyLabel}>Safety</div>
           <p className={styles.safetyBody}>X-card · pause · rewind. Suzu listens.</p>
           <div className={styles.safetyBtns}>
+            {/* DDX-26: durable, cross-client — a bare local appendLog/toast
+                (the old behavior) was the bug: no other client ever saw it,
+                and the toast had no way to know it had been "resolved" so it
+                lingered (UIR2-TAV-25). postXCard persists an `x_card` session
+                event; the banner above + the events poll are what every
+                client (including this one) actually renders from. */}
             <button
               type="button"
-              onClick={() => {
-                appendLog({
-                  who: username ?? 'You',
-                  kind: 'system',
-                  text: '(X-card raised — the table pauses.)',
-                });
-                toast({ tone: 'info', message: 'X-card noted. The table pauses.' });
-              }}
+              onClick={() => void onRaiseXCard()}
+              disabled={xCardBusy}
+              aria-busy={xCardBusy}
             >
               X-card
             </button>

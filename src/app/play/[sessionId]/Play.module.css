@@ -1,6 +1,15 @@
 .grid {
   display: grid;
   grid-template-columns: 220px 1fr 260px;
+  /* DDX-26 (Iro CRITICAL-1): named areas so the hoisted X-card banner gets
+     its own full-width row above the three panes on EVERY breakpoint,
+     without disturbing the panes' existing auto-placement. The "banner" row
+     is `auto`-sized — it collapses to ~0 height when the banner is empty
+     (see .xCardBanner:empty below), so it costs nothing when inactive. */
+  grid-template-rows: auto 1fr;
+  grid-template-areas:
+    'banner banner banner'
+    'left center right';
   /* TAV-21: a bare 100dvh ignores the in-flow EnvBanner (dev/local only, 32px,
      rendered above this in the document). --env-banner-h is set on <html> by
      layout.tsx (0px on prod, where there's no banner) — subtracting it here
@@ -35,16 +44,19 @@
 }
 
 .left {
+  grid-area: left;
   border-right: 1px solid var(--line);
 }
 
 .right {
+  grid-area: right;
   border-left: 1px solid var(--line);
   display: flex;
   flex-direction: column;
 }
 
 .center {
+  grid-area: center;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -155,6 +167,61 @@
   color: var(--ink-2);
   font-size: 12px;
   margin-bottom: 16px;
+}
+
+/* ── DDX-26: durable X-card safety banner ──
+   Discreet by design — warn-tone (not the alarm-red .safety block below),
+   state conveyed by TEXT not color alone (Iro-A11y).
+   Iro CRITICAL-1: hoisted to its own full-width "banner" grid-area (see
+   .grid's grid-template-areas above) so it renders above all three panes on
+   every breakpoint, not just inside the story pane.
+   Iro MAJOR-1/MINOR-1: this wrapper is now PERMANENTLY mounted (only its
+   children toggle) — the :empty rule below collapses it to zero visual
+   footprint when inactive WITHOUT display:none/visibility:hidden, either of
+   which would also remove it from the accessibility tree. */
+.xCardBanner {
+  grid-area: banner;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--warn) 10%, transparent);
+  border: 1px solid color-mix(in oklab, var(--warn) 28%, transparent);
+  margin-bottom: 10px;
+  flex-shrink: 0;
+}
+
+/* Iro MAJOR-1: zero-footprint empty state — no padding/border/margin, but
+   still present + focusable (tabIndex={-1}) in the DOM/a11y tree, unlike
+   display:none/visibility:hidden. */
+.xCardBanner:empty {
+  padding: 0;
+  border: none;
+  margin-bottom: 0;
+}
+
+.xCardBannerText {
+  font-size: 12px;
+  color: var(--warn-ink);
+}
+
+.xCardBannerDismiss {
+  min-height: 44px;
+  padding: 0 12px;
+  font-size: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.xCardBannerDismiss:hover {
+  color: var(--ink);
+  border-color: var(--warn);
 }
 
 /* "End combat" inline button inside combatNote. */
@@ -645,12 +712,19 @@
 @media (max-width: 880px) {
   .grid {
     grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr;
+    /* DDX-26 (Iro CRITICAL-1): a THIRD row for the hoisted banner, between
+       the tab bar and whichever single pane is showing — see the updated
+       grid-template-areas below (was "tabs" / "pane" before this fix). */
+    grid-template-rows: auto auto 1fr;
+    grid-template-areas:
+      'tabs'
+      'banner'
+      'pane';
   }
 
   .mobileTabs {
+    grid-area: tabs;
     display: flex;
-    grid-column: 1;
     gap: 4px;
     padding: 8px 12px;
     border-bottom: 1px solid var(--line);
@@ -677,12 +751,15 @@
   }
 
   /* One pane fills the 1fr row at a time; the mobile tabs switch between them.
-     Exactly one pane is ever in flow, so it lands in grid row 2 (1fr). The left
-     pane (party + initiative) is reachable via the Party tab — it used to be
-     display:none with no mobile affordance at all (S3.3 fix). */
+     All three share the same "pane" grid-area (DDX-26) — display:none simply
+     excludes whichever two aren't active from the grid, so exactly one is
+     ever in flow, landing in that shared row. The left pane (party +
+     initiative) is reachable via the Party tab — it used to be display:none
+     with no mobile affordance at all (S3.3 fix). */
   .left,
   .center,
   .right {
+    grid-area: pane;
     display: none;
   }
   .showParty .left {

@@ -178,6 +178,21 @@ export function eventToLogRow(e: EngineSessionEvent): LogRow | null {
     case 'dice_roll':
       return diceRollLogRow(e);
 
+    // DDX-26: durable transcript marker for a raised X-card. Deliberately
+    // ANON for every reader of the log (never `actor`) — the "anonymous to
+    // players" product decision applies to the permanent record too, not
+    // just the live banner. The DM sees the raiser ONLY in the live banner
+    // (page.tsx, gated on isDm), never here — this row renders identically
+    // for a DM client and a player client.
+    case 'x_card':
+      return {
+        id,
+        ts,
+        who: 'Table',
+        kind: 'system',
+        text: '(A safety signal was raised — the table eases off.)',
+      };
+
     // opening_narrated: not a plain row — the caller reconstructs the
     // read-aloud block (or a compact marker) from current grounding (§6.4).
     // recap: the AI "previously on…" summary is persisted under its own kind
