@@ -34,6 +34,13 @@ export interface ConfirmDialogProps {
   cancelLabel?: string;
   /** 'danger' tints the confirm button as destructive. */
   tone?: 'default' | 'danger';
+  /**
+   * ONE-CHAR-ONE-CAMPAIGN-UX: 'alertdialog' for confirms that interrupt an
+   * in-progress choice (e.g. releasing a character from another table) —
+   * distinct from a plain informational 'dialog'. Default preserves every
+   * existing caller's semantics.
+   */
+  role?: 'dialog' | 'alertdialog';
   /** Disable both buttons while the confirm action runs (in-flight). */
   busy?: boolean;
   /**
@@ -54,6 +61,7 @@ export default function ConfirmDialog({
   confirmLabel = 'Confirm',
   cancelLabel = 'Cancel',
   tone = 'default',
+  role = 'dialog',
   busy = false,
   confirmDisabled = false,
   onConfirm,
@@ -130,7 +138,7 @@ export default function ConfirmDialog({
     >
       <div
         ref={dialogRef}
-        role="dialog"
+        role={role}
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={body ? bodyId : undefined}

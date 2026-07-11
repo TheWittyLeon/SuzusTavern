@@ -19,7 +19,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import { useAuthGate } from '@/lib/auth/useAuthGate';
 import { useToast } from '@/components/Toast';
-import { createSession, getCatalog, listMyCharacters } from '@/lib/api/dnd';
+import { bindCharacter, createSession, getCatalog, listMyCharacters } from '@/lib/api/dnd';
 import type { AdventureCatalogItem, Character, ContentRating, DmMode, Visibility } from '@/lib/api/types';
 
 type AiAssistLevel = 'full' | 'assist' | 'off';
@@ -30,11 +30,173 @@ import {
 import TavernShell from '@/components/TavernShell';
 import Button from '@/components/Button';
 import Card from '@/components/Card';
-import Pill from '@/components/Pill';
+import Pill, { type PillTone } from '@/components/Pill';
 import Icon from '@/components/Icon';
 import SuzuDM from '@/components/SuzuDM';
 import PageSkeleton from '@/components/PageSkeleton';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import styles from './Modules.module.css';
+
+// ── ONE-CHAR-ONE-CAMPAIGN-UX: picker state badge ─────────────────────────────
+
+/**
+ * State badge for a character card. `in_use` undefined/false ⇒ Free (graceful
+ * degrade on a pre-upgrade backend). `active_campaign_status === 'ended'`
+ * overrides the "In {name}" copy entirely — an ended campaign still occupies
+ * the character's one-and-only binding slot, so the badge tells the player
+ * releasing it is the way to reuse it, regardless of the campaign's name.
+ */
+function characterBadge(c: Character): { text: string; tone: PillTone } {
+  if (!c.in_use) return { text: 'Free', tone: 'good' };
+  if (c.active_campaign_status === 'ended') {
+    return { text: 'Ended — release to reuse', tone: 'bad' };
+  }
+  return {
+    text: c.active_campaign_name ? `In ${c.active_campaign_name}` : 'In another table',
+    tone: 'warn',
+  };
+}
+
+interface CharOption {
+  key: string;
+  charId: number | undefined;
+  selected: boolean;
+  label: string;
+  meta: string;
+  badge: { text: string; tone: PillTone } | null;
+  activate: () => void;
+}
+
+/**
+ * Session-start character picker (ONE-CHAR-ONE-CAMPAIGN-UX). Each character is
+ * a keyboard-focusable, selectable card (never disabled) with a state badge.
+ * Picking a Free card selects it directly; picking an in-use card arms the
+ * release-confirm (via `onPickInUse`) instead of selecting immediately — the
+ * selection only commits once the confirm dialog is accepted.
+ *
+ * `labelledBy` names the group from the wrapping `<fieldset><legend>` (Iro
+ * MINOR-6) instead of a redundant `aria-label` duplicating the legend text.
+ */
+function CharacterPicker({
+  characters,
+  selectedCharId,
+  onPickFree,
+  onPickInUse,
+  labelledBy,
+}: {
+  characters: Character[];
+  selectedCharId: number | undefined;
+  onPickFree: (charId: number | undefined) => void;
+  onPickInUse: (c: Character) => void;
+  labelledBy: string;
+}) {
+  const refs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  const options: CharOption[] = [
+    {
+      key: 'none',
+      charId: undefined,
+      selected: selectedCharId === undefined,
+      label: 'No character',
+      meta: 'DM only — you narrate, no PC seated',
+      badge: null,
+      activate: () => onPickFree(undefined),
+    },
+    ...characters.map((c) => {
+      const charId = Number(c.character_id);
+      return {
+        key: c.character_id,
+        charId,
+        selected: selectedCharId === charId,
+        label: c.name,
+        meta: `Lv ${c.level} ${c.char_class}`,
+        badge: characterBadge(c),
+        activate: () =>
+          c.in_use && c.active_campaign_id
+            ? onPickInUse(c)
+            : onPickFree(Number.isFinite(charId) ? charId : undefined),
+      };
+    }),
+  ];
+
+  const selectedIdx = options.findIndex((o) => o.selected);
+  // Iro CRITICAL-1: roving-tabindex position is tracked independently of
+  // `selected` (aria-checked). Arrow keys move ONLY this — they must never
+  // call `activate()`, or landing on an in-use card would pop the
+  // release-confirm alertdialog on mere navigation (WCAG 3.2.2 On Input).
+  const [focusedIdx, setFocusedIdx] = useState(selectedIdx === -1 ? 0 : selectedIdx);
+
+  // Re-sync roving tabindex to the selection whenever `selectedCharId` changes
+  // for a reason OTHER than arrow-key focus movement (the initial auto-default,
+  // or the confirm dialog committing a release pick) — arrow moves already
+  // update focusedIdx directly in `move()`. Adjusted during render (the React-
+  // recommended alternative to a sync-effect for "derived state that resets on
+  // a prop change") rather than in a useEffect, which would fire one render late.
+  const [prevSelectedCharId, setPrevSelectedCharId] = useState(selectedCharId);
+  if (selectedCharId !== prevSelectedCharId) {
+    setPrevSelectedCharId(selectedCharId);
+    if (selectedIdx !== -1) setFocusedIdx(selectedIdx);
+  }
+
+  const move = (dir: 1 | -1) => {
+    const next = (focusedIdx + dir + options.length) % options.length;
+    refs.current[next]?.focus();
+    setFocusedIdx(next);
+  };
+
+  return (
+    <div
+      className={styles.charPicker}
+      role="radiogroup"
+      aria-labelledby={labelledBy}
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+          e.preventDefault();
+          move(1);
+        } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+          e.preventDefault();
+          move(-1);
+        }
+      }}
+    >
+      {options.map((o, i) => {
+        const descId = o.badge ? `char-badge-${o.key}` : undefined;
+        return (
+          <button
+            key={o.key}
+            ref={(el) => {
+              refs.current[i] = el;
+            }}
+            type="button"
+            role="radio"
+            aria-checked={o.selected}
+            aria-describedby={descId}
+            tabIndex={i === focusedIdx ? 0 : -1}
+            className={`${styles.charCard} ${o.selected ? styles.charCardOn : ''}`}
+            onFocus={() => setFocusedIdx(i)}
+            onClick={(e) => {
+              // Iro MAJOR-4: Safari/WebKit doesn't focus a <button> on mouse
+              // click, so ConfirmDialog's `previouslyFocused` capture could
+              // miss this card. Focus it explicitly before arming/selecting —
+              // this also makes CRITICAL-1's focus tracking deterministic
+              // for mouse users, not just keyboard.
+              e.currentTarget.focus();
+              o.activate();
+            }}
+          >
+            <span className={styles.charName}>{o.label}</span>
+            <span className={styles.charMeta}>{o.meta}</span>
+            {o.badge && (
+              <Pill id={descId} tone={o.badge.tone} className={styles.charBadge}>
+                {o.badge.text}
+              </Pill>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 // ── Adventure catalog fetch (ADV-9) ──────────────────────────────────────────
 
@@ -175,15 +337,19 @@ function StarterForm({
   const [rating, setRating] = useState<ContentRating>('sfw');
   const [submitting, setSubmitting] = useState(false);
 
-  // Character binding — fetch on mount and default to the first character so the
-  // binding is explicit + visible. With one character the picker is hidden (it's
-  // auto-bound); with several the picker shows pre-selected to the first one and
-  // the player can change it (or pick "no character" for a DM-only table). Without
-  // a default, the picker sat on "no character" → nothing was sent → the engine's
-  // party/combat fallback silently used the first character, which read as
-  // "it bound a character I didn't choose."
+  // Character binding — fetch on mount and default to the first FREE character so
+  // the binding is explicit + visible. With one FREE character the picker is
+  // hidden (it's auto-bound); with several — or a lone character that's
+  // in_use (Iro CRITICAL-2, no free default to fall back to) — the picker
+  // shows so the player can change the selection or release/move their busy
+  // character. Without a default, the picker sat on "no character" → nothing
+  // was sent → the engine's party/combat fallback silently used the first
+  // character, which read as "it bound a character I didn't choose."
   const [characters, setCharacters] = useState<Character[] | null>(null);
   const [selectedCharId, setSelectedCharId] = useState<number | undefined>(undefined);
+  // ONE-CHAR-ONE-CAMPAIGN-UX: the in-use character the player just picked,
+  // awaiting the release-confirm dialog's outcome. Non-null arms the dialog.
+  const [pendingRelease, setPendingRelease] = useState<Character | null>(null);
 
   useEffect(() => {
     const username = user?.username;
@@ -192,8 +358,13 @@ function StarterForm({
     listMyCharacters(username, ac.signal)
       .then((chars) => {
         setCharacters(chars);
-        if (chars.length >= 1) {
-          const parsed = Number(chars[0].character_id);
+        // Default to the first FREE character (not just chars[0]) — auto-arming
+        // a release the player never confirmed would be a silent side effect.
+        // `!c.in_use` is also true when `in_use` is undefined (pre-upgrade
+        // backend), so this is a no-op change on today's wire shape.
+        const firstFree = chars.find((c) => !c.in_use);
+        if (firstFree) {
+          const parsed = Number(firstFree.character_id);
           if (Number.isFinite(parsed)) setSelectedCharId(parsed);
         }
       })
@@ -226,7 +397,25 @@ function StarterForm({
     const engineDmMode: 'ai' | 'human' = dmMode === 'ai' ? 'ai' : 'human';
     const engineAiAssist: AiAssistLevel = dmMode === 'ai' ? 'full' : aiAssistLevel;
 
+    // Miko F3: only set once the release call actually succeeds — used in the
+    // catch below to reconcile local state if createSession fails afterward.
+    let released = false;
     try {
+      // ONE-CHAR-ONE-CAMPAIGN-UX: release a busy character from its current
+      // table before moving it here. `picked.in_use` can only be true here
+      // for a selectedCharId the player reached via the release-confirm
+      // dialog's Confirm action (CharacterPicker never sets selectedCharId to
+      // an in-use character directly) — so this is reachable only after an
+      // explicit confirm, never silently. If release throws, the catch below
+      // shows the failure toast and createSession never runs — the character
+      // stays exactly where it was (the design's accepted non-atomic-window
+      // safe state), and `submitting` still guards double-submit.
+      const picked = characters?.find((c) => Number(c.character_id) === selectedCharId);
+      if (picked?.in_use && picked.active_campaign_id) {
+        await bindCharacter(picked.active_campaign_id, { username, character_id: null });
+        released = true;
+      }
+
       const session = await createSession({
         username,
         channel,
@@ -268,6 +457,28 @@ function StarterForm({
         router.push('/dashboard');
       }
     } catch {
+      // Miko F3: release succeeded but createSession failed — the character
+      // is now free server-side, but the local list still shows "In {old
+      // campaign}". Clear it optimistically so a retry doesn't read as
+      // reissuing a release (it would still be harmlessly idempotent, but
+      // the stale badge is misleading either way).
+      if (released) {
+        setCharacters((prev) =>
+          prev
+            ? prev.map((c) =>
+                Number(c.character_id) === selectedCharId
+                  ? {
+                      ...c,
+                      in_use: false,
+                      active_campaign_id: null,
+                      active_campaign_name: null,
+                      active_campaign_status: null,
+                    }
+                  : c,
+              )
+            : prev,
+        );
+      }
       toast({
         tone: 'error',
         message: 'Could not start the table. Try again in a moment.',
@@ -398,30 +609,56 @@ function StarterForm({
         )}
       </fieldset>
 
-      {/* Character binding — shown only once character list loads */}
-      {characters !== null && characters.length > 1 && (
-        <label className={styles.field}>
-          {/* Iro MINOR-2: the <label> text "Your character" is the accessible name.
-              The redundant aria-label was dropped — it overrode the visible label
-              text, causing a Label-in-Name WCAG mismatch. */}
-          <span className={styles.fieldLabel}>Your character</span>
-          <select
-            className="input"
-            value={selectedCharId ?? ''}
-            onChange={(e) => {
-              const parsed = Number(e.target.value);
-              setSelectedCharId(e.target.value && Number.isFinite(parsed) ? parsed : undefined);
-            }}
-          >
-            <option value="">— no character (DM only) —</option>
-            {characters.map((c) => (
-              <option key={c.character_id} value={c.character_id}>
-                {c.name} (Lv {c.level} {c.char_class})
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
+      {/* Character binding — shown only once character list loads.
+          ONE-CHAR-ONE-CAMPAIGN-UX: cards with in-use state badges replace the
+          old plain <select> (Sora-Arch design §4b) — a native <select> option
+          can't carry a tone-coded badge or arm a confirm dialog on pick.
+          Iro CRITICAL-2: a lone character still gets a picker (+ badge +
+          release dialog) when it's in_use — otherwise a player whose ONLY
+          character is busy gets no card and no way to release/move it, which
+          silently falls through to an unexplained DM-only table. A lone FREE
+          character keeps today's silent auto-bind (no picker needed). */}
+      {characters !== null &&
+        (characters.length > 1 || (characters.length === 1 && characters[0].in_use === true)) && (
+          <fieldset className={styles.field}>
+            <legend id="char-picker-legend" className={styles.fieldLabel}>
+              Your character
+            </legend>
+            <CharacterPicker
+              characters={characters}
+              selectedCharId={selectedCharId}
+              onPickFree={setSelectedCharId}
+              onPickInUse={setPendingRelease}
+              labelledBy="char-picker-legend"
+            />
+          </fieldset>
+        )}
+
+      <ConfirmDialog
+        open={pendingRelease !== null}
+        role="alertdialog"
+        title={`Release ${pendingRelease?.name ?? 'this character'}?`}
+        body={
+          pendingRelease && (
+            <>
+              <strong>{pendingRelease.name}</strong> is currently in{' '}
+              <strong>{pendingRelease.active_campaign_name ?? 'another table'}</strong>. Release it
+              and bring it to this table? Its old table keeps its story but will have no character
+              until you re-add one.
+            </>
+          )
+        }
+        confirmLabel="Release & bring here"
+        cancelLabel="Cancel"
+        onCancel={() => setPendingRelease(null)}
+        onConfirm={() => {
+          if (pendingRelease) {
+            const charId = Number(pendingRelease.character_id);
+            if (Number.isFinite(charId)) setSelectedCharId(charId);
+          }
+          setPendingRelease(null);
+        }}
+      />
 
       <div className={styles.formFoot}>
         <Button variant="ghost" onClick={onCancel} disabled={submitting}>

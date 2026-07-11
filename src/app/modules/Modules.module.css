@@ -164,6 +164,53 @@
   color: var(--ink-3);
 }
 
+/* ── Character picker (ONE-CHAR-ONE-CAMPAIGN-UX) ─────────────────────────── */
+.charPicker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+.charCard {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+.charCard:hover {
+  border-color: color-mix(in oklab, var(--accent) 50%, var(--line));
+}
+.charCard:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.charCardOn {
+  border-color: var(--accent);
+  background: color-mix(in oklab, var(--accent) 10%, transparent);
+}
+.charName {
+  font-size: 14px;
+  font-weight: 600;
+}
+.charMeta {
+  font-size: 11px;
+  /* Iro MAJOR-3: --ink-3 measured sub-4.5:1 AA in 3/4 vibes (worst in the
+     selected .charCardOn state); --ink-2 clears 7.3-8.9:1 in every vibe.
+     Mirrors the Pill.tsx 'muted' tone precedent (--ink-2, not --ink-3). */
+  color: var(--ink-2);
+}
+.charBadge {
+  margin-top: 2px;
+}
+
 .interlock {
   display: flex;
   align-items: center;

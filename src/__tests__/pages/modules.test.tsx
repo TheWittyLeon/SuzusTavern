@@ -31,6 +31,7 @@ jest.mock('../../lib/api/dnd', () => ({
   createSession: jest.fn(),
   listMyCharacters: jest.fn(),
   getCatalog: jest.fn(),
+  bindCharacter: jest.fn(),
 }));
 
 import * as dnd from '../../lib/api/dnd';
@@ -43,6 +44,7 @@ import type { Character, Session, SessionStartRequest, User } from '../../lib/ap
 const mockCreate = dnd.createSession as jest.MockedFunction<typeof dnd.createSession>;
 const mockListChars = dnd.listMyCharacters as jest.MockedFunction<typeof dnd.listMyCharacters>;
 const mockGetCatalog = dnd.getCatalog as jest.MockedFunction<typeof dnd.getCatalog>;
+const mockBind = dnd.bindCharacter as jest.MockedFunction<typeof dnd.bindCharacter>;
 const LEON: User = { id: 1, username: 'leon', email: null };
 
 const CHAR_A: Character = {
@@ -122,6 +124,12 @@ beforeEach(() => {
   mockPush.mockClear();
   mockCreate.mockReset().mockResolvedValue({ session_id: 's9', channel: 'x' } as Session);
   mockListChars.mockReset().mockResolvedValue([]);
+  mockBind.mockReset().mockResolvedValue({
+    campaign_id: 'campaign-old',
+    username: 'leon',
+    role: 'player',
+    character_id: null,
+  });
   // Default: catalog returns the seeded Hollow Tide adventure.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   mockGetCatalog.mockReset().mockResolvedValue(HOLLOW_TIDE_CATALOG as any);
@@ -438,6 +446,10 @@ it('Begin with exactly one character auto-binds it (sends character_id)', async 
     await charsPromise;
   });
   // auto-bind: selectedCharId should now be 10
+  // Iro CRITICAL-2 regression guard: a lone FREE character still auto-binds
+  // silently — no picker shown (that's reserved for a lone in-use character
+  // or 2+ characters).
+  expect(screen.queryByRole('radiogroup', { name: /your character/i })).not.toBeInTheDocument();
   await act(async () => {
     fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
   });
@@ -447,12 +459,15 @@ it('Begin with exactly one character auto-binds it (sends character_id)', async 
   });
 });
 
-it('Begin with multiple characters shows a picker select', async () => {
+it('Begin with multiple characters shows a picker radiogroup', async () => {
   mockListChars.mockResolvedValue([CHAR_A, CHAR_B]);
   await openForm();
   await waitFor(() =>
-    expect(screen.getByRole('combobox', { name: /your character/i })).toBeInTheDocument(),
+    expect(screen.getByRole('radiogroup', { name: /your character/i })).toBeInTheDocument(),
   );
+  expect(screen.getByRole('radio', { name: /aria/i })).toBeInTheDocument();
+  expect(screen.getByRole('radio', { name: /brax/i })).toBeInTheDocument();
+  expect(screen.getByRole('radio', { name: /no character/i })).toBeInTheDocument();
 });
 
 it('Begin with multiple characters sends the selected character_id', async () => {
@@ -466,11 +481,10 @@ it('Begin with multiple characters sends the selected character_id', async () =>
     resolveChars([CHAR_A, CHAR_B]);
     await charsPromise;
   });
-  const combobox = screen.getByRole('combobox', { name: /your character/i });
-  // Change and click in separate acts: first commits setSelectedCharId(11),
+  // Pick and click in separate acts: first commits setSelectedCharId(11),
   // second calls handleBegin which reads the committed selectedCharId.
   await act(async () => {
-    fireEvent.change(combobox, { target: { value: '11' } });
+    fireEvent.click(screen.getByRole('radio', { name: /brax/i }));
   });
   await act(async () => {
     fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
@@ -507,17 +521,244 @@ it('Begin with multiple characters and EXPLICIT no-character sends no character_
   mockListChars.mockResolvedValue([CHAR_A, CHAR_B]);
   await openForm();
   await waitFor(() =>
-    expect(screen.getByRole('combobox', { name: /your character/i })).toBeInTheDocument(),
+    expect(screen.getByRole('radiogroup', { name: /your character/i })).toBeInTheDocument(),
   );
-  // Explicitly pick "— no character (DM only) —".
-  fireEvent.change(screen.getByRole('combobox', { name: /your character/i }), {
-    target: { value: '' },
-  });
+  // Explicitly pick "No character" (DM only).
+  fireEvent.click(screen.getByRole('radio', { name: /no character/i }));
   await act(async () => {
     fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
   });
   await waitFor(() => {
     const call = mockCreate.mock.calls[0][0] as SessionStartRequest;
     expect(call['character_id']).toBeUndefined();
+  });
+});
+
+// ── ONE-CHAR-ONE-CAMPAIGN-UX: in-use picker + release-confirm (design §5 test 9) ──
+
+const CHAR_BUSY: Character = {
+  character_id: '12',
+  username: 'leon',
+  name: 'Cael',
+  race: 'Elf',
+  char_class: 'Wizard',
+  level: 4,
+  hp: { current: 20, max: 20 },
+  ac: 12,
+  in_use: true,
+  active_campaign_id: 'campaign-old',
+  active_campaign_name: 'The Shadowfell Keep',
+  active_campaign_status: 'active',
+};
+
+const CHAR_ENDED: Character = {
+  character_id: '13',
+  username: 'leon',
+  name: 'Doran',
+  race: 'Dwarf',
+  char_class: 'Barbarian',
+  level: 5,
+  hp: { current: 40, max: 40 },
+  ac: 15,
+  in_use: true,
+  active_campaign_id: 'campaign-ended',
+  active_campaign_name: 'The Sunken Chapel',
+  active_campaign_status: 'ended',
+};
+
+describe('ONE-CHAR-ONE-CAMPAIGN-UX picker', () => {
+  it('renders an in-use badge naming the character\'s current table', async () => {
+    mockListChars.mockResolvedValue([CHAR_A, CHAR_BUSY]);
+    await openForm();
+    await screen.findByRole('radiogroup', { name: /your character/i });
+    expect(screen.getByText(/in the shadowfell keep/i)).toBeInTheDocument();
+    expect(screen.getByText(/^free$/i)).toBeInTheDocument();
+  });
+
+  it('a char with in_use undefined degrades gracefully and is treated as free', async () => {
+    mockListChars.mockResolvedValue([CHAR_A, CHAR_B]);
+    await openForm();
+    await screen.findByRole('radiogroup', { name: /your character/i });
+    // Both CHAR_A and CHAR_B have no in_use field at all (pre-upgrade shape).
+    expect(screen.getAllByText(/^free$/i)).toHaveLength(2);
+    expect(screen.queryByText(/in use|ended/i)).not.toBeInTheDocument();
+  });
+
+  it('selecting an in-use card opens the release-confirm dialog', async () => {
+    mockListChars.mockResolvedValue([CHAR_A, CHAR_BUSY]);
+    await openForm();
+    await screen.findByRole('radiogroup', { name: /your character/i });
+    fireEvent.click(screen.getByRole('radio', { name: /cael/i }));
+    expect(await screen.findByRole('alertdialog')).toBeInTheDocument();
+    expect(screen.getByText(/shadowfell keep/i, { selector: 'strong' })).toBeInTheDocument();
+  });
+
+  it('Cancel on the release-confirm aborts — no bind, no createSession', async () => {
+    mockListChars.mockResolvedValue([CHAR_A, CHAR_BUSY]);
+    await openForm();
+    await screen.findByRole('radiogroup', { name: /your character/i });
+    fireEvent.click(screen.getByRole('radio', { name: /cael/i }));
+    await screen.findByRole('alertdialog');
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    // Cael must still show as unselected (aborted, not armed).
+    expect(screen.getByRole('radio', { name: /cael/i })).toHaveAttribute('aria-checked', 'false');
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
+    });
+    await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+    expect(mockBind).not.toHaveBeenCalled();
+  });
+
+  it('Confirm on the release-confirm arms the pick; Begin releases then creates the session', async () => {
+    mockListChars.mockResolvedValue([CHAR_A, CHAR_BUSY]);
+    await openForm();
+    await screen.findByRole('radiogroup', { name: /your character/i });
+    fireEvent.click(screen.getByRole('radio', { name: /cael/i }));
+    await screen.findByRole('alertdialog');
+    fireEvent.click(screen.getByRole('button', { name: /release & bring here/i }));
+    await waitFor(() =>
+      expect(screen.getByRole('radio', { name: /cael/i })).toHaveAttribute('aria-checked', 'true'),
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
+    });
+    // Release fires before createSession, and the /play/<id> redirect (TAV-PLAY-BEGIN-REDIRECT)
+    // still fires afterward.
+    await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+    expect(mockBind).toHaveBeenCalledWith('campaign-old', { username: 'leon', character_id: null });
+    expect(mockBind.mock.invocationCallOrder[0]).toBeLessThan(mockCreate.mock.invocationCallOrder[0]);
+    const call = mockCreate.mock.calls[0][0] as SessionStartRequest;
+    expect(call['character_id']).toBe(12);
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/play/s9'));
+  });
+
+  it('a free character begins with no release call', async () => {
+    mockListChars.mockResolvedValue([CHAR_A, CHAR_BUSY]);
+    await openForm();
+    await screen.findByRole('radiogroup', { name: /your character/i });
+    // Default selection lands on the first FREE character (Aria) — Begin without touching the picker.
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
+    });
+    await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+    expect(mockBind).not.toHaveBeenCalled();
+    const call = mockCreate.mock.calls[0][0] as SessionStartRequest;
+    expect(call['character_id']).toBe(10);
+  });
+});
+
+// ── Iro CRITICAL-1: arrow traversal must not open the release-confirm ───────
+
+describe('Iro CRITICAL-1: arrow-key traversal vs explicit activation', () => {
+  it('ArrowDown onto an in-use card moves focus only — no alertdialog; a click on it still commits', async () => {
+    mockListChars.mockResolvedValue([CHAR_A, CHAR_BUSY]);
+    await openForm();
+    await screen.findByRole('radiogroup', { name: /your character/i });
+    const aria = screen.getByRole('radio', { name: /aria/i });
+    aria.focus();
+    // Arrow onto Cael (in-use) — must move roving-tabindex focus ONLY.
+    fireEvent.keyDown(aria, { key: 'ArrowDown' });
+    const cael = screen.getByRole('radio', { name: /cael/i });
+    expect(cael).toHaveFocus();
+    expect(cael).toHaveAttribute('tabindex', '0');
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    // Aria must still show as selected (aria-checked) — arrowing never re-committed it.
+    expect(aria).toHaveAttribute('aria-checked', 'true');
+
+    // Enter/Space on a real <button> fires a native click; fireEvent.click stands
+    // in for that here since jsdom doesn't run default browser key-activation for
+    // fireEvent.keyDown. Either way it's the same onClick={activate} path.
+    fireEvent.click(cael);
+    expect(await screen.findByRole('alertdialog')).toBeInTheDocument();
+  });
+
+  it('ArrowUp wraps focus back to the last option without activating anything', async () => {
+    mockListChars.mockResolvedValue([CHAR_A, CHAR_BUSY]);
+    await openForm();
+    await screen.findByRole('radiogroup', { name: /your character/i });
+    // "No character" is the first option (index 0). Click (not a bare DOM
+    // .focus() call) to land there — this also commits the roving-tabindex
+    // sync via the click's onFocus/effect path — then ArrowUp wraps to the
+    // last option (Cael, the in-use card).
+    const none = screen.getByRole('radio', { name: /no character/i });
+    fireEvent.click(none);
+    expect(none).toHaveAttribute('aria-checked', 'true');
+    fireEvent.keyDown(none, { key: 'ArrowUp' });
+    expect(screen.getByRole('radio', { name: /cael/i })).toHaveFocus();
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+});
+
+// ── Iro CRITICAL-2: a lone in-use character still gets a picker + release path ──
+
+describe('Iro CRITICAL-2: lone in-use character', () => {
+  it('renders the picker + in-use badge for a single in-use character, and can be released + moved here', async () => {
+    mockListChars.mockResolvedValue([CHAR_BUSY]);
+    await openForm();
+    await screen.findByRole('radiogroup', { name: /your character/i });
+    expect(screen.getByRole('radio', { name: /cael/i })).toBeInTheDocument();
+    expect(screen.getByText(/in the shadowfell keep/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('radio', { name: /cael/i }));
+    await screen.findByRole('alertdialog');
+    fireEvent.click(screen.getByRole('button', { name: /release & bring here/i }));
+    await waitFor(() =>
+      expect(screen.getByRole('radio', { name: /cael/i })).toHaveAttribute('aria-checked', 'true'),
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
+    });
+    await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+    expect(mockBind).toHaveBeenCalledWith('campaign-old', { username: 'leon', character_id: null });
+    expect(mockBind.mock.invocationCallOrder[0]).toBeLessThan(mockCreate.mock.invocationCallOrder[0]);
+    const call = mockCreate.mock.calls[0][0] as SessionStartRequest;
+    expect(call['character_id']).toBe(12);
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/play/s9'));
+  });
+});
+
+// ── Miko F2: 'ended' badge branch coverage ───────────────────────────────────
+
+describe("Miko F2: characterBadge() 'ended' branch", () => {
+  it('an ended-status character renders the exact "Ended" badge text with bad tone', async () => {
+    mockListChars.mockResolvedValue([CHAR_A, CHAR_ENDED]);
+    await openForm();
+    await screen.findByRole('radiogroup', { name: /your character/i });
+    const badge = screen.getByText('Ended — release to reuse');
+    expect(badge).toBeInTheDocument();
+    // Pill's 'bad' tone maps fg to var(--bad-ink) (Pill.tsx TONE_MAP) — asserting
+    // this confirms characterBadge() returned tone:'bad', not 'warn'/'good'.
+    expect(badge).toHaveStyle({ color: 'var(--bad-ink)' });
+  });
+});
+
+// ── Miko F3: stale character list after a failed create post-release ────────
+
+describe('Miko F3: local state reconciliation after release-succeeded/create-failed', () => {
+  it('clears the released character\'s in-use state locally when createSession fails', async () => {
+    mockListChars.mockResolvedValue([CHAR_A, CHAR_BUSY]);
+    mockCreate.mockRejectedValue(new Error('engine unavailable'));
+    await openForm();
+    await screen.findByRole('radiogroup', { name: /your character/i });
+
+    fireEvent.click(screen.getByRole('radio', { name: /cael/i }));
+    await screen.findByRole('alertdialog');
+    fireEvent.click(screen.getByRole('button', { name: /release & bring here/i }));
+    await waitFor(() =>
+      expect(screen.getByRole('radio', { name: /cael/i })).toHaveAttribute('aria-checked', 'true'),
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
+    });
+    await waitFor(() => expect(mockBind).toHaveBeenCalled());
+    // The failure toast still fires (existing behavior, unchanged).
+    expect(await screen.findByText(/could not start the table/i)).toBeInTheDocument();
+    // Cael's badge must now read Free — not the stale "In The Shadowfell Keep" —
+    // since the release actually succeeded server-side before create failed.
+    await waitFor(() => expect(screen.getAllByText(/^free$/i).length).toBeGreaterThan(0));
+    expect(screen.queryByText(/in the shadowfell keep/i)).not.toBeInTheDocument();
   });
 });

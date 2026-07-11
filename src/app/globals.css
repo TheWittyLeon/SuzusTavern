@@ -48,8 +48,14 @@
 
   --good:       #6db48a;
   --bad:        #c25353;
-  /* A11Y: contrast-safe red for text on the error surface (≥4.5:1 AA on dusk) */
-  --bad-ink:    #e07070;
+  /* A11Y (Iro MAJOR-5): was #e07070 — measured (real color-mix composite,
+     screenshot-sampled via tools/ui-audit) at 4.28:1 resting / 3.65:1 in the
+     selected .charCardOn state (accent tint stacks on the card bg), both
+     sub-4.5:1 AA. Lightened to clear AA in the worst case (selected), same
+     hue family as the original. Dusk-tavern-only override — --bad-ink stays
+     per-vibe, not global (matches how --warn-ink/--cool-ink are already
+     adjusted per-vibe rather than uniformly). */
+  --bad-ink:    #ee908e;
   --warn:       #d4a64b;
   /* A11Y (S8.3): warn-ink — dark palettes already AA so alias the decorative token */
   --warn-ink:   var(--warn);

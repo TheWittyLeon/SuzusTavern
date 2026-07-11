@@ -62,6 +62,17 @@ export interface Character {
   level: number;
   hp: { current: number; max: number };
   ac: number;
+  /**
+   * ONE-CHAR-ONE-CAMPAIGN-UX — additive fields on GET /characters (engine
+   * `msm.campaign_members_one_char` unique index: a character is bound to at
+   * most one campaign globally, across all statuses). All four are OPTIONAL —
+   * a pre-upgrade backend simply omits them. Degrade gracefully:
+   * `in_use` undefined ⇒ treat the character as free.
+   */
+  in_use?: boolean;
+  active_campaign_id?: string | null;
+  active_campaign_name?: string | null;
+  active_campaign_status?: 'active' | 'paused' | 'ended' | null;
   // Sheet is loosely structured upstream — keep an open index map for
   // sub-fields we haven't typed yet. Wrap further in Sprint 6.
   [k: string]: unknown;
