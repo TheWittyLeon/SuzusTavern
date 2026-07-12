@@ -108,6 +108,15 @@
   line-height: 1.5;
 }
 
+/* Iro MAJOR-1: explicit not-yet-editable cue. The textarea uses readOnly (not
+   native `disabled`) during loading/error so it stays focusable + announced,
+   but readOnly has no UA dim and globals.css has no `.input:disabled` rule, so
+   the "you can't type here yet" affordance must be supplied here. */
+.notesTextarea[aria-disabled='true'] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .notesHint {
   font-size: 0.6875rem;
   color: var(--ink-3);
@@ -123,4 +132,24 @@
   color: var(--ink-3);
   margin: 4px 0 0;
   min-height: 1em;
+}
+
+/* DDX-22 Phase 3: save-failure caption — same small caption size as
+   .saveStatus but in the danger ink so it reads as a problem, not a status.
+   Not color-only — it always carries explicit "Couldn't save" text. */
+.saveStatusError {
+  composes: saveStatus;
+  color: var(--bad-ink);
+}
+
+/* Load-failure block (we refuse to show an editable empty note on load error,
+   which could clobber a real note the user couldn't read). */
+.notesError {
+  font-size: 0.75rem;
+  color: var(--bad-ink);
+  margin: 6px 0 8px;
+}
+
+.retryBtn {
+  margin-top: 2px;
 }

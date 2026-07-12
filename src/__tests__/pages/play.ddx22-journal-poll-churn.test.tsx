@@ -79,6 +79,12 @@ jest.mock('../../lib/api/dnd', () => ({
     Promise.resolve({ campaign_id: 's1', username: 'alice', role: 'player', character_id: null }),
   ),
   listMyCharacters: jest.fn(() => Promise.resolve([])),
+  // DDX-22 Phase 3: JournalPane mounts (drawer open / mobile tab active) and
+  // GETs the caller's own note — a one-shot fetch on open, NOT a new poll (see
+  // the second test below, which opens the drawer and confirms no additional
+  // 4s-poll commits are introduced by it).
+  getSessionNotes: jest.fn(() => Promise.resolve(null)),
+  putSessionNotes: jest.fn(() => Promise.resolve({ body: '', updated_at: '2026-01-01T00:00:00Z' })),
 }));
 
 jest.mock('../../lib/stream', () => ({

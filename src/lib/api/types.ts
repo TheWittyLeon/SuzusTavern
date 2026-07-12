@@ -382,6 +382,18 @@ export interface EngineSessionEvent {
   created_at?: string;
 }
 
+/**
+ * DDX-22 — a player's owner-private free-form note for one session.
+ * One row per (session, owner) in `msm.session_notes`, RLS owner-scoped
+ * engine-side. `body` is plain text (rendered as JSX text nodes, no markup).
+ * GET returns `SessionNote | null` (null = no note saved yet); PUT returns the
+ * saved note with the server-stamped `updated_at`.
+ */
+export interface SessionNote {
+  body: string;
+  updated_at: string;
+}
+
 export interface Session {
   session_id: string;
   channel: string;

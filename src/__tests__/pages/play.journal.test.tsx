@@ -56,6 +56,12 @@ jest.mock('../../lib/api/dnd', () => ({
   setFlag: jest.fn(),
   bindCharacter: jest.fn(() => Promise.resolve({ campaign_id: 's1', username: 'alice', role: 'player', character_id: 1 })),
   listMyCharacters: jest.fn(() => Promise.resolve([])),
+  // DDX-22 Phase 3: JournalPane mounts (drawer open / mobile tab active) and
+  // GETs the caller's own note. Default to "no note yet" so opening the
+  // journal in these wiring/focus tests stays hermetic — none of them assert
+  // on note content.
+  getSessionNotes: jest.fn(() => Promise.resolve(null)),
+  putSessionNotes: jest.fn(() => Promise.resolve({ body: '', updated_at: '2026-01-01T00:00:00Z' })),
 }));
 
 jest.mock('../../lib/stream', () => ({
@@ -266,7 +272,14 @@ describe('Journal — desktop drawer', () => {
     // textarea). A forward Tab from there must wrap back around to the
     // close button (the FIRST focusable) — the mirror image of the
     // Shift+Tab-from-first case above, previously untested.
+    //
+    // DDX-22 Phase 3: the textarea is `disabled` (and so unfocusable) until
+    // its owner-private note GET resolves — wait for that before focusing it,
+    // or this would silently focus nothing and the assertion below would
+    // pass for the wrong reason (closeBtn already had focus from the drawer
+    // opening).
     const textarea = screen.getByLabelText('Your notes for this session');
+    await waitFor(() => expect(textarea).not.toBeDisabled());
     textarea.focus();
     fireEvent.keyDown(textarea, { key: 'Tab' });
     expect(closeBtn).toHaveFocus();

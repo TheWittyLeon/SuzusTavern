@@ -79,6 +79,13 @@ jest.mock('../../lib/api/dnd', () => ({
   // T7 — ConditionsPanel's own direct imports (same mocked module).
   applyCondition: jest.fn(),
   removeCondition: jest.fn(),
+  // DDX-22 Phase 3: JournalPane is now unconditionally mounted on the play
+  // page (only its CSS visibility/inert state is gated by journalVisible —
+  // see page.tsx's <aside id="play-pane-journal">), so every render of this
+  // page fires a getSessionNotes() GET regardless of whether the journal is
+  // ever opened. Default to "no note yet" so this suite stays hermetic.
+  getSessionNotes: jest.fn(() => Promise.resolve(null)),
+  putSessionNotes: jest.fn(() => Promise.resolve({ body: '', updated_at: '2026-01-01T00:00:00Z' })),
 }));
 
 jest.mock('../../lib/stream', () => ({

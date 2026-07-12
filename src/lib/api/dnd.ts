@@ -49,6 +49,7 @@ import type {
   SceneNpc,
   Session,
   SessionEvent,
+  SessionNote,
   SessionPolicyRequest,
   SessionPolicyResult,
   SessionStartRequest,
@@ -520,6 +521,45 @@ export const getSessionEventsRaw = (sessionId: string, signal?: AbortSignal) =>
   )
     .then((d) => d.events ?? [])
     .catch(() => null as EngineSessionEvent[] | null);
+
+/**
+ * DDX-22 Phase 3 — read the caller's OWN private note for this session.
+ *
+ * GET /api/dnd/sessions/{id}/notes → proxy → engine (RLS owner-scoped:
+ * the row returned is exclusively the verified actor's own; identity is the
+ * session cookie, NOT a client-suppliable username). The engine wraps the row
+ * as `data: { note: { body, updated_at } | null }`; we unwrap to
+ * `SessionNote | null` (null = no note saved yet). Unlike getSessionEventsRaw,
+ * this does NOT swallow errors — the JournalPane needs to distinguish "no note
+ * yet" (null) from "load failed" (thrown ApiError) to render the right state
+ * and avoid clobbering a real note with an empty autosave.
+ */
+export const getSessionNotes = (sessionId: string, signal?: AbortSignal) =>
+  apiCall<{ note: SessionNote | null }>(
+    `/api/dnd/sessions/${encodeURIComponent(sessionId)}/notes`,
+    { method: 'GET', signal },
+  ).then((d) => d.note ?? null);
+
+/**
+ * DDX-22 Phase 3 — create/update the caller's OWN private note (autosave).
+ *
+ * PUT /api/dnd/sessions/{id}/notes with `{ body }` → proxy → engine upsert
+ * (written as the verified actor's owner row under RLS). No username argument:
+ * ownership is the cookie actor, never client-asserted. The engine owns
+ * validation (16 KB byte cap → 400 body_too_large; NUL byte → 400 body_invalid;
+ * membership guard → 404 not_found), all surfaced as a thrown ApiError whose
+ * `code` carries the engine `reason`. Returns the saved note with the
+ * server-stamped `updated_at`.
+ */
+export const putSessionNotes = (
+  sessionId: string,
+  body: string,
+  signal?: AbortSignal,
+) =>
+  apiCall<{ note: SessionNote }>(
+    `/api/dnd/sessions/${encodeURIComponent(sessionId)}/notes`,
+    { method: 'PUT', json: { body }, signal },
+  ).then((d) => d.note);
 
 /**
  * A1 — Write a durable session event via the proxy passthrough.
