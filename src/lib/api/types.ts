@@ -50,6 +50,21 @@ export interface CharacterCreateRequest {
    * The engine validates legality and applies racial bonuses server-side.
    */
   ability_scores?: Record<string, number>;
+  /**
+   * TAV-CREATE-SUBRACE-ASI-PICKER — case-insensitive subrace display name
+   * (e.g. "Wood Elf"), from the chosen race's catalog `data.subraces` keys.
+   * Omit for a race with no named subraces. The engine hard-400s a subrace
+   * that doesn't belong to the chosen race.
+   */
+  subrace?: string;
+  /**
+   * TAV-CREATE-SUBRACE-ASI-PICKER — Half-Elf's floating "+1 to two other
+   * abilities" (the +2 Charisma is automatic, applied engine-side). Exactly
+   * two DISTINCT ability names, neither 'charisma'. Only meaningful when
+   * `race` is 'Half-Elf' — the engine 400s an ASI submitted for any other
+   * race, and 400s anything other than two distinct non-Charisma abilities.
+   */
+  half_elf_asi?: string[];
 }
 export interface CharacterCreated { character_id: string; [k: string]: unknown }
 

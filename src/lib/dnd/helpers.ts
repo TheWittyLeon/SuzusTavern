@@ -143,15 +143,25 @@ export function humanizeSkill(skill: string): string {
  * Apply fixed racial bonuses to a base point-buy spread, clamped to 1–30.
  * Mirrors engine races.apply_racial_bonuses. Only used for the review preview
  * (the engine re-applies server-side on POST /characters).
+ *
+ * TAV-CREATE-SUBRACE-ASI-PICKER: `subraceBonuses` (the chosen subrace's own
+ * ability_bonus, e.g. Wood Elf's +1 WIS) and `halfElfAsi` (Half-Elf's
+ * floating "+1 to two other abilities" — the +2 CHA already lives in
+ * `bonuses`) are additive with the base race bonus, all summed per-ability
+ * before the single 1–30 clamp — this mirrors the engine applying base +
+ * subrace + floating ASI as one combined delta, not three sequential clamps.
  */
 export function applyRacialBonuses(
   base: AbilityScores,
   bonuses: Partial<Record<AbilityKey, number>> | undefined,
+  subraceBonuses?: Partial<Record<AbilityKey, number>>,
+  halfElfAsi?: AbilityKey[],
 ): AbilityScores {
   const out: AbilityScores = { ...base };
-  if (!bonuses) return out;
   for (const k of ABILITY_KEYS) {
-    const bonus = bonuses[k] ?? 0;
+    let bonus = bonuses?.[k] ?? 0;
+    bonus += subraceBonuses?.[k] ?? 0;
+    if (halfElfAsi?.includes(k)) bonus += 1;
     out[k] = Math.max(1, Math.min(30, out[k] + bonus));
   }
   return out;

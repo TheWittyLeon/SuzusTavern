@@ -143,6 +143,35 @@ describe('applyRacialBonuses (helpers — mirrors engine apply_racial_bonuses)',
   });
 });
 
+describe('applyRacialBonuses — subrace + Half-Elf ASI (TAV-CREATE-SUBRACE-ASI-PICKER)', () => {
+  it('adds the subrace bonus on top of the base race bonus', () => {
+    const out = applyRacialBonuses(DEFAULT_SCORES, { dexterity: 2 }, { wisdom: 1 });
+    expect(out.dexterity).toBe(10);
+    expect(out.wisdom).toBe(9);
+  });
+
+  it('adds +1 for each Half-Elf ASI ability on top of the base +2 CHA', () => {
+    const out = applyRacialBonuses(DEFAULT_SCORES, { charisma: 2 }, undefined, ['strength', 'dexterity']);
+    expect(out.charisma).toBe(10);
+    expect(out.strength).toBe(9);
+    expect(out.dexterity).toBe(9);
+    expect(out.constitution).toBe(8); // untouched
+  });
+
+  it('sums base + subrace + ASI before clamping — not three sequential clamps', () => {
+    const scores: AbilityScores = { ...DEFAULT_SCORES, strength: 29 };
+    // 29 + 1 (base) + 1 (subrace) + 1 (ASI) = 32, clamped to 30.
+    const out = applyRacialBonuses(scores, { strength: 1 }, { strength: 1 }, ['strength', 'dexterity']);
+    expect(out.strength).toBe(30);
+  });
+
+  it('omitting subraceBonuses/halfElfAsi behaves exactly like the 2-arg call', () => {
+    const out = applyRacialBonuses(DEFAULT_SCORES, { charisma: 2 });
+    expect(out.charisma).toBe(10);
+    expect(out.strength).toBe(8);
+  });
+});
+
 describe('derivedStats (helpers — mirrors cmd_create level-1 math)', () => {
   it('Fighter d10 + CON 14 → 12 HP, AC 10 + DEX mod', () => {
     const scores: AbilityScores = {
@@ -263,6 +292,60 @@ describe('catalogItemToRace', () => {
     const item = makeItem('new-race', 'New Race', 'race', { ability_bonus: {}, speed: 30 });
     const race = catalogItemToRace(item);
     expect(race.bonusLabel).toBe('none');
+  });
+});
+
+describe('catalogItemToRace — subraces + Half-Elf ASI (TAV-CREATE-SUBRACE-ASI-PICKER)', () => {
+  it('parses named subraces into typed WizardSubrace entries', () => {
+    const item = makeItem('elf', 'Elf', 'race', {
+      ability_bonus: { dexterity: 2 },
+      speed: 30,
+      subraces: {
+        'High Elf': { ability_bonus: { intelligence: 1 } },
+        'Wood Elf': { ability_bonus: { wisdom: 1 }, speed: 35 },
+      },
+    });
+    const race = catalogItemToRace(item);
+    expect(race.subraces).toHaveLength(2);
+    const wood = race.subraces.find((s) => s.name === 'Wood Elf');
+    expect(wood?.bonuses).toEqual({ wisdom: 1 });
+    expect(wood?.speed).toBe(35);
+    expect(wood?.bonusLabel).toContain('+1 WIS');
+    expect(race.needsAsiChoice).toBe(false);
+  });
+
+  it('defaults subraces to [] when the catalog omits data.subraces', () => {
+    const item = makeItem('human', 'Human', 'race', { ability_bonus: { strength: 1 }, speed: 30 });
+    const race = catalogItemToRace(item);
+    expect(race.subraces).toEqual([]);
+  });
+
+  it('sets needsAsiChoice true only for the half-elf slug (Half-Elf has no subraces of its own)', () => {
+    const item = makeItem('half-elf', 'Half-Elf', 'race', {
+      ability_bonus: { charisma: 2 },
+      speed: 30,
+      subraces: {},
+    });
+    const race = catalogItemToRace(item);
+    expect(race.needsAsiChoice).toBe(true);
+    expect(race.subraces).toEqual([]);
+  });
+
+  it('a non-half-elf race never sets needsAsiChoice, even with subraces present', () => {
+    const item = makeItem('elf', 'Elf', 'race', { ability_bonus: { dexterity: 2 }, subraces: { 'Wood Elf': {} } });
+    const race = catalogItemToRace(item);
+    expect(race.needsAsiChoice).toBe(false);
+  });
+
+  it('a cosmetic subrace with no ability_bonus (e.g. draconic ancestry) parses with an empty bonus map', () => {
+    const item = makeItem('dragonborn', 'Dragonborn', 'race', {
+      ability_bonus: { strength: 2, charisma: 1 },
+      speed: 30,
+      subraces: { 'Gold Dragonborn': {} },
+    });
+    const race = catalogItemToRace(item);
+    expect(race.subraces[0].bonuses).toEqual({});
+    expect(race.subraces[0].bonusLabel).toBe('none');
   });
 });
 

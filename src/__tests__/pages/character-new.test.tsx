@@ -50,6 +50,8 @@ const defaultCatalog = {
         bonuses: { strength: 1, dexterity: 1, constitution: 1, intelligence: 1, wisdom: 1, charisma: 1 },
         speed: 30,
         icon: 'Users' as const,
+        subraces: [],
+        needsAsiChoice: false,
       },
       {
         id: 'elf',
@@ -59,6 +61,61 @@ const defaultCatalog = {
         bonuses: { dexterity: 2 },
         speed: 30,
         icon: 'Druid' as const,
+        // TAV-CREATE-SUBRACE-ASI-PICKER fixture: Elf carries named subraces.
+        subraces: [
+          { name: 'High Elf', bonuses: { intelligence: 1 }, bonusLabel: '+1 INT' },
+          { name: 'Wood Elf', bonuses: { wisdom: 1 }, bonusLabel: '+1 WIS', speed: 35 },
+        ],
+        needsAsiChoice: false,
+      },
+      {
+        id: 'half-elf',
+        name: 'Half-Elf',
+        sub: 'diplomatic · between worlds',
+        bonusLabel: '+2 CHA',
+        bonuses: { charisma: 2 },
+        speed: 30,
+        icon: 'Bard' as const,
+        subraces: [],
+        needsAsiChoice: true,
+      },
+      {
+        id: 'dwarf',
+        name: 'Dwarf',
+        sub: 'stoic · stonecunning',
+        bonusLabel: '+2 CON',
+        bonuses: { constitution: 2 },
+        speed: 25,
+        icon: 'Shield' as const,
+        // ADVERSARIAL fixture (Miko-QA): mirrors the real engine registry
+        // (NekoNova-DnDEngine engine/races.py) so the preview matrix (base +
+        // subrace summed before one clamp) is exercised on real numbers.
+        subraces: [
+          { name: 'Hill Dwarf', bonuses: { wisdom: 1 }, bonusLabel: '+1 WIS' },
+          { name: 'Mountain Dwarf', bonuses: { strength: 2 }, bonusLabel: '+2 STR' },
+        ],
+        needsAsiChoice: false,
+      },
+      {
+        id: 'gnome',
+        name: 'Gnome',
+        sub: 'clever · curious',
+        bonusLabel: '+2 INT',
+        bonuses: { intelligence: 2 },
+        speed: 25,
+        icon: 'Wizard' as const,
+        // ADVERSARIAL fixture (Miko-QA): synthetic — NOT a mirror of the real
+        // engine's Gnome subraces (which both carry an ability_bonus). Added
+        // here purely so a COSMETIC subrace (empty ability_bonus map, e.g.
+        // the real engine's Dragonborn draconic-ancestry entries) has a
+        // full-wizard integration path to exercise: selectable, gates
+        // Continue, POSTs the name, no stat change in the Review preview.
+        // NB: Dragonborn itself is intentionally NOT added to this fixture —
+        // it's the negative control for "renders catalog items from the
+        // mock, not hardcoded values" and "no hardcoded fallback on error"
+        // below; adding it here would silently defang both.
+        subraces: [{ name: 'Svirfneblin', bonuses: {}, bonusLabel: 'none' }],
+        needsAsiChoice: false,
       },
     ],
     classes: [
@@ -210,6 +267,287 @@ describe('Character creation wizard', () => {
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/character/abc-123'));
   });
 
+  // ── TAV-CREATE-SUBRACE-ASI-PICKER ───────────────────────────────────────────
+  describe('subrace + Half-Elf ASI pickers', () => {
+    it('requires a subrace before Continue when the chosen race has named subraces', () => {
+      renderWizard();
+      fireEvent.click(screen.getByRole('radio', { name: /^Elf\b/i }));
+      const cont = screen.getByRole('button', { name: 'Continue' });
+      expect(cont).toBeDisabled();
+      fireEvent.click(screen.getByRole('radio', { name: /Wood Elf/i }));
+      expect(cont).toBeEnabled();
+    });
+
+    it('shows no subrace picker for a race with none (Human)', () => {
+      renderWizard();
+      fireEvent.click(screen.getByRole('radio', { name: /^Human/i }));
+      expect(screen.queryByText('Subrace')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
+    });
+
+    it('clears a chosen subrace when the race changes', () => {
+      renderWizard();
+      fireEvent.click(screen.getByRole('radio', { name: /^Elf\b/i }));
+      fireEvent.click(screen.getByRole('radio', { name: /Wood Elf/i }));
+      fireEvent.click(screen.getByRole('radio', { name: /^Human/i }));
+      expect(screen.queryByRole('radio', { name: /Wood Elf/i })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
+    });
+
+    it('reflects the chosen subrace bonus + speed override in the Review preview', () => {
+      renderWizard();
+      fireEvent.click(screen.getByRole('radio', { name: /^Elf\b/i }));
+      fireEvent.click(screen.getByRole('radio', { name: /Wood Elf/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Class
+      fireEvent.click(screen.getByRole('radio', { name: /Rogue/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Abilities
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Background
+      fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Velka' } });
+      fireEvent.click(screen.getByRole('radio', { name: /Charlatan/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Review
+
+      // Elf: +2 DEX (base). Wood Elf: +1 WIS, 35ft speed.
+      const wisLabel = screen.getByText('WIS');
+      expect(within(wisLabel.closest('div') as HTMLElement).getByText('9')).toBeInTheDocument();
+      expect(screen.getByText('35 ft')).toBeInTheDocument();
+    });
+
+    it('requires exactly two non-Charisma ability picks for Half-Elf before Continue, and never offers Charisma', () => {
+      renderWizard();
+      fireEvent.click(screen.getByRole('radio', { name: /Half-Elf/i }));
+      const cont = screen.getByRole('button', { name: 'Continue' });
+      expect(cont).toBeDisabled();
+      expect(screen.queryByRole('checkbox', { name: /Charisma/i })).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('checkbox', { name: /^Strength/i }));
+      expect(cont).toBeDisabled(); // only one picked
+      fireEvent.click(screen.getByRole('checkbox', { name: /^Dexterity/i }));
+      expect(cont).toBeEnabled();
+    });
+
+    it('disables further ability checkboxes once two are picked, re-enabling when one is unpicked', () => {
+      renderWizard();
+      fireEvent.click(screen.getByRole('radio', { name: /Half-Elf/i }));
+      fireEvent.click(screen.getByRole('checkbox', { name: /^Strength/i }));
+      fireEvent.click(screen.getByRole('checkbox', { name: /^Dexterity/i }));
+      expect(screen.getByRole('checkbox', { name: /^Constitution/i })).toBeDisabled();
+
+      fireEvent.click(screen.getByRole('checkbox', { name: /^Strength/i })); // uncheck
+      expect(screen.getByRole('checkbox', { name: /^Constitution/i })).toBeEnabled();
+    });
+
+    it('POSTs subrace (not half_elf_asi) for a race with subraces', async () => {
+      mockCreate.mockResolvedValue({ character_id: 'e-1' });
+      renderWizard();
+      fireEvent.click(screen.getByRole('radio', { name: /^Elf\b/i }));
+      fireEvent.click(screen.getByRole('radio', { name: /Wood Elf/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      fireEvent.click(screen.getByRole('radio', { name: /Rogue/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Velka' } });
+      fireEvent.click(screen.getByRole('radio', { name: /Charlatan/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
+      });
+
+      await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ race: 'Elf', subrace: 'Wood Elf' }),
+      );
+      expect(mockCreate.mock.calls[0][0].half_elf_asi).toBeUndefined();
+    });
+
+    it('POSTs half_elf_asi (not subrace) for Half-Elf', async () => {
+      mockCreate.mockResolvedValue({ character_id: 'he-1' });
+      renderWizard();
+      fireEvent.click(screen.getByRole('radio', { name: /Half-Elf/i }));
+      fireEvent.click(screen.getByRole('checkbox', { name: /^Strength/i }));
+      fireEvent.click(screen.getByRole('checkbox', { name: /^Dexterity/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      fireEvent.click(screen.getByRole('radio', { name: /Rogue/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Velka' } });
+      fireEvent.click(screen.getByRole('radio', { name: /Charlatan/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
+      });
+
+      await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ race: 'Half-Elf', half_elf_asi: ['strength', 'dexterity'] }),
+      );
+      expect(mockCreate.mock.calls[0][0].subrace).toBeUndefined();
+    });
+
+    // ── ADVERSARIAL (Miko-QA) ──────────────────────────────────────────────
+
+    it('re-disables Continue after unchecking one of two Half-Elf ASI picks (not just re-enabling checkboxes)', () => {
+      renderWizard();
+      fireEvent.click(screen.getByRole('radio', { name: /Half-Elf/i }));
+      const cont = screen.getByRole('button', { name: 'Continue' });
+      fireEvent.click(screen.getByRole('checkbox', { name: /^Strength/i }));
+      fireEvent.click(screen.getByRole('checkbox', { name: /^Dexterity/i }));
+      expect(cont).toBeEnabled();
+      fireEvent.click(screen.getByRole('checkbox', { name: /^Strength/i })); // uncheck
+      expect(cont).toBeDisabled();
+    });
+
+    it('does not offer Charisma even after two other abilities are already picked (disabled, not just unchecked)', () => {
+      renderWizard();
+      fireEvent.click(screen.getByRole('radio', { name: /Half-Elf/i }));
+      fireEvent.click(screen.getByRole('checkbox', { name: /^Strength/i }));
+      fireEvent.click(screen.getByRole('checkbox', { name: /^Dexterity/i }));
+      expect(screen.queryByRole('checkbox', { name: /Charisma/i })).not.toBeInTheDocument();
+    });
+
+    it('resets a chosen subrace to a stale value NOT surviving into the POST when race is switched before submit', async () => {
+      mockCreate.mockResolvedValue({ character_id: 'reset-1' });
+      renderWizard();
+      // Pick Elf -> Wood Elf, then switch away to a subrace-less race (Human)
+      // WITHOUT ever advancing past the Race step.
+      fireEvent.click(screen.getByRole('radio', { name: /^Elf\b/i }));
+      fireEvent.click(screen.getByRole('radio', { name: /Wood Elf/i }));
+      fireEvent.click(screen.getByRole('radio', { name: /^Human/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      fireEvent.click(screen.getByRole('radio', { name: /Rogue/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Grok' } });
+      fireEvent.click(screen.getByRole('radio', { name: /Charlatan/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
+      });
+
+      await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+      const body = mockCreate.mock.calls[0][0];
+      expect(body.race).toBe('Human');
+      expect(body.subrace).toBeUndefined();
+      expect(body.half_elf_asi).toBeUndefined();
+    });
+
+    it('resets a chosen half_elf_asi to a stale value NOT surviving into the POST when race is switched before submit', async () => {
+      mockCreate.mockResolvedValue({ character_id: 'reset-2' });
+      renderWizard();
+      // Pick Half-Elf, choose both ASI abilities, then switch away WITHOUT
+      // ever advancing past the Race step.
+      fireEvent.click(screen.getByRole('radio', { name: /Half-Elf/i }));
+      fireEvent.click(screen.getByRole('checkbox', { name: /^Strength/i }));
+      fireEvent.click(screen.getByRole('checkbox', { name: /^Dexterity/i }));
+      fireEvent.click(screen.getByRole('radio', { name: /^Human/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      fireEvent.click(screen.getByRole('radio', { name: /Rogue/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Grok' } });
+      fireEvent.click(screen.getByRole('radio', { name: /Charlatan/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
+      });
+
+      await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+      const body = mockCreate.mock.calls[0][0];
+      expect(body.race).toBe('Human');
+      expect(body.half_elf_asi).toBeUndefined();
+      expect(body.subrace).toBeUndefined();
+    });
+
+    it('cross-contamination: switching Half-Elf(+ASI picks) -> Elf clears the ASI AND still gates on picking a fresh subrace', async () => {
+      mockCreate.mockResolvedValue({ character_id: 'cross-1' });
+      renderWizard();
+      fireEvent.click(screen.getByRole('radio', { name: /Half-Elf/i }));
+      fireEvent.click(screen.getByRole('checkbox', { name: /^Strength/i }));
+      fireEvent.click(screen.getByRole('checkbox', { name: /^Dexterity/i }));
+      fireEvent.click(screen.getByRole('radio', { name: /^Elf\b/i }));
+      const cont = screen.getByRole('button', { name: 'Continue' });
+      // Elf requires a subrace; the stale Half-Elf ASI picks must not
+      // substitute for that gate.
+      expect(cont).toBeDisabled();
+      expect(screen.queryByRole('checkbox', { name: /^Strength/i })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('radio', { name: /Wood Elf/i }));
+      expect(cont).toBeEnabled();
+      fireEvent.click(cont);
+      fireEvent.click(screen.getByRole('radio', { name: /Rogue/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Velka' } });
+      fireEvent.click(screen.getByRole('radio', { name: /Charlatan/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
+      });
+
+      await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+      const body = mockCreate.mock.calls[0][0];
+      expect(body.race).toBe('Elf');
+      expect(body.subrace).toBe('Wood Elf');
+      expect(body.half_elf_asi).toBeUndefined();
+    });
+
+    it('preview matrix: Mountain Dwarf sums +2 STR (subrace) on top of +2 CON (base race) — not one or the other', () => {
+      renderWizard();
+      fireEvent.click(screen.getByRole('radio', { name: /^Dwarf/i }));
+      fireEvent.click(screen.getByRole('radio', { name: /Mountain Dwarf/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Class
+      fireEvent.click(screen.getByRole('radio', { name: /Rogue/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Abilities
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Background
+      fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Borin' } });
+      fireEvent.click(screen.getByRole('radio', { name: /Charlatan/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
+
+      // Base scores are all 8. Dwarf +2 CON (base) + Mountain Dwarf +2 STR
+      // (subrace) => STR 10, CON 10. Speed is the Dwarf's own 25ft (no
+      // subrace override on Mountain Dwarf).
+      // Scoped to the "Ability scores" panel — Rogue's saves ("DEX"/"INT"
+      // proficiency pills) live in a sibling "Proficiencies" panel and would
+      // otherwise collide with an unscoped getByText for any shared abbr.
+      const scorePanel = screen.getByText('Ability scores').parentElement as HTMLElement;
+      const strBox = within(scorePanel).getByText('STR').closest('div') as HTMLElement;
+      const conBox = within(scorePanel).getByText('CON').closest('div') as HTMLElement;
+      expect(within(strBox).getByText('10')).toBeInTheDocument();
+      expect(within(conBox).getByText('10')).toBeInTheDocument();
+      expect(screen.getByText('25 ft')).toBeInTheDocument();
+    });
+
+    it('cosmetic subrace (no ability_bonus): selectable, gates Continue, POSTs the name, no stat change in preview', async () => {
+      mockCreate.mockResolvedValue({ character_id: 'cosmetic-1' });
+      renderWizard();
+      fireEvent.click(screen.getByRole('radio', { name: /^Gnome/i }));
+      const cont = screen.getByRole('button', { name: 'Continue' });
+      expect(cont).toBeDisabled(); // Gnome has a (synthetic) subrace — still gates
+      fireEvent.click(screen.getByRole('radio', { name: /Svirfneblin/i }));
+      expect(cont).toBeEnabled();
+      fireEvent.click(cont); // -> Class
+      fireEvent.click(screen.getByRole('radio', { name: /Rogue/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Abilities
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Background
+      fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Pip' } });
+      fireEvent.click(screen.getByRole('radio', { name: /Charlatan/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
+
+      // Only the base Gnome +2 INT applies; the cosmetic subrace adds nothing.
+      // Scoped to the "Ability scores" panel (see Dwarf preview test above
+      // for why: Rogue's saves render an "INT" proficiency pill elsewhere).
+      const scorePanel = screen.getByText('Ability scores').parentElement as HTMLElement;
+      const intBox = within(scorePanel).getByText('INT').closest('div') as HTMLElement;
+      expect(within(intBox).getByText('10')).toBeInTheDocument();
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
+      });
+      await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ race: 'Gnome', subrace: 'Svirfneblin' }),
+      );
+    });
+  });
+
   // UIR2-TAV-22: a background with no flavor line (blurb: '') must render no
   // quote element at all — never a literal "" — while the rest of the card
   // (name, skills) still renders normally.
@@ -314,9 +652,9 @@ describe('Catalog loading and error states (S2.4)', () => {
 
   it('renders catalog items from the mock, not hardcoded values (S2.4)', () => {
     renderWizard();
-    // Only our 2 mock races are shown, not the full 9-race hardcoded list.
-    expect(screen.getByRole('radio', { name: /Human/i })).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: /Elf/i })).toBeInTheDocument();
+    // Only our mock races are shown, not the full 9-race hardcoded list.
+    expect(screen.getByRole('radio', { name: /^Human/i })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /^Elf\b/i })).toBeInTheDocument();
     // Items outside the mock fixture should NOT appear.
     expect(screen.queryByRole('radio', { name: /Dragonborn/i })).not.toBeInTheDocument();
   });

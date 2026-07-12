@@ -12,6 +12,12 @@
  * WizardClass.isCaster — see helpers.ts's CLASS_CASTER_KIND) gets a 6th
  * "Spells" step inserted between Background and Review (T4/DDX-11t).
  *
+ * TAV-CREATE-SUBRACE-ASI-PICKER: the Race step grows two optional inline
+ * sub-pickers once a race is chosen — a subrace radiogroup (any race whose
+ * catalog subraces are non-empty, e.g. Elf) and/or Half-Elf's floating
+ * "+1 to two other abilities" checkbox group. Both are required (gate
+ * Continue) when applicable; see canContinue/canCreatePrereqs.
+ *
  * Most choices are held in local React state and POSTed once, at Review's
  * final "Begin your campaign" — POST /api/dnd/characters (ST-052). The
  * engine validates race/class and the point-buy spread server-side and
@@ -181,6 +187,12 @@ export default function CharacterNewPage(): ReactNode {
 
   const [step, setStep] = useState(0);
   const [race, setRace] = useState<string | null>(null);
+  // TAV-CREATE-SUBRACE-ASI-PICKER — subrace display name (e.g. "Wood Elf"),
+  // POSTed verbatim; Half-Elf's floating "+1 to two other abilities" (the
+  // +2 CHA is automatic, engine-applied). Both reset whenever `race` changes
+  // (see the effect below).
+  const [subrace, setSubrace] = useState<string | null>(null);
+  const [halfElfAsi, setHalfElfAsi] = useState<AbilityKey[]>([]);
   const [cls, setCls] = useState<string | null>(null);
   const [scores, setScores] = useState<AbilityScores>({ ...DEFAULT_SCORES });
   const [background, setBackground] = useState<string | null>(null);
@@ -228,6 +240,11 @@ export default function CharacterNewPage(): ReactNode {
   const bgObj = catalog.data.backgrounds.find((b) => b.id === background);
   const isCasterClass = !!clsObj?.isCaster;
 
+  // TAV-CREATE-SUBRACE-ASI-PICKER — gates the Race step's pickers/Continue.
+  const raceHasSubraces = (raceObj?.subraces.length ?? 0) > 0;
+  const raceNeedsAsi = !!raceObj?.needsAsiChoice;
+  const selectedSubrace = raceObj?.subraces.find((sr) => sr.name === subrace);
+
   // T4/DDX-11t — the step list adapts to the chosen class (Spells only for a
   // caster). Recomputed whenever the class changes.
   const steps = useMemo(() => buildSteps(isCasterClass), [isCasterClass]);
@@ -253,14 +270,40 @@ export default function CharacterNewPage(): ReactNode {
     }
   }, [cls]);
 
+  // TAV-CREATE-SUBRACE-ASI-PICKER — a subrace/ASI choice is only meaningful
+  // for the race it was made under; changing race must clear both so a
+  // stale Wood Elf pick can't survive a switch to Dwarf.
+  const prevRaceRef = useRef(race);
+  useEffect(() => {
+    if (prevRaceRef.current !== race) {
+      prevRaceRef.current = race;
+      setSubrace(null);
+      setHalfElfAsi([]);
+    }
+  }, [race]);
+
+  const toggleHalfElfAsi = useCallback((key: AbilityKey) => {
+    setHalfElfAsi((prev) => {
+      if (prev.includes(key)) return prev.filter((k) => k !== key);
+      if (prev.length >= 2) return prev;
+      return [...prev, key];
+    });
+  }, []);
+
   const remaining = pointsRemaining(scores);
   const finalScores = useMemo(
-    () => applyRacialBonuses(scores, raceObj?.bonuses),
-    [scores, raceObj],
+    () =>
+      applyRacialBonuses(
+        scores,
+        raceObj?.bonuses,
+        selectedSubrace?.bonuses,
+        raceNeedsAsi ? halfElfAsi : undefined,
+      ),
+    [scores, raceObj, selectedSubrace, raceNeedsAsi, halfElfAsi],
   );
   const derived = useMemo(
-    () => derivedStats(finalScores, clsObj, raceObj?.speed ?? 30),
-    [finalScores, clsObj, raceObj],
+    () => derivedStats(finalScores, clsObj, selectedSubrace?.speed ?? raceObj?.speed ?? 30),
+    [finalScores, clsObj, raceObj, selectedSubrace],
   );
 
   const setScore = useCallback((key: AbilityKey, delta: number) => {
@@ -276,7 +319,12 @@ export default function CharacterNewPage(): ReactNode {
   const canContinue = useMemo(() => {
     switch (stepKey) {
       case 'race':
-        return !!race;
+        // TAV-CREATE-SUBRACE-ASI-PICKER: a race with named subraces requires
+        // one to be chosen; Half-Elf requires its two floating +1s.
+        if (!race) return false;
+        if (raceHasSubraces && !subrace) return false;
+        if (raceNeedsAsi && halfElfAsi.length !== 2) return false;
+        return true;
       case 'class':
         return !!cls;
       case 'abilities':
@@ -289,10 +337,17 @@ export default function CharacterNewPage(): ReactNode {
       default:
         return true;
     }
-  }, [stepKey, race, cls, remaining, background, name]);
+  }, [stepKey, race, raceHasSubraces, subrace, raceNeedsAsi, halfElfAsi, cls, remaining, background, name]);
 
   const canCreatePrereqs =
-    !!username && !!raceObj && !!clsObj && !!bgObj && name.trim().length > 0 && remaining >= 0;
+    !!username &&
+    !!raceObj &&
+    !!clsObj &&
+    !!bgObj &&
+    name.trim().length > 0 &&
+    remaining >= 0 &&
+    (!raceHasSubraces || !!subrace) &&
+    (!raceNeedsAsi || halfElfAsi.length === 2);
 
   const canSubmit = canCreatePrereqs && !submitting;
 
@@ -310,10 +365,15 @@ export default function CharacterNewPage(): ReactNode {
       char_class: clsObj.name,
       background: bgObj.name,
       ability_scores: scores,
+      // TAV-CREATE-SUBRACE-ASI-PICKER — only sent when meaningful; the
+      // engine 400s a subrace that isn't one of the chosen race's, or an
+      // ASI submitted for a non-Half-Elf race.
+      subrace: subrace ?? undefined,
+      half_elf_asi: raceNeedsAsi && halfElfAsi.length === 2 ? halfElfAsi : undefined,
     });
     if (!created.character_id) throw new Error('missing character_id');
     return created.character_id;
-  }, [username, raceObj, clsObj, bgObj, name, scores]);
+  }, [username, raceObj, clsObj, bgObj, name, scores, subrace, raceNeedsAsi, halfElfAsi]);
 
   // Nav "Continue" — the ONE special case is Background -> Spells for a
   // caster: the character must exist before the Spells step can fetch a real
@@ -443,7 +503,13 @@ export default function CharacterNewPage(): ReactNode {
 
   const continueHint =
     stepKey === 'race'
-      ? 'Select a race to continue.'
+      ? !race
+        ? 'Select a race to continue.'
+        : raceHasSubraces && !subrace
+          ? 'Select a subrace to continue.'
+          : raceNeedsAsi && halfElfAsi.length !== 2
+            ? 'Choose two ability scores to increase to continue.'
+            : ''
       : stepKey === 'class'
         ? 'Select a class to continue.'
         : stepKey === 'background'
@@ -454,7 +520,7 @@ export default function CharacterNewPage(): ReactNode {
   const railSub = (key: StepKey): string => {
     switch (key) {
       case 'race':
-        return raceObj?.name ?? '—';
+        return raceObj ? (subrace ? `${raceObj.name} · ${subrace}` : raceObj.name) : '—';
       case 'class':
         return clsObj?.name ?? '—';
       case 'abilities':
@@ -584,6 +650,10 @@ export default function CharacterNewPage(): ReactNode {
                 races={catalog.data.races}
                 value={race}
                 onChange={setRace}
+                subrace={subrace}
+                onSubraceChange={setSubrace}
+                halfElfAsi={halfElfAsi}
+                onToggleHalfElfAsi={toggleHalfElfAsi}
               />
             )}
             {stepKey === 'class' && (
@@ -710,37 +780,124 @@ export default function CharacterNewPage(): ReactNode {
 }
 
 // ── Step: Race ────────────────────────────────────────────────────────────────
+// TAV-CREATE-SUBRACE-ASI-PICKER: two optional sub-pickers appear beneath the
+// race grid once a race is selected — a subrace radiogroup (any race whose
+// catalog data.subraces is non-empty, e.g. Elf -> High/Wood/Dark) and/or
+// Half-Elf's floating "+1 to two other abilities" checkbox group (the +2 CHA
+// is automatic/engine-applied, so Charisma isn't offered here). Both gate the
+// step's Continue via canContinue in the parent.
 function RaceStep({
   races,
   value,
   onChange,
+  subrace,
+  onSubraceChange,
+  halfElfAsi,
+  onToggleHalfElfAsi,
 }: {
   races: WizardRace[];
   value: string | null;
   onChange: (id: string) => void;
+  subrace: string | null;
+  onSubraceChange: (name: string) => void;
+  halfElfAsi: AbilityKey[];
+  onToggleHalfElfAsi: (key: AbilityKey) => void;
 }) {
+  const selected = races.find((r) => r.id === value);
   return (
-    <fieldset className={styles.optGrid}>
-      <legend className={styles.srOnly}>Choose a race</legend>
-      {races.map((r) => (
-        <label key={r.id} className={styles.optCard} data-selected={value === r.id}>
-          <input
-            type="radio"
-            name="race"
-            value={r.id}
-            checked={value === r.id}
-            onChange={() => onChange(r.id)}
-            className={styles.srOnly}
-          />
-          <span className={styles.optIcon} aria-hidden>
-            <Icon name={r.icon} size={18} />
-          </span>
-          <span className={styles.optName}>{r.name}</span>
-          <span className={styles.optSub}>{r.sub}</span>
-          <span className={`mono ${styles.optBonus}`}>{r.bonusLabel}</span>
-        </label>
-      ))}
-    </fieldset>
+    <div>
+      <fieldset className={styles.optGrid}>
+        <legend className={styles.srOnly}>Choose a race</legend>
+        {races.map((r) => (
+          <label key={r.id} className={styles.optCard} data-selected={value === r.id}>
+            <input
+              type="radio"
+              name="race"
+              value={r.id}
+              checked={value === r.id}
+              onChange={() => onChange(r.id)}
+              className={styles.srOnly}
+            />
+            <span className={styles.optIcon} aria-hidden>
+              <Icon name={r.icon} size={18} />
+            </span>
+            <span className={styles.optName}>{r.name}</span>
+            <span className={styles.optSub}>{r.sub}</span>
+            <span className={`mono ${styles.optBonus}`}>{r.bonusLabel}</span>
+          </label>
+        ))}
+      </fieldset>
+
+      {selected && selected.subraces.length > 0 && (
+        <div className={styles.subStep}>
+          <p className="label" style={{ marginBottom: 10 }}>
+            Subrace
+          </p>
+          <fieldset className={styles.bgGrid}>
+            <legend className={styles.srOnly}>{`Choose a ${selected.name} subrace`}</legend>
+            {selected.subraces.map((sr) => (
+              <label key={sr.name} className={styles.bgCard} data-selected={subrace === sr.name}>
+                <input
+                  type="radio"
+                  name="subrace"
+                  value={sr.name}
+                  checked={subrace === sr.name}
+                  onChange={() => onSubraceChange(sr.name)}
+                  className={styles.srOnly}
+                />
+                <span className={styles.bgName}>{sr.name}</span>
+                <span className={`mono ${styles.bgSkills}`}>
+                  {sr.bonusLabel}
+                  {sr.speed ? ` · ${sr.speed} ft speed` : ''}
+                </span>
+              </label>
+            ))}
+          </fieldset>
+        </div>
+      )}
+
+      {selected?.needsAsiChoice && (
+        <div className={styles.subStep}>
+          <div className={styles.budget}>
+            <span
+              className={styles.budgetNum}
+              aria-live="polite"
+              aria-atomic="true"
+              aria-label={`${halfElfAsi.length} of 2 ability scores chosen`}
+            >
+              {halfElfAsi.length}/2
+            </span>
+            <span>
+              <span className={styles.budgetTitle}>Ability score increase</span>
+              <span className={styles.budgetSub}>
+                +2 Charisma is automatic. Choose two other abilities to raise by +1 each.
+              </span>
+            </span>
+          </div>
+          <fieldset className={styles.asiList}>
+            <legend className={styles.srOnly}>
+              Choose two abilities, other than Charisma, to increase by 1
+            </legend>
+            {ABILITIES.filter((a) => a.key !== 'charisma').map((a) => {
+              const checked = halfElfAsi.includes(a.key);
+              const disabled = !checked && halfElfAsi.length >= 2;
+              return (
+                <label key={a.key} className={styles.asiOption} data-selected={checked}>
+                  <input
+                    type="checkbox"
+                    className={styles.spellCheckbox}
+                    checked={checked}
+                    disabled={disabled}
+                    onChange={() => onToggleHalfElfAsi(a.key)}
+                  />
+                  <span>{a.name} +1</span>
+                </label>
+              );
+            })}
+          </fieldset>
+        </div>
+      )}
+    </div>
   );
 }
 

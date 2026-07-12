@@ -20,6 +20,21 @@ import type { CatalogItem, CatalogRaceData, CatalogClassData, CatalogBackgroundD
 
 // ── Wizard display types ──────────────────────────────────────────────────────
 
+/**
+ * TAV-CREATE-SUBRACE-ASI-PICKER — one named subrace from the catalog's
+ * `data.subraces` map (e.g. Elf -> "Wood Elf"). `name` is the exact display
+ * name POSTed to the engine as `subrace` (the engine matches it case-
+ * insensitively). `bonuses`/`bonusLabel` mirror WizardRace's own convention;
+ * `speed` is only present when the subrace overrides the base race's speed
+ * (e.g. Wood Elf 35 ft).
+ */
+export interface WizardSubrace {
+  name: string;
+  bonuses: Partial<Record<AbilityKey, number>>;
+  bonusLabel: string;
+  speed?: number;
+}
+
 export interface WizardRace {
   /** Catalog slug == name.toLowerCase(). POSTed to the engine as `race` via name. */
   id: string;
@@ -33,6 +48,19 @@ export interface WizardRace {
   /** Base walking speed in feet. */
   speed: number;
   icon: IconName;
+  /**
+   * TAV-CREATE-SUBRACE-ASI-PICKER — named subraces from the catalog (e.g.
+   * Elf -> High/Wood/Dark). Empty for a race with none (Human, Half-Orc,
+   * Half-Elf — the latter uses the floating ASI instead, see needsAsiChoice).
+   */
+  subraces: WizardSubrace[];
+  /**
+   * TAV-CREATE-SUBRACE-ASI-PICKER — true only for Half-Elf (item.slug ===
+   * 'half-elf'), the one SRD race with a floating "+1 to two other
+   * abilities" instead of fixed subrace bonuses. Mirrors the engine's own
+   * hardcoded gate (NekoNova-DnDEngine races.py).
+   */
+  needsAsiChoice: boolean;
 }
 
 export interface WizardClass {
@@ -87,6 +115,16 @@ export function catalogItemToRace(item: CatalogItem): WizardRace {
   const d = item.data as CatalogRaceData;
   const deco = RACE_DECORATION[item.slug] ?? { icon: 'Users' as IconName, sub: '' };
   const bonuses = (d.ability_bonus ?? {}) as Partial<Record<AbilityKey, number>>;
+  const subraces: WizardSubrace[] = Object.entries(d.subraces ?? {}).map(([name, raw]) => {
+    const sub = (raw ?? {}) as { ability_bonus?: Partial<Record<string, number>>; speed?: number };
+    const subBonuses = (sub.ability_bonus ?? {}) as Partial<Record<AbilityKey, number>>;
+    return {
+      name,
+      bonuses: subBonuses,
+      bonusLabel: buildBonusLabel(subBonuses),
+      speed: sub.speed,
+    };
+  });
   return {
     id: item.slug,
     name: item.name,
@@ -95,6 +133,11 @@ export function catalogItemToRace(item: CatalogItem): WizardRace {
     bonuses,
     speed: d.speed ?? 30,
     icon: deco.icon,
+    subraces,
+    // Matches the engine's own hardcoded Half-Elf ASI gate — the only SRD
+    // race with a floating "+1 to two other abilities" rather than fixed
+    // subrace bonuses (Half-Elf's own `data.subraces` is empty on the wire).
+    needsAsiChoice: item.slug === 'half-elf',
   };
 }
 

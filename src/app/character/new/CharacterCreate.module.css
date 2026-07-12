@@ -285,6 +285,55 @@
   color: var(--ink-2);
 }
 
+/* ── Race step — subrace + Half-Elf ASI pickers (TAV-CREATE-SUBRACE-ASI-PICKER)
+   Subrace reuses .bgGrid/.bgCard (bgGrid/bgCard/bgName/bgSkills, defined
+   below) — same card idiom as the Background step. */
+.subStep {
+  margin-top: 22px;
+}
+
+.asiList {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  border: 0;
+}
+@media (max-width: 480px) {
+  .asiList {
+    grid-template-columns: 1fr;
+  }
+}
+
+.asiOption {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px; /* 44px touch target (WCAG 2.5.5 AAA; exceeds 2.5.8 AA) */
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--ink);
+  transition: all 0.15s var(--ease);
+}
+.asiOption:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.asiOption:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.asiOption[data-selected='true'] {
+  border-color: color-mix(in oklab, var(--accent) 55%, transparent);
+  background: color-mix(in oklab, var(--accent) 14%, transparent);
+}
+
 /* ── Abilities (point buy) ───────────────────────────────────────────────────── */
 .budget {
   display: flex;
@@ -679,7 +728,8 @@
   .railStep,
   .railDot,
   .optCard,
-  .bgCard {
+  .bgCard,
+  .asiOption {
     transition: none;
   }
 }

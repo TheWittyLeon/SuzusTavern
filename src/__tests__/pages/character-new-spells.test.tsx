@@ -67,6 +67,8 @@ const defaultCatalog = {
         },
         speed: 30,
         icon: 'Users' as const,
+        subraces: [],
+        needsAsiChoice: false,
       },
     ],
     classes: [
