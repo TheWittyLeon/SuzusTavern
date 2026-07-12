@@ -445,8 +445,12 @@ export default function CodexPage() {
           )}
         </div>
 
-        {/* ---------- CENTER: the active tab's result list (the tabpanel) ---------- */}
-        <main
+        {/* ---------- CENTER: the active tab's result list (the tabpanel) ----------
+            UIR3-CODEX-ROLE: a <div>, not <main> — role="tabpanel" can't be applied
+            to <main> (axe aria-allowed-role), and this already sits inside the
+            TavernShell's single <main> landmark, so a nested <main> would be wrong
+            anyway. A tabpanel on a div is the correct semantics here. */}
+        <div
           id={panelId}
           role="tabpanel"
           aria-labelledby={`${panelId}-tab-${activeKind}`}
@@ -535,7 +539,7 @@ export default function CodexPage() {
               ))}
             </div>
           )}
-        </main>
+        </div>
 
         <aside
           className={styles.drawer}

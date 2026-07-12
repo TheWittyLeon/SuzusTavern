@@ -313,15 +313,23 @@ export default function TavernShell({
         </div>
       </header>
 
-      <div className={styles.workspace}>
-        <header className={styles.workspaceHeader}>
+      {/* UIR3-TAV-DUP-BANNER: <main> is the workspace column, wrapping BOTH the
+          page-title header and the body. Previously this shell had two <header>
+          banners (topnav + a workspace <header> → landmark-no-duplicate-banner /
+          landmark-unique on every authed page); demoting the workspace header to
+          a bare <div> then left its h1/actions in no landmark at all (axe
+          region). Putting the header + body inside the single <main> fixes both:
+          exactly one banner (the topnav), and all page content sits inside the
+          main landmark. #main-content stays the skip-link target. */}
+      <main id="main-content" tabIndex={-1} className={styles.workspace}>
+        <div className={styles.workspaceHeader}>
           <h1 className={styles.title}>{title}</h1>
           {actions && <div className={styles.actions}>{actions}</div>}
-        </header>
-        <main id="main-content" tabIndex={-1} className={`${styles.body} aurora`}>
+        </div>
+        <div className={`${styles.body} aurora`}>
           {children}
-        </main>
-      </div>
+        </div>
+      </main>
     </div>
   );
 }
