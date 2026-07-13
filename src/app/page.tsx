@@ -332,7 +332,7 @@ export default function LandingPage() {
                 {
                   icon: 'Spellbook' as const,
                   title: '1 — Pick a story',
-                  body: 'An SRD one-shot, a Suzu-curated arc, or your own PDF you drop in. The mix board lets you build a campaign out of chapters from several modules at once.',
+                  body: 'A quick one-shot, a Suzu-curated arc, or your own PDF you drop in. The mix board lets you build a campaign out of chapters from several modules at once.',
                 },
                 {
                   icon: 'Sparkle' as const,
