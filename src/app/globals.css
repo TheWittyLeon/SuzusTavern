@@ -29,7 +29,11 @@
   --card-solid: #1c1530;
   --ink:        #f5eef0;
   --ink-2:      #c8bfd0;
-  --ink-3:      #8b8298;
+  /* UIR2-TAV-30: nudged #8b8298 → #9992a4 so --ink-3 clears AA (≥4.5:1) on the
+     lightest dusk surfaces too — the white-tinted topnav glass behind .brandSub
+     (was 4.25:1) and PartyPanel .sub (was 4.39:1). #9992a4 lands ≥5.4:1 there
+     while staying clearly below --ink-2, preserving the muted-text hierarchy. */
+  --ink-3:      #9992a4;
   --line:       rgba(255,255,255,0.08);
   --line-2:     rgba(255,255,255,0.04);
 
@@ -83,8 +87,11 @@
   --card-solid: #fffdf7;
   --ink:        #2a1e16;
   --ink-2:      #5a4636;
-  /* A11Y-2: was #8a7866 (3.67:1 — fails AA); design-system original passes at 5.53:1 */
-  --ink-3:      #6e5c4a;
+  /* A11Y-2: was #8a7866 (3.67:1 — fails AA); design-system original passes at 5.53:1.
+     DDX-CANDLELIT-CONTRAST: #6e5c4a was 4.35:1 on --bg-3 (#e0d4be) now that
+     candlelit is an OS-light default; darkened to #655442 (4.94:1) so --ink-3
+     clears AA on every candlelit surface incl. --bg-3, still lighter than --ink-2. */
+  --ink-3:      #655442;
   --line:       rgba(42,30,22,0.10);
   --line-2:     rgba(42,30,22,0.05);
 
@@ -107,7 +114,10 @@
      14%-tinted pill background, not just on --bg (Iro-A11y MAJOR-2). */
   --good:       #2d6032;
   --bad:        #a83a3a;
-  --bad-ink:    #962d2d;   /* darker red — text on light parchment error surface */
+  /* DDX-CANDLELIT-CONTRAST: #962d2d was 4.26:1 on the .btn-danger:hover surface
+     (24%-bad tint over --bg-2 ≈ #dbb9ab); darkened to #8a2727 (4.81:1 on hover,
+     higher on the 16%-tint rest state) so error/danger text clears AA everywhere. */
+  --bad-ink:    #8a2727;   /* darker red — text on light parchment error surface */
   --warn:       #7a5500;
   /* A11Y (S8.3): #6b4a00 on 14%-warn tint (~#f0e7cc-ish) = 4.88:1 — passes AA.
      Candlelit --warn (#7a5500) at 14% tint is borderline; this explicit token clears it. */
