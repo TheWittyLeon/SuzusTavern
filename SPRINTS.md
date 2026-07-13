@@ -259,3 +259,15 @@ The following sprints constitute a shippable MVP:
 | 8 | All deferred | — |
 
 **MVP = 26 stories.** A player can log in, create a character, join a session, and play with Suzu as DM.
+
+---
+
+## Deployment Changelog
+
+| Date | Build | Status | Notes |
+|------|-------|--------|-------|
+| 2026-07-13 | `7194545` | DEPLOYED+VERIFIED | DM-NARRATION-MARKDOWN: ChatLog renders inline `**bold**`→strong / `*italic*`→em for prose DM kinds (narration/dm_narration/dm_override) so gemma's markdown stops showing as literal asterisks; XSS-safe (React-escaped strings only, no dangerouslySetInnerHTML; `<img onerror>` renders inert, test-locked), italic DM rows get em→upright+semibold (Iro MINOR-1). Gates: Kuro-Sec SECURE (XSS+ReDoS proven inert), Kage-CR APPROVED, Iro-A11y APPROVED-W-COMMENTS; tsc clean, jest 2038 (+13 ChatLog tests), build ✓. Prod nekonova-tavern (prod==base whole-copy, /api/health 200); pushed. Prod-verified live: narration `*completely*`→`<em>`, no literal asterisks, 0 console errors. Rollback `suzustavern-suzu-tavern:rollback-mdrender-2026-07-13`. |
+| 2026-07-13 | `b0bb5a9`+`ea359fe`+`d30645b` | DEPLOYED+VERIFIED+PUSHED | UIR2-TAV a11y/copy/contrast batch (9 items closed); login accessible-name + lobby aria-labels + proficiency dots role="img" + copy nits + contrast tokens (dusk --ink-3 #8b8298→#9992a4; candlelit --ink-3 #6e5c4a→#655442 & --bad-ink #962d2d→#8a2727); gates: Kage-CR APPROVED-W-COMMENTS, Iro-A11y all-folded, tsc clean jest 2029, npm build ✓; live-harness: login/dashboard/lobby axe=0 light+dark desktop+mobile, char-sheet serious=0, PartyPanel .sub ≥4.5:1 contrast. **Pushed to origin + deployed to prod nekonova-tavern (surgical whole-copy of 7 src files, /api/health 200, RestartCount 0), prod-verified as suzu-prod-tester (axe=0, TAV-20 serious=0). Rollback `suzustavern-suzu-tavern:rollback-2026-07-13`.** Filed follow-ups: TAV-PARTY-YOUBADGE-CONTRAST-CANDLELIT/TAV-PLAY-LANDMARKS (P2), TAV-A11Y-LOGIN-BUSY-LABEL/PROFDOT-ROW-COHESION/SHEET-HEADING-ORDER (P3). Scope-changed UIR2-TAV-26→TAV-CAMPAIGN-LEVELING-MODE-BAR (P2 feature).
+| 2026-07-11 | `49227b0` | DEPLOYED | DDX-22 Phase 3 (SessionNote type + getSessionNotes/putSessionNotes + JournalPane localStorage→API debounced-autosave); prod nekonova-tavern 10.69.69.127:3000; gates: Kage CHANGES-REQ→resolved, Iro CHANGES-REQ→resolved, Miko PASS; tsc+eslint clean, jest 1997 green; cross-account RLS isolation verified live; rollback `suzustavern-suzu-tavern:rollback-ddx22-notes-2026-07-11`. |
+| 2026-07-10 | `31906e0` | DEPLOYED | Phase-1 Tavern UI (8 P1 UIR2-TAV items + DDX T3/T5/T6/T7/T13/T12); prod nekonova-tavern 10.69.69.127:3000; gates: tsc 0, jest 1921, build ✓; lint 41 pre-existing (non-gating); live-verified as suzu-prod-tester; rollback `nekonova-tavern:rollback-2026-07-10`. |
+| 2026-07-09 | `541e9ee` + `82b882f` | DEPLOYED | TAV-S1 screen-reader flood fix + TAV-ENV-INLINE (Turbopack env inlining); prod nekonova-tavern; rolled back once for env.ts fix, then clean redeploy. |
