@@ -225,6 +225,30 @@ describe('Character creation wizard', () => {
     expect(inc).toBeDisabled();
   });
 
+  // ── TAV-28 ───────────────────────────────────────────────────────────────────
+  it('TAV-28: rail sub-label pluralizes "pt" only for exactly one point spent', () => {
+    renderWizard();
+    advanceToAbilities();
+
+    // 0 spent at the outset — plural, not "0 pt spent".
+    expect(screen.getByText('0 pts spent')).toBeInTheDocument();
+
+    // 8 → 9 costs exactly 1 point on the SRD point-buy table — singular.
+    fireEvent.click(screen.getByRole('button', { name: 'Increase Strength' }));
+    expect(screen.getByText('1 pt spent')).toBeInTheDocument();
+    expect(screen.queryByText('1 pts spent')).not.toBeInTheDocument();
+
+    // 9 → 10 costs 1 more (2 total) — plural again.
+    fireEvent.click(screen.getByRole('button', { name: 'Increase Strength' }));
+    expect(screen.getByText('2 pts spent')).toBeInTheDocument();
+    expect(screen.queryByText('1 pt spent')).not.toBeInTheDocument();
+
+    // Spending back down to exactly 1 returns to the singular form (not a
+    // one-way "spent >= 1 ever" flag).
+    fireEvent.click(screen.getByRole('button', { name: 'Decrease Strength' }));
+    expect(screen.getByText('1 pt spent')).toBeInTheDocument();
+  });
+
   it('submits base scores + canonical names, then routes to the new sheet (ST-052)', async () => {
     mockCreate.mockResolvedValue({ character_id: 'abc-123' });
     renderWizard();
@@ -285,6 +309,30 @@ describe('Character creation wizard', () => {
       expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
     });
 
+    // ── Grammar (indefiniteArticle) ─────────────────────────────────────────────
+    it('subrace group legend says "an Elf" (vowel-leading race name), not "a Elf"', () => {
+      renderWizard();
+      fireEvent.click(screen.getByRole('radio', { name: /^Elf\b/i }));
+      expect(screen.getByRole('group', { name: 'Choose an Elf subrace' })).toBeInTheDocument();
+      expect(screen.queryByRole('group', { name: 'Choose a Elf subrace' })).not.toBeInTheDocument();
+    });
+
+    it('subrace group legend says "a Dwarf" (consonant-leading race name), not "an Dwarf"', () => {
+      renderWizard();
+      fireEvent.click(screen.getByRole('radio', { name: /^Dwarf/i }));
+      expect(screen.getByRole('group', { name: 'Choose a Dwarf subrace' })).toBeInTheDocument();
+      expect(screen.queryByRole('group', { name: 'Choose an Dwarf subrace' })).not.toBeInTheDocument();
+    });
+
+    // ── "none" suppression ──────────────────────────────────────────────────────
+    it('does not render the literal bonus-label "none" for a cosmetic subrace with no ability bonus (Svirfneblin)', () => {
+      renderWizard();
+      fireEvent.click(screen.getByRole('radio', { name: /^Gnome/i }));
+      expect(screen.getByRole('radio', { name: /Svirfneblin/i })).toBeInTheDocument();
+      expect(screen.queryByText('none')).not.toBeInTheDocument();
+      expect(screen.queryByText(/none ·/)).not.toBeInTheDocument();
+    });
+
     it('clears a chosen subrace when the race changes', () => {
       renderWizard();
       fireEvent.click(screen.getByRole('radio', { name: /^Elf\b/i }));
@@ -334,6 +382,33 @@ describe('Character creation wizard', () => {
 
       fireEvent.click(screen.getByRole('checkbox', { name: /^Strength/i })); // uncheck
       expect(screen.getByRole('checkbox', { name: /^Constitution/i })).toBeEnabled();
+    });
+
+    // ── TAV-A11Y-CAP-HINT ────────────────────────────────────────────────────────
+    it('TAV-A11Y-CAP-HINT: Half-Elf ASI checkboxes only gain aria-describedby once the 2-pick cap is hit, and it resolves to the visible reason', () => {
+      renderWizard();
+      fireEvent.click(screen.getByRole('radio', { name: /Half-Elf/i }));
+      const con = screen.getByRole('checkbox', { name: /^Constitution/i });
+
+      // Before the cap: enabled, no describedby wired at all.
+      expect(con).toBeEnabled();
+      expect(con).not.toHaveAttribute('aria-describedby');
+
+      fireEvent.click(screen.getByRole('checkbox', { name: /^Strength/i }));
+      // 1 of 2 picked — still not capped, still no hint.
+      expect(con).not.toHaveAttribute('aria-describedby');
+
+      fireEvent.click(screen.getByRole('checkbox', { name: /^Dexterity/i }));
+      // 2 of 2 — the now-disabled Constitution checkbox is described by the hint.
+      expect(con).toBeDisabled();
+      expect(con).toHaveAttribute('aria-describedby', 'halfelf-asi-cap-hint');
+      expect(
+        screen.getByText(/deselect one to change your picks/i),
+      ).toHaveAttribute('id', 'halfelf-asi-cap-hint');
+
+      // Un-picking drops back below the cap — describedby is removed, not just hidden.
+      fireEvent.click(screen.getByRole('checkbox', { name: /^Strength/i }));
+      expect(con).not.toHaveAttribute('aria-describedby');
     });
 
     it('POSTs subrace (not half_elf_asi) for a race with subraces', async () => {

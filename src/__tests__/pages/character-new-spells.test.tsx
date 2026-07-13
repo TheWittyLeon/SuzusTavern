@@ -17,7 +17,7 @@
  *  - A non-caster's create flow is unaffected (no spell calls at all).
  */
 import React from 'react';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 const mockReplace = jest.fn();
@@ -377,6 +377,64 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     expect(mockGetAvailableSpells).not.toHaveBeenCalled();
     expect(mockLearnSpell).not.toHaveBeenCalled();
     expect(mockPrepareSpell).not.toHaveBeenCalled();
+  });
+
+  // ── TAV-A11Y-SPELLSTEP-FIELDSET ────────────────────────────────────────────────
+  it('TAV-A11Y-SPELLSTEP-FIELDSET: cantrip and 1st-level lists are grouped under distinctly-named fieldsets', async () => {
+    await advanceToSpells();
+    const cantripGroup = screen.getByRole('group', { name: 'Choose your cantrips' });
+    const leveledGroup = screen.getByRole('group', { name: 'Choose your 1st-level spells' });
+    expect(cantripGroup).toBeInTheDocument();
+    expect(leveledGroup).toBeInTheDocument();
+    // Fire Bolt (a cantrip) lives inside the cantrip group, not the leveled one.
+    expect(within(cantripGroup).getByText('Fire Bolt')).toBeInTheDocument();
+    expect(within(leveledGroup).queryByText('Fire Bolt')).not.toBeInTheDocument();
+    // Magic Missile (level 1) lives inside the leveled group, not the cantrip one.
+    expect(within(leveledGroup).getByText('Magic Missile')).toBeInTheDocument();
+    expect(within(cantripGroup).queryByText('Magic Missile')).not.toBeInTheDocument();
+  });
+
+  // ── TAV-A11Y-CAP-HINT ───────────────────────────────────────────────────────────
+  it('TAV-A11Y-CAP-HINT: a disabled (cap-hit) cantrip checkbox is aria-describedby the cap hint; enabled/checked boxes are not', async () => {
+    const FOUR_CANTRIPS = {
+      ...WIZARD_AVAILABLE,
+      cantrips: [
+        ...WIZARD_AVAILABLE.cantrips,
+        { slug: 'ray-of-frost', name: 'Ray of Frost', level: 0, school: 'evocation', concentration: false, ritual: false, in_repertoire: false, prepared: false },
+      ],
+    };
+    mockCreateCharacter.mockResolvedValue({ character_id: 'char-1' });
+    mockGetAvailableSpells.mockResolvedValue(FOUR_CANTRIPS);
+    renderWizard();
+    pickRace();
+    fireEvent.click(screen.getByRole('radio', { name: /Wizard/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fillBackground();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    });
+    await screen.findByText('Fire Bolt');
+
+    const fireBolt = screen.getByRole('checkbox', { name: /Fire Bolt/i });
+    const rayOfFrost = screen.getByRole('checkbox', { name: /Ray of Frost/i });
+
+    // 0/3 picked: cap not hit, nothing wired yet.
+    expect(fireBolt).not.toHaveAttribute('aria-describedby');
+    expect(rayOfFrost).not.toHaveAttribute('aria-describedby');
+
+    fireEvent.click(fireBolt);
+    fireEvent.click(screen.getByRole('checkbox', { name: /Mage Hand/i }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /Minor Illusion/i }));
+
+    // Cap hit (3/3): the disabled 4th is described by the hint; the CHECKED
+    // ones are not (their "why" is self-evident — they're checked).
+    expect(rayOfFrost).toBeDisabled();
+    expect(rayOfFrost).toHaveAttribute('aria-describedby', 'cantrip-cap-hint');
+    expect(fireBolt).not.toHaveAttribute('aria-describedby');
+    expect(
+      screen.getByText(/chosen all 3 cantrips.*deselect one to pick another/i),
+    ).toHaveAttribute('id', 'cantrip-cap-hint');
   });
 
   // ── Miko-QA adversarial pass — budget boundary, real over-cap probes ──────────

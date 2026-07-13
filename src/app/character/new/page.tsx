@@ -523,8 +523,11 @@ export default function CharacterNewPage(): ReactNode {
         return raceObj ? (subrace ? `${raceObj.name} · ${subrace}` : raceObj.name) : '—';
       case 'class':
         return clsObj?.name ?? '—';
-      case 'abilities':
-        return `${POINT_BUY_BUDGET - remaining} pts spent`;
+      case 'abilities': {
+        // TAV-28: pluralize so a single point reads "1 pt spent", not "1 pts".
+        const spent = POINT_BUY_BUDGET - remaining;
+        return `${spent} ${spent === 1 ? 'pt' : 'pts'} spent`;
+      }
       case 'background':
         return bgObj?.name ?? (name.trim() ? name.trim() : '—');
       case 'spells':
@@ -786,6 +789,12 @@ export default function CharacterNewPage(): ReactNode {
 // Half-Elf's floating "+1 to two other abilities" checkbox group (the +2 CHA
 // is automatic/engine-applied, so Charisma isn't offered here). Both gate the
 // step's Continue via canContinue in the parent.
+/** "a" / "an" for a following word, by its leading vowel letter. Good enough for
+ *  the SRD race names we surface (Elf → "an", Dwarf → "a", Aarakocra → "an"). */
+function indefiniteArticle(word: string): 'a' | 'an' {
+  return /^[aeiou]/i.test(word.trim()) ? 'an' : 'a';
+}
+
 function RaceStep({
   races,
   value,
@@ -834,24 +843,34 @@ function RaceStep({
             Subrace
           </p>
           <fieldset className={styles.bgGrid}>
-            <legend className={styles.srOnly}>{`Choose a ${selected.name} subrace`}</legend>
-            {selected.subraces.map((sr) => (
-              <label key={sr.name} className={styles.bgCard} data-selected={subrace === sr.name}>
-                <input
-                  type="radio"
-                  name="subrace"
-                  value={sr.name}
-                  checked={subrace === sr.name}
-                  onChange={() => onSubraceChange(sr.name)}
-                  className={styles.srOnly}
-                />
-                <span className={styles.bgName}>{sr.name}</span>
-                <span className={`mono ${styles.bgSkills}`}>
-                  {sr.bonusLabel}
-                  {sr.speed ? ` · ${sr.speed} ft speed` : ''}
-                </span>
-              </label>
-            ))}
+            {/* Grammar: "an Elf"/"an Aarakocra" vs "a Dwarf" — pick the article
+                from the race name's leading sound (vowel-letter heuristic). */}
+            <legend className={styles.srOnly}>{`Choose ${indefiniteArticle(selected.name)} ${selected.name} subrace`}</legend>
+            {selected.subraces.map((sr) => {
+              // Cosmetic: buildBonusLabel() returns the literal "none" for a
+              // subrace with no ability bonus (catalog.ts), which rendered as
+              // noise ("none · 30 ft speed"). Drop it and keep only real traits.
+              const traits = [
+                sr.bonusLabel !== 'none' ? sr.bonusLabel : null,
+                sr.speed ? `${sr.speed} ft speed` : null,
+              ].filter(Boolean);
+              return (
+                <label key={sr.name} className={styles.bgCard} data-selected={subrace === sr.name}>
+                  <input
+                    type="radio"
+                    name="subrace"
+                    value={sr.name}
+                    checked={subrace === sr.name}
+                    onChange={() => onSubraceChange(sr.name)}
+                    className={styles.srOnly}
+                  />
+                  <span className={styles.bgName}>{sr.name}</span>
+                  {traits.length > 0 && (
+                    <span className={`mono ${styles.bgSkills}`}>{traits.join(' · ')}</span>
+                  )}
+                </label>
+              );
+            })}
           </fieldset>
         </div>
       )}
@@ -878,6 +897,11 @@ function RaceStep({
             <legend className={styles.srOnly}>
               Choose two abilities, other than Charisma, to increase by 1
             </legend>
+            {/* TAV-A11Y-CAP-HINT: explain why the remaining options go disabled
+                once both picks are spent. */}
+            <p id="halfelf-asi-cap-hint" className={styles.srOnly}>
+              You&rsquo;ve chosen both abilities — deselect one to change your picks.
+            </p>
             {ABILITIES.filter((a) => a.key !== 'charisma').map((a) => {
               const checked = halfElfAsi.includes(a.key);
               const disabled = !checked && halfElfAsi.length >= 2;
@@ -888,6 +912,7 @@ function RaceStep({
                     className={styles.spellCheckbox}
                     checked={checked}
                     disabled={disabled}
+                    aria-describedby={disabled ? 'halfelf-asi-cap-hint' : undefined}
                     onChange={() => onToggleHalfElfAsi(a.key)}
                   />
                   <span>{a.name} +1</span>
@@ -1331,6 +1356,7 @@ function SpellsStep({
     picked: Set<string>,
     onChange: (n: Set<string>) => void,
     cap: number,
+    capHintId: string,
   ) => {
     const checked = picked.has(s.slug);
     const disabled = !checked && picked.size >= cap;
@@ -1342,6 +1368,10 @@ function SpellsStep({
             className={styles.spellCheckbox}
             checked={checked}
             disabled={disabled}
+            // TAV-A11Y-CAP-HINT: when the pick cap is hit, the extra rows go
+            // disabled with no spoken reason. Point AT at the section's hidden
+            // explanation so "dimmed, unavailable" gains a "why".
+            aria-describedby={disabled ? capHintId : undefined}
             onChange={() => toggle(picked, onChange, s.slug, cap)}
           />
           <span className={styles.spellRowName}>{s.name}</span>
@@ -1358,7 +1388,12 @@ function SpellsStep({
 
   return (
     <div>
-      <div className={styles.spellSection}>
+      {/* TAV-A11Y-SPELLSTEP-FIELDSET: group each checkbox list under a fieldset
+          with an sr-only legend (mirrors the Race step's ASI/subrace groups) so a
+          screen reader announces "Cantrips group" / "1st-level spells group"
+          around the choices instead of a bare list of orphan checkboxes. */}
+      <fieldset className={styles.spellSection}>
+        <legend className={styles.srOnly}>Choose your cantrips</legend>
         <div className={styles.budget}>
           <span
             className={styles.budgetNum}
@@ -1373,15 +1408,21 @@ function SpellsStep({
             <span className={styles.budgetSub}>Free tricks — cast any time, no slot spent.</span>
           </span>
         </div>
+        <p id="cantrip-cap-hint" className={styles.srOnly}>
+          You&rsquo;ve chosen all {cantripCap} cantrips — deselect one to pick another.
+        </p>
         <ul className={styles.spellList}>
           {available.cantrips.length === 0 && (
             <li className={styles.spellEmpty}>No cantrips for this class.</li>
           )}
-          {available.cantrips.map((s) => renderRow(s, cantrips, onCantrips, cantripCap))}
+          {available.cantrips.map((s) =>
+            renderRow(s, cantrips, onCantrips, cantripCap, 'cantrip-cap-hint'),
+          )}
         </ul>
-      </div>
+      </fieldset>
 
-      <div className={styles.spellSection}>
+      <fieldset className={styles.spellSection}>
+        <legend className={styles.srOnly}>Choose your 1st-level spells</legend>
         <div className={styles.budget}>
           <span
             className={styles.budgetNum}
@@ -1400,13 +1441,16 @@ function SpellsStep({
             </span>
           </span>
         </div>
+        <p id="leveled-cap-hint" className={styles.srOnly}>
+          You&rsquo;ve chosen all {leveledCap} first-level spells — deselect one to pick another.
+        </p>
         <ul className={styles.spellList}>
           {level1.length === 0 && (
             <li className={styles.spellEmpty}>No 1st-level spells for this class yet.</li>
           )}
-          {level1.map((s) => renderRow(s, leveled, onLeveled, leveledCap))}
+          {level1.map((s) => renderRow(s, leveled, onLeveled, leveledCap, 'leveled-cap-hint'))}
         </ul>
-      </div>
+      </fieldset>
     </div>
   );
 }

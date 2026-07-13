@@ -505,6 +505,14 @@
    these are re-declared here rather than imported). */
 .spellSection {
   margin-top: 22px;
+  /* TAV-A11Y-SPELLSTEP-FIELDSET: these are now <fieldset>s — strip the UA
+     border/padding, the ~2px UA margin-inline, and the default
+     min-inline-size:min-content so they lay out exactly as the former <div>s
+     did (mirrors the sibling .bgGrid fieldset reset). */
+  margin-inline: 0;
+  border: 0;
+  padding: 0;
+  min-inline-size: 0;
 }
 .spellSection:first-child {
   margin-top: 0;
