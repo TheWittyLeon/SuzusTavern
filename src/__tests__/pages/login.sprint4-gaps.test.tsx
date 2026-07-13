@@ -180,8 +180,8 @@ describe('Login page — submitting state', () => {
 
     await screen.findByLabelText('Tavern handle');
 
-    // Find the submit button by its aria-label (idle = 'Sign in')
-    const submitBtn = screen.getByRole('button', { name: /sign in/i });
+    // TAV-13: idle submit button's accessible name is its visible text "Open the door".
+    const submitBtn = screen.getByRole('button', { name: /open the door/i });
     expect(submitBtn).not.toBeDisabled();
 
     act(() => {
@@ -346,8 +346,9 @@ describe('Login page — error-ratelimited (429)', () => {
 
     // Submit should be re-enabled and show idle label
     await waitFor(() => {
-      // After countdown, form returns to idle: aria-label is 'Sign in' again
-      const btn = screen.queryByRole('button', { name: /sign in/i });
+      // TAV-13: after countdown, form returns to idle — accessible name is the
+      // visible text "Open the door" again (no aria-label override).
+      const btn = screen.queryByRole('button', { name: /open the door/i });
       expect(btn).not.toBeNull();
       expect(btn).not.toBeDisabled();
     });
@@ -420,8 +421,8 @@ describe('Login page — error-network', () => {
       expect(screen.getByRole('alert')).toBeInTheDocument(),
     );
 
-    // After network error, submit is re-enabled
-    const submitBtn = screen.getByRole('button', { name: /sign in/i });
+    // After network error, submit is re-enabled (TAV-13: idle name "Open the door").
+    const submitBtn = screen.getByRole('button', { name: /open the door/i });
     expect(submitBtn).not.toBeDisabled();
   });
 
@@ -445,7 +446,8 @@ describe('Login page — error-network', () => {
     // Advance time — submit should remain enabled (no wait countdown)
     await act(async () => { jest.advanceTimersByTime(2000); });
 
-    expect(screen.getByRole('button', { name: /sign in/i })).not.toBeDisabled();
+    // TAV-13: idle name "Open the door".
+    expect(screen.getByRole('button', { name: /open the door/i })).not.toBeDisabled();
 
     jest.useRealTimers();
   });

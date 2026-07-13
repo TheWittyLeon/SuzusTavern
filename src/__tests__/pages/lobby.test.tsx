@@ -133,9 +133,9 @@ it('filters to Suzu-DM\'d tables', async () => {
 it('joins a table → calls joinSession with the session channel', async () => {
   mockListSessions.mockResolvedValue([suzuTable]);
   renderLobby();
-  await waitFor(() => expect(screen.getByRole('button', { name: /join table/i })).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByRole('button', { name: /join table: hollow tide/i })).toBeInTheDocument());
   await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: /join table/i }));
+    fireEvent.click(screen.getByRole('button', { name: /join table: hollow tide/i }));
   });
   await waitFor(() =>
     expect(mockJoin).toHaveBeenCalledWith('s1', { username: 'leon', channel: 'hollow_tide' }),
@@ -148,9 +148,9 @@ it('join with no characters sends no character_id', async () => {
   mockListSessions.mockResolvedValue([suzuTable]);
   mockListChars.mockResolvedValue([]);
   renderLobby();
-  await waitFor(() => expect(screen.getByRole('button', { name: /join table/i })).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByRole('button', { name: /join table: hollow tide/i })).toBeInTheDocument());
   await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: /join table/i }));
+    fireEvent.click(screen.getByRole('button', { name: /join table: hollow tide/i }));
   });
   await waitFor(() => {
     const [, payload] = mockJoin.mock.calls[0];
@@ -166,9 +166,9 @@ it('join with one character auto-binds it (sends character_id)', async () => {
   // selectedCharId to drain — the effect runs after setUserCharacters resolves.
   await waitFor(() => expect(mockListChars).toHaveBeenCalledWith('leon', expect.anything()));
   await act(async () => { /* flush pending state updates and effects */ });
-  await waitFor(() => expect(screen.getByRole('button', { name: /join table/i })).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByRole('button', { name: /join table: hollow tide/i })).toBeInTheDocument());
   await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: /join table/i }));
+    fireEvent.click(screen.getByRole('button', { name: /join table: hollow tide/i }));
   });
   await waitFor(() => {
     const [, payload] = mockJoin.mock.calls[0];
@@ -199,7 +199,7 @@ it('join with multiple characters sends the selected character_id', async () => 
     target: { value: '11' },
   });
   await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: /join table/i }));
+    fireEvent.click(screen.getByRole('button', { name: /join table: hollow tide/i }));
   });
   await waitFor(() => {
     const [, payload] = mockJoin.mock.calls[0];
@@ -220,13 +220,13 @@ it('auto-bind still fires when sessions resolve before characters (race fix)', a
 
   renderLobby();
   // Sessions loaded, cards rendered — characters not yet
-  await waitFor(() => expect(screen.getByRole('button', { name: /join table/i })).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByRole('button', { name: /join table: hollow tide/i })).toBeInTheDocument());
 
   // Now deliver the single character (would have been missed by the old initializer)
   await act(async () => { resolveChars([CHAR_A]); });
 
   await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: /join table/i }));
+    fireEvent.click(screen.getByRole('button', { name: /join table: hollow tide/i }));
   });
   await waitFor(() => {
     expect(mockJoin).toHaveBeenCalled();

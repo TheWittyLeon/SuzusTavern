@@ -143,6 +143,13 @@ function TableCard({
           variant="primary"
           onClick={handleJoinClick}
           disabled={joining}
+          // TAV-14: every table card renders an identical "Join table" button,
+          // so screen-reader users navigating the button list heard the same
+          // name N times with no way to tell which table it joins. Name the
+          // table in the accessible label — keeping the visible "Join table" as
+          // a prefix so voice-control users can still say "Join table" (WCAG
+          // 2.5.3 label-in-name; Kage-CR). The visible text stays compact.
+          aria-label={joining ? 'Joining…' : `Join table: ${tableTitle}`}
         >
           {joining ? 'Joining…' : 'Join table'}
         </Button>

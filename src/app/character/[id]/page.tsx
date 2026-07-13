@@ -312,7 +312,11 @@ export default function CharacterPage() {
                 const total = mod + (proficient ? sheet.proficiency_bonus : 0);
                 return (
                   <div key={a.key} className={styles.save} data-prof={proficient}>
+                    {/* TAV-20: aria-label is prohibited on a role-less <span>
+                        (axe aria-prohibited-attr, serious) so AT never announced
+                        proficiency — role="img" makes the dot a labelable node. */}
                     <span
+                      role="img"
                       className={`${styles.profDot} ${proficient ? styles.profOn : ''}`}
                       aria-label={proficient ? 'proficient' : 'not proficient'}
                     />
@@ -336,7 +340,10 @@ export default function CharacterPage() {
                 const total = abilityMod + (proficient ? sheet.proficiency_bonus : 0);
                 return (
                   <div key={s.key} className={styles.skillRow}>
+                    {/* TAV-20: role="img" so the proficiency aria-label is valid
+                        on the dot (was aria-prohibited-attr on a role-less span). */}
                     <span
+                      role="img"
                       className={`${styles.profDot} ${proficient ? styles.profOn : ''}`}
                       aria-label={proficient ? 'proficient' : 'not proficient'}
                     />

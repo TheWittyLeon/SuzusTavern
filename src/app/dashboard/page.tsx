@@ -160,7 +160,14 @@ function CharacterGrid({
             </div>
           );
         })}
-        <Link href="/character/new" className={`${styles.charCard} ${styles.charNew}`}>
+        {/* TAV-17: the two visible words compose the accessible name "New create",
+            which reads as nonsense to a screen reader. Give the link an explicit
+            aria-label; the "New" / "create" stack stays as the visual card copy. */}
+        <Link
+          href="/character/new"
+          className={`${styles.charCard} ${styles.charNew}`}
+          aria-label="Create a new character"
+        >
           <span className={styles.charNewIcon} aria-hidden>
             <Icon name="Plus" size={20} />
           </span>

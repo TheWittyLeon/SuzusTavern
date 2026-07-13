@@ -112,6 +112,21 @@ describe('Character sheet', () => {
     expect(screen.queryByText('Spells')).not.toBeInTheDocument();
   });
 
+  // ── TAV-20 ───────────────────────────────────────────────────────────────────
+  it('TAV-20: proficiency dots resolve as accessible role="img" nodes — a role-less span with aria-label is invisible to getByRole', async () => {
+    mockGet.mockResolvedValue(ROGUE);
+    renderPage();
+    await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
+
+    // ROGUE is proficient in dexterity/intelligence saves and deception/sleight_of_hand
+    // skills — both "proficient" and "not proficient" dots must be present and
+    // resolvable via role="img" (this is exactly the axe aria-prohibited-attr
+    // regression: on a bare <span> with no role, aria-label is not exposed as an
+    // accessible name to getByRole at all, so this query would find nothing).
+    expect(screen.getAllByRole('img', { name: 'proficient' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('img', { name: 'not proficient' }).length).toBeGreaterThan(0);
+  });
+
   it('shows the spells panel for a caster', async () => {
     mockGet.mockResolvedValue({
       ...ROGUE,

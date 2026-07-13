@@ -398,7 +398,19 @@ function LoginForm() {
         type="submit"
         className={`btn btn-primary btn-lg ${styles.submitBtn}`}
         disabled={submitting || ratelimited}
-        aria-label={submitting ? 'Signing in…' : ratelimited ? `Wait ${formatCountdown(countdown)}…` : 'Sign in'}
+        // TAV-13 (WCAG 2.5.3 label-in-name): in the idle state the visible label
+        // is "Open the door", so leave the accessible name to that text (no
+        // aria-label override, which previously read "Sign in" and broke
+        // label-in-name for voice control). The Power icon is aria-hidden. Only
+        // the busy/rate-limited states — where the visible text changes to
+        // "Booting…"/"Wait…" — keep an explicit spoken label.
+        aria-label={
+          submitting
+            ? 'Signing in…'
+            : ratelimited
+              ? `Wait ${formatCountdown(countdown)}…`
+              : undefined
+        }
       >
         {submitting && !reduced && (
           <span className={styles.spinner} aria-hidden="true" />

@@ -124,8 +124,10 @@ describe('Login page — structure', () => {
 
   it('submit button is enabled in idle state', async () => {
     renderLogin();
-    await screen.findByRole('button', { name: /sign in/i });
-    expect(screen.getByRole('button', { name: /sign in/i })).not.toBeDisabled();
+    // TAV-13: the idle submit button's accessible name is its visible text
+    // ("Open the door") — no aria-label override (WCAG 2.5.3 label-in-name).
+    await screen.findByRole('button', { name: /open the door/i });
+    expect(screen.getByRole('button', { name: /open the door/i })).not.toBeDisabled();
   });
 });
 
@@ -234,7 +236,8 @@ describe('Login page — error-badcreds', () => {
     });
 
     await waitFor(() => screen.getByRole('alert'));
-    expect(screen.getByRole('button', { name: /sign in/i })).not.toBeDisabled();
+    // TAV-13: idle accessible name is the visible "Open the door".
+    expect(screen.getByRole('button', { name: /open the door/i })).not.toBeDisabled();
   });
 });
 
