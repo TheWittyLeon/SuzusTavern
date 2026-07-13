@@ -84,6 +84,15 @@
   border-left: 2px solid color-mix(in oklab, var(--accent-2) 40%, transparent);
   font-style: italic;
 }
+/* DM-NARRATION-MARKDOWN (Iro MINOR-1): the human-DM narration/override blocks
+   are wholly italic, so a parsed `*emphasis*` <em> would be visually
+   indistinguishable inside them. Render inline emphasis as upright + semibold
+   here so it still reads as emphasis; the <em> semantics for AT are unchanged. */
+.dm_narration .what em,
+.dm_override .what em {
+  font-style: normal;
+  font-weight: 600;
+}
 
 /* dm_override — DM fiat/override events (S5.4).
    Uses --warn family tokens (amber) to signal authoritative intervention.

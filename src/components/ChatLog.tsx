@@ -6,10 +6,46 @@
  * Auto-scrolls to the newest row (respecting reduced-motion). A "thinking" row
  * shows a waveform while Suzu narrates. Roll rows render the shared <Die>.
  */
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  type ReactNode,
+} from 'react';
 import Die from '@/components/Die';
 import Waveform from '@/components/Waveform';
 import styles from './ChatLog.module.css';
+
+/**
+ * DM-NARRATION-MARKDOWN: render inline markdown emphasis in narration prose.
+ * Suzu's DM model (gemma-3-27b) emits `**Perception**` (the SYSTEM_CORE
+ * "name the skill in bold" check-invite) and `*word*` emphasis; without this
+ * they showed as literal asterisks in the story log.
+ *
+ * XSS-safe by construction: this only ever returns plain strings (which React
+ * escapes) wrapped in <strong>/<em> — never raw HTML, never
+ * dangerouslySetInnerHTML. Any odd/unmatched marker renders literally. Handles
+ * `**bold**` and `*italic*`; no nesting (the DM model doesn't nest).
+ */
+function renderInlineMarkdown(text: string): ReactNode {
+  const re = /\*\*([^*\n]+)\*\*|\*([^*\n]+)\*/g;
+  const nodes: ReactNode[] = [];
+  let last = 0;
+  let key = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) nodes.push(text.slice(last, m.index));
+    if (m[1] !== undefined) nodes.push(<strong key={key++}>{m[1]}</strong>);
+    else nodes.push(<em key={key++}>{m[2]}</em>);
+    last = re.lastIndex;
+  }
+  if (last < text.length) nodes.push(text.slice(last));
+  // No markers matched → return the original string unchanged (cheapest, and
+  // keeps existing plain-text assertions/behavior byte-identical).
+  return nodes.length === 0 ? text : nodes;
+}
 
 export type LogKind =
   | 'player'
@@ -177,7 +213,18 @@ const ChatLog = forwardRef<ChatLogHandle, ChatLogProps>(function ChatLog(
                 </div>
               </div>
             ) : (
-              <div className={styles.what}>{r.text}</div>
+              <div className={styles.what}>
+                {/* DM-NARRATION-MARKDOWN: render inline emphasis for the prose
+                    DM kinds (Suzu AI narration + human-DM narration + DM
+                    overrides). Player/system/roll and verbatim read_aloud rows
+                    stay literal so user-typed and authored text is never
+                    reinterpreted. */}
+                {r.kind === 'narration' ||
+                r.kind === 'dm_narration' ||
+                r.kind === 'dm_override'
+                  ? renderInlineMarkdown(r.text)
+                  : r.text}
+              </div>
             )}
           </div>
         );
