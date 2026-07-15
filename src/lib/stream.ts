@@ -10,7 +10,15 @@
 //
 // ST-007
 
-import type { DmNarrationRequest, NarrationEvent, NarrationRequest } from './api/types';
+import { makeApiError } from './api/client';
+import type {
+  BusyResult,
+  DmNarrationRequest,
+  DmTurnRequest,
+  GenerationJobHandle,
+  NarrationEvent,
+  NarrationRequest,
+} from './api/types';
 
 export interface ReadSSEOptions {
   signal?: AbortSignal;
@@ -205,6 +213,121 @@ export async function* streamNarration(
     let errorText = `HTTP ${res.status}`;
     try {
       const body = await res.json() as Record<string, unknown>;
+      if (typeof body['error'] === 'string') errorText = body['error'] as string;
+    } catch {
+      // non-JSON error body — use status string
+    }
+    yield { kind: 'error', error: errorText };
+    return;
+  }
+
+  yield* readSSE(res, options);
+}
+
+/**
+ * DDX-20 — durable turn create/dedup (flag-ON only, DURABLE_GENERATION_ENABLED).
+ * POST /api/narration/dm/turn.
+ *
+ * Bespoke fetch — deliberately NOT `apiCall` — because `apiCall<T>` THROWS on
+ * any `{success:false}` envelope, including the 409 `generation_in_progress`
+ * busy shape (P2 Design Delta §2.4). A thrown 409 would turn the
+ * 409-subscribe-pivot (Client Integration Design §4a) into an exception
+ * path; this returns a typed `BusyResult` instead so the caller can pivot
+ * cleanly to subscribing the in-flight job. Any OTHER non-2xx status still
+ * throws — 409 is the only status this function treats as a real (non-error)
+ * outcome.
+ */
+export async function postDmTurn(
+  payload: DmTurnRequest,
+  options: ReadSSEOptions = {},
+): Promise<GenerationJobHandle | BusyResult> {
+  const { signal } = options;
+
+  let res: Response;
+  try {
+    res = await fetch('/api/narration/dm/turn', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+      credentials: 'same-origin',
+      signal,
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw makeApiError(0, 'abort');
+    }
+    throw makeApiError(0, 'network');
+  }
+
+  let body: Record<string, unknown> | undefined;
+  try {
+    body = (await res.json()) as Record<string, unknown>;
+  } catch {
+    // non-JSON body — body stays undefined; handled by the generic-error
+    // branch below (still throws, using the raw HTTP status as the code).
+  }
+
+  if (res.status === 409) {
+    const data = (body?.['data'] as Record<string, unknown> | undefined) ?? {};
+    return {
+      busy: true,
+      job_id: typeof data['job_id'] === 'string' ? (data['job_id'] as string) : '',
+      status: data['status'] === 'pending' ? 'pending' : 'streaming',
+      trigger_seq: typeof data['trigger_seq'] === 'number' ? (data['trigger_seq'] as number) : 0,
+    };
+  }
+
+  if (!res.ok || body?.['success'] !== true) {
+    const code =
+      typeof body?.['error'] === 'string'
+        ? (body['error'] as string)
+        : typeof body?.['reason'] === 'string'
+          ? (body['reason'] as string)
+          : String(res.status);
+    throw makeApiError(res.status, code, body);
+  }
+
+  const data = (body['data'] as Record<string, unknown>) ?? {};
+  return {
+    job_id: typeof data['job_id'] === 'string' ? (data['job_id'] as string) : '',
+    turn_key: typeof data['turn_key'] === 'string' ? (data['turn_key'] as string) : payload.turn_key,
+    status:
+      data['status'] === 'final' || data['status'] === 'streaming' ? data['status'] : 'pending',
+    deduped: data['deduped'] === true,
+  };
+}
+
+/**
+ * DDX-20 — subscribe to a durable job's SSE tail (live accelerator / resume,
+ * Client Integration Design §6). GET /api/narration/dm/stream?job_id=.
+ * Reuses `readSSE` — the BFF's SSE-passthrough branch for this sub-path is
+ * unchanged, so the wire format (chunk/done/error) matches
+ * `streamDmNarration` exactly.
+ */
+export async function* subscribeDmJob(
+  jobId: string,
+  options: ReadSSEOptions = {},
+): AsyncIterableIterator<NarrationEvent> {
+  const { signal } = options;
+  if (signal?.aborted) return;
+
+  let res: Response;
+  try {
+    res = await fetch(`/api/narration/dm/stream?job_id=${encodeURIComponent(jobId)}`, {
+      method: 'GET',
+      credentials: 'same-origin',
+      signal,
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') return;
+    yield { kind: 'error', error: 'network' };
+    return;
+  }
+
+  if (!res.ok) {
+    let errorText = `HTTP ${res.status}`;
+    try {
+      const body = (await res.json()) as Record<string, unknown>;
       if (typeof body['error'] === 'string') errorText = body['error'] as string;
     } catch {
       // non-JSON error body — use status string

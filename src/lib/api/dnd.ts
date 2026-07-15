@@ -28,6 +28,7 @@ import type {
   EndCombatRequest,
   EndCombatResult,
   EngineSessionEvent,
+  EventsPage,
   GameSystem,
   GrantCurrencyResult,
   GroundingData,
@@ -521,6 +522,31 @@ export const getSessionEventsRaw = (sessionId: string, signal?: AbortSignal) =>
   )
     .then((d) => d.events ?? [])
     .catch(() => null as EngineSessionEvent[] | null);
+
+/**
+ * DDX-20 — cursor-paged session events read (flag-ON durable-generation poll
+ * only; see DURABLE_GENERATION_ENABLED, src/lib/config.ts).
+ * GET /api/dnd/sessions/{id}/events?since_seq={n}
+ *
+ * Unlike getSessionEventsRaw/getSessionEvents (which swallow errors to a
+ * null/[] sentinel), this THROWS on failure — the flag-ON poll tick already
+ * wraps its call in a try/catch that treats poll errors as non-fatal
+ * (matching the existing dice-roll poll's own convention), so a bespoke
+ * silent-degrade sentinel here would just be redundant, not safer.
+ *
+ * `apiCall` unwraps the engine's `{success, data}` envelope, so this
+ * resolves directly to `{events, max_seq, has_more, pending_generation}`
+ * (Technical Design §2.2) — no further unwrapping needed by callers.
+ */
+export const getSessionEventsPage = (
+  sessionId: string,
+  sinceSeq = 0,
+  signal?: AbortSignal,
+) =>
+  apiCall<EventsPage>(
+    `/api/dnd/sessions/${encodeURIComponent(sessionId)}/events?since_seq=${encodeURIComponent(String(sinceSeq))}`,
+    { method: 'GET', signal },
+  );
 
 /**
  * DDX-22 Phase 3 — read the caller's OWN private note for this session.

@@ -31,3 +31,30 @@ export const OAUTH_ENABLED = false;
  * required for the local dev stack or CI.
  */
 export const CODEX_ENABLED = !env.IS_PROD;
+
+/**
+ * DDX-20 — durable server-side generation + unified events poll.
+ *
+ * When false (default): the play screen is byte-for-byte today's shipped
+ * behaviour — DM turns POST to the legacy generate-and-stream
+ * `/api/narration/dm/stream`, and the events poll renders ONLY `dice_roll`/
+ * `x_card` rows (player/narration rows stay on the optimistic-append + SSE
+ * paths). This is the current, executed code path — nothing new is dormant
+ * OR active until the flag flips.
+ *
+ * When true: the poll adopts the `since_seq` cursor and becomes the
+ * transcript's source of truth for the FULL unified event set; DM turns POST
+ * to the new durable-job endpoint `/api/narration/dm/turn` and subscribe to
+ * the job's SSE tail by `job_id`; every optimistic/streaming row is
+ * reconciled to its durable `seq` via a client-minted `turn_key` so an
+ * originating client never double-renders and a reload reconstructs purely
+ * from the poll. See "DDX-20 — Tavern Client Integration Design" (Sora-Arch)
+ * for the full mechanism.
+ *
+ * Rollout ordering (§2, §11 of that design): the engine flag
+ * `SUZU_DND_DURABLE_GENERATION` must be ON first; only THEN rebuild Tavern
+ * with this const `true`. Flipping this before the engine is ready 404s on
+ * `/dm/turn`. Rollback: flip back to `false` and redeploy — no client-side
+ * migration needed.
+ */
+export const DURABLE_GENERATION_ENABLED = false;

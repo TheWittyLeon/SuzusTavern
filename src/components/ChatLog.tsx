@@ -85,11 +85,30 @@ export interface LogRow {
    *  finalized narration lands as a BRAND-NEW row (fresh id/key, this flag
    *  unset) once streaming completes, so it's announced exactly once. */
   streaming?: boolean;
+  /** DDX-20 (flag-ON only): the durable `session_events.seq` this row has
+   *  been reconciled to, once the poll observes it. Dedup metadata only —
+   *  never read by rendering. Optional/non-breaking: absent on every
+   *  flag-OFF row and on any row not yet reconciled. */
+  seq?: number;
+  /** DDX-20 (flag-ON only): set to the turn_key (or dm_narration's
+   *  client_key) on an optimistic row while its durable event is still
+   *  in flight — lets the poll's reconciliation ledger find-and-stamp this
+   *  row instead of appending a duplicate. Cleared implicitly once the row
+   *  is reconciled (the ledger drops its map entry, not this field — a
+   *  stale pendingKey on an already-stamped row is harmless, it's simply
+   *  never looked up again). Never read by rendering. */
+  pendingKey?: string;
 }
 
 export interface ChatLogProps {
   rows: LogRow[];
   thinking?: boolean;
+  /** DDX-20 §9 — override the thinking row's label. Defaults to 'narrating…'
+   *  (today's shipped copy, unchanged when omitted). Used by the play screen
+   *  to reuse this SAME waveform row for the "Resuming Suzu's turn…" resume
+   *  affordance (flag-ON only) — distinct copy, same aria-live="polite"
+   *  announce-once mechanism (the row mounts/unmounts with `thinking`). */
+  thinkingLabel?: string;
 }
 
 /** Imperative handle so the play screen can re-pin the log after a mobile
@@ -99,7 +118,7 @@ export interface ChatLogHandle {
 }
 
 const ChatLog = forwardRef<ChatLogHandle, ChatLogProps>(function ChatLog(
-  { rows, thinking = false },
+  { rows, thinking = false, thinkingLabel = 'narrating…' },
   handleRef,
 ) {
   const ref = useRef<HTMLDivElement>(null);
@@ -237,7 +256,7 @@ const ChatLog = forwardRef<ChatLogHandle, ChatLogProps>(function ChatLog(
           </div>
           <div className={styles.thinking}>
             <Waveform bars={14} height={14} />
-            <span className={styles.thinkingLabel}>narrating…</span>
+            <span className={styles.thinkingLabel}>{thinkingLabel}</span>
           </div>
         </div>
       )}

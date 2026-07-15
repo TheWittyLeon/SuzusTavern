@@ -397,6 +397,80 @@ export interface EngineSessionEvent {
   created_at?: string;
 }
 
+// ── DDX-20: durable generation (cursor poll + job lifecycle) ────────────────
+// Flag-ON only (DURABLE_GENERATION_ENABLED, src/lib/config.ts). Wire shapes
+// quoted verbatim from "DDX-20 — Technical Design" §2.2/§3.2 and "DDX-20 —
+// P2 Design Delta" §2.4 — not invented here.
+
+/**
+ * The `pending_generation` block on GET /events — non-null while a beat is
+ * mid-flight for this campaign (Technical Design §2.2). A poll-only client
+ * detects "generation in progress" from this block alone; no second endpoint.
+ */
+export interface PendingGeneration {
+  turn_key: string;
+  job_id: string;
+  status: 'pending' | 'streaming';
+  /** The player_action seq this beat is generating a reply to. */
+  trigger_seq: number;
+  started_at: string;
+}
+
+/**
+ * Cursor-paged response from GET /api/dnd/sessions/{id}/events?since_seq=
+ * (Technical Design §2.2). `max_seq` is the caller's own visible watermark
+ * (post-RLS) — the next poll's `since_seq`. `has_more` true means the
+ * campaign has visible rows beyond this page; loop until false.
+ */
+export interface EventsPage {
+  events: EngineSessionEvent[];
+  max_seq: number;
+  has_more: boolean;
+  pending_generation: PendingGeneration | null;
+}
+
+/**
+ * Request body for POST /api/narration/dm/turn (durable job create/dedup —
+ * Client Integration Design §5.1). `turn_key` is the client-minted UUID v4
+ * idempotency anchor (Technical Design §4); `kind` mirrors DmNarrationRequest.
+ */
+export interface DmTurnRequest {
+  username: string;
+  channel: string;
+  session_id: string;
+  message: string;
+  mechanics?: string;
+  mode?: 'say' | 'act' | 'ooc' | 'dm_narration';
+  turn_key: string;
+  kind?: 'beat' | 'opening' | 'recap';
+}
+
+/** Successful (200) result from POST /api/narration/dm/turn — a created or
+ *  deduped job handle. `status` is freshly re-read from the job row even on
+ *  a dedup hit (P2 Design Delta §1), so a re-subscribing client always sees
+ *  the LIVE status, not a stale "pending". */
+export interface GenerationJobHandle {
+  job_id: string;
+  turn_key: string;
+  status: 'pending' | 'streaming' | 'final';
+  deduped: boolean;
+}
+
+/**
+ * The 409 `generation_in_progress` busy shape (P2 Design Delta §2.4) —
+ * returned when a DIFFERENT turn_key POSTs while a beat is already in
+ * flight for this campaign. `postDmTurn` (src/lib/stream.ts) returns this
+ * rather than throwing, so the 409-subscribe-pivot (Client Integration
+ * Design §4a) is a normal return path, not an exception path — `apiCall`
+ * would throw on `{success:false}` and defeat that.
+ */
+export interface BusyResult {
+  busy: true;
+  job_id: string;
+  status: 'pending' | 'streaming';
+  trigger_seq: number;
+}
+
 /**
  * DDX-22 — a player's owner-private free-form note for one session.
  * One row per (session, owner) in `msm.session_notes`, RLS owner-scoped

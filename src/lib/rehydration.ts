@@ -113,6 +113,7 @@ function diceRollLogRow(e: EngineSessionEvent): LogRow | null {
     text,
     color: 'var(--accent)',
     roll: { sides, value, modifier, crit, fumble, label },
+    ...(e.seq != null ? { seq: e.seq } : {}),
   };
 }
 
@@ -152,19 +153,32 @@ export function eventToLogRow(e: EngineSessionEvent): LogRow | null {
   const actor = e.actor ? decodeHtmlEntities(e.actor) : undefined;
   const id = `ev${e.seq ?? `${e.kind ?? 'unknown'}-${e.created_at ?? ''}`}`;
   const ts = formatEventTimestamp(e.created_at);
+  // DDX-20 — stamp the durable seq onto every returned row (when present) so
+  // the flag-ON reconciliation ledger (src/lib/dnd/reconcileEvents.ts) has it
+  // for dedup. Optional field, additive — flag-OFF rendering is unaffected
+  // (ChatLog never reads `seq`).
+  const seqField = e.seq != null ? { seq: e.seq } : {};
 
   switch (e.kind) {
     case 'player_action':
       if (!text) return null;
-      return { id, ts, who: who ?? actor ?? 'You', kind: 'player', text, color: 'var(--accent)' };
+      return {
+        id,
+        ts,
+        who: who ?? actor ?? 'You',
+        kind: 'player',
+        text,
+        color: 'var(--accent)',
+        ...seqField,
+      };
 
     case 'narration':
       if (!text) return null;
-      return { id, ts, who: who ?? 'Suzu', kind: 'narration', text };
+      return { id, ts, who: who ?? 'Suzu', kind: 'narration', text, ...seqField };
 
     case 'dm_narration':
       if (!text) return null;
-      return { id, ts, who: who ?? actor ?? 'DM', kind: 'dm_narration', text };
+      return { id, ts, who: who ?? actor ?? 'DM', kind: 'dm_narration', text, ...seqField };
 
     case 'scene_advance':
     case 'encounter_resolved':
@@ -172,7 +186,7 @@ export function eventToLogRow(e: EngineSessionEvent): LogRow | null {
       const rawDescription = (data?.['description'] as string | undefined) || undefined;
       const description = rawDescription ? decodeHtmlEntities(rawDescription) : undefined;
       if (!description) return null;
-      return { id, ts, who: 'Suzu', kind: 'system', text: description };
+      return { id, ts, who: 'Suzu', kind: 'system', text: description, ...seqField };
     }
 
     case 'dice_roll':
@@ -191,6 +205,7 @@ export function eventToLogRow(e: EngineSessionEvent): LogRow | null {
         who: 'Table',
         kind: 'system',
         text: '(A safety signal was raised — the table eases off.)',
+        ...seqField,
       };
 
     // opening_narrated: not a plain row — the caller reconstructs the

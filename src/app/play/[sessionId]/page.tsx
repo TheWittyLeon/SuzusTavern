@@ -55,6 +55,7 @@ import {
   getSession,
   getSessionEvents,
   getSessionEventsRaw,
+  getSessionEventsPage,
   postSessionEvent,
   // DDX-25: DM-only session lifecycle controls (pause/resume/end/xp award).
   pauseSession,
@@ -71,9 +72,16 @@ import {
   postRoll,
   postXCard,
 } from '@/lib/api/dnd';
-import { streamDmNarration } from '@/lib/stream';
+import { streamDmNarration, postDmTurn, subscribeDmJob } from '@/lib/stream';
 import { eventToLogRow, formatEventTimestamp as formatOpeningTimestamp } from '@/lib/rehydration';
 import { matchKeywordIntent } from '@/lib/dnd/intentFastPath';
+import { DURABLE_GENERATION_ENABLED } from '@/lib/config';
+import { mintTurnKey, saveTurnKey, clearTurnKey } from '@/lib/turnKey';
+import {
+  reconcileDurableEvents,
+  applyReconcileResult,
+  type PendingTurnEntry,
+} from '@/lib/dnd/reconcileEvents';
 import type {
   CharacterSheet,
   CombatParticipantState,
@@ -83,6 +91,7 @@ import type {
   GroundingData,
   OfferedCheck,
   Participant,
+  PendingGeneration,
   Session,
 } from '@/lib/api/types';
 import RebindCharacterButton from '@/components/RebindCharacterButton';
@@ -137,6 +146,19 @@ const STRUCTURAL_EVENT_KINDS = new Set([
 
 /** Poll interval in milliseconds. */
 const POLL_INTERVAL_MS = 4000;
+
+/**
+ * DDX-20 §4d (Miko-QA finding c) — the poll-only failure-detection grace
+ * window: consecutive poll ticks a client's OWN in-flight turn_key may go
+ * unreflected in `pending_generation` (with no narration seq > trigger_seq
+ * having landed) before it's treated as a died-silently job (Redis TTL
+ * eviction, runner crash, or an SSE tail that closed without an error
+ * frame — a proxy idle-timeout truncation, a backgrounded tab pausing the
+ * EventSource). 2 ticks (~8s at the poll cadence above) absorbs ordinary
+ * poll/commit timing lag without meaningfully delaying real-failure
+ * detection for a beat that typically completes well within that window.
+ */
+const POLL_FAILURE_GRACE_TICKS = 2;
 
 /**
  * DDX-22 — generic Tab-trap query for the Journal drawer. Unlike
@@ -406,6 +428,55 @@ export default function PlayPage() {
   // below). Lets the poll fetch the full event list every tick (the engine
   // has no "since seq" filter) while only ever appending NEW rows.
   const lastEventSeqRef = useRef(0);
+
+  // DDX-20 (flag-ON only, DURABLE_GENERATION_ENABLED) — the reconciliation
+  // ledger (Client Integration Design §3.1). Both refs, poll-safe: mutated
+  // in place by reconcileDurableEvents inside the flag-ON poll branch below;
+  // never touched on the flag-OFF path. renderedSeqsRef = every durable seq
+  // already reflected in the log; pendingByKeyRef = turn_key (or a human-DM
+  // beat's client_key) -> the in-flight optimistic row ids waiting to
+  // reconcile. Populated by the Pass-2 durable turn path (onSend/narrate);
+  // empty in this pass, so every poll tick falls to "append" (the reload /
+  // cross-client branch) — correct and already covered by the reload-
+  // reconstruction test in reconcileEvents.test.ts.
+  const renderedSeqsRef = useRef<Set<number>>(new Set());
+  const pendingByKeyRef = useRef<Map<string, PendingTurnEntry>>(new Map());
+  // DDX-20 Pass 2 — the in-flight job surfaced by the poll's
+  // `pending_generation` block (Technical Design §2.2), promoted to real
+  // state so the resume/busy affordance (§9) can render off it. Drives the
+  // "Resuming Suzu's turn…" status ONLY when this client is not already
+  // actively streaming its own beat (talking/thinking cover that case) —
+  // see the render gate near the composer below.
+  const [activeJob, setActiveJob] = useState<PendingGeneration | null>(null);
+  // DDX-20 Pass 2 — guards against re-opening the SSE tail for a job this
+  // client is already subscribed to (the poll re-observes the same
+  // `pending_generation` block every ~4s while a beat is in flight; without
+  // this guard each tick would open a fresh SSE connection). Cleared when
+  // the tracked job resolves (subscribeToJob's own completion) or when a
+  // later poll tick sees `pending_generation` go null.
+  const subscribedJobIdRef = useRef<string | null>(null);
+  // DDX-20 Pass 2 — the client-minted turn_key for THIS client's own
+  // currently in-flight turn (§4c lifecycle: set on turn start, cleared once
+  // the poll's reconciliation removes its ledger entry — i.e. the beat's
+  // narration seq has been observed — or on failure/retry). null when no
+  // turn owned by this tab is in flight.
+  const turnKeyRef = useRef<string | null>(null);
+  // DDX-20 Pass 2 — the last composer-submitted (message, mode) this client
+  // originated, kept so a retry-after-failed (§4d) can resubmit the SAME
+  // content under a FRESH turn_key (mintTurnKey() is called fresh on every
+  // narrateDurable() invocation — retry never reuses a turn_key).
+  const lastDurableTurnRef = useRef<{ message: string; mode: ComposeMode } | null>(null);
+  // DDX-20 Pass 2 — true when the most recent durable beat this client was
+  // watching (its own, or one it subscribed to) ended in an SSE `error`
+  // event, OR the poll-only failure detector below (Miko-QA finding c)
+  // declared it dead. Drives the retry affordance (§4d / §9).
+  const [jobFailed, setJobFailed] = useState(false);
+  // DDX-20 Pass 2 (Miko-QA finding c) — poll-only failure-detection grace
+  // counter for THIS client's own in-flight turn_key (see
+  // POLL_FAILURE_GRACE_TICKS). Tracks the turn_key it's counting against so
+  // a brand-new turn never inherits a stale count from a prior one.
+  const pollFailureGraceRef = useRef<{ turnKey: string; nullTicks: number } | null>(null);
+
   // Synchronous double-submit latch for roll buttons (mirrors checkBusyRef /
   // sceneAdvanceBusyRef) — a roll is a real server write (persists a
   // `dice_roll` event), so a same-tick double-click must not fire it twice.
@@ -439,6 +510,13 @@ export default function PlayPage() {
   // refocusing this wrapper (tabIndex={-1}) before that unmount lands focus
   // here instead of dropping it to <body>.
   const xCardBannerRef = useRef<HTMLDivElement>(null);
+
+  // DDX-20 §4d/§9 (Iro MAJOR-1) — same permanently-mounted tabIndex={-1}
+  // refocus-anchor pattern as xCardBannerRef above: onRetryFailedTurn
+  // unmounts the Retry button (jobFailed flips false), which would
+  // otherwise force-blur focus to <body>. Refocusing this wrapper BEFORE
+  // that unmount keeps focus in the document.
+  const durableRetryRowRef = useRef<HTMLDivElement>(null);
 
   // Monotone sequence guard: combatState updates from polls must not overwrite
   // a more-recent mutation response. Mutations bump this; polls gate on it.
@@ -607,6 +685,133 @@ export default function PlayPage() {
       return next;
     });
   }, []);
+
+  /**
+   * DDX-20 Pass 2 — subscribe to a durable job's SSE tail (Client Integration
+   * Design §6 `subscribeDmJob`). Used from THREE call sites, uniformly:
+   *   (1) narrateDurable's own just-created/deduped-resumed job (originating client).
+   *   (2) the 409-busy pivot (§4a) — subscribing to ANOTHER client's in-flight job.
+   *   (3) the poll's stateless resume/don't-re-POST discovery (§4b) — mount/reload.
+   * In every case SSE is a non-authoritative live accelerator (§3.3): the
+   * durable poll (`pollDurable`) is what actually reconciles the finished
+   * beat into the transcript via the ledger (rule 3) — this function only
+   * drives the live `thinking`/`talking`/narratorText UI and keeps
+   * `pendingByKeyRef`'s `narrationRowId` in sync so that reconciliation can
+   * find this row when the durable event lands.
+   *
+   * `ledgerKey` is the turn_key when known (originating / mount-resume —
+   * `PendingGeneration.turn_key` is always present); the 409-busy case does
+   * not learn the OTHER client's real turn_key (the busy wire shape omits
+   * it), so callers pass a synthetic per-job key there — rule 3 matches by
+   * `triggerSeq`, not by the ledger map's key, so a synthetic key still
+   * reconciles correctly (see reconcileEvents.ts's `findActiveNarrationEntry`).
+   *
+   * Defined ahead of the mount/poll effects below (moved up from its
+   * original spot just after `narrate`) so both the events poll effect and
+   * `narrateDurable` can reference it — a plain `const` is not hoisted, so
+   * it must be declared before its first use in source order.
+   */
+  const subscribeToJob = useCallback(
+    async (jobId: string, ledgerKey: string, triggerSeq?: number) => {
+      subscribedJobIdRef.current = jobId;
+      // Kage #3 — register INTENT to receive this turn's narration
+      // SYNCHRONOUSLY, before any await. This is what closes the race where
+      // the durable narration event could land on a poll tick BEFORE this
+      // function's first SSE chunk arrives (network round-trip): without
+      // `awaitingNarration` set here, reconcileDurableEvents' rule 3 has no
+      // way to know a subscriber is coming and would fall through to a plain
+      // "no match -> append", and the LATER-arriving SSE chunk would then
+      // create a second, un-reconciled row for the same beat.
+      pendingByKeyRef.current.set(ledgerKey, {
+        ...pendingByKeyRef.current.get(ledgerKey),
+        triggerSeq,
+        awaitingNarration: true,
+      });
+
+      narrationAbort.current?.abort();
+      const ctrl = new AbortController();
+      narrationAbort.current = ctrl;
+      setTalking(true);
+      setThinking(true);
+      setNarratorText('');
+      clearStreamNarration(true);
+
+      let full = '';
+      let sawError = false;
+      // Kage #3 — true once the FIRST chunk observes that the poll's own
+      // reconciliation already claimed (appended) this turn's narration
+      // before we got here (see reconcileEvents.ts rule 3 sub-case (c)).
+      // Once true, every subsequent chunk still updates the ephemeral
+      // narratorText widget above but must NEVER touch the transcript log —
+      // the durable row the poll already appended is canonical.
+      let pollClaimedNarration = false;
+      try {
+        for await (const ev of subscribeDmJob(jobId, { signal: ctrl.signal })) {
+          if (ev.kind === 'chunk') {
+            full = ev.text;
+            setThinking(false);
+            setNarratorText(full);
+            if (!pollClaimedNarration) {
+              if (!streamRowIdRef.current) {
+                // First chunk. If the ledger entry is already gone (both
+                // player+narration resolved via the poll) or already carries
+                // a narrationRowId we didn't set (streamRowIdRef is still
+                // null here, so it can't be ours) — the poll's
+                // reconciliation got here first. Stop touching the
+                // transcript for the rest of this tail.
+                const preEntry = pendingByKeyRef.current.get(ledgerKey);
+                if (!preEntry || preEntry.narrationRowId) {
+                  pollClaimedNarration = true;
+                }
+              }
+              if (!pollClaimedNarration) {
+                upsertStreamNarration(full);
+                // Keep the ledger's narrationRowId in sync with the live row
+                // so reconcileDurableEvents (rule 3) can find-and-replace it
+                // once the durable seq-bearing event lands on the poll.
+                const entry = pendingByKeyRef.current.get(ledgerKey);
+                if (entry && streamRowIdRef.current) {
+                  entry.narrationRowId = streamRowIdRef.current;
+                }
+              }
+            }
+          } else if (ev.kind === 'error') {
+            sawError = true;
+          }
+        }
+      } catch (e) {
+        sawError = true;
+        console.error('[dm-turn] subscribe failed client-side:', e);
+      }
+
+      if (ctrl.signal.aborted) return;
+      setThinking(false);
+      setTalking(false);
+      if (subscribedJobIdRef.current === jobId) subscribedJobIdRef.current = null;
+
+      if (sawError && !pollClaimedNarration) {
+        // §4d failure detection (SSE tail yields error). Drop the orphaned
+        // streaming row and its ledger entry — a `failed` job never writes a
+        // durable narration event, so nothing will ever reconcile it — then
+        // surface the retry affordance. Never reuse this turn_key on retry
+        // (narrateDurable mints a fresh one every call).
+        // Guarded on !pollClaimedNarration — Kage #3: if the poll's own
+        // reconciliation already rendered this beat's durable narration
+        // before we got here, a LATE SSE error (the tail closing after its
+        // job is already done) is not a real failure; nothing to clean up.
+        clearStreamNarration(true);
+        pendingByKeyRef.current.delete(ledgerKey);
+        setNarratorText('');
+        setJobFailed(true);
+        appendLog({
+          who: 'Suzu',
+          kind: 'system',
+          text: 'Suzu stepped away for a moment. Try again.',
+        });
+      }
+    },
+    [clearStreamNarration, upsertStreamNarration, appendLog],
+  );
 
   // ── load session + party ────────────────────────────────────────────────────
   useEffect(() => {
@@ -927,8 +1132,181 @@ export default function PlayPage() {
   useEffect(() => {
     if (!sessionId || state !== 'ok') return;
 
+    // DDX-20 (flag-ON only) — the unified events poll. Replaces the
+    // full-refetch-and-filter legacy poll with the `since_seq` cursor
+    // (Technical Design §2.2) and reconciles EVERY kind (not just
+    // dice_roll/x_card) through the ledger (§3.2) so an originating client
+    // never double-renders and a reload reconstructs purely from the poll.
+    // Loops forward while `has_more` is true (cold-start / large-backlog
+    // catch-up), same cursor-loop shape as the design's §6 mobile-parity
+    // note. Never called on the flag-OFF path — see the early-return guard
+    // in `poll` below, which is the ENTIRE flag-off diff to this effect.
+    const pollDurable = async () => {
+      try {
+        let sinceSeq = lastEventSeqRef.current;
+        let page = await getSessionEventsPage(sessionId, sinceSeq);
+        let allNewEvents: EngineSessionEvent[] = [...page.events];
+        let maxSeq = page.max_seq;
+        let guard = 0;
+        while (page.has_more && guard < 25) {
+          guard += 1;
+          const pageMax = page.events.reduce((m, e) => Math.max(m, e.seq ?? 0), sinceSeq);
+          if (pageMax <= sinceSeq) break; // no forward progress — avoid an infinite loop
+          sinceSeq = pageMax;
+          page = await getSessionEventsPage(sessionId, sinceSeq);
+          allNewEvents = allNewEvents.concat(page.events);
+          maxSeq = Math.max(maxSeq, page.max_seq);
+        }
+
+        if (allNewEvents.length > 0) {
+          // Same no-op-guard spirit as the legacy branch's Miko poll-churn
+          // fix — only touch journalEvents when there's real new activity.
+          // Unlike the legacy branch (full refetch, so it REPLACES
+          // journalEvents wholesale), the cursor read only ever returns rows
+          // this client hasn't seen yet, so appending is correct here.
+          setJournalEvents((prev) =>
+            [...prev, ...allNewEvents].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0)),
+          );
+
+          const result = reconcileDurableEvents(
+            allNewEvents,
+            renderedSeqsRef.current,
+            pendingByKeyRef.current,
+            (id) => logRef.current.find((r) => r.id === id),
+          );
+          if (result.appended.length > 0 || result.stamped.length > 0) {
+            setLog((prev) => applyReconcileResult(prev, result));
+          }
+          const { xCard, narrationSeq } = scanXCardTracking(allNewEvents);
+          if (xCard) {
+            setXCardEvent((prev) => (!prev || xCard.seq > prev.seq ? xCard : prev));
+          }
+          if (narrationSeq != null) {
+            setLatestNarrationSeq((prev) =>
+              prev == null || narrationSeq > prev ? narrationSeq : prev,
+            );
+          }
+        }
+
+        lastEventSeqRef.current = Math.max(lastEventSeqRef.current, maxSeq, sinceSeq);
+
+        // §2.2/§4b — surface pending_generation as real state (Pass 2 —
+        // drives the resume/busy affordance). Masked observability per §10:
+        // never log data.text/prose, only the correlation id + seq.
+        // Kage #5: only touch state when job_id/status actually changed —
+        // otherwise every ~4s tick constructs a NEW object (even when the
+        // job is unchanged) and forces a re-render for nothing, mirroring
+        // the same no-op-guard discipline the flag-OFF session-status poll
+        // already applies via sessionsEqual().
+        const pending = page.pending_generation;
+        setActiveJob((prev) => {
+          if (prev === pending) return prev;
+          if (
+            prev &&
+            pending &&
+            prev.job_id === pending.job_id &&
+            prev.status === pending.status &&
+            prev.trigger_seq === pending.trigger_seq
+          ) {
+            return prev;
+          }
+          return pending;
+        });
+
+        // §4b — stateless poll-discovery, the primary resume mechanism:
+        // subscribe (never POST) to an in-flight job this client is not
+        // already tailing. Covers three cases uniformly via the
+        // subscribedJobIdRef guard: (1) a fresh mount/reload discovering
+        // another client's (or this tab's own PRIOR reload's) turn — the
+        // "don't-re-POST" rule; (2) this client's own just-created job,
+        // where narrateDurable already set subscribedJobIdRef before this
+        // tick runs, so the guard correctly no-ops here; (3) the 409-busy
+        // pivot's own subscribe, same no-op guard.
+        if (pending && pending.job_id !== subscribedJobIdRef.current) {
+          console.debug('turn_resumed_from_pending', {
+            job_id: pending.job_id,
+            trigger_seq: pending.trigger_seq,
+          });
+          void subscribeToJob(pending.job_id, pending.turn_key, pending.trigger_seq);
+        } else if (!pending) {
+          subscribedJobIdRef.current = null;
+        }
+
+        // §4c turn_key lifecycle — clear once THIS client's own in-flight
+        // turn resolved (reconcileDurableEvents' rules 2/3 above removed its
+        // ledger entry once the narration seq was observed).
+        if (turnKeyRef.current && !pendingByKeyRef.current.has(turnKeyRef.current)) {
+          clearTurnKey(sessionId);
+          turnKeyRef.current = null;
+          pollFailureGraceRef.current = null;
+        }
+
+        // §4d, mechanism 2 (Miko-QA finding c) — poll-only failure detection.
+        // Only meaningful while THIS client still owns an unresolved turn
+        // (the completion branch just above already handles the success
+        // case). If `pending_generation` doesn't reflect our turn_key this
+        // tick, count it; once that streak reaches POLL_FAILURE_GRACE_TICKS
+        // with STILL no narration having landed, treat the job as dead —
+        // same cleanup + retry affordance as subscribeToJob's SSE-error path.
+        // This is what catches a job that died where NO client is actively
+        // holding its SSE tail to observe an `error` frame (reload after a
+        // silent failure, a tab backgrounded long enough for the browser to
+        // pause/kill the EventSource, a proxy idle-timeout truncation).
+        if (turnKeyRef.current && pendingByKeyRef.current.has(turnKeyRef.current)) {
+          const ownTurnKey = turnKeyRef.current;
+          if (pending?.turn_key === ownTurnKey) {
+            // Confirmed alive this tick — reset the grace counter.
+            pollFailureGraceRef.current = { turnKey: ownTurnKey, nullTicks: 0 };
+          } else {
+            const grace =
+              pollFailureGraceRef.current?.turnKey === ownTurnKey
+                ? pollFailureGraceRef.current
+                : { turnKey: ownTurnKey, nullTicks: 0 };
+            grace.nullTicks += 1;
+            pollFailureGraceRef.current = grace;
+
+            if (grace.nullTicks >= POLL_FAILURE_GRACE_TICKS) {
+              console.debug('turn_failed_poll_grace', { turn_key: ownTurnKey });
+              // Abort a live SSE tail if one is still (uselessly) open for
+              // this job — mirrors subscribeToJob's own cleanup.
+              if (subscribedJobIdRef.current) {
+                narrationAbort.current?.abort();
+                subscribedJobIdRef.current = null;
+              }
+              pendingByKeyRef.current.delete(ownTurnKey);
+              clearTurnKey(sessionId);
+              turnKeyRef.current = null;
+              pollFailureGraceRef.current = null;
+              clearStreamNarration(true);
+              setNarratorText('');
+              setTalking(false);
+              setThinking(false);
+              setActiveJob(null);
+              setJobFailed(true);
+              appendLog({
+                who: 'Suzu',
+                kind: 'system',
+                text: 'Suzu stepped away for a moment. Try again.',
+              });
+            }
+          }
+        } else if (pollFailureGraceRef.current && pollFailureGraceRef.current.turnKey !== turnKeyRef.current) {
+          // Stale counter from a resolved/abandoned turn — drop it so a
+          // future turn starts its own grace count from zero.
+          pollFailureGraceRef.current = null;
+        }
+      } catch {
+        // Poll errors are non-fatal — the next tick will retry (same
+        // convention as the flag-OFF branch below).
+      }
+    };
+
     const poll = async () => {
       if (document.hidden) return;
+      if (DURABLE_GENERATION_ENABLED) {
+        await pollDurable();
+        return;
+      }
       try {
         const events = await getSessionEventsRaw(sessionId);
         if (!events || events.length === 0) return;
@@ -979,7 +1357,14 @@ export default function PlayPage() {
         diceRollPollIntervalRef.current = null;
       }
     };
-  }, [sessionId, state]);
+    // DDX-20 Pass 2: `subscribeToJob`/`appendLog`/`clearStreamNarration` are
+    // listed (all `[]`-stable useCallbacks, so this never resets the
+    // interval in practice) — matches this effect's existing convention of
+    // NOT listing the many plain imported functions it also calls
+    // (getSessionEventsPage, eventToLogRow, scanXCardTracking,
+    // reconcileDurableEvents, applyReconcileResult) since those aren't
+    // component-scoped values ESLint tracks the same way.
+  }, [sessionId, state, subscribeToJob, appendLog, clearStreamNarration]);
 
   // Re-pin the chat to the latest line when returning to the Story view.
   useEffect(() => {
@@ -1380,6 +1765,163 @@ export default function PlayPage() {
     ],
   );
 
+  /**
+   * DDX-20 Pass 2 — the flag-ON durable turn path (Client Integration Design
+   * §4/§5/§6). Mints+persists a `turn_key`, appends the optimistic player row
+   * (carrying `pendingKey`), POSTs `/api/narration/dm/turn`, and handles all
+   * three create outcomes:
+   *   - created (deduped:false)  → subscribe to the fresh job's SSE tail.
+   *   - resumed (deduped:true)   → same subscribe path; the engine's
+   *     `ON CONFLICT` returned the SAME job this client already started
+   *     (e.g. a stray double-fire) — not a new turn, just a resume.
+   *   - busy (409)               → the 409-subscribe-pivot (§4a): the
+   *     optimistic row is orphaned (never got a seq — the busy guard fires
+   *     BEFORE the player_action write), so it's removed and the composer
+   *     text restored; then subscribe to the OTHER client's in-flight job so
+   *     this client still watches it finish.
+   *
+   * Mirrors `narrate()`'s own AI-eligibility gate (dm_mode/ai_assist_level)
+   * so a human-DM/AI-off table behaves identically to today: the player's
+   * row still appears, no job is ever created.
+   */
+  const narrateDurable = useCallback(
+    async (playerMessage: string, beatMode: ComposeMode) => {
+      if (!session || !username || !sessionId) return;
+
+      const aiLevel = session.ai_assist_level;
+      const aiEligible =
+        session.dm_mode !== 'human' && aiLevel !== 'off' && aiLevel !== 'assist';
+
+      if (!aiEligible) {
+        // Mirrors narrate()'s own early-return for a human-DM/AI-off table —
+        // onSend always shows the player's row regardless; no job is created
+        // so there is nothing to reconcile (no pendingKey stamped).
+        appendLog({ who: username, kind: 'player', text: playerMessage, color: 'var(--accent)' });
+        return;
+      }
+
+      // Miko-QA finding (b) — mirrors narrate()'s own pattern: flip
+      // talking/thinking SYNCHRONOUSLY, before any await. Previously this
+      // only happened inside subscribeToJob, which does not run until AFTER
+      // `postDmTurn` resolves — leaving the entire network round-trip
+      // uncovered by onSend's `if (!text || talking) return` guard, so a
+      // second Enter fired during that window minted a SECOND turn_key and
+      // fired a SECOND POST (busy-pivot only cleans this up when the
+      // server's busy-guard has already committed, which is not guaranteed).
+      setTalking(true);
+      setThinking(true);
+
+      setJobFailed(false);
+      lastDurableTurnRef.current = { message: playerMessage, mode: beatMode };
+
+      const turnKey = mintTurnKey();
+      saveTurnKey(sessionId, turnKey);
+      turnKeyRef.current = turnKey;
+
+      const rowId = `r${(idRef.current += 1)}`;
+      setLog((prev) => [
+        ...prev,
+        {
+          id: rowId,
+          who: username,
+          kind: 'player' as const,
+          text: playerMessage,
+          ts: nowStamp(),
+          color: 'var(--accent)',
+          pendingKey: turnKey,
+        },
+      ]);
+      pendingByKeyRef.current.set(turnKey, { playerRowId: rowId });
+
+      let handle: Awaited<ReturnType<typeof postDmTurn>>;
+      try {
+        handle = await postDmTurn({
+          username,
+          channel: session.channel,
+          session_id: sessionId,
+          message: playerMessage,
+          mode: beatMode,
+          turn_key: turnKey,
+        });
+      } catch (e) {
+        console.error('[dm-turn] create failed client-side:', e);
+        setLog((prev) => prev.filter((r) => r.id !== rowId));
+        pendingByKeyRef.current.delete(turnKey);
+        clearTurnKey(sessionId);
+        turnKeyRef.current = null;
+        setMsg(playerMessage);
+        // Release the guard set synchronously above — no subscribeToJob will
+        // ever run on this path to clear it, so it must be reset here.
+        setTalking(false);
+        setThinking(false);
+        toast({ tone: 'error', message: 'Could not reach Suzu. Your message was not sent.' });
+        return;
+      }
+
+      if ('busy' in handle) {
+        // §4a — 409-subscribe-pivot. This client's just-appended optimistic
+        // row for the NEW turn is orphaned (the busy guard fires before the
+        // player_action write) — remove it and restore the composer text
+        // rather than leaving a permanently-unreconciled row.
+        setLog((prev) => prev.filter((r) => r.id !== rowId));
+        pendingByKeyRef.current.delete(turnKey);
+        clearTurnKey(sessionId);
+        turnKeyRef.current = null;
+        setMsg(playerMessage);
+        toast({
+          tone: 'info',
+          message: "Suzu is still responding — your message wasn't sent, try again in a moment.",
+        });
+        setActiveJob({
+          turn_key: '',
+          job_id: handle.job_id,
+          status: handle.status,
+          trigger_seq: handle.trigger_seq,
+          started_at: new Date().toISOString(),
+        });
+        void subscribeToJob(handle.job_id, `busy:${handle.job_id}`, handle.trigger_seq);
+        return;
+      }
+
+      // Created or deduped-resumed — this IS this client's own active turn.
+      // triggerSeq is unknown from a 200 create/dedup response (only the 409
+      // busy shape carries it); reconcileDurableEvents treats an
+      // undefined triggerSeq as "match unconditionally", which is correct
+      // here — there is no ambiguity, this is the only turn this client owns.
+      setActiveJob({
+        turn_key: handle.turn_key,
+        job_id: handle.job_id,
+        status: handle.status === 'final' ? 'streaming' : handle.status,
+        trigger_seq: 0,
+        started_at: new Date().toISOString(),
+      });
+      void subscribeToJob(handle.job_id, turnKey);
+    },
+    [session, username, sessionId, appendLog, subscribeToJob, toast],
+  );
+
+  /**
+   * DDX-20 Pass 2 (§4d) — retry-after-failed. A `failed` job's turn_key is
+   * deduped-forever server-side, so retry MUST mint a NEW one — narrateDurable
+   * always does (mintTurnKey() is called fresh on every invocation), so a
+   * plain resubmit of the last content is sufficient here.
+   *
+   * Iro MAJOR-1: `setJobFailed(false)` unmounts the Retry button this click
+   * handler is attached to. If the button (or something inside it) still has
+   * focus at that moment, the browser force-blurs to <body> the instant it's
+   * removed. Refocus the permanently-mounted `durableRetryRowRef` wrapper
+   * FIRST — mirrors the xCardBannerRef Dismiss-button pattern above exactly
+   * (refocus-before-unmount, not after).
+   */
+  const onRetryFailedTurn = useCallback(() => {
+    if (durableRetryRowRef.current?.contains(document.activeElement)) {
+      durableRetryRowRef.current.focus({ preventScroll: true });
+    }
+    const last = lastDurableTurnRef.current;
+    setJobFailed(false);
+    if (last) void narrateDurable(last.message, last.mode);
+  }, [narrateDurable]);
+
   // ── S5.2: DM narration submit handler ───────────────────────────────────────
   /**
    * Called when the human DM sends a dm_narration beat via the composer.
@@ -1392,20 +1934,49 @@ export default function PlayPage() {
     if (!text || !sessionId || !session || !username || dmNarrationPending) return;
     setDmNarrationPending(true);
     setDmNarrationError(null);
+    // DDX-20 §3.3 (flag-ON only) — stamp a client-minted client_key into the
+    // POSTed event's data so ledger rule 4 can dedup this DM's own optimistic
+    // row against the durable poll row once it round-trips back (the proxy
+    // passthrough forwards `data` untouched; the engine persists it verbatim).
+    // Flag-OFF: `clientKey` is always undefined below, so `data` is always
+    // exactly `{text}` — byte-identical to the pre-DDX-20 request body.
+    const clientKey = DURABLE_GENERATION_ENABLED ? mintTurnKey() : undefined;
     try {
       await postSessionEvent(sessionId, {
         kind: 'dm_narration',
         actor_username: session.dm_username ?? username,
-        data: { text },
+        data: clientKey ? { text, client_key: clientKey } : { text },
         visibility: 'table',
       });
-      // Optimistically append to the local log with distinct dm_narration kind.
       const actor = session.dm_username ?? username;
-      appendLog({
-        who: `DM (${actor})`,
-        kind: 'dm_narration',
-        text,
-      });
+      if (clientKey) {
+        // Flag-ON: append with pendingKey so the poll's reconciliation ledger
+        // (rule 4) stamps this row instead of double-rendering it once the
+        // durable dm_narration event lands.
+        const rowId = `r${(idRef.current += 1)}`;
+        setLog((prev) => [
+          ...prev,
+          {
+            id: rowId,
+            who: `DM (${actor})`,
+            kind: 'dm_narration' as const,
+            text,
+            ts: nowStamp(),
+            pendingKey: clientKey,
+          },
+        ]);
+        pendingByKeyRef.current.set(clientKey, { playerRowId: rowId });
+      } else {
+        // Flag-OFF (unchanged) — optimistically append with the distinct
+        // dm_narration kind; the poll never renders dm_narration rows on
+        // this path (unified-poll rendering is flag-gated), so there is no
+        // reconciliation to set up.
+        appendLog({
+          who: `DM (${actor})`,
+          kind: 'dm_narration',
+          text,
+        });
+      }
       setMsg(''); // clear only on success
     } catch (err) {
       const status = (err as { status?: number } | null)?.status;
@@ -2426,9 +2997,30 @@ export default function PlayPage() {
       appendLog({ who: username ?? 'You', kind: 'system', text: `(ooc) ${text}` });
       return;
     }
-    appendLog({ who: username ?? 'You', kind: 'player', text, color: 'var(--accent)' });
-
+    // DDX-20 Pass 2 — the intent fast-path (onMoveOn) is unaffected by the
+    // flag either way; only the "falls through to a normal beat" branch
+    // differs (durable job vs legacy SSE). Computed once, ahead of the
+    // flag branch, since matchKeywordIntent is a pure read of `text` +
+    // `availableTransitions` — no observable difference from computing it
+    // here vs. its original post-appendLog position on the flag-OFF path.
     const intent = matchKeywordIntent(text, availableTransitions);
+
+    if (DURABLE_GENERATION_ENABLED) {
+      // narrateDurable owns the optimistic player-row append itself (it
+      // needs to stamp `pendingKey` — the freshly-minted turn_key — onto
+      // that row, which onSend cannot know ahead of time), so it is NOT
+      // appended here on this branch (contrast the flag-OFF appendLog call
+      // just below, which always runs on that path).
+      if (intent?.type === 'transition') {
+        appendLog({ who: username ?? 'You', kind: 'player', text, color: 'var(--accent)' });
+        void onMoveOn(intent.to);
+        return;
+      }
+      void narrateDurable(text, mode);
+      return;
+    }
+
+    appendLog({ who: username ?? 'You', kind: 'player', text, color: 'var(--accent)' });
     if (intent?.type === 'transition') {
       void onMoveOn(intent.to);
       return;
@@ -2441,6 +3033,7 @@ export default function PlayPage() {
     username,
     appendLog,
     narrate,
+    narrateDurable,
     onSendDmNarration,
     availableTransitions,
     onMoveOn,
@@ -2519,6 +3112,17 @@ export default function PlayPage() {
   // change via the session controls without a full page reload.
   const isPaused = session?.status === 'paused';
   const isEnded = session?.status === 'ended';
+
+  // DDX-20 §9 — "Resuming Suzu's turn…" resume affordance. Reuses the SAME
+  // thinking waveform row as the shipped narrate() path (distinct copy),
+  // shown ONLY when there is a known in-flight job (mount/reload discovery
+  // or the 409-busy pivot) that this client is not ALREADY rendering via its
+  // own talking/thinking state (avoids a double "narrating…"/"Resuming…"
+  // flash — narrateDurable's own subscribeToJob sets talking/thinking
+  // synchronously in the same tick it sets activeJob, so this only fires for
+  // the genuinely-passive discovery case). Always false when the flag is off
+  // (activeJob is never set on the flag-OFF path).
+  const resumeThinking = DURABLE_GENERATION_ENABLED && !talking && activeJob != null;
   // A paused OR ended session shouldn't accept ANY player action — gates the
   // composer, combat action rail, skill-check, move-on, dice-tray, rebind (all
   // further down) and the DM-side monster auto-driver (via isSessionLocked).
@@ -2957,7 +3561,12 @@ export default function PlayPage() {
             />
           )}
         </div>
-        <ChatLog ref={chatLogRef} rows={log} thinking={thinking} />
+        <ChatLog
+          ref={chatLogRef}
+          rows={log}
+          thinking={thinking || resumeThinking}
+          thinkingLabel={resumeThinking ? "Resuming Suzu's turn…" : undefined}
+        />
         {/* DDX-25: ONE persistent live region for session pause/end — mirrors
             the Iro MEDIUM-2 turn-status pattern just below (always mounted,
             only the text/class swap in place) so AT users get exactly one
@@ -3106,6 +3715,43 @@ export default function PlayPage() {
               />
             </div>
           )}
+        {/* DDX-20 §9/§4d — retry-after-failed affordance (flag-ON only;
+            jobFailed is never set on the flag-OFF path). Retrying mints a
+            FRESH turn_key (narrateDurable always does) — the failed one is
+            deduped-forever server-side. role="status" + aria-live="polite"
+            so a screen reader announces the failure + retry option once,
+            mirroring the file's other persistent live-region status rows
+            (e.g. the session-paused/ended banner above).
+            Iro MAJOR-1: PERMANENTLY mounted (contents toggle, not the
+            wrapper itself) with tabIndex={-1} — same xCardBannerRef pattern
+            as the safety-signal banner above. onRetryFailedTurn refocuses
+            this wrapper BEFORE unmounting the Retry button, so focus never
+            drops to <body>. .durableRetryRow:empty collapses it to zero
+            footprint (no padding/border/margin) without display:none/
+            visibility:hidden, which would also pull it out of the a11y tree. */}
+        {DURABLE_GENERATION_ENABLED && (
+          <div
+            ref={durableRetryRowRef}
+            tabIndex={-1}
+            className={styles.durableRetryRow}
+            role="status"
+            aria-live="polite"
+          >
+            {jobFailed && (
+              <>
+                <span id="durable-retry-message">Suzu&apos;s last reply didn&apos;t come through.</span>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={onRetryFailedTurn}
+                  aria-describedby="durable-retry-message"
+                >
+                  Retry
+                </button>
+              </>
+            )}
+          </div>
+        )}
         <Composer
           value={msg}
           onChange={setMsg}

@@ -742,6 +742,36 @@
   flex-shrink: 0;
 }
 
+/* ── DDX-20 §4d/§9: retry-after-failed row (flag-ON only) ──
+   Iro MINOR-1: flex-wrap + text-align:center so the message + button don't
+   clip under text-only browser zoom (mirrors the reflow requirement every
+   other status row in this file already gets via its own natural wrapping;
+   this one needed it explicit because of the row's flex/gap layout). */
+.durableRetryRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--bad-ink);
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--bad) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--bad) 30%, transparent);
+  flex-shrink: 0;
+}
+
+/* Iro MAJOR-1: zero-footprint empty state — no padding/border/margin, but
+   still present + focusable (tabIndex={-1}) in the DOM/a11y tree, unlike
+   display:none/visibility:hidden. Mirrors .xCardBanner:empty above. */
+.durableRetryRow:empty {
+  padding: 0;
+  border: none;
+}
+
 /* ── DDX-22: Journal pane — right-edge slide-over drawer (desktop only).
    Only the WRAPPER differs by breakpoint; <JournalPane>'s own markup is
    identical either way. Scoped to >880px so mobile (which uses the shared
