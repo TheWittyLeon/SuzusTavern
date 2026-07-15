@@ -57,6 +57,29 @@ export interface PendingTurnEntry {
   /** The player_action seq this beat's narration replies to (§3.2 rule 3). */
   triggerSeq?: number;
   /**
+   * DDX-20 Pass 3 Finding 2 (Kage-CR / Miko-QA) — the underlying durable
+   * job_id this entry tracks. Not read by this pure reconcile module (the
+   * rules above key entirely off turn_key/client_key + seq); it exists so
+   * page.tsx's `subscribeToJob` can de-dupe a same-job subscribe (e.g. a
+   * synthetic beat's 409-busy-pivot targeting a job THIS SAME CLIENT already
+   * subscribed to under a different ledgerKey) BEFORE it ever registers a
+   * second `awaitingNarration` entry for one job — the exact defect
+   * `reconcileEvents.pass3-busy-pivot-orphan.test.ts` locks. See that file's
+   * module doc for the full orphan/hijack mechanism this prevents.
+   */
+  jobId?: string;
+  /**
+   * DDX-20 Pass 3 Finding 1 — which call path originated this job:
+   * 'composer' (onSend/narrateDurable, has a retry affordance) or 'beat'
+   * (the six synthetic-beat call sites via narrateDurableBeat — §3.1 "beats
+   * have no retry affordance"). Not read by this pure reconcile module;
+   * page.tsx's subscribeToJob uses it to decide whether an SSE-tail `error`
+   * may surface the shared composer Retry banner (composer) or must drop
+   * silently (beat — surfacing it would replay through narrateDurable, which
+   * has no mechanics/suppress_intent parameters, silently dropping both).
+   */
+  origin?: 'composer' | 'beat';
+  /**
    * Kage #3 — true once a subscriber (the originating client's own SSE tail,
    * a 409-busy pivot's subscribe, or the poll's stateless resume-discovery
    * subscribe) has registered INTENT to receive this turn's narration.

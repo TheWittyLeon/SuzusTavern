@@ -296,6 +296,40 @@ describe('reconcileDurableEvents — Pass-3 synthetic beats (turn_key entry with
     // narration row, no dangling reconcile state.
     expect(pendingByKey.has('tk-beat-1')).toBe(false);
   });
+
+  it('Kage-CR low suggestion (companion lock) — mirrors the ACTUAL real beat entry shape: narrateDurableBeat registers `{}` (no triggerSeq at all — it is only added later, synchronously, by subscribeToJob) — a 200-path beat with no busy-pivot never learns a trigger_seq, so triggerSeq is undefined, not a concrete number', () => {
+    const renderedSeqs = new Set<number>();
+    const pendingByKey = new Map<string, PendingTurnEntry>([
+      // subscribeToJob(handle.job_id, turnKey, undefined, 'beat') — the
+      // 200-path call narrateDurableBeat makes — passes triggerSeq as
+      // literally `undefined` (no busy handle to read a trigger_seq off
+      // of). findActiveNarrationEntry treats an undefined triggerSeq as
+      // "match unconditionally" (seq > triggerSeq only gates when a
+      // concrete number is present) — this locks that this is still the
+      // correct outcome for the real (undefined) shape, not just the
+      // synthetic triggerSeq:100 the sibling test above uses.
+      ['tk-beat-2', { jobId: 'job-42', triggerSeq: undefined, awaitingNarration: true, origin: 'beat' }],
+    ]);
+
+    const playerActionEvent: EngineSessionEvent[] = [
+      {
+        seq: 201,
+        kind: 'player_action',
+        actor: 'leon',
+        data: { who: 'leon', text: 'The scene changes.', turn_key: 'tk-beat-2' },
+      },
+    ];
+    const firstResult = reconcileDurableEvents(playerActionEvent, renderedSeqs, pendingByKey, noRow);
+    expect(firstResult.appended).toHaveLength(1);
+    expect(pendingByKey.has('tk-beat-2')).toBe(true);
+
+    const narrationEvent: EngineSessionEvent[] = [
+      { seq: 202, kind: 'narration', data: { text: 'The room dims as the scene turns.' } },
+    ];
+    const secondResult = reconcileDurableEvents(narrationEvent, renderedSeqs, pendingByKey, noRow);
+    expect(secondResult.appended).toHaveLength(1);
+    expect(pendingByKey.has('tk-beat-2')).toBe(false);
+  });
 });
 
 describe('reconcileDurableEvents — rule 4 (dm_narration client_key)', () => {

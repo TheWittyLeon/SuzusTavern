@@ -460,6 +460,25 @@ export default function PlayPage() {
   // the poll's reconciliation removes its ledger entry — i.e. the beat's
   // narration seq has been observed — or on failure/retry). null when no
   // turn owned by this tab is in flight.
+  //
+  // DDX-20 Pass 3 Finding 3 (Kage-CR SHOULD-FIX, carried not fixed this
+  // pass — see fold commit for rationale) — this is a SINGLE ref shared by
+  // both `narrateDurable` and `narrateDurableBeat`. A beat firing mid-
+  // composer-turn (or vice versa) CLOBBERS whichever turn_key lost the
+  // write race, so the §4d poll-failure-grace dead-job detector below (it
+  // reads `turnKeyRef.current`) may silently stop tracking the turn that
+  // lost the race — a job that dies with no SSE error (backgrounded tab,
+  // proxy idle-timeout) then goes undetected for that turn. The primary
+  // resume mechanism (stateless `pending_generation` poll-discovery, §4b) is
+  // UNAFFECTED — it doesn't read this ref. `turnKey.ts`'s localStorage
+  // persistence is ALSO single-slot (one key per session), so a proper fix
+  // is more than swapping this ref for a Set: the §4c "clear once resolved"
+  // watcher below and the localStorage save/clear calls in both
+  // narrateDurable/narrateDurableBeat would all need to become
+  // multi-key-aware. Deferred as a carried item — not forced into this
+  // fold's scope. `play.ddx20-pass3-synthetic-beats.test.tsx` has a
+  // characterization test locking today's clobber behavior so a future
+  // refactor changes it deliberately, not by accident.
   const turnKeyRef = useRef<string | null>(null);
   // DDX-20 Pass 2 — the last composer-submitted (message, mode) this client
   // originated, kept so a retry-after-failed (§4d) can resubmit the SAME
@@ -710,9 +729,42 @@ export default function PlayPage() {
    * original spot just after `narrate`) so both the events poll effect and
    * `narrateDurable` can reference it — a plain `const` is not hoisted, so
    * it must be declared before its first use in source order.
+   *
+   * `origin` (DDX-20 Pass 3 Finding 1) — 'composer' for `narrateDurable`'s
+   * two call sites and the poll's stateless resume-discovery call (§4b;
+   * origin is genuinely unknown there after a reload, so it defaults
+   * conservatively to 'composer' — see that call site's own comment), 'beat'
+   * for `narrateDurableBeat`'s two call sites. Drives whether an SSE-tail
+   * `error` may surface the shared composer Retry banner.
    */
   const subscribeToJob = useCallback(
-    async (jobId: string, ledgerKey: string, triggerSeq?: number) => {
+    async (
+      jobId: string,
+      ledgerKey: string,
+      triggerSeq: number | undefined,
+      origin: 'composer' | 'beat',
+    ) => {
+      // DDX-20 Pass 3 Finding 2 (Kage-CR MAJOR-1 / Miko-QA) — de-dupe by
+      // job_id BEFORE touching anything else. A 409-busy-pivot (composer or
+      // beat) can target a job THIS SAME CLIENT already subscribed to under
+      // a DIFFERENT ledgerKey — the beat-6-in-flight/beat-2-409s-against-
+      // job6 same-tab sequencing §3.3 documents as the normal combat->scene
+      // case. Subscribing again would register a SECOND awaitingNarration
+      // entry for one job: reconcileDurableEvents' findActiveNarrationEntry
+      // only ever resolves the FIRST (insertion-order) match, so the other
+      // orphans forever and can later hijack an unrelated LATER turn's
+      // narration (see reconcileEvents.pass3-busy-pivot-orphan.test.ts) —
+      // and re-subscribing would also reset the shared narrating UI (Iro
+      // MAJOR-1) for a job that's already correctly driving it. A
+      // DIFFERENT, not-yet-watched job_id (the genuine multi-tab pivot)
+      // deliberately falls through to the normal reset below.
+      for (const entry of pendingByKeyRef.current.values()) {
+        if (entry.jobId === jobId && entry.awaitingNarration) {
+          console.debug('subscribe_dedup_same_job', { job_id: jobId, ledger_key: ledgerKey, origin });
+          return;
+        }
+      }
+
       subscribedJobIdRef.current = jobId;
       // Kage #3 — register INTENT to receive this turn's narration
       // SYNCHRONOUSLY, before any await. This is what closes the race where
@@ -724,8 +776,10 @@ export default function PlayPage() {
       // create a second, un-reconciled row for the same beat.
       pendingByKeyRef.current.set(ledgerKey, {
         ...pendingByKeyRef.current.get(ledgerKey),
+        jobId,
         triggerSeq,
         awaitingNarration: true,
+        origin,
       });
 
       narrationAbort.current?.abort();
@@ -792,9 +846,7 @@ export default function PlayPage() {
       if (sawError && !pollClaimedNarration) {
         // §4d failure detection (SSE tail yields error). Drop the orphaned
         // streaming row and its ledger entry — a `failed` job never writes a
-        // durable narration event, so nothing will ever reconcile it — then
-        // surface the retry affordance. Never reuse this turn_key on retry
-        // (narrateDurable mints a fresh one every call).
+        // durable narration event, so nothing will ever reconcile it.
         // Guarded on !pollClaimedNarration — Kage #3: if the poll's own
         // reconciliation already rendered this beat's durable narration
         // before we got here, a LATE SSE error (the tail closing after its
@@ -802,12 +854,32 @@ export default function PlayPage() {
         clearStreamNarration(true);
         pendingByKeyRef.current.delete(ledgerKey);
         setNarratorText('');
-        setJobFailed(true);
-        appendLog({
-          who: 'Suzu',
-          kind: 'system',
-          text: 'Suzu stepped away for a moment. Try again.',
-        });
+
+        if (origin === 'beat') {
+          // DDX-20 Pass 3 Finding 1 (Miko-QA/Kage-CR MUST-FIX) — a
+          // beat-originated job's SSE-tail error drops SILENTLY (§3.1
+          // "beats have no retry affordance"). Surfacing the shared
+          // composer Retry banner here was wrong on two counts: (a) its
+          // handler (onRetryFailedTurn) unconditionally replays via
+          // narrateDurable — the COMPOSER function, which has no
+          // mechanics/suppress_intent parameters at all, so a retried beat
+          // silently lost both (double scene-advance for beats 2/3/4, a
+          // mechanics-blind retry for 1/5/6); (b) it isn't this beat's
+          // failure to surface — beats already silently skip when Suzu's
+          // busy (§3.2); an SSE-tail error is the equivalent "give up
+          // quietly" case. Masked per §10 — no mechanics/prose, just the
+          // correlation id.
+          console.debug('beat_narration_sse_error_dropped', { job_id: jobId, turn_key: ledgerKey });
+        } else {
+          // Never reuse this turn_key on retry (narrateDurable mints a
+          // fresh one every call).
+          setJobFailed(true);
+          appendLog({
+            who: 'Suzu',
+            kind: 'system',
+            text: 'Suzu stepped away for a moment. Try again.',
+          });
+        }
       }
     },
     [clearStreamNarration, upsertStreamNarration, appendLog],
@@ -1168,6 +1240,15 @@ export default function PlayPage() {
             [...prev, ...allNewEvents].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0)),
           );
 
+          // §10 observability (Kage-CR low suggestion) — snapshot which
+          // beat-origin ledger keys are still awaiting narration BEFORE
+          // reconciling, so we can log `beat_narration_reconciled` for any
+          // that resolve (deleted from the ledger) this tick. Masked: no
+          // mechanics/prose, just seq + the turn_key correlation id.
+          const beatKeysAwaitingBefore = [...pendingByKeyRef.current.entries()]
+            .filter(([, e]) => e.origin === 'beat' && e.awaitingNarration)
+            .map(([key]) => key);
+
           const result = reconcileDurableEvents(
             allNewEvents,
             renderedSeqsRef.current,
@@ -1176,6 +1257,11 @@ export default function PlayPage() {
           );
           if (result.appended.length > 0 || result.stamped.length > 0) {
             setLog((prev) => applyReconcileResult(prev, result));
+          }
+          for (const key of beatKeysAwaitingBefore) {
+            if (!pendingByKeyRef.current.has(key)) {
+              console.debug('beat_narration_reconciled', { seq: result.maxSeqSeen, turn_key: key });
+            }
           }
           const { xCard, narrationSeq } = scanXCardTracking(allNewEvents);
           if (xCard) {
@@ -1227,7 +1313,17 @@ export default function PlayPage() {
             job_id: pending.job_id,
             trigger_seq: pending.trigger_seq,
           });
-          void subscribeToJob(pending.job_id, pending.turn_key, pending.trigger_seq);
+          // origin: 'composer' — a stateless poll-resume genuinely cannot
+          // tell whether the discovered job was a composer turn or a
+          // synthetic beat (no server-side marker exists, and this client's
+          // own lastDurableTurnRef/turnKeyRef are reset across a reload
+          // anyway). Defaulting to 'composer' preserves pre-fix behavior
+          // here (out of Finding 1's scope, which is the explicit
+          // narrateDurable/narrateDurableBeat call sites below) — worst case
+          // on a genuine beat-job SSE error post-reload is a Retry banner
+          // whose click no-ops (onRetryFailedTurn already guards on a null
+          // lastDurableTurnRef), not a wrong-content resubmit.
+          void subscribeToJob(pending.job_id, pending.turn_key, pending.trigger_seq, 'composer');
         } else if (!pending) {
           subscribedJobIdRef.current = null;
         }
@@ -1879,7 +1975,7 @@ export default function PlayPage() {
           trigger_seq: handle.trigger_seq,
           started_at: new Date().toISOString(),
         });
-        void subscribeToJob(handle.job_id, `busy:${handle.job_id}`, handle.trigger_seq);
+        void subscribeToJob(handle.job_id, `busy:${handle.job_id}`, handle.trigger_seq, 'composer');
         return;
       }
 
@@ -1895,7 +1991,7 @@ export default function PlayPage() {
         trigger_seq: 0,
         started_at: new Date().toISOString(),
       });
-      void subscribeToJob(handle.job_id, turnKey);
+      void subscribeToJob(handle.job_id, turnKey, undefined, 'composer');
     },
     [session, username, sessionId, appendLog, subscribeToJob, toast],
   );
@@ -1921,16 +2017,30 @@ export default function PlayPage() {
    *       beat, so (unlike narrateDurable's 409-subscribe-pivot) this never
    *       mutates the composer and never shows a retry affordance;
    *   (d) the network-error (non-409) path clears the ledger entry + turnKey
-   *       and releases `talking`/`thinking` (mirrors narrateDurable's own
-   *       catch block) but never restores composer text — there was never
-   *       any to restore.
+   *       and releases `talking`/`thinking` but — UNLIKE narrateDurable's own
+   *       catch block — never toasts and never restores composer text. This
+   *       is intentional, not an oversight: there was never any composer
+   *       text to restore, and per §3.1 beats have no retry/error affordance
+   *       at all, so surfacing a toast here would be new, beat-specific UI
+   *       this design deliberately doesn't add.
+   *
+   * DDX-20 Pass 3 Finding 1 (Miko-QA/Kage-CR MUST-FIX) — this function must
+   * NEVER write `jobFailed`/`lastDurableTurnRef`. Those are composer-retry
+   * state (`onRetryFailedTurn` replays `lastDurableTurnRef` through
+   * `narrateDurable`, which has no `mechanics`/`suppress_intent` params at
+   * all); a beat writing them would either clobber a genuine composer
+   * failure's retry payload with beat content, or cause a later beat SSE
+   * error to surface the composer's Retry banner. `subscribeToJob`'s
+   * `origin: 'beat'` argument (both call sites below) is what actually
+   * suppresses the Retry banner for a beat's own SSE-tail error — see its
+   * definition above.
    */
   const narrateDurableBeat = useCallback(
     async (
       playerLine: string,
       mechanics: string,
       beatMode: ComposeMode,
-      opts?: { suppressIntent?: boolean },
+      opts?: { suppressIntent?: boolean; beat?: string },
     ) => {
       if (!session || !username || !sessionId) return;
 
@@ -1949,8 +2059,9 @@ export default function PlayPage() {
       setTalking(true);
       setThinking(true);
 
-      setJobFailed(false);
-      lastDurableTurnRef.current = { message: playerLine, mode: beatMode };
+      // Finding 1 — deliberately NOT touching jobFailed/lastDurableTurnRef
+      // here (see the JSDoc above): those are composer-retry state and a
+      // beat must never clobber or drive them.
 
       const turnKey = mintTurnKey();
       saveTurnKey(sessionId, turnKey);
@@ -1961,6 +2072,15 @@ export default function PlayPage() {
       // durable player_action is appended exactly once (reconcile rule-2
       // else-branch, reconcileEvents.ts:121-124) instead of stamped.
       pendingByKeyRef.current.set(turnKey, {});
+
+      const beatTag = opts?.beat ?? 'unknown';
+      // §10 observability — masked: never mechanics/prose, just the
+      // correlation id + beat tag + boolean.
+      console.debug('beat_turn_started', {
+        turn_key: turnKey,
+        beat: beatTag,
+        suppress_intent: opts?.suppressIntent ?? false,
+      });
 
       let handle: Awaited<ReturnType<typeof postDmTurn>>;
       try {
@@ -1996,6 +2116,7 @@ export default function PlayPage() {
         pendingByKeyRef.current.delete(turnKey);
         clearTurnKey(sessionId);
         turnKeyRef.current = null;
+        console.debug('beat_turn_busy_409', { beat: beatTag, inflight_job_id: handle.job_id });
         setActiveJob({
           turn_key: '',
           job_id: handle.job_id,
@@ -2003,7 +2124,7 @@ export default function PlayPage() {
           trigger_seq: handle.trigger_seq,
           started_at: new Date().toISOString(),
         });
-        void subscribeToJob(handle.job_id, `busy:${handle.job_id}`, handle.trigger_seq);
+        void subscribeToJob(handle.job_id, `busy:${handle.job_id}`, handle.trigger_seq, 'beat');
         return;
       }
 
@@ -2015,7 +2136,7 @@ export default function PlayPage() {
         trigger_seq: 0,
         started_at: new Date().toISOString(),
       });
-      void subscribeToJob(handle.job_id, turnKey);
+      void subscribeToJob(handle.job_id, turnKey, undefined, 'beat');
     },
     [session, username, sessionId, subscribeToJob],
   );
@@ -2254,6 +2375,7 @@ export default function PlayPage() {
                 `I roll ${trigger.label}.`,
                 `${result.description} Narrate the outcome.`,
                 'act',
+                { beat: 'roll' },
               );
             } else {
               void narrate(
@@ -2346,7 +2468,7 @@ export default function PlayPage() {
           'The scene changes.',
           `Scene advance: ${fromScene} → ${toScene}. Narrate the transition.`,
           'act',
-          { suppressIntent: true },
+          { suppressIntent: true, beat: 'scene_advance' },
         );
       } else {
         void narrate(
@@ -2402,7 +2524,7 @@ export default function PlayPage() {
             'We move on.',
             `Scene advance: ${result.from_scene} → ${result.to_scene}. Narrate the transition.`,
             'act',
-            { suppressIntent: true },
+            { suppressIntent: true, beat: 'scene_advance' },
           );
         } else {
           void narrate(
@@ -2481,6 +2603,7 @@ export default function PlayPage() {
         if (DURABLE_GENERATION_ENABLED) {
           void narrateDurableBeat(`I attempt a ${skillLabel} check.`, result.mechanics, 'act', {
             suppressIntent: true,
+            beat: 'check_confirm',
           });
         } else {
           void narrate(`I attempt a ${skillLabel} check.`, result.mechanics, 'act', {
@@ -2567,6 +2690,7 @@ export default function PlayPage() {
           'We are under attack!',
           `Combat starts. ${monsterNames} enter the scene. Set the scene.`,
           'act',
+          { beat: 'combat_start' },
         );
       } else {
         void narrate(
@@ -2684,7 +2808,7 @@ export default function PlayPage() {
         // NOT try to serialize these — that re-couples the beats for a
         // cosmetic gain the single-slot model already bounds.
         if (DURABLE_GENERATION_ENABLED) {
-          void narrateDurableBeat(playerLine, message, 'act');
+          void narrateDurableBeat(playerLine, message, 'act', { beat: 'end_turn' });
         } else {
           await narrate(playerLine, message, 'act'); // byte-unchanged legacy path
         }
