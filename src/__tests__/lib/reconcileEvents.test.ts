@@ -239,6 +239,65 @@ describe('reconcileDurableEvents — rule 3 (narration/recap)', () => {
   });
 });
 
+describe('reconcileDurableEvents — Pass-3 synthetic beats (turn_key entry with NO playerRowId)', () => {
+  it('appends the durable player_action exactly once and reconciles the narration (rule-2 else + rule-3) — locks Pass-3 Synthetic-Beat Design §5\'s zero-reconcile-change guarantee', () => {
+    const renderedSeqs = new Set<number>();
+    const pendingByKey = new Map<string, PendingTurnEntry>([
+      // narrateDurableBeat registers exactly this shape: no playerRowId (§2
+      // player-row policy — the beat keeps its own client-only system row
+      // instead), awaitingNarration set synchronously by subscribeToJob.
+      ['tk-beat-1', { triggerSeq: 100, awaitingNarration: true }],
+    ]);
+
+    // player_action lands first (lower seq) — rule 2's else-branch, since
+    // entry.playerRowId is falsy.
+    const playerActionEvent: EngineSessionEvent[] = [
+      {
+        seq: 101,
+        kind: 'player_action',
+        actor: 'leon',
+        data: { who: 'leon', text: 'I roll Perception.', turn_key: 'tk-beat-1' },
+      },
+    ];
+    const firstResult = reconcileDurableEvents(playerActionEvent, renderedSeqs, pendingByKey, noRow);
+
+    // Appended exactly once — never stamped (there is no optimistic row to
+    // stamp onto for a synthetic beat).
+    expect(firstResult.stamped).toHaveLength(0);
+    expect(firstResult.appended).toHaveLength(1);
+    expect(firstResult.appended[0]).toMatchObject({
+      id: 'ev101',
+      text: 'I roll Perception.',
+      seq: 101,
+    });
+    expect(renderedSeqs.has(101)).toBe(true);
+    // The entry survives — narration for this beat hasn't landed yet.
+    expect(pendingByKey.has('tk-beat-1')).toBe(true);
+    expect(pendingByKey.get('tk-beat-1')?.playerRowId).toBeUndefined();
+
+    // narration lands next (higher seq) — rule 3, sub-case (c): no
+    // narrationRowId exists yet (no live SSE row raced ahead of the poll),
+    // so it's appended and the entry is cleaned up (no playerRowId left to
+    // wait for either).
+    const narrationEvent: EngineSessionEvent[] = [
+      { seq: 102, kind: 'narration', data: { text: 'You spot movement in the brush.' } },
+    ];
+    const secondResult = reconcileDurableEvents(narrationEvent, renderedSeqs, pendingByKey, noRow);
+
+    expect(secondResult.stamped).toHaveLength(0);
+    expect(secondResult.appended).toHaveLength(1);
+    expect(secondResult.appended[0]).toMatchObject({
+      id: 'ev102',
+      text: 'You spot movement in the brush.',
+      seq: 102,
+    });
+    expect(renderedSeqs.has(102)).toBe(true);
+    // Ledger entry fully cleaned up — exactly one player row, exactly one
+    // narration row, no dangling reconcile state.
+    expect(pendingByKey.has('tk-beat-1')).toBe(false);
+  });
+});
+
 describe('reconcileDurableEvents — rule 4 (dm_narration client_key)', () => {
   it('matches by data.client_key exactly like player_action', () => {
     const renderedSeqs = new Set<number>();

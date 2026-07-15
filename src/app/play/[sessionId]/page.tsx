@@ -1901,6 +1901,126 @@ export default function PlayPage() {
   );
 
   /**
+   * DDX-20 Pass 3 (Synthetic-Beat Design §7 step 2) — a thin durable sibling
+   * of `narrateDurable` for the six non-composer "synthetic beat" call sites
+   * (roll-confirm, scene-transition x2, check-confirm, combat-start,
+   * end-turn — Pass-3 §2's per-beat table). Same AI-eligibility gate, same
+   * synchronous `talking`/`thinking` flip before any await (Miko-QA finding
+   * (b) discipline), same `mintTurnKey`/`saveTurnKey`/`turnKeyRef` and
+   * `postDmTurn` → `subscribeToJob(job_id, turnKey)` on 200. Differs from
+   * `narrateDurable` in exactly four ways (§7 step 2):
+   *   (a) forwards `mechanics` + `suppress_intent` in the `/dm/turn` payload
+   *       — the composer path never carries either;
+   *   (b) does NOT append an optimistic player row — each beat already keeps
+   *       its own client-only `appendLog` SYSTEM row (§2 player-row policy).
+   *       Registers a ledger entry with NO `playerRowId` so the existing
+   *       reconcile rule-2 else-branch appends the durable `player_action`
+   *       exactly once, with zero reconcile-code changes (§5);
+   *   (c) a 409 is *subscribe-and-drop* (§3.1) — there is no composer text to
+   *       restore and no optimistic player row to remove for a synthetic
+   *       beat, so (unlike narrateDurable's 409-subscribe-pivot) this never
+   *       mutates the composer and never shows a retry affordance;
+   *   (d) the network-error (non-409) path clears the ledger entry + turnKey
+   *       and releases `talking`/`thinking` (mirrors narrateDurable's own
+   *       catch block) but never restores composer text — there was never
+   *       any to restore.
+   */
+  const narrateDurableBeat = useCallback(
+    async (
+      playerLine: string,
+      mechanics: string,
+      beatMode: ComposeMode,
+      opts?: { suppressIntent?: boolean },
+    ) => {
+      if (!session || !username || !sessionId) return;
+
+      const aiLevel = session.ai_assist_level;
+      const aiEligible =
+        session.dm_mode !== 'human' && aiLevel !== 'off' && aiLevel !== 'assist';
+      if (!aiEligible) {
+        // Mirrors narrate()'s own no-op early-return for a human-DM/AI-off
+        // table — the caller already appended its own system row before
+        // reaching here, so there is nothing further to do.
+        return;
+      }
+
+      // Miko-QA finding (b) — flip talking/thinking SYNCHRONOUSLY, before any
+      // await (see narrateDurable's own comment on this above).
+      setTalking(true);
+      setThinking(true);
+
+      setJobFailed(false);
+      lastDurableTurnRef.current = { message: playerLine, mode: beatMode };
+
+      const turnKey = mintTurnKey();
+      saveTurnKey(sessionId, turnKey);
+      turnKeyRef.current = turnKey;
+
+      // §2 player-row policy — no optimistic player row for a synthetic
+      // beat; register a ledger entry with NO playerRowId so the poll's
+      // durable player_action is appended exactly once (reconcile rule-2
+      // else-branch, reconcileEvents.ts:121-124) instead of stamped.
+      pendingByKeyRef.current.set(turnKey, {});
+
+      let handle: Awaited<ReturnType<typeof postDmTurn>>;
+      try {
+        handle = await postDmTurn({
+          username,
+          channel: session.channel,
+          session_id: sessionId,
+          message: playerLine,
+          mechanics,
+          mode: beatMode,
+          turn_key: turnKey,
+          suppress_intent: opts?.suppressIntent ?? false,
+        });
+      } catch (e) {
+        console.error('[dm-turn] beat create failed client-side:', e);
+        pendingByKeyRef.current.delete(turnKey);
+        clearTurnKey(sessionId);
+        turnKeyRef.current = null;
+        // Release the guard set synchronously above — no subscribeToJob will
+        // ever run on this path to clear it, so it must be reset here.
+        setTalking(false);
+        setThinking(false);
+        return;
+      }
+
+      if ('busy' in handle) {
+        // §3.1 subscribe-and-drop. This beat's mechanical action already
+        // committed durably in a PRIOR request (the roll/advanceScene/
+        // resolveCheck/combat action ran and wrote its own durable events
+        // before this call fired) — only the trailing flavor narration is
+        // skipped. No text-restore, no row-removal (there was never an
+        // optimistic player row), no retry affordance.
+        pendingByKeyRef.current.delete(turnKey);
+        clearTurnKey(sessionId);
+        turnKeyRef.current = null;
+        setActiveJob({
+          turn_key: '',
+          job_id: handle.job_id,
+          status: handle.status,
+          trigger_seq: handle.trigger_seq,
+          started_at: new Date().toISOString(),
+        });
+        void subscribeToJob(handle.job_id, `busy:${handle.job_id}`, handle.trigger_seq);
+        return;
+      }
+
+      // Created or deduped-resumed — this IS this beat's own active turn.
+      setActiveJob({
+        turn_key: handle.turn_key,
+        job_id: handle.job_id,
+        status: handle.status === 'final' ? 'streaming' : handle.status,
+        trigger_seq: 0,
+        started_at: new Date().toISOString(),
+      });
+      void subscribeToJob(handle.job_id, turnKey);
+    },
+    [session, username, sessionId, subscribeToJob],
+  );
+
+  /**
    * DDX-20 Pass 2 (§4d) — retry-after-failed. A `failed` job's turn_key is
    * deduped-forever server-side, so retry MUST mint a NEW one — narrateDurable
    * always does (mintTurnKey() is called fresh on every invocation), so a
@@ -2129,11 +2249,19 @@ export default function PlayPage() {
             sessionAiLevel !== 'off' &&
             sessionAiLevel !== 'assist'
           ) {
-            void narrate(
-              `I roll ${trigger.label}.`,
-              `${result.description} Narrate the outcome.`,
-              'act',
-            );
+            if (DURABLE_GENERATION_ENABLED) {
+              void narrateDurableBeat(
+                `I roll ${trigger.label}.`,
+                `${result.description} Narrate the outcome.`,
+                'act',
+              );
+            } else {
+              void narrate(
+                `I roll ${trigger.label}.`,
+                `${result.description} Narrate the outcome.`,
+                'act',
+              ); // byte-unchanged legacy path
+            }
           }
         } else if (trigger.sides === 20) {
           // Plain d20 button: a bare (unmodified) d20 — kind='raw' with no
@@ -2160,7 +2288,7 @@ export default function PlayPage() {
         setRollBusy(false);
       }
     },
-    [session, username, advantage, talking, combatBusy, narrate, toast],
+    [session, username, advantage, talking, combatBusy, narrate, narrateDurableBeat, toast],
   );
 
   // ── safety: X-card (DDX-26) ──────────────────────────────────────────────
@@ -2213,14 +2341,23 @@ export default function PlayPage() {
       // Kage #1 / Miko DEFECT-2: this beat only narrates a transition the
       // caller's own scene_advance already performed server-side — suppress
       // the server's INTENT classifier from advancing the scene AGAIN.
-      void narrate(
-        'The scene changes.',
-        `Scene advance: ${fromScene} → ${toScene}. Narrate the transition.`,
-        'act',
-        { suppressIntent: true },
-      );
+      if (DURABLE_GENERATION_ENABLED) {
+        void narrateDurableBeat(
+          'The scene changes.',
+          `Scene advance: ${fromScene} → ${toScene}. Narrate the transition.`,
+          'act',
+          { suppressIntent: true },
+        );
+      } else {
+        void narrate(
+          'The scene changes.',
+          `Scene advance: ${fromScene} → ${toScene}. Narrate the transition.`,
+          'act',
+          { suppressIntent: true },
+        ); // byte-unchanged legacy path
+      }
     },
-    [appendLog, refreshGrounding, narrate],
+    [appendLog, refreshGrounding, narrate, narrateDurableBeat],
   );
 
   /** Manual "Move on" button handler (ADV-7T). */
@@ -2260,12 +2397,21 @@ export default function PlayPage() {
         // Kage #1 / Miko DEFECT-2: advanceScene() above already moved the
         // scene server-side — suppress the INTENT classifier from advancing
         // it a second time off this confirmation beat.
-        void narrate(
-          'We move on.',
-          `Scene advance: ${result.from_scene} → ${result.to_scene}. Narrate the transition.`,
-          'act',
-          { suppressIntent: true },
-        );
+        if (DURABLE_GENERATION_ENABLED) {
+          void narrateDurableBeat(
+            'We move on.',
+            `Scene advance: ${result.from_scene} → ${result.to_scene}. Narrate the transition.`,
+            'act',
+            { suppressIntent: true },
+          );
+        } else {
+          void narrate(
+            'We move on.',
+            `Scene advance: ${result.from_scene} → ${result.to_scene}. Narrate the transition.`,
+            'act',
+            { suppressIntent: true },
+          ); // byte-unchanged legacy path
+        }
       } catch (err) {
         const status = (err as { status?: number } | null)?.status;
         if (status === 400) {
@@ -2281,7 +2427,17 @@ export default function PlayPage() {
         setSceneAdvanceBusy(false);
       }
     },
-    [session, username, talking, appendLog, refreshGrounding, refocusSceneHeadIfStranded, narrate, toast],
+    [
+      session,
+      username,
+      talking,
+      appendLog,
+      refreshGrounding,
+      refocusSceneHeadIfStranded,
+      narrate,
+      narrateDurableBeat,
+      toast,
+    ],
   );
 
   /**
@@ -2322,9 +2478,15 @@ export default function PlayPage() {
         // Kage #1 / Miko DEFECT-2: resolveCheck() above already resolved the
         // check (and any resulting flag/auto-advance) server-side — suppress
         // the INTENT classifier from acting on this confirmation beat too.
-        void narrate(`I attempt a ${skillLabel} check.`, result.mechanics, 'act', {
-          suppressIntent: true,
-        });
+        if (DURABLE_GENERATION_ENABLED) {
+          void narrateDurableBeat(`I attempt a ${skillLabel} check.`, result.mechanics, 'act', {
+            suppressIntent: true,
+          });
+        } else {
+          void narrate(`I attempt a ${skillLabel} check.`, result.mechanics, 'act', {
+            suppressIntent: true,
+          }); // byte-unchanged legacy path
+        }
       } catch (err) {
         const status = (err as { status?: number } | null)?.status;
         const body = (err as { body?: unknown } | null)?.body;
@@ -2352,6 +2514,7 @@ export default function PlayPage() {
       refreshGrounding,
       refocusSceneHeadIfStranded,
       narrate,
+      narrateDurableBeat,
       toast,
     ],
   );
@@ -2399,11 +2562,19 @@ export default function PlayPage() {
         kind: 'system',
         text: `Combat begins — ${monsterNames} close in. Roll initiative.`,
       });
-      void narrate(
-        'We are under attack!',
-        `Combat starts. ${monsterNames} enter the scene. Set the scene.`,
-        'act',
-      );
+      if (DURABLE_GENERATION_ENABLED) {
+        void narrateDurableBeat(
+          'We are under attack!',
+          `Combat starts. ${monsterNames} enter the scene. Set the scene.`,
+          'act',
+        );
+      } else {
+        void narrate(
+          'We are under attack!',
+          `Combat starts. ${monsterNames} enter the scene. Set the scene.`,
+          'act',
+        ); // byte-unchanged legacy path
+      }
     } catch (err) {
       const status = (err as { status?: number } | null)?.status;
       if (status === 400) {
@@ -2415,7 +2586,7 @@ export default function PlayPage() {
       combatBusyRef.current = false;
       setCombatBusy(false);
     }
-  }, [session, username, toast, appendLog, narrate]);
+  }, [session, username, toast, appendLog, narrate, narrateDurableBeat]);
 
   const onCombatAction = useCallback(
     async (action: CombatAction, payload?: string) => {
@@ -2502,7 +2673,21 @@ export default function PlayPage() {
         }
 
         appendLog({ who: username, kind: 'system', text: message });
-        await narrate(playerLine, message, 'act');
+        // DDX-20 Pass 3 §3.3 — flag-OFF this `await` serializes end-turn
+        // narration ahead of the scene-advance call just below (preserved
+        // verbatim). Flag-ON, `narrateDurableBeat` returns after the job is
+        // CREATED, not after narration completes, so it is fired-and-forgot
+        // (`void`, no `await`) here — the accepted trade-off documented in
+        // Pass-3 §3.3: beat 2 (scene-advance) may 409 subscribe-and-drop
+        // against this beat's still-streaming narration; the scene still
+        // advances (its durable `scene_advance` event is independent). Do
+        // NOT try to serialize these — that re-couples the beats for a
+        // cosmetic gain the single-slot model already bounds.
+        if (DURABLE_GENERATION_ENABLED) {
+          void narrateDurableBeat(playerLine, message, 'act');
+        } else {
+          await narrate(playerLine, message, 'act'); // byte-unchanged legacy path
+        }
 
         // Monsters' turns (after the player ends theirs) are driven uniformly by
         // the auto monster-turn effect below — it picks up whenever combatState
@@ -2543,6 +2728,7 @@ export default function PlayPage() {
       combatState,
       appendLog,
       narrate,
+      narrateDurableBeat,
       toast,
       handleSceneAdvance,
       refreshGrounding,

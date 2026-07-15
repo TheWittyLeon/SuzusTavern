@@ -440,6 +440,15 @@ export interface DmTurnRequest {
   session_id: string;
   message: string;
   mechanics?: string;
+  /**
+   * DDX-20 Pass 3 (Synthetic-Beat Design §6.1) — tells the server's INTENT
+   * classifier not to re-advance the scene for a beat whose caller already
+   * advanced it via its own dedicated endpoint (roll/check/scene-advance/
+   * combat confirmations). Already accepted end-to-end by
+   * `DMNarrationStreamRequest`; this is the only Tavern-side change needed
+   * to carry it on the durable `/dm/turn` payload.
+   */
+  suppress_intent?: boolean;
   mode?: 'say' | 'act' | 'ooc' | 'dm_narration';
   turn_key: string;
   kind?: 'beat' | 'opening' | 'recap';
