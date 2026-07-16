@@ -166,30 +166,48 @@ describe('subscribeDmJob', () => {
     (global as Record<string, unknown>).fetch = mockFetch;
   });
 
-  it('opens GET /api/narration/dm/stream?job_id= and yields the SSE tail', async () => {
+  it('opens GET /api/narration/dm/stream?job_id=&session_id= and yields the SSE tail', async () => {
     mockFetch.mockResolvedValueOnce(
       sseResponse('data: {"success":true,"text":"The door creaks."}\n\ndata: [DONE]\n\n'),
     );
 
-    const events = await collect(subscribeDmJob('job-1'));
+    const events = await collect(subscribeDmJob('job-1', 'sess-1'));
 
     expect(events).toEqual([{ kind: 'chunk', text: 'The door creaks.' }, { kind: 'done' }]);
     const [url, opts] = mockFetch.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('/api/narration/dm/stream?job_id=job-1');
+    expect(url).toBe('/api/narration/dm/stream?job_id=job-1&session_id=sess-1');
     expect(opts.method).toBe('GET');
     expect(opts.credentials).toBe('same-origin');
   });
 
+  // F8 regression lock: the engine's GET /dm/stream route 400s
+  // (`params_required`) unless BOTH job_id AND session_id are present.
+  it('F8 regression: query string carries BOTH job_id and session_id', async () => {
+    mockFetch.mockResolvedValueOnce(sseResponse('data: [DONE]\n\n'));
+    await collect(subscribeDmJob('job-1', 'sess-1'));
+    const [url] = mockFetch.mock.calls[0] as [string];
+    const parsed = new URL(url, 'http://localhost');
+    expect(parsed.searchParams.get('job_id')).toBe('job-1');
+    expect(parsed.searchParams.get('session_id')).toBe('sess-1');
+  });
+
   it('encodes the job_id in the query string', async () => {
     mockFetch.mockResolvedValueOnce(sseResponse('data: [DONE]\n\n'));
-    await collect(subscribeDmJob('job/with spaces'));
+    await collect(subscribeDmJob('job/with spaces', 'sess-1'));
     const [url] = mockFetch.mock.calls[0] as [string];
-    expect(url).toBe('/api/narration/dm/stream?job_id=job%2Fwith%20spaces');
+    expect(url).toBe('/api/narration/dm/stream?job_id=job%2Fwith%20spaces&session_id=sess-1');
+  });
+
+  it('encodes the session_id in the query string', async () => {
+    mockFetch.mockResolvedValueOnce(sseResponse('data: [DONE]\n\n'));
+    await collect(subscribeDmJob('job-1', 'sess/with spaces'));
+    const [url] = mockFetch.mock.calls[0] as [string];
+    expect(url).toBe('/api/narration/dm/stream?job_id=job-1&session_id=sess%2Fwith%20spaces');
   });
 
   it('yields {kind:"error"} on non-2xx', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ error: 'not_found' }, 404));
-    const events = await collect(subscribeDmJob('unknown-job'));
+    const events = await collect(subscribeDmJob('unknown-job', 'sess-1'));
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ kind: 'error' });
   });
@@ -197,14 +215,16 @@ describe('subscribeDmJob', () => {
   it('returns silently on pre-flight abort', async () => {
     const controller = new AbortController();
     controller.abort();
-    const events = await collect(subscribeDmJob('job-1', { signal: controller.signal }));
+    const events = await collect(
+      subscribeDmJob('job-1', 'sess-1', { signal: controller.signal }),
+    );
     expect(events).toHaveLength(0);
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it('yields {kind:"error", error:"network"} on fetch throw', async () => {
     mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
-    const events = await collect(subscribeDmJob('job-1'));
+    const events = await collect(subscribeDmJob('job-1', 'sess-1'));
     expect(events).toEqual([{ kind: 'error', error: 'network' }]);
   });
 });

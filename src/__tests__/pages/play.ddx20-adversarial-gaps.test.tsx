@@ -256,7 +256,11 @@ describe('ADVERSARIAL — reload mid-turn reconstructs purely from poll (mocked)
         await Promise.resolve();
       });
 
-      expect(mockSubscribeDmJob).toHaveBeenCalledWith('job-reload', expect.anything());
+      expect(mockSubscribeDmJob).toHaveBeenCalledWith(
+        'job-reload',
+        expect.anything(),
+        expect.anything(),
+      );
 
       // Let the SSE tail's first chunk actually land and register itself in
       // the ledger (subscribeToJob's chunk handler sets
@@ -354,7 +358,11 @@ describe('ADVERSARIAL — reload mid-turn reconstructs purely from poll (mocked)
         await Promise.resolve();
         await Promise.resolve();
       });
-      expect(mockSubscribeDmJob).toHaveBeenCalledWith('job-race', expect.anything());
+      expect(mockSubscribeDmJob).toHaveBeenCalledWith(
+        'job-race',
+        expect.anything(),
+        expect.anything(),
+      );
 
       const log = await screen.findByRole('log');
       // Nothing rendered into the transcript yet — the SSE tail is still gated.

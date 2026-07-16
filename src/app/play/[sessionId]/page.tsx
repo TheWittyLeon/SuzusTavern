@@ -800,7 +800,7 @@ export default function PlayPage() {
       // the durable row the poll already appended is canonical.
       let pollClaimedNarration = false;
       try {
-        for await (const ev of subscribeDmJob(jobId, { signal: ctrl.signal })) {
+        for await (const ev of subscribeDmJob(jobId, sessionId, { signal: ctrl.signal })) {
           if (ev.kind === 'chunk') {
             full = ev.text;
             setThinking(false);
@@ -882,7 +882,7 @@ export default function PlayPage() {
         }
       }
     },
-    [clearStreamNarration, upsertStreamNarration, appendLog],
+    [sessionId, clearStreamNarration, upsertStreamNarration, appendLog],
   );
 
   // ── load session + party ────────────────────────────────────────────────────

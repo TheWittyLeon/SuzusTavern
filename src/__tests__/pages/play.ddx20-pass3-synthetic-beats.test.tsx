@@ -544,7 +544,11 @@ describe('Pass-3 synthetic beat #3 (scene-transition / onMoveOn) — flag ON, §
     // error row, no retry affordance, and (unlike the composer's 409
     // text-restore) no textbox content was ever touched — this beat never
     // had composer text to restore in the first place.
-    expect(mockSubscribeDmJob).toHaveBeenCalledWith('job-inflight', expect.anything());
+    expect(mockSubscribeDmJob).toHaveBeenCalledWith(
+      'job-inflight',
+      expect.anything(),
+      expect.anything(),
+    );
     expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/stepped away/i)).not.toBeInTheDocument();
     expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('');
@@ -725,7 +729,11 @@ describe('Pass-3 combat→scene sequencing (beat 6 in-flight → beat 2 409) —
     // combat turn" symptom, and the root cause of Finding 2's orphan ledger
     // entry).
     expect(mockSubscribeDmJob).toHaveBeenCalledTimes(1);
-    expect(mockSubscribeDmJob).toHaveBeenCalledWith('job-6', expect.anything());
+    expect(mockSubscribeDmJob).toHaveBeenCalledWith(
+      'job-6',
+      expect.anything(),
+      expect.anything(),
+    );
 
     // No error/retry surface from any of this — both beats are silent by
     // design (§3.1/§3.2).

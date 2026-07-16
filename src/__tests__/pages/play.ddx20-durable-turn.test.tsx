@@ -244,7 +244,11 @@ describe('durable turn happy path', () => {
 
     // Live SSE tail subscribed and its chunk rendered.
     await waitFor(() => {
-      expect(mockSubscribeDmJob).toHaveBeenCalledWith('job-1', expect.anything());
+      expect(mockSubscribeDmJob).toHaveBeenCalledWith(
+        'job-1',
+        expect.anything(),
+        expect.anything(),
+      );
     });
     await waitFor(() => {
       expect(screen.getAllByText('The door creaks open.').length).toBeGreaterThan(0);
@@ -316,7 +320,11 @@ describe('409-busy pivot', () => {
     );
 
     // Subscribed to the OTHER client's in-flight job, not a new one.
-    expect(mockSubscribeDmJob).toHaveBeenCalledWith('job-inflight', expect.anything());
+    expect(mockSubscribeDmJob).toHaveBeenCalledWith(
+      'job-inflight',
+      expect.anything(),
+      expect.anything(),
+    );
   });
 });
 
@@ -429,7 +437,11 @@ describe("don't-re-POST rule (stateless poll-discovery)", () => {
         await Promise.resolve();
       });
 
-      expect(mockSubscribeDmJob).toHaveBeenCalledWith('job-other', expect.anything());
+      expect(mockSubscribeDmJob).toHaveBeenCalledWith(
+        'job-other',
+        expect.anything(),
+        expect.anything(),
+      );
       expect(mockPostDmTurn).not.toHaveBeenCalled();
     } finally {
       jest.useRealTimers();

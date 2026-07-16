@@ -299,13 +299,16 @@ export async function postDmTurn(
 
 /**
  * DDX-20 — subscribe to a durable job's SSE tail (live accelerator / resume,
- * Client Integration Design §6). GET /api/narration/dm/stream?job_id=.
+ * Client Integration Design §6). GET /api/narration/dm/stream?job_id=&session_id=.
+ * `sessionId` is required — the engine's GET /dm/stream route 400s
+ * (`params_required`) without both `job_id` and `session_id`.
  * Reuses `readSSE` — the BFF's SSE-passthrough branch for this sub-path is
  * unchanged, so the wire format (chunk/done/error) matches
  * `streamDmNarration` exactly.
  */
 export async function* subscribeDmJob(
   jobId: string,
+  sessionId: string,
   options: ReadSSEOptions = {},
 ): AsyncIterableIterator<NarrationEvent> {
   const { signal } = options;
@@ -313,11 +316,14 @@ export async function* subscribeDmJob(
 
   let res: Response;
   try {
-    res = await fetch(`/api/narration/dm/stream?job_id=${encodeURIComponent(jobId)}`, {
-      method: 'GET',
-      credentials: 'same-origin',
-      signal,
-    });
+    res = await fetch(
+      `/api/narration/dm/stream?job_id=${encodeURIComponent(jobId)}&session_id=${encodeURIComponent(sessionId)}`,
+      {
+        method: 'GET',
+        credentials: 'same-origin',
+        signal,
+      },
+    );
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') return;
     yield { kind: 'error', error: 'network' };
