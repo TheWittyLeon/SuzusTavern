@@ -22,9 +22,36 @@ function storageKey(sessionId: string): string {
   return `${STORAGE_PREFIX}${sessionId}${STORAGE_SUFFIX}`;
 }
 
-/** Mint a fresh UUID v4 turn_key. */
+/**
+ * Mint a fresh UUID v4 turn_key.
+ *
+ * `crypto.randomUUID()` is SECURE-CONTEXT-ONLY (undefined over plain HTTP to
+ * a non-localhost host). The Tavern's production deployment serves over
+ * plain HTTP on the LAN (no TLS — `docker-compose.tavern.yml`,
+ * `COOKIE_SECURE: "false"`), so a hard dependency on `randomUUID` throws a
+ * `TypeError` before the turn is ever POSTed — silently killing the entire
+ * durable-generation path (DDX-20 F11). We prefer native `randomUUID` when
+ * it's available, and otherwise build a spec-correct UUIDv4 from
+ * `crypto.getRandomValues()`, which is NOT secure-context-gated (unlike
+ * `randomUUID`/`crypto.subtle`) and is universally available in browsers.
+ *
+ * `turn_key` is an idempotency anchor, not a security credential — the
+ * engine authorizes durable reads via an authoritative
+ * `get_generation_job(session_id, job_id)` check — so `getRandomValues`
+ * entropy is more than sufficient here. There is deliberately no
+ * `Math.random()` fallback: if `getRandomValues` is somehow absent, throwing
+ * loudly is correct.
+ */
 export function mintTurnKey(): string {
-  return crypto.randomUUID();
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+  bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant 10xx
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 /**

@@ -17,6 +17,50 @@ describe('mintTurnKey', () => {
   it('two mints never collide', () => {
     expect(mintTurnKey()).not.toBe(mintTurnKey());
   });
+
+  it('delegates to crypto.randomUUID when it is available (native path)', () => {
+    const nativeValue = '11111111-1111-4111-8111-111111111111';
+    const spy = jest.spyOn(crypto, 'randomUUID').mockReturnValue(nativeValue);
+    expect(mintTurnKey()).toBe(nativeValue);
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+  });
+
+  describe('F11 regression lock — insecure context (crypto.randomUUID undefined)', () => {
+    // crypto.randomUUID() is secure-context-only: it is undefined over plain
+    // HTTP to a non-localhost host. The Tavern's prod deployment IS plain
+    // HTTP on the LAN, so this path must never throw and must always
+    // produce a spec-correct UUIDv4 via the getRandomValues fallback.
+    let originalRandomUUID: typeof crypto.randomUUID;
+
+    beforeEach(() => {
+      originalRandomUUID = crypto.randomUUID;
+      // Simulate an insecure context where the browser never defines this
+      // method at all. `randomUUID` lives on the Crypto prototype in
+      // Node/jsdom, so a plain `delete` on the instance is a no-op — assign
+      // an own property shadowing it with `undefined` instead.
+      (crypto as { randomUUID?: unknown }).randomUUID = undefined;
+    });
+
+    afterEach(() => {
+      crypto.randomUUID = originalRandomUUID;
+    });
+
+    it('still returns a valid UUIDv4 and does not throw', () => {
+      expect(typeof crypto.randomUUID).toBe('undefined');
+      let key = '';
+      expect(() => {
+        key = mintTurnKey();
+      }).not.toThrow();
+      expect(key).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      );
+    });
+
+    it('two successive fallback mints differ', () => {
+      expect(mintTurnKey()).not.toBe(mintTurnKey());
+    });
+  });
 });
 
 describe('save/read/clear round-trip', () => {
