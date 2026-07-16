@@ -441,6 +441,20 @@ export default function PlayPage() {
   // reconstruction test in reconcileEvents.test.ts.
   const renderedSeqsRef = useRef<Set<number>>(new Set());
   const pendingByKeyRef = useRef<Map<string, PendingTurnEntry>>(new Map());
+  // DDX-20 F9+Recap Post-Review Fix (Kage-CR IMPORTANT / Miko-QA MEDIUM,
+  // fold commit) — a SEPARATE ledger for journalEvents' own merge-by-seq
+  // dedup (pollDurable below). Cannot reuse renderedSeqsRef: that one tracks
+  // the TRANSCRIPT log (reconcileDurableEvents' rule 1), a different array
+  // with a different lifecycle from journalEvents (DDX-22's raw event feed,
+  // covering every kind the transcript doesn't render too — recap,
+  // scene_advance, npcs_introduced). Seeded at mount alongside journalEvents
+  // itself (below); mutated key-by-key AS pollDurable iterates its batch —
+  // mirrors reconcileDurableEvents' own rule 1, which is intra-tick safe for
+  // the same reason: it checks-and-adds one event at a time instead of
+  // computing a static "seen" snapshot once per tick. A missing `seq`
+  // normalizes to the shared key `0` (see pollDurable for the justification)
+  // rather than being treated as unconditionally unique.
+  const journalSeenSeqsRef = useRef<Set<number>>(new Set());
   // DDX-20 Pass 2 — the in-flight job surfaced by the poll's
   // `pending_generation` block (Technical Design §2.2), promoted to real
   // state so the resume/busy affordance (§9) can render off it. Drives the
@@ -917,8 +931,15 @@ export default function PlayPage() {
         // no separate request. Sorted defensively (the engine's GET /events
         // has no ordering guarantee, matching the LogRow rehydration sort
         // just below) so JournalPane's derivations can assume ascending seq.
+        //
+        // Post-review fix (Kage-CR IMPORTANT / Miko-QA MEDIUM, fold commit)
+        // — journalSeenSeqsRef is seeded from this same sorted list so
+        // pollDurable's first tick has something to dedup against instead of
+        // starting from an empty set (see pollDurable below).
         if (rawEvents) {
-          setJournalEvents([...rawEvents].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0)));
+          const journalSeed = [...rawEvents].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+          setJournalEvents(journalSeed);
+          journalSeenSeqsRef.current = new Set(journalSeed.map((e) => e.seq ?? 0));
         }
 
         // PLAY-PERSIST §6.2 — rehydrate the transcript ONCE on mount, before the
@@ -976,25 +997,44 @@ export default function PlayPage() {
 
           // DDX-20 F9+Recap Design §2.2 — arm the durable reconcile ledger's
           // rule-1 dedup (reconcileEvents.ts, `renderedSeqs.has(seq)`) for
-          // EVERY seq this rehydration just rendered (or deliberately
-          // skipped — opening_narrated/recap/rebind/etc. all map to null via
-          // eventToLogRow). Without this, `renderedSeqsRef` starts empty, so
-          // the FIRST flag-ON poll tick (which re-fetches the same history —
-          // the NekoNova hop silently drops `since_seq`, a separate,
-          // out-of-scope cross-repo bug filed as its own follow-up) has no
-          // way to recognise it already rendered these rows and re-appends
-          // all of them: the transcript doubles once, then stabilizes (F9).
-          // Seeded from `sorted` (every event), NOT from `rows` (only the
-          // ones that produced a LogRow) — seeding only the rendered subset
-          // would leave opening_narrated/recap/rebind/session_start
-          // unledgered, the exact hole this closes. This is a client-side
-          // invariant, not a trust in the wire: it fixes F9 even with the
-          // `since_seq` drop still in place, because the ledger no longer
-          // depends on the cursor being honoured at all. Flag-gated (the
-          // ledger is only ever read from `pollDurable`, itself reachable
-          // only when the flag is on) — seeding it flag-OFF would be inert
-          // but the dormancy contract is byte-identity, so gate explicitly
-          // rather than relying on "nobody reads it anyway".
+          // EVERY seq this rehydration just rendered. Without this,
+          // `renderedSeqsRef` starts empty, so the FIRST flag-ON poll tick
+          // (which re-fetches the same history — as of this fold, the
+          // NekoNova hop still drops `since_seq` in production: fixed
+          // upstream in ProjectNekoNova `be4db8a`
+          // (`feature/ddx-20-p1b-durable-runner`), not yet merged to main or
+          // deployed, so still the live behavior here — cross-repo, tracked
+          // as its own follow-up, not fixed in this repo) has no way to
+          // recognise it already rendered these rows and re-appends all of
+          // them: the transcript doubles once, then stabilizes (F9).
+          //
+          // Post-review comment fix (Kage-CR SUGGESTION, fold commit) — this
+          // used to justify seeding from `sorted` (every event) rather than
+          // `rows` (only the ones that produced a LogRow) by naming
+          // opening_narrated/recap/rebind/session_start as "the exact hole
+          // this closes". That was wrong: those four kinds all map to null
+          // via eventToLogRow, so reconcileDurableEvents' rule 5
+          // (appendIfRow -> null -> no row, reconcileEvents.ts:234-235)
+          // marks their seq seen on the FIRST poll tick regardless of
+          // whether mount pre-seeded them — pre-seeding them is harmless but
+          // redundant, never "the hole". The kinds that actually risk a
+          // VISIBLE duplicate on tick 1 are the ones eventToLogRow maps to a
+          // real row (narration, player_action, dm_narration, dice_roll,
+          // x_card, scene_advance, ...) with no pendingByKey match yet (a
+          // fresh mount has none) — THOSE are what re-append as duplicates
+          // if unseeded. `sorted` is still the right seed source (strictly
+          // more robust: a superset that never needs the reader to
+          // enumerate which kinds are safe to skip), just for that reason,
+          // not the one originally written here.
+          //
+          // This is a client-side invariant, not a trust in the wire: it
+          // fixes F9 even with the `since_seq` drop still in place, because
+          // the ledger no longer depends on the cursor being honoured at
+          // all. Flag-gated (the ledger is only ever read from
+          // `pollDurable`, itself reachable only when the flag is on) —
+          // seeding it flag-OFF would be inert but the dormancy contract is
+          // byte-identity, so gate explicitly rather than relying on
+          // "nobody reads it anyway".
           if (DURABLE_GENERATION_ENABLED) {
             for (const e of sorted) {
               if (e.seq != null) renderedSeqsRef.current.add(e.seq);
@@ -1262,11 +1302,14 @@ export default function PlayPage() {
           // DDX-20 F9+Recap Design §2.4 — merge-by-seq, NOT a blind append.
           // This comment used to claim "the cursor read only ever returns
           // rows this client hasn't seen yet, so appending is correct here"
-          // — that assumption is FALSE in production: the NekoNova hop
-          // silently drops `since_seq` before it reaches the engine
-          // (ProjectNekoNova/api/routes/dnd_sessions.py — cross-repo, filed
-          // separately, not fixed here), so `allNewEvents` is the FULL
-          // session history on EVERY poll tick, forever. A blind
+          // — that assumption is FALSE in production today: the NekoNova hop
+          // drops `since_seq` before it reaches the engine
+          // (ProjectNekoNova/api/routes/dnd_sessions.py) — fixed upstream in
+          // ProjectNekoNova `be4db8a` (`feature/ddx-20-p1b-durable-runner`),
+          // not yet merged to main or deployed as of this fold, so Tavern
+          // must keep defending against it regardless — cross-repo, filed
+          // separately, not fixed here. So `allNewEvents` is the FULL
+          // session history on EVERY poll tick, today. A blind
           // `[...prev, ...allNewEvents]` append therefore re-added the whole
           // history every ~4s: unbounded journalEvents growth, duplicate
           // React keys in deriveRecapHistory (`recap-${seq}`), and a fresh
@@ -1275,22 +1318,70 @@ export default function PlayPage() {
           // above does NOT cover it — journalEvents needs its own dedup.
           // Same "don't trust the network" posture as §2.2: correct
           // regardless of what the wire actually returns.
-          setJournalEvents((prev) => {
-            const seen = new Set(prev.map((e) => e.seq));
-            const fresh = allNewEvents.filter((e) => e.seq == null || !seen.has(e.seq));
-            // §10 observability — the live tell for the NekoNova since_seq
-            // drop (fresh 0, fetched N on every tick with no real new
-            // activity); flips to fetched:0 the day that hop is fixed.
-            // Masked: counts only, never prose/mechanics.
-            if (fresh.length < allNewEvents.length) {
-              console.debug('poll_page_redundant', {
-                fetched: allNewEvents.length,
-                fresh: fresh.length,
-              });
-            }
-            if (fresh.length === 0) return prev; // no-op guard — preserve the churn discipline
-            return [...prev, ...fresh].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
-          });
+          //
+          // Post-review fix (Kage-CR IMPORTANT / Miko-QA MEDIUM, fold
+          // commit) — the dedup used to build `seen` ONCE from `prev` and
+          // never update it while filtering `allNewEvents`, so it only
+          // deduped ACROSS ticks, never WITHIN one: the has_more catch-up
+          // loop above reproduces exactly that when the wire drops
+          // `since_seq` (an identical page gets refetched and concat'd onto
+          // `allNewEvents` before this runs). Separately, `e.seq == null`
+          // used to short-circuit straight to "fresh", so a malformed/
+          // legacy no-seq event bypassed dedup ENTIRELY and re-appended
+          // every tick, unbounded, for as long as the session stayed
+          // mounted — worse than the has_more case, which at least
+          // self-limits after 2 fetches. Fixed by mirroring
+          // reconcileDurableEvents' own rule 1 (reconcileEvents.ts):
+          // check-and-add one key at a time via journalSeenSeqsRef (seeded
+          // at mount alongside journalEvents, above) instead of computing a
+          // static snapshot once per tick.
+          //
+          // Seq normalizes via `?? 0` (matching reconcileEvents.ts:151 and
+          // lastEventSeqRef's own convention above), not treated as
+          // unconditionally unique when missing. Trade-off, stated plainly:
+          // two GENUINELY DISTINCT null-seq events arriving in the same
+          // window would collapse onto the shared `0` key and the second
+          // would be dropped as a false duplicate. Accepted because (a)
+          // EngineSessionEvent.seq (types.ts) is optional only for
+          // forward-compat — both engine paths always emit seq today, so
+          // this edge is dormant, not live — and (b) the alternative
+          // (today's behavior: null-seq events exempt from dedup entirely)
+          // is the strictly worse, ACTUALLY-reachable bug this fixes.
+          //
+          // console.debug hoisted above setJournalEvents (Kage-CR
+          // SUGGESTION) — state updaters must stay pure; React 19
+          // StrictMode double-invokes them to catch exactly this, and would
+          // have double-logged in dev. `journalFresh` is computed here (a
+          // plain, already-decided array) so the updater below only ever
+          // does a deterministic append + sort — no Set mutation, no
+          // logging, safe to double-invoke.
+          const journalFresh: EngineSessionEvent[] = [];
+          for (const e of allNewEvents) {
+            const key = e.seq ?? 0;
+            if (journalSeenSeqsRef.current.has(key)) continue;
+            journalSeenSeqsRef.current.add(key);
+            journalFresh.push(e);
+          }
+          // §10 observability — the live tell for the NekoNova since_seq
+          // drop (fresh 0, fetched N on every tick with no real new
+          // activity); flips to fetched:0 the day that hop is fixed. Now
+          // also catches the null-seq variant above (Kage-CR SUGGESTION —
+          // previously silent for it: a null-seq event always counted as
+          // "fresh" under the old filter, so fetched and fresh stayed
+          // numerically equal even on a 100%-redundant tick, and the has_more
+          // duplicate case never shrank `fresh` either since `seen` was never
+          // updated intra-batch). Masked: counts only, never prose/mechanics.
+          if (journalFresh.length < allNewEvents.length) {
+            console.debug('poll_page_redundant', {
+              fetched: allNewEvents.length,
+              fresh: journalFresh.length,
+            });
+          }
+          if (journalFresh.length > 0) {
+            setJournalEvents((prev) =>
+              [...prev, ...journalFresh].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0)),
+            );
+          }
 
           // §10 observability (Kage-CR low suggestion) — snapshot which
           // beat-origin ledger keys are still awaiting narration BEFORE
