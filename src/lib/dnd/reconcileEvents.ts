@@ -25,10 +25,11 @@
  *   2. player_action: match `data.turn_key` in pendingByKey -> STAMP seq onto
  *      the existing row (id unchanged). No match -> APPEND (reload / another
  *      client's turn).
- *   3. narration/recap: match the active turn AWAITING narration (see
- *      `awaitingNarration` below) whose triggerSeq this seq completes ->
- *      three sub-cases: (a) a live SSE-created row is still `streaming` ->
- *      REPLACE it with the durable row (fresh id — announce-once, mirrors
+ *   3. narration ONLY — never recap (DDX-20 F9+Recap Design §3.4, see below):
+ *      match the active turn AWAITING narration (see `awaitingNarration`
+ *      below) whose triggerSeq this seq completes -> three sub-cases: (a) a
+ *      live SSE-created row is still `streaming` -> REPLACE it with the
+ *      durable row (fresh id — announce-once, mirrors
  *      finalizeStreamNarration's own pattern); (b) the SSE-created row is
  *      already finalized (SSE delivered [DONE] first) -> just stamp seq;
  *      (c) NO SSE-created row exists yet (Kage #3 — the poll's own tick beat
@@ -38,6 +39,24 @@
  *      subscribeToJob) can detect the claim and become a no-op instead of
  *      creating a duplicate row. No match -> APPEND (reload / another
  *      client's turn nobody here is watching).
+ *
+ *      Recap is deliberately EXCLUDED from this rule. Recap never creates a
+ *      durable job — SessionRecap.tsx's request is a legacy streamDmNarration
+ *      call, never narrateDurable/narrateDurableBeat (see rehydration.ts's
+ *      own `'recap' -> null` note) — so it can never legitimately own a
+ *      pendingByKey entry. Every match this rule COULD make on a recap event
+ *      is therefore a false one, and the only reachable failure is a hijack
+ *      of an unrelated in-flight turn: it steals that turn's ledger entry
+ *      (sub-case (b): stamps `{seq}` but never `streaming: false`) and
+ *      strands its streaming row `aria-hidden` forever, while the real
+ *      narration later finds no entry and appends as a duplicate row. A
+ *      durable recap event instead falls to rule 5 below, where
+ *      `eventToLogRow` returns null for 'recap' -> a complete no-op (renders
+ *      nothing, matches nothing, just marks the seq processed). This holds
+ *      regardless of whether the engine's `_ALLOWED_PROXY_EVENT_KINDS`
+ *      allowlist ever adds 'recap' (ENGINE-RECAP-ALLOWLIST, P2, cross-repo,
+ *      not filed by this change) — the guard is unarmed BY CONSTRUCTION, not
+ *      by trusting that allowlist to stay as it is today.
  *   4. dm_narration: match `data.client_key` in pendingByKey exactly like
  *      player_action (same map/rules) -> STAMP or APPEND.
  *   5. Everything else (dice_roll/x_card/scene_advance/check_resolved/system
@@ -148,7 +167,12 @@ export function reconcileDurableEvents(
       continue;
     }
 
-    if (e.kind === 'narration' || e.kind === 'recap') {
+    // DDX-20 F9+Recap Design §3.4 — 'recap' is deliberately NOT matched here
+    // (see the module doc's rule 3 above for the full rationale). Recap can
+    // never own a pendingByKey entry, so letting it through would let it
+    // hijack an unrelated in-flight turn; it falls to rule 5 instead, where
+    // eventToLogRow(recap) -> null makes it a no-op.
+    if (e.kind === 'narration') {
       const match = findActiveNarrationEntry(pendingByKey, seq);
       if (match) {
         const [key, entry] = match;

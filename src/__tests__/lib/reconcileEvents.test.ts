@@ -83,7 +83,7 @@ describe('reconcileDurableEvents — rule 2 (player_action)', () => {
   });
 });
 
-describe('reconcileDurableEvents — rule 3 (narration/recap)', () => {
+describe('reconcileDurableEvents — rule 3 (narration)', () => {
   it('streaming row still growing: replaces it with the durable row (fresh id, announce-once)', () => {
     const renderedSeqs = new Set<number>();
     const pendingByKey = new Map<string, PendingTurnEntry>([
@@ -169,7 +169,16 @@ describe('reconcileDurableEvents — rule 3 (narration/recap)', () => {
     expect(result.appended).toHaveLength(1);
   });
 
-  it('recap kind uses the same matching rule as narration', () => {
+  it('DDX-20 F9+Recap Design §3.4 — a durable recap event NEVER matches an active narration entry (ENGINE-RECAP-ALLOWLIST safety guard)', () => {
+    // This test used to encode the opposite as intended behaviour ("recap
+    // kind uses the same matching rule as narration") — that was the bug.
+    // Recap never creates a durable job (SessionRecap.tsx's request is a
+    // legacy streamDmNarration call), so it can never legitimately own a
+    // pendingByKey entry; the only thing rule 3 could do with a recap event
+    // is hijack an UNRELATED in-flight turn's entry (steal its ledger slot,
+    // strand its streaming row aria-hidden forever). Rule 3 is narrowed to
+    // 'narration' only — a recap event now falls to rule 5, where
+    // eventToLogRow(recap) -> null makes it a complete no-op.
     const renderedSeqs = new Set<number>();
     const pendingByKey = new Map<string, PendingTurnEntry>([
       ['tk-1', { narrationRowId: 'r7', triggerSeq: 10, awaitingNarration: true }],
@@ -178,8 +187,21 @@ describe('reconcileDurableEvents — rule 3 (narration/recap)', () => {
       { seq: 11, kind: 'recap', data: { text: 'Previously on…' } },
     ];
     const result = reconcileDurableEvents(events, renderedSeqs, pendingByKey, noRow);
-    expect(result.stamped).toHaveLength(1);
-    expect(result.stamped[0].matchId).toBe('r7');
+    // No stamp, no append — a recap event can never match rule 3 or produce
+    // a row (rule 5's eventToLogRow(recap) -> null).
+    expect(result.stamped).toHaveLength(0);
+    expect(result.appended).toHaveLength(0);
+    // The entry is completely untouched: it survives, still awaiting the
+    // REAL narration for turn tk-1 — a recap landing mid-turn must not be
+    // able to delete or resolve someone else's ledger entry.
+    expect(pendingByKey.has('tk-1')).toBe(true);
+    expect(pendingByKey.get('tk-1')?.awaitingNarration).toBe(true);
+    expect(pendingByKey.get('tk-1')?.narrationRowId).toBe('r7');
+    // The seq is still marked processed (rule 5's ledger discipline applies
+    // even to a null-mapped kind — same treatment as opening_narrated/
+    // rebind/session_start), so a later duplicate poll of the SAME recap
+    // event can't re-process it either.
+    expect(renderedSeqs.has(11)).toBe(true);
   });
 
   it('an entry not yet marked awaitingNarration never matches (registration-required invariant)', () => {

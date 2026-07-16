@@ -974,6 +974,34 @@ export default function PlayPage() {
           // in `rows`, so start the poll's watermark at the newest seq seen.
           lastEventSeqRef.current = sorted.reduce((m, e) => Math.max(m, e.seq ?? 0), 0);
 
+          // DDX-20 F9+Recap Design §2.2 — arm the durable reconcile ledger's
+          // rule-1 dedup (reconcileEvents.ts, `renderedSeqs.has(seq)`) for
+          // EVERY seq this rehydration just rendered (or deliberately
+          // skipped — opening_narrated/recap/rebind/etc. all map to null via
+          // eventToLogRow). Without this, `renderedSeqsRef` starts empty, so
+          // the FIRST flag-ON poll tick (which re-fetches the same history —
+          // the NekoNova hop silently drops `since_seq`, a separate,
+          // out-of-scope cross-repo bug filed as its own follow-up) has no
+          // way to recognise it already rendered these rows and re-appends
+          // all of them: the transcript doubles once, then stabilizes (F9).
+          // Seeded from `sorted` (every event), NOT from `rows` (only the
+          // ones that produced a LogRow) — seeding only the rendered subset
+          // would leave opening_narrated/recap/rebind/session_start
+          // unledgered, the exact hole this closes. This is a client-side
+          // invariant, not a trust in the wire: it fixes F9 even with the
+          // `since_seq` drop still in place, because the ledger no longer
+          // depends on the cursor being honoured at all. Flag-gated (the
+          // ledger is only ever read from `pollDurable`, itself reachable
+          // only when the flag is on) — seeding it flag-OFF would be inert
+          // but the dormancy contract is byte-identity, so gate explicitly
+          // rather than relying on "nobody reads it anyway".
+          if (DURABLE_GENERATION_ENABLED) {
+            for (const e of sorted) {
+              if (e.seq != null) renderedSeqsRef.current.add(e.seq);
+            }
+            console.debug('ledger_seeded_from_rehydration', { count: sorted.length });
+          }
+
           // DDX-26 — run the banner's active-computation over the REHYDRATED
           // history too (not just future poll ticks), so a reloading client
           // sees an active, undismissed X-card banner for a still-unresolved
@@ -1231,14 +1259,38 @@ export default function PlayPage() {
         }
 
         if (allNewEvents.length > 0) {
-          // Same no-op-guard spirit as the legacy branch's Miko poll-churn
-          // fix — only touch journalEvents when there's real new activity.
-          // Unlike the legacy branch (full refetch, so it REPLACES
-          // journalEvents wholesale), the cursor read only ever returns rows
-          // this client hasn't seen yet, so appending is correct here.
-          setJournalEvents((prev) =>
-            [...prev, ...allNewEvents].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0)),
-          );
+          // DDX-20 F9+Recap Design §2.4 — merge-by-seq, NOT a blind append.
+          // This comment used to claim "the cursor read only ever returns
+          // rows this client hasn't seen yet, so appending is correct here"
+          // — that assumption is FALSE in production: the NekoNova hop
+          // silently drops `since_seq` before it reaches the engine
+          // (ProjectNekoNova/api/routes/dnd_sessions.py — cross-repo, filed
+          // separately, not fixed here), so `allNewEvents` is the FULL
+          // session history on EVERY poll tick, forever. A blind
+          // `[...prev, ...allNewEvents]` append therefore re-added the whole
+          // history every ~4s: unbounded journalEvents growth, duplicate
+          // React keys in deriveRecapHistory (`recap-${seq}`), and a fresh
+          // array identity every tick even when nothing changed. This runs
+          // BEFORE reconcileDurableEvents below, so the §2.2 ledger seed
+          // above does NOT cover it — journalEvents needs its own dedup.
+          // Same "don't trust the network" posture as §2.2: correct
+          // regardless of what the wire actually returns.
+          setJournalEvents((prev) => {
+            const seen = new Set(prev.map((e) => e.seq));
+            const fresh = allNewEvents.filter((e) => e.seq == null || !seen.has(e.seq));
+            // §10 observability — the live tell for the NekoNova since_seq
+            // drop (fresh 0, fetched N on every tick with no real new
+            // activity); flips to fetched:0 the day that hop is fixed.
+            // Masked: counts only, never prose/mechanics.
+            if (fresh.length < allNewEvents.length) {
+              console.debug('poll_page_redundant', {
+                fetched: allNewEvents.length,
+                fresh: fresh.length,
+              });
+            }
+            if (fresh.length === 0) return prev; // no-op guard — preserve the churn discipline
+            return [...prev, ...fresh].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+          });
 
           // §10 observability (Kage-CR low suggestion) — snapshot which
           // beat-origin ledger keys are still awaiting narration BEFORE
