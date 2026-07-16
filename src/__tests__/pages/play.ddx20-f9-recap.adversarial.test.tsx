@@ -425,6 +425,12 @@ describe('QA break-it — journalEvents dedup does not cover within-tick duplica
       Promise.resolve({ events: [...HISTORY], max_seq: 7, has_more: true, pending_generation: null }),
     );
 
+    // Kage-CR SUGGESTION (fold-pass polish) — this branch's own
+    // `poll_page_redundant` tell was previously only verified by reading
+    // console output during review, unlike the null-seq variant below (which
+    // pins it with `toEqual`). Mirrored here so a regression that silences
+    // the tell on THIS branch fails a test, not just a manual read.
+    const debugSpy = jest.spyOn(console, 'debug').mockImplementation(() => {});
     jest.useFakeTimers();
     try {
       render(<PlayPage />);
@@ -459,8 +465,19 @@ describe('QA break-it — journalEvents dedup does not cover within-tick duplica
       expect(
         within(recapSection).getAllByText('Previously, the tide rose fast.'),
       ).toHaveLength(1);
+
+      // Pinned tell (Kage-CR SUGGESTION): the has_more catch-up loop fetches
+      // twice before its own "no forward progress" guard breaks it (6-event
+      // HISTORY re-served both times = 12 fetched), and journalSeenSeqsRef
+      // dedups each of the 6 keys' second occurrence = 6 fresh. Asserted by
+      // exact shape, not just presence, so a regression that changes the
+      // counts (not just silences the call) also fails here.
+      const redundantCalls = debugSpy.mock.calls.filter((c) => c[0] === 'poll_page_redundant');
+      expect(redundantCalls).toHaveLength(1);
+      expect(redundantCalls).toEqual([['poll_page_redundant', { fetched: 12, fresh: 6 }]]);
     } finally {
       jest.useRealTimers();
+      debugSpy.mockRestore();
     }
   });
 
