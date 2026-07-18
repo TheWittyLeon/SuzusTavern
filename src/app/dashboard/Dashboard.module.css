@@ -339,6 +339,23 @@
   .campaignIcon {
     display: none;
   }
+  /* UIR2-TAV-15: the base .campaignName rule forces a single-line ellipsis
+     at every width. At 390px the row's `1fr` name track (squeezed further
+     by the Open + delete buttons) only fits ~14 characters before that
+     ellipsis kicks in, so two campaigns that share a long prefix ("The
+     Sunken..." / "The Sunken...") render identically and are impossible to
+     tell apart. Relax to a 2-line clamp on phone widths only — desktop/
+     tablet rows keep the single-line truncation (the wider `1fr` track
+     there rarely needs it). */
+  .campaignName {
+    white-space: normal;
+    overflow: hidden;
+    text-overflow: clip;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    line-height: 1.3;
+  }
   .charGrid {
     gap: 8px;
   }
