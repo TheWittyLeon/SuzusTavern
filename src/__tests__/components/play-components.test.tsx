@@ -135,6 +135,20 @@ describe('Composer', () => {
     expect(onAction).toHaveBeenCalledWith('attack', 'g1');
   });
 
+  it('A11Y-PANEL-SEMANTICS: the action rail group is labelled via aria-labelledby pointing at its visible .railLabel kicker, not a separately-authored aria-label string', () => {
+    render(
+      <Composer
+        {...base}
+        combat={{ targets: [{ id: 'g1', name: 'Goblin' }], onAction: jest.fn(), busy: false }}
+      />,
+    );
+    const rail = screen.getByRole('group', { name: 'Your character’s actions' });
+    const label = screen.getByText('Your character’s actions');
+    expect(rail.getAttribute('aria-label')).toBeNull();
+    expect(rail.getAttribute('aria-labelledby')).toBe(label.id);
+    expect(label.id).toBeTruthy();
+  });
+
   it('disables Attack when isPlayerTurn is false', () => {
     const onAction = jest.fn();
     render(

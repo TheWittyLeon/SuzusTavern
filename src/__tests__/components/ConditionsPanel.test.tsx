@@ -115,6 +115,14 @@ describe('ConditionsPanel — rendering', () => {
     expect(screen.getByRole('button', { name: 'Remove Poisoned from Goblin' })).toBeInTheDocument();
   });
 
+  it('A11Y-PANEL-SEMANTICS: exposes a group landmark labelled by its own visible kicker (not a duplicated aria-label string)', () => {
+    renderPanel();
+    const group = screen.getByRole('group', { name: 'Conditions' });
+    const label = screen.getByText('Conditions');
+    expect(group.getAttribute('aria-labelledby')).toBe(label.id);
+    expect(label.id).toBeTruthy();
+  });
+
   it('shows "No active conditions." when nobody has one', () => {
     renderPanel({ participants: [VELKA] });
     expect(screen.getByText('No active conditions.')).toBeInTheDocument();

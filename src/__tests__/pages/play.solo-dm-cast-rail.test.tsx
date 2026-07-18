@@ -437,7 +437,10 @@ describe('Iro CRITICAL-1 — turn-flip refocus is scoped to the local-click prov
     // local click AND the newly active participant (p-self) is this
     // viewer's own bound PC (entity_id 'c1').
     await waitFor(() => {
-      const rail = screen.getByRole('group', { name: "Your character's actions" });
+      // A11Y-PANEL-SEMANTICS: the rail's accessible name is now sourced via
+      // aria-labelledby from the visible .railLabel node (curly apostrophe),
+      // not a separately-authored aria-label string.
+      const rail = screen.getByRole('group', { name: 'Your character’s actions' });
       expect(rail).toHaveFocus();
     });
   });
@@ -534,7 +537,7 @@ describe('Iro CRITICAL-1 — turn-flip refocus is scoped to the local-click prov
     // participant (Doran, c2) is NOT the DM's own bound PC (Velka, c1) — the
     // ownership gate must keep the DM's composer rail from being focused
     // just because this DM happens to have a rail at all.
-    const rail = screen.getByRole('group', { name: "Your character's actions" });
+    const rail = screen.getByRole('group', { name: 'Your character’s actions' });
     expect(rail).not.toHaveFocus();
   });
 });

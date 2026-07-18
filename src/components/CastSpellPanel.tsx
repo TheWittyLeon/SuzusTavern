@@ -278,8 +278,17 @@ export default function CastSpellPanel({
   const castDisabled = busy || disabled || notYourTurn || !selectedSpell;
 
   return (
-    <div className={styles.panel} aria-busy={busy}>
-      <p className={styles.panelLabel}>
+    <div
+      className={styles.panel}
+      aria-busy={busy}
+      // A11Y-PANEL-SEMANTICS (P3): give this panel a landmark-equivalent
+      // group + accessible name wired to its own visible label (mirrors
+      // DmNarrationPanel's <section aria-label="DM monster control">), so AT
+      // users get the same region cue that panel already provides.
+      role="group"
+      aria-labelledby={`${uid}-label`}
+    >
+      <p id={`${uid}-label`} className={styles.panelLabel}>
         <Icon name="Sparkle" size={12} aria-hidden /> Cast a spell
       </p>
       {listState === 'loading' && !list && (

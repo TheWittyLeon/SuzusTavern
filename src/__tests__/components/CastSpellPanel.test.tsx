@@ -250,6 +250,15 @@ describe('CastSpellPanel — castable picker', () => {
     expect(await screen.findByText('Nothing castable right now.')).toBeInTheDocument();
     expect(screen.queryByLabelText('Spell')).not.toBeInTheDocument();
   });
+
+  it('A11Y-PANEL-SEMANTICS: exposes a group landmark labelled by its own visible kicker (not a duplicated aria-label string)', async () => {
+    renderPanel();
+    await flush();
+    const group = screen.getByRole('group', { name: 'Cast a spell' });
+    const label = screen.getByText('Cast a spell');
+    expect(group.getAttribute('aria-labelledby')).toBe(label.id);
+    expect(label.id).toBeTruthy();
+  });
 });
 
 describe('CastSpellPanel — DDX-04 upcast slot-level chooser', () => {

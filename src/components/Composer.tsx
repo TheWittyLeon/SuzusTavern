@@ -13,7 +13,7 @@
  * callback receives the participant_id (not the name) as payload for attack so the
  * play page can send target_id to the engine (name fallback retained for compat).
  */
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useId, useRef, useState, type RefObject } from 'react';
 import Icon from '@/components/Icon';
 import styles from './Composer.module.css';
 
@@ -95,6 +95,11 @@ function ActionRail({
   const railRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const attackBtnRef = useRef<HTMLButtonElement>(null);
+  // A11Y-PANEL-SEMANTICS (P3): id for the visible .railLabel kicker below,
+  // referenced via aria-labelledby instead of a separately-authored aria-label
+  // — avoids the rail's accessible name being sourced twice (once from the
+  // string literal, once from the visible text node with the same words).
+  const railUid = useId();
 
   const notYourTurn = combat.isPlayerTurn === false;
 
@@ -191,11 +196,16 @@ function ActionRail({
       // Tora MAJOR-1: before this, nothing distinguished "your character's
       // controls" from DmNarrationPanel's "DM monster control" region — the
       // two now co-render for a solo human-DM playing their own PC
-      // (TAV-SOLO-DM-CAST-RAIL). role="group" + aria-label gives AT users the
-      // same region cue DmNarrationPanel's <section aria-label="DM monster
-      // control"> already provides.
+      // (TAV-SOLO-DM-CAST-RAIL). role="group" + aria-labelledby gives AT
+      // users the same region cue DmNarrationPanel's <section aria-label="DM
+      // monster control"> already provides.
+      //
+      // A11Y-PANEL-SEMANTICS (P3): labelledby (not a separate aria-label
+      // string) so the accessible name is sourced from the ONE visible
+      // .railLabel node below, not duplicated across two places with the
+      // same text.
       role="group"
-      aria-label="Your character's actions"
+      aria-labelledby={`${railUid}-label`}
       // Tora MAJOR-2: programmatic focus anchor (mirrors sceneHeadRef) — the
       // play page refocuses this container if a turn flip disables the
       // button the user was just on, stranding focus on <body>.
@@ -203,7 +213,9 @@ function ActionRail({
     >
       {/* Visible uppercase kicker, matching the panelLabel convention shared
           by DmNarrationPanel/ConditionsPanel/CastSpellPanel. */}
-      <div className={styles.railLabel}>Your character&rsquo;s actions</div>
+      <div id={`${railUid}-label`} className={styles.railLabel}>
+        Your character&rsquo;s actions
+      </div>
       {/* A11Y (Iro HIGH-3): polite live-region fires once when it becomes the player's
           turn. Kept visually hidden; the text clears after 4s to avoid stale state. */}
       <div
