@@ -246,7 +246,11 @@
   padding: 0 12px;
   font-size: 12px;
   border-radius: 8px;
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST (P3): --line is a decorative hairline
+     (~1.2:1), fails WCAG 1.4.11's 3:1 non-text contrast for an interactive
+     control's border. --line-strong is the same hue at a verified ≥3:1
+     alpha — see globals.css's per-vibe --line-strong comment. */
+  border: 1px solid var(--line-strong);
   background: transparent;
   color: var(--ink-2);
   cursor: pointer;
@@ -427,7 +431,10 @@
   padding: 0 16px;
   font-size: 13px;
   border-radius: 10px;
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST (P3): see .xCardBannerDismiss's comment above
+     — --line-strong clears WCAG 1.4.11's 3:1 non-text contrast, --line
+     doesn't. */
+  border: 1px solid var(--line-strong);
   background: transparent;
   color: var(--ink-2);
   cursor: pointer;

@@ -36,6 +36,15 @@
   --ink-3:      #9992a4;
   --line:       rgba(255,255,255,0.08);
   --line-2:     rgba(255,255,255,0.04);
+  /* A11Y-BUTTON-BORDER-CONTRAST: --line is a decorative hairline (~1.2:1
+     against --bg/--card-solid) — fine for a divider, fails WCAG 1.4.11's
+     3:1 non-text contrast when used as an INTERACTIVE control's border
+     (button/input outline). --line-strong is that same hue bumped to a
+     verified ≥3:1 composite (measured via relative-luminance blend against
+     both --bg and --card-solid) for controls that need a perceivable edge.
+     Not a --line replacement — --line stays the default hairline for
+     dividers/cards; use --line-strong only on interactive borders. */
+  --line-strong: rgba(255,255,255,0.38);
 
   --accent:     #f08bb6;   /* dusk rose — primary */
   --accent-2:   #b39ef0;   /* lavender — secondary */
@@ -94,6 +103,10 @@
   --ink-3:      #655442;
   --line:       rgba(42,30,22,0.10);
   --line-2:     rgba(42,30,22,0.05);
+  /* A11Y-BUTTON-BORDER-CONTRAST: see the dusk-tavern --line-strong comment —
+     same rationale, candlelit-tuned alpha (verified ≥3:1 vs --bg and
+     --card-solid). */
+  --line-strong: rgba(42,30,22,0.55);
 
   --accent:     #b5462a;   /* ember red */
   --accent-2:   #6b4a2a;   /* burnt umber */
@@ -149,6 +162,10 @@
   --ink-3:      #7a82a8;
   --line:       rgba(120,160,255,0.10);
   --line-2:     rgba(120,160,255,0.05);
+  /* A11Y-BUTTON-BORDER-CONTRAST: see the dusk-tavern --line-strong comment —
+     same rationale, aetheric-tuned alpha (verified ≥3:1 vs --bg and
+     --card-solid). */
+  --line-strong: rgba(120,160,255,0.60);
 
   --accent:     #7ee8e2;   /* arcane teal */
   --accent-2:   #c4a3ff;   /* amethyst */
@@ -194,6 +211,10 @@
   --ink-3:      #7d9286;
   --line:       rgba(200,232,210,0.10);
   --line-2:     rgba(200,232,210,0.05);
+  /* A11Y-BUTTON-BORDER-CONTRAST: see the dusk-tavern --line-strong comment —
+     same rationale, moonlit-grove-tuned alpha (verified ≥3:1 vs --bg and
+     --card-solid). */
+  --line-strong: rgba(200,232,210,0.42);
 
   --accent:     #9cd6a8;   /* moss-silver */
   --accent-2:   #c8b6e6;   /* lavender mist */
