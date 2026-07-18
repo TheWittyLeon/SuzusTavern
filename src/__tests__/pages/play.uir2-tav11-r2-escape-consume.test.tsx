@@ -496,3 +496,127 @@ describe('UIR2-TAV-11 r2 — document-level Award-XP fallback busy-strand legs',
     await waitFor(() => expect(xpFormPresent()).toBe(false));
   });
 });
+
+// ── UIR2-TAV-11 r3 (Miko-QA re-gate): DmNarrationPanel attack-menu focus-move ──
+//
+// r2 fixed every Escape-handling overlay/menu to consume its own Escape via
+// unconditional stopPropagation() — but Miko-QA's r2 re-gate found ONE more
+// reachable leak: DmNarrationPanel's monster attack-target menu never moved
+// focus into itself on open, so a REAL Escape keypress (which the browser
+// dispatches at document.activeElement) targeted the Attack BUTTON — a
+// sibling of the menu, not a descendant — and bubbled straight past the
+// menu's own (already-unconditional, r2) stopPropagation() handler, because
+// React synthetic handlers (and native bubbling generally) only fire for
+// events whose target is inside their subtree. Test #1 above proves the
+// menu's handler works correctly WHEN an Escape reaches it; this test proves
+// a real Escape actually reaches it, by firing at document.activeElement
+// (wherever focus really is) instead of hardcoding the menu node.
+//
+// r3's fix: a useEffect keyed on the menu's open state moves focus to the
+// first [role="menuitem"] on open (mirrors Composer.tsx ActionRail's
+// identical APG menu-button pattern), so the menu's stopPropagation()
+// becomes load-bearing again.
+describe('UIR2-TAV-11 r3 — DmNarrationPanel attack-menu focus-on-open', () => {
+  const SESSION_HUMAN: Session = {
+    session_id: 's1',
+    channel: 'the_hollow_tide',
+    status: 'active',
+    dm_username: 'dm_alice',
+    name: 'The Hollow Tide',
+    active_combat_id: 'combat-42',
+    dm_mode: 'human',
+    ai_assist_level: 'full',
+  };
+
+  const PARTY_HUMAN: Participant[] = [
+    { username: 'dm_alice', is_dm: true, character: null },
+  ];
+
+  const COMBAT_HUMAN: CombatState = {
+    combat_id: 'combat-42',
+    session_id: 's1',
+    round: 1,
+    state: 'active',
+    turn_index: 0,
+    active_participant_id: 'p_gob1',
+    initiative: ['p_gob1', 'p_bob1'],
+    participants: [
+      {
+        participant_id: 'p_gob1',
+        entity_id: 'm1',
+        name: 'Goblin',
+        is_pc: false,
+        initiative: 10,
+        hp_current: 7,
+        hp_max: 7,
+        ac: 13,
+        conditions: [],
+        is_alive: true,
+        can_be_targeted: true,
+        is_active_turn: true,
+        took_turn: false,
+      },
+      {
+        participant_id: 'p_bob1',
+        entity_id: 'c_bob',
+        name: 'Bob',
+        is_pc: true,
+        initiative: 8,
+        hp_current: 12,
+        hp_max: 12,
+        ac: 14,
+        conditions: [],
+        is_alive: true,
+        can_be_targeted: true,
+        is_active_turn: false,
+        took_turn: false,
+      },
+    ],
+  };
+
+  function setup() {
+    jest.clearAllMocks();
+    mGetSession.mockResolvedValue(SESSION_HUMAN);
+    mGetParticipants.mockResolvedValue(PARTY_HUMAN);
+    mGetCombatState.mockResolvedValue(COMBAT_HUMAN);
+  }
+
+  it('[Miko r2 re-gate, PROVEN] opening the attack-target menu moves focus into it, so a real Escape (dispatched at whatever has focus) is consumed by the menu and never reaches the Award-XP fallback', async () => {
+    setup();
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+
+    await openAwardXp();
+
+    const attackBtn = await screen.findByRole('button', { name: 'Attack — pick target' });
+    fireEvent.click(attackBtn);
+    const menu = await screen.findByRole('menu', { name: /Goblin — pick target/i });
+
+    // Non-vacuity anchor: focus must have moved onto the first menuitem —
+    // exactly what the r3 focus-move effect does. Without the fix,
+    // document.activeElement never becomes a descendant of `menu` (it stays
+    // wherever it was — the button never gets programmatically focused in
+    // JSDOM either way), so this assertion is the load-bearing proof the fix
+    // ran.
+    const firstItem = within(menu).getAllByRole('menuitem')[0];
+    expect(firstItem).toHaveFocus();
+    expect(attackBtn).not.toHaveFocus();
+
+    // The exact repro: dispatch Escape at document.activeElement — i.e.
+    // wherever a real browser would actually deliver the keypress. Pre-fix
+    // that's the Attack button (OUTSIDE the menu's subtree, so the menu's
+    // handler never runs and the event bubbles unchecked to the
+    // document-level Award-XP fallback). Post-fix it's the menuitem itself
+    // (inside the menu), so the menu's own unconditional stopPropagation()
+    // consumes it before it can reach the fallback.
+    fireEvent.keyDown(document.activeElement as Element, { key: 'Escape' });
+
+    // The menu's own close behavior (r2-proven, unchanged) still fires.
+    await waitFor(() =>
+      expect(screen.queryByRole('menu', { name: /Goblin — pick target/i })).not.toBeInTheDocument(),
+    );
+    // The leak: pre-fix, this Escape reached the document-level fallback and
+    // silently closed the unrelated Award-XP popover.
+    expect(xpFormPresent()).toBe(true);
+  });
+});

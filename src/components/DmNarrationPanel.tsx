@@ -106,6 +106,7 @@ function MonsterRow({
   const busyRef = useRef(false);
   const attackBtnRef = useRef<HTMLButtonElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const targetMenuRef = useRef<HTMLDivElement>(null);
   // Iro CRITICAL-1: wraps the whole Attack/Skip/Move action row (not just the
   // attack dropdown) so the provenance check below catches all three buttons.
   const actionsWrapRef = useRef<HTMLDivElement>(null);
@@ -123,6 +124,21 @@ function MonsterRow({
     };
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
+  }, [targetOpen]);
+
+  // UIR2-TAV-11 r3 (Miko-QA re-gate): APG menu-button — move focus into the
+  // menu when it opens (mirrors Composer.tsx ActionRail, lines ~131-136).
+  // Without this, focus stays on the Attack button — a sibling of the menu,
+  // not a descendant — so the menu's onKeyDown Escape handler (React
+  // synthetic events only fire for targets inside the subtree) never runs,
+  // and Escape bubbles unchecked to the document-level Award-XP fallback
+  // listener, silently cross-closing it. With focus guaranteed inside the
+  // menu on open, the menu's own unconditional stopPropagation() becomes
+  // load-bearing and the leak closes at the root.
+  useEffect(() => {
+    if (targetOpen) {
+      targetMenuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    }
   }, [targetOpen]);
 
   const hpPct =
@@ -286,6 +302,7 @@ function MonsterRow({
                 className={styles.npcTargetMenu}
                 role="menu"
                 aria-label={`${monster.name} — pick target`}
+                ref={targetMenuRef}
                 onKeyDown={(e) => {
                   if (e.key === 'Escape') {
                     // UIR2-TAV-11 r2 (Miko-QA re-gate): consume Escape
