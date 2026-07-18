@@ -217,9 +217,24 @@ function LoginForm() {
     setTimeout(() => passwordRef.current?.focus(), 0);
   }, []);
 
+  // UIR2-TAV-8 / UIR2-TAV-5-INLINEBRAND: `.inlineBrand` has always shipped in
+  // Login.module.css (display:flex, ≤640px only) but was never rendered —
+  // at phone widths the leftPane brand strip is `display:none` (see
+  // leftPane's ≤640px rule) and nothing replaced it, leaving the form
+  // floating with no brand identity above the heading. aria-hidden mirrors
+  // leftPane's own aria-hidden: purely decorative, the real page heading
+  // ("Welcome back." / "One more step.") already carries the a11y content.
+  const inlineBrand = (
+    <div className={styles.inlineBrand} aria-hidden="true">
+      <SuzuDM size={28} glow={false} />
+      <span className={styles.brandTitle}>Aurora Tavern</span>
+    </div>
+  );
+
   // ── Right pane — 2FA step ─────────────────────────────────────────────────
   const renderTwoFAStep = () => (
     <form onSubmit={handleVerifySubmit} className={styles.rightPane} noValidate>
+      {inlineBrand}
       {/* Back affordance */}
       <Button
         variant="ghost"
@@ -299,6 +314,7 @@ function LoginForm() {
   // ── Right pane — credentials step ─────────────────────────────────────────
   const renderCredentialsStep = () => (
     <form onSubmit={handleSubmit} className={styles.rightPane} noValidate>
+      {inlineBrand}
       {/* Back to landing */}
       <Button
         variant="ghost"

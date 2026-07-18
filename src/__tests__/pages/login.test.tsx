@@ -14,7 +14,7 @@
  */
 
 import React, { Suspense } from 'react';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 // ── Mock next/navigation ─────────────────────────────────────────────────────
@@ -309,5 +309,36 @@ describe('Login page — OAuth coming soon', () => {
     const discordBtn = screen.getByRole('button', { name: /discord/i });
     expect(discordBtn).toBeDisabled();
     expect(discordBtn).toHaveAttribute('aria-disabled', 'true');
+  });
+});
+
+// UIR2-TAV-8 / UIR2-TAV-5-INLINEBRAND: the ≤640px collapse (fixed by TAV-5)
+// hides the whole decorative leftPane brand strip via CSS, leaving the form
+// with no brand identity at phone widths. `.inlineBrand` was defined in
+// Login.module.css for exactly this (display:flex at ≤640px) but was never
+// rendered anywhere. This is a regression guard for the "never applied"
+// half of the bug: it can't assert computed CSS in jsdom, but it proves the
+// element exists in the form's DOM subtree with the class the ≤640px media
+// query targets — i.e. that a browser at that width actually has something
+// to show. A snapshot-of-JSX-emptiness check (no such node at all) is what
+// would have caught the original bug.
+describe('Login page — inline brand (UIR2-TAV-8 / TAV-5-INLINEBRAND)', () => {
+  it('renders an .inlineBrand element inside the credentials form', async () => {
+    renderLogin();
+    const form = screen.getByLabelText('Tavern handle').closest('form')!;
+    const brand = within(form).getByText('Aurora Tavern');
+    expect(brand.closest('.inlineBrand')).not.toBeNull();
+    // Decorative only — the real a11y heading is the visible h1.
+    expect(brand.closest('[aria-hidden="true"]')).not.toBeNull();
+  });
+
+  it('renders an .inlineBrand element inside the 2FA form too', async () => {
+    mockLogin.mockResolvedValueOnce({ kind: '2fa', partial_token: 'pt-abc' });
+    renderLogin();
+    await submitCredentials('alice', 'hunter2');
+    const totpInput = await screen.findByLabelText(/6-digit authenticator code/i);
+    const form = totpInput.closest('form')!;
+    const brand = within(form).getByText('Aurora Tavern');
+    expect(brand.closest('.inlineBrand')).not.toBeNull();
   });
 });
