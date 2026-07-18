@@ -100,6 +100,12 @@ describe('ThemeProvider', () => {
     // useEffect fires after mount; wait one tick for state to settle.
     await act(async () => {});
     expect(screen.getByTestId('probe')).toHaveTextContent('moonlit-grove/compact');
+    // DDX-THEME-MOUNT-DOM: this is the CSP-blocked/no-flash-skipped scenario
+    // — the dataset attribute was never painted, so React resolved the vibe
+    // from storage alone. The mount effect must mirror that resolution back
+    // onto <html data-vibe>, not just React state, or the DOM stays on the
+    // SSR default while the picker/UI think a different vibe is active.
+    expect(document.documentElement.dataset.vibe).toBe('moonlit-grove');
   });
 
   it('throws if useTheme is used outside a provider', () => {

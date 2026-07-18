@@ -93,7 +93,20 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     // Resolved concrete vibe: trust what the no-flash script painted; otherwise
     // resolve the preference against the OS (SSR/no-matchMedia → dark default).
     const domVibe = d.dataset.vibe;
-    setVibeResolved(isVibe(domVibe) ? domVibe : resolveVibe(pref, prefersLight()));
+    const resolved = isVibe(domVibe) ? domVibe : resolveVibe(pref, prefersLight());
+    setVibeResolved(resolved);
+    // DDX-THEME-MOUNT-DOM (P3): mirror the resolved value onto the DOM so a
+    // no-flash script that never ran (CSP block, extension interference,
+    // etc.) doesn't strand <html data-vibe> on the static SSR default while
+    // React's own state has already resolved a different vibe. Runs
+    // post-hydration inside this effect — same timing as the OS-listener and
+    // setVibe writes below — so it can't cause a hydration mismatch (only a
+    // render-time attribute diff would). When domVibe was already a trusted,
+    // syntactically-valid value this is a same-value no-op: `resolved` is
+    // literally `domVibe` in that branch, so the write changes nothing —
+    // theme.test.tsx's CHARACTERIZATION test (an already-present, valid
+    // data-vibe "wins" over the stored pref) is unaffected by this line.
+    if (d.dataset.vibe !== resolved) d.dataset.vibe = resolved;
 
     const domDensity = d.dataset.density;
     if (isDensity(domDensity)) setDensityState(domDensity);
