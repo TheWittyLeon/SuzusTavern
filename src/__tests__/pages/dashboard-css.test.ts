@@ -61,4 +61,11 @@ describe('Dashboard.module.css — .campaignName relaxes to a 2-line clamp at <=
     expect(overrideBlock).toContain('white-space: normal');
     expect(overrideBlock).toContain('-webkit-line-clamp: 2');
   });
+
+  it('Miko-QA gate: the phone-block clamp keeps an ellipsis affordance, not a hard `clip` cut (UIR2-TAV-15 regression)', () => {
+    const mediaIdx = cssContent.indexOf('@media (max-width: 480px)');
+    const overrideBlock = ruleBlock('.campaignName', mediaIdx);
+    expect(overrideBlock).toContain('text-overflow: ellipsis');
+    expect(overrideBlock).not.toContain('text-overflow: clip');
+  });
 });

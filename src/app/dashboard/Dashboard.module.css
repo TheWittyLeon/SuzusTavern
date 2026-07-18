@@ -350,7 +350,12 @@
   .campaignName {
     white-space: normal;
     overflow: hidden;
-    text-overflow: clip;
+    /* Miko-QA gate (UIR2-TAV-15 follow-up): `clip` hard-cuts a name that
+       spills past line 2 with no "…" cue — worse than the single-line
+       ellipsis this was meant to relax. `ellipsis` DOES render at the
+       clamp point in blink/webkit for -webkit-box truncation, so keep the
+       standard multiline-ellipsis combo instead. */
+    text-overflow: ellipsis;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
