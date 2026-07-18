@@ -3253,19 +3253,35 @@ export default function PlayPage() {
   // attaches while xpFormOpen is true, and mirrors the in-form handler's
   // close + refocus-trigger behavior.
   //
-  // Miko-QA adversarial gate (post-ship regression, fixed here): this
-  // listener originally assumed it composed safely with the other
-  // Escape-handling overlays (journal, combat outcome chooser,
-  // end-session ConfirmDialog) because "those call e.stopPropagation()".
-  // That's only true while those overlays are IDLE — the outcome chooser
-  // (Tora MINOR-1, `!combatBusy` guard) and ConfirmDialog (`!busy` guard)
-  // both deliberately do NOT stopPropagation() while a request from them is
-  // in flight, so the user can watch/retry it. With no mutual-exclusion,
-  // that "swallowed" Escape fell through to this listener and silently
-  // closed the unrelated Award-XP popover. Fix: no-op here whenever another
-  // Escape-handling overlay is on screen — if that overlay is idle it will
-  // already have stopPropagation()'d before we'd ever run; if it's busy, its
-  // Escape is intentionally inert and must not fall through to us either.
+  // r1 (Miko-QA adversarial gate, post-ship regression): this listener
+  // originally assumed it composed safely with the other Escape-handling
+  // overlays (journal, combat outcome chooser, end-session ConfirmDialog)
+  // because "those call e.stopPropagation()". That was only true while those
+  // overlays were IDLE — several deliberately did NOT stopPropagation()
+  // while a request from them was in flight (so the user could watch/retry
+  // it), and with no mutual-exclusion that "swallowed" Escape fell through
+  // to this listener and silently closed the unrelated Award-XP popover.
+  // r1's fix enumerated the 3 known overlays below.
+  //
+  // r2 (Miko-QA re-gate — enumeration is whack-a-mole): the r1 enumeration
+  // wasn't exhaustive — 4 MORE Escape-handling overlays/menus in this
+  // subtree (DmNarrationPanel's monster-attack menu, RebindCharacterButton,
+  // Composer's player-attack menu, DmOverrideModal) had the identical shape
+  // and leaked the same way. The real fix is structural, not enumerative:
+  // EVERY Escape-handling overlay/menu/modal under /play now calls
+  // e.stopPropagation() UNCONDITIONALLY on Escape — gating only the
+  // close/state-change on its own busy flag, never the stopPropagation. That
+  // means an Escape fired inside any such overlay is consumed at its own DOM
+  // node and physically cannot reach this document-level listener, by
+  // construction — no enumeration required. See ConfirmDialog.tsx,
+  // DmOverrideModal.tsx, RebindCharacterButton.tsx, DmNarrationPanel.tsx,
+  // Composer.tsx, and the outcome-chooser/xpForm handlers just above/below
+  // in this file for the pattern.
+  //
+  // The 3-overlay guard below is KEPT as belt-and-suspenders (it's cheap and
+  // still correct) but is no longer load-bearing for the invariant — if a
+  // new Escape-handling overlay is ever added under /play and follows the
+  // consume-your-own-Escape pattern, it does NOT need to be added here.
   useEffect(() => {
     if (!xpFormOpen) return;
     const onDocumentKeyDown = (e: KeyboardEvent) => {
@@ -3940,14 +3956,17 @@ export default function PlayPage() {
                 className={styles.xpForm}
                 aria-label="Award session XP"
                 onKeyDown={(e) => {
-                  // Miko-QA gate, Finding 2: guard on sessionActionBusy==='xp'
-                  // for consistency with the two sibling busy-guarded
-                  // patterns (outcome chooser's `!combatBusy`, ConfirmDialog's
-                  // `!busy`) — Escape shouldn't dismiss the popover mid-award.
-                  if (e.key === 'Escape' && sessionActionBusy !== 'xp') {
+                  // Miko-QA gate, Finding 2 + UIR2-TAV-11 r2: stopPropagation
+                  // is UNCONDITIONAL — this form always consumes its own
+                  // Escape. Only the actual dismiss stays gated on
+                  // sessionActionBusy==='xp' (an in-flight award shouldn't be
+                  // dismissable mid-request).
+                  if (e.key === 'Escape') {
                     e.stopPropagation();
-                    setXpFormOpen(false);
-                    xpToggleBtnRef.current?.focus();
+                    if (sessionActionBusy !== 'xp') {
+                      setXpFormOpen(false);
+                      xpToggleBtnRef.current?.focus();
+                    }
                   }
                 }}
                 onSubmit={(e) => {
@@ -4409,11 +4428,18 @@ export default function PlayPage() {
                 role="group"
                 aria-label="Choose combat outcome"
                 onKeyDown={(e) => {
-                  // Tora MAJOR-2: Escape closes the chooser and returns focus to the trigger.
-                  if (e.key === 'Escape' && !combatBusy) {
+                  // Tora MAJOR-2: Escape closes the chooser and returns focus
+                  // to the trigger. UIR2-TAV-11 r2 (Miko-QA re-gate):
+                  // stopPropagation is UNCONDITIONAL — the chooser always
+                  // consumes its own Escape so a busy Escape can't bubble to
+                  // the document-level Award-XP fallback below. Only the
+                  // actual close stays gated on `!combatBusy`.
+                  if (e.key === 'Escape') {
                     e.stopPropagation();
-                    setOutcomeChooserOpen(false);
-                    endCombatBtnRef.current?.focus();
+                    if (!combatBusy) {
+                      setOutcomeChooserOpen(false);
+                      endCombatBtnRef.current?.focus();
+                    }
                   }
                 }}
               >

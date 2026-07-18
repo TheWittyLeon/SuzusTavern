@@ -162,6 +162,10 @@ function ActionRail({
       items[(idx - 1 + items.length) % items.length]?.focus();
     } else if (e.key === 'Escape') {
       e.preventDefault();
+      // UIR2-TAV-11 r2 (Miko-QA re-gate): consume Escape unconditionally so
+      // it can never bubble to the page-level Award-XP fallback listener —
+      // this menu has no busy state to gate on, so the close always fires.
+      e.stopPropagation();
       setTargetOpen(false);
       attackBtnRef.current?.focus();
     } else if (e.key === 'Tab') {

@@ -288,6 +288,11 @@ function MonsterRow({
                 aria-label={`${monster.name} — pick target`}
                 onKeyDown={(e) => {
                   if (e.key === 'Escape') {
+                    // UIR2-TAV-11 r2 (Miko-QA re-gate): consume Escape
+                    // unconditionally so it can never bubble to the page-level
+                    // Award-XP fallback listener — this menu has no busy
+                    // state to gate on, so the close always fires too.
+                    e.stopPropagation();
                     setTargetOpen(false);
                     attackBtnRef.current?.focus();
                   }

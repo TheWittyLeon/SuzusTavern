@@ -89,9 +89,15 @@ export default function ConfirmDialog({
 
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === 'Escape' && !busy) {
+      if (e.key === 'Escape') {
+        // UIR2-TAV-11 r2 (Miko-QA re-gate): stopPropagation is UNCONDITIONAL —
+        // this dialog always consumes its own Escape so a busy Escape can't
+        // bubble to the page-level Award-XP fallback listener (or any other
+        // ancestor). Only the actual cancel stays gated on `!busy`.
         e.stopPropagation();
-        onCancel();
+        if (!busy) {
+          onCancel();
+        }
         return;
       }
       // Minimal focus trap between the two buttons.

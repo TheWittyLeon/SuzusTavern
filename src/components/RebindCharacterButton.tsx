@@ -171,9 +171,15 @@ function RebindCharacterButtonInner({
   // Tab trap: cycle focusable children within the popover.
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === 'Escape' && !busy) {
+      if (e.key === 'Escape') {
+        // UIR2-TAV-11 r2 (Miko-QA re-gate): stopPropagation is UNCONDITIONAL —
+        // this popover always consumes its own Escape so a busy (mid-save)
+        // Escape can't bubble to the page-level Award-XP fallback listener.
+        // Only the actual close/state-change stays gated on `!busy`.
         e.stopPropagation();
-        closePopover();
+        if (!busy) {
+          closePopover();
+        }
         return;
       }
 

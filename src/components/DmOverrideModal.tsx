@@ -146,7 +146,12 @@ export default function DmOverrideModal({
   // Focus trap within the dialog
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === 'Escape' && !submitting) {
+      if (e.key === 'Escape') {
+        // UIR2-TAV-11 r2 (Miko-QA re-gate): stopPropagation is UNCONDITIONAL —
+        // this modal always consumes its own Escape so a busy (submitting)
+        // Escape can't bubble to the page-level Award-XP fallback listener.
+        // handleClose() already no-ops while submitting, so the busy gate
+        // still applies to the actual close.
         e.stopPropagation();
         handleClose();
         return;
@@ -171,7 +176,7 @@ export default function DmOverrideModal({
         }
       }
     },
-    [submitting, handleClose],
+    [handleClose],
   );
 
   const buildOutcome = ():
