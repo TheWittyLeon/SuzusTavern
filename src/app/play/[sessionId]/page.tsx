@@ -3243,6 +3243,29 @@ export default function PlayPage() {
     }
   }, [session, username, sessionId, xpAmount, xpReason, refreshSessionAfterAction, toast]);
 
+  // UIR2-TAV-11: the xpForm's own onKeyDown only fires while focus is inside
+  // the form's DOM subtree (a native keydown that starts there and bubbles
+  // stops before reaching document once that handler calls
+  // e.stopPropagation() — see below). If focus moves elsewhere on the page
+  // while the popover is still open (e.g. the user tabs or clicks out
+  // without dismissing it first), that in-form handler never runs and Escape
+  // does nothing. This document-level listener is the fallback: it only
+  // attaches while xpFormOpen is true, and mirrors the in-form handler's
+  // close + refocus-trigger behavior. It composes safely with the in-form
+  // handler and with other Escape handlers in this component (journal,
+  // combat outcome chooser) because those call e.stopPropagation() /
+  // manage their own disjoint state — this only ever touches xpFormOpen.
+  useEffect(() => {
+    if (!xpFormOpen) return;
+    const onDocumentKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setXpFormOpen(false);
+      xpToggleBtnRef.current?.focus();
+    };
+    document.addEventListener('keydown', onDocumentKeyDown);
+    return () => document.removeEventListener('keydown', onDocumentKeyDown);
+  }, [xpFormOpen]);
+
   // Auto-drive monster turns. Whenever combat is active and the current turn
   // belongs to a living NPC, run that monster's turn — looping through all
   // consecutive NPC turns until it's a PC's turn or combat ends. Without this,

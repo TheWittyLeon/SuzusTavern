@@ -318,4 +318,31 @@ describe('DDX-25 — Award XP', () => {
 
     expect(mockAwardSessionXp).not.toHaveBeenCalled();
   });
+
+  it('UIR2-TAV-11: Escape closes the popover even once focus has left the form, and restores focus to the trigger', async () => {
+    mockUsername = 'dm_alice';
+    setup();
+    await renderAndWaitForControls();
+
+    const trigger = screen.getByRole('button', { name: /Award XP/i });
+    fireEvent.click(trigger);
+    const form = await screen.findByRole('form', { name: /Award session XP/i });
+    expect(form).toBeInTheDocument();
+
+    // Move focus OUTSIDE the form's DOM subtree (e.g. the user tabbed to
+    // another Session controls button without dismissing the popover
+    // first). A keydown originating here never bubbles through the form's
+    // own onKeyDown handler, which only sees events whose target is inside
+    // the form — this is the exact gap UIR2-TAV-11 reports.
+    const endSessionBtn = screen.getByRole('button', { name: /End session/i });
+    endSessionBtn.focus();
+    expect(endSessionBtn).toHaveFocus();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    await waitFor(() =>
+      expect(screen.queryByRole('form', { name: /Award session XP/i })).not.toBeInTheDocument(),
+    );
+    expect(trigger).toHaveFocus();
+  });
 });
