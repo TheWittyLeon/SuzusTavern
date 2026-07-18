@@ -3251,20 +3251,36 @@ export default function PlayPage() {
   // without dismissing it first), that in-form handler never runs and Escape
   // does nothing. This document-level listener is the fallback: it only
   // attaches while xpFormOpen is true, and mirrors the in-form handler's
-  // close + refocus-trigger behavior. It composes safely with the in-form
-  // handler and with other Escape handlers in this component (journal,
-  // combat outcome chooser) because those call e.stopPropagation() /
-  // manage their own disjoint state — this only ever touches xpFormOpen.
+  // close + refocus-trigger behavior.
+  //
+  // Miko-QA adversarial gate (post-ship regression, fixed here): this
+  // listener originally assumed it composed safely with the other
+  // Escape-handling overlays (journal, combat outcome chooser,
+  // end-session ConfirmDialog) because "those call e.stopPropagation()".
+  // That's only true while those overlays are IDLE — the outcome chooser
+  // (Tora MINOR-1, `!combatBusy` guard) and ConfirmDialog (`!busy` guard)
+  // both deliberately do NOT stopPropagation() while a request from them is
+  // in flight, so the user can watch/retry it. With no mutual-exclusion,
+  // that "swallowed" Escape fell through to this listener and silently
+  // closed the unrelated Award-XP popover. Fix: no-op here whenever another
+  // Escape-handling overlay is on screen — if that overlay is idle it will
+  // already have stopPropagation()'d before we'd ever run; if it's busy, its
+  // Escape is intentionally inert and must not fall through to us either.
   useEffect(() => {
     if (!xpFormOpen) return;
     const onDocumentKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
+      if (outcomeChooserOpen || endSessionConfirmOpen || journalOpen) return;
+      // Finding 2: mirrors the in-form handler's sessionActionBusy==='xp'
+      // guard — an in-flight award shouldn't be dismissable via this
+      // fallback path either.
+      if (sessionActionBusy === 'xp') return;
       setXpFormOpen(false);
       xpToggleBtnRef.current?.focus();
     };
     document.addEventListener('keydown', onDocumentKeyDown);
     return () => document.removeEventListener('keydown', onDocumentKeyDown);
-  }, [xpFormOpen]);
+  }, [xpFormOpen, outcomeChooserOpen, endSessionConfirmOpen, journalOpen, sessionActionBusy]);
 
   // Auto-drive monster turns. Whenever combat is active and the current turn
   // belongs to a living NPC, run that monster's turn — looping through all
@@ -3924,7 +3940,11 @@ export default function PlayPage() {
                 className={styles.xpForm}
                 aria-label="Award session XP"
                 onKeyDown={(e) => {
-                  if (e.key === 'Escape') {
+                  // Miko-QA gate, Finding 2: guard on sessionActionBusy==='xp'
+                  // for consistency with the two sibling busy-guarded
+                  // patterns (outcome chooser's `!combatBusy`, ConfirmDialog's
+                  // `!busy`) — Escape shouldn't dismiss the popover mid-award.
+                  if (e.key === 'Escape' && sessionActionBusy !== 'xp') {
                     e.stopPropagation();
                     setXpFormOpen(false);
                     xpToggleBtnRef.current?.focus();
