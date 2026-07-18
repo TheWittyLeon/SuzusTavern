@@ -18,9 +18,10 @@
  * Rules of Hooks like any other. If it returns non-null, return that in place
  * of the page's real body.
  */
-import { useEffect, type ReactNode } from 'react';
+import { Children, cloneElement, isValidElement, useEffect, type ReactNode } from 'react';
 import * as NextNavigation from 'next/navigation';
 import { useAuth } from './AuthProvider';
+import PageSkeleton, { type PageSkeletonProps } from '@/components/PageSkeleton';
 import SessionExpired from '@/components/SessionExpired';
 
 // A long tail of pre-existing page tests mock next/navigation with only the
@@ -42,12 +43,41 @@ export interface UseAuthGateOptions {
   /** Rendered inside the bounded loading <main> while genuinely resolving. */
   skeleton: ReactNode;
   /**
-   * Per-page loading label (e.g. "Loading your dashboard"). Not rendered on the
-   * wrapper today — PageSkeleton owns the single loading announcement to avoid a
-   * double live-region (Iro-A11y MAJOR-1). Reserved for a follow-up
-   * (DDX-TAV3-SKELETON-LABEL) that plumbs per-page text into PageSkeleton.
+   * Per-page loading label (e.g. "Loading your dashboard"). DDX-TAV3-SKELETON-LABEL:
+   * threaded onto every <PageSkeleton> found inside `skeleton` (via
+   * `withSkeletonLabel` below) as that component's `label` prop — drives
+   * PageSkeleton's own single `role="status"` region's aria-label + sr-only
+   * text. Still exactly ONE live region per page (Iro-A11y MAJOR-1's
+   * constraint); this wrapper itself never gets its own aria-live/aria-label.
+   * A <PageSkeleton> that already sets an explicit `label` keeps it — this
+   * only fills in the default.
    */
   label: string;
+}
+
+/** DDX-TAV3-SKELETON-LABEL: recursively walk the caller-supplied skeleton
+ *  tree (a page's `skeleton` option is often a Fragment/div wrapping one or
+ *  more <PageSkeleton>s — see dashboard/page.tsx's stacked card+list
+ *  example) and set `label` on every <PageSkeleton> that doesn't already
+ *  have its own explicit one. Doesn't touch any other element type, and
+ *  never adds a new live region — it only changes the label PageSkeleton's
+ *  existing role="status" region already announces. */
+function withSkeletonLabel(node: ReactNode, label: string): ReactNode {
+  return Children.map(node, (child) => {
+    if (!isValidElement(child)) return child;
+    if (child.type === PageSkeleton) {
+      const props = child.props as PageSkeletonProps;
+      if (props.label !== undefined) return child;
+      return cloneElement(child, { label } as Partial<PageSkeletonProps>);
+    }
+    const props = child.props as { children?: ReactNode };
+    if (props.children !== undefined) {
+      return cloneElement(child, {
+        children: withSkeletonLabel(props.children, label),
+      } as { children: ReactNode });
+    }
+    return child;
+  });
 }
 
 /**
@@ -91,10 +121,11 @@ export function useAuthGate(opts: UseAuthGateOptions): ReactNode | null {
   // No aria-busy/aria-label here: PageSkeleton owns the single loading live
   // region (role="status"); a second one on this wrapper double-announces
   // (Iro-A11y MAJOR-1). id/tabIndex keep skip-link parity with the other two
-  // gate states and the real page shell.
+  // gate states and the real page shell. withSkeletonLabel threads opts.label
+  // into that ONE region rather than creating a second one here.
   return (
     <main id="main-content" tabIndex={-1} style={{ padding: 28 }}>
-      {opts.skeleton}
+      {withSkeletonLabel(opts.skeleton, opts.label)}
     </main>
   );
 }

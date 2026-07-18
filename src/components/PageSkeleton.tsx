@@ -77,6 +77,13 @@ export interface PageSkeletonProps {
   /** Number of lines/rows to render. Default: 4 */
   lines?: number;
   className?: string;
+  /**
+   * DDX-TAV3-SKELETON-LABEL: page-specific loading announcement (e.g.
+   * "Loading your dashboard"). Drives BOTH the aria-label and the sr-only
+   * text of this component's own single `role="status"` region — never adds
+   * a second live region. Defaults to the generic "Loading…" when omitted.
+   */
+  label?: string;
 }
 
 /**
@@ -92,17 +99,18 @@ export default function PageSkeleton({
   variant = 'lines',
   lines = 4,
   className = '',
+  label = 'Loading…',
 }: PageSkeletonProps) {
   return (
     <div
       role="status"
       aria-busy="true"
-      aria-label="Loading…"
+      aria-label={label}
       data-component="PageSkeleton"
       className={[styles.root, className].filter(Boolean).join(' ')}
     >
       {/* Screen-reader-only announcement */}
-      <span className={styles.srOnly}>Loading…</span>
+      <span className={styles.srOnly}>{label}</span>
 
       {variant === 'lines' && (
         <div className={styles.linesLayout} aria-hidden="true">

@@ -89,6 +89,15 @@ describe('PageSkeleton', () => {
     expect(srSpan!.textContent).toBe('Loading…');
   });
 
+  it('DDX-TAV3-SKELETON-LABEL: an explicit label overrides both the aria-label and the sr-only text — still exactly one role="status"', () => {
+    const { container } = render(<PageSkeleton label="Loading your dashboard" />);
+    const el = container.querySelector('[data-component="PageSkeleton"]')!;
+    expect(el.getAttribute('aria-label')).toBe('Loading your dashboard');
+    const srSpan = container.querySelector('[data-component="PageSkeleton"] span');
+    expect(srSpan!.textContent).toBe('Loading your dashboard');
+    expect(container.querySelectorAll('[role="status"]')).toHaveLength(1);
+  });
+
   it('renders lines variant by default', () => {
     const { container } = render(<PageSkeleton />);
     // Default 4 lines → 4 Skeleton blocks inside lines layout
