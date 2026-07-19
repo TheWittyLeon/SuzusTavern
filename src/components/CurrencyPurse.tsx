@@ -22,7 +22,7 @@
  * "has X gp, needs Y gp" message (already clean, human-readable, and more
  * useful than a static string here), everything else gets a static copy.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import Button from '@/components/Button';
 import { useToast } from '@/components/Toast';
 import { spendCurrency, getCharacterSheet } from '@/lib/api/dnd';
@@ -84,9 +84,13 @@ export default function CurrencyPurse({
 
   // Re-sync from the parent's sheet whenever it changes (our own refetch
   // landing, a DM grant landing on a later reload, an initial mount, etc.).
-  useEffect(() => {
+  // Adjusted during render (not an effect) per React's documented pattern for
+  // "adjusting state when a prop changes" — avoids an extra render pass.
+  const [prevCurrencyGp, setPrevCurrencyGp] = useState(currencyGp);
+  if (currencyGp !== prevCurrencyGp) {
+    setPrevCurrencyGp(currencyGp);
     setGp(currencyGp);
-  }, [currencyGp]);
+  }
 
   // Digits-only also rejects sci-notation ("3e2") and decimals that Number()
   // would otherwise coerce past a bare Number.isInteger check — mirrors

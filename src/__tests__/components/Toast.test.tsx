@@ -5,18 +5,19 @@ import { ToastProvider, useToast } from '@/components/Toast';
 
 type ToastOpts = Parameters<ReturnType<typeof useToast>['toast']>[0];
 
+function Inner({ opts }: { opts: ToastOpts }) {
+  const { toast } = useToast();
+  return (
+    <button onClick={() => toast(opts)} data-testid="trigger">
+      fire
+    </button>
+  );
+}
+
 function Setup({ opts = { message: 'Hello toast', tone: 'info' as const } }: { opts?: ToastOpts }) {
-  function Inner() {
-    const { toast } = useToast();
-    return (
-      <button onClick={() => toast(opts)} data-testid="trigger">
-        fire
-      </button>
-    );
-  }
   return (
     <ToastProvider>
-      <Inner />
+      <Inner opts={opts} />
     </ToastProvider>
   );
 }

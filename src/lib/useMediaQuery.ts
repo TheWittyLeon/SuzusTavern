@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 
 /**
  * SSR-safe hook that returns whether `query` currently matches the viewport.
@@ -12,6 +12,10 @@ import { useEffect, useState } from 'react';
  * real dismissible modal below 1280px) and MAJOR-7 fix (flipping a tablist's
  * aria-orientation below 860px).
  *
+ * Built on `useSyncExternalStore` — `window.matchMedia` is a genuine external
+ * store (it lives outside React), so subscribing this way avoids the
+ * setState-in-effect cascading-render lint (and the real footgun it flags).
+ *
  * - Returns `false` on the server / before first render so SSR markup is stable.
  * - Also re-checks on `window.resize` as a belt-and-suspenders fallback —
  *   matchMedia's own `change` event is the correct primitive and already
@@ -20,20 +24,21 @@ import { useEffect, useState } from 'react';
  *   spotty `change` implementation.
  */
 export function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(false);
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => {
+      const mq = window.matchMedia(query);
+      mq.addEventListener('change', onStoreChange);
+      window.addEventListener('resize', onStoreChange);
+      return () => {
+        mq.removeEventListener('change', onStoreChange);
+        window.removeEventListener('resize', onStoreChange);
+      };
+    },
+    [query],
+  );
 
-  useEffect(() => {
-    const mq = window.matchMedia(query);
-    setMatches(mq.matches);
+  const getSnapshot = useCallback(() => window.matchMedia(query).matches, [query]);
+  const getServerSnapshot = useCallback(() => false, []);
 
-    const handler = () => setMatches(mq.matches);
-    mq.addEventListener('change', handler);
-    window.addEventListener('resize', handler);
-    return () => {
-      mq.removeEventListener('change', handler);
-      window.removeEventListener('resize', handler);
-    };
-  }, [query]);
-
-  return matches;
+  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }

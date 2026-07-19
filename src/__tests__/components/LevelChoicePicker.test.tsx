@@ -179,11 +179,17 @@ describe('LevelChoicePicker — subclass choice', () => {
     await screen.findByRole('radio', { name: 'Champion' });
 
     const heading = screen.getByRole('heading', {
-      level: 4,
+      // TAV-SHEET-HEADING-ORDER: h3 (was h4) — nested under LevelChoicePicker's
+      // own "Pending choices" h2 (was h3), one level deeper.
+      level: 3,
       name: SUBCLASS_CHOICE.label,
     });
     expect(heading).toBeInTheDocument();
     expect(screen.getByRole('radiogroup', { name: SUBCLASS_CHOICE.label })).toBeInTheDocument();
+    // The parent "Pending choices" heading is one level up (h2).
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'Pending choices' }),
+    ).toBeInTheDocument();
   });
 
   it('resolves with the exact {subclass: slug} body and refetches the sheet', async () => {

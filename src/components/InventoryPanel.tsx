@@ -159,9 +159,12 @@ export default function InventoryPanel({
   return (
     <>
       <div className={styles.cardHead}>
-        <h3 className="label" style={{ margin: 0 }}>
+        {/* TAV-SHEET-HEADING-ORDER: h2 — this component is only rendered as a
+            top-level sibling section on the character sheet (character/[id]/
+            page.tsx), alongside its own h2 "Skills"/"Saving throws" etc. */}
+        <h2 className="label" style={{ margin: 0 }}>
           Inventory · weight {inventoryWeight} lb
-        </h3>
+        </h2>
       </div>
       {inventory.length === 0 ? (
         <p className={styles.emptyRow}>Nothing in the pack yet.</p>

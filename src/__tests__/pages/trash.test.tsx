@@ -9,6 +9,9 @@
  *   - restore failure → the row stays (optimistic rollback)
  *   - resolved + no user → redirect to /login
  *   - graceful degradation: listTrashedCharacters throwing → empty trash, not an error
+ *   - UIR2-TAV-9 (safe part): Restore now opens a ConfirmDialog first — the
+ *     row's own trigger button no longer calls restoreCharacter directly;
+ *     Cancel leaves the row untouched, Confirm proceeds exactly as before.
  */
 import React from 'react';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
@@ -122,8 +125,13 @@ describe('Trash — populated', () => {
     mockListTrashed.mockResolvedValueOnce([VELKA, BRENN]).mockResolvedValue([BRENN]);
     renderTrash(ALICE);
     const restoreVelka = await screen.findByRole('button', { name: /restore velka/i });
+    fireEvent.click(restoreVelka);
+
+    // UIR2-TAV-9: the trigger only opens the confirm dialog — no API call yet.
+    const confirmBtn = await screen.findByRole('button', { name: 'Restore' });
+    expect(mockRestore).not.toHaveBeenCalled();
     await act(async () => {
-      fireEvent.click(restoreVelka);
+      fireEvent.click(confirmBtn);
     });
     await waitFor(() =>
       expect(mockRestore).toHaveBeenCalledWith('c1', 'alice'),
@@ -131,6 +139,23 @@ describe('Trash — populated', () => {
     // optimistic removal — Velka is gone, Brennan stays
     await waitFor(() => expect(screen.queryByText('Velka')).not.toBeInTheDocument());
     expect(screen.getByText('Brennan')).toBeInTheDocument();
+    // dialog closed itself after the confirmed restore resolved
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('restore → Cancel in the confirm dialog leaves the row untouched', async () => {
+    mockListTrashed.mockResolvedValue([VELKA]);
+    renderTrash(ALICE);
+    const restoreVelka = await screen.findByRole('button', { name: /restore velka/i });
+    fireEvent.click(restoreVelka);
+
+    const cancelBtn = await screen.findByRole('button', { name: 'Cancel' });
+    fireEvent.click(cancelBtn);
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(mockRestore).not.toHaveBeenCalled();
+    // row is still there, untouched
+    expect(screen.getByText('Velka')).toBeInTheDocument();
   });
 
   it('restore failure → the row stays (optimistic rollback)', async () => {
@@ -138,8 +163,10 @@ describe('Trash — populated', () => {
     mockRestore.mockRejectedValueOnce(new Error('network'));
     renderTrash(ALICE);
     const restoreVelka = await screen.findByRole('button', { name: /restore velka/i });
+    fireEvent.click(restoreVelka);
+    const confirmBtn = await screen.findByRole('button', { name: 'Restore' });
     await act(async () => {
-      fireEvent.click(restoreVelka);
+      fireEvent.click(confirmBtn);
     });
     await waitFor(() => expect(mockRestore).toHaveBeenCalled());
     // rolled back — Velka is restored to the list
@@ -164,10 +191,12 @@ describe('Trash — populated', () => {
     renderTrash(ALICE);
     await screen.findByRole('button', { name: /restore velka/i });
 
-    // Click Velka's restore — both setRestoringId('c1') and the optimistic filter
-    // are batched into one render by React 18.
+    // Open + confirm Velka's restore — both setRestoringId('c1') and the
+    // optimistic filter are batched into one render by React 18.
+    fireEvent.click(screen.getByRole('button', { name: /restore velka/i }));
+    const confirmBtn = await screen.findByRole('button', { name: 'Restore' });
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /restore velka/i }));
+      fireEvent.click(confirmBtn);
     });
 
     // Velka's row is gone (optimistic); Brennan is still present and NOT disabled.
@@ -176,6 +205,78 @@ describe('Trash — populated', () => {
 
     // clean up
     await act(async () => { unblock(); });
+  });
+
+  it('MAJOR-1 (Tora): focus never escapes the open confirm dialog mid-flight, and lands on the surviving row on close', async () => {
+    // Two rows so there's a genuine "surviving sibling" to land on — the bug
+    // was `handleRestore` moving focus to that sibling WHILE the dialog was
+    // still open+busy (aria-modal escape). Keep restoreCharacter pending so
+    // there's an observable window where the dialog is open+busy.
+    mockListTrashed.mockResolvedValueOnce([VELKA, BRENN]).mockResolvedValue([BRENN]);
+    let unblock!: () => void;
+    mockRestore.mockReturnValueOnce(
+      new Promise<{ message: string }>((res) => {
+        unblock = () => res({ message: 'restored' });
+      }),
+    );
+    renderTrash(ALICE);
+    fireEvent.click(await screen.findByRole('button', { name: /restore velka/i }));
+    const confirmBtn = await screen.findByRole('button', { name: 'Restore' });
+
+    await act(async () => {
+      fireEvent.click(confirmBtn);
+    });
+
+    // While the restore is in flight, the dialog is still open+busy — focus
+    // must still be INSIDE it (never escaped to the Brennan row behind it).
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toBeInTheDocument();
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(
+      screen.getByRole('button', { name: /restore brennan/i }),
+    );
+
+    await act(async () => {
+      unblock();
+    });
+
+    // Dialog closed; Velka's row is gone; focus landed on the surviving
+    // Brennan row's Restore button (the "surviving trigger"), not lost to
+    // <body> and not stuck on a detached node.
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.queryByText('Velka')).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole('button', { name: /restore brennan/i }),
+      ),
+    );
+  });
+
+  it('MAJOR-1 (Tora): with no surviving row, focus lands on "Back to dashboard" on close', async () => {
+    mockListTrashed.mockResolvedValueOnce([VELKA]).mockResolvedValue([]);
+    let unblock!: () => void;
+    mockRestore.mockReturnValueOnce(
+      new Promise<{ message: string }>((res) => {
+        unblock = () => res({ message: 'restored' });
+      }),
+    );
+    renderTrash(ALICE);
+    fireEvent.click(await screen.findByRole('button', { name: /restore velka/i }));
+    const confirmBtn = await screen.findByRole('button', { name: 'Restore' });
+    await act(async () => {
+      fireEvent.click(confirmBtn);
+    });
+
+    await act(async () => {
+      unblock();
+    });
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole('link', { name: /back to dashboard/i }),
+      ),
+    );
   });
 
   it('populated state renders a "Back to dashboard" link', async () => {

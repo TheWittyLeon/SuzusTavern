@@ -252,10 +252,14 @@ export default function CharacterNewPage(): ReactNode {
 
   // A shorter/longer step list (class toggled caster<->non-caster after the
   // user had already advanced past it) can leave `step` pointing past the end
-  // — clamp back onto the new last step (Review) rather than crash.
-  useEffect(() => {
+  // — clamp back onto the new last step (Review) rather than crash. Adjusted
+  // during render (not an effect) per React's documented pattern for
+  // "adjusting state when a prop changes" — avoids an extra render pass.
+  const [prevStepsLength, setPrevStepsLength] = useState(steps.length);
+  if (steps.length !== prevStepsLength) {
+    setPrevStepsLength(steps.length);
     setStep((s) => Math.min(s, steps.length - 1));
-  }, [steps.length]);
+  }
 
   // Changing class invalidates any character silently created for the
   // PREVIOUS class (see the module doc comment) — Review must never learn/
@@ -1298,6 +1302,10 @@ function SpellsStep({
   useEffect(() => {
     if (!characterId) return;
     let cancelled = false;
+    // Canonical fetch-on-mount pattern (React docs "Fetching data" example):
+    // set loading state, then resolve/reject into local state guarded by a
+    // `cancelled` flag. There's no external store to subscribe to here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setFetchState('loading');
     getAvailableSpells(characterId, username)
       .then((data) => {

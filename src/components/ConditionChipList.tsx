@@ -41,6 +41,20 @@ export default function ConditionChipList({
 }: ConditionChipListProps) {
   if (conditions.length === 0) return null;
 
+  // D3 STOPGAP (2026-07-19 playtest): the type says `conditions: string[]`
+  // (DDX-17 contract = names here + rounds in `durations`), but the engine's
+  // combat-state serializer (seen on POST /combat/from-scene) emits condition
+  // OBJECTS like `{ name: 'frightened', value: 1 }`. A non-string reaching
+  // `.toLowerCase()` below crashed the whole play view via the ErrorBoundary.
+  // Coerce defensively to the name so the chip list can never crash on a
+  // malformed/object condition. Proper fix belongs engine-side (serialize
+  // conditions as names + populate `durations`) — tracked as D3.
+  const conditionNames: string[] = conditions.map((c) =>
+    typeof c === 'string'
+      ? c
+      : ((c as { name?: string } | null)?.name ?? String(c)),
+  );
+
   return (
     <div
       className={[styles.chips, className].filter(Boolean).join(' ')}
@@ -49,7 +63,7 @@ export default function ConditionChipList({
         combatantName ? `${combatantName} conditions` : 'Conditions'
       }
     >
-      {conditions.map((c) => {
+      {conditionNames.map((c) => {
         const rounds = durations?.[c.toLowerCase()];
         return (
           <Pill key={c} tone="warn" className={styles.chip}>

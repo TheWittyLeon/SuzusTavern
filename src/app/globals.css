@@ -49,6 +49,10 @@
   --accent:     #f08bb6;   /* dusk rose — primary */
   --accent-2:   #b39ef0;   /* lavender — secondary */
   --accent-3:   #f4c8d9;   /* petal — soft fills */
+  /* TAV-PARTY-YOUBADGE-CONTRAST-CANDLELIT: contrast-safe TEXT variant of
+     --accent, same rationale as --cool-ink/--warn-ink below. Dark palette —
+     already AA as text, alias the decorative token. */
+  --accent-ink: #f08bb6;
   --warm:       #f5cba8;   /* ember / candleglow */
   /* A11Y (S8.3): warm-ink — dark palettes already AA so alias the decorative token */
   --warm-ink:   var(--warm);
@@ -111,6 +115,12 @@
   --accent:     #b5462a;   /* ember red */
   --accent-2:   #6b4a2a;   /* burnt umber */
   --accent-3:   #e8c898;   /* candle */
+  /* TAV-PARTY-YOUBADGE-CONTRAST-CANDLELIT: --accent alone is ~4.1:1 on --bg
+     and drops below on the accent-tinted .youBadge surface (PartyPanel's
+     .you row mixes 10% --accent into its background) — fails AA. Darkened,
+     same-hue text variant clears ≥4.5:1 on every candlelit surface used for
+     this badge; decorative --accent (buttons/gradients/borders) unchanged. */
+  --accent-ink: #8a3820;
   --warm:       #d4a64b;
   /* A11Y (S8.3): #7a5300 on 14%-warm tint (~#f0e7cc) = 6.2:1 — passes AA.
      Candlelit --warm (#d4a64b) alone is 1.60:1 — fails. */
@@ -170,6 +180,9 @@
   --accent:     #7ee8e2;   /* arcane teal */
   --accent-2:   #c4a3ff;   /* amethyst */
   --accent-3:   #6bb6ff;   /* spell-blue */
+  /* TAV-PARTY-YOUBADGE-CONTRAST-CANDLELIT: dark palette — already AA as
+     text, alias the decorative token. */
+  --accent-ink: #7ee8e2;
   --warm:       #ffc792;
   /* A11Y (S8.3): dark palette — warm already AA as text; alias the decorative token */
   --warm-ink:   var(--warm);
@@ -219,6 +232,9 @@
   --accent:     #9cd6a8;   /* moss-silver */
   --accent-2:   #c8b6e6;   /* lavender mist */
   --accent-3:   #e2dac0;   /* moonlight */
+  /* TAV-PARTY-YOUBADGE-CONTRAST-CANDLELIT: dark palette — already AA as
+     text, alias the decorative token. */
+  --accent-ink: #9cd6a8;
   --warm:       #e8c89a;
   /* A11Y (S8.3): dark palette — warm already AA as text; alias the decorative token */
   --warm-ink:   var(--warm);

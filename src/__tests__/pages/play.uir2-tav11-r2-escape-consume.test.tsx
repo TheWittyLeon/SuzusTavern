@@ -495,6 +495,36 @@ describe('UIR2-TAV-11 r2 — document-level Award-XP fallback busy-strand legs',
 
     await waitFor(() => expect(xpFormPresent()).toBe(false));
   });
+
+  // Miko-QA P1 (re-gate): the test above (and "sessionActionBusy==='xp'
+  // blocks the fallback") both dispatch Escape at `document` — that only
+  // exercises the SEPARATE document-level fallback listener's own
+  // sessionActionBusy==='xp' guard (page.tsx ~3296). Neither one fires
+  // Escape directly on the xpForm node itself, so a regression to the
+  // in-form handler's OWN `canClose: sessionActionBusy !== 'xp'` (e.g.
+  // someone "simplifying" it to `canClose: true`) had zero direct-node
+  // coverage and would slip through undetected.
+  it("[Miko P1] a direct Escape on the xpForm node itself (not document) stays gated on sessionActionBusy==='xp' — the form must NOT close mid-award", async () => {
+    setup();
+    mAwardSessionXp.mockReturnValue(new Promise(() => {})); // never resolves -> sessionActionBusy stays 'xp'
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+
+    const xpForm = await openAwardXp();
+    fireEvent.change(within(xpForm).getByLabelText('XP amount'), { target: { value: '5' } });
+    fireEvent.click(within(xpForm).getByRole('button', { name: 'Award' }));
+
+    await waitFor(() => expect(mAwardSessionXp).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(within(xpForm).getByRole('button', { name: 'Awarding…' })).toBeInTheDocument(),
+    );
+
+    // Escape dispatched ON the form node itself — exercises the in-form
+    // handler's own canClose gate directly, not the document-level fallback.
+    fireEvent.keyDown(xpForm, { key: 'Escape' });
+
+    expect(xpFormPresent()).toBe(true);
+  });
 });
 
 // ── UIR2-TAV-11 r3 (Miko-QA re-gate): DmNarrationPanel attack-menu focus-move ──

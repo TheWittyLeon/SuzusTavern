@@ -9,6 +9,10 @@
  *
  * SuzuDM is a client island but renders fine from a Server Component (same
  * pattern as the landing page header). No 'use client' needed here.
+ *
+ * UIR2-TAV-10 follow-up: /admin/review now has a real next.config.ts
+ * redirect to /admin/content, so it no longer reaches this page at all —
+ * kept as the fallback for any OTHER stale/typo'd path.
  */
 
 import Link from 'next/link';

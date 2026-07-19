@@ -303,14 +303,12 @@ describe('DDX-25 adversarial — paused session, same-tab gaps', () => {
   it(
     'D2 (new coverage): the skill-check "Attempt" button must not resolve a check once the DM pauses mid-invitation',
     async () => {
-      // A skill check is only actionable once Suzu has invited it in the
-      // fiction (offeredCheckSkill, set from a narrate() beat's offeredCheck
-      // signal — grounding.checks alone never renders the button; see the
-      // play page's own "DM-driven gating" comment). So the realistic
-      // adversarial window here isn't "paused from the start" (a check could
-      // never be invited under a pause to begin with, since inviting one
-      // requires a narrate() beat, itself already gated by sessionLocked) —
-      // it's "offered, THEN the DM pauses before the player clicks Attempt".
+      // D1a: the authored check button is player-invocable as soon as
+      // grounding loads (offeredCheckSkill now only drives the highlight,
+      // not visibility — see the play page's own availableChecks comment).
+      // This test still routes through an actual narrate()-driven offer so
+      // it also covers the highlighted case; the adversarial window is
+      // "offered, THEN the DM pauses before the player clicks Attempt".
       // Single viewer (the DM) so this test can both trigger the offer and
       // pause the table without a second render.
       mockUsername = 'dm_alice';

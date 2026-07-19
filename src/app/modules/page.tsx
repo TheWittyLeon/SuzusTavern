@@ -693,6 +693,9 @@ export default function ModulesPage() {
 
   useEffect(() => {
     const ac = new AbortController();
+    // Canonical fetch-on-mount pattern (React docs "Fetching data" example).
+    // There's no external store to subscribe to here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setStatus('loading');
     getCatalog('dnd5e', { type: 'adventure' }, ac.signal)
       .then((res) => {

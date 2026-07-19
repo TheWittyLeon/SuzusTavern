@@ -24,6 +24,7 @@
 import { useCallback, useEffect, useId, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import Button from '@/components/Button';
+import { consumeEscape } from '@/lib/a11y/escapeConsume';
 import styles from '@/components/ConfirmDialog.module.css';
 
 export interface ConfirmDialogProps {
@@ -90,14 +91,15 @@ export default function ConfirmDialog({
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === 'Escape') {
-        // UIR2-TAV-11 r2 (Miko-QA re-gate): stopPropagation is UNCONDITIONAL —
-        // this dialog always consumes its own Escape so a busy Escape can't
+        // UIR2-TAV-11 r2 (Miko-QA re-gate) / TAV-A11Y-USE-ESCAPE-CONSUME-HOOK
+        // (Kage IMPORTANT — this dialog was a 5th /play overlay left out of
+        // the original migration): stopPropagation is UNCONDITIONAL — this
+        // dialog always consumes its own Escape so a busy Escape can't
         // bubble to the page-level Award-XP fallback listener (or any other
-        // ancestor). Only the actual cancel stays gated on `!busy`.
-        e.stopPropagation();
-        if (!busy) {
-          onCancel();
-        }
+        // ancestor). Only the actual cancel stays gated on `!busy`. No
+        // onRefocus here — the dialog already restores focus via its own
+        // `previouslyFocused` useEffect cleanup above.
+        consumeEscape(e, { onClose: onCancel, canClose: !busy });
         return;
       }
       // Minimal focus trap between the two buttons.

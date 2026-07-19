@@ -85,14 +85,24 @@ export default function PartyPanel({
               <div className={styles.body}>
                 <div className={styles.nameRow}>
                   <span className={styles.name}>{c?.name ?? p.username}</span>
-                  {you && <span className={styles.youBadge}>you</span>}
-                  {p.is_dm && <span className={styles.dmBadge}>DM</span>}
-                  {isDowned && (
-                    <span className={styles.downedBadge} aria-label="downed">
-                      ↓
-                    </span>
-                  )}
                 </div>
+                {/* UIR2-TAV-23: badges moved off the name row onto their own
+                    line so a short-but-not-tiny name (e.g. 6 chars) never
+                    competes with them for the fixed 220px .left column's
+                    width at desktop breakpoints — the name gets the full row
+                    and its ellipsis only engages when the name itself is
+                    genuinely too long, not whenever a badge is present. */}
+                {(you || p.is_dm || isDowned) && (
+                  <div className={styles.badgeRow}>
+                    {you && <span className={styles.youBadge}>you</span>}
+                    {p.is_dm && <span className={styles.dmBadge}>DM</span>}
+                    {isDowned && (
+                      <span className={styles.downedBadge} aria-label="downed">
+                        ↓
+                      </span>
+                    )}
+                  </div>
+                )}
                 {c ? (
                   <>
                     <div className={styles.sub}>

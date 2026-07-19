@@ -23,17 +23,29 @@ import styles from './SessionExpired.module.css';
 
 export interface SessionExpiredProps {
   /** Which failure this is — drives copy + primary CTA. Default: 'expired'. */
-  variant?: 'expired' | 'rate_limited';
-  /** 'rate_limited' only: retry handler wired to the primary CTA. */
+  variant?: 'expired' | 'rate_limited' | 'offline';
+  /** 'rate_limited' / 'offline' only: retry handler wired to the primary CTA. */
   onRetry?: () => void;
   /** Current path, forwarded to /login?next=... so sign-in returns here. */
   pathname?: string | null;
+  /**
+   * MAJOR-2 (Tora, interaction review): true while a retryAuth() attempt
+   * triggered by THIS component's own CTA is in flight. Deliberately does
+   * NOT use the native `disabled` attribute — disabling a currently-focused
+   * native <button> blurs it in most browsers, which would defeat the whole
+   * point (focus must never leave the CTA during a retry). Instead the CTA
+   * stays fully focusable and clickable throughout; AuthProvider's own
+   * `retryingRef` guard already makes a stray extra click a no-op. Only the
+   * label/aria-busy change to reflect the in-flight state.
+   */
+  busy?: boolean;
 }
 
 export default function SessionExpired({
   variant = 'expired',
   onRetry,
   pathname,
+  busy = false,
 }: SessionExpiredProps) {
   const headingId = useId();
   const bodyId = useId();
@@ -44,9 +56,26 @@ export default function SessionExpired({
   // This state IS the page now — land keyboard/SR focus on the one action
   // worth taking instead of leaving focus stranded on whatever was focused
   // before the gate replaced the page body.
+  //
+  // MAJOR-2 follow-on (Tora, interaction review): depends on `variant`, not
+  // just mount. Before MAJOR-2's fix, useAuthGate's retryAuth cleared
+  // `authError` to null the instant a retry started, which always routed
+  // through the (differently-typed) generic skeleton in between two
+  // SessionExpired variants — forcing a genuine unmount/remount that
+  // incidentally re-ran this effect. Now that `authError` stays set for the
+  // WHOLE retry (see AuthProvider's retryAuth), a retry that fails with a
+  // DIFFERENT classification (e.g. 'rate_limited' retried, fails as
+  // 'expired') re-renders this SAME component instance with a new `variant`
+  // — React reconciles by type+position, not props, so it does NOT remount
+  // SessionExpired itself just because `variant` changed. Without `variant`
+  // in the deps, this effect would only have fired once, ever, and focus
+  // would go stale on a now-unmounted CTA (the old variant's button/link is
+  // a different element than the new one). Deliberately NOT depending on
+  // `busy` — toggling busy re-uses the SAME CTA element, so it must never
+  // yank focus around.
   useEffect(() => {
     ctaRef.current?.focus();
-  }, []);
+  }, [variant]);
 
   const loginHref = `/login${pathname ? `?next=${encodeURIComponent(pathname)}` : ''}`;
 
@@ -74,8 +103,37 @@ export default function SessionExpired({
               size="lg"
               onClick={onRetry}
               aria-describedby={bodyId}
+              aria-busy={busy || undefined}
+              aria-live="polite"
             >
-              Try again
+              {busy ? 'Retrying…' : 'Try again'}
+            </Button>
+            <Link href="/login" className={styles.secondaryLink}>
+              Sign in instead
+            </Link>
+          </>
+        ) : variant === 'offline' ? (
+          // TAV3-OFFLINE-VARIANT: this failure never confirmed the session
+          // is actually invalid (network drop or a 5xx) — retry, not the
+          // 'expired' copy's sign-out assertion, which may not be true.
+          <>
+            <h1 id={headingId} className={styles.title}>
+              Suzu can&rsquo;t reach the tavern
+            </h1>
+            <p id={bodyId} className={styles.body}>
+              Check your connection and try again — you may still be signed
+              in.
+            </p>
+            <Button
+              ref={ctaRef}
+              variant="primary"
+              size="lg"
+              onClick={onRetry}
+              aria-describedby={bodyId}
+              aria-busy={busy || undefined}
+              aria-live="polite"
+            >
+              {busy ? 'Retrying…' : 'Try again'}
             </Button>
             <Link href="/login" className={styles.secondaryLink}>
               Sign in instead

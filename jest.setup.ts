@@ -28,3 +28,22 @@ if (typeof window !== 'undefined') {
 if (typeof Element !== 'undefined' && !Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = jest.fn();
 }
+
+// jsdom does not implement ResizeObserver. TavernShell's tab-strip overflow
+// check (MINOR-1, nav overflow discoverability) observes its scrollable nav
+// element with one — without a stub, mounting any page wrapped in
+// TavernShell throws `ReferenceError: ResizeObserver is not defined`. jsdom's
+// static layout never reports real size changes anyway, so this stub only
+// needs to satisfy the constructor/observe/disconnect contract, not actually
+// fire callbacks.
+if (typeof window !== 'undefined' && typeof window.ResizeObserver === 'undefined') {
+  class ResizeObserverStub {
+    observe() { /* no-op — jsdom has no real layout to observe */ }
+    unobserve() { /* no-op */ }
+    disconnect() { /* no-op */ }
+  }
+  window.ResizeObserver = ResizeObserverStub;
+  // Some libraries/components reference the global directly rather than
+  // via `window.` — mirror it there too.
+  global.ResizeObserver = ResizeObserverStub;
+}

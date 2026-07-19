@@ -75,6 +75,10 @@ export default function CharacterPage() {
   useEffect(() => {
     if (!username) return;
     const ac = new AbortController();
+    // Canonical fetch-on-mount pattern (React docs "Fetching data" example);
+    // `load` sets state only after the async request resolves, guarded by
+    // `signal.aborted`. There's no external store to subscribe to here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load(ac.signal);
     return () => ac.abort();
   }, [username, load]);
@@ -276,15 +280,20 @@ export default function CharacterPage() {
           {/* Ability scores (ST-056). Heading added as a stable a11y focus
               landmark (Iro CRITICAL-4b, see the effect above) — ref+
               tabIndex=-1 so it's focusable programmatically without joining
-              the tab order. */}
-          <h3
+              the tab order.
+              TAV-SHEET-HEADING-ORDER: h2, not h3 — this is the sheet's first
+              section heading after TavernShell's own page h1 (the character
+              name); h3 here skipped a level (axe heading-order, moderate).
+              Visual size is unaffected — `.label` is a plain utility class,
+              not tied to the heading tag. */}
+          <h2
             ref={abilityHeadingRef}
             tabIndex={-1}
             className="label"
             style={{ margin: '0 0 8px' }}
           >
             Ability scores
-          </h3>
+          </h2>
           <div className={styles.abilityRow}>
             {ABILITIES.map((a) => {
               const block = sheet.ability_scores[a.key];
@@ -302,9 +311,11 @@ export default function CharacterPage() {
 
           {/* Saving throws (ST-056) */}
           <Card>
-            <h3 className="label" style={{ margin: '0 0 10px' }}>
+            {/* TAV-SHEET-HEADING-ORDER: h2 — sibling section heading to
+                "Ability scores" above, not a subsection of it. */}
+            <h2 className="label" style={{ margin: '0 0 10px' }}>
               Saving throws
-            </h3>
+            </h2>
             <div className={styles.saveRow}>
               {ABILITIES.map((a) => {
                 const mod = sheet.ability_scores[a.key]?.modifier ?? 0;
@@ -330,9 +341,10 @@ export default function CharacterPage() {
 
           {/* Skills (ST-056) */}
           <Card>
-            <h3 className="label" style={{ margin: '0 0 10px' }}>
+            {/* TAV-SHEET-HEADING-ORDER: h2 — sibling section heading. */}
+            <h2 className="label" style={{ margin: '0 0 10px' }}>
               Skills
-            </h3>
+            </h2>
             <div className={styles.skillGrid}>
               {SKILLS.map((s) => {
                 const abilityMod = sheet.ability_scores[s.ability]?.modifier ?? 0;
@@ -441,9 +453,10 @@ export default function CharacterPage() {
 
           {/* Features */}
           <Card>
-            <h3 className="label" style={{ margin: '0 0 10px' }}>
+            {/* TAV-SHEET-HEADING-ORDER: h2 — sibling section heading. */}
+            <h2 className="label" style={{ margin: '0 0 10px' }}>
               Features
-            </h3>
+            </h2>
             {sheet.class_features.length === 0 ? (
               <p className={styles.emptyRow}>No class features recorded.</p>
             ) : (

@@ -95,7 +95,10 @@ function ToastCard({ item, onDismiss }: ToastItemProps) {
   const reduced = useReducedMotion();
   const pausedRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const startedAtRef = useRef<number>(Date.now());
+  // Placeholder only — `Date.now()` is impure and can't run during render;
+  // the auto-dismiss effect below overwrites this with the real value before
+  // it's ever read (handleMouseEnter/Leave only fire post-mount, by hover).
+  const startedAtRef = useRef<number>(0);
   const remainingRef = useRef<number>(item.duration ?? 5000);
 
   const tone = item.tone ?? 'info';

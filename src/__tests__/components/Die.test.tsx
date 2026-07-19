@@ -1,13 +1,6 @@
 import { render, act } from '@testing-library/react';
 import Die from '@/components/Die';
 
-// Helper: mock useReducedMotion to return a given value
-function mockReducedMotion(reduced: boolean) {
-  jest.mock('@/lib/useReducedMotion', () => ({
-    useReducedMotion: () => reduced,
-  }));
-}
-
 describe('Die', () => {
   beforeEach(() => {
     jest.clearAllMocks();

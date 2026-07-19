@@ -742,15 +742,16 @@ describe('Pass-3 combat→scene sequencing (beat 6 in-flight → beat 2 409) —
 });
 
 describe('Pass-3 synthetic beat #4 (check-confirm) — documented residual gap, NOT silently declared covered', () => {
-  it('cannot be driven through the real UI under DURABLE_GENERATION_ENABLED=true in any current test harness — offeredCheckSkill (the gate on the "Attempt {skill}" button) is set EXCLUSIVELY inside the legacy narrate() SSE chunk loop (page.tsx), which flag-ON never calls for the composer path (onSend routes to narrateDurable instead); no durable equivalent of the offered_check signal exists (design §6.3 — an ALREADY-ACCEPTED gap for the composer path too, not new to this beat)', () => {
-    // This is a documentation test, not a UI exercise: it records WHY beat 4
-    // has no per-beat-dedup/409/suppress_intent/mechanics coverage through a
-    // rendered "Attempt {skill}" click, rather than silently omitting it or
-    // faking a click that could never happen in the shipped flag-ON client.
-    // The wiring itself IS covered by static inspection (source, quoted
-    // below) and is the SAME code shape already proven correct for beats
-    // 2/3/5/6 above (narrateDurableBeat's suppress_intent/mechanics
-    // parameters don't vary by call site):
+  it('documented as undriveable at the time this test was written (offeredCheckSkill gated the "Attempt {skill}" button, and no durable equivalent of the offered_check signal existed on the composer path) — STALE as of D1a (2026-07-19): availableChecks no longer gates visibility on offeredCheckSkill, so "Attempt {skill}" now renders as soon as grounding.checks is non-empty out of combat, driveable through the real composer path under DURABLE_GENERATION_ENABLED=true with no offer at all', () => {
+    // This is a documentation test, not a UI exercise. Left in place
+    // (un-converted) rather than silently deleted, since removing it would
+    // erase the historical record of why beat 4 previously had no
+    // rendered-click coverage. FOLLOW-UP (flagged, not fixed here — out of
+    // scope for the D1a UI change): now that the button is reachable without
+    // an offer, this should become a real integration test exercising
+    // onAttemptCheck's DURABLE_GENERATION_ENABLED branch (narrateDurableBeat
+    // with beat:'check_confirm') via an actual click, same harness shape as
+    // beats 2/3/5/6 above:
     //
     //   onAttemptCheck (page.tsx): if (DURABLE_GENERATION_ENABLED) {
     //     void narrateDurableBeat(`I attempt a ${skillLabel} check.`,
@@ -758,10 +759,9 @@ describe('Pass-3 synthetic beat #4 (check-confirm) — documented residual gap, 
     //   }
     //
     // A live-staging exercise (P1b carried gate 6, per the design doc's own
-    // §8 "defers to live staging" note) is the only way to exercise the real
-    // offer->Attempt->resolve round trip once G1/G2 land — not a Jest
-    // harness gap Ren-Dev can close without inventing a fake offer
-    // mechanism the shipped client doesn't have.
+    // §8 "defers to live staging" note) is still the only way to exercise
+    // the real offer->Attempt->resolve round trip end-to-end once G1/G2
+    // land, independent of this Jest-reachability finding.
     expect(true).toBe(true);
   });
 });

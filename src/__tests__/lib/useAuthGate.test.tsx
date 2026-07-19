@@ -118,6 +118,77 @@ describe('useAuthGate — authError="rate_limited"', () => {
   });
 });
 
+describe('useAuthGate — authError="offline" (TAV3-OFFLINE-VARIANT)', () => {
+  it('renders SessionExpired (offline copy) whose retry calls retryAuth() — distinct from "expired"', async () => {
+    const retryAuth = jest.fn().mockResolvedValue(undefined);
+    mockUseAuth.mockReturnValue({
+      user: null,
+      loading: false,
+      maybeAuthed: false,
+      authError: 'offline',
+      retryAuth,
+    });
+    render(<Harness />);
+    expect(
+      screen.getByRole('heading', { name: /can.?t reach the tavern/i }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/signed out/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /try again/i }));
+    await waitFor(() => expect(retryAuth).toHaveBeenCalledTimes(1));
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+});
+
+// MAJOR-2 (Tora, interaction review): `retrying` threads through to
+// SessionExpired's `busy` prop for both retry-capable variants — this is
+// what keeps the SAME instance mounted (showing "Retrying…") instead of the
+// hook swapping to the generic skeleton mid-retry.
+describe('useAuthGate — retrying threads through as SessionExpired busy', () => {
+  it('authError="rate_limited" + retrying=true renders the busy ("Retrying…") CTA, not "Try again"', () => {
+    mockUseAuth.mockReturnValue({
+      user: null,
+      loading: true,
+      maybeAuthed: false,
+      authError: 'rate_limited',
+      retrying: true,
+      retryAuth: jest.fn(),
+    });
+    render(<Harness />);
+    expect(screen.getByRole('button', { name: /retrying/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^try again$/i })).not.toBeInTheDocument();
+    // Still SessionExpired, NOT the generic skeleton, even though loading=true.
+    expect(screen.queryByTestId('skeleton-content')).not.toBeInTheDocument();
+  });
+
+  it('authError="offline" + retrying=true renders the busy ("Retrying…") CTA', () => {
+    mockUseAuth.mockReturnValue({
+      user: null,
+      loading: true,
+      maybeAuthed: false,
+      authError: 'offline',
+      retrying: true,
+      retryAuth: jest.fn(),
+    });
+    render(<Harness />);
+    expect(screen.getByRole('button', { name: /retrying/i })).toBeInTheDocument();
+    expect(screen.queryByTestId('skeleton-content')).not.toBeInTheDocument();
+  });
+
+  it('retrying=false renders the ordinary "Try again" CTA', () => {
+    mockUseAuth.mockReturnValue({
+      user: null,
+      loading: false,
+      maybeAuthed: false,
+      authError: 'offline',
+      retrying: false,
+      retryAuth: jest.fn(),
+    });
+    render(<Harness />);
+    expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
+  });
+});
+
 describe('useAuthGate — resolving (loading/maybeAuthed)', () => {
   it('renders the bounded skeleton landmark; no redirect', () => {
     mockUseAuth.mockReturnValue({
@@ -165,8 +236,8 @@ describe('useAuthGate — DDX-TAV3-SKELETON-LABEL', () => {
     expect(regions[0]).toHaveTextContent('Loading your dashboard');
   });
 
-  it('threads the same label onto EVERY <PageSkeleton> nested inside a Fragment/div wrapper (dashboard\'s stacked-card+list shape) — still one live region\'s worth of distinct text, not two different generic "Loading…"s', () => {
-    render(
+  it('TAV-DASHBOARD-SKELETON-DOUBLE-LIVEREGION: stacking multiple <PageSkeleton>s (dashboard\'s card+list shape) still produces exactly ONE role="status" region — only the first announces, labeled; the rest are forced announce={false}', () => {
+    const { container } = render(
       <LabelHarness
         skeleton={
           <>
@@ -179,8 +250,15 @@ describe('useAuthGate — DDX-TAV3-SKELETON-LABEL', () => {
       />,
     );
     const regions = screen.getAllByRole('status');
-    expect(regions).toHaveLength(2);
-    regions.forEach((r) => expect(r).toHaveAttribute('aria-label', 'Loading your dashboard'));
+    expect(regions).toHaveLength(1);
+    expect(regions[0]).toHaveAttribute('aria-label', 'Loading your dashboard');
+    // The second (list) PageSkeleton still renders its visual blocks, but
+    // carries none of the announcing attributes.
+    const skeletonRoots = container.querySelectorAll('[data-component="PageSkeleton"]');
+    expect(skeletonRoots).toHaveLength(2);
+    expect(skeletonRoots[1]).not.toHaveAttribute('role');
+    expect(skeletonRoots[1]).not.toHaveAttribute('aria-label');
+    expect(skeletonRoots[1]).not.toHaveAttribute('aria-busy');
   });
 
   it('does not override a <PageSkeleton> that already sets its own explicit label', () => {
@@ -193,6 +271,22 @@ describe('useAuthGate — DDX-TAV3-SKELETON-LABEL', () => {
       'aria-label',
       'Loading something more specific',
     );
+  });
+
+  it('a SECOND <PageSkeleton> with its own explicit label still gets announce={false} — the "first announces" rule wins over an explicit label on a later skeleton', () => {
+    const { container } = render(
+      <LabelHarness
+        skeleton={
+          <>
+            <PageSkeleton variant="card" lines={3} />
+            <PageSkeleton variant="list" lines={2} label="Loading something more specific" />
+          </>
+        }
+      />,
+    );
+    expect(screen.getAllByRole('status')).toHaveLength(1);
+    const skeletonRoots = container.querySelectorAll('[data-component="PageSkeleton"]');
+    expect(skeletonRoots[1]).not.toHaveAttribute('role');
   });
 
   it('the wrapping <main> itself never gains aria-busy/aria-label — the label lives on PageSkeleton\'s region only, not a second one', () => {

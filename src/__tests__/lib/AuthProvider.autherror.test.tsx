@@ -57,6 +57,7 @@ function AuthConsumer() {
       <span data-testid="loading">{String(auth.loading)}</span>
       <span data-testid="maybeAuthed">{String(auth.maybeAuthed)}</span>
       <span data-testid="authError">{String(auth.authError)}</span>
+      <span data-testid="retrying">{String(auth.retrying)}</span>
       <button onClick={() => auth.login('alice', 'secret')}>login</button>
       <button onClick={() => auth.verify2FA('123456')}>verify2fa</button>
       <button onClick={() => auth.refresh()}>refresh</button>
@@ -119,12 +120,41 @@ describe('AuthProvider — silentRefresh failure sets authError', () => {
     expect(screen.getByTestId('username')).toHaveTextContent('none');
   });
 
-  it('a plain network error (no status) → authError="expired"', async () => {
+  it('a plain error with no status at all → authError="expired" (unrecognized shape, not a known offline signal)', async () => {
     mockRefresh.mockRejectedValueOnce(new Error('network'));
     wrap(null, true);
 
     await waitFor(() => expect(screen.getByTestId('loading')).toHaveTextContent('false'));
     expect(screen.getByTestId('authError')).toHaveTextContent('expired');
+  });
+
+  // TAV3-OFFLINE-VARIANT: client.ts's real network/abort sentinel is
+  // {status: 0} (see makeApiError(0, 'network'|'abort')) — this is the
+  // actual shape a genuine dropped connection throws, distinct from the
+  // "no status field at all" case above.
+  it('status:0 (client.ts network/abort sentinel) → authError="offline"', async () => {
+    mockRefresh.mockRejectedValueOnce(apiError(0, 'network'));
+    wrap(null, true);
+
+    await waitFor(() => expect(screen.getByTestId('loading')).toHaveTextContent('false'));
+    expect(screen.getByTestId('authError')).toHaveTextContent('offline');
+    expect(screen.getByTestId('username')).toHaveTextContent('none');
+  });
+
+  it('a 500 from the server → authError="offline"', async () => {
+    mockRefresh.mockRejectedValueOnce(apiError(500));
+    wrap(null, true);
+
+    await waitFor(() => expect(screen.getByTestId('loading')).toHaveTextContent('false'));
+    expect(screen.getByTestId('authError')).toHaveTextContent('offline');
+  });
+
+  it('a 503 from the server → authError="offline"', async () => {
+    mockRefresh.mockRejectedValueOnce(apiError(503));
+    wrap(null, true);
+
+    await waitFor(() => expect(screen.getByTestId('loading')).toHaveTextContent('false'));
+    expect(screen.getByTestId('authError')).toHaveTextContent('offline');
   });
 
   it('refresh() succeeds but me() fails (401) → authError="expired"', async () => {
@@ -182,6 +212,91 @@ describe('AuthProvider — retryAuth', () => {
     await waitFor(() => expect(screen.getByTestId('authError')).toHaveTextContent('rate_limited'));
     expect(screen.getByTestId('username')).toHaveTextContent('none');
     expect(screen.getByTestId('loading')).toHaveTextContent('false');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MAJOR-2 (Tora, interaction review): retryAuth's timeout bound + `retrying`
+// flag. AbortSignal.timeout's real firing is exercised end-to-end in
+// production; here we lock the OBSERVABLE contract a timeout relies on
+// (client.ts already normalizes any aborted/timed-out fetch to
+// ApiError{status:0} regardless of the DOMException's exact name — proven
+// separately by the "status:0 -> offline" tests above) plus the two NEW
+// behaviors this fix adds: `retrying` toggles around the attempt, and
+// `authError` is no longer cleared the instant a retry starts.
+// ---------------------------------------------------------------------------
+
+describe('AuthProvider — retryAuth timeout/offline reclassification + retrying flag', () => {
+  it('passes an AbortSignal through to both refresh() and me()', async () => {
+    mockRefresh.mockRejectedValueOnce(apiError(401));
+    wrap(null, true);
+    await waitFor(() => expect(screen.getByTestId('authError')).toHaveTextContent('expired'));
+
+    mockRefresh.mockResolvedValueOnce({ ok: true });
+    mockMe.mockResolvedValueOnce({ user: ALICE });
+    await act(async () => {
+      screen.getByRole('button', { name: 'retryAuth' }).click();
+    });
+
+    await waitFor(() => expect(screen.getByTestId('username')).toHaveTextContent('alice'));
+    expect(mockRefresh).toHaveBeenLastCalledWith(expect.any(AbortSignal));
+    expect(mockMe).toHaveBeenLastCalledWith(expect.any(AbortSignal));
+  });
+
+  it('a timeout-shaped rejection (status:0, the same sentinel client.ts throws on an aborted/timed-out fetch) reclassifies authError as "offline"', async () => {
+    mockRefresh.mockRejectedValueOnce(apiError(401));
+    wrap(null, true);
+    await waitFor(() => expect(screen.getByTestId('authError')).toHaveTextContent('expired'));
+
+    // Models what AbortSignal.timeout(...) firing mid-request produces once
+    // it reaches client.ts's catch: a network/abort ApiError with status 0
+    // (see classifyAuthError — 0 maps to 'offline', not 'expired').
+    mockRefresh.mockRejectedValueOnce(apiError(0, 'abort'));
+    await act(async () => {
+      screen.getByRole('button', { name: 'retryAuth' }).click();
+    });
+
+    await waitFor(() => expect(screen.getByTestId('authError')).toHaveTextContent('offline'));
+    expect(screen.getByTestId('retrying')).toHaveTextContent('false');
+    expect(screen.getByTestId('loading')).toHaveTextContent('false');
+  });
+
+  it('`retrying` is true only while the attempt is in flight, and `authError` is NOT cleared at the start of a retry', async () => {
+    // MAJOR-2 regression lock: the OLD code called setAuthError(null)
+    // synchronously at the top of retryAuth, which — via useAuthGate's
+    // authError-checked-before-loading branch order — unmounted
+    // SessionExpired (and whatever had focus) the instant a retry started.
+    // Arrive in the expired state, then hold refresh() open so there is an
+    // observable in-flight window.
+    mockRefresh.mockRejectedValueOnce(apiError(401));
+    wrap(null, true);
+    await waitFor(() => expect(screen.getByTestId('authError')).toHaveTextContent('expired'));
+
+    let resolveRefresh!: () => void;
+    const pending = new Promise<{ ok: true }>((res) => {
+      resolveRefresh = () => res({ ok: true });
+    });
+    mockRefresh.mockReturnValueOnce(pending);
+    mockMe.mockResolvedValueOnce({ user: ALICE });
+
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'retryAuth' }));
+    });
+
+    // In flight: retrying=true, but authError is STILL 'expired' (untouched)
+    // — this is what keeps SessionExpired mounted through the whole retry.
+    await waitFor(() => expect(screen.getByTestId('retrying')).toHaveTextContent('true'));
+    expect(screen.getByTestId('authError')).toHaveTextContent('expired');
+
+    await act(async () => {
+      resolveRefresh();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(screen.getByTestId('username')).toHaveTextContent('alice'));
+    expect(screen.getByTestId('retrying')).toHaveTextContent('false');
+    expect(screen.getByTestId('authError')).toHaveTextContent('null');
   });
 });
 

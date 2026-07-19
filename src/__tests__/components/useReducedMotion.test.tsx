@@ -13,8 +13,11 @@ function makeMockMQ(matches: boolean) {
       const idx = listeners.indexOf(cb);
       if (idx !== -1) listeners.splice(idx, 1);
     }),
-    // Simulate an OS change event
+    // Simulate an OS change event. Real MediaQueryList objects report the
+    // live match state via `.matches` (getSnapshot re-reads it directly), so
+    // the mock must update it here too — not just pass it on the event.
     _fire(newMatches: boolean) {
+      mq.matches = newMatches;
       listeners.forEach((cb) => cb({ matches: newMatches } as MediaQueryListEvent));
     },
   };

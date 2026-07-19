@@ -188,9 +188,12 @@ describe('Login page — submitting state', () => {
       fireEvent.submit(screen.getByLabelText('Tavern handle').closest('form')!);
     });
 
-    // After submit kicks off, button should be disabled
+    // After submit kicks off, button should be disabled. TAV-A11Y-LOGIN-BUSY-LABEL:
+    // the accessible name matches the visible busy text ("Booting…" — this
+    // suite doesn't mock useReducedMotion, so window.matchMedia's stub default
+    // (matches: false) means the non-reduced label applies).
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: /signing in/i })).toBeDisabled(),
+      expect(screen.getByRole('button', { name: /booting/i })).toBeDisabled(),
     );
   });
 

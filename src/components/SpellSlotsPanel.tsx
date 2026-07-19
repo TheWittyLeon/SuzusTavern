@@ -31,7 +31,7 @@
  * standalone-refresh call site, but the parent page always already holds a
  * fresh sheet.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import Button from '@/components/Button';
 import { useToast } from '@/components/Toast';
 import { adjustSpellSlot, getCharacterSheet } from '@/lib/api/dnd';
@@ -81,10 +81,14 @@ export default function SpellSlotsPanel({
   const mutationBusyRef = useRef(false);
 
   // Re-sync from the parent's sheet whenever it changes (our own refetch
-  // landing, an initial mount, etc.).
-  useEffect(() => {
+  // landing, an initial mount, etc.). Adjusted during render (not an effect)
+  // per React's documented pattern for "adjusting state when a prop changes"
+  // — avoids an extra render pass.
+  const [prevSpellSlots, setPrevSpellSlots] = useState(spellSlots);
+  if (spellSlots !== prevSpellSlots) {
+    setPrevSpellSlots(spellSlots);
     setSlots(spellSlots);
-  }, [spellSlots]);
+  }
 
   if (!isCaster) return null;
 
@@ -145,12 +149,14 @@ export default function SpellSlotsPanel({
   return (
     <>
       <div className={styles.cardHead}>
-        <h3 className="label" style={{ margin: 0 }}>
+        {/* TAV-SHEET-HEADING-ORDER: h2 — only rendered as a top-level sibling
+            section on the character sheet (see InventoryPanel's comment). */}
+        <h2 className="label" style={{ margin: 0 }}>
           Spells
           {spellcasting
             ? ` · ${ABILITIES.find((a) => a.key === spellcasting.ability)?.abbr.toLowerCase() ?? ''} (DC ${spellcasting.save_dc})`
             : ''}
-        </h3>
+        </h2>
         {spellcasting && (
           <span className={`mono ${styles.castAtk}`}>atk {signed(spellcasting.attack_bonus)}</span>
         )}

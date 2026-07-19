@@ -57,6 +57,10 @@ export function useSuzuNote(
     // 1. Already persisted → show it verbatim, no regeneration, no LLM call.
     const stored = safeGet(storeKey(sheet.character_id));
     if (stored && stored.trim()) {
+      // Not a subscribable external store — a one-shot localStorage read that
+      // kicks off (or skips) the async AI-generation path below, keyed on
+      // `sheet` changing. Genuinely effect territory, not a render concern.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setNote(stored);
       setSource('persisted');
       return;

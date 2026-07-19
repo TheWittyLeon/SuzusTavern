@@ -1,9 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
+
+const QUERY = '(prefers-reduced-motion: reduce)';
 
 /**
  * SSR-safe hook that returns `true` when the user prefers reduced motion.
+ *
+ * Built on `useSyncExternalStore` — `window.matchMedia` is a genuine external
+ * store (it lives outside React), so subscribing this way avoids the
+ * setState-in-effect cascading-render lint (and the real footgun it flags).
  *
  * - Returns `false` on the server / before first render so SSR markup is stable.
  * - Subscribes to `prefers-reduced-motion: reduce` on mount and keeps the value
@@ -11,16 +17,14 @@ import { useEffect, useState } from 'react';
  * - Cleans up the listener on unmount.
  */
 export function useReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(false);
-
-  useEffect(() => {
-    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
-    setReduced(mq.matches);
-
-    const handler = (e: MediaQueryListEvent) => setReduced(e.matches);
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
+  const subscribe = useCallback((onStoreChange: () => void) => {
+    const mq = window.matchMedia(QUERY);
+    mq.addEventListener('change', onStoreChange);
+    return () => mq.removeEventListener('change', onStoreChange);
   }, []);
 
-  return reduced;
+  const getSnapshot = useCallback(() => window.matchMedia(QUERY).matches, []);
+  const getServerSnapshot = useCallback(() => false, []);
+
+  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }

@@ -16,6 +16,7 @@
  */
 
 import { NextRequest } from 'next/server';
+import { env } from '../../lib/env';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -447,7 +448,6 @@ describe('Security: actor stamping (SECURITY-1)', () => {
     });
     mockUpstreamOk();
 
-    const body = JSON.stringify({ pack_id: 'fallout-core', lifecycle: 'draft' });
     const req = makeRequest(
       'GET',
       'http://localhost:3000/api/dnd/admin/content/drafts?user=Leon',
@@ -615,12 +615,11 @@ describe('Security: Bearer header fallback (SECURITY-2)', () => {
     // checking that the function only reads Bearer when !IS_PROD. This is a static
     // invariant test — the runtime behavior is covered by SECURITY-1 tests above.
     // (Full IS_PROD=true test would require module re-require which is expensive.)
-    const { env: envModule } = require('../../lib/env') as { env: { IS_PROD: boolean } };
     // In the jest environment, IS_PROD is false — Bearer fallback allowed.
     // The invariant: in prod, the proxy MUST NOT have IS_PROD=true + accept Bearer.
     // We assert the route source code references env.IS_PROD as the guard
     // (static contract test — the actual production isolation is the deployment env).
-    expect(envModule.IS_PROD).toBe(false); // jest always runs non-prod
+    expect(env.IS_PROD).toBe(false); // jest always runs non-prod
     // The invariant is enforced structurally: env.IS_PROD is false in tests,
     // so this test confirms the code path exists but cannot fire in test.
     // A separate prod deployment test would be an e2e/staging concern.

@@ -258,6 +258,56 @@ export default function TavernShell({
   // for the admin tab conditional. Both calls share the same context, no extra cost.
   const { user } = useAuth();
 
+  // MINOR-1 (Tora, interaction review): the TAV-29 flex-nowrap+overflow-x:auto
+  // fix is correct, but for >3-tab configs (admin role, CODEX_ENABLED) at
+  // ≤720px the active tab can end up scrolled off-screen with no cue. `navRef`
+  // is the scrollable strip itself; `activeTabRef` is whichever tab link is
+  // currently active.
+  const navRef = useRef<HTMLElement>(null);
+  const activeTabRef = useRef<HTMLAnchorElement>(null);
+  // True only when the strip is actually wider than its viewport AND not
+  // already scrolled to the trailing edge — drives a trailing-edge fade cue
+  // (CSS ::after, gated ≤720px). No-op for the common ≤3-tab case, where
+  // scrollWidth never exceeds clientWidth.
+  const [tabsOverflowing, setTabsOverflowing] = useState(false);
+
+  // Keep the active tab in view on mount and whenever it changes (client-side
+  // navigation swaps `active` without remounting this shell). `inline`/`block:
+  // 'nearest'` scrolls the minimum distance needed — never yanks an
+  // already-visible tab, and never scrolls the outer page.
+  useEffect(() => {
+    activeTabRef.current?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+  }, [active]);
+
+  // Recompute the overflow-fade on resize (viewport width / tab-count changes
+  // — e.g. the admin tab or Codex appearing) and on scroll (fades out once
+  // scrolled to the end, so the cue never sits over the last visible tab
+  // implying there's more when there isn't).
+  useEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+    const recompute = () => {
+      const hasOverflow = nav.scrollWidth > nav.clientWidth + 1;
+      const atEnd = nav.scrollLeft + nav.clientWidth >= nav.scrollWidth - 1;
+      setTabsOverflowing(hasOverflow && !atEnd);
+    };
+    recompute();
+    nav.addEventListener('scroll', recompute, { passive: true });
+    // Defensive: ResizeObserver is unavailable on some older runtimes. The
+    // scroll listener + the mount-time recompute() above still cover the
+    // common cases there — a resize with no intervening scroll just won't
+    // re-trigger the check on those runtimes.
+    if (typeof ResizeObserver === 'undefined') {
+      return () => nav.removeEventListener('scroll', recompute);
+    }
+    const ro = new ResizeObserver(recompute);
+    ro.observe(nav);
+    return () => {
+      nav.removeEventListener('scroll', recompute);
+      ro.disconnect();
+    };
+  }, []);
+
   return (
     <div className={styles.shell}>
       <header className={styles.topnav}>
@@ -269,7 +319,11 @@ export default function TavernShell({
           </span>
         </Link>
 
-        <nav className={styles.tabs} aria-label="Primary">
+        <nav
+          ref={navRef}
+          className={`${styles.tabs} ${tabsOverflowing ? styles.tabsOverflowing : ''}`}
+          aria-label="Primary"
+        >
           {TABS.map((t) =>
             t.disabled ? (
               <span
@@ -285,6 +339,7 @@ export default function TavernShell({
             ) : (
               <Link
                 key={t.id}
+                ref={active === t.id ? activeTabRef : undefined}
                 href={t.href}
                 className={`${styles.tab} ${active === t.id ? styles.tabActive : ''}`}
                 aria-current={active === t.id ? 'page' : undefined}
@@ -297,6 +352,7 @@ export default function TavernShell({
           {/* S8.3: Admin tab — only visible to users with the 'admin' role */}
           {user?.roles?.includes('admin') && (
             <Link
+              ref={active === 'admin' ? activeTabRef : undefined}
               href="/admin/content"
               className={`${styles.tab} ${active === 'admin' ? styles.tabActive : ''}`}
               aria-current={active === 'admin' ? 'page' : undefined}

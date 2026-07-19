@@ -88,6 +88,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     // Preference comes from storage (absent/tampered → 'system').
     const storedPref = safeGet(VIBE_KEY);
     const pref: VibePref = isVibePref(storedPref) ? storedPref : DEFAULT_VIBE_PREF;
+    // Deliberately post-hydration (see header comment) — reading localStorage
+    // during render here would risk exactly the hydration mismatch this
+    // effect exists to avoid, so this can't move to a lazy initializer.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setVibePref(pref);
 
     // Resolved concrete vibe: trust what the no-flash script painted; otherwise

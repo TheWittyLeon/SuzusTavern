@@ -25,7 +25,7 @@
  * the change on its own next load/refetch (this codebase has no cross-client
  * live sheet sync; see the T12 handoff report for the caveat).
  */
-import { useEffect, useId, useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import Button from '@/components/Button';
 import Icon from '@/components/Icon';
 import { useToast } from '@/components/Toast';
@@ -93,22 +93,21 @@ export default function GrantCurrencyPanel({
   const mutationBusyRef = useRef(false);
 
   // Keep the target selector valid as the participant list changes (a rebind
-  // dropping/adding a bound character, or the very first render). Filters
-  // `participants` fresh inside the effect (rather than closing over the
-  // outer `targets` variable) so the dependency array only needs
-  // `participants` — mirrors ConditionsPanel's own target-selector-sync effect.
-  useEffect(() => {
-    const ids = participants
-      .filter((p) => p.character?.character_id != null)
-      .map((p) => String(p.character?.character_id));
+  // dropping/adding a bound character, or the very first render). Adjusted
+  // during render (not an effect) per React's documented pattern for
+  // "adjusting state when a prop changes" — mirrors ConditionsPanel's own
+  // target-selector-sync. Re-derives ids from `targets` (itself filtered from
+  // `participants`) so this only needs to compare the `participants` reference.
+  const [prevParticipants, setPrevParticipants] = useState(participants);
+  if (participants !== prevParticipants) {
+    setPrevParticipants(participants);
+    const ids = targets.map((p) => String(p.character?.character_id));
     if (ids.length === 0) {
       if (targetId !== '') setTargetId('');
-      return;
-    }
-    if (!ids.includes(targetId)) {
+    } else if (!ids.includes(targetId)) {
       setTargetId(ids[0]);
     }
-  }, [participants, targetId]);
+  }
 
   const parsedAmount = Number(amount);
   const amountValid =

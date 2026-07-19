@@ -47,6 +47,9 @@ export function useCatalog(): UseCatalogResult {
 
   useEffect(() => {
     const ac = new AbortController();
+    // Canonical fetch-on-mount pattern (React docs "Fetching data" example).
+    // There's no external store to subscribe to here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setStatus('loading');
 
     Promise.all([

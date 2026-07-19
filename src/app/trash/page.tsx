@@ -30,6 +30,7 @@ import Button from '@/components/Button';
 import Card from '@/components/Card';
 import Icon from '@/components/Icon';
 import SuzuDM from '@/components/SuzuDM';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import { formatStarted } from '@/lib/format';
 import styles from './Trash.module.css';
 
@@ -86,6 +87,11 @@ export default function TrashPage() {
   const { toast } = useToast();
   const [characters, setCharacters] = useState<Character[] | null>(null);
   const [restoringId, setRestoringId] = useState<string | null>(null);
+  // UIR2-TAV-9 (safe part): confirm-before-restore. Holds the row pending
+  // confirmation — null closes the dialog (mirrors DeleteCharacterButton's
+  // `confirming` state, ConfirmDialog is the same reused component).
+  const [confirmTarget, setConfirmTarget] = useState<Character | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
 
   const username = user?.username ?? null;
   const mountedRef = useRef(true);
@@ -127,15 +133,12 @@ export default function TrashPage() {
       // re-fetch on success to stay truthful, restore the row on failure.
       const prev = characters;
       if (mountedRef.current) {
-        // Move focus before the row unmounts so it doesn't drop to document.body.
-        // Prefer the next sibling's button; fall back to the previous; finally the
-        // "Back to dashboard" link (always present in the populated branch).
-        const ids = prev?.map((x) => x.character_id) ?? [];
-        const idx = ids.indexOf(c.character_id);
-        const nextId = ids[idx + 1] ?? ids[idx - 1];
-        const nextBtn = nextId ? btnRefs.current.get(nextId) : undefined;
-        (nextBtn ?? backRef.current)?.focus();
-
+        // MAJOR-1 (Tora, interaction review): this used to also move focus to
+        // the next surviving row's button here — but this function only ever
+        // runs from `confirmRestore`, WHILE the ConfirmDialog is still open
+        // (and `busy`). Moving focus here escapes the open aria-modal dialog
+        // to a background element mid-flight. `confirmRestore` now owns that
+        // focus-move and fires it strictly AFTER the dialog has closed.
         setCharacters((cur) =>
           (cur ?? []).filter((x) => x.character_id !== c.character_id),
         );
@@ -156,6 +159,50 @@ export default function TrashPage() {
     },
     [username, characters, toast, load],
   );
+
+  // UIR2-TAV-9 (safe part): the trigger just opens the confirm dialog — the
+  // actual restore (handleRestore, above) only runs from confirmRestore once
+  // the user confirms. Cancel/backdrop-dismiss leaves the row untouched.
+  const openRestoreConfirm = useCallback((c: Character) => {
+    setConfirmTarget(c);
+  }, []);
+
+  const confirmRestore = useCallback(async () => {
+    if (!confirmTarget) return;
+    // MAJOR-1 (Tora): snapshot the SIBLING button (if any) BEFORE
+    // `handleRestore`'s optimistic removal takes this row out of
+    // `characters` — a surviving sibling row's button stays mounted
+    // throughout, so this snapshot is safe to hold onto. This mirrors the
+    // focus-move that used to live inside `handleRestore` itself; it's
+    // computed here (not there) so it can fire strictly AFTER the dialog
+    // closes below, never while it's still open+busy.
+    //
+    // Deliberately NOT snapshotting `backRef.current` here too: when the
+    // restored row was the LAST one, the populated branch (and its "Back to
+    // dashboard" link) unmounts as part of the very same optimistic removal,
+    // replaced by the empty-state's OWN "Back to dashboard" button (which
+    // shares this same `backRef`) — so `backRef.current` must be read FRESH
+    // at focus-time below, not from a pre-removal snapshot that would point
+    // at an already-detached node.
+    const ids = (characters ?? []).map((x) => x.character_id);
+    const idx = ids.indexOf(confirmTarget.character_id);
+    const nextId = ids[idx + 1] ?? ids[idx - 1];
+    const nextBtn = nextId ? btnRefs.current.get(nextId) : undefined;
+
+    setConfirmBusy(true);
+    try {
+      await handleRestore(confirmTarget);
+    } finally {
+      setConfirmBusy(false);
+      // Close the dialog FIRST, then refocus — never while it's still
+      // mounted+open. ConfirmDialog's own restore-on-close effect will try
+      // `previouslyFocused.current` (the now-removed trigger button) first,
+      // which is a no-op on a detached node, so this explicit call is what
+      // actually lands focus somewhere sane.
+      setConfirmTarget(null);
+      if (mountedRef.current) (nextBtn ?? backRef.current)?.focus();
+    }
+  }, [confirmTarget, characters, handleRestore]);
 
   // Resolving (silent refresh) → bounded skeleton; failed refresh → re-auth
   // prompt; genuinely logged out → redirect to /login (UIR2-TAV-3).
@@ -192,6 +239,7 @@ export default function TrashPage() {
               Nothing to restore. Deleted characters show up here for 7 days.
             </p>
             <Button
+              ref={backRef}
               variant="primary"
               href="/dashboard"
               leadingIcon={<Icon name="Home" size={14} aria-hidden />}
@@ -206,7 +254,7 @@ export default function TrashPage() {
                 <TrashRow
                   key={c.character_id}
                   character={c}
-                  onRestore={(x) => void handleRestore(x)}
+                  onRestore={openRestoreConfirm}
                   restoring={restoringId === c.character_id}
                   buttonRef={(el) => {
                     if (el) btnRefs.current.set(c.character_id, el);
@@ -228,6 +276,19 @@ export default function TrashPage() {
           </>
         )}
       </div>
+
+      {/* UIR2-TAV-9 (safe part): confirm before Restore fires. ConfirmDialog
+          portals to document.body — position in the tree doesn't matter. */}
+      <ConfirmDialog
+        open={confirmTarget != null}
+        title={confirmTarget ? `Restore ${confirmTarget.name}?` : 'Restore character?'}
+        body="It returns to your active roster exactly as it was when deleted."
+        confirmLabel="Restore"
+        cancelLabel="Cancel"
+        busy={confirmBusy}
+        onConfirm={() => void confirmRestore()}
+        onCancel={() => setConfirmTarget(null)}
+      />
     </TavernShell>
   );
 }

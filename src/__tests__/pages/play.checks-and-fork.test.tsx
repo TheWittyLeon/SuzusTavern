@@ -15,9 +15,17 @@
  *        scene with a two-skill alternative check).
  *   Adversarial: checks hidden during active combat; a 400 no_such_check
  *        refusal surfaces a toast without crashing.
+ *
+ * D1a (Leon, product decision, 2026-07-19): authored scene checks are now
+ * ALWAYS-AVAILABLE, player-invoked affordances — the prior "DM must invite
+ * it" gate (asserted throughout this file up to that date) is SUPERSEDED.
+ * A player can attempt any authored check for the active scene without
+ * waiting for Suzu to name it first; the check she DOES invite is now purely
+ * a visual/a11y highlight (`offerCheck` below still drives that highlight
+ * for the aria-wiring tests), not a visibility gate.
  */
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import type {
   CombatState,
@@ -199,12 +207,14 @@ async function sendMessage(text: string) {
 }
 
 /**
- * DM-gated authored checks (Leon, explicit — "DM must invite it") only
- * become actionable once Suzu has offered them in the fiction. Establishes
- * that invitation via a narrate() beat whose SSE response carries the
- * matching offeredCheck, then waits for the resulting "Attempt {skill}"
- * button to render, so the rest of the test can interact with it exactly
- * as before this gating landed.
+ * D1a: authored checks render as soon as the scene grounding loads — a
+ * narrator invite is no longer required for visibility. This helper now
+ * exists purely to drive the `isOffered` HIGHLIGHT signal (via a narrate()
+ * beat whose SSE response carries the matching offeredCheck), for the tests
+ * further down that assert on the highlight's aria wiring. It still waits
+ * for the "Attempt {skill}" button to be present (which, post-D1a, may
+ * already have been true before this call — that's fine, the wait is a
+ * no-op in that case).
  */
 async function offerCheck(skill: string, dc: number) {
   await screen.findByRole('textbox');
@@ -285,27 +295,30 @@ describe('P1-PLAYFIX — fork scene choice buttons (C10)', () => {
 // ── C11: check affordance calls resolveCheck + narrates + refreshes grounding ─
 
 describe('P1-PLAYFIX — check affordance (C11)', () => {
-  it('DM-gated (Leon, explicit): rehydrating from grounding alone does NOT surface a check — the current scene\'s checks only become actionable once Suzu offers one in the fiction, not merely because they\'re authored', async () => {
+  it('D1a: rehydrating from grounding alone surfaces BOTH authored alternatives — no narrator invite required; inviting one only highlights it, the other stays available', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_TIMBERWOLF);
     render(<PlayPage />);
     await screen.findByRole('textbox');
 
-    // On bare load — no offer yet — neither authored alternative is shown,
-    // even though grounding authors both Stealth and Survival at DC 12.
+    // On bare load — no offer yet — both authored alternatives are already
+    // player-invocable, since the scene authors both Stealth and Survival at
+    // DC 12.
     await waitFor(() => {
-      expect(screen.queryByRole('button', { name: /Attempt Stealth/i })).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /Attempt Survival/i })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Attempt Stealth, DC 12/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Attempt Survival, DC 12/i })).toBeInTheDocument();
     });
 
-    // Once Suzu invites the Stealth check, ONLY the offered skill's button
-    // renders — offering one alternative is not an invitation to the other.
+    // Once Suzu invites the Stealth check, BOTH buttons remain — offering
+    // one alternative does not hide the other, it only highlights the
+    // invited one (see the aria-wiring describe block below for the
+    // highlight assertion itself).
     await offerCheck('stealth', 12);
     expect(
       screen.getByRole('button', { name: /Attempt Stealth, DC 12/i }),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole('button', { name: /Attempt Survival, DC 12/i }),
-    ).not.toBeInTheDocument();
+      screen.getByRole('button', { name: /Attempt Survival, DC 12/i }),
+    ).toBeInTheDocument();
   });
 
   it('clicking a check button calls resolveCheck with the skill + actor_username, then refreshes grounding', async () => {
@@ -325,7 +338,9 @@ describe('P1-PLAYFIX — check affordance (C11)', () => {
     mGetGrounding.mockResolvedValueOnce(GROUNDING_TIMBERWOLF).mockResolvedValue(GROUNDING_FORK);
 
     render(<PlayPage />);
-    // DM-gated: Suzu must invite the Survival check before it's actionable.
+    // D1a: the button is already player-invocable without an invite; this
+    // call just exercises the offer path too (harmless — see the helper's
+    // own doc comment) so the invite/highlight machinery stays covered.
     await offerCheck('survival', 12);
     const survivalBtn = await screen.findByRole('button', { name: /Attempt Survival/i });
     await act(async () => {
@@ -386,7 +401,8 @@ describe('P1-PLAYFIX — check affordance (C11)', () => {
     mResolveCheck.mockRejectedValue(err);
 
     render(<PlayPage />);
-    // DM-gated: Suzu must invite the Stealth check before it's actionable.
+    // D1a: not required for the button to appear (it's player-invocable on
+    // load), but exercises the offer/highlight path alongside the refusal.
     await offerCheck('stealth', 12);
     const stealthBtn = await screen.findByRole('button', { name: /Attempt Stealth/i });
     await act(async () => {
@@ -428,7 +444,7 @@ describe('P1-PLAYFIX Ship 2 — stranded focus recovery (CRITICAL-1)', () => {
     });
 
     const { container } = render(<PlayPage />);
-    // DM-gated: Suzu must invite the Stealth check before it's actionable.
+    // D1a: not required for the button to appear; exercises the invite path too.
     await offerCheck('stealth', 12);
     const stealthBtn = await screen.findByRole('button', { name: /Attempt Stealth/i });
 
@@ -489,16 +505,18 @@ describe('P1-PLAYFIX Ship 2 — check-note aria wiring + group labels', () => {
   it('wires aria-describedby to a sr-only note span when the check has a note', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_WITH_NOTE);
     render(<PlayPage />);
-    // DM-gated: Suzu must invite the Stealth check before it's actionable.
+    // Establishes the invite/highlight; the button itself is already
+    // rendered pre-invite under D1a (single-check scene, so offering it
+    // makes it THE offered check).
     await offerCheck('stealth', 12);
 
     const stealthBtn = await screen.findByRole('button', { name: /Attempt Stealth, DC 12/i });
     const describedBy = stealthBtn.getAttribute('aria-describedby');
     expect(describedBy).toBeTruthy();
-    // DM-gated side effect: every RENDERED check is, by construction, the one
-    // Suzu just offered — so describedBy is now a two-id list (the offered
-    // sr-only span + the note sr-only span) rather than the note alone. The
-    // note's own id must still be present in that list and correctly wired.
+    // Because Suzu just offered this exact check, describedBy is a two-id
+    // list (the offered sr-only span + the note sr-only span) rather than
+    // the note alone. The note's own id must still be present in that list
+    // and correctly wired.
     const noteEl = screen.getByText('Rustling underbrush might give you away.');
     expect((describedBy as string).split(' ')).toContain(noteEl.id);
     expect(noteEl).toHaveClass('sr-only');
@@ -510,9 +528,10 @@ describe('P1-PLAYFIX Ship 2 — check-note aria wiring + group labels', () => {
     await offerCheck('stealth', 12);
 
     const stealthBtn = await screen.findByRole('button', { name: /Attempt Stealth, DC 12/i });
-    // DM-gated side effect: aria-describedby is no longer absent — every
-    // rendered check carries the "Suzu invited this check" sr-only span. What
-    // must hold is that with no authored note, nothing note-shaped is wired in.
+    // Since Suzu just offered this exact check, the button carries the
+    // "Suzu invited this check" sr-only span, so describedBy is non-empty
+    // even with no note authored. What must hold is that with no authored
+    // note, nothing note-shaped is wired in.
     const describedBy = stealthBtn.getAttribute('aria-describedby');
     expect(describedBy).toBeTruthy();
     expect(describedBy).not.toMatch(/check-note-/);
@@ -551,8 +570,9 @@ describe('P1-PLAYFIX Ship 2 — check id uniqueness (Iro MINOR-1)', () => {
   it('renders two distinct buttons for the same skill at different DCs, each with its own unique note id', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_SAME_SKILL_TWO_DCS);
     render(<PlayPage />);
-    // DM-gated: offering the skill (dc is validated engine-side, not by the
-    // offer) surfaces BOTH authored DCs for that skill.
+    // D1a: both authored DCs for this skill are already rendered pre-invite;
+    // offering the skill (dc is validated engine-side, not by the offer)
+    // additionally highlights both as offered (see the assertion below).
     await offerCheck('stealth', 12);
 
     const dc12Btn = await screen.findByRole('button', { name: /Attempt Stealth, DC 12/i });
@@ -566,10 +586,10 @@ describe('P1-PLAYFIX Ship 2 — check id uniqueness (Iro MINOR-1)', () => {
     // The core of the fix: the two ids must NOT collide.
     expect(dc12DescribedBy).not.toBe(dc18DescribedBy);
 
-    // DM-gated side effect: both DC12 and DC18 share the 'stealth' skill, so
-    // both are "offered" once Suzu invites Stealth — describedBy is now a
-    // two-id list (offered span + note span) per button. Pull out the note id
-    // specifically to confirm it still resolves to the button's own note.
+    // Both DC12 and DC18 share the 'stealth' skill, so both are "offered"
+    // once Suzu invites Stealth — describedBy is now a two-id list (offered
+    // span + note span) per button. Pull out the note id specifically to
+    // confirm it still resolves to the button's own note.
     const dc12NoteId = (dc12DescribedBy as string).split(' ').find((id) => id.startsWith('check-note-'));
     const dc18NoteId = (dc18DescribedBy as string).split(' ').find((id) => id.startsWith('check-note-'));
     expect(dc12NoteId).not.toBe(dc18NoteId);
@@ -583,24 +603,40 @@ describe('P1-PLAYFIX Ship 2 — check id uniqueness (Iro MINOR-1)', () => {
   });
 });
 
-// DM-gated core behavior (Leon, explicit — "DM must invite it"): the direct
-// on/off proof that an authored check is inert until Suzu offers it, and
-// becomes actionable the moment she does — the contract this whole file's
-// gating updates exist to protect.
-describe('P1-PLAYFIX-2 — authored check is DM-gated (core behavior)', () => {
-  it('does NOT render "Attempt {skill}" when the scene authors a check but Suzu has not offered it; renders it once a beat offers it', async () => {
+// D1a core behavior (Leon, product decision, 2026-07-19): the direct on/off
+// proof that an authored check is a player-invoked affordance from the
+// moment the scene loads — a narrator invite is never required for
+// visibility, only for the highlight. This describe block replaces the
+// pre-D1a "DM-gated core behavior" contract this file used to protect.
+describe('P1-PLAYFIX-2 / D1a — authored checks are player-invoked, not DM-gated', () => {
+  it('renders "Attempt {skill}" for every authored check as soon as the scene loads, with no narrator offer at all', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_TIMBERWOLF);
     render(<PlayPage />);
     await screen.findByRole('textbox');
 
-    // Authored (grounding.checks has stealth + survival) but not yet offered.
-    expect(screen.queryByRole('button', { name: /^Attempt/i })).not.toBeInTheDocument();
+    // Authored (grounding.checks has stealth + survival) and already
+    // player-invocable — no beat, no offer, nothing narrated yet.
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Attempt Stealth, DC 12/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Attempt Survival, DC 12/i })).toBeInTheDocument();
+    });
+  });
 
-    // Suzu invites the Stealth check in-fiction.
+  it('highlights only the skill Suzu invites, without hiding the sibling authored check', async () => {
+    mGetGrounding.mockResolvedValue(GROUNDING_TIMBERWOLF);
+    render(<PlayPage />);
     await offerCheck('stealth', 12);
 
+    const stealthBtn = await screen.findByRole('button', { name: /Attempt Stealth, DC 12/i });
+    const survivalBtn = await screen.findByRole('button', { name: /Attempt Survival, DC 12/i });
+    // Only the invited skill carries the "Suzu invited this check" sr-only
+    // span (the highlight signal); the sibling remains a normal, available
+    // (non-highlighted) authored check.
     expect(
-      screen.getByRole('button', { name: /Attempt Stealth, DC 12/i }),
+      within(stealthBtn).getByText('Suzu invited this check.'),
     ).toBeInTheDocument();
+    expect(
+      within(survivalBtn).queryByText('Suzu invited this check.'),
+    ).not.toBeInTheDocument();
   });
 });

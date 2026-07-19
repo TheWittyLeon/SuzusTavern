@@ -323,6 +323,43 @@ describe('DDX-26 — X-card durable safety banner', () => {
     expect(mockPostXCard).toHaveBeenCalledTimes(2);
   });
 
+  it('UIR2-TAV-25 (CSS/overlap part): a successful raise shows the banner but does NOT also fire a corner toast', async () => {
+    mockGetSession.mockResolvedValue(makeSession({ dm_username: 'suzu' })); // not leon
+    mockPostXCard.mockResolvedValue({ event: { seq: 9, kind: 'x_card', actor: 'leon' } });
+
+    render(<PlayPage />);
+    const xCardBtn = await screen.findByRole('button', { name: /^X-card$/i });
+
+    await act(async () => {
+      fireEvent.click(xCardBtn);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // The permanent banner is the single source of truth for this signal now —
+    // a redundant success toast used to float over the Safety block (fixed
+    // bottom-right) and could outlive a dismissed banner.
+    expect(screen.getByText(BANNER_TEXT)).toBeInTheDocument();
+    expect(mockToast).not.toHaveBeenCalled();
+  });
+
+  it('UIR2-TAV-25: a failed raise still surfaces an error toast (no banner event to show instead)', async () => {
+    mockPostXCard.mockRejectedValue(new Error('network'));
+
+    render(<PlayPage />);
+    const xCardBtn = await screen.findByRole('button', { name: /^X-card$/i });
+
+    await act(async () => {
+      fireEvent.click(xCardBtn);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockToast).toHaveBeenCalledWith(
+      expect.objectContaining({ tone: 'error' }),
+    );
+  });
+
   it('Kage IMPORTANT-1: the optimistic banner fires off the NESTED postXCard response', async () => {
     mockGetSession.mockResolvedValue(makeSession({ dm_username: 'suzu' })); // not leon
     mockPostXCard.mockResolvedValue({ event: { seq: 9, kind: 'x_card', actor: 'leon' } });

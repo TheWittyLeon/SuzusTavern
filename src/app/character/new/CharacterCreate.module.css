@@ -168,13 +168,36 @@
   align-items: center;
   gap: 12px;
   margin-top: 28px;
+  /* UIR2-TAV-27: allow the row to wrap at narrow widths instead of forcing
+     .navCount to shrink below its own text width (which wrapped "5 / 5"
+     mid-value). justify-content is inert on wider viewports — .navSpacer's
+     flex:1 already consumes all leftover space there, so there's nothing
+     left for justify-content to redistribute — it only matters once
+     .navSpacer is hidden below, at the mobile breakpoint. */
+  flex-wrap: wrap;
+  justify-content: space-between;
 }
 .navCount {
   font-size: 11px;
   color: var(--ink-3);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .navSpacer {
   flex: 1;
+}
+@media (max-width: 480px) {
+  /* UIR2-TAV-27: Back + the CTA button share one row (space-between, above);
+     the step counter drops to its own full-width row below rather than
+     squeezing between them. */
+  .navCount {
+    order: 3;
+    flex-basis: 100%;
+    text-align: center;
+  }
+  .navSpacer {
+    display: none;
+  }
 }
 
 /* ── Suzu commentary panel ───────────────────────────────────────────────────── */
@@ -629,7 +652,11 @@
 }
 .reviewStat {
   text-align: center;
-  min-width: 44px;
+  /* UIR2-TAV-27 (Iro-A11y MINOR-1): min-width:0 lets the 1fr grid track shrink
+     below the SPD value's unbreakable min-content width, so the nowrap value
+     below degrades to an ellipsis instead of overflowing the row at 320px /
+     200%+ zoom (WCAG 1.4.10 Reflow). */
+  min-width: 0;
 }
 .reviewStatValue {
   display: block;
@@ -637,6 +664,13 @@
   font-size: 20px;
   line-height: 1.1;
   color: var(--ink);
+  /* UIR2-TAV-27: at the 480px repeat(5, 1fr) breakpoint above, each stat
+     cell is only ~60-70px wide — narrower than a two-word value like "30 ft"
+     naturally sets, so it wrapped mid-value ("30" / "ft") without nowrap.
+     overflow+ellipsis is the reflow safety net (Iro-A11y MINOR-1). */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .reviewCols {

@@ -108,17 +108,31 @@ export default function DiceTray({
       )}
 
       <div className={styles.advRow} role="group" aria-label="Roll modifier">
-        {(['adv', 'none', 'dis'] as Advantage[]).map((a) => (
-          <button
-            key={a}
-            type="button"
-            className={advantage === a ? `${styles.advPill} ${styles.advOn}` : styles.advPill}
-            aria-pressed={advantage === a}
-            onClick={() => onAdvantage?.(a)}
-          >
-            {a === 'adv' ? 'advantage' : a === 'dis' ? 'disadvantage' : 'straight'}
-          </button>
-        ))}
+        {(['adv', 'none', 'dis'] as Advantage[]).map((a) => {
+          // UIR2-TAV-24: full word kept as the button's accessible name
+          // (aria-label) — only the VISIBLE label shortens. "disadvantage"
+          // (12 chars) was the one pill that didn't fit its ~1/3 share of the
+          // 228px content column at desktop widths, wrapping onto its own
+          // second row while advantage+straight stayed on the first (read as
+          // two broken rows, not one clean group). Shortening it (and
+          // "advantage" too, for a visually balanced group) keeps all three
+          // on one row without shrinking the 44px touch target or the
+          // spoken/announced label.
+          const full = a === 'adv' ? 'advantage' : a === 'dis' ? 'disadvantage' : 'straight';
+          const short = a === 'adv' ? 'Adv' : a === 'dis' ? 'Dis' : 'Straight';
+          return (
+            <button
+              key={a}
+              type="button"
+              className={advantage === a ? `${styles.advPill} ${styles.advOn}` : styles.advPill}
+              aria-pressed={advantage === a}
+              aria-label={full}
+              onClick={() => onAdvantage?.(a)}
+            >
+              {short}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

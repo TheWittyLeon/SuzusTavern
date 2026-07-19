@@ -26,6 +26,7 @@ import { npcAction, postSessionEvent, setSessionPolicy } from '@/lib/api/dnd';
 import type { CombatParticipantState, CombatState } from '@/lib/api/types';
 import DmOverrideModal from '@/components/DmOverrideModal';
 import Icon from '@/components/Icon';
+import { consumeEscape } from '@/lib/a11y/escapeConsume';
 import styles from './DmNarrationPanel.module.css';
 
 export interface DmNarrationPanelProps {
@@ -303,17 +304,20 @@ function MonsterRow({
                 role="menu"
                 aria-label={`${monster.name} — pick target`}
                 ref={targetMenuRef}
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') {
-                    // UIR2-TAV-11 r2 (Miko-QA re-gate): consume Escape
-                    // unconditionally so it can never bubble to the page-level
-                    // Award-XP fallback listener — this menu has no busy
-                    // state to gate on, so the close always fires too.
-                    e.stopPropagation();
-                    setTargetOpen(false);
-                    attackBtnRef.current?.focus();
-                  }
-                }}
+                // TAV-A11Y-USE-ESCAPE-CONSUME-HOOK (was a hand-rolled
+                // UIR2-TAV-11 r2 fix): this menu has no busy state to gate
+                // on, so the close always fires alongside the unconditional
+                // stopPropagation(). Called from an inline handler (not
+                // `makeEscapeConsumeHandler(...)` invoked directly in the
+                // JSX prop position) — passing a ref-capturing callback
+                // straight into a factory called during render trips the
+                // react-hooks/refs "ref read during render" heuristic even
+                // though the ref is only ever read once the returned handler
+                // actually fires, at event time.
+                onKeyDown={(e) => consumeEscape(e, {
+                  onClose: () => setTargetOpen(false),
+                  onRefocus: () => attackBtnRef.current?.focus(),
+                })}
               >
                 {pcTargets.map((t) => (
                   <button

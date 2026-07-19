@@ -40,11 +40,18 @@ export function useWizardCommentary(opts: {
   // step-3 prompt (which interpolates the name) would re-stream on every
   // keystroke. `commentaryKey` is the deliberate re-stream trigger (Kage #3).
   const promptRef = useRef(prompt);
-  promptRef.current = prompt;
+  // Refs are only touched from effects/handlers, never during render — sync
+  // it in its own no-deps effect (runs after every commit, same recency as
+  // the old direct-assignment-during-render, just at the correct time).
+  useEffect(() => {
+    promptRef.current = prompt;
+  });
 
   useEffect(() => {
     if (!enabled || !username) return; // OFF / unset ⇒ no request at all
     const ctrl = new AbortController();
+    // Kicks off a real SSE stream below — no external store to subscribe to.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setText('');
     setStreaming(true);
     (async () => {

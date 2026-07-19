@@ -33,7 +33,6 @@ jest.mock('next/navigation', () => ({
 
 const mockToast = jest.fn();
 jest.mock('../../components/Toast', () => {
-  const React = require('react');
   return {
     useToast: () => ({ toast: mockToast }),
     ToastProvider: ({ children }: { children: React.ReactNode }) =>
@@ -44,7 +43,6 @@ jest.mock('../../components/Toast', () => {
 // AuthProvider mock: provide both useAuth (for PlayPage) and a passthrough
 // AuthProvider component (for ModulesPage wrappers that need the real tree).
 jest.mock('../../lib/auth/AuthProvider', () => {
-  const React = require('react');
   return {
     useAuth: () => ({ user: { id: 1, username: 'dm_alice', email: null }, loading: false, maybeAuthed: false }),
     AuthProvider: ({ children, initialUser }: { children: React.ReactNode; initialUser?: unknown }) => {
@@ -59,7 +57,6 @@ jest.mock('../../lib/useReducedMotion', () => ({
 }));
 
 jest.mock('../../lib/theme/ThemeProvider', () => {
-  const React = require('react');
   return {
     ThemeProvider: ({ children }: { children: React.ReactNode }) =>
       React.createElement(React.Fragment, null, children),
@@ -139,24 +136,7 @@ jest.mock('../../lib/sessionAnnotations', () => ({
 
 import PlayPage from '@/app/play/[sessionId]/page';
 import ModulesPage from '@/app/modules/page';
-import { ThemeProvider } from '@/lib/theme/ThemeProvider';
-import { AuthProvider } from '@/lib/auth/AuthProvider';
-import { ToastProvider } from '@/components/Toast';
-import type { Session, User } from '@/lib/api/types';
-
-const LEON: User = { id: 1, username: 'dm_alice', email: null };
-
-function renderModules() {
-  return render(
-    <ToastProvider>
-      <ThemeProvider>
-        <AuthProvider initialUser={LEON} initialMaybeAuthed={false}>
-          <ModulesPage />
-        </AuthProvider>
-      </ThemeProvider>
-    </ToastProvider>,
-  );
-}
+import type { Session } from '@/lib/api/types';
 
 // ── Fixtures ------------------------------------------------------------------
 

@@ -85,6 +85,27 @@ describe('DiceTray', () => {
     fireEvent.click(screen.getByRole('button', { name: 'advantage' }));
     expect(onAdvantage).toHaveBeenCalledWith('adv');
   });
+
+  // UIR2-TAV-24: the roll-modifier pills wrapped 2+1 at 1280px because
+  // "disadvantage" alone didn't fit its share of the ~228px content column.
+  // Visible labels shorten; the FULL word stays the accessible name so
+  // screen-reader users lose nothing.
+  it('shortens the disadvantage/advantage pill labels but keeps the full word as the accessible name', () => {
+    render(<DiceTray onRoll={jest.fn()} onAdvantage={jest.fn()} />);
+    const adv = screen.getByRole('button', { name: 'advantage' });
+    const dis = screen.getByRole('button', { name: 'disadvantage' });
+    const straight = screen.getByRole('button', { name: 'straight' });
+    expect(adv).toHaveTextContent('Adv');
+    expect(dis).toHaveTextContent('Dis');
+    expect(straight).toHaveTextContent('Straight');
+  });
+
+  it('toggles disadvantage via its shortened pill', () => {
+    const onAdvantage = jest.fn();
+    render(<DiceTray onRoll={jest.fn()} onAdvantage={onAdvantage} />);
+    fireEvent.click(screen.getByRole('button', { name: 'disadvantage' }));
+    expect(onAdvantage).toHaveBeenCalledWith('dis');
+  });
 });
 
 describe('Composer', () => {
@@ -229,6 +250,36 @@ describe('PartyPanel', () => {
   it('renders an empty state', () => {
     render(<PartyPanel participants={[]} selfUsername="alice" />);
     expect(screen.getByText(/No one has joined/i)).toBeInTheDocument();
+  });
+
+  // UIR2-TAV-23: the "you" badge used to share the name's flex row, squeezing
+  // its ellipsis budget at the fixed 220px .left column width — a 6-char name
+  // (e.g. "Ashley") truncated to "Ash…" at desktop widths even though the same
+  // name rendered in full on mobile. Badges now render on their own row below
+  // the name; this pins that the full name text is present (not truncated by
+  // JSX-level slicing — CSS ellipsis itself isn't observable in jsdom, but the
+  // full un-sliced string being in the DOM is the behavioral guarantee that
+  // matters here) alongside the badge, for a name long enough to have been
+  // affected by the old shared-row squeeze.
+  it('renders the full character name even when the "you" badge is also present', () => {
+    const partyWithLongerName: Participant[] = [
+      {
+        username: 'alice',
+        is_dm: false,
+        character: {
+          character_id: 'c1',
+          name: 'Ashley',
+          char_class: 'Rogue',
+          level: 2,
+          current_hp: 8,
+          max_hp: 10,
+          ac: 14,
+        },
+      },
+    ];
+    render(<PartyPanel participants={partyWithLongerName} selfUsername="alice" />);
+    expect(screen.getByText('Ashley')).toBeInTheDocument();
+    expect(screen.getByText('you')).toBeInTheDocument();
   });
 });
 

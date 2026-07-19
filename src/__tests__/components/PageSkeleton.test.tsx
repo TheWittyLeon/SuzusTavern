@@ -133,6 +133,42 @@ describe('PageSkeleton', () => {
       expect(el.className).not.toContain(styles.shimmer);
     });
   });
+
+  describe('announce=false (TAV-DASHBOARD-SKELETON-DOUBLE-LIVEREGION)', () => {
+    it('has no role="status" when announce={false}', () => {
+      const { container } = render(<PageSkeleton announce={false} />);
+      const el = container.querySelector('[data-component="PageSkeleton"]')!;
+      expect(el).not.toHaveAttribute('role');
+      expect(container.querySelector('[role="status"]')).toBeNull();
+    });
+
+    it('has no aria-busy/aria-label when announce={false}', () => {
+      const { container } = render(<PageSkeleton announce={false} label="Loading your dashboard" />);
+      const el = container.querySelector('[data-component="PageSkeleton"]')!;
+      expect(el).not.toHaveAttribute('aria-busy');
+      expect(el).not.toHaveAttribute('aria-label');
+    });
+
+    it('renders no sr-only label span when announce={false} — purely visual, no announced text at all', () => {
+      const { container } = render(<PageSkeleton announce={false} label="Loading your dashboard" />);
+      const el = container.querySelector('[data-component="PageSkeleton"]')!;
+      // The only children should be the aria-hidden visual layout — no bare
+      // <span> sr-only label anywhere directly under the root.
+      expect(el.textContent).toBe('');
+    });
+
+    it('still renders the visual skeleton blocks (aria-hidden) when announce={false}', () => {
+      const { container } = render(<PageSkeleton announce={false} lines={3} />);
+      const skeletons = container.querySelectorAll('[data-component="Skeleton"]');
+      expect(skeletons.length).toBe(3);
+    });
+
+    it('defaults to announce=true when the prop is omitted (unchanged behavior)', () => {
+      const { container } = render(<PageSkeleton />);
+      const el = container.querySelector('[data-component="PageSkeleton"]')!;
+      expect(el).toHaveAttribute('role', 'status');
+    });
+  });
 });
 
 describe('Skeleton radius prop branches', () => {

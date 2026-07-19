@@ -224,6 +224,35 @@ describe('Dashboard — skeleton while loading + maybeAuthed', () => {
     expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /account menu/i })).not.toBeInTheDocument();
   });
+
+  // TAV-DASHBOARD-SKELETON-DOUBLE-LIVEREGION: the gate skeleton stacks a
+  // card + a list PageSkeleton (see dashboard/page.tsx) — pre-fix, each one
+  // announced "Loading your dashboard" independently, so a screen reader
+  // heard it twice. Exactly one role="status" region is the invariant.
+  it('renders exactly ONE role="status" region while the auth gate skeleton is showing', () => {
+    mockRefresh.mockReturnValue(new Promise(() => {}));
+    renderDashboard(null, true);
+    expect(screen.getAllByRole('status')).toHaveLength(1);
+    expect(screen.getByRole('status')).toHaveAttribute('aria-label', 'Loading your dashboard');
+  });
+});
+
+describe('Dashboard — data-loading skeleton (post-gate)', () => {
+  // TAV-DASHBOARD-SKELETON-DOUBLE-LIVEREGION: the post-gate dataLoading
+  // skeleton is wrapped in an aria-live="polite" div that already announces
+  // content changes — the nested PageSkeleton must not be a second announcer
+  // for the same phase.
+  it('renders exactly ONE role="status"-equivalent announcer (the aria-live wrapper, not a nested PageSkeleton) while sessions are loading', async () => {
+    mockListSessions.mockReturnValue(new Promise(() => {})); // never resolves -> dataLoading stays true
+    const { container } = renderDashboard(ALICE);
+    await waitFor(() =>
+      expect(container.querySelector('[data-component="PageSkeleton"]')).toBeInTheDocument(),
+    );
+    // The nested PageSkeleton must NOT carry role="status" — the wrapping
+    // aria-live="polite" div is the single announcer for this phase.
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(container.querySelector('[aria-live="polite"]')).toBeInTheDocument();
+  });
 });
 
 describe('Dashboard — logout via account menu', () => {

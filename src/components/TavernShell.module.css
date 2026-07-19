@@ -281,8 +281,37 @@
   .tabs {
     order: 2;
     flex-basis: 100%;
-    flex-wrap: wrap;
-    overflow-x: visible;
+    /* UIR2-TAV-29: flex-wrap:wrap here let the tab set overflow onto an
+       orphan second row (e.g. just "Codex" alone once CODEX_ENABLED is on
+       in dev/test) whenever the real tabs' total width crept past the
+       available ~390px — silently doubling the header's height on every
+       page. Row 2 already spans the FULL viewport width now (flex-basis:
+       100%, no longer squeezed between the brand and avatar the way the
+       old single-row layout was — see this rule's own history above), so a
+       horizontally-scrolling single row is both safe and correct here: the
+       tab set just scrolls in place instead of wrapping, and the sticky
+       60px-equivalent header height stays constant regardless of tab count. */
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    /* MINOR-1: anchors the trailing-edge overflow fade below. */
+    position: relative;
+  }
+  /* MINOR-1 (Tora): discoverability cue for >3-tab configs (admin role,
+     CODEX_ENABLED) whose total width exceeds the strip — TavernShell.tsx
+     toggles this class off once scrolled to the trailing edge, and it's
+     never applied at all for the common ≤3-tab case (scrollWidth never
+     exceeds clientWidth), so the plain 3-tab layout is unchanged.
+     pointer-events:none so the faded sliver of the last tab stays clickable. */
+  .tabsOverflowing::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 28px;
+    background: linear-gradient(to right, transparent, var(--card) 85%);
+    pointer-events: none;
   }
   /* Trim tab padding so the 3 real tabs sit on one row even at 320px (height —
      and thus the 44px touch target — is unchanged). */

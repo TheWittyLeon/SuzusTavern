@@ -346,6 +346,10 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!username) return;
     const ac = new AbortController();
+    // Canonical fetch-on-mount pattern (React docs "Fetching data" example);
+    // `load` sets state only after the async request resolves, guarded by
+    // `signal.aborted`. There's no external store to subscribe to here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load(ac.signal);
     return () => ac.abort();
   }, [username, load]);
@@ -398,7 +402,13 @@ export default function DashboardPage() {
     >
       <div aria-live="polite">
         {dataLoading ? (
-          <PageSkeleton variant="card" lines={3} />
+          // TAV-DASHBOARD-SKELETON-DOUBLE-LIVEREGION: this wrapping
+          // aria-live="polite" div already announces content changes as
+          // dataLoading resolves — PageSkeleton's own role="status" region
+          // would be a SECOND announcer for the exact same phase.
+          // announce={false} makes this a purely visual skeleton so the
+          // aria-live wrapper is the single announcer.
+          <PageSkeleton variant="card" lines={3} announce={false} />
         ) : isEmpty ? (
           <DashEmpty username={name} characters={characters} onChanged={refresh} />
         ) : (

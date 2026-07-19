@@ -237,6 +237,9 @@ export default function SpellbookPanel({
 
   useEffect(() => {
     if (!isCaster) return;
+    // Canonical fetch-on-mount pattern (React docs "Fetching data" example).
+    // There's no external store to subscribe to here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadKnown();
     // Re-fetch from scratch on character/user change; Browse re-loads lazily
     // the next time its tab is opened (availableLoadedRef resets below).
@@ -350,9 +353,11 @@ export default function SpellbookPanel({
   return (
     <>
       <div className={styles.cardHead}>
-        <h3 className="label" style={{ margin: 0 }}>
+        {/* TAV-SHEET-HEADING-ORDER: h2 — only rendered as a top-level sibling
+            section on the character sheet (see InventoryPanel's comment). */}
+        <h2 className="label" style={{ margin: 0 }}>
           Spellbook
-        </h3>
+        </h2>
       </div>
 
       <div

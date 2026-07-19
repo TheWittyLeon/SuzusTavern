@@ -48,6 +48,7 @@ import type {
   RollResult,
   SceneCheck,
   SceneNpc,
+  SceneTransition,
   Session,
   SessionEvent,
   SessionNote,
@@ -1038,39 +1039,37 @@ export const postRoll = (
  */
 const normalizeGrounding = (raw: unknown): GroundingData | null => {
   if (!raw || typeof raw !== 'object') return null;
-  const r = raw as Record<string, any>;
-  const scene = (r.current_scene ?? {}) as Record<string, any>;
-  // r is already `any`, so r.adventure is `any` — derive without a new explicit
-  // `any` annotation to avoid adding a net-new no-explicit-any lint error.
-  const adventure = r.adventure ?? {};
-  const progress = ((r.campaign ?? {}).progress ?? {}) as Record<string, any>;
+  const r = raw as Record<string, unknown>;
+  const scene = (r.current_scene ?? {}) as Record<string, unknown>;
+  const adventure = (r.adventure ?? {}) as Record<string, unknown>;
+  const progress = ((r.campaign as Record<string, unknown> | undefined)?.progress ?? {}) as Record<
+    string,
+    unknown
+  >;
   return {
     ...r,
-    scene_id: scene.id,
-    scene_name: scene.title,
-    boxed_text: scene.boxed_text,
-    objective: scene.objective,
-    transitions: Array.isArray(scene.transitions) ? scene.transitions : [],
+    scene_id: scene.id as string | undefined,
+    scene_name: scene.title as string | undefined,
+    boxed_text: scene.boxed_text as string | undefined,
+    objective: scene.objective as string | undefined,
+    transitions: Array.isArray(scene.transitions) ? (scene.transitions as SceneTransition[]) : [],
     // P1-PLAYFIX §3.4: surface only {skill, dc, note} — the authored scene may
     // (and does) carry on_success/on_failure flag names on the wire, but the
     // client type/shape never exposes them. Never spread the raw check object.
     checks: Array.isArray(scene.checks)
-      ? scene.checks.map(
-          // scene is already `Record<string, any>` (see the r.adventure note
-          // above), so `c` is implicitly `any` here — no new explicit `any`
-          // annotation needed.
+      ? (scene.checks as Record<string, unknown>[]).map(
           (c): SceneCheck => ({
-            skill: c.skill,
-            dc: c.dc,
-            ...(c.note ? { note: c.note } : {}),
+            skill: c.skill as string,
+            dc: c.dc as number,
+            ...(c.note ? { note: c.note as string } : {}),
           }),
         )
       : [],
-    flags: progress.flags ?? {},
-    encounter_state: progress.encounter_state ?? {},
+    flags: (progress.flags as Record<string, unknown> | undefined) ?? {},
+    encounter_state: (progress.encounter_state as Record<string, unknown> | undefined) ?? {},
     // A1: adventure-level fields for opening scene
-    hook: adventure.hook,
-    adventure_title: adventure.title,
+    hook: adventure.hook as string | undefined,
+    adventure_title: adventure.title as string | undefined,
     // P1-READALOUD: projected NPC opening lines (engine guarantees the key is present;
     // default [] when the scene has none or the engine is pre-READALOUD).
     opening_lines: Array.isArray(scene.opening_lines)

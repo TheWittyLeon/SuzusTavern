@@ -44,40 +44,57 @@ export interface UseAuthGateOptions {
   skeleton: ReactNode;
   /**
    * Per-page loading label (e.g. "Loading your dashboard"). DDX-TAV3-SKELETON-LABEL:
-   * threaded onto every <PageSkeleton> found inside `skeleton` (via
+   * threaded onto the FIRST <PageSkeleton> found inside `skeleton` (via
    * `withSkeletonLabel` below) as that component's `label` prop — drives
-   * PageSkeleton's own single `role="status"` region's aria-label + sr-only
-   * text. Still exactly ONE live region per page (Iro-A11y MAJOR-1's
-   * constraint); this wrapper itself never gets its own aria-live/aria-label.
-   * A <PageSkeleton> that already sets an explicit `label` keeps it — this
-   * only fills in the default.
+   * PageSkeleton's own `role="status"` region's aria-label + sr-only text.
+   * TAV-DASHBOARD-SKELETON-DOUBLE-LIVEREGION: still exactly ONE live region
+   * per page (Iro-A11y MAJOR-1's constraint) even when `skeleton` stacks
+   * several <PageSkeleton>s — only the first one announces; every
+   * subsequent one is forced to `announce={false}`. This wrapper itself
+   * never gets its own aria-live/aria-label. A <PageSkeleton> that already
+   * sets an explicit `label` keeps it (but still only announces if it's the
+   * first one) — this only fills in the default.
    */
   label: string;
 }
 
-/** DDX-TAV3-SKELETON-LABEL: recursively walk the caller-supplied skeleton
- *  tree (a page's `skeleton` option is often a Fragment/div wrapping one or
- *  more <PageSkeleton>s — see dashboard/page.tsx's stacked card+list
- *  example) and set `label` on every <PageSkeleton> that doesn't already
- *  have its own explicit one. Doesn't touch any other element type, and
- *  never adds a new live region — it only changes the label PageSkeleton's
- *  existing role="status" region already announces. */
+/** TAV-DASHBOARD-SKELETON-DOUBLE-LIVEREGION: recursively walk the
+ *  caller-supplied skeleton tree and set `label` on every <PageSkeleton>
+ *  that doesn't already have its own explicit one — but only the FIRST
+ *  <PageSkeleton> encountered in document order actually announces
+ *  (`announce` left at its default `true`); every subsequent one gets
+ *  `announce={false}` so a page that stacks several skeletons (e.g.
+ *  dashboard/page.tsx's card+list) still produces exactly ONE
+ *  `role="status"` region overall, not one per skeleton. `alreadyLabeled` is
+ *  a closure counter (not a parameter re-initialised per recursive call) so
+ *  order is tracked across the WHOLE tree walk, including across sibling
+ *  subtrees at different nesting depths — Children.map's per-level
+ *  recursion would otherwise reset a plain boolean parameter at each nested
+ *  call. Doesn't touch any other element type. */
 function withSkeletonLabel(node: ReactNode, label: string): ReactNode {
-  return Children.map(node, (child) => {
-    if (!isValidElement(child)) return child;
-    if (child.type === PageSkeleton) {
-      const props = child.props as PageSkeletonProps;
-      if (props.label !== undefined) return child;
-      return cloneElement(child, { label } as Partial<PageSkeletonProps>);
-    }
-    const props = child.props as { children?: ReactNode };
-    if (props.children !== undefined) {
-      return cloneElement(child, {
-        children: withSkeletonLabel(props.children, label),
-      } as { children: ReactNode });
-    }
-    return child;
-  });
+  const alreadyLabeled = { current: false };
+  function walk(n: ReactNode): ReactNode {
+    return Children.map(n, (child) => {
+      if (!isValidElement(child)) return child;
+      if (child.type === PageSkeleton) {
+        const isFirst = !alreadyLabeled.current;
+        alreadyLabeled.current = true;
+        const props = child.props as PageSkeletonProps;
+        const patch: Partial<PageSkeletonProps> = isFirst
+          ? (props.label !== undefined ? {} : { label })
+          : { announce: false };
+        return Object.keys(patch).length > 0 ? cloneElement(child, patch) : child;
+      }
+      const props = child.props as { children?: ReactNode };
+      if (props.children !== undefined) {
+        return cloneElement(child, {
+          children: walk(props.children),
+        } as { children: ReactNode });
+      }
+      return child;
+    });
+  }
+  return walk(node);
 }
 
 /**
@@ -90,7 +107,7 @@ function withSkeletonLabel(node: ReactNode, label: string): ReactNode {
  * routes to <SessionExpired> instead of falling through to the skeleton.
  */
 export function useAuthGate(opts: UseAuthGateOptions): ReactNode | null {
-  const { user, loading, maybeAuthed, authError, retryAuth } = useAuth();
+  const { user, loading, maybeAuthed, authError, retrying, retryAuth } = useAuth();
   const router = useRouterSafe();
   const pathname = usePathnameSafe();
 
@@ -110,6 +127,24 @@ export function useAuthGate(opts: UseAuthGateOptions): ReactNode | null {
         variant="rate_limited"
         onRetry={() => void retryAuth()}
         pathname={pathname}
+        // MAJOR-2 (Tora): `retrying` stays true only while THIS retry is in
+        // flight; `authError` itself is untouched during it (see
+        // AuthProvider's retryAuth), so this branch — and this SAME
+        // SessionExpired instance — stays mounted and focused for the whole
+        // attempt instead of swapping to the generic skeleton.
+        busy={retrying}
+      />
+    );
+  }
+  if (authError === 'offline') {
+    // TAV3-OFFLINE-VARIANT: unlike 'expired', this failure never confirmed
+    // the session is actually invalid — retry, not sign-in.
+    return (
+      <SessionExpired
+        variant="offline"
+        onRetry={() => void retryAuth()}
+        pathname={pathname}
+        busy={retrying}
       />
     );
   }

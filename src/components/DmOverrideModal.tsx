@@ -38,6 +38,7 @@ import type {
   OverrideCheckOutcome,
   OverrideDamageOutcome,
 } from '@/lib/api/types';
+import { consumeEscape } from '@/lib/a11y/escapeConsume';
 import styles from './DmOverrideModal.module.css';
 
 const DAMAGE_TYPES = [
@@ -111,6 +112,11 @@ export default function DmOverrideModal({
     if (!open) return;
     previouslyFocused.current = document.activeElement as HTMLElement | null;
     const initial = defaultActorId ?? participants[0]?.participant_id ?? '';
+    // Bundled with real DOM focus management (activeElement capture, deferred
+    // focus, restore-on-close below) — genuine effect territory, not a render
+    // concern; can't move to a render-time adjustment without splitting the
+    // focus/timeout side effects apart from the state reset.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setActorId(initial);
     setTargetId('');
     setReason('');
@@ -147,13 +153,11 @@ export default function DmOverrideModal({
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === 'Escape') {
-        // UIR2-TAV-11 r2 (Miko-QA re-gate): stopPropagation is UNCONDITIONAL —
-        // this modal always consumes its own Escape so a busy (submitting)
-        // Escape can't bubble to the page-level Award-XP fallback listener.
-        // handleClose() already no-ops while submitting, so the busy gate
-        // still applies to the actual close.
-        e.stopPropagation();
-        handleClose();
+        // TAV-A11Y-USE-ESCAPE-CONSUME-HOOK (was a hand-rolled UIR2-TAV-11 r2
+        // fix): stopPropagation is unconditional. handleClose() already
+        // no-ops while submitting, so the busy gate still applies to the
+        // actual close.
+        consumeEscape(e, { onClose: handleClose });
         return;
       }
       if (e.key === 'Tab') {

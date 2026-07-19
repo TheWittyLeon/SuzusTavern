@@ -79,7 +79,6 @@ import PlayPage from '@/app/play/[sessionId]/page';
 const mGetSession = dnd.getSession as jest.MockedFunction<typeof dnd.getSession>;
 const mGetParticipants = dnd.getParticipants as jest.MockedFunction<typeof dnd.getParticipants>;
 const mStream = stream.streamDmNarration as jest.MockedFunction<typeof stream.streamDmNarration>;
-const mAttack = dnd.attack as jest.MockedFunction<typeof dnd.attack>;
 const mCombatFromScene = dnd.combatFromScene as jest.MockedFunction<typeof dnd.combatFromScene>;
 const mSpawnMonster = dnd.spawnMonster as jest.MockedFunction<typeof dnd.spawnMonster>;
 const mRollInitiative = dnd.rollInitiative as jest.MockedFunction<typeof dnd.rollInitiative>;
@@ -227,7 +226,6 @@ describe('Play page', () => {
     await screen.findByText('The Hollow Tide');
 
     await act(async () => {
-      mAttack.mock.calls;
       const attackBtn = screen.queryByRole('button', { name: /Attack/i });
       if (attackBtn) fireEvent.click(attackBtn);
     });

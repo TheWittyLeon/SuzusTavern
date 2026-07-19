@@ -73,9 +73,16 @@
   display: flex;
   align-items: baseline;
   gap: 6px;
+  /* UIR2-TAV-23: min-width:0 is required on a flex item for its own
+     white-space:nowrap + text-overflow:ellipsis child to ever actually
+     truncate instead of overflowing/forcing the row wider than the 220px
+     .left column at desktop widths. */
+  min-width: 0;
 }
 
 .name {
+  display: block;
+  width: 100%;
   font-size: 13px;
   font-weight: 600;
   color: var(--ink);
@@ -84,9 +91,22 @@
   text-overflow: ellipsis;
 }
 
+/* UIR2-TAV-23: badges render on their own row below the name (see
+   PartyPanel.tsx) so they never share horizontal space with — and squeeze —
+   the name at the fixed 220px .left column width. */
+.badgeRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+/* TAV-PARTY-YOUBADGE-CONTRAST-CANDLELIT: --accent-ink, not --accent — the
+   decorative token fails AA in candlelit against this badge's accent-tinted
+   .you row background (see globals.css). */
 .youBadge {
   font-size: 10px;
-  color: var(--accent);
+  color: var(--accent-ink);
   font-weight: 600;
 }
 

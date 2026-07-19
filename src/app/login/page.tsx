@@ -82,14 +82,6 @@ function LoginForm() {
     }
   }, [formState]);
 
-  // ── Auto-submit on 6-digit TOTP ──────────────────────────────────────────
-  useEffect(() => {
-    if (totpValue.length === 6 && !verifying && formState === '2fa') {
-      void handleVerify();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [totpValue]);
-
   // ── Cleanup countdown on unmount ─────────────────────────────────────────
   useEffect(() => {
     return () => {
@@ -201,6 +193,20 @@ function LoginForm() {
       setTimeout(() => totpRef.current?.focus(), 0);
     }
   }, [totpValue, verifying, verify2FA, router, nextPath]);
+
+  // ── Auto-submit on 6-digit TOTP ──────────────────────────────────────────
+  // Declared after handleVerify (not before) so the effect always closes
+  // over the current callback — an earlier access here would silently keep
+  // firing a stale handleVerify if its own deps (verify2FA/router/nextPath)
+  // ever changed underneath it.
+  useEffect(() => {
+    if (totpValue.length === 6 && !verifying && formState === '2fa') {
+      // Auto-submit is a real async action (network verify call), not a
+      // render concern — no external store to subscribe to here.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      void handleVerify();
+    }
+  }, [totpValue, verifying, formState, handleVerify]);
 
   const handleVerifySubmit = useCallback(
     async (e: React.FormEvent<HTMLFormElement>) => {
@@ -420,9 +426,12 @@ function LoginForm() {
         // label-in-name for voice control). The Power icon is aria-hidden. Only
         // the busy/rate-limited states — where the visible text changes to
         // "Booting…"/"Wait…" — keep an explicit spoken label.
+        // TAV-A11Y-LOGIN-BUSY-LABEL: the busy label must MATCH the visible
+        // text ("Booting…"/"Checking…"), not a synonym ("Signing in…") — a
+        // mismatched accessible name is itself a 2.5.3 violation.
         aria-label={
           submitting
-            ? 'Signing in…'
+            ? (reduced ? 'Checking…' : 'Booting…')
             : ratelimited
               ? `Wait ${formatCountdown(countdown)}…`
               : undefined

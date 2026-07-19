@@ -84,6 +84,18 @@ export interface PageSkeletonProps {
    * a second live region. Defaults to the generic "Loading…" when omitted.
    */
   label?: string;
+  /**
+   * TAV-DASHBOARD-SKELETON-DOUBLE-LIVEREGION: whether this instance owns the
+   * announcement (`role="status"` + `aria-busy` + `aria-label` + the sr-only
+   * label span). Defaults to `true`. Set to `false` when this PageSkeleton is
+   * one of SEVERAL stacked on the same gated page, or is nested inside
+   * another element that already owns the live region (e.g. an
+   * `aria-live="polite"` wrapper) — exactly ONE announcer per gated page is
+   * the invariant. When `false`, this renders as a purely visual skeleton
+   * (the visual blocks are already `aria-hidden`, so nothing here is
+   * announced at all).
+   */
+  announce?: boolean;
 }
 
 /**
@@ -100,17 +112,23 @@ export default function PageSkeleton({
   lines = 4,
   className = '',
   label = 'Loading…',
+  announce = true,
 }: PageSkeletonProps) {
   return (
     <div
-      role="status"
-      aria-busy="true"
-      aria-label={label}
+      // TAV-DASHBOARD-SKELETON-DOUBLE-LIVEREGION: role/aria-busy/aria-label
+      // only when this instance is the page's single announcer. When
+      // announce=false, none of these attributes are present at all — this
+      // is a purely visual skeleton, not just a silenced one.
+      role={announce ? 'status' : undefined}
+      aria-busy={announce ? 'true' : undefined}
+      aria-label={announce ? label : undefined}
       data-component="PageSkeleton"
       className={[styles.root, className].filter(Boolean).join(' ')}
     >
-      {/* Screen-reader-only announcement */}
-      <span className={styles.srOnly}>{label}</span>
+      {/* Screen-reader-only announcement — omitted when announce=false, so a
+          non-announcing skeleton contributes no text content at all. */}
+      {announce && <span className={styles.srOnly}>{label}</span>}
 
       {variant === 'lines' && (
         <div className={styles.linesLayout} aria-hidden="true">

@@ -15,6 +15,7 @@
  */
 import { useEffect, useId, useRef, useState, type RefObject } from 'react';
 import Icon from '@/components/Icon';
+import { consumeEscape } from '@/lib/a11y/escapeConsume';
 import styles from './Composer.module.css';
 
 export type ComposeMode = 'say' | 'act' | 'ooc' | 'dm_narration';
@@ -167,12 +168,13 @@ function ActionRail({
       items[(idx - 1 + items.length) % items.length]?.focus();
     } else if (e.key === 'Escape') {
       e.preventDefault();
-      // UIR2-TAV-11 r2 (Miko-QA re-gate): consume Escape unconditionally so
-      // it can never bubble to the page-level Award-XP fallback listener —
-      // this menu has no busy state to gate on, so the close always fires.
-      e.stopPropagation();
-      setTargetOpen(false);
-      attackBtnRef.current?.focus();
+      // TAV-A11Y-USE-ESCAPE-CONSUME-HOOK (was a hand-rolled UIR2-TAV-11 r2
+      // fix): this menu has no busy state to gate on, so the close always
+      // fires alongside the unconditional stopPropagation().
+      consumeEscape(e, {
+        onClose: () => setTargetOpen(false),
+        onRefocus: () => attackBtnRef.current?.focus(),
+      });
     } else if (e.key === 'Tab') {
       // A11Y (Iro MEDIUM-1): APG menu-button — Tab closes the menu and lets focus
       // move naturally. Without this the popup stays open after Tab-out.

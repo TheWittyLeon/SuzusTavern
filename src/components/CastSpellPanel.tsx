@@ -183,6 +183,9 @@ export default function CastSpellPanel({
   );
 
   useEffect(() => {
+    // Canonical fetch-on-mount pattern (React docs "Fetching data" example).
+    // There's no external store to subscribe to here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadCastable();
   }, [loadCastable]);
 
@@ -203,27 +206,29 @@ export default function CastSpellPanel({
   // Keep selectedSlug valid as the castable list refreshes (e.g. a cast just
   // spent the caster's last slot at that level, dropping it from the list) —
   // reset to the first castable spell rather than stranding the picker.
-  useEffect(() => {
+  // Adjusted during render (not an effect) per React's documented pattern for
+  // "adjusting state when a prop changes" — avoids an extra render pass.
+  const [prevSpells, setPrevSpells] = useState(spells);
+  if (spells !== prevSpells) {
+    setPrevSpells(spells);
     if (spells.length === 0) {
       if (selectedSlug !== '') setSelectedSlug('');
-      return;
-    }
-    if (!spells.some((s) => s.slug === selectedSlug)) {
+    } else if (!spells.some((s) => s.slug === selectedSlug)) {
       setSelectedSlug(spells[0].slug);
     }
-  }, [spells, selectedSlug]);
+  }
 
   // Default the slot-level chooser to the LOWEST available level whenever the
   // selected spell (or its available range) changes — upcast is opt-in.
-  useEffect(() => {
+  const [prevSlotOptions, setPrevSlotOptions] = useState(slotOptions);
+  if (slotOptions !== prevSlotOptions) {
+    setPrevSlotOptions(slotOptions);
     if (slotOptions.length === 0) {
       if (slotLevel !== null) setSlotLevel(null);
-      return;
-    }
-    if (slotLevel === null || !slotOptions.includes(slotLevel)) {
+    } else if (slotLevel === null || !slotOptions.includes(slotLevel)) {
       setSlotLevel(slotOptions[0]);
     }
-  }, [slotOptions, slotLevel]);
+  }
 
   async function handleCast() {
     if (!selectedSpell || mutationBusyRef.current || disabled || !isPlayerTurn) return;

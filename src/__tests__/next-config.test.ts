@@ -18,3 +18,19 @@ describe('next.config.ts — devIndicators (UIR2-TAV-16)', () => {
     expect(nextConfig.output).toBe('standalone');
   });
 });
+
+/**
+ * UIR2-TAV-10: /admin/review was a bare 404 — the review-queue UI actually
+ * lives at /admin/content. A real redirects() entry (not just a nicer 404
+ * page) means any stale link/bookmark/typo still lands on the right page.
+ */
+describe('next.config.ts — /admin/review redirect (UIR2-TAV-10)', () => {
+  it('redirects /admin/review to /admin/content, temporarily (not cached forever)', async () => {
+    expect(typeof nextConfig.redirects).toBe('function');
+    const redirects = await nextConfig.redirects!();
+    const entry = redirects.find((r) => r.source === '/admin/review');
+    expect(entry).toBeDefined();
+    expect(entry?.destination).toBe('/admin/content');
+    expect(entry?.permanent).toBe(false);
+  });
+});

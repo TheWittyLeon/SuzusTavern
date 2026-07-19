@@ -142,6 +142,42 @@ describe('Character sheet', () => {
     expect(screen.getByText('Level 1')).toBeInTheDocument();
   });
 
+  // ── TAV-SHEET-HEADING-ORDER ────────────────────────────────────────────────
+  it('TAV-SHEET-HEADING-ORDER: section headings are h2 (not h3) — no level skip after the page h1', async () => {
+    mockGet.mockResolvedValue(ROGUE);
+    renderPage();
+    await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
+
+    // Was h3 — a direct h1 -> h3 skip (axe heading-order, moderate).
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'Ability scores' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'Saving throws' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Skills' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Features' })).toBeInTheDocument();
+
+    // Whole-document lock: no heading level ever increases by more than 1
+    // step from the previous heading in DOM order (the actual axe
+    // heading-order rule this violation tripped).
+    const levels = screen
+      .getAllByRole('heading')
+      .map((h) => Number(h.tagName.slice(1)));
+    for (let i = 1; i < levels.length; i++) {
+      expect(levels[i] - levels[i - 1]).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('TAV-SHEET-HEADING-ORDER: Inventory (InventoryPanel) is h2 too', async () => {
+    mockGet.mockResolvedValue(ROGUE);
+    renderPage();
+    await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
+    expect(
+      screen.getByRole('heading', { level: 2, name: /^Inventory/ }),
+    ).toBeInTheDocument();
+  });
+
   it('shows a friendly error when the sheet cannot be loaded', async () => {
     mockGet.mockRejectedValue(new Error('not found'));
     renderPage();

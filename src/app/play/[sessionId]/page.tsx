@@ -77,6 +77,8 @@ import { eventToLogRow, formatEventTimestamp as formatOpeningTimestamp } from '@
 import { matchKeywordIntent } from '@/lib/dnd/intentFastPath';
 import { DURABLE_GENERATION_ENABLED } from '@/lib/config';
 import { mintTurnKey, saveTurnKey, clearTurnKey } from '@/lib/turnKey';
+import { shouldClearAbortedStreamRow } from '@/lib/streamRowOwnership';
+import { consumeEscape } from '@/lib/a11y/escapeConsume';
 import {
   reconcileDurableEvents,
   applyReconcileResult,
@@ -92,6 +94,7 @@ import type {
   OfferedCheck,
   Participant,
   PendingGeneration,
+  SceneCheck,
   Session,
 } from '@/lib/api/types';
 import RebindCharacterButton from '@/components/RebindCharacterButton';
@@ -337,9 +340,14 @@ export default function PlayPage() {
   // S5.2: pending/error state for DM narration submission.
   const [dmNarrationPending, setDmNarrationPending] = useState(false);
   const [dmNarrationError, setDmNarrationError] = useState<string | null>(null);
-  // S5.2: track whether the session has loaded so we can sync the initial
-  // composer mode once (human DM should default to dm_narration, not 'say').
-  const modeSyncedRef = useRef(false);
+  // S5.2: latch — we snap the composer mode to dm_narration exactly ONCE, on the
+  // first session load, and never again (sessionId is fixed for the page's life,
+  // so there is no "next session" here). Must NOT key on the session object
+  // reference: refreshSessionAfterAction / the 4s poll install fresh Session
+  // objects on routine refetches, and re-firing would clobber a human DM who has
+  // manually switched the composer to OOC (Kage-CR). See the render-time
+  // adjustment below.
+  const [modeSynced, setModeSynced] = useState(false);
   const [advantage, setAdvantage] = useState<Advantage>('none');
   const [mobileView, setMobileView] = useState<'log' | 'party' | 'scene' | 'journal'>('log');
 
@@ -826,6 +834,10 @@ export default function PlayPage() {
       // narratorText widget above but must NEVER touch the transcript log —
       // the durable row the poll already appended is canonical.
       let pollClaimedNarration = false;
+      // TAV-S1-ABORT-CLEAR: this tail's OWN streaming row id (see narrate()'s
+      // identical comment above) — only meaningful when we, not the poll,
+      // own the live row.
+      let ownStreamRowId: string | null = null;
       try {
         for await (const ev of subscribeDmJob(jobId, sessionId, { signal: ctrl.signal })) {
           if (ev.kind === 'chunk') {
@@ -845,8 +857,18 @@ export default function PlayPage() {
                   pollClaimedNarration = true;
                 }
               }
-              if (!pollClaimedNarration) {
+              // Tora CRITICAL-1 (resurrection race) — same gate as narrate():
+              // a stale/superseded tail can still deliver a trailing chunk
+              // after a successor has synchronously aborted `ctrl` (readSSE
+              // only re-checks `signal.aborted` once per `reader.read()`
+              // chunk, not per SSE event). `ctrl.signal.aborted` flips
+              // synchronously on `.abort()` regardless of generator
+              // progress, so checking it here stops a stale tail from
+              // re-minting/adopting a row a successor already owns.
+              if (!pollClaimedNarration && !ctrl.signal.aborted) {
                 upsertStreamNarration(full);
+                // TAV-S1-ABORT-CLEAR: snapshot the row id THIS tail owns.
+                ownStreamRowId = streamRowIdRef.current;
                 // Keep the ledger's narrationRowId in sync with the live row
                 // so reconcileDurableEvents (rule 3) can find-and-replace it
                 // once the durable seq-bearing event lands on the poll.
@@ -865,7 +887,14 @@ export default function PlayPage() {
         console.error('[dm-turn] subscribe failed client-side:', e);
       }
 
-      if (ctrl.signal.aborted) return;
+      if (ctrl.signal.aborted) {
+        // TAV-S1-ABORT-CLEAR: see narrate()'s identical comment — only clear
+        // if a successor hasn't already claimed/replaced this ref.
+        if (shouldClearAbortedStreamRow(streamRowIdRef.current, ownStreamRowId)) {
+          clearStreamNarration(true);
+        }
+        return;
+      }
       setThinking(false);
       setTalking(false);
       if (subscribedJobIdRef.current === jobId) subscribedJobIdRef.current = null;
@@ -1176,17 +1205,18 @@ export default function PlayPage() {
   }, [username, sessionId]);
 
   // S5.2: once the session loads, snap the composer mode to 'dm_narration'
-  // for human-DM seats so the tab is correct from the first render.
-  // Runs once per session load (not on every mode change).
-  useEffect(() => {
-    if (modeSyncedRef.current || !session) return;
-    modeSyncedRef.current = true;
+  // for human-DM seats so the tab is correct from the first render. Runs once
+  // per newly-loaded session (not on every mode change) — adjusted during
+  // render (not an effect) per React's documented pattern for "adjusting
+  // state when a prop changes".
+  if (session && !modeSynced) {
+    setModeSynced(true);
     const thisDm = !!(session.dm_username && username &&
       session.dm_username.toLowerCase() === username.toLowerCase());
     if (thisDm && session.dm_mode === 'human') {
       setMode('dm_narration');
     }
-  }, [session, username]);
+  }
 
   // ── combat state poll (4s, foregrounded) ────────────────────────────────────
   // Deps: [combatId] only — state transitions (active→between_turns→active) must
@@ -1443,6 +1473,24 @@ export default function PlayPage() {
             setJournalEvents((prev) =>
               [...prev, ...journalFresh].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0)),
             );
+          }
+
+          // Scene panel objective / quick-checks are driven by `grounding`
+          // state. On the DURABLE path a scene_advance is discovered HERE (via
+          // this poll), not through narrate()'s SSE `sceneAdvancedSignal` — so
+          // without this refetch the Scene card lags on the previous scene
+          // after the runner advances the cursor server-side (the transcript
+          // shows the transition beat, but the objective/quick-checks stay
+          // stale). Keyed on `journalFresh` (seq-deduped) not `allNewEvents`,
+          // so it fires ONCE per advance rather than every tick under the
+          // NekoNova `since_seq`-drop full-history refetch. Mirrors narrate()'s
+          // sceneAdvancedSignal → refreshGrounding() for the SSE path; inlined
+          // (not refreshGrounding()) because that useCallback is declared below
+          // this effect — referencing it in the dep array would hit its TDZ.
+          if (journalFresh.some((e) => e.kind === 'scene_advance')) {
+            getGrounding(sessionId)
+              .then((g) => setGrounding(g))
+              .catch(() => {});
           }
 
           // §10 observability (Kage-CR low suggestion) — snapshot which
@@ -1715,8 +1763,10 @@ export default function PlayPage() {
   const onJournalKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === 'Escape') {
-        e.stopPropagation();
-        closeJournal();
+        // TAV-A11Y-USE-ESCAPE-CONSUME-HOOK: this drawer has no busy state to
+        // gate on, so the close always fires alongside the unconditional
+        // stopPropagation().
+        consumeEscape(e, { onClose: closeJournal });
         return;
       }
       if (e.key === 'Tab' && journalDialogRef.current) {
@@ -1905,6 +1955,14 @@ export default function PlayPage() {
       let lastErrorReason: string | undefined;
       let offeredCheckSignal: OfferedCheck | undefined;
       let sceneAdvancedSignal = false;
+      // TAV-S1-ABORT-CLEAR: this beat's OWN streaming row id, captured right
+      // after upsertStreamNarration creates/updates it. A successor beat
+      // always clears + replaces streamRowIdRef before this one's abort
+      // check runs, so comparing against the CURRENT ref (not just clearing
+      // unconditionally) tells us whether a successor has already claimed
+      // it — clearing unconditionally here could otherwise delete a
+      // successor's brand-new row instead of this beat's own.
+      let ownStreamRowId: string | null = null;
       try {
         for await (const ev of streamDmNarration(
           {
@@ -1940,8 +1998,26 @@ export default function PlayPage() {
                 revealRef.current = null;
               }
               setNarratorText(full);
-              // Mirror the live stream into a growing bottom-of-chat row.
-              upsertStreamNarration(full);
+              // Tora CRITICAL-1 (resurrection race): `readSSE` only checks
+              // `signal.aborted` once per `reader.read()` chunk, not per SSE
+              // event — a single network read can carry 2+ buffered events,
+              // so a stale/superseded beat's `for await` body can still run
+              // AFTER a successor has synchronously aborted `ctrl` (and
+              // cleared `streamRowIdRef`). `ctrl.signal.aborted` itself flips
+              // synchronously the instant `.abort()` is called, regardless of
+              // whether this async generator has noticed yet — so gating the
+              // mutation on it (rather than relying solely on the post-loop
+              // abort check) stops a stale beat from ever re-minting/adopting
+              // a row after it's been superseded. Do NOT snapshot
+              // `ownStreamRowId` in the aborted branch — this beat no longer
+              // owns any row.
+              if (!ctrl.signal.aborted) {
+                // Mirror the live stream into a growing bottom-of-chat row.
+                upsertStreamNarration(full);
+                // TAV-S1-ABORT-CLEAR: snapshot the row id THIS beat owns right
+                // after the synchronous upsert sets it.
+                ownStreamRowId = streamRowIdRef.current;
+              }
             } else {
               // Flag-OFF / buffered path — unchanged fake-reveal.
               revealText(full);
@@ -1965,7 +2041,17 @@ export default function PlayPage() {
         console.error('[dm-narration] beat failed client-side:', e);
       }
 
-      if (ctrl.signal.aborted) return;
+      if (ctrl.signal.aborted) {
+        // TAV-S1-ABORT-CLEAR: an aborted beat with no successor would
+        // otherwise leave a dangling aria-hidden streaming row that nothing
+        // will ever finalize. Only clear if streamRowIdRef STILL points at
+        // this beat's own row — if a successor beat already claimed/
+        // replaced it (the normal supersede path), leave it alone.
+        if (shouldClearAbortedStreamRow(streamRowIdRef.current, ownStreamRowId)) {
+          clearStreamNarration(true);
+        }
+        return;
+      }
       setThinking(false);
       setTalking(false);
       if (errored || !full.trim()) {
@@ -2641,7 +2727,19 @@ export default function PlayPage() {
         const xCard = { seq, actor: result?.event?.actor ?? username ?? undefined };
         setXCardEvent((prev) => (!prev || xCard.seq > prev.seq ? xCard : prev));
       }
-      toast({ tone: 'info', message: 'X-card noted. The table eases off.' });
+      // UIR2-TAV-25 (CSS/overlap part): no success toast here. The
+      // full-width, permanently-mounted xCardBanner set above already shows
+      // "A safety signal was raised — the table eases off." the instant
+      // xCardEvent updates — a second, DIFFERENT-toned corner toast saying
+      // nearly the same thing was redundant AND is what caused the reported
+      // overlap: the global Toast viewport is position:fixed bottom-right
+      // (Toast.module.css), which sits directly over this pane's Safety
+      // block/X-card button at desktop widths, and (being on its own 5s
+      // timer, decoupled from xCardEvent/dismissedXCardSeq) could still be
+      // visibly present after the raiser had already dismissed the banner —
+      // reading as "persists after dismissed". The banner is the single
+      // source of truth for this signal now; only a genuine failure (below)
+      // still needs a one-off toast, since no banner event exists to show.
     } catch {
       toast({ tone: 'error', message: 'Could not raise the X-card — try again.' });
     } finally {
@@ -3502,36 +3600,42 @@ export default function PlayPage() {
     [combatState?.state, grounding],
   );
 
-  // P1-PLAYFIX §3.3.3 (S2.4) — authored skill checks offered by the current scene.
+  // P1-PLAYFIX §3.3.3 (S2.4) — authored skill checks for the current scene.
   // Same combat gating as "Move on": hidden during active combat (checks are
   // an exploration-beat affordance). P1-PLAYFIX-2 §A.3: memoized for the same
   // reason as availableTransitions above.
-  // DM-driven gating (Leon, explicit): the authored scene check is only
-  // actionable once Suzu has invited it in the fiction — `offeredCheckSkill`
-  // is set when she names the check in her narration OR the player's action
-  // maps to it (both go through the offered_check signal, validated against
-  // this scene's authored checks). Before that, the dice stay in the DM's
-  // hands: no "Attempt {skill}" button. Never during active combat. Generic
-  // quick-checks (separate panel) remain always-available player agency and
-  // are NOT gated here.
   //
-  // Rehydration (fresh mount / reload mid-scene): `offeredCheckSkill` starts
-  // null and is NOT restored from persisted history. The offered_check signal
-  // only exists in the ephemeral SSE narration payload (src/lib/stream.ts) —
-  // it is never written into a durable session_events row (see
-  // src/lib/rehydration.ts eventToLogRow: narration events only carry
-  // text/who), so there is nothing clean to rehydrate it from. This is a
-  // deliberate accept, not an oversight: strictly honoring "DM must invite
-  // it" means a bare reload shows no authored-check button until Suzu next
-  // offers it (her next beat, or the player's next action re-triggering the
-  // offer) — never inferring an invitation that isn't freshly reasserted.
-  const availableChecks = useMemo(
-    () =>
-      combatState?.state !== 'active' && offeredCheckSkill
-        ? (grounding?.checks ?? []).filter((c) => c.skill === offeredCheckSkill)
-        : [],
-    [combatState?.state, grounding, offeredCheckSkill],
-  );
+  // D1a (Leon, product decision, 2026-07-19): ALL of the active scene's
+  // authored checks now surface as first-class, player-invoked affordances —
+  // no longer gated behind a narrator invite. A player can proactively
+  // attempt any authored check for the scene without waiting for Suzu to
+  // name it first. The check Suzu DOES invite this turn is still visually +
+  // accessibly highlighted (`isOffered`, in the render loop below) —
+  // `offeredCheckSkill` is now purely a highlight signal, not a visibility
+  // gate. Deduped by skill+dc (a scene could theoretically list the same
+  // check twice) and left in the scene's own authored order — no sort.
+  // Generic quick-checks (separate panel) remain always-available player
+  // agency and are NOT gated here either; the two panels are independent.
+  //
+  // Rehydration (fresh mount / reload mid-scene): grounding.checks comes
+  // straight off the scene's authored data, unlike `offeredCheckSkill`
+  // (ephemeral SSE-only, see src/lib/stream.ts — never written into a
+  // durable session_events row, src/lib/rehydration.ts eventToLogRow) — so
+  // the check buttons render correctly on a bare reload; only the
+  // highlight is lost until Suzu next reasserts an invite.
+  const availableChecks = useMemo(() => {
+    if (combatState?.state === 'active') return [];
+    const raw = grounding?.checks ?? [];
+    const seen = new Set<string>();
+    const deduped: SceneCheck[] = [];
+    for (const c of raw) {
+      const key = `${c.skill}-${c.dc}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(c);
+    }
+    return deduped;
+  }, [combatState?.state, grounding]);
 
   // ── composer send ───────────────────────────────────────────────────────────
   /**
@@ -3870,7 +3974,14 @@ export default function PlayPage() {
       </div>
 
       {/* LEFT — party + initiative */}
-      <aside id="play-pane-party" className={`${styles.pane} ${styles.left}`}>
+      {/* TAV-PLAY-LANDMARKS: stable landmark name so AT landmark navigation
+          announces "Party and initiative, complementary" instead of a bare
+          "complementary". */}
+      <aside
+        id="play-pane-party"
+        className={`${styles.pane} ${styles.left}`}
+        aria-label="Party and initiative"
+      >
         <div className={styles.sessionHead}>
           <Link href="/lobby" className={styles.back} aria-label="Leave session">
             <Icon name="Chevron" size={14} style={{ transform: 'rotate(180deg)' }} />
@@ -3955,20 +4066,18 @@ export default function PlayPage() {
               <form
                 className={styles.xpForm}
                 aria-label="Award session XP"
-                onKeyDown={(e) => {
-                  // Miko-QA gate, Finding 2 + UIR2-TAV-11 r2: stopPropagation
-                  // is UNCONDITIONAL — this form always consumes its own
-                  // Escape. Only the actual dismiss stays gated on
-                  // sessionActionBusy==='xp' (an in-flight award shouldn't be
-                  // dismissable mid-request).
-                  if (e.key === 'Escape') {
-                    e.stopPropagation();
-                    if (sessionActionBusy !== 'xp') {
-                      setXpFormOpen(false);
-                      xpToggleBtnRef.current?.focus();
-                    }
-                  }
-                }}
+                // TAV-A11Y-USE-ESCAPE-CONSUME-HOOK (was a hand-rolled
+                // Miko-QA gate Finding 2 / UIR2-TAV-11 r2 fix):
+                // stopPropagation is unconditional; only the actual dismiss
+                // stays gated on sessionActionBusy==='xp' (an in-flight
+                // award shouldn't be dismissable mid-request).
+                onKeyDown={(e) =>
+                  consumeEscape(e, {
+                    onClose: () => setXpFormOpen(false),
+                    canClose: sessionActionBusy !== 'xp',
+                    onRefocus: () => xpToggleBtnRef.current?.focus(),
+                  })
+                }
                 onSubmit={(e) => {
                   e.preventDefault();
                   void onAwardXp();
@@ -4371,7 +4480,15 @@ export default function PlayPage() {
       </main>
 
       {/* RIGHT — scene + "Move on" + dice + safety */}
-      <aside id="play-pane-scene" className={`${styles.pane} ${styles.right}`}>
+      {/* TAV-PLAY-LANDMARKS: stable landmark name (distinct from the inner
+          sceneHeadRef div's dynamic scene-name aria-label below — that's a
+          focus anchor, a different node; the landmark itself just needs a
+          short, unchanging name). */}
+      <aside
+        id="play-pane-scene"
+        className={`${styles.pane} ${styles.right}`}
+        aria-label="Scene"
+      >
         {/* FIX-8 (MEDIUM-1): aria-label surfaces the scene name to AT so the
             "Scene" kicker (now aria-hidden) doesn't duplicate it on screen readers.
             Scene name rendered as <p> (block element) so AT pauses between the
@@ -4427,21 +4544,18 @@ export default function PlayPage() {
                 className={styles.outcomeChooser}
                 role="group"
                 aria-label="Choose combat outcome"
-                onKeyDown={(e) => {
-                  // Tora MAJOR-2: Escape closes the chooser and returns focus
-                  // to the trigger. UIR2-TAV-11 r2 (Miko-QA re-gate):
-                  // stopPropagation is UNCONDITIONAL — the chooser always
-                  // consumes its own Escape so a busy Escape can't bubble to
-                  // the document-level Award-XP fallback below. Only the
-                  // actual close stays gated on `!combatBusy`.
-                  if (e.key === 'Escape') {
-                    e.stopPropagation();
-                    if (!combatBusy) {
-                      setOutcomeChooserOpen(false);
-                      endCombatBtnRef.current?.focus();
-                    }
-                  }
-                }}
+                // Tora MAJOR-2: Escape closes the chooser and returns focus
+                // to the trigger. TAV-A11Y-USE-ESCAPE-CONSUME-HOOK (was a
+                // hand-rolled UIR2-TAV-11 r2 fix): stopPropagation is
+                // unconditional; only the actual close stays gated on
+                // `!combatBusy`.
+                onKeyDown={(e) =>
+                  consumeEscape(e, {
+                    onClose: () => setOutcomeChooserOpen(false),
+                    canClose: !combatBusy,
+                    onRefocus: () => endCombatBtnRef.current?.focus(),
+                  })
+                }
               >
                 <div className={styles.outcomeChooserLabel}>How does this fight end?</div>
                 {(
@@ -4544,8 +4658,12 @@ export default function PlayPage() {
           </button>
         ) : null}
 
-        {/* P1-PLAYFIX §3.3.3 (S2.4): authored skill-check affordances — shown only
-            when the current scene offers checks and no combat is active. When a
+        {/* P1-PLAYFIX §3.3.3 (S2.4): authored skill-check affordances — shown
+            whenever the current scene has authored checks and no combat is
+            active (see availableChecks above). D1a: no longer gated behind a
+            narrator invite — every authored check for the scene is a
+            player-invoked button; the one Suzu invited this turn is just
+            highlighted (isOffered below), not exclusively shown. When a
             scene offers two skills for one outcome (e.g. Stealth OR Survival),
             both render as alternative buttons; either resolves the beat.
             Iro Ship 2 MINOR-2: role="group" + aria-label mirrors the existing

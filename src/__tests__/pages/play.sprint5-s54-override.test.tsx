@@ -514,7 +514,7 @@ describe('S5.4-AC11 — DmOverrideModal: reason required, submit blocked when em
   });
 
   it('S5.4-AC6: damage kind posts correct outcome shape', async () => {
-    const { container } = render(<DmOverrideModal {...modalBase} />);
+    render(<DmOverrideModal {...modalBase} />);
 
     const dmgRadio = screen.getByRole('radio', { name: /Damage/i });
     fireEvent.click(dmgRadio);

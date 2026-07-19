@@ -186,11 +186,6 @@ test('undo toast uses duration:Infinity and dismiss is called on successful rest
   mockDelete.mockResolvedValue({ message: 'trashed' });
   mockRestore.mockResolvedValue({ message: 'restored' });
 
-  // Intercept the toast() call to inspect options and capture the returned id.
-  let capturedDuration: number | undefined;
-  let capturedToastId: string | undefined;
-  let capturedDismiss: ((id: string) => void) | undefined;
-
   // Wrap ToastProvider's context value to spy on toast/dismiss.
   // We render inside a real ToastProvider so the full machinery works, and
   // separately verify the options via the ToastCard that appears in the DOM.

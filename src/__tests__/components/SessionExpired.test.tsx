@@ -78,4 +78,86 @@ describe('SessionExpired — variant="rate_limited"', () => {
     render(<SessionExpired variant="rate_limited" onRetry={() => {}} />);
     expect(screen.getByRole('button', { name: /try again/i })).toHaveFocus();
   });
+
+  // MAJOR-2 (Tora, interaction review): `busy` drives an in-place
+  // "Retrying…" presentation instead of unmounting/disabling the CTA.
+  it('busy=true shows "Retrying…" and marks the CTA aria-busy, WITHOUT disabling it (focus must never leave a busy CTA)', () => {
+    render(<SessionExpired variant="rate_limited" onRetry={() => {}} busy />);
+    const cta = screen.getByRole('button', { name: /retrying/i });
+    expect(cta).toHaveAttribute('aria-busy', 'true');
+    // Deliberately NOT disabled — a native `disabled` attribute blurs a
+    // currently-focused button in most browsers, which would defeat the
+    // fix's whole point.
+    expect(cta).not.toBeDisabled();
+    expect(screen.queryByRole('button', { name: /^try again$/i })).not.toBeInTheDocument();
+  });
+
+  it('busy=false (default) shows the ordinary "Try again" label with no aria-busy', () => {
+    render(<SessionExpired variant="rate_limited" onRetry={() => {}} />);
+    const cta = screen.getByRole('button', { name: /try again/i });
+    expect(cta).not.toHaveAttribute('aria-busy');
+  });
+
+  it('the CTA stays focused across a busy transition — same DOM node, never re-mounted', () => {
+    const { rerender } = render(<SessionExpired variant="rate_limited" onRetry={() => {}} />);
+    const before = screen.getByRole('button', { name: /try again/i });
+    expect(before).toHaveFocus();
+    rerender(<SessionExpired variant="rate_limited" onRetry={() => {}} busy />);
+    const after = screen.getByRole('button', { name: /retrying/i });
+    expect(after).toBe(before);
+    expect(after).toHaveFocus();
+  });
+});
+
+describe('SessionExpired — variant="offline" (TAV3-OFFLINE-VARIANT)', () => {
+  it('renders as a <main> landmark labelled by its own heading, distinct from "expired"', () => {
+    render(<SessionExpired variant="offline" />);
+    expect(
+      screen.getByRole('main', { name: /can.?t reach the tavern/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 1, name: /can.?t reach the tavern/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('does not assert the user was signed out (unlike "expired")', () => {
+    render(<SessionExpired variant="offline" />);
+    expect(screen.queryByText(/signed out/i)).not.toBeInTheDocument();
+  });
+
+  it('"Try again" calls onRetry when clicked (retry, not sign-in, is the primary action)', () => {
+    const onRetry = jest.fn();
+    render(<SessionExpired variant="offline" onRetry={onRetry} />);
+    fireEvent.click(screen.getByRole('button', { name: /try again/i }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it('still offers a secondary link straight to /login', () => {
+    render(<SessionExpired variant="offline" />);
+    const links = screen.getAllByRole('link');
+    expect(links.some((l) => l.getAttribute('href') === '/login')).toBe(true);
+  });
+
+  it('focuses the primary CTA (Try again) on mount', () => {
+    render(<SessionExpired variant="offline" onRetry={() => {}} />);
+    expect(screen.getByRole('button', { name: /try again/i })).toHaveFocus();
+  });
+
+  // MAJOR-2 (Tora, interaction review): same busy contract as "rate_limited".
+  it('busy=true shows "Retrying…" and marks the CTA aria-busy, WITHOUT disabling it', () => {
+    render(<SessionExpired variant="offline" onRetry={() => {}} busy />);
+    const cta = screen.getByRole('button', { name: /retrying/i });
+    expect(cta).toHaveAttribute('aria-busy', 'true');
+    expect(cta).not.toBeDisabled();
+  });
+
+  it('the CTA stays focused across a busy transition — same DOM node, never re-mounted', () => {
+    const { rerender } = render(<SessionExpired variant="offline" onRetry={() => {}} />);
+    const before = screen.getByRole('button', { name: /try again/i });
+    expect(before).toHaveFocus();
+    rerender(<SessionExpired variant="offline" onRetry={() => {}} busy />);
+    const after = screen.getByRole('button', { name: /retrying/i });
+    expect(after).toBe(before);
+    expect(after).toHaveFocus();
+  });
 });

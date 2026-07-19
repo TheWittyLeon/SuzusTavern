@@ -196,20 +196,26 @@ export default function CodexPage() {
   // looking at monsters. This is a UX nicety (closes the drawer/modal
   // promptly), not the crash fix — the `kindReady`/`items`/`status` gate
   // above is what makes the stale-tick render safe regardless of this
-  // effect's timing (see useCodexCatalog.ts's doc comment).
-  useEffect(() => {
+  // effect's timing (see useCodexCatalog.ts's doc comment). Adjusted during
+  // render (not an effect) per React's documented pattern for "adjusting
+  // state when a prop changes" — avoids an extra render pass.
+  const [prevActiveKind, setPrevActiveKind] = useState(activeKind);
+  if (activeKind !== prevActiveKind) {
+    setPrevActiveKind(activeKind);
     setSub('');
     setSelectedSlug(null);
     setFocusedIdx(0);
     setMobileDetailOpen(false);
-  }, [activeKind]);
+  }
 
   // A11Y CRITICAL-1: if the viewport widens back past the breakpoint while
   // the mobile modal is open, drop the open flag too — otherwise narrowing
   // back down later would resurrect a stale modal without a fresh selection.
-  useEffect(() => {
+  const [prevIsNarrowDrawer, setPrevIsNarrowDrawer] = useState(isNarrowDrawer);
+  if (isNarrowDrawer !== prevIsNarrowDrawer) {
+    setPrevIsNarrowDrawer(isNarrowDrawer);
     if (!isNarrowDrawer) setMobileDetailOpen(false);
-  }, [isNarrowDrawer]);
+  }
 
   const filtered = useMemo(() => {
     return items.filter((it) => {
@@ -223,9 +229,12 @@ export default function CodexPage() {
   }, [items, query, sub, activeKind]);
 
   // Keep the virtual-focus index in range whenever the filtered list changes.
-  useEffect(() => {
+  // Adjusted during render (not an effect) — see pattern note above.
+  const [prevFilteredLength, setPrevFilteredLength] = useState(filtered.length);
+  if (filtered.length !== prevFilteredLength) {
+    setPrevFilteredLength(filtered.length);
     setFocusedIdx((i) => (filtered.length === 0 ? 0 : Math.min(i, filtered.length - 1)));
-  }, [filtered.length]);
+  }
 
   useEffect(() => {
     if (status === 'error') retryRef.current?.focus();
@@ -256,12 +265,17 @@ export default function CodexPage() {
   const selectionAnnouncement = selected ? `Showing details for ${selected.name}` : '';
 
   // A11Y MINOR-2: debounce the *announcement* only — the visible listHead
-  // count below still updates every render/keystroke.
+  // count below still updates every render/keystroke. The immediate "clear
+  // when not ok" reset is adjusted during render (no timer involved); the
+  // actual debounced announcement stays in an effect since it's a real timer.
+  const [prevAnnounceStatus, setPrevAnnounceStatus] = useState(status);
+  if (status !== prevAnnounceStatus) {
+    setPrevAnnounceStatus(status);
+    if (status !== 'ok') setAnnouncedCount('');
+  }
+
   useEffect(() => {
-    if (status !== 'ok') {
-      setAnnouncedCount('');
-      return;
-    }
+    if (status !== 'ok') return;
     const t = setTimeout(() => {
       // DDX21-3: nounPlural, not naive `${noun}s` ("class" -> "classes", not
       // "classs").
@@ -476,10 +490,16 @@ export default function CodexPage() {
             {selectionAnnouncement}
           </p>
 
-          {status === 'loading' && <PageSkeleton variant="list" lines={6} />}
+          {status === 'loading' && (
+            <PageSkeleton variant="list" lines={6} className={styles.stateScroll} />
+          )}
 
           {status === 'error' && (
-            <Card className={styles.stateCard} role="alert" aria-labelledby="codex-error-title">
+            <Card
+              className={`${styles.stateCard} ${styles.stateScroll}`}
+              role="alert"
+              aria-labelledby="codex-error-title"
+            >
               <p id="codex-error-title" className={styles.stateTitle}>
                 Suzu can&rsquo;t reach the codex right now.
               </p>
@@ -499,7 +519,7 @@ export default function CodexPage() {
           )}
 
           {status === 'ok' && filtered.length === 0 && (
-            <div className={styles.listEmpty}>
+            <div className={`${styles.listEmpty} ${styles.stateScroll}`}>
               <p className={styles.listEmptyTitle}>Nothing here.</p>
               <p>
                 {items.length === 0

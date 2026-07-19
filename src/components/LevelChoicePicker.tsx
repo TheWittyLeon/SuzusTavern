@@ -179,9 +179,13 @@ export default function LevelChoicePicker({
 
   return (
     <div className={styles.wrap}>
-      <h3 ref={pendingHeadingRef} tabIndex={-1} className="label" style={{ margin: '0 0 4px' }}>
+      {/* TAV-SHEET-HEADING-ORDER: h2 — this component's own Card is a
+          top-level sibling section on the character sheet, same as
+          Inventory/Spells/Features (all h2). Its own per-choice cards below
+          are h3, one level in. */}
+      <h2 ref={pendingHeadingRef} tabIndex={-1} className="label" style={{ margin: '0 0 4px' }}>
         Pending choices
-      </h3>
+      </h2>
       {pending.map((choice) => {
         if (choice.type === 'subclass') {
           return (
@@ -211,7 +215,9 @@ export default function LevelChoicePicker({
         // today; this is forward-compat scaffolding, not a live path.
         return (
           <div key={choice.id} className={styles.card}>
-            <h4 className={styles.cardLabel}>{choice.label}</h4>
+            {/* TAV-SHEET-HEADING-ORDER: h3 — nested under "Pending choices"
+                (h2) above. */}
+            <h3 className={styles.cardLabel}>{choice.label}</h3>
             <p className={styles.emptyRow}>
               Suzu doesn&rsquo;t have a picker for this choice type yet.
             </p>
@@ -258,6 +264,9 @@ function SubclassChoiceCard({
 
   useEffect(() => {
     const ac = new AbortController();
+    // Canonical fetch-on-mount pattern (React docs "Fetching data" example).
+    // There's no external store to subscribe to here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoadState('loading');
     getCatalog(SYSTEM, { type: 'subclass' }, ac.signal)
       .then((res) => {
@@ -312,9 +321,10 @@ function SubclassChoiceCard({
 
   return (
     <div className={styles.card} aria-busy={busy}>
-      <h4 id={headingId} className={styles.cardLabel}>
+      {/* TAV-SHEET-HEADING-ORDER: h3 — nested under "Pending choices" (h2). */}
+      <h3 id={headingId} className={styles.cardLabel}>
         {choice.label}
-      </h4>
+      </h3>
       {loadState === 'loading' && (
         <p className={styles.emptyRow} aria-busy="true" aria-live="polite" aria-atomic="true">
           Loading options…
@@ -409,6 +419,9 @@ function AsiChoiceCard({ characterId, username, sheet, choice, onResolved }: Cho
   useEffect(() => {
     if (mode !== 'feat' || featLoadState !== 'idle') return;
     const ac = new AbortController();
+    // Canonical fetch-on-mount pattern (React docs "Fetching data" example).
+    // There's no external store to subscribe to here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setFeatLoadState('loading');
     getCatalog(SYSTEM, { type: 'feat' }, ac.signal)
       .then((res) => {
@@ -528,9 +541,10 @@ function AsiChoiceCard({ characterId, username, sheet, choice, onResolved }: Cho
 
   return (
     <div className={styles.card} aria-busy={busy}>
-      <h4 id={headingId} className={styles.cardLabel}>
+      {/* TAV-SHEET-HEADING-ORDER: h3 — nested under "Pending choices" (h2). */}
+      <h3 id={headingId} className={styles.cardLabel}>
         {choice.label}
-      </h4>
+      </h3>
       {/* A11Y (Iro CRITICAL-3/MODERATE-2): kept mounted across mode switches
           (not conditional on `mode`) so the live region itself never
           remounts — only its text content changes, the standard aria-live

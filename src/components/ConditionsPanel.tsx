@@ -33,7 +33,7 @@
  * name) and `target` (the participant's `.name`, kept for logs/graceful
  * degradation — see ApplyConditionRequest's doc comment in lib/api/types.ts).
  */
-import { useEffect, useId, useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import ConditionChipList from '@/components/ConditionChipList';
 import { useToast } from '@/components/Toast';
 import Button from '@/components/Button';
@@ -116,15 +116,17 @@ export default function ConditionsPanel({
 
   // Keep the target selector valid as the participant list changes (a downed
   // combatant leaving/joining, or the very first render before any state).
-  useEffect(() => {
+  // Adjusted during render (not an effect) per React's documented pattern for
+  // "adjusting state when a prop changes" — avoids an extra render pass.
+  const [prevParticipants, setPrevParticipants] = useState(participants);
+  if (participants !== prevParticipants) {
+    setPrevParticipants(participants);
     if (participants.length === 0) {
       if (targetId !== '') setTargetId('');
-      return;
-    }
-    if (!participants.some((p) => p.participant_id === targetId)) {
+    } else if (!participants.some((p) => p.participant_id === targetId)) {
       setTargetId(participants[0].participant_id);
     }
-  }, [participants, targetId]);
+  }
 
   const durationTrimmed = durationText.trim();
   const durationValue = durationTrimmed === '' ? undefined : Number(durationTrimmed);

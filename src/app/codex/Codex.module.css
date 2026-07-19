@@ -376,6 +376,16 @@
 }
 
 /* ── Loading / error / empty ──────────────────────────────────────────── */
+/* TAV6-SHORT-VIEWPORT-STATES: only .rows (UIR2-TAV-6) got an internal-scroll
+   fallback for .list's overflow:hidden + viewport-relative height cap. At
+   very short viewports the loading skeleton / error card / empty-state had
+   no scroll escape and could bottom-clip (e.g. the retry button on
+   .stateCard). Same bounded-scroll shape as .rows. */
+.stateScroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
 .stateCard {
   max-width: 480px;
   margin: 24px auto;

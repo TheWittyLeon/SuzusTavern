@@ -29,7 +29,7 @@
  * between an external HP change (not through this control) and the next
  * sheet refetch, which is an acceptable, self-healing window.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import Button from '@/components/Button';
 import Pill from '@/components/Pill';
 import { useToast } from '@/components/Toast';
@@ -67,12 +67,15 @@ export default function HpControl({ characterId, username, isOwner, hp, onChange
   const mutationBusyRef = useRef(false);
 
   // Re-sync from the parent's sheet whenever it changes (our own refetch
-  // landing, a LevelUp changing max HP, an initial mount, etc.).
-  useEffect(() => {
+  // landing, a LevelUp changing max HP, an initial mount, etc.). Adjusted
+  // during render (not an effect) per React's documented pattern for
+  // "adjusting state when a prop changes" — avoids an extra render pass.
+  const [prevHp, setPrevHp] = useState(hp);
+  if (hp.current !== prevHp.current || hp.max !== prevHp.max || hp.temp !== prevHp.temp) {
+    setPrevHp(hp);
     setLocal(hp);
     setIsDown(hp.current <= 0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hp.current, hp.max, hp.temp]);
+  }
 
   // Mirror the engine's ±1,000,000 amount cap (routes/characters.py HpAdjustRequest)
   // so an over-cap value is refused HERE with a clear affordance instead of round-

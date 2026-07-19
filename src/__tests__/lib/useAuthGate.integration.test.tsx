@@ -11,10 +11,10 @@
  *     retry CTA focused
  *   - clicking "Try again" while its own refresh is genuinely still in
  *     flight (a controlled/deferred promise, not same-tick) proves the CTA
- *     is UNMOUNTED (replaced by the bounded skeleton) before it could ever
- *     be clicked a second time through the real DOM — the natural mitigation
- *     that held even before AuthProvider grew retryAuth's own in-flight
- *     ref guard.
+ *     STAYS MOUNTED (MAJOR-2: showing "Retrying…"/aria-busy, never swapped
+ *     for the generic skeleton) and a real second click on it is a no-op —
+ *     via retryAuth's own in-flight ref guard, since the button is not
+ *     actually unmounted/detached the way it used to be.
  *   - a fast double real-DOM click (fireEvent.click ×2, no await between) on
  *     the SAME queried button reference reaches retryAuth at most once —
  *     both because of the natural button-unmount mitigation AND (since the
@@ -118,8 +118,8 @@ describe('useAuthGate integration — mount-time 429 → real SessionExpired', (
   });
 });
 
-describe('useAuthGate integration — retry CTA unmounts before a real second click can land', () => {
-  it('a real second click, dispatched only after the first click`s render has committed, cannot reach a detached button', async () => {
+describe('useAuthGate integration — retry CTA stays mounted+focused through a real in-flight retry (MAJOR-2)', () => {
+  it('a real second click on the SAME still-mounted button, dispatched after the first click`s render has committed, is a guarded no-op', async () => {
     mockRefresh.mockRejectedValueOnce(apiError(429));
     renderTestPage();
     const retryButton = await screen.findByRole('button', { name: /try again/i });
@@ -142,19 +142,23 @@ describe('useAuthGate integration — retry CTA unmounts before a real second cl
       fireEvent.click(retryButton);
     });
 
-    // While that refresh is still pending, the gate must show the bounded
-    // skeleton (authError was cleared synchronously with loading=true) —
-    // and the retry button must be GONE, not merely disabled. A stale
-    // reference to it dispatched a second click would hit a detached node.
-    expect(screen.getByTestId('skeleton-content')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /try again/i })).not.toBeInTheDocument();
-    expect(retryButton.isConnected).toBe(false);
+    // MAJOR-2: while that refresh is still pending, the SAME SessionExpired
+    // (and the SAME button element) stays mounted and focused — authError is
+    // deliberately NOT cleared at the start of a retry anymore, so
+    // useAuthGate never swaps in the generic skeleton mid-retry. The button
+    // now shows the busy/"Retrying…" presentation instead of unmounting.
+    expect(screen.queryByTestId('skeleton-content')).not.toBeInTheDocument();
+    const busyButton = screen.getByRole('button', { name: /retrying/i });
+    expect(busyButton).toBe(retryButton);
+    expect(busyButton.isConnected).toBe(true);
+    expect(busyButton).toHaveFocus();
 
-    // A literal second click dispatched at the stale (now-detached) node
-    // reference does not reach React's delegated handler — proves a REAL,
-    // separately-dispatched double click cannot reach the race characterized
-    // in AuthProvider.autherror.test.tsx through this one real call site.
-    fireEvent.click(retryButton);
+    // A literal second click on the SAME (still-connected, still-focused)
+    // button reaches React's handler fine, but retryAuth's own retryingRef
+    // guard makes it a no-op — proves a REAL, separately-dispatched double
+    // click cannot reach the race characterized in
+    // AuthProvider.autherror.test.tsx through this one real call site.
+    fireEvent.click(busyButton);
     expect(mockRefresh).toHaveBeenCalledTimes(1); // only the first click's call
 
     mockMe.mockResolvedValueOnce({ user: ALICE });
@@ -267,18 +271,18 @@ describe('useAuthGate integration — retry CTA unmounts before a real second cl
 
 describe('useAuthGate integration — focus re-lands correctly when the error VARIANT itself changes', () => {
   it('rate_limited → retry fails differently (expired this time) → focus moves to the NEW (link) CTA, not stuck on the old one', async () => {
-    // SessionExpired's focus effect has an empty dependency array
-    // (`useEffect(() => ctaRef.current?.focus(), [])`) — it only runs on
-    // MOUNT. If authError ever flipped directly between 'rate_limited' and
-    // 'expired' without SessionExpired unmounting in between, the effect
-    // would not re-fire and focus would silently go stale on the old CTA.
-    // retryAuth always clears authError to null FIRST (same batch as
-    // loading=true), which routes through the skeleton — a different
-    // element type — so SessionExpired should genuinely unmount/remount
-    // across variants. Proving that empirically rather than trusting the
-    // reasoning alone (a prior "should be safe" assumption in this same
-    // file's retryAuth-clobber test turned out to be wrong when run for
-    // real).
+    // MAJOR-2 changed the mechanism this test locks: authError is no longer
+    // cleared to null at the start of a retry (see AuthProvider's
+    // retryAuth), so a retry that fails with a DIFFERENT classification no
+    // longer routes through an intermediate skeleton — React reconciles the
+    // SAME SessionExpired instance (same type+position) straight from
+    // variant='rate_limited' to variant='expired', never unmounting it.
+    // SessionExpired's own focus effect now depends on `variant` specifically
+    // BECAUSE of this (see its own comment) — without that, this transition
+    // would leave focus stale on the old (now-unmounted-within-SessionExpired)
+    // button. Proving that empirically rather than trusting the reasoning
+    // alone (a prior "should be safe" assumption in this same file's
+    // retryAuth-clobber test turned out to be wrong when run for real).
     mockRefresh.mockRejectedValueOnce(apiError(429));
     renderTestPage();
     const retryButton = await screen.findByRole('button', { name: /try again/i });

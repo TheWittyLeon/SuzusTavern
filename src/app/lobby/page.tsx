@@ -56,14 +56,22 @@ function TableCard({
 
   // Character binding: auto-bind when exactly one character; show a picker for multiple.
   // useState initializer runs once at mount — before the parent's async listMyCharacters
-  // populates userCharacters. Use an effect so the binding fires after the list arrives.
+  // populates userCharacters. Adjusted during render (not an effect), so the binding
+  // fires the moment the list arrives, per React's documented pattern for
+  // "adjusting state when a prop changes" — avoids an extra render pass.
   const [selectedCharId, setSelectedCharId] = useState<number | undefined>(undefined);
-  useEffect(() => {
+  // Seed with a sentinel distinct from any real `userCharacters` reference
+  // (including the parent's own initial `[]`) — the fetch can resolve before
+  // this component's first render, so the mount pass must still be able to
+  // see a "change" and auto-bind, exactly like the effect it replaces did.
+  const [prevUserCharacters, setPrevUserCharacters] = useState<Character[] | null>(null);
+  if (userCharacters !== prevUserCharacters) {
+    setPrevUserCharacters(userCharacters);
     if (userCharacters.length === 1) {
       const parsed = Number(userCharacters[0].character_id);
       if (Number.isFinite(parsed)) setSelectedCharId(parsed);
     }
-  }, [userCharacters]);
+  }
 
   const handleJoinClick = () => {
     onJoin(session, selectedCharId);

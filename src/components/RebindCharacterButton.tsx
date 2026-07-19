@@ -48,6 +48,7 @@ import {
 import { bindCharacter, listMyCharacters } from '@/lib/api/dnd';
 import { useToast } from '@/components/Toast';
 import type { ApiError, Character } from '@/lib/api/types';
+import { consumeEscape } from '@/lib/a11y/escapeConsume';
 import styles from './RebindCharacterButton.module.css';
 
 function isApiError(e: unknown): e is ApiError {
@@ -172,14 +173,10 @@ function RebindCharacterButtonInner({
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === 'Escape') {
-        // UIR2-TAV-11 r2 (Miko-QA re-gate): stopPropagation is UNCONDITIONAL —
-        // this popover always consumes its own Escape so a busy (mid-save)
-        // Escape can't bubble to the page-level Award-XP fallback listener.
-        // Only the actual close/state-change stays gated on `!busy`.
-        e.stopPropagation();
-        if (!busy) {
-          closePopover();
-        }
+        // TAV-A11Y-USE-ESCAPE-CONSUME-HOOK (was a hand-rolled UIR2-TAV-11 r2
+        // fix): stopPropagation is unconditional; only the actual
+        // close/state-change stays gated on `!busy`.
+        consumeEscape(e, { onClose: closePopover, canClose: !busy });
         return;
       }
 
