@@ -1,0 +1,39 @@
+name: CI
+
+# 1.0 shipping-hygiene gate (TAV-1.0-TIER-5). Runs the hermetic checks that
+# need no external services: eslint (now a real gate — fails on any error) and
+# the full jest suite. Both are verified green on hardening/tavern-ui-2026-07-17.
+# `next build` is intentionally NOT run here (it needs runtime env/secrets the
+# self-hosted homelab supplies at deploy time, not in CI).
+
+on:
+  push:
+    branches: [main, "hardening/**"]
+  pull_request:
+    branches: [main, "hardening/**"]
+
+# Cancel superseded runs on the same ref to save minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Lint (real gate — fails on any error)
+        run: npm run lint
+
+      - name: Test (jest)
+        run: npm test -- --ci
