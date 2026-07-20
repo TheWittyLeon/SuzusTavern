@@ -44,6 +44,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getCatalog, getCatalogCounts } from '@/lib/api/dnd';
+import { useAuth } from '@/lib/auth/AuthProvider';
 import type { CatalogItem } from '@/lib/api/types';
 import type { CodexKind } from './codex';
 
@@ -70,6 +71,23 @@ export interface UseCodexCatalogResult {
 }
 
 export function useCodexCatalog(activeKind: CodexKind): UseCodexCatalogResult {
+  // CODEX-401-RACE: gate both catalog fetches until the session has resolved.
+  // On a cold load after the access token's TTL lapsed, getServerSession sets
+  // initialMaybeAuthed and AuthProvider runs a mount-time silent refresh; if
+  // these fetches fire in parallel with it (the default), the first request
+  // goes out with the stale access cookie, 401s (a browser-logged console
+  // error), and only recovers via client.ts's reactive 401→refresh→retry — an
+  // extra round-trip + noise. Waiting for auth to resolve makes the first
+  // request carry a fresh token. Zero penalty in the common fresh-token case:
+  // `loading`/`maybeAuthed` are already false at mount, so authReady is true
+  // immediately and the fetch is not delayed. Outside a provider (unit tests)
+  // useAuth() returns the no-op context (loading:false), so authReady is true
+  // and behaviour is unchanged. A genuinely-failed session also settles to
+  // authReady:true (loading:false) — the page's useAuthGate renders the
+  // re-auth prompt instead of the list, so no hang.
+  const { loading: authLoading, maybeAuthed } = useAuth();
+  const authReady = !authLoading && !maybeAuthed;
+
   const [counts, setCounts] = useState<Record<string, number> | null>(null);
 
   // Per-kind cache — survives tab switches for the life of the mount.
@@ -80,8 +98,11 @@ export function useCodexCatalog(activeKind: CodexKind): UseCodexCatalogResult {
   // Bump to force a re-fetch of the *active* kind, bypassing its cache entry.
   const [retryTick, setRetryTick] = useState(0);
 
-  // Counts — once, best-effort.
+  // Counts — once auth resolves, best-effort. (CODEX-401-RACE: gated on
+  // authReady so it doesn't fire with a stale token; re-runs when authReady
+  // flips true after a mount-time silent refresh.)
   useEffect(() => {
+    if (!authReady) return;
     const ac = new AbortController();
     getCatalogCounts(SYSTEM, {}, ac.signal)
       .then((res) => {
@@ -93,7 +114,7 @@ export function useCodexCatalog(activeKind: CodexKind): UseCodexCatalogResult {
         setCounts(null);
       });
     return () => ac.abort();
-  }, []);
+  }, [authReady]);
 
   const retry = useCallback(() => {
     delete cacheRef.current[activeKind];
@@ -101,6 +122,10 @@ export function useCodexCatalog(activeKind: CodexKind): UseCodexCatalogResult {
   }, [activeKind]);
 
   useEffect(() => {
+    // CODEX-401-RACE: hold in the initial 'loading' state until auth resolves,
+    // so the list fetch carries a fresh token. Re-runs when authReady flips.
+    if (!authReady) return;
+
     const cached = cacheRef.current[activeKind];
     if (cached) {
       setItems(cached);
@@ -126,7 +151,7 @@ export function useCodexCatalog(activeKind: CodexKind): UseCodexCatalogResult {
         setStatus('error');
       });
     return () => ac.abort();
-  }, [activeKind, retryTick]);
+  }, [activeKind, retryTick, authReady]);
 
   return { counts, items, itemsKind, status, retry };
 }
