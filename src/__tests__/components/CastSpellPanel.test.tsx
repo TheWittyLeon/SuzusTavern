@@ -2,9 +2,10 @@
  * CastSpellPanel — T6 (DDX-12 cast-in-combat UI).
  *
  * Castable-only picker, DDX-04 upcast slot-level range, target picker
- * (excludes self), cast wiring (spell_name/slot_level/target shape),
- * busy-latch, success toast, and refetch-after-mutate (sheet + combat state)
- * — mirrors SpellbookPanel/SpellSlotsPanel's test conventions.
+ * (excludes self, except TAV-CAST-SELF-HEAL-UI's healing-spell exception),
+ * cast wiring (spell_name/slot_level/target shape), busy-latch, success
+ * toast, and refetch-after-mutate (sheet + combat state) — mirrors
+ * SpellbookPanel/SpellSlotsPanel's test conventions.
  */
 import React from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
@@ -59,6 +60,7 @@ const SPELL_LIST: SpellListResult = {
       concentration: false,
       ritual: false,
       castable_now: true,
+      heals: false,
     },
   ],
   spells: [
@@ -74,6 +76,7 @@ const SPELL_LIST: SpellListResult = {
       ritual: false,
       castable_now: true,
       min_slot_level: 1,
+      heals: true,
     },
     {
       slug: 'guiding-bolt',
@@ -87,6 +90,7 @@ const SPELL_LIST: SpellListResult = {
       ritual: false,
       castable_now: false, // not prepared — must be excluded from the picker
       min_slot_level: 1,
+      heals: false,
     },
   ],
 };
@@ -494,6 +498,230 @@ describe('CastSpellPanel — target picker', () => {
     const sentBody = mockCastSpell.mock.calls[0][0];
     expect(sentBody).not.toHaveProperty('target');
     expect(sentBody).not.toHaveProperty('target_id');
+  });
+});
+
+describe('CastSpellPanel — TAV-CAST-SELF-HEAL-UI (self as a heal target)', () => {
+  it('offers the caster as a target, labeled as self, when a healing spell is selected', async () => {
+    renderPanel();
+    await flush();
+    selectSpell('Cure Wounds'); // heals: true
+
+    const targetSelect = await screen.findByLabelText('Target');
+    const names = Array.from(targetSelect.querySelectorAll('option')).map((o) => o.textContent);
+    expect(names.some((t) => t?.includes('Me') && t?.includes('yourself'))).toBe(true);
+  });
+
+  it('does NOT offer the caster as a target when a non-healing spell is selected', async () => {
+    renderPanel();
+    await flush();
+    selectSpell('Sacred Flame'); // heals: false
+
+    const targetSelect = await screen.findByLabelText('Target');
+    const names = Array.from(targetSelect.querySelectorAll('option')).map((o) => o.textContent);
+    expect(names.some((t) => t?.includes('Me'))).toBe(false);
+  });
+
+  it('selecting self and casting a heal sends target_id = the caster\'s own participant_id', async () => {
+    mockCastSpell.mockResolvedValue({ message: 'You heal yourself for 8 HP.' });
+    mockGetSheet.mockResolvedValue(SHEET);
+    renderPanel();
+    await flush();
+
+    selectSpell('Cure Wounds');
+    fireEvent.change(await screen.findByLabelText('Target'), { target: { value: 'p-self' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Cast Cure Wounds' }));
+    await flush();
+
+    expect(mockCastSpell).toHaveBeenCalledWith({
+      username: 'leon',
+      combat_id: 'combat-1',
+      spell_name: 'cure-wounds',
+      slot_level: 1,
+      target_id: 'p-self',
+      target: 'Me',
+    });
+  });
+
+  it('clears a stale self-target when switching from a heal (self chosen) to a non-healing spell', async () => {
+    renderPanel();
+    await flush();
+
+    selectSpell('Cure Wounds');
+    fireEvent.change(await screen.findByLabelText('Target'), { target: { value: 'p-self' } });
+    expect((screen.getByLabelText('Target') as HTMLSelectElement).value).toBe('p-self');
+
+    selectSpell('Sacred Flame');
+
+    const targetSelect = screen.getByLabelText('Target') as HTMLSelectElement;
+    expect(targetSelect.value).toBe('');
+    const names = Array.from(targetSelect.querySelectorAll('option')).map((o) => o.textContent);
+    expect(names.some((t) => t?.includes('Me'))).toBe(false);
+  });
+
+  // -- Adversarial (Miko-QA, TAV-CAST-SELF-HEAL-UI verification pass) -------
+
+  it('ADVERSARIAL: switching from one healing spell to ANOTHER healing spell keeps the self-target selected (not wiped)', async () => {
+    const HEALING_WORD: SheetSpellEntry = {
+      slug: 'healing-word',
+      name: 'Healing Word',
+      level: 1,
+      school: 'evocation',
+      source: 'class',
+      prepared: true,
+      is_cantrip: false,
+      concentration: false,
+      ritual: false,
+      castable_now: true,
+      min_slot_level: 1,
+      heals: true,
+    };
+    mockGetKnown.mockResolvedValue({
+      ...SPELL_LIST,
+      spells: [...SPELL_LIST.spells, HEALING_WORD],
+    });
+    renderPanel();
+    await flush();
+
+    selectSpell('Cure Wounds');
+    fireEvent.change(await screen.findByLabelText('Target'), { target: { value: 'p-self' } });
+    expect((screen.getByLabelText('Target') as HTMLSelectElement).value).toBe('p-self');
+
+    fireEvent.change(screen.getByLabelText('Spell'), { target: { value: 'healing-word' } });
+
+    const targetSelect = screen.getByLabelText('Target') as HTMLSelectElement;
+    // The reset effect keys off array-identity change of `targets`, not just
+    // whether the OLD selection is still valid for the OLD spell — this
+    // proves it doesn't over-fire and wipe a target that is still legal
+    // under the NEWLY selected (also-healing) spell.
+    expect(targetSelect.value).toBe('p-self');
+    const names = Array.from(targetSelect.querySelectorAll('option')).map((o) => o.textContent);
+    expect(names.some((t) => t?.includes('Me') && t?.includes('yourself'))).toBe(true);
+  });
+
+  it('ADVERSARIAL: a spell list refresh after a cast that drops the previously-selected healing spell clears the stale self-target AND resets selectedSlug without either reset fighting the other', async () => {
+    // Simulates: pick Cure Wounds, target self, cast it (spends the last
+    // level-1 slot server-side) -> the post-cast silent loadCastable refetch
+    // comes back WITHOUT cure-wounds (no longer castable_now) -- the
+    // selectedSlug-reset effect (pre-existing, DDX-04 lineage) and the
+    // targets/self-target-reset effect (this ticket) both fire off the SAME
+    // `spells` array change in the SAME render pass.
+    mockCastSpell.mockResolvedValue({ message: 'You heal yourself for 8 HP.' });
+    mockGetSheet.mockResolvedValue(SHEET);
+    mockGetKnown
+      .mockResolvedValueOnce(SPELL_LIST) // initial mount
+      .mockResolvedValueOnce({
+        ...SPELL_LIST,
+        spells: [], // cure-wounds no longer castable_now (slot spent)
+      });
+    renderPanel();
+    await flush();
+
+    selectSpell('Cure Wounds');
+    fireEvent.change(await screen.findByLabelText('Target'), { target: { value: 'p-self' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Cast Cure Wounds' }));
+    await flush();
+
+    // Only Sacred Flame (a cantrip) survives the refreshed list -> selectedSlug
+    // must land there, and the target picker must not retain a self option or
+    // a stale participant_id from the spell that just disappeared.
+    const spellSelect = screen.getByLabelText('Spell') as HTMLSelectElement;
+    expect(spellSelect.value).toBe('sacred-flame');
+    const targetSelect = screen.getByLabelText('Target') as HTMLSelectElement;
+    expect(targetSelect.value).toBe('');
+    const names = Array.from(targetSelect.querySelectorAll('option')).map((o) => o.textContent);
+    expect(names.some((t) => t?.includes('Me'))).toBe(false);
+  });
+
+  it('ADVERSARIAL: heals=undefined (engine field not yet live / safe-rollout default) never offers self, never crashes', async () => {
+    const NO_HEALS_FIELD: SheetSpellEntry = {
+      slug: 'mystery-spell',
+      name: 'Mystery Spell',
+      level: 1,
+      school: 'evocation',
+      source: 'class',
+      prepared: true,
+      is_cantrip: false,
+      concentration: false,
+      ritual: false,
+      castable_now: true,
+      min_slot_level: 1,
+      // `heals` intentionally omitted -- exercises `selectedSpell?.heals`
+      // resolving to `undefined` -> `Boolean(undefined)` -> false.
+    };
+    mockGetKnown.mockResolvedValue({ ...SPELL_LIST, spells: [NO_HEALS_FIELD] });
+    renderPanel();
+    await flush();
+
+    fireEvent.change(await screen.findByLabelText('Spell'), { target: { value: 'mystery-spell' } });
+
+    const targetSelect = await screen.findByLabelText('Target');
+    const names = Array.from(targetSelect.querySelectorAll('option')).map((o) => o.textContent);
+    expect(names.some((t) => t?.includes('Me'))).toBe(false);
+    expect(names.some((t) => t?.includes('Twilight'))).toBe(true);
+    expect(names.some((t) => t?.includes('Goblin'))).toBe(true);
+  });
+
+  it('ADVERSARIAL: a solo caster not seated as a participant (edge case) never offers self, no crash', async () => {
+    render(
+      <ToastProvider>
+        <CastSpellPanel
+          combatId="combat-1"
+          characterId="cid-1"
+          username="leon"
+          participants={[ALLY, ENEMY]} // caster's own participant row absent
+          spellSlots={SLOTS}
+          isPlayerTurn
+          onCast={jest.fn()}
+          onSheetChanged={jest.fn()}
+          onStateRefresh={jest.fn()}
+        />
+      </ToastProvider>,
+    );
+    await flush();
+
+    selectSpell('Cure Wounds'); // heals: true
+    const targetSelect = await screen.findByLabelText('Target');
+    const names = Array.from(targetSelect.querySelectorAll('option')).map((o) => o.textContent);
+    expect(names.some((t) => t?.includes('Twilight'))).toBe(true);
+    expect(names.some((t) => t?.includes('Goblin'))).toBe(true);
+    expect(names.some((t) => t?.includes('yourself'))).toBe(false);
+  });
+
+  it('ADVERSARIAL: rapid heal <-> non-heal <-> heal spell switching does not loop, throw, or leave a stale self-target', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      renderPanel();
+      await flush();
+
+      selectSpell('Cure Wounds');
+      fireEvent.change(await screen.findByLabelText('Target'), { target: { value: 'p-self' } });
+      selectSpell('Sacred Flame');
+      selectSpell('Cure Wounds');
+      selectSpell('Sacred Flame');
+      selectSpell('Cure Wounds');
+
+      // Each switch back to Cure Wounds re-offers self as an option (heals:
+      // true) but does NOT resurrect the earlier self selection -- the
+      // reset effect already cleared it the first time targets excluded it,
+      // and nothing re-applies a stale value.
+      const targetSelect = screen.getByLabelText('Target') as HTMLSelectElement;
+      expect(targetSelect.value).toBe('');
+      const names = Array.from(targetSelect.querySelectorAll('option')).map((o) => o.textContent);
+      expect(names.some((t) => t?.includes('Me') && t?.includes('yourself'))).toBe(true);
+
+      // The React "Maximum update depth exceeded" error throws synchronously
+      // during render/commit -- if the added `selectedSpell` dep on `targets`
+      // (or the new adjust-during-render reset) looped, this test would have
+      // already thrown or hung above. This assertion is a belt-and-suspenders
+      // check that no such error was swallowed by an act() boundary.
+      const loopErrors = errSpy.mock.calls.filter((args) =>
+        String(args[0]).includes('Maximum update depth'),
+      );
+      expect(loopErrors).toHaveLength(0);
+    } finally {
+      errSpy.mockRestore();
+    }
   });
 });
 

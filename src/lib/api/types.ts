@@ -186,6 +186,11 @@ export interface SheetSpellEntry {
   castable_now: boolean;
   /** Present on leveled (non-cantrip) entries only. */
   min_slot_level?: number;
+  /** True when the spell has `healing_dice` (TAV-CAST-SELF-HEAL-UI) — drives
+   *  whether the cast panel offers the caster as their own target. Optional
+   *  so a frontend deploy that lands before the engine field ships degrades
+   *  safely: undefined -> falsy -> self simply isn't offered yet. */
+  heals?: boolean;
 }
 
 /** GET /api/dnd/spells/:id/list response data. */

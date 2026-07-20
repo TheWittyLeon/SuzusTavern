@@ -112,8 +112,10 @@ export interface CastSpellPanelProps {
   characterId: string;
   username: string;
   /** Combat participants (from CombatState.participants) — the target picker
-   *  excludes the caster themselves; everyone else (ally or enemy) is offered
-   *  — the engine validates the actual legality of a given spell/target pair. */
+   *  excludes the caster themselves (TAV-CAST-SELF-HEAL-UI: unless the
+   *  selected spell heals, in which case self is offered too, labeled
+   *  "yourself"); everyone else (ally or enemy) is always offered — the
+   *  engine validates the actual legality of a given spell/target pair. */
   participants: CombatParticipantState[];
   /** The caster's own spell slots (from the sheet) — drives the upcast range. */
   spellSlots: Record<string, SheetSpellSlot>;
@@ -198,10 +200,32 @@ export default function CastSpellPanel({
     () => (selectedSpell ? upcastLevels(selectedSpell, spellSlots) : []),
     [selectedSpell, spellSlots],
   );
-  const targets = useMemo(
-    () => participants.filter((p) => String(p.entity_id) !== String(characterId)),
-    [participants, characterId],
-  );
+  // TAV-CAST-SELF-HEAL-UI: the caster is excluded from the target list by
+  // default (you don't target yourself with an attack/utility spell), but a
+  // HEALING spell (`selectedSpell.heals`, from the engine's TAV-CAST-COMBAT-
+  // SELF-HEAL fix) is a legal self-cast in combat, so include the caster's
+  // own participant in that case rather than stranding them with no way to
+  // pick themselves.
+  const targets = useMemo(() => {
+    const includeSelf = Boolean(selectedSpell?.heals);
+    return participants.filter((p) => {
+      const isSelf = String(p.entity_id) === String(characterId);
+      return includeSelf || !isSelf;
+    });
+  }, [participants, characterId, selectedSpell]);
+
+  // Keep targetId valid as `targets` changes shape — most notably, switching
+  // FROM a healing spell (self selected) TO a non-healing spell drops self
+  // out of `targets`, and a stale self-target must not survive to be
+  // submitted with an attack/utility cast. Adjust-during-render, same
+  // pattern as the selectedSlug/slotLevel resets below.
+  const [prevTargets, setPrevTargets] = useState(targets);
+  if (targets !== prevTargets) {
+    setPrevTargets(targets);
+    if (targetId !== '' && !targets.some((p) => p.participant_id === targetId)) {
+      setTargetId('');
+    }
+  }
 
   // Keep selectedSlug valid as the castable list refreshes (e.g. a cast just
   // spent the caster's last slot at that level, dropping it from the list) —
@@ -364,11 +388,15 @@ export default function CastSpellPanel({
               onChange={(e) => setTargetId(e.target.value)}
             >
               <option value="">— no target —</option>
-              {targets.map((p) => (
-                <option key={p.participant_id} value={p.participant_id}>
-                  {p.name} (HP {p.hp_current}/{p.hp_max})
-                </option>
-              ))}
+              {targets.map((p) => {
+                const isSelf = String(p.entity_id) === String(characterId);
+                return (
+                  <option key={p.participant_id} value={p.participant_id}>
+                    {p.name} (HP {p.hp_current}/{p.hp_max})
+                    {isSelf ? ' — yourself' : ''}
+                  </option>
+                );
+              })}
             </select>
           </div>
           <Button
