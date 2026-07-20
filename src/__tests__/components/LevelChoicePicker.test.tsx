@@ -933,6 +933,113 @@ describe('LevelChoicePicker — spell choice: picks are allotment-capped', () =>
   });
 });
 
+describe('LevelChoicePicker — spell choice: TAV-SPELLPICK-POOL-GROUPING cross-group cap (Miko-QA adversarial)', () => {
+  it('the leveled cap is a SINGLE cross-level budget: one pick from Level 1 plus one from Level 2 hits a cap of 2 and disables the remaining Level-1 AND Level-2 options', async () => {
+    mockGetAvailableSpells.mockResolvedValueOnce(
+      availableSpellsFixture({
+        cantrips: [],
+        by_level: {
+          '1': [
+            { slug: 'magic-missile', name: 'Magic Missile', level: 1, school: 'evocation', concentration: false, ritual: false, in_repertoire: false, prepared: false },
+            { slug: 'shield', name: 'Shield', level: 1, school: 'abjuration', concentration: false, ritual: false, in_repertoire: false, prepared: false },
+          ],
+          '2': [
+            { slug: 'scorching-ray', name: 'Scorching Ray', level: 2, school: 'evocation', concentration: false, ritual: false, in_repertoire: false, prepared: false },
+            { slug: 'misty-step', name: 'Misty Step', level: 2, school: 'conjuration', concentration: false, ritual: false, in_repertoire: false, prepared: false },
+          ],
+        },
+      }),
+    );
+    // WIZARD_SPELL_CHOICE.spells === 2 — the cap under test.
+    renderPicker([{ ...WIZARD_SPELL_CHOICE, cantrips: 0 }]);
+
+    const magicMissile = await screen.findByRole('button', { name: 'Magic Missile' });
+    const shield = screen.getByRole('button', { name: 'Shield' });
+    const scorchingRay = screen.getByRole('button', { name: 'Scorching Ray' });
+    const mistyStep = screen.getByRole('button', { name: 'Misty Step' });
+
+    // Both level groups render up front — the grouping is presentational.
+    expect(screen.getByText('Level 1')).toBeInTheDocument();
+    expect(screen.getByText('Level 2')).toBeInTheDocument();
+
+    fireEvent.click(magicMissile); // Level-1 pick #1
+    fireEvent.click(scorchingRay); // Level-2 pick #2 — cap now full CROSS-group
+
+    expect(await screen.findByText(/new spells — 2 of 2 chosen/i)).toBeInTheDocument();
+
+    // ADVERSARIAL: attempting to exceed the cap from the OTHER (untouched)
+    // level-1 slot and the other level-2 slot must both be blocked — a
+    // per-group cap bug would leave one or both of these enabled since
+    // neither group individually hit "its own" cap of 2.
+    expect(shield).toBeDisabled();
+    expect(mistyStep).toBeDisabled();
+    fireEvent.click(shield);
+    fireEvent.click(mistyStep);
+    // Still exactly 2 — the disabled buttons must not have toggled through.
+    expect(screen.getByText(/new spells — 2 of 2 chosen/i)).toBeInTheDocument();
+
+    // The already-picked buttons in EITHER group stay clickable (to deselect).
+    expect(magicMissile).toBeEnabled();
+    expect(scorchingRay).toBeEnabled();
+
+    // Deselecting a Level-2 pick frees the budget for the Level-1 leftover —
+    // proving the shared Set, not two independent ones.
+    fireEvent.click(scorchingRay);
+    expect(await screen.findByText(/new spells — 1 of 2 chosen/i)).toBeInTheDocument();
+    expect(shield).toBeEnabled();
+    fireEvent.click(shield);
+    expect(await screen.findByText(/new spells — 2 of 2 chosen/i)).toBeInTheDocument();
+    expect(mistyStep).toBeDisabled();
+  });
+
+  it('an empty spell-level group (all in_repertoire, or genuinely empty) is dropped from the render entirely, not shown as a headed empty group', async () => {
+    mockGetAvailableSpells.mockResolvedValueOnce(
+      availableSpellsFixture({
+        cantrips: [],
+        by_level: {
+          '1': [
+            { slug: 'magic-missile', name: 'Magic Missile', level: 1, school: 'evocation', concentration: false, ritual: false, in_repertoire: false, prepared: false },
+          ],
+          // Everything at level 2 is already in the repertoire — post-filter
+          // this group is empty and must not render a bare "Level 2" heading.
+          '2': [
+            { slug: 'misty-step', name: 'Misty Step', level: 2, school: 'conjuration', concentration: false, ritual: false, in_repertoire: true, prepared: true },
+          ],
+        },
+      }),
+    );
+    renderPicker([{ ...WIZARD_SPELL_CHOICE, cantrips: 0 }]);
+
+    await screen.findByRole('button', { name: 'Magic Missile' });
+    expect(screen.getByText('Level 1')).toBeInTheDocument();
+    expect(screen.queryByText('Level 2')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Misty Step' })).not.toBeInTheDocument();
+  });
+
+  it('a11y: the leveled bucket is ONE role="group" spanning all levels, labelled by the single cross-level hint — not one group per level', async () => {
+    mockGetAvailableSpells.mockResolvedValueOnce(
+      availableSpellsFixture({
+        cantrips: [],
+        by_level: {
+          '1': [
+            { slug: 'magic-missile', name: 'Magic Missile', level: 1, school: 'evocation', concentration: false, ritual: false, in_repertoire: false, prepared: false },
+          ],
+          '2': [
+            { slug: 'misty-step', name: 'Misty Step', level: 2, school: 'conjuration', concentration: false, ritual: false, in_repertoire: false, prepared: false },
+          ],
+        },
+      }),
+    );
+    renderPicker([{ ...WIZARD_SPELL_CHOICE, cantrips: 0 }]);
+
+    await screen.findByRole('button', { name: 'Magic Missile' });
+    const groups = screen.getAllByRole('group');
+    expect(groups).toHaveLength(1);
+    const hint = screen.getByText(/new spells — 0 of 2 chosen/i);
+    expect(groups[0]).toHaveAttribute('aria-labelledby', hint.id);
+  });
+});
+
 describe('LevelChoicePicker — spell choice: Confirm batches learnSpell then resolves', () => {
   it('a wizard leveled spellbook caster: cantrip picks get no prepared arg, leveled picks get prepared:true', async () => {
     const after: CharacterSheet = { ...BASE_SHEET, char_class: 'Wizard', pending_choices: [] };

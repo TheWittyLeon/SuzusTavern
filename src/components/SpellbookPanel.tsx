@@ -129,6 +129,13 @@ export interface SpellbookPanelProps {
   isOwner: boolean;
   /** Mirrors the sheet's `is_spellcaster` — see the header comment. */
   isCaster: boolean;
+  /** TAV-SPELLBOOK-STALE-AFTER-PICKER: bumped by the parent page after a
+   *  LevelChoicePicker resolve. This panel's repertoire (known/available) is
+   *  fetched independently of the sheet (see the header comment above) so a
+   *  level-up spell pick never otherwise reaches it — bumping this number
+   *  re-runs the fetch-on-mount effect below, pulling the fresh repertoire
+   *  without a full page reload. */
+  refreshKey?: number;
 }
 
 function groupByLevel(spells: SheetSpellEntry[]): [number, SheetSpellEntry[]][] {
@@ -146,6 +153,7 @@ export default function SpellbookPanel({
   username,
   isOwner,
   isCaster,
+  refreshKey,
 }: SpellbookPanelProps) {
   const { toast } = useToast();
   const [tab, setTab] = useState<Tab>('known');
@@ -175,6 +183,16 @@ export default function SpellbookPanel({
   const tabOrder: Tab[] = isOwner ? ['known', 'browse'] : ['known'];
   const TAB_LABEL: Record<Tab, string> = { known: 'Known', browse: 'Browse' };
 
+  // TAV-SPELLBOOK-STALE-AFTER-PICKER (Kage defect A): a ref mirror of `tab`,
+  // read (not depended-on) by the mount/refreshKey effect below so a
+  // `refreshKey` bump can tell whether Browse is the CURRENTLY active tab
+  // without that effect re-firing on every tab switch (it's an effect about
+  // isCaster/refreshKey, not tab).
+  const tabRef = useRef<Tab>(tab);
+  useEffect(() => {
+    tabRef.current = tab;
+  }, [tab]);
+
   // A11Y (Iro MAJOR-3): focus-restore target after a Learn/Prepare mutate —
   // the disabled-while-busy button either re-enables in place (Known tab) or
   // unmounts entirely (Browse Learn -> Prepare swap), so the <li> itself,
@@ -199,13 +217,31 @@ export default function SpellbookPanel({
    * toast while the previously-rendered list stays exactly as it was.
    */
   const loadKnown = useCallback(
-    async (opts?: { silent?: boolean }) => {
+    async (opts?: { silent?: boolean; signal?: AbortSignal }) => {
       if (!opts?.silent) setKnownState('loading');
       try {
-        const data = await getKnownSpells(characterId, username);
+        // TAV-SPELLBOOK-STALE-AFTER-PICKER (Kage defect B): signal is only
+        // threaded through when the caller actually has one (the mount/
+        // refreshKey effect below) — the silent refetch-after-mutate path
+        // (handleLearn/handlePrepare) still calls this with no signal, same
+        // 2-arg call it always made, so it's unaffected.
+        const data = opts?.signal
+          ? await getKnownSpells(characterId, username, opts.signal)
+          : await getKnownSpells(characterId, username);
+        // Checked again post-await, not just in the catch below: a
+        // superseded request can still RESOLVE (not just reject) after its
+        // controller aborts — this is the actual request-ordering guard
+        // that closes the stale-overwrite race, not merely a rejection
+        // no-op.
+        if (opts?.signal?.aborted) return;
         setKnown(data);
         setKnownState('ok');
       } catch (err) {
+        // An aborted request (effect cleanup, see below) is not a real
+        // failure — mirrors LevelChoicePicker's SubclassChoiceCard abort
+        // guard (`if (ac.signal.aborted) return;`); no-op instead of
+        // clobbering state, silent or not.
+        if (opts?.signal?.aborted) return;
         if (!opts?.silent) {
           setKnownState('error');
           return;
@@ -217,14 +253,22 @@ export default function SpellbookPanel({
   );
 
   const loadAvailable = useCallback(
-    async (opts?: { silent?: boolean }) => {
+    async (opts?: { silent?: boolean; signal?: AbortSignal }) => {
       availableLoadedRef.current = true;
       if (!opts?.silent) setAvailableState('loading');
       try {
-        const data = await getAvailableSpells(characterId, username);
+        // TAV-SPELLBOOK-STALE-AFTER-PICKER (Kage defect B): see loadKnown's
+        // matching comment — signal only threaded when the caller has one.
+        const data = opts?.signal
+          ? await getAvailableSpells(characterId, username, opts.signal)
+          : await getAvailableSpells(characterId, username);
+        // Post-await abort re-check — see loadKnown's matching comment.
+        if (opts?.signal?.aborted) return;
         setAvailable(data);
         setAvailableState('ok');
       } catch (err) {
+        // Abort guard — see loadKnown's matching comment.
+        if (opts?.signal?.aborted) return;
         if (!opts?.silent) {
           setAvailableState('error');
           return;
@@ -237,16 +281,39 @@ export default function SpellbookPanel({
 
   useEffect(() => {
     if (!isCaster) return;
+    // TAV-SPELLBOOK-STALE-AFTER-PICKER (Kage defect B): AbortController on
+    // the effect-driven fetch(es) below, aborted on cleanup — the standard
+    // React fetch pattern (mirrors LevelChoicePicker's SubclassChoiceCard).
+    // Closes the request-ordering race a rapid double-bump (or a bump
+    // overlapping a silent refetch-after-mutate) could otherwise hit: an
+    // earlier request resolving AFTER a later one would win the last-write
+    // and clobber fresher state with stale data. The silent refetch-after-
+    // mutate path (refetchAfterMutate) is a separate concern and stays
+    // un-aborted, per its own "stale display + warn toast on failure"
+    // contract above.
+    const ac = new AbortController();
     // Canonical fetch-on-mount pattern (React docs "Fetching data" example).
     // There's no external store to subscribe to here.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadKnown();
-    // Re-fetch from scratch on character/user change; Browse re-loads lazily
-    // the next time its tab is opened (availableLoadedRef resets below).
-    availableLoadedRef.current = false;
-    setAvailable(null);
-    setAvailableState('idle');
-  }, [isCaster, loadKnown]);
+    void loadKnown({ signal: ac.signal });
+    // TAV-SPELLBOOK-STALE-AFTER-PICKER (Kage defect A): Browse only reloads
+    // LAZILY on tab-open — but if Browse is the CURRENTLY active tab when
+    // this fires (a level-choice resolve bumped `refreshKey` while the user
+    // was already looking at Browse), dropping straight to 'idle' has no
+    // matching render branch (only loading/error/ok exist below), so the
+    // panel went silently blank until the user manually left and re-opened
+    // the tab. Refresh it in place instead when that's the case. When
+    // Browse is NOT the active tab, preserve the original lazy-reload-on-
+    // next-open behavior (character/user change too — same reset).
+    if (tabRef.current === 'browse' && availableLoadedRef.current) {
+      void loadAvailable({ signal: ac.signal });
+    } else {
+      availableLoadedRef.current = false;
+      setAvailable(null);
+      setAvailableState('idle');
+    }
+    return () => ac.abort();
+  }, [isCaster, loadKnown, loadAvailable, refreshKey]);
 
   function openTab(next: Tab) {
     setTab(next);

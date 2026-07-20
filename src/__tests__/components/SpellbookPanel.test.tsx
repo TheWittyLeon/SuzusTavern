@@ -156,14 +156,15 @@ function refusalError(reason: string) {
   return err;
 }
 
-function renderPanel(overrides?: { isOwner?: boolean; isCaster?: boolean }) {
-  render(
+function renderPanel(overrides?: { isOwner?: boolean; isCaster?: boolean; refreshKey?: number }) {
+  return render(
     <ToastProvider>
       <SpellbookPanel
         characterId="cid-2"
         username="leon"
         isOwner={overrides?.isOwner ?? true}
         isCaster={overrides?.isCaster ?? true}
+        refreshKey={overrides?.refreshKey}
       />
     </ToastProvider>,
   );
@@ -204,7 +205,10 @@ describe('SpellbookPanel — Known tab rendering', () => {
     renderPanel();
     await flush();
 
-    expect(mockGetKnown).toHaveBeenCalledWith('cid-2', 'leon');
+    // TAV-SPELLBOOK-STALE-AFTER-PICKER (Kage defect B): the mount effect now
+    // threads an AbortController signal through the fetch — see
+    // SpellbookPanel.tsx's mount/refreshKey effect.
+    expect(mockGetKnown).toHaveBeenCalledWith('cid-2', 'leon', expect.any(AbortSignal));
     expect(screen.getByText('Cantrips')).toBeInTheDocument();
     expect(screen.getByText('Fire Bolt')).toBeInTheDocument();
     expect(screen.getByText('Level 1')).toBeInTheDocument();
@@ -737,6 +741,169 @@ describe('SpellbookPanel — Iro a11y follow-up (tablist keyboard nav + focus re
 
     const shieldRow = screen.getByText('Shield').closest('li');
     expect(shieldRow).toHaveFocus();
+  });
+});
+
+describe('SpellbookPanel — TAV-SPELLBOOK-STALE-AFTER-PICKER: refreshKey (Miko-QA adversarial)', () => {
+  it('refreshKey is optional — omitting it (existing call sites, e.g. any test above) still mounts and fetches known spells exactly once', async () => {
+    mockGetKnown.mockResolvedValue(KNOWN_WIZARD);
+    renderPanel(); // no refreshKey passed at all
+    await flush();
+    expect(mockGetKnown).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Fire Bolt')).toBeInTheDocument();
+  });
+
+  it('bumping refreshKey while Known is the active tab re-runs loadKnown and the fresh server data replaces the old list', async () => {
+    mockGetKnown.mockResolvedValueOnce(KNOWN_WIZARD);
+    const { rerender } = renderPanel({ refreshKey: 0 });
+    await flush();
+    expect(mockGetKnown).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Shield')).toBeInTheDocument();
+
+    // Simulate a level-choice resolve granting a NEW cantrip — the parent
+    // page bumps the nonce, same as character/[id]/page.tsx's onResolved.
+    const AFTER: SpellListResult = {
+      ...KNOWN_WIZARD,
+      cantrips: [
+        ...KNOWN_WIZARD.cantrips,
+        {
+          slug: 'ray-of-frost',
+          name: 'Ray of Frost',
+          level: 0,
+          school: 'evocation',
+          source: 'class',
+          prepared: true,
+          is_cantrip: true,
+          concentration: false,
+          ritual: false,
+          castable_now: true,
+        },
+      ],
+    };
+    mockGetKnown.mockResolvedValueOnce(AFTER);
+    rerender(
+      <ToastProvider>
+        <SpellbookPanel
+          characterId="cid-2"
+          username="leon"
+          isOwner
+          isCaster
+          refreshKey={1}
+        />
+      </ToastProvider>,
+    );
+    await flush();
+
+    expect(mockGetKnown).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('Ray of Frost')).toBeInTheDocument();
+  });
+
+  it('a same-value refreshKey re-render (e.g. parent re-rendering for an unrelated reason) does NOT re-fetch — only an actual bump does', async () => {
+    mockGetKnown.mockResolvedValue(KNOWN_WIZARD);
+    const { rerender } = renderPanel({ refreshKey: 5 });
+    await flush();
+    expect(mockGetKnown).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <ToastProvider>
+        <SpellbookPanel characterId="cid-2" username="leon" isOwner isCaster refreshKey={5} />
+      </ToastProvider>,
+    );
+    await flush();
+    expect(mockGetKnown).toHaveBeenCalledTimes(1);
+  });
+
+  it('REN fix (Kage defect A): bumping refreshKey while the Browse tab is already open + loaded refreshes the pool IN PLACE instead of dropping to a blank panel', async () => {
+    mockGetKnown.mockResolvedValue(KNOWN_WIZARD);
+    mockGetAvailable.mockResolvedValue(AVAILABLE_WIZARD);
+    const { rerender } = renderPanel({ refreshKey: 0 });
+    await flush();
+    fireEvent.click(screen.getByRole('tab', { name: 'Browse' }));
+    await flush();
+    expect(screen.getByText('Sleep')).toBeInTheDocument();
+    expect(mockGetAvailable).toHaveBeenCalledTimes(1);
+
+    // Parent bumps the nonce (a level-choice resolve) while Browse stays the
+    // active tab — nothing in openTab fires again, since the user isn't the
+    // one switching tabs this time. The newly-learned spell (Mage Hand) is
+    // now in the character's repertoire — its Browse row stays (still an
+    // eligible pool entry) but flips from a "Learn" button to a "known" pill,
+    // which only happens on a genuine re-fetch of fresh server data.
+    const AVAILABLE_AFTER_LEARN: AvailableSpellsResult = {
+      ...AVAILABLE_WIZARD,
+      cantrips: AVAILABLE_WIZARD.cantrips.map((s) =>
+        s.slug === 'mage-hand' ? { ...s, in_repertoire: true } : s,
+      ),
+    };
+    mockGetKnown.mockResolvedValueOnce(KNOWN_WIZARD);
+    mockGetAvailable.mockResolvedValueOnce(AVAILABLE_AFTER_LEARN);
+    rerender(
+      <ToastProvider>
+        <SpellbookPanel characterId="cid-2" username="leon" isOwner isCaster refreshKey={1} />
+      </ToastProvider>,
+    );
+    await flush();
+
+    // The pool refreshes in place — no blank panel, no stranded 'idle' state.
+    // Sleep (still !in_repertoire) still shows its Learn button; Mage Hand
+    // (now learned) no longer does — proving this actually re-fetched rather
+    // than merely re-rendering the old data.
+    expect(screen.getByRole('button', { name: 'Learn Sleep' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Learn Mage Hand' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/loading available spells/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/couldn.t load available spells/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+    // The original tab-open fetch, plus the refreshKey-driven refresh.
+    expect(mockGetAvailable).toHaveBeenCalledTimes(2);
+  });
+
+  it('REN fix (Kage defect B): a rapid double-bump of refreshKey is ordering-safe — an earlier fetch resolving AFTER a later one no longer overwrites the fresher data with stale data', async () => {
+    let resolveFirst: ((v: SpellListResult) => void) | undefined;
+    let resolveSecond: ((v: SpellListResult) => void) | undefined;
+    mockGetKnown.mockResolvedValueOnce(KNOWN_WIZARD); // initial mount, settles immediately
+    const { rerender } = renderPanel({ refreshKey: 0 });
+    await flush();
+
+    const STALE: SpellListResult = { ...EMPTY_KNOWN, cantrips: [], spells: [] };
+    const FRESH: SpellListResult = KNOWN_WIZARD;
+
+    mockGetKnown.mockImplementationOnce(
+      () => new Promise<SpellListResult>((resolve) => { resolveFirst = resolve; }),
+    );
+    rerender(
+      <ToastProvider>
+        <SpellbookPanel characterId="cid-2" username="leon" isOwner isCaster refreshKey={1} />
+      </ToastProvider>,
+    );
+
+    mockGetKnown.mockImplementationOnce(
+      () => new Promise<SpellListResult>((resolve) => { resolveSecond = resolve; }),
+    );
+    rerender(
+      <ToastProvider>
+        <SpellbookPanel characterId="cid-2" username="leon" isOwner isCaster refreshKey={2} />
+      </ToastProvider>,
+    );
+
+    // The SECOND (latest, refreshKey=2) request resolves first with the
+    // fresh state; the FIRST (stale, refreshKey=1) request resolves after
+    // it — but its effect's cleanup already aborted that request's
+    // AbortController (refreshKey=1 -> 2 unmounts/reruns the effect), so
+    // loadKnown's post-await `if (opts?.signal?.aborted) return;` guard
+    // no-ops it instead of letting it win the last-write.
+    await act(async () => {
+      resolveSecond?.(FRESH);
+      await Promise.resolve();
+    });
+    expect(screen.getByText('Fire Bolt')).toBeInTheDocument();
+
+    await act(async () => {
+      resolveFirst?.(STALE);
+      await Promise.resolve();
+    });
+    // Fixed: still shows the freshest data — the superseded (aborted) first
+    // request's late resolution no longer clobbers the screen.
+    expect(screen.getByText('Fire Bolt')).toBeInTheDocument();
   });
 });
 

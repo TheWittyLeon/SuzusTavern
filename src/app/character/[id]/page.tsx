@@ -49,6 +49,14 @@ export default function CharacterPage() {
 
   const [sheet, setSheet] = useState<CharacterSheet | null>(null);
   const [state, setState] = useState<'loading' | 'ok' | 'error'>('loading');
+  // TAV-SPELLBOOK-STALE-AFTER-PICKER: SpellbookPanel owns its OWN repertoire
+  // fetch (getKnownSpells/getAvailableSpells — see that component's header
+  // comment on why it isn't part of CharacterSheet), so a level-up spell pick
+  // resolved below doesn't touch it. Bumping this nonce on every
+  // LevelChoicePicker resolve — subclass/asi included, not just spell — is
+  // the low-risk signal to re-pull; an extra idempotent refetch for a
+  // subclass/asi resolve is harmless.
+  const [spellbookRefreshKey, setSpellbookRefreshKey] = useState(0);
 
   // Suzu's note (ST-080) — called unconditionally (rules of hooks); null-safe
   // until the sheet loads. No aiAssistLevel source on a session-less sheet yet
@@ -272,7 +280,12 @@ export default function CharacterPage() {
                 characterId={id}
                 username={username}
                 sheet={sheet}
-                onResolved={setSheet}
+                onResolved={(updated) => {
+                  setSheet(updated);
+                  // TAV-SPELLBOOK-STALE-AFTER-PICKER: see the state
+                  // declaration above — nudges SpellbookPanel to re-pull.
+                  setSpellbookRefreshKey((k) => k + 1);
+                }}
               />
             </Card>
           )}
@@ -447,6 +460,7 @@ export default function CharacterPage() {
                 username={username ?? ''}
                 isOwner={isOwner}
                 isCaster={sheet.is_spellcaster}
+                refreshKey={spellbookRefreshKey}
               />
             </Card>
           )}

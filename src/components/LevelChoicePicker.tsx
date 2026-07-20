@@ -863,14 +863,60 @@ function SpellChoiceCard({ characterId, username, sheet, choice, onResolved }: C
     }
   }
 
+  // TAV-SPELLPICK-POOL-GROUPING: cantrips are a single spell level, so this
+  // pool stays flat — just sorted, for consistency with the leveled groups.
   const cantripPool: AvailableSpellEntry[] = available
-    ? available.cantrips.filter((s) => !s.in_repertoire)
-    : [];
-  const leveledPool: AvailableSpellEntry[] = available
-    ? Object.values(available.by_level)
-        .flat()
+    ? [...available.cantrips]
         .filter((s) => !s.in_repertoire)
+        .sort((a, b) => a.name.localeCompare(b.name))
     : [];
+  // TAV-SPELLPICK-POOL-GROUPING: was a single flat `Object.values(...).flat()`
+  // across every spell level — grouped here, mirroring the PROVEN pattern in
+  // SpellbookPanel.tsx's Browse tab (its `Object.entries(available.by_level)`
+  // sort-and-map). ONE budget (`selectedLeveled`/`leveledCap`) still spans
+  // every level below — the cap is a single cross-level allotment, not a
+  // per-level one, so grouping is purely presentational.
+  const leveledGroups: [string, AvailableSpellEntry[]][] = available
+    ? Object.entries(available.by_level)
+        .sort((a, b) => Number(a[0]) - Number(b[0]))
+        .map(
+          ([lvl, spells]) =>
+            [
+              lvl,
+              spells
+                .filter((s) => !s.in_repertoire)
+                .sort((a, b) => a.name.localeCompare(b.name)),
+            ] as [string, AvailableSpellEntry[]],
+        )
+        .filter(([, spells]) => spells.length > 0)
+    : [];
+
+  // Shared toggle-button row — pulled out of renderBucket so the leveled
+  // bucket's per-level sub-groups (below) can reuse the exact same button
+  // markup/a11y (aria-pressed, disabled-at-cap) without duplicating it.
+  function renderOptionButtons(
+    pool: AvailableSpellEntry[],
+    picked: Set<string>,
+    setPicked: (next: Set<string>) => void,
+    cap: number,
+  ) {
+    return pool.map((s) => {
+      const checked = picked.has(s.slug);
+      const disabled = busy || (!checked && picked.size >= cap);
+      return (
+        <button
+          key={s.slug}
+          type="button"
+          aria-pressed={checked}
+          className={checked ? `${styles.option} ${styles.optionOn}` : styles.option}
+          disabled={disabled}
+          onClick={() => toggle(picked, setPicked, s.slug, cap)}
+        >
+          {s.name}
+        </button>
+      );
+    });
+  }
 
   function renderBucket(
     hintId: string,
@@ -892,22 +938,37 @@ function SpellChoiceCard({ characterId, username, sheet, choice, onResolved }: C
           </p>
         ) : (
           <div className={styles.optionRow} role="group" aria-labelledby={hintId}>
-            {pool.map((s) => {
-              const checked = picked.has(s.slug);
-              const disabled = busy || (!checked && picked.size >= cap);
-              return (
-                <button
-                  key={s.slug}
-                  type="button"
-                  aria-pressed={checked}
-                  className={checked ? `${styles.option} ${styles.optionOn}` : styles.option}
-                  disabled={disabled}
-                  onClick={() => toggle(picked, setPicked, s.slug, cap)}
-                >
-                  {s.name}
-                </button>
-              );
-            })}
+            {renderOptionButtons(pool, picked, setPicked, cap)}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // TAV-SPELLPICK-POOL-GROUPING: the leveled bucket's own renderer — one
+  // aria-live hint + one role="group" spans ALL levels (same accessible name/
+  // count contract renderBucket uses for a single-level pool), with a
+  // "Level N" sublabel per non-empty group inside it.
+  function renderLeveledBucket() {
+    return (
+      <div key={leveledHintId}>
+        <p id={leveledHintId} className={styles.hint} aria-live="polite" aria-atomic="true">
+          New spells — {selectedLeveled.size} of {leveledCap} chosen
+        </p>
+        {leveledGroups.length === 0 ? (
+          <p className={styles.emptyRow} aria-live="polite" aria-atomic="true">
+            No new spells available to learn right now.
+          </p>
+        ) : (
+          <div role="group" aria-labelledby={leveledHintId}>
+            {leveledGroups.map(([lvl, spells]) => (
+              <div key={lvl}>
+                <p className={styles.levelSubLabel}>Level {lvl}</p>
+                <div className={styles.optionRow}>
+                  {renderOptionButtons(spells, selectedLeveled, setSelectedLeveled, leveledCap)}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -943,16 +1004,7 @@ function SpellChoiceCard({ characterId, username, sheet, choice, onResolved }: C
           setSelectedCantrips,
           cantripCap,
         )}
-      {loadState === 'ok' && leveledCap > 0 &&
-        renderBucket(
-          leveledHintId,
-          'New spells',
-          'spells',
-          leveledPool,
-          selectedLeveled,
-          setSelectedLeveled,
-          leveledCap,
-        )}
+      {loadState === 'ok' && leveledCap > 0 && renderLeveledBucket()}
       <Button
         variant="primary"
         size="default"

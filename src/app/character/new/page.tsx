@@ -1365,7 +1365,13 @@ function SpellsStep({
       : leveledKind === 'prepared'
         ? (available.budget.prepared_max ?? 0)
         : WIZARD_LEVEL1_SPELLBOOK_SIZE;
-  const level1 = available.by_level['1'] ?? [];
+  // TAV-SPELLPICK-POOL-GROUPING: both lists are a single spell level each
+  // (cantrips, 1st-level) so no by-level grouping applies here — just sort by
+  // name for a stable, scannable order (was insertion order off the wire).
+  const sortedCantrips = [...available.cantrips].sort((a, b) => a.name.localeCompare(b.name));
+  const level1 = [...(available.by_level['1'] ?? [])].sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
 
   const renderRow = (
     s: AvailableSpellEntry,
@@ -1428,10 +1434,10 @@ function SpellsStep({
           You&rsquo;ve chosen all {cantripCap} cantrips — deselect one to pick another.
         </p>
         <ul className={styles.spellList}>
-          {available.cantrips.length === 0 && (
+          {sortedCantrips.length === 0 && (
             <li className={styles.spellEmpty}>No cantrips for this class.</li>
           )}
-          {available.cantrips.map((s) =>
+          {sortedCantrips.map((s) =>
             renderRow(s, cantrips, onCantrips, cantripCap, 'cantrip-cap-hint'),
           )}
         </ul>
