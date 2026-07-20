@@ -281,6 +281,16 @@
   cursor: pointer;
   text-align: left;
   overflow: hidden;
+  /* CODEX-ROW-COLLAPSE: .rows above is a bounded flex column (flex:1 +
+     min-height:0 + overflow-y:auto). Without pinning row size, .row's default
+     flex-shrink:1 lets flexbox squash all ~319 rows to a few px each to fit the
+     container height (the text is then clipped by overflow:hidden → the list
+     looks empty) instead of keeping their height and scrolling. flex-shrink:0
+     is the fix; min-height doubles as a collapse floor AND matches
+     contain-intrinsic-size below so painted vs. reserved row heights agree
+     (stable scrollbar). */
+  flex-shrink: 0;
+  min-height: 78px;
   transition: transform var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
     background var(--dur-fast) var(--ease);
   /* UIR2-TAV-6: skip layout/paint for rows scrolled out of .rows' own
