@@ -257,12 +257,13 @@ export interface SheetFeat {
  * T13 (DDX-14t/15t): one queued level-up decision, from the sheet's
  * `pending_choices` array (`_queue_level_choices` in
  * NekoNova-DnDEngine engine/commands/character_msm.py). `type` is
- * `'subclass'` or `'asi'` today (kept as `string`, not a union, since
- * `resolve_level_choice` already has an `unsupported_choice_type` fallback
- * for anything else — a future third type should render as "coming soon"
- * rather than fail typechecking). `class` is the character's class name at
- * queue time (subclass options are filtered to it); absent it should fall
- * back to the sheet's own `char_class`.
+ * `'subclass'`, `'asi'`, or (TAV-1.0-SLICE-B-FIX-4) `'spell'` today (kept as
+ * `string`, not a union, since `resolve_level_choice` already has an
+ * `unsupported_choice_type` fallback for anything else — a future fourth
+ * type should render as "coming soon" rather than fail typechecking).
+ * `class` is the character's class name at queue time (subclass options are
+ * filtered to it); absent it should fall back to the sheet's own
+ * `char_class`.
  */
 export interface PendingLevelChoice {
   id: string;
@@ -270,6 +271,17 @@ export interface PendingLevelChoice {
   level: number;
   class?: string;
   label: string;
+  /** Present on `type === 'spell'` choices — which repertoire model this
+   *  caster uses, drives whether leveled picks must be learned
+   *  `prepared:true` (see LevelChoicePicker's SpellChoiceCard). */
+  caster_kind?: SpellCasterKind;
+  /** Present on `type === 'spell'` choices — number of new cantrip picks
+   *  granted this level (may be 0 if only leveled spells grew). */
+  cantrips?: number;
+  /** Present on `type === 'spell'` choices — number of new leveled spell
+   *  picks granted this level (may be 0 if only cantrips grew, or always 0
+   *  for a 'prepared' caster_kind, which auto-knows its full class list). */
+  spells?: number;
 }
 
 /** One skill entry returned by the engine's `skills` array on GET /sheet (A2). */

@@ -21,7 +21,7 @@
  * regardless). This component itself only checks `pending_choices` is
  * non-empty; it renders nothing otherwise.
  *
- * Two choice `type`s exist today (engine's `_queue_level_choices`):
+ * Three choice `type`s exist today (engine's `_queue_level_choices`):
  *   - `subclass` — pick an archetype. No `options` array ships on the
  *     pending-choice record itself (just {id,type,level,class,label}), so
  *     the options come from GET /api/dnd/catalog?type=subclass, filtered
@@ -39,6 +39,23 @@
  *     ability's score past 20 (mirrors `_resolve_asi_increase`'s
  *     `ability_cap_exceeded` guard, enforced here too so the disabled state
  *     is visible before the click, not just refused after).
+ *   - `spell` (TAV-1.0-SLICE-B-FIX-4) — a caster's level-up spell GAIN: up to
+ *     `choice.cantrips` new cantrips and `choice.spells` new leveled spells,
+ *     multi-select from `getAvailableSpells`'s pool (filtered to
+ *     `!in_repertoire`), each bucket capped at its own allotment. This
+ *     resolver is finalize-only server-side — the actual learning happens
+ *     client-side via `learnSpell` (the SAME budget-enforced call the sheet's
+ *     Spells tab and the creation picker use) BEFORE `resolveLevelChoice` is
+ *     called, batched with `Promise.allSettled` so one failed pick never
+ *     blocks the rest or the finalize. A wizard's (`caster_kind ===
+ *     'spellbook'`) picked LEVELED spells are learned with `prepared: true`
+ *     (Slice B Fix 3's contract — an un-prepared spellbook entry is
+ *     uncastable under `DND_ENFORCE_SPELL_KNOWN`); every other caster_kind
+ *     omits `prepared` (known casters always cast known spells; a
+ *     'prepared'-kind caster only ever gets cantrips here, auto-prepared
+ *     engine-side). Confirm is allowed even with a partial or empty
+ *     selection — a player may forgo a pick, and the resolver clears the
+ *     prompt regardless of what (if anything) was learned.
  *
  * T13 FIX PASS (Miko-QA defects + Kage-CR abort guard + Iro-A11y
  * CHANGES-REQUIRED, folded in before first commit): mode-toggle now resets
@@ -67,10 +84,18 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import Button from '@/components/Button';
 import { useToast } from '@/components/Toast';
-import { getCatalog, getCharacterSheet, resolveLevelChoice } from '@/lib/api/dnd';
+import {
+  getAvailableSpells,
+  getCatalog,
+  getCharacterSheet,
+  learnSpell,
+  resolveLevelChoice,
+} from '@/lib/api/dnd';
 import { ABILITIES, type AbilityKey } from '@/lib/dnd/helpers';
 import type {
   ApiError,
+  AvailableSpellEntry,
+  AvailableSpellsResult,
   CatalogItem,
   CharacterSheet,
   PendingLevelChoice,
@@ -211,8 +236,20 @@ export default function LevelChoicePicker({
             />
           );
         }
-        // unsupported_choice_type — the engine queues only subclass/asi
-        // today; this is forward-compat scaffolding, not a live path.
+        if (choice.type === 'spell') {
+          return (
+            <SpellChoiceCard
+              key={choice.id}
+              characterId={characterId}
+              username={username}
+              sheet={sheet}
+              choice={choice}
+              onResolved={handleChildResolved}
+            />
+          );
+        }
+        // unsupported_choice_type — the engine queues only subclass/asi/
+        // spell today; this is forward-compat scaffolding, not a live path.
         return (
           <div key={choice.id} className={styles.card}>
             {/* TAV-SHEET-HEADING-ORDER: h3 — nested under "Pending choices"
@@ -709,6 +746,227 @@ function AsiChoiceCard({ characterId, username, sheet, choice, onResolved }: Cho
         }
         aria-busy={busy}
         disabled={busy || !canConfirm}
+        onClick={() => void handleResolve()}
+      >
+        {busy ? '…' : 'Confirm'}
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * TAV-1.0-SLICE-B-FIX-4: `spell` choice — level-up spell GAIN. Fetch-on-mount
+ * mirrors SubclassChoiceCard's own pattern (AbortController + Kage abort
+ * guard, loadState machine, a retry affordance on fetch failure). Unlike the
+ * other two cards, the mutation itself happens BEFORE resolveLevelChoice —
+ * each pick is its own budget-enforced `learnSpell` call (mirrors the
+ * creation picker's batch-apply, character/new/page.tsx:409-452), and the
+ * resolver call at the end is finalize-only (clears the prompt; the engine
+ * never re-validates the picks, per _resolve_spell_choice's own docstring).
+ */
+function SpellChoiceCard({ characterId, username, sheet, choice, onResolved }: ChoiceCardProps) {
+  const { toast } = useToast();
+  const headingId = useId();
+  const cantripCap = choice.cantrips ?? 0;
+  const leveledCap = choice.spells ?? 0;
+  const cantripHintId = `${headingId}-cantrips`;
+  const leveledHintId = `${headingId}-leveled`;
+
+  const [available, setAvailable] = useState<AvailableSpellsResult | null>(null);
+  const [loadState, setLoadState] = useState<'loading' | 'ok' | 'error'>('loading');
+  // A11Y/QA (mirrors SubclassChoiceCard's SERIOUS-4/DEFECT-2 Retry): bump to
+  // retry a failed fetch.
+  const [loadKey, setLoadKey] = useState(0);
+  const [selectedCantrips, setSelectedCantrips] = useState<Set<string>>(new Set());
+  const [selectedLeveled, setSelectedLeveled] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  /** Synchronous double-submit latch — same useRef pattern as the sibling cards. */
+  const busyRef = useRef(false);
+
+  useEffect(() => {
+    const ac = new AbortController();
+    // Canonical fetch-on-mount pattern (React docs "Fetching data" example).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLoadState('loading');
+    getAvailableSpells(characterId, username, ac.signal)
+      .then((data) => {
+        setAvailable(data);
+        setLoadState('ok');
+      })
+      .catch(() => {
+        // Kage abort guard — see SubclassChoiceCard's matching comment.
+        if (ac.signal.aborted) return;
+        setLoadState('error');
+      });
+    return () => ac.abort();
+  }, [characterId, username, loadKey]);
+
+  function toggle(picked: Set<string>, setPicked: (next: Set<string>) => void, slug: string, cap: number) {
+    if (busy) return;
+    const next = new Set(picked);
+    if (next.has(slug)) {
+      next.delete(slug);
+    } else if (next.size < cap) {
+      next.add(slug);
+    }
+    setPicked(next);
+  }
+
+  async function handleResolve() {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      // Slice B Fix 3 contract: a wizard's (spellbook caster's) picked
+      // LEVELED spells must land prepared=true or they're uncastable under
+      // enforcement. Cantrips are unaffected (already unconditionally
+      // prepared=true engine-side); known/prepared caster_kinds are
+      // unaffected (already correct without an override).
+      const leveledPrepared = choice.caster_kind === 'spellbook' ? true : undefined;
+      const picks: Promise<unknown>[] = [
+        ...Array.from(selectedCantrips, (slug) => learnSpell(characterId, username, slug)),
+        ...Array.from(selectedLeveled, (slug) =>
+          learnSpell(characterId, username, slug, undefined, undefined, leveledPrepared),
+        ),
+      ];
+      if (picks.length > 0) {
+        const results = await Promise.allSettled(picks);
+        const failed = results.filter((r) => r.status === 'rejected').length;
+        if (failed > 0) {
+          toast({
+            message: `${failed} spell pick${failed > 1 ? 's' : ''} couldn’t be learned. You can add ${failed > 1 ? 'them' : 'it'} from the sheet.`,
+            tone: 'warn',
+          });
+        }
+      }
+      // Finalize-only: clears the prompt regardless of what (if anything)
+      // was learned above — see _resolve_spell_choice's own docstring.
+      try {
+        await resolveLevelChoice(characterId, username, choice.id, {});
+      } catch (err) {
+        toast({ message: resolveErrorMessage(err), tone: 'error' });
+        return;
+      }
+      try {
+        const after = await getCharacterSheet(characterId, username);
+        onResolved(after);
+        toast({ message: `Spell choices confirmed for ${sheet.name}.`, tone: 'success' });
+      } catch {
+        toast({
+          message: "Couldn't refresh your sheet — reload to see the result.",
+          tone: 'warn',
+        });
+      }
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
+
+  const cantripPool: AvailableSpellEntry[] = available
+    ? available.cantrips.filter((s) => !s.in_repertoire)
+    : [];
+  const leveledPool: AvailableSpellEntry[] = available
+    ? Object.values(available.by_level)
+        .flat()
+        .filter((s) => !s.in_repertoire)
+    : [];
+
+  function renderBucket(
+    hintId: string,
+    label: string,
+    emptyNoun: string,
+    pool: AvailableSpellEntry[],
+    picked: Set<string>,
+    setPicked: (next: Set<string>) => void,
+    cap: number,
+  ) {
+    return (
+      <div key={hintId}>
+        <p id={hintId} className={styles.hint} aria-live="polite" aria-atomic="true">
+          {label} — {picked.size} of {cap} chosen
+        </p>
+        {pool.length === 0 ? (
+          <p className={styles.emptyRow} aria-live="polite" aria-atomic="true">
+            No new {emptyNoun} available to learn right now.
+          </p>
+        ) : (
+          <div className={styles.optionRow} role="group" aria-labelledby={hintId}>
+            {pool.map((s) => {
+              const checked = picked.has(s.slug);
+              const disabled = busy || (!checked && picked.size >= cap);
+              return (
+                <button
+                  key={s.slug}
+                  type="button"
+                  aria-pressed={checked}
+                  className={checked ? `${styles.option} ${styles.optionOn}` : styles.option}
+                  disabled={disabled}
+                  onClick={() => toggle(picked, setPicked, s.slug, cap)}
+                >
+                  {s.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className={styles.card} aria-busy={busy}>
+      {/* TAV-SHEET-HEADING-ORDER: h3 — nested under "Pending choices" (h2). */}
+      <h3 id={headingId} className={styles.cardLabel}>
+        {choice.label}
+      </h3>
+      {loadState === 'loading' && (
+        <p className={styles.emptyRow} aria-busy="true" aria-live="polite" aria-atomic="true">
+          Loading spell options…
+        </p>
+      )}
+      {loadState === 'error' && (
+        <p className={styles.emptyRow} aria-live="polite" aria-atomic="true">
+          Couldn&rsquo;t load spell options.{' '}
+          <Button variant="ghost" size="default" onClick={() => setLoadKey((k) => k + 1)}>
+            Retry
+          </Button>
+        </p>
+      )}
+      {loadState === 'ok' && cantripCap > 0 &&
+        renderBucket(
+          cantripHintId,
+          'Cantrips',
+          'cantrips',
+          cantripPool,
+          selectedCantrips,
+          setSelectedCantrips,
+          cantripCap,
+        )}
+      {loadState === 'ok' && leveledCap > 0 &&
+        renderBucket(
+          leveledHintId,
+          'New spells',
+          'spells',
+          leveledPool,
+          selectedLeveled,
+          setSelectedLeveled,
+          leveledCap,
+        )}
+      <Button
+        variant="primary"
+        size="default"
+        aria-label={`Confirm spell choices (level ${choice.level})`}
+        aria-busy={busy}
+        // Miko-QA MUST-FIX: gate on `loadState === 'loading'`, NOT 'error' —
+        // a click while getAvailableSpells is still in flight would resolve
+        // with zero picks, and _queue_level_choices never re-queues a
+        // dedupe-by-id `spell:{level}` choice, so a slow tick or an
+        // impatient tap would PERMANENTLY forfeit that level's spell picks.
+        // The error-state Confirm stays enabled on purpose — that's the
+        // intentional knowing-forgo path (fetch genuinely failed, nothing
+        // more to wait for).
+        disabled={busy || loadState === 'loading'}
         onClick={() => void handleResolve()}
       >
         {busy ? '…' : 'Confirm'}

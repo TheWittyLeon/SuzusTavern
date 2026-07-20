@@ -423,12 +423,20 @@ export default function CharacterNewPage(): ReactNode {
       // the character itself was already created successfully.
       if (isCasterClass && username) {
         const leveledAction = clsObj?.casterKind === 'prepared' ? 'prepare' : 'learn';
+        // Slice B Fix 3: a wizard's (spellbook caster's) PICKED leveled
+        // spells must land prepared=true -- picked == prepared -- or
+        // is_spell_castable refuses them under DND_ENFORCE_SPELL_KNOWN
+        // (spellbook leveled entries otherwise default un-prepared until a
+        // separate `prepare` call). Cantrips are unaffected (already
+        // unconditionally prepared=true engine-side); known/prepared caster
+        // paths are unaffected (already correct).
+        const leveledPrepared = clsObj?.casterKind === 'spellbook' ? true : undefined;
         const picks: Promise<unknown>[] = [
           ...Array.from(spellCantrips, (slug) => learnSpell(charId as string, username, slug)),
           ...Array.from(spellLeveled, (slug) =>
             leveledAction === 'prepare'
               ? prepareSpell(charId as string, username, slug, true)
-              : learnSpell(charId as string, username, slug),
+              : learnSpell(charId as string, username, slug, undefined, undefined, leveledPrepared),
           ),
         ];
         if (picks.length > 0) {

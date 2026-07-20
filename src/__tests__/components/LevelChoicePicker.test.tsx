@@ -14,19 +14,29 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 jest.mock('../../lib/api/dnd', () => ({
+  getAvailableSpells: jest.fn(),
   getCatalog: jest.fn(),
   getCharacterSheet: jest.fn(),
+  learnSpell: jest.fn(),
   resolveLevelChoice: jest.fn(),
 }));
 
 import * as dnd from '../../lib/api/dnd';
 import { ToastProvider } from '../../components/Toast';
 import LevelChoicePicker from '../../components/LevelChoicePicker';
-import type { CatalogItem, CatalogResponse, CharacterSheet, PendingLevelChoice } from '../../lib/api/types';
+import type {
+  AvailableSpellsResult,
+  CatalogItem,
+  CatalogResponse,
+  CharacterSheet,
+  PendingLevelChoice,
+} from '../../lib/api/types';
 
 const mockGetCatalog = dnd.getCatalog as jest.Mock;
 const mockGetSheet = dnd.getCharacterSheet as jest.Mock;
 const mockResolve = dnd.resolveLevelChoice as jest.Mock;
+const mockGetAvailableSpells = dnd.getAvailableSpells as jest.Mock;
+const mockLearnSpell = dnd.learnSpell as jest.Mock;
 
 function ability(score: number, modifier: number) {
   return { score, modifier };
@@ -88,6 +98,78 @@ const ASI_CHOICE: PendingLevelChoice = {
   label: 'Ability Score Improvement (level 4)',
 };
 
+const WIZARD_SPELL_CHOICE: PendingLevelChoice = {
+  id: 'spell:2',
+  type: 'spell',
+  level: 2,
+  class: 'Wizard',
+  caster_kind: 'spellbook',
+  cantrips: 1,
+  spells: 2,
+  label: 'Choose 1 new cantrip and 2 new spells (level 2)',
+};
+
+const SORCERER_SPELL_CHOICE: PendingLevelChoice = {
+  id: 'spell:2',
+  type: 'spell',
+  level: 2,
+  class: 'Sorcerer',
+  caster_kind: 'known',
+  cantrips: 0,
+  spells: 1,
+  label: 'Choose 1 new spell (level 2)',
+};
+
+const CLERIC_SPELL_CHOICE: PendingLevelChoice = {
+  id: 'spell:4',
+  type: 'spell',
+  level: 4,
+  class: 'Cleric',
+  caster_kind: 'prepared',
+  cantrips: 1,
+  spells: 0,
+  label: 'Choose 1 new cantrip (level 4)',
+};
+
+const WIZARD_SPELL_CHOICE_L4: PendingLevelChoice = {
+  id: 'spell:4',
+  type: 'spell',
+  level: 4,
+  class: 'Wizard',
+  caster_kind: 'spellbook',
+  cantrips: 1,
+  spells: 2,
+  label: 'Choose 1 new cantrip and 2 new spells (level 4)',
+};
+
+function availableSpellsFixture(overrides?: Partial<AvailableSpellsResult>): AvailableSpellsResult {
+  return {
+    cantrips: [
+      { slug: 'fire-bolt', name: 'Fire Bolt', level: 0, school: 'evocation', concentration: false, ritual: false, in_repertoire: false, prepared: false },
+      { slug: 'mage-hand', name: 'Mage Hand', level: 0, school: 'conjuration', concentration: false, ritual: false, in_repertoire: false, prepared: false },
+      { slug: 'light', name: 'Light', level: 0, school: 'evocation', concentration: false, ritual: false, in_repertoire: true, prepared: true },
+    ],
+    by_level: {
+      '1': [
+        { slug: 'magic-missile', name: 'Magic Missile', level: 1, school: 'evocation', concentration: false, ritual: false, in_repertoire: false, prepared: false },
+        { slug: 'shield', name: 'Shield', level: 1, school: 'abjuration', concentration: false, ritual: false, in_repertoire: false, prepared: false },
+        { slug: 'burning-hands', name: 'Burning Hands', level: 1, school: 'evocation', concentration: false, ritual: false, in_repertoire: false, prepared: false },
+      ],
+    },
+    can_learn: true,
+    can_prepare: false,
+    budget: {
+      cantrips_known: 3,
+      cantrips_max: 4,
+      spells_known: 0,
+      spells_max: 2,
+      prepared_used: null,
+      prepared_max: null,
+    },
+    ...overrides,
+  };
+}
+
 function catalogItem(slug: string, name: string, data: Record<string, unknown>): CatalogItem {
   return { slug, name, content_type: 'subclass', source_type: 'srd', data };
 }
@@ -117,6 +199,8 @@ beforeEach(() => {
   });
   mockGetSheet.mockResolvedValue(BASE_SHEET);
   mockResolve.mockResolvedValue({ message: 'ok' });
+  mockGetAvailableSpells.mockResolvedValue(availableSpellsFixture());
+  mockLearnSpell.mockResolvedValue({ learned: true, budget: availableSpellsFixture().budget });
 });
 
 function renderPicker(pendingChoices: PendingLevelChoice[], sheetOverrides?: Partial<CharacterSheet>) {
@@ -763,5 +847,311 @@ describe('LevelChoicePicker — multiple pending choices: no cross-contamination
     expect(
       screen.getByRole('button', { name: 'Confirm Ability Score Improvement (level 6)' }),
     ).toBeInTheDocument();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TAV-1.0-SLICE-B-FIX-4 — the `spell` choice (level-up spell GAIN picker)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('LevelChoicePicker — spell choice: renders both buckets sized to the entitlement', () => {
+  it('renders a cantrip bucket capped at choice.cantrips and a leveled bucket capped at choice.spells', async () => {
+    renderPicker([WIZARD_SPELL_CHOICE]);
+
+    expect(await screen.findByText(/cantrips — 0 of 1 chosen/i)).toBeInTheDocument();
+    expect(screen.getByText(/new spells — 0 of 2 chosen/i)).toBeInTheDocument();
+
+    // Repertoire-filtered: 'light' is in_repertoire:true and must not appear.
+    expect(screen.getByRole('button', { name: 'Fire Bolt' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Mage Hand' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Light' })).not.toBeInTheDocument();
+
+    expect(screen.getByRole('button', { name: 'Magic Missile' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Shield' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Burning Hands' })).toBeInTheDocument();
+
+    expect(mockGetAvailableSpells).toHaveBeenCalledWith('cid-1', 'leon', expect.anything());
+  });
+
+  it('does not render the cantrip bucket at all when choice.cantrips is 0', async () => {
+    renderPicker([SORCERER_SPELL_CHOICE]);
+
+    await screen.findByText(/new spells — 0 of 1 chosen/i);
+    expect(screen.queryByText(/cantrips —/i)).not.toBeInTheDocument();
+  });
+
+  it('shows an empty-pool message when a bucket has an allotment but nothing left to learn', async () => {
+    mockGetAvailableSpells.mockResolvedValueOnce(
+      availableSpellsFixture({ cantrips: [], by_level: { '1': [] } }),
+    );
+    renderPicker([WIZARD_SPELL_CHOICE]);
+
+    expect(await screen.findByText(/no new cantrips available to learn right now/i)).toBeInTheDocument();
+    expect(screen.getByText(/no new spells available to learn right now/i)).toBeInTheDocument();
+  });
+});
+
+describe('LevelChoicePicker — spell choice: picks are allotment-capped', () => {
+  it('disables further cantrip picks once the allotment is reached, leveled bucket independent', async () => {
+    renderPicker([WIZARD_SPELL_CHOICE]);
+    const fireBolt = await screen.findByRole('button', { name: 'Fire Bolt' });
+    const mageHand = screen.getByRole('button', { name: 'Mage Hand' });
+
+    fireEvent.click(fireBolt);
+    expect(await screen.findByText(/cantrips — 1 of 1 chosen/i)).toBeInTheDocument();
+    expect(mageHand).toBeDisabled();
+    // The already-picked one stays clickable (to deselect).
+    expect(fireBolt).toBeEnabled();
+
+    // Leveled bucket is untouched by the cantrip cap.
+    expect(screen.getByRole('button', { name: 'Magic Missile' })).toBeEnabled();
+  });
+
+  it('deselecting a picked cantrip frees the slot for another', async () => {
+    renderPicker([WIZARD_SPELL_CHOICE]);
+    const fireBolt = await screen.findByRole('button', { name: 'Fire Bolt' });
+    const mageHand = screen.getByRole('button', { name: 'Mage Hand' });
+
+    fireEvent.click(fireBolt);
+    expect(mageHand).toBeDisabled();
+    fireEvent.click(fireBolt);
+    expect(await screen.findByText(/cantrips — 0 of 1 chosen/i)).toBeInTheDocument();
+    expect(mageHand).toBeEnabled();
+  });
+
+  it('caps the leveled bucket at choice.spells (2) independently of the cantrip cap', async () => {
+    renderPicker([WIZARD_SPELL_CHOICE]);
+    const magicMissile = await screen.findByRole('button', { name: 'Magic Missile' });
+    const shield = screen.getByRole('button', { name: 'Shield' });
+    const burningHands = screen.getByRole('button', { name: 'Burning Hands' });
+
+    fireEvent.click(magicMissile);
+    fireEvent.click(shield);
+    expect(await screen.findByText(/new spells — 2 of 2 chosen/i)).toBeInTheDocument();
+    expect(burningHands).toBeDisabled();
+    expect(magicMissile).toBeEnabled();
+  });
+});
+
+describe('LevelChoicePicker — spell choice: Confirm batches learnSpell then resolves', () => {
+  it('a wizard leveled spellbook caster: cantrip picks get no prepared arg, leveled picks get prepared:true', async () => {
+    const after: CharacterSheet = { ...BASE_SHEET, char_class: 'Wizard', pending_choices: [] };
+    mockGetSheet.mockResolvedValue(after);
+    const { onResolved } = renderPicker([WIZARD_SPELL_CHOICE]);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Fire Bolt' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Magic Missile' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Shield' }));
+
+    fireEvent.click(screen.getByRole('button', { name: /confirm spell choices/i }));
+    await flush();
+
+    expect(mockLearnSpell).toHaveBeenCalledWith('cid-1', 'leon', 'fire-bolt');
+    expect(mockLearnSpell).toHaveBeenCalledWith('cid-1', 'leon', 'magic-missile', undefined, undefined, true);
+    expect(mockLearnSpell).toHaveBeenCalledWith('cid-1', 'leon', 'shield', undefined, undefined, true);
+    expect(mockLearnSpell).toHaveBeenCalledTimes(3);
+
+    expect(mockResolve).toHaveBeenCalledWith('cid-1', 'leon', 'spell:2', {});
+    expect(mockGetSheet).toHaveBeenCalledWith('cid-1', 'leon');
+    expect(onResolved).toHaveBeenCalledWith(after);
+    expect(await screen.findByText(/spell choices confirmed for ashwin/i)).toBeInTheDocument();
+  });
+
+  it('a known caster (sorcerer): leveled picks are learned with no prepared override (undefined)', async () => {
+    mockGetAvailableSpells.mockResolvedValueOnce(
+      availableSpellsFixture({ cantrips: [], budget: { ...availableSpellsFixture().budget, spells_max: 1 } }),
+    );
+    renderPicker([SORCERER_SPELL_CHOICE]);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Magic Missile' }));
+    fireEvent.click(screen.getByRole('button', { name: /confirm spell choices/i }));
+    await flush();
+
+    expect(mockLearnSpell).toHaveBeenCalledWith('cid-1', 'leon', 'magic-missile', undefined, undefined, undefined);
+  });
+
+  it('allows Confirm with an empty selection — resolves and clears the prompt regardless', async () => {
+    const after: CharacterSheet = { ...BASE_SHEET, pending_choices: [] };
+    mockGetSheet.mockResolvedValue(after);
+    renderPicker([WIZARD_SPELL_CHOICE]);
+
+    await screen.findByRole('button', { name: 'Fire Bolt' });
+    fireEvent.click(screen.getByRole('button', { name: /confirm spell choices/i }));
+    await flush();
+
+    expect(mockLearnSpell).not.toHaveBeenCalled();
+    expect(mockResolve).toHaveBeenCalledWith('cid-1', 'leon', 'spell:2', {});
+  });
+
+  it('a failed learn surfaces a warn toast but still resolves and clears the prompt', async () => {
+    mockLearnSpell.mockImplementation((_cid: string, _u: string, slug: string) =>
+      slug === 'fire-bolt' ? Promise.reject(new Error('over_cantrip_limit')) : Promise.resolve({ learned: true }),
+    );
+    const after: CharacterSheet = { ...BASE_SHEET, pending_choices: [] };
+    mockGetSheet.mockResolvedValue(after);
+    const { onResolved } = renderPicker([WIZARD_SPELL_CHOICE]);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Fire Bolt' }));
+    fireEvent.click(screen.getByRole('button', { name: /confirm spell choices/i }));
+    await flush();
+
+    expect(await screen.findByText(/1 spell pick couldn.?t be learned/i)).toBeInTheDocument();
+    // The resolve still fires and clears the prompt — a failed pick never
+    // blocks the finalize.
+    expect(mockResolve).toHaveBeenCalledWith('cid-1', 'leon', 'spell:2', {});
+    expect(onResolved).toHaveBeenCalledWith(after);
+  });
+});
+
+describe('LevelChoicePicker — spell choice: busy-latch + fetch failure', () => {
+  it('a same-tick double click only calls resolveLevelChoice once', async () => {
+    let releaseResolve: (() => void) | undefined;
+    mockResolve.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releaseResolve = () => resolve({ message: 'ok' });
+        }),
+    );
+    renderPicker([WIZARD_SPELL_CHOICE]);
+    await screen.findByRole('button', { name: 'Fire Bolt' });
+    const confirm = screen.getByRole('button', { name: /confirm spell choices/i });
+
+    fireEvent.click(confirm);
+    fireEvent.click(confirm);
+    expect(mockResolve).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      releaseResolve?.();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  });
+
+  it('a fetch failure shows an error with a Retry that re-fetches', async () => {
+    mockGetAvailableSpells.mockImplementationOnce(() => Promise.reject(new Error('network down')));
+    renderPicker([WIZARD_SPELL_CHOICE]);
+
+    const errorMsg = await screen.findByText(/couldn.?t load spell options/i);
+    expect(errorMsg).toBeInTheDocument();
+    // Confirm is still offered — a fetch failure never blocks forgoing picks.
+    expect(screen.getByRole('button', { name: /confirm spell choices/i })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: /retry/i }));
+    expect(await screen.findByRole('button', { name: 'Fire Bolt' })).toBeInTheDocument();
+    expect(mockGetAvailableSpells).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('LevelChoicePicker — spell choice: MUST-FIX loading-gate (Miko-QA irreversible-pick-loss lock)', () => {
+  it('Confirm is disabled while getAvailableSpells is still in flight, and clicking it does NOT call resolveLevelChoice', async () => {
+    // Never-resolving promise — pins the component in loadState:'loading'
+    // for the lifetime of the test, simulating a slow tick.
+    mockGetAvailableSpells.mockImplementation(() => new Promise(() => {}));
+    renderPicker([WIZARD_SPELL_CHOICE]);
+
+    const confirm = await screen.findByRole('button', { name: /confirm spell choices/i });
+    expect(confirm).toBeDisabled();
+
+    // An impatient tap (e.g. a mousedown that slips through a disabled
+    // button in some test harnesses, or a stale ref) must never reach
+    // resolveLevelChoice — the real regression was silent, irreversible
+    // spell-pick loss (the choice is dedupe-by-id and never re-queued).
+    fireEvent.click(confirm);
+    await flush();
+    expect(mockResolve).not.toHaveBeenCalled();
+    expect(mockLearnSpell).not.toHaveBeenCalled();
+  });
+});
+
+describe('LevelChoicePicker — spell choice: prepared caster_kind (cleric — cantrips only)', () => {
+  it('leveled bucket stays unrendered, cantrip pick sends no prepared override', async () => {
+    mockGetAvailableSpells.mockResolvedValue(
+      availableSpellsFixture({
+        budget: { ...availableSpellsFixture().budget, spells_max: null, prepared_max: 3, prepared_used: 1 },
+      }),
+    );
+    const after: CharacterSheet = { ...BASE_SHEET, char_class: 'Cleric', pending_choices: [] };
+    mockGetSheet.mockResolvedValue(after);
+    renderPicker([CLERIC_SPELL_CHOICE]);
+
+    expect(await screen.findByText(/cantrips — 0 of 1 chosen/i)).toBeInTheDocument();
+    // spells:0 -> the leveled bucket must never render at all.
+    expect(screen.queryByText(/new spells —/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Magic Missile' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fire Bolt' }));
+    fireEvent.click(screen.getByRole('button', { name: /confirm spell choices/i }));
+    await flush();
+
+    // Cleric is caster_kind:'prepared', not 'spellbook' — the cantrip pick
+    // must carry NO prepared override (undefined), same as a known caster.
+    expect(mockLearnSpell).toHaveBeenCalledWith('cid-1', 'leon', 'fire-bolt');
+    expect(mockLearnSpell).toHaveBeenCalledTimes(1);
+    expect(mockResolve).toHaveBeenCalledWith('cid-1', 'leon', 'spell:4', {});
+  });
+});
+
+describe('LevelChoicePicker — spell choice: two simultaneously-pending choices, no cross-contamination', () => {
+  it('picking in one card never bleeds into the other card’s selection state', async () => {
+    renderPicker([WIZARD_SPELL_CHOICE, WIZARD_SPELL_CHOICE_L4]);
+
+    const fireBoltButtons = await screen.findAllByRole('button', { name: 'Fire Bolt' });
+    expect(fireBoltButtons).toHaveLength(2); // one per card
+
+    // Pick a cantrip ONLY in the first (spell:2) card.
+    fireEvent.click(fireBoltButtons[0]);
+
+    const counters = screen.getAllByText(/cantrips — \d of 1 chosen/i);
+    expect(counters).toHaveLength(2);
+    expect(counters[0]).toHaveTextContent('Cantrips — 1 of 1 chosen');
+    // The SECOND card's own counter must be untouched by the first card's pick.
+    expect(counters[1]).toHaveTextContent('Cantrips — 0 of 1 chosen');
+
+    // The second card's Fire Bolt option is still selectable — proves the
+    // cap-disable state is per-card, not shared.
+    expect(fireBoltButtons[1]).toBeEnabled();
+
+    const confirmButtons = screen.getAllByRole('button', { name: /confirm spell choices/i });
+    fireEvent.click(confirmButtons[0]);
+    await flush();
+
+    // Only the FIRST card's pick (fire-bolt) was ever sent — the second
+    // card's state was never touched, so resolving card 1 must not send
+    // anything from card 2's (empty) selection.
+    expect(mockLearnSpell).toHaveBeenCalledTimes(1);
+    expect(mockLearnSpell).toHaveBeenCalledWith('cid-1', 'leon', 'fire-bolt');
+    expect(mockResolve).toHaveBeenCalledWith('cid-1', 'leon', 'spell:2', {});
+    expect(mockResolve).not.toHaveBeenCalledWith('cid-1', 'leon', 'spell:4', expect.anything());
+  });
+});
+
+describe('LevelChoicePicker — spell choice: busy-latch during the learnSpell batch itself', () => {
+  it('a same-tick double click on Confirm calls learnSpell exactly once per selected spell, not twice', async () => {
+    let releaseLearn: (() => void) | undefined;
+    mockLearnSpell.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releaseLearn = () => resolve({ learned: true });
+        }),
+    );
+    renderPicker([WIZARD_SPELL_CHOICE]);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Fire Bolt' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Magic Missile' }));
+    const confirm = screen.getByRole('button', { name: /confirm spell choices/i });
+
+    fireEvent.click(confirm);
+    fireEvent.click(confirm);
+
+    // Exactly one learnSpell call per selected spell (1 cantrip + 1 leveled)
+    // — the busy latch must block the SECOND click's whole handler
+    // (including the learnSpell batch), not just the final resolve call.
+    expect(mockLearnSpell).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      releaseLearn?.();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
   });
 });

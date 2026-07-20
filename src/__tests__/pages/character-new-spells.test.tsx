@@ -104,6 +104,17 @@ const defaultCatalog = {
         isCaster: true,
         casterKind: 'prepared' as const,
       },
+      {
+        id: 'sorcerer',
+        name: 'Sorcerer',
+        hitDie: 6,
+        saves: ['constitution', 'charisma'] as ['constitution', 'charisma'],
+        icon: 'Sorcerer' as const,
+        accent: 'var(--crit)',
+        flavor: 'Innate, not studied.',
+        isCaster: true,
+        casterKind: 'known' as const,
+      },
     ],
     backgrounds: [
       { id: 'acolyte', name: 'Acolyte', skills: ['insight', 'religion'], blurb: 'you were good at the prayers.' },
@@ -312,7 +323,19 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     // create-then-learn: exactly ONE create call total (not re-created at Review).
     await waitFor(() => expect(mockCreateCharacter).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(mockLearnSpell).toHaveBeenCalledWith('char-1', 'alice', 'fire-bolt'));
-    expect(mockLearnSpell).toHaveBeenCalledWith('char-1', 'alice', 'magic-missile');
+    // Slice B Fix 3: a wizard (spellbook caster)'s picked LEVELED spell is
+    // learned with an explicit prepared=true override (picked == prepared,
+    // castable under DND_ENFORCE_SPELL_KNOWN) -- unlike the cantrip above,
+    // which omits the trailing args entirely (engine already computes
+    // prepared=true for any cantrip regardless of caster kind).
+    expect(mockLearnSpell).toHaveBeenCalledWith(
+      'char-1',
+      'alice',
+      'magic-missile',
+      undefined,
+      undefined,
+      true,
+    );
     expect(mockPrepareSpell).not.toHaveBeenCalled();
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/character/char-1'));
   });
@@ -343,6 +366,95 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     await waitFor(() =>
       expect(mockPrepareSpell).toHaveBeenCalledWith('char-2', 'alice', 'cure-wounds', true),
     );
+  });
+
+  it('Slice B Fix 3 regression pin: a KNOWN caster (sorcerer) leveled pick is UNCHANGED end-to-end (undefined prepared never reaches the wire)', async () => {
+    // Added by Miko-QA gate (2026-07-19): no fixture in this file previously
+    // exercised the 'known' caster kind (bard/sorcerer/warlock/ranger) at
+    // all -- only 'spellbook' (wizard) and 'prepared' (cleric) were covered,
+    // leaving the diff's own "known/prepared caster paths are unaffected"
+    // claim untested on the Tavern side.
+    //
+    // FINDING (harmless, noted not filed): `leveledPrepared` in page.tsx is
+    // `undefined` for any non-'spellbook' casterKind, but the ternary's
+    // "learn" branch ALWAYS calls `learnSpell(id, username, slug, undefined,
+    // undefined, leveledPrepared)` with all 3 trailing positional args
+    // explicit -- unlike the cantrip line above it, which omits them
+    // entirely. So a known caster's leveled call is a 6-arg call with
+    // `undefined` in the prepared slot, not the bare 3-arg shape a naive
+    // reader of "known casters are unaffected" might expect. Confirmed
+    // functionally inert: `learnSpell`'s own body only puts `prepared` on
+    // the wire `when prepared !== undefined` (see api-dnd.test.ts's "omits
+    // `prepared` from the body when explicitly undefined" case), so the
+    // actual HTTP POST body is byte-identical either way. Pinning the REAL
+    // 6-arg shape here (not the 3-arg shape) so a future refactor that
+    // collapses the trailing-undefined calls to omitted args doesn't read
+    // as a false regression.
+    mockCreateCharacter.mockResolvedValue({ character_id: 'char-sorc' });
+    mockGetAvailableSpells.mockResolvedValue({
+      cantrips: [
+        { slug: 'fire-bolt', name: 'Fire Bolt', level: 0, school: 'evocation', concentration: false, ritual: false, in_repertoire: false, prepared: false },
+      ],
+      by_level: {
+        '1': [
+          { slug: 'burning-hands', name: 'Burning Hands', level: 1, school: 'evocation', concentration: false, ritual: false, in_repertoire: false, prepared: false },
+        ],
+      },
+      can_learn: true,
+      can_prepare: false,
+      budget: { cantrips_known: 0, cantrips_max: 4, spells_known: 0, spells_max: 2, prepared_used: null, prepared_max: null },
+    });
+    renderWizard();
+    pickRace();
+    fireEvent.click(screen.getByRole('radio', { name: /Sorcerer/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fillBackground();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    });
+    await screen.findByText('Burning Hands');
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /Fire Bolt/i }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /Burning Hands/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Review
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
+    });
+
+    await waitFor(() => expect(mockLearnSpell).toHaveBeenCalledWith('char-sorc', 'alice', 'fire-bolt'));
+    // The load-bearing assertion: a known caster's leveled learn call must
+    // carry `undefined` (not `true`/`false`) in the prepared slot -- i.e.
+    // the override never engages for this caster kind, regardless of the
+    // trailing-arg call shape.
+    await waitFor(() =>
+      expect(mockLearnSpell).toHaveBeenCalledWith(
+        'char-sorc',
+        'alice',
+        'burning-hands',
+        undefined,
+        undefined,
+        undefined,
+      ),
+    );
+    expect(mockLearnSpell).not.toHaveBeenCalledWith(
+      'char-sorc',
+      'alice',
+      'burning-hands',
+      undefined,
+      undefined,
+      true,
+    );
+    expect(mockLearnSpell).not.toHaveBeenCalledWith(
+      'char-sorc',
+      'alice',
+      'burning-hands',
+      undefined,
+      undefined,
+      false,
+    );
+    expect(mockPrepareSpell).not.toHaveBeenCalled();
   });
 
   it('surfaces a toast on a partial spell-pick failure but still navigates (character already exists)', async () => {

@@ -332,6 +332,13 @@ export const getAvailableSpells = (
  * Throws ApiError on refusal (400/404/500 per the engine's reason code,
  * carried in `err.body.data.reason` — apiCall throws whenever the envelope
  * is {success:false}, so a resolved promise here IS a real success).
+ *
+ * `prepared` (Slice B Fix 3, optional): overrides the engine's computed
+ * `prepared` flag on the new repertoire row. Only sent when defined —
+ * omitting it preserves the engine's default computed behavior (a wizard's
+ * leveled spellbook entry starts un-prepared). Used by the character-
+ * creation picker to pass `true` for a wizard's picked leveled spells so
+ * picked == prepared (castable under DND_ENFORCE_SPELL_KNOWN).
  */
 export const learnSpell = (
   characterId: string,
@@ -339,12 +346,18 @@ export const learnSpell = (
   slug: string,
   source?: string,
   signal?: AbortSignal,
+  prepared?: boolean,
 ) =>
   apiCall<LearnSpellResult>(
     `/api/dnd/spells/${encodeURIComponent(characterId)}/learn`,
     {
       method: 'POST',
-      json: { username, slug, ...(source ? { source } : {}) },
+      json: {
+        username,
+        slug,
+        ...(source ? { source } : {}),
+        ...(prepared !== undefined ? { prepared } : {}),
+      },
       signal,
     },
   );

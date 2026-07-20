@@ -62,6 +62,7 @@ import {
   getGrounding,
   getCombatState,
   resolveCheck,
+  learnSpell,
 } from '../../lib/api/dnd';
 
 // ---------------------------------------------------------------------------
@@ -240,6 +241,54 @@ describe('Characters', () => {
     );
     const result = await spendCurrency('char-1', 25);
     expect(result).toEqual({ currency_gp: 75, spent: 25 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Spells
+// ---------------------------------------------------------------------------
+
+// Slice B Fix 3: learnSpell's optional trailing `prepared` param. Only sent
+// on the wire when the caller passes it explicitly (undefined) — omitting it
+// preserves the engine's own default computed behavior. Used by the
+// character-creation picker to stamp a wizard's picked leveled spells
+// prepared=true (see src/app/character/new/page.tsx's leveled-spell apply).
+describe('learnSpell — prepared override (Slice B Fix 3)', () => {
+  it('omits `prepared` from the body when not passed', async () => {
+    await learnSpell('char-1', 'alice', 'fire-bolt');
+    const { url, method, body } = lastCall();
+    expect(url).toBe('/api/dnd/spells/char-1/learn');
+    expect(method).toBe('POST');
+    expect(body).toEqual({ username: 'alice', slug: 'fire-bolt' });
+  });
+
+  it('omits `prepared` from the body when explicitly undefined', async () => {
+    await learnSpell('char-1', 'alice', 'magic-missile', undefined, undefined, undefined);
+    const { body } = lastCall();
+    expect(body).toEqual({ username: 'alice', slug: 'magic-missile' });
+  });
+
+  it('includes `prepared: true` when passed true (the wizard-leveled-pick case)', async () => {
+    await learnSpell('char-1', 'alice', 'magic-missile', undefined, undefined, true);
+    const { body } = lastCall();
+    expect(body).toEqual({ username: 'alice', slug: 'magic-missile', prepared: true });
+  });
+
+  it('includes `prepared: false` when passed false (not just truthy-gated)', async () => {
+    await learnSpell('char-1', 'alice', 'magic-missile', undefined, undefined, false);
+    const { body } = lastCall();
+    expect(body).toEqual({ username: 'alice', slug: 'magic-missile', prepared: false });
+  });
+
+  it('still includes `source` alongside `prepared` when both are passed', async () => {
+    await learnSpell('char-1', 'alice', 'burning-hands', 'innate', undefined, true);
+    const { body } = lastCall();
+    expect(body).toEqual({
+      username: 'alice',
+      slug: 'burning-hands',
+      source: 'innate',
+      prepared: true,
+    });
   });
 });
 
