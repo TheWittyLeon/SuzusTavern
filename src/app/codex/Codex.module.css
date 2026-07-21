@@ -8,7 +8,9 @@
   align-items: center;
   gap: 10px;
   background: color-mix(in oklab, var(--ink) 5%, transparent);
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: text search control — --line-strong clears
+     WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px solid var(--line-strong);
   border-radius: 12px;
   padding: 8px 14px;
   width: 100%;
@@ -16,7 +18,7 @@
   transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
 }
 .search:focus-within {
-  border-color: color-mix(in oklab, var(--accent) 40%, var(--line));
+  border-color: color-mix(in oklab, var(--accent) 40%, var(--line-strong));
   background: color-mix(in oklab, var(--accent) 4%, transparent);
 }
 .searchIcon {
@@ -204,7 +206,9 @@
   height: 40px;
   padding: 0 10px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: <select> control — --line-strong clears
+     WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px solid var(--line-strong);
   background: color-mix(in oklab, var(--ink) 3%, transparent);
   color: var(--ink);
   font: inherit;
@@ -274,7 +278,9 @@
   align-items: stretch;
   padding: 0;
   background: var(--card);
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: clickable catalog row — --line-strong clears
+     WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px solid var(--line-strong);
   border-radius: 14px;
   font-family: inherit;
   color: var(--ink);
@@ -310,10 +316,10 @@
 }
 .row:hover {
   transform: translateY(-1px);
-  border-color: color-mix(in oklab, var(--tone) 32%, var(--line));
+  border-color: color-mix(in oklab, var(--tone) 32%, var(--line-strong));
 }
 .rowOn {
-  border-color: color-mix(in oklab, var(--tone) 50%, var(--line));
+  border-color: color-mix(in oklab, var(--tone) 50%, var(--line-strong));
   background: color-mix(in oklab, var(--tone) 6%, var(--card));
   box-shadow: 0 0 0 1px color-mix(in oklab, var(--tone) 30%, transparent);
 }

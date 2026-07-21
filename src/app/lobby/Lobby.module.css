@@ -15,7 +15,9 @@
   font-family: inherit;
   color: var(--ink-2);
   background: color-mix(in oklab, var(--ink) 4%, transparent);
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: clickable filter toggle — --line-strong
+     clears WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px solid var(--line-strong);
   cursor: pointer;
   transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
 }

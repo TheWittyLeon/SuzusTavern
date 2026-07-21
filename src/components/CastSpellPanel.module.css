@@ -54,7 +54,9 @@
   height: 38px;
   padding: 0 10px;
   border-radius: 8px;
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: <select> control — --line-strong clears
+     WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px solid var(--line-strong);
   background: color-mix(in oklab, var(--ink) 3%, transparent);
   color: var(--ink);
   font-size: 13px;

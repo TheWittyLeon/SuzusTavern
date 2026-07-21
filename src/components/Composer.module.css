@@ -64,7 +64,9 @@
   padding: 10px 12px;
   border-radius: 12px;
   background: color-mix(in oklab, var(--ink) 3%, transparent);
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: textarea control — --line-strong clears
+     WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px solid var(--line-strong);
   color: var(--ink);
   font: inherit;
   font-size: 14px;
@@ -188,7 +190,9 @@
   padding: 0 12px;
   border-radius: 10px;
   background: color-mix(in oklab, var(--ink) 4%, transparent);
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: clickable action rail button — --line-strong
+     clears WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px solid var(--line-strong);
   color: var(--ink-2);
   font-size: 12px;
   cursor: pointer;

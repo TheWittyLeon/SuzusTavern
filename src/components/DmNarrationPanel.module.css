@@ -147,7 +147,9 @@
   min-height: 44px;
   padding: 0 12px;
   border-radius: 8px;
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: clickable NPC action button — --line-strong
+     clears WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px solid var(--line-strong);
   background: color-mix(in oklab, var(--ink) 4%, transparent);
   color: var(--ink-2);
   font-size: 12px;
@@ -248,7 +250,9 @@
   min-height: 36px;
   padding: 6px 10px;
   border-radius: 8px;
-  border: 1px dashed var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: clickable toggle button — --line-strong
+     clears WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px dashed var(--line-strong);
   background: transparent;
   color: var(--ink-3);
   font-size: 11px;
@@ -285,7 +289,9 @@
   padding: 8px 10px;
   border-radius: 8px;
   background: color-mix(in oklab, var(--ink) 3%, transparent);
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: textarea control — --line-strong clears
+     WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px solid var(--line-strong);
   color: var(--ink);
   font: inherit;
   font-size: 13px;
@@ -338,7 +344,9 @@
   min-height: 36px;
   padding: 6px 12px;
   border-radius: 8px;
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: clickable cancel button — --line-strong
+     clears WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px solid var(--line-strong);
   background: transparent;
   color: var(--ink-3);
   font-size: 12px;

@@ -10,7 +10,9 @@
   width: 44px; /* ≥44px touch target (Iro/Tora) */
   height: 44px;
   border-radius: var(--radius-pill);
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: clickable trigger button — --line-strong
+     clears WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px solid var(--line-strong);
   background: transparent;
   color: var(--ink-2);
   cursor: pointer;
@@ -106,7 +108,9 @@
   min-height: 44px; /* ≥44px touch target (Tora) */
   padding: 6px 10px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: styled radio body (the control's visible
+     boundary) — --line-strong clears WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px solid var(--line-strong);
   background: color-mix(in oklab, var(--ink) 2%, transparent);
   transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
@@ -175,7 +179,8 @@
   min-height: 44px; /* ≥44px touch target (Iro/Tora) */
   padding: 6px 8px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: styled radio chip — see .optionBody above. */
+  border: 1px solid var(--line-strong);
   background: color-mix(in oklab, var(--ink) 2%, transparent);
   font-size: 12px;
   font-weight: 600;

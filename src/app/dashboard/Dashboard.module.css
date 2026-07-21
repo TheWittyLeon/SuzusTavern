@@ -38,7 +38,9 @@
   gap: 8px;
   padding: 22px;
   border-radius: var(--radius-lg);
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: whole-card nav link — --line-strong clears
+     WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px solid var(--line-strong);
   background: var(--card);
   text-decoration: none;
   color: var(--ink);
@@ -46,7 +48,7 @@
 }
 .door:hover {
   transform: translateY(-3px);
-  border-color: color-mix(in oklab, var(--accent) 50%, var(--line));
+  border-color: color-mix(in oklab, var(--accent) 50%, var(--line-strong));
 }
 .door:focus-visible {
   outline: 2px solid var(--accent);
@@ -213,7 +215,8 @@
   gap: 4px;
   padding: 16px 12px;
   border-radius: var(--radius);
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: whole-card nav link — see .door above. */
+  border: 1px solid var(--line-strong);
   background: var(--card);
   text-decoration: none;
   color: var(--ink);

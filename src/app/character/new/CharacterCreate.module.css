@@ -254,13 +254,15 @@
   padding: 14px;
   border-radius: 14px;
   background: var(--card);
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: clickable option card — --line-strong clears
+     WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px solid var(--line-strong);
   box-shadow: var(--shadow-soft);
   cursor: pointer;
   transition: all 0.15s var(--ease);
 }
 .optCard:hover {
-  border-color: color-mix(in oklab, var(--opt-accent, var(--accent)) 35%, var(--line));
+  border-color: color-mix(in oklab, var(--opt-accent, var(--accent)) 35%, var(--line-strong));
 }
 .optCard:focus-within {
   outline: 2px solid var(--accent);
@@ -340,7 +342,8 @@
   min-height: 44px; /* 44px touch target (WCAG 2.5.5 AAA; exceeds 2.5.8 AA) */
   padding: 8px 12px;
   border-radius: 10px;
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: clickable radio-styled row — see .optCard above. */
+  border: 1px solid var(--line-strong);
   background: var(--card);
   cursor: pointer;
   font-size: 13px;
@@ -490,13 +493,14 @@
   padding: 14px;
   border-radius: 14px;
   background: var(--card);
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: clickable option card — see .optCard above. */
+  border: 1px solid var(--line-strong);
   box-shadow: var(--shadow-soft);
   cursor: pointer;
   transition: all 0.15s var(--ease);
 }
 .bgCard:hover {
-  border-color: color-mix(in oklab, var(--accent-2) 35%, var(--line));
+  border-color: color-mix(in oklab, var(--accent-2) 35%, var(--line-strong));
 }
 .bgCard:focus-within {
   outline: 2px solid var(--accent);

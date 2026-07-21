@@ -92,7 +92,9 @@
   min-height: 44px;
   padding: 10px 12px;
   background: var(--card);
-  border: 1.5px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: clickable radio-styled option — --line-strong
+     clears WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1.5px solid var(--line-strong);
   border-radius: 8px;
   cursor: pointer;
   text-align: left;
@@ -165,7 +167,9 @@
 .btnGhost {
   background: transparent;
   color: var(--ink-2);
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: clickable button — --line-strong clears
+     WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px solid var(--line-strong);
 }
 
 .btnGhost:hover:not(:disabled) {

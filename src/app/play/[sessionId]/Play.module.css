@@ -87,7 +87,9 @@
   width: 36px;
   height: 36px;
   border-radius: 8px;
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: clickable back button — --line-strong clears
+     WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px solid var(--line-strong);
   color: var(--ink-2);
   flex-shrink: 0;
   /* Visual 36×36 but a 44×44 tap target (content-box + padding/margin, the
@@ -116,7 +118,9 @@
   width: 36px;
   height: 36px;
   border-radius: 8px;
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: clickable toggle button — --line-strong
+     clears WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px solid var(--line-strong);
   background: transparent;
   color: var(--ink-2);
   flex-shrink: 0;
@@ -531,7 +535,9 @@
   min-height: 44px;
   padding: 8px 10px;
   border-radius: 8px;
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: clickable outcome option — --line-strong
+     clears WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px solid var(--line-strong);
   background: transparent;
   cursor: pointer;
   text-align: left;
@@ -572,7 +578,8 @@
   padding: 11px 14px;
   min-height: 44px;
   border-radius: 8px;
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: clickable cancel button — see .outcomeOption above. */
+  border: 1px solid var(--line-strong);
   background: transparent;
   color: var(--ink-3);
   font-size: 12px;
@@ -656,7 +663,9 @@
   min-height: 44px;
   padding: 8px 10px;
   border-radius: 8px;
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: clickable session control — --line-strong
+     clears WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px solid var(--line-strong);
   background: transparent;
   color: var(--ink-2);
   font-size: 12px;
@@ -860,7 +869,9 @@
     gap: 6px;
     padding: 8px 14px;
     border-radius: 999px;
-    border: 1px solid var(--line);
+    /* A11Y-BUTTON-BORDER-CONTRAST: mobile tab button — --line-strong clears
+       WCAG 1.4.11's 3:1 non-text contrast. */
+    border: 1px solid var(--line-strong);
     background: transparent;
     color: var(--ink-3);
     font-size: 13px;

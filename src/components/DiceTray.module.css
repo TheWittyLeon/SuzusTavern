@@ -30,7 +30,9 @@
   padding: 10px 6px;
   border-radius: 12px;
   background: color-mix(in oklab, var(--ink) 3%, transparent);
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: clickable die button — --line-strong clears
+     WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px solid var(--line-strong);
   color: var(--ink-2);
   font-size: 12px;
   font-family: var(--font-mono);
@@ -111,7 +113,8 @@
   border-radius: 999px;
   font-size: 11px;
   background: color-mix(in oklab, var(--ink) 4%, transparent);
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: clickable advantage pill — see .die above. */
+  border: 1px solid var(--line-strong);
   color: var(--ink-3);
   cursor: pointer;
 }

@@ -101,7 +101,9 @@
   gap: 5px;
   min-height: 36px;
   padding: 4px 10px;
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: clickable radio-styled chip — --line-strong
+     clears WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px solid var(--line-strong);
   border-radius: 7px;
   font-size: 12px;
   color: var(--ink-2);
@@ -120,7 +122,9 @@
   appearance: none;
   width: 14px;
   height: 14px;
-  border: 2px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: the radio control's own visible boundary —
+     --line-strong clears WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 2px solid var(--line-strong);
   border-radius: 50%;
   background: transparent;
   cursor: pointer;
@@ -158,7 +162,9 @@
   height: 38px;
   padding: 0 10px;
   border-radius: 8px;
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: <select> control — --line-strong clears
+     WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px solid var(--line-strong);
   background: color-mix(in oklab, var(--ink) 3%, transparent);
   color: var(--ink);
   font-size: 13px;
@@ -182,7 +188,9 @@
   height: 38px;
   padding: 0 10px;
   border-radius: 8px;
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: number input control — --line-strong clears
+     WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px solid var(--line-strong);
   background: color-mix(in oklab, var(--ink) 3%, transparent);
   color: var(--ink);
   font-size: 13px;
@@ -233,7 +241,9 @@
   padding: 8px 10px;
   border-radius: 8px;
   background: color-mix(in oklab, var(--ink) 3%, transparent);
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: textarea control — --line-strong clears
+     WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px solid var(--line-strong);
   color: var(--ink);
   font: inherit;
   font-size: 13px;
@@ -279,7 +289,9 @@
   min-height: 44px;
   padding: 0 16px;
   border-radius: 8px;
-  border: 1px solid var(--line);
+  /* A11Y-BUTTON-BORDER-CONTRAST: clickable cancel button — --line-strong
+     clears WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px solid var(--line-strong);
   background: transparent;
   color: var(--ink-3);
   font-size: 13px;
