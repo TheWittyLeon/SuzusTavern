@@ -158,7 +158,10 @@
   padding: 12px 14px;
   border-radius: 10px;
   font-size: 13px;
-  color: var(--bad);
+  /* --bad-ink is the AA-passing text token; --bad alone fails 4.5:1 on the
+     tinted background (see Pill.tsx BLOCKER-1 note) — background/border stay
+     on --bad since those aren't text-contrast-bound. */
+  color: var(--bad-ink);
   background: color-mix(in oklab, var(--bad) 12%, transparent);
   border: 1px solid color-mix(in oklab, var(--bad) 30%, transparent);
 }

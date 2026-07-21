@@ -289,10 +289,13 @@ export default function LandingPage() {
               </Card>
             </div>
 
-            {/* Floating chip — session resumed (bottom-left) */}
+            {/* Floating chip — session resumed (bottom-left). Hangs below the
+                card (mirroring the nat-20 chip's above-card hang) so it clears
+                the mood/pace/memory stat row instead of sitting on top of it
+                (UIR-TAVERN landing hero overlap). */}
             <div
               className={styles.floatingChip}
-              style={{ bottom: 30, left: -24 }}
+              style={{ bottom: -14, left: -24 }}
             >
               <Card
                 style={{

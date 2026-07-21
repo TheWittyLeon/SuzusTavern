@@ -143,7 +143,18 @@ function RebindCharacterButtonInner({
 
   // Focus management — Phase 1: immediately focus the dialog container on open,
   // return focus to trigger on close.
+  //
+  // REBIND-BTN-MOUNT-FOCUS-STEAL: `open` starts `false`, so this effect's
+  // initial run took the `else` branch and focused the trigger on every
+  // mount — stealing focus on every /play page load, not just on a real
+  // close. Skip the very first run with a mounted ref; only move focus on
+  // an actual open/close transition thereafter.
+  const mountedRef = useRef(false);
   useEffect(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      return;
+    }
     if (open) {
       popoverRef.current?.focus();
     } else {

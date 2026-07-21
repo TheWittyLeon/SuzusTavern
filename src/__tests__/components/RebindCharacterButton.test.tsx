@@ -94,6 +94,28 @@ describe('visibility gate (outer wrapper, no hooks)', () => {
   });
 });
 
+// ── Mount focus (REBIND-BTN-MOUNT-FOCUS-STEAL) ─────────────────────────────────
+
+describe('mount focus', () => {
+  it('does not focus the trigger button on mount', () => {
+    render(<RebindCharacterButton {...baseProps()} />);
+    const trigger = screen.getByRole('button', { name: /Change your character/i });
+    expect(trigger).not.toHaveFocus();
+  });
+
+  it('still returns focus to the trigger after a real open/close cycle', async () => {
+    render(<RebindCharacterButton {...baseProps()} />);
+    const trigger = screen.getByRole('button', { name: /Change your character/i });
+
+    fireEvent.click(trigger);
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: /Cancel/i }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await waitFor(() => expect(trigger).toHaveFocus());
+  });
+});
+
 // ── Dialog open/close ──────────────────────────────────────────────────────────
 
 describe('dialog open and close', () => {
