@@ -147,14 +147,17 @@ function RebindCharacterButtonInner({
   // REBIND-BTN-MOUNT-FOCUS-STEAL: `open` starts `false`, so this effect's
   // initial run took the `else` branch and focused the trigger on every
   // mount — stealing focus on every /play page load, not just on a real
-  // close. Skip the very first run with a mounted ref; only move focus on
-  // an actual open/close transition thereafter.
-  const mountedRef = useRef(false);
+  // close. Only move focus on an ACTUAL open/close transition — keyed on a
+  // previous-`open` ref, not a first-run flag. A mount flag is defeated by
+  // React StrictMode (next dev double-invokes effects setup→cleanup→setup, so
+  // the second setup sees the flag already set and steals focus on mount);
+  // comparing the previous value is transition-based and StrictMode-stable.
+  const prevOpenRef = useRef(open);
   useEffect(() => {
-    if (!mountedRef.current) {
-      mountedRef.current = true;
+    if (prevOpenRef.current === open) {
       return;
     }
+    prevOpenRef.current = open;
     if (open) {
       popoverRef.current?.focus();
     } else {
