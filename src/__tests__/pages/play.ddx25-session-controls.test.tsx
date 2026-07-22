@@ -98,7 +98,7 @@ jest.mock('../../lib/stream', () => ({
 }));
 
 import PlayPage from '@/app/play/[sessionId]/page';
-import type { Session, Participant } from '@/lib/api/types';
+import type { EndSessionLevelUp, Session, Participant } from '@/lib/api/types';
 
 const BASE_SESSION: Session = {
   session_id: 's1',
@@ -112,6 +112,33 @@ const BASE_SESSION: Session = {
 };
 
 const DM_PARTY: Participant[] = [{ username: 'dm_alice', is_dm: true, character: null }];
+
+// F5/LEVELUP-NO-MOMENT fixtures — a player with a level-3 character, whose
+// end-session refetch reports level 4.
+const PARTY_WITH_PLAYER: Participant[] = [
+  { username: 'dm_alice', is_dm: true, character: null },
+  {
+    username: 'player1',
+    is_dm: false,
+    character: {
+      character_id: 'c1',
+      name: 'Velka',
+      char_class: 'Rogue',
+      level: 3,
+      current_hp: 10,
+      max_hp: 10,
+      ac: 14,
+    },
+  },
+];
+const PARTY_WITH_PLAYER_LEVELED: Participant[] = [
+  PARTY_WITH_PLAYER[0],
+  {
+    ...PARTY_WITH_PLAYER[1],
+    character: { ...PARTY_WITH_PLAYER[1].character!, level: 4 },
+  },
+];
+const LEVEL_UP: EndSessionLevelUp = { character_id: 'c1', name: 'Velka', new_level: 4 };
 
 function setup(session: Session = BASE_SESSION, participants: Participant[] = DM_PARTY) {
   jest.clearAllMocks();
@@ -344,5 +371,101 @@ describe('DDX-25 — Award XP', () => {
       expect(screen.queryByRole('form', { name: /Award session XP/i })).not.toBeInTheDocument(),
     );
     expect(trigger).toHaveFocus();
+  });
+});
+
+// ── F5/LEVELUP-NO-MOMENT (D3 — end-session-only scope) ─────────────────────
+
+describe('F5/LEVELUP-NO-MOMENT — end-session participants refetch', () => {
+  it('confirming End session refetches getParticipants and PartyPanel reflects the new level + a level-up toast clause', async () => {
+    mockUsername = 'dm_alice';
+    setup(BASE_SESSION, PARTY_WITH_PLAYER);
+    await renderAndWaitForControls();
+    await waitFor(() => expect(screen.getByText(/lv 3/i)).toBeInTheDocument());
+
+    mockGetSession.mockResolvedValueOnce({ ...BASE_SESSION, status: 'ended' });
+    mockEndSession.mockResolvedValueOnce({ message: 'ok', level_ups: [LEVEL_UP], xp_per_player: 150 });
+    mockGetParticipants.mockResolvedValueOnce(PARTY_WITH_PLAYER_LEVELED);
+
+    fireEvent.click(screen.getByRole('button', { name: /End session/i }));
+    const dialog = await screen.findByRole('dialog', { name: /End this session\?/i });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole('button', { name: /^End it$/i }));
+    });
+
+    await waitFor(() => expect(mockEndSession).toHaveBeenCalledTimes(1));
+    // getParticipants: 1 mount call + 1 end-session refetch.
+    await waitFor(() => expect(mockGetParticipants).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByText(/lv 4/i)).toBeInTheDocument());
+    expect(screen.queryByText(/lv 3/i)).not.toBeInTheDocument();
+
+    await waitFor(() =>
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tone: 'success',
+          message: expect.stringMatching(/Session ended\..*Velka.*level 4/i),
+        }),
+      ),
+    );
+  });
+
+  it('a getParticipants refetch failure after End session degrades quietly — one success toast, never a second/error toast', async () => {
+    mockUsername = 'dm_alice';
+    setup(BASE_SESSION, PARTY_WITH_PLAYER);
+    await renderAndWaitForControls();
+
+    mockGetSession.mockResolvedValueOnce({ ...BASE_SESSION, status: 'ended' });
+    mockEndSession.mockResolvedValueOnce({ message: 'ok', level_ups: [] });
+    mockGetParticipants.mockRejectedValueOnce(new Error('network blip'));
+
+    fireEvent.click(screen.getByRole('button', { name: /End session/i }));
+    const dialog = await screen.findByRole('dialog', { name: /End this session\?/i });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole('button', { name: /^End it$/i }));
+    });
+
+    await waitFor(() => expect(mockGetParticipants).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({ tone: 'success', message: 'Session ended.' }),
+      ),
+    );
+    // Exactly one toast for this action — no separate error/warn toast for
+    // the swallowed refetch failure.
+    expect(mockToast).toHaveBeenCalledTimes(1);
+  });
+
+  it('REGRESSION PIN: pause, resume, and Award XP never call getParticipants beyond the initial mount fetch', async () => {
+    mockUsername = 'dm_alice';
+    setup(BASE_SESSION, PARTY_WITH_PLAYER);
+    await renderAndWaitForControls();
+    await waitFor(() => expect(mockGetParticipants).toHaveBeenCalledTimes(1));
+
+    mockGetSession.mockResolvedValueOnce({ ...BASE_SESSION, status: 'paused' });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Pause$/i }));
+    });
+    await waitFor(() => expect(mockPauseSession).toHaveBeenCalledTimes(1));
+
+    mockGetSession.mockResolvedValueOnce({ ...BASE_SESSION, status: 'active' });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Resume$/i }));
+    });
+    await waitFor(() => expect(mockResumeSession).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole('button', { name: /Award XP/i }));
+    const form = await screen.findByRole('form', { name: /Award session XP/i });
+    fireEvent.change(within(form).getByLabelText(/XP amount/i), { target: { value: '50' } });
+    mockGetSession.mockResolvedValueOnce({ ...BASE_SESSION, xp_pool: 50 });
+    await act(async () => {
+      fireEvent.click(within(form).getByRole('button', { name: /^Award$/i }));
+    });
+    await waitFor(() => expect(mockAwardSessionXp).toHaveBeenCalledTimes(1));
+
+    // A dedicated end-session-only refetch (F5/LEVELUP-NO-MOMENT, D3) must
+    // NOT have been folded into the shared refreshSessionAfterAction that
+    // pause/resume/award-XP all also call — getParticipants stays at its
+    // one mount-time call throughout every one of those three actions.
+    expect(mockGetParticipants).toHaveBeenCalledTimes(1);
   });
 });

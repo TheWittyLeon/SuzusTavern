@@ -33,6 +33,7 @@ import HpControl from '@/components/HpControl';
 import SpellSlotsPanel from '@/components/SpellSlotsPanel';
 import SpellbookPanel from '@/components/SpellbookPanel';
 import { ABILITIES, SKILLS } from '@/lib/dnd/helpers';
+import { raceSpeedLabel } from '@/lib/dnd/codex';
 import { useSuzuNote } from '@/lib/dnd/useSuzuNote';
 import styles from './CharacterView.module.css';
 
@@ -224,7 +225,12 @@ export default function CharacterPage() {
                 </div>
                 <div className={styles.idStat}>
                   <dt>SPD</dt>
-                  <dd>{sheet.speed} ft</dd>
+                  {/* F6/MLP-SHEET-SPEED-CRASH: never render sheet.speed as a
+                      raw JSX child — it's a dict for MLP multi-mode
+                      movement. raceSpeedLabel (DDX21-1, same crash class)
+                      already appends the "ft." unit, so no separate " ft"
+                      suffix here. */}
+                  <dd>{raceSpeedLabel(sheet.speed)}</dd>
                 </div>
               </dl>
               {/* HP (T5/DDX-09): interactive damage/heal, replaces the old

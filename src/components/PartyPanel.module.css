@@ -162,3 +162,14 @@
   color: var(--bad-ink);
   flex-shrink: 0;
 }
+
+/* F5/LEVELUP-NO-MOMENT: "level up available" badge — --good, matching
+   LevelUpButton.module.css's own `.result strong` convention (already
+   text-safe, unlike --accent/--accent-2 which need an -ink variant). */
+.levelUpBadge {
+  font-size: 9px;
+  color: var(--good);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}

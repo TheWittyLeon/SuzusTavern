@@ -39,11 +39,13 @@ const mockCreateCharacter = jest.fn();
 const mockGetAvailableSpells = jest.fn();
 const mockLearnSpell = jest.fn();
 const mockPrepareSpell = jest.fn();
+const mockDeleteCharacter = jest.fn();
 jest.mock('../../lib/api/dnd', () => ({
   createCharacter: (...args: unknown[]) => mockCreateCharacter(...args),
   getAvailableSpells: (...args: unknown[]) => mockGetAvailableSpells(...args),
   learnSpell: (...args: unknown[]) => mockLearnSpell(...args),
   prepareSpell: (...args: unknown[]) => mockPrepareSpell(...args),
+  deleteCharacter: (...args: unknown[]) => mockDeleteCharacter(...args),
 }));
 
 const mockRetry = jest.fn();
@@ -208,8 +210,10 @@ beforeEach(() => {
   mockGetAvailableSpells.mockReset();
   mockLearnSpell.mockReset();
   mockPrepareSpell.mockReset();
+  mockDeleteCharacter.mockReset();
   mockLearnSpell.mockResolvedValue({ learned: true, budget: WIZARD_AVAILABLE.budget });
   mockPrepareSpell.mockResolvedValue({ prepared: true, prepared_used: 1, prepared_max: 2 });
+  mockDeleteCharacter.mockResolvedValue({ message: 'deleted' });
   catalogOverride = { ...defaultCatalog };
 });
 
@@ -840,5 +844,202 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
       await Promise.resolve();
     });
     expect(mockCreateCharacter).toHaveBeenCalledTimes(1);
+  });
+
+  // ── F7/TAV-CREATE-EDIT-NOT-RETRO — snapshot-compare-and-recreate ─────────────
+  describe('F7: editing fields AFTER the silent create recreates on final submit (create-first ordering)', () => {
+    it('an ability-score edit after the silent create is reflected in the recreated character, not silently dropped', async () => {
+      mockCreateCharacter
+        .mockResolvedValueOnce({ character_id: 'char-1' })
+        .mockResolvedValueOnce({ character_id: 'char-1-recreated' });
+      mockGetAvailableSpells.mockResolvedValue(WIZARD_AVAILABLE);
+      await advanceToSpells(); // silent create #1 with DEFAULT_SCORES (str 8)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Back' })); // -> Background
+      fireEvent.click(screen.getByRole('button', { name: 'Back' })); // -> Abilities
+      fireEvent.click(screen.getByRole('button', { name: 'Increase Strength' })); // str 8 -> 9
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Background
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Spells (characterId already set, no recreate here)
+      await screen.findByText('Fire Bolt');
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
+      });
+
+      await waitFor(() => expect(mockCreateCharacter).toHaveBeenCalledTimes(2));
+      expect(mockCreateCharacter).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          ability_scores: expect.objectContaining({ strength: 9 }),
+        }),
+      );
+      // The finalized character is the RECREATED one, not the stale original.
+      await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/character/char-1-recreated'));
+    });
+
+    it('create-first ordering (Kuro-Sec C2): the stale character is deleted only AFTER the replacement create succeeds, leaving exactly one live character', async () => {
+      mockCreateCharacter
+        .mockResolvedValueOnce({ character_id: 'char-1' })
+        .mockResolvedValueOnce({ character_id: 'char-1-edited' });
+      mockGetAvailableSpells.mockResolvedValue(WIZARD_AVAILABLE);
+      renderWizard();
+      pickRace();
+      fireEvent.click(screen.getByRole('radio', { name: /Wizard/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Abilities
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Background
+      fillBackground();
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // silent create #1: char-1
+      });
+      await screen.findByText('Fire Bolt');
+
+      // Go back and edit the background/name AFTER the silent create.
+      fireEvent.click(screen.getByRole('button', { name: 'Back' })); // -> Background
+      fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Velka the Second' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Spells (no recreate at Continue-time)
+      await screen.findByText('Fire Bolt');
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
+      });
+
+      await waitFor(() => expect(mockCreateCharacter).toHaveBeenCalledTimes(2));
+      expect(mockCreateCharacter).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ name: 'Velka the Second' }),
+      );
+      await waitFor(() => expect(mockDeleteCharacter).toHaveBeenCalledWith('char-1', 'alice'));
+      // The delete call must be issued strictly AFTER the replacement create resolved.
+      expect(mockCreateCharacter.mock.invocationCallOrder[1]).toBeLessThan(
+        mockDeleteCharacter.mock.invocationCallOrder[0],
+      );
+      await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/character/char-1-edited'));
+    });
+
+    it('if the replacement create fails, the flow aborts and the stale character is NEVER deleted', async () => {
+      mockCreateCharacter
+        .mockResolvedValueOnce({ character_id: 'char-1' })
+        .mockRejectedValueOnce(new Error('500'));
+      mockGetAvailableSpells.mockResolvedValue(WIZARD_AVAILABLE);
+      renderWizard();
+      pickRace();
+      fireEvent.click(screen.getByRole('radio', { name: /Wizard/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      fillBackground();
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // silent create #1
+      });
+      await screen.findByText('Fire Bolt');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Back' })); // -> Background
+      fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Velka Edited' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Spells
+      await screen.findByText('Fire Bolt');
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
+      });
+
+      await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+      expect(mockPush).not.toHaveBeenCalled();
+      expect(mockDeleteCharacter).not.toHaveBeenCalled();
+      expect(mockCreateCharacter).toHaveBeenCalledTimes(2); // attempted the recreate; it failed
+    });
+  });
+
+  // ── Kuro-Sec C1 — already_known learn rejections never inflate the failure count,
+  //    but every OTHER rejection reason/status still does (never swallowed on
+  //    status alone / "any 4xx" / err.code) ──────────────────────────────────────
+  describe('Kuro-Sec C1: learn/prepare rejection classification', () => {
+    it('an already_known rejection does NOT count as a failure and shows no warning toast', async () => {
+      mockLearnSpell.mockRejectedValueOnce(
+        Object.assign(new Error('already_known'), {
+          status: 400,
+          code: '400',
+          body: {
+            success: false,
+            message: 'Spell already known',
+            data: { reason: 'already_known' },
+          },
+        }),
+      );
+      await advanceToSpells();
+      fireEvent.click(screen.getByRole('checkbox', { name: /Fire Bolt/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
+      });
+
+      await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/character/char-1'));
+      expect(screen.queryByText(/couldn.?t be added/i)).not.toBeInTheDocument();
+    });
+
+    it('a 401 actor_required rejection STILL counts as a failure (never swallowed on HTTP status alone)', async () => {
+      mockLearnSpell.mockRejectedValueOnce(
+        Object.assign(new Error('actor_required'), {
+          status: 401,
+          code: '401',
+          body: { success: false, message: 'Actor required', data: { reason: 'actor_required' } },
+        }),
+      );
+      await advanceToSpells();
+      fireEvent.click(screen.getByRole('checkbox', { name: /Fire Bolt/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
+      });
+
+      await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/character/char-1'));
+      expect(await screen.findByText(/couldn.?t be added/i)).toBeInTheDocument();
+    });
+
+    it('a 404 not_found rejection STILL counts as a failure (never swallowed on "any 4xx")', async () => {
+      mockLearnSpell.mockRejectedValueOnce(
+        Object.assign(new Error('not_found'), {
+          status: 404,
+          code: '404',
+          body: { success: false, message: 'Character not found', data: { reason: 'not_found' } },
+        }),
+      );
+      await advanceToSpells();
+      fireEvent.click(screen.getByRole('checkbox', { name: /Fire Bolt/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
+      });
+
+      await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/character/char-1'));
+      expect(await screen.findByText(/couldn.?t be added/i)).toBeInTheDocument();
+    });
+  });
+
+  // ── Same-button rapid double-click on the FINAL submit ────────────────────────
+  it('CONFIRMED SAFE: rapid double-click on "Begin your campaign" does not double up create/learn calls', async () => {
+    await advanceToSpells();
+    fireEvent.click(screen.getByRole('checkbox', { name: /Fire Bolt/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
+
+    let resolveLearn!: (v: unknown) => void;
+    mockLearnSpell.mockImplementation(() => new Promise((res) => { resolveLearn = res; }));
+
+    const begin = screen.getByRole('button', { name: /Begin your campaign/i });
+    fireEvent.click(begin);
+    fireEvent.click(begin); // immediate 2nd click, no await in between
+
+    await act(async () => {
+      resolveLearn({ learned: true });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/character/char-1'));
+    expect(mockCreateCharacter).toHaveBeenCalledTimes(1);
+    expect(mockLearnSpell).toHaveBeenCalledTimes(1);
   });
 });

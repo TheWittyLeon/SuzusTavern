@@ -154,6 +154,34 @@ describe('ADV-6 play page — combatFromScene edge cases', () => {
     );
   });
 
+  it('F1/CAST-FAIL-SILENT: a 409 "combat already active" refusal surfaces the engine\'s own message, not a generic fallback', async () => {
+    // combat_from_scene's Fix-1 active-combat guard (routes/combat.py) 409s
+    // with a ready-to-show message and NO data.reason — exactly the unmapped
+    // business-error case F1 fills. Realistic ApiError shape: `.body.message`
+    // is what makeApiError/apiFetch actually populate on a non-2xx response.
+    const err = Object.assign(new Error('A combat is already active for this session.'), {
+      status: 409,
+      body: {
+        success: false,
+        message: 'A combat is already active for this session.',
+        data: {},
+      },
+    });
+    mCombatFromScene.mockRejectedValue(err);
+
+    await clickBeginEncounter();
+
+    await waitFor(() =>
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tone: 'error',
+          message: 'A combat is already active for this session.',
+        }),
+      ),
+    );
+    expect(screen.queryByText(/round.*combat/i)).not.toBeInTheDocument();
+  });
+
   it('empty-string combat_id → no crash, no broken combat-mode state', async () => {
     // If the engine returns combat_id='' (falsy), the UI must not enter an
     // invalid combat mode or crash trying to use an empty string as a combat key.

@@ -374,13 +374,14 @@ describe('CastSpellPanel — target picker', () => {
     expect(names.some((t) => t?.includes('Me'))).toBe(false);
   });
 
-  it('still offers a downed (is_alive: false, can_be_targeted: false) participant — the engine, not the UI, refuses an illegal target', async () => {
-    // Confirms the header comment's own stated design ("everyone else is
-    // offered — the engine validates the actual legality") against a
-    // concrete case that comment never names explicitly: a corpse. Nothing
-    // in `targets` filters on is_alive/can_be_targeted today — only the
-    // caster's own entity_id is excluded.
-    const DOWNED = participant({
+  it('F2/CAST-DEAD-TARGET: NEVER offers a downed/dead (is_alive: false, can_be_targeted: false) ENEMY, heal or no heal', async () => {
+    // Supersedes the old "still offers a downed participant" test — that
+    // stance predates F2 (WF-TAV-AUDIT-BATCH-2026-07-22 Pass P). A downed
+    // enemy is, by construction, always genuinely dead (a monster killed at
+    // 0 HP goes is_alive:false immediately — see engine/combat.py's
+    // apply_damage, it never lingers at 0 HP with is_alive still true), so
+    // it's excluded from every spell, non-heal AND heal alike.
+    const DOWNED_ENEMY = participant({
       participant_id: 'p-downed',
       entity_id: 'goblin-2',
       name: 'Fallen Goblin',
@@ -395,7 +396,7 @@ describe('CastSpellPanel — target picker', () => {
           combatId="combat-1"
           characterId="cid-1"
           username="leon"
-          participants={[SELF, ALLY, ENEMY, DOWNED]}
+          participants={[SELF, ALLY, ENEMY, DOWNED_ENEMY]}
           spellSlots={SLOTS}
           isPlayerTurn
           onCast={jest.fn()}
@@ -407,8 +408,92 @@ describe('CastSpellPanel — target picker', () => {
     await flush();
 
     const targetSelect = await screen.findByLabelText('Target');
-    const names = Array.from(targetSelect.querySelectorAll('option')).map((o) => o.textContent);
-    expect(names.some((t) => t?.includes('Fallen Goblin'))).toBe(true);
+    let names = Array.from(targetSelect.querySelectorAll('option')).map((o) => o.textContent);
+    expect(names.some((t) => t?.includes('Fallen Goblin'))).toBe(false);
+
+    // Still excluded even with a healing spell selected (never a downed enemy).
+    selectSpell('Cure Wounds');
+    names = Array.from(
+      screen.getByLabelText('Target').querySelectorAll('option'),
+    ).map((o) => o.textContent);
+    expect(names.some((t) => t?.includes('Fallen Goblin'))).toBe(false);
+  });
+
+  it('F2/CAST-DEAD-TARGET: a downed (0 HP, is_alive: true, can_be_targeted: false) ALLY is offered ONLY when the selected spell heals', async () => {
+    const DOWNED_ALLY = participant({
+      participant_id: 'p-downed-ally',
+      entity_id: 'cid-3',
+      name: 'Fallen Twilight',
+      is_pc: true,
+      is_alive: true,
+      can_be_targeted: false,
+      hp_current: 0,
+      death_saves: { successes: 0, failures: 0, is_downed: true, is_stable: false, is_dead: false },
+    });
+    render(
+      <ToastProvider>
+        <CastSpellPanel
+          combatId="combat-1"
+          characterId="cid-1"
+          username="leon"
+          participants={[SELF, ALLY, ENEMY, DOWNED_ALLY]}
+          spellSlots={SLOTS}
+          isPlayerTurn
+          onCast={jest.fn()}
+          onSheetChanged={jest.fn()}
+          onStateRefresh={jest.fn()}
+        />
+      </ToastProvider>,
+    );
+    await flush();
+
+    // Sacred Flame (heals: false) — the downed ally is NOT offered.
+    let names = Array.from(
+      screen.getByLabelText('Target').querySelectorAll('option'),
+    ).map((o) => o.textContent);
+    expect(names.some((t) => t?.includes('Fallen Twilight'))).toBe(false);
+
+    // Cure Wounds (heals: true) — the downed ally IS offered.
+    selectSpell('Cure Wounds');
+    names = Array.from(
+      screen.getByLabelText('Target').querySelectorAll('option'),
+    ).map((o) => o.textContent);
+    expect(names.some((t) => t?.includes('Fallen Twilight'))).toBe(true);
+  });
+
+  it('F2/CAST-DEAD-TARGET: a genuinely-dead PC (is_alive: false) is excluded from EVERY spell, healing included', async () => {
+    const DEAD_PC = participant({
+      participant_id: 'p-dead-pc',
+      entity_id: 'cid-4',
+      name: 'Late Twilight',
+      is_pc: true,
+      is_alive: false,
+      can_be_targeted: false,
+      hp_current: 0,
+      death_saves: { successes: 0, failures: 3, is_downed: false, is_stable: false, is_dead: true },
+    });
+    render(
+      <ToastProvider>
+        <CastSpellPanel
+          combatId="combat-1"
+          characterId="cid-1"
+          username="leon"
+          participants={[SELF, ALLY, ENEMY, DEAD_PC]}
+          spellSlots={SLOTS}
+          isPlayerTurn
+          onCast={jest.fn()}
+          onSheetChanged={jest.fn()}
+          onStateRefresh={jest.fn()}
+        />
+      </ToastProvider>,
+    );
+    await flush();
+
+    selectSpell('Cure Wounds'); // heals: true — still must not resurrect a corpse.
+    const names = Array.from(
+      screen.getByLabelText('Target').querySelectorAll('option'),
+    ).map((o) => o.textContent);
+    expect(names.some((t) => t?.includes('Late Twilight'))).toBe(false);
   });
 
   it('DDX-CAST-TARGETID-PLUMBING (fixed): two participants with the IDENTICAL exact name now send DIFFERENT target_id values, disambiguating the wire request', async () => {
@@ -822,7 +907,15 @@ describe('CastSpellPanel — cast wiring', () => {
     expect(mockGetSheet).not.toHaveBeenCalled();
   });
 
-  it('an UNMAPPED refusal reason (e.g. a future engine reason code this UI has not been taught yet) falls back to the generic copy, never a raw/leaked engine string', async () => {
+  it('F1/CAST-FAIL-SILENT (D1): an UNMAPPED 4xx reason surfaces the engine\'s own body.message verbatim — supersedes the old conservative stance', async () => {
+    // WF-TAV-AUDIT-BATCH-2026-07-22 Pass P, D1 (Riku-resolved): this test
+    // used to assert the OPPOSITE — that an unmapped reason "never surfaces
+    // a raw engine string" and falls back to the generic copy. Leon's
+    // explicit instruction widened that: curated copy still wins when
+    // present, but an unmapped 4xx BUSINESS reason (400/403/404/409) with a
+    // real `err.body.message` now surfaces that message — it's the engine's
+    // own ready-to-show text, not a leaked internal trace. 5xx/network still
+    // never surface `body.message` (see the two adjacent tests below).
     const err = new Error('API error 400: concentration_conflict') as Error & {
       status: number;
       code: string;
@@ -833,8 +926,32 @@ describe('CastSpellPanel — cast wiring', () => {
     err.body = {
       success: false,
       data: { reason: 'concentration_conflict' },
-      message: '[Spell] Internal trace: concentration slot 3 already bound to caster_id=cid-1',
+      message: "You're already concentrating on another spell.",
     };
+    mockCastSpell.mockRejectedValue(err);
+    renderPanel();
+    await flush();
+
+    fireEvent.click(screen.getByRole('button', { name: /^Cast /i }));
+    await flush();
+
+    expect(
+      await screen.findByText("You're already concentrating on another spell."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText('Could not cast Sacred Flame. Try again in a moment.'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('F1/CAST-FAIL-SILENT (D1): a 5xx NEVER surfaces body.message (would leak "Internal server error" internals) — falls back to the generic copy', async () => {
+    const err = new Error('API error 500: internal') as Error & {
+      status: number;
+      code: string;
+      body: unknown;
+    };
+    err.status = 500;
+    err.code = '500';
+    err.body = { success: false, message: 'Internal server error' };
     mockCastSpell.mockRejectedValue(err);
     renderPanel();
     await flush();
@@ -845,8 +962,27 @@ describe('CastSpellPanel — cast wiring', () => {
     expect(
       await screen.findByText('Could not cast Sacred Flame. Try again in a moment.'),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/Internal trace/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/concentration_conflict/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('Internal server error')).not.toBeInTheDocument();
+  });
+
+  it('F1/CAST-FAIL-SILENT (D1): a network/status-0 failure NEVER surfaces a body message — falls back to the generic copy', async () => {
+    const err = new Error('API error 0: network') as Error & {
+      status: number;
+      code: string;
+      body?: unknown;
+    };
+    err.status = 0;
+    err.code = 'network';
+    mockCastSpell.mockRejectedValue(err);
+    renderPanel();
+    await flush();
+
+    fireEvent.click(screen.getByRole('button', { name: /^Cast /i }));
+    await flush();
+
+    expect(
+      await screen.findByText('Could not cast Sacred Flame. Try again in a moment.'),
+    ).toBeInTheDocument();
   });
 });
 

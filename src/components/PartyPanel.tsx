@@ -11,6 +11,11 @@
  * HP values are overridden from the engine's structured state so the party
  * panel reflects live combat HP instead of the stale session-load snapshot.
  * Falls back to `participants[].character.*` when no combatState or not in combat.
+ *
+ * F5/LEVELUP-NO-MOMENT: a "level up" badge renders per-character when
+ * `character.pending_choices.length > 0` (queued subclass/ASI/spell picks
+ * awaiting resolution) — driven straight off the roster the parent already
+ * fetches, no extra per-character request.
  */
 import Link from 'next/link';
 import type { CombatState, Participant } from '@/lib/api/types';
@@ -70,6 +75,11 @@ export default function PartyPanel({
         {participants.map((p) => {
           const you = p.username.toLowerCase() === self;
           const c = p.character;
+          // F5/LEVELUP-NO-MOMENT: driven straight from the roster's own
+          // character.pending_choices (routes/sessions.py's participants
+          // route echoes the sheet's pending_choices onto each entry) — no
+          // per-character sheet fetch needed just to show this badge.
+          const hasPendingChoices = (c?.pending_choices?.length ?? 0) > 0;
 
           // Live combat HP overrides the stale snapshot when available.
           const liveHp = c?.name ? combatHpByName.get(c.name.toLowerCase()) : undefined;
@@ -92,13 +102,26 @@ export default function PartyPanel({
                     width at desktop breakpoints — the name gets the full row
                     and its ellipsis only engages when the name itself is
                     genuinely too long, not whenever a badge is present. */}
-                {(you || p.is_dm || isDowned) && (
+                {(you || p.is_dm || isDowned || hasPendingChoices) && (
                   <div className={styles.badgeRow}>
                     {you && <span className={styles.youBadge}>you</span>}
                     {p.is_dm && <span className={styles.dmBadge}>DM</span>}
                     {isDowned && (
                       <span className={styles.downedBadge} aria-label="downed">
                         ↓
+                      </span>
+                    )}
+                    {hasPendingChoices && (
+                      // Iro MAJOR-2: the `↑` glyph is aria-hidden so AT doesn't read it
+                      // literally; the visible "level up" text stands on its own, and the
+                      // descriptive clause moves into the project's existing `.sr-only`
+                      // utility (globals.css) rather than a bare-span aria-label (unreliable
+                      // across AT). Wording generalized "archetype" → "choose new features"
+                      // to match the toast copy (line ~334 below) since pending_choices also
+                      // covers ASI/spell picks, not just subclass/archetype.
+                      <span className={styles.levelUpBadge}>
+                        <span aria-hidden="true">↑</span> level up
+                        <span className="sr-only"> — choose new features</span>
                       </span>
                     )}
                   </div>

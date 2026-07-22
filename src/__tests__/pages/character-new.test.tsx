@@ -357,7 +357,9 @@ describe('Character creation wizard', () => {
       // Elf: +2 DEX (base). Wood Elf: +1 WIS, 35ft speed.
       const wisLabel = screen.getByText('WIS');
       expect(within(wisLabel.closest('div') as HTMLElement).getByText('9')).toBeInTheDocument();
-      expect(screen.getByText('35 ft')).toBeInTheDocument();
+      // F6b: the SPD row now renders via raceSpeedLabel ("35 ft.", trailing
+      // period) rather than a bare template-literal "35 ft".
+      expect(screen.getByText('35 ft.')).toBeInTheDocument();
     });
 
     it('requires exactly two non-Charisma ability picks for Half-Elf before Continue, and never offers Charisma', () => {
@@ -587,7 +589,7 @@ describe('Character creation wizard', () => {
       const conBox = within(scorePanel).getByText('CON').closest('div') as HTMLElement;
       expect(within(strBox).getByText('10')).toBeInTheDocument();
       expect(within(conBox).getByText('10')).toBeInTheDocument();
-      expect(screen.getByText('25 ft')).toBeInTheDocument();
+      expect(screen.getByText('25 ft.')).toBeInTheDocument();
     });
 
     it('cosmetic subrace (no ability_bonus): selectable, gates Continue, POSTs the name, no stat change in preview', async () => {
@@ -686,6 +688,40 @@ describe('Character creation wizard', () => {
     await walkToReviewAndSubmit();
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
     expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  // ── F6b/MLP-SHEET-SPEED-CRASH (review-card half) ────────────────────────────
+  it('F6b: a dict-shaped race speed renders as a formatted string on the review card, never "[object Object] ft" (DDX21-1 precedent)', () => {
+    catalogOverride = {
+      ...defaultCatalog,
+      data: {
+        ...defaultCatalog.data,
+        races: [
+          {
+            ...defaultCatalog.data.races[0],
+            id: 'pegasus',
+            name: 'Pegasus',
+            // WizardRace.speed is typed `number`, but (per the MLP-SHEET-
+            // SPEED-CRASH root cause) the wire can still send a compound
+            // multi-mode object for a race with fly/swim speeds — the type
+            // doesn't guarantee the runtime shape.
+            speed: { walk: 30, fly: 60 } as unknown as number,
+          },
+        ],
+      },
+    };
+    renderWizard();
+    fireEvent.click(screen.getByRole('radio', { name: /^Pegasus/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Class
+    fireEvent.click(screen.getByRole('radio', { name: /Rogue/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Abilities
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Background
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Skyla' } });
+    fireEvent.click(screen.getByRole('radio', { name: /Charlatan/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Review
+
+    expect(screen.queryByText(/\[object Object\]/)).not.toBeInTheDocument();
+    expect(screen.getByText('30 ft., fly 60 ft.')).toBeInTheDocument();
   });
 });
 

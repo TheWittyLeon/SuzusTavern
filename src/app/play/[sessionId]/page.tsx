@@ -84,11 +84,13 @@ import {
   applyReconcileResult,
   type PendingTurnEntry,
 } from '@/lib/dnd/reconcileEvents';
+import { engineErrorMessage } from '@/lib/dnd/engineError';
+import { isLivingTargetableFoe } from '@/lib/dnd/combatTargets';
 import type {
   CharacterSheet,
-  CombatParticipantState,
   CombatState,
   EndCombatOutcome,
+  EndSessionLevelUp,
   EngineSessionEvent,
   GroundingData,
   OfferedCheck,
@@ -295,27 +297,41 @@ function stableKey(v: unknown): string {
 }
 
 /**
- * Extract a human-readable refusal reason from a combat error body.
- * The engine returns data.reason as a machine code; we translate to plain English.
+ * F1/CAST-FAIL-SILENT: curated reason -> plain-English copy for a combat
+ * action refusal, passed as `engineErrorMessage`'s `reasonMap` (see
+ * onCombatAction below). A reason NOT in this map falls through to
+ * engineErrorMessage's own 4xx-business-message branch (surfacing the
+ * engine's own ready-to-show text, e.g. "Combat or session not found.") —
+ * never a raw machine code like the old `Action refused: ${code}` fallback
+ * used to leak.
  */
-function humanRefusalReason(code: string | undefined): string | null {
-  if (!code) return null;
-  const map: Record<string, string> = {
-    not_your_turn: "It's not your turn.",
-    no_target: 'You need to pick a target.',
-    target_not_found: 'That target was not found.',
-    target_down: 'That target is already down.',
-    target_is_self: "You can't target yourself.",
-    no_character_bound: 'No character is bound to this session.',
-    actor_incapacitated: 'Your character is incapacitated.',
-    combat_over: 'Combat has ended.',
-    no_active_turn: 'No one has the active turn right now.',
-    no_combat: 'No combat is active.',
-    invalid_outcome: 'That outcome is not valid right now.',
-    victory_refused: "Can't claim victory — no enemies are down.",
-    msm_disabled: 'Multi-system content is not available for this session.',
-  };
-  return map[code] ?? `Action refused: ${code}`;
+const COMBAT_REFUSAL_REASON_MAP: Record<string, string> = {
+  not_your_turn: "It's not your turn.",
+  no_target: 'You need to pick a target.',
+  target_not_found: 'That target was not found.',
+  target_down: 'That target is already down.',
+  target_is_self: "You can't target yourself.",
+  no_character_bound: 'No character is bound to this session.',
+  actor_incapacitated: 'Your character is incapacitated.',
+  combat_over: 'Combat has ended.',
+  no_active_turn: 'No one has the active turn right now.',
+  no_combat: 'No combat is active.',
+  invalid_outcome: 'That outcome is not valid right now.',
+  victory_refused: "Can't claim victory — no enemies are down.",
+  msm_disabled: 'Multi-system content is not available for this session.',
+};
+
+/**
+ * F5/LEVELUP-NO-MOMENT: build the end-session toast's level-up clause from
+ * `POST /sessions/{id}/end`'s `data.level_ups` echo. Returns `null` when
+ * nobody leveled (empty/absent — degrades gracefully, no clause appended).
+ */
+function levelUpsSummary(levelUps: EndSessionLevelUp[]): string | null {
+  const parts = levelUps
+    .filter((l): l is EndSessionLevelUp & { name: string } => !!l.name)
+    .map((l) => `${l.name} (now level ${l.new_level ?? '?'})`);
+  if (parts.length === 0) return null;
+  return `Level up: ${parts.join(', ')} — see the party panel to choose new features.`;
 }
 
 export default function PlayPage() {
@@ -597,6 +613,11 @@ export default function PlayPage() {
   // Tora MAJOR-2: ref for the "End" trigger button so focus returns to it when
   // the outcome chooser is closed via Escape.
   const endCombatBtnRef = useRef<HTMLButtonElement>(null);
+  // Iro MAJOR-1: the outcome chooser now has two openers ("End" and "Wrap
+  // up") — capture whichever one actually opened it so Escape/Cancel refocus
+  // the real opener instead of always the "End" button. `endCombatBtnRef`
+  // stays as the fallback (e.g. if the chooser is ever opened programmatically).
+  const lastOpenerRef = useRef<HTMLButtonElement | null>(null);
 
   // DDX-25: ref for the "Award XP" trigger so focus returns to it when the
   // inline award form is dismissed via Escape (mirrors endCombatBtnRef).
@@ -2894,7 +2915,34 @@ export default function PlayPage() {
           advantage: advantage === 'adv' ? true : undefined,
           disadvantage: advantage === 'dis' ? true : undefined,
         });
-        appendLog({ who: username, kind: 'system', text: result.description });
+        // F4/CHECK-DOUBLE-RENDER: seed the durable reconcile ledger with this
+        // check's own event_seq BEFORE the next poll tick can observe the
+        // same check_resolved event and re-append it — reconcileDurableEvents'
+        // rule 1 (renderedSeqs.has(seq), reconcileEvents.ts) is what skips
+        // the poll's duplicate once seeded; rule 5 (unconditional append for
+        // check_resolved) is CORRECT for every OTHER client, this optimistic
+        // append is the reason THIS client must pre-seed its own copy of the
+        // dedup set. Flag-gated: renderedSeqsRef is only ever read from
+        // pollDurable, itself reachable only when DURABLE_GENERATION_ENABLED
+        // (see the ref's own declaration comment above) — seeding flag-OFF
+        // would be inert but the dormancy contract is byte-identity, so gate
+        // explicitly rather than relying on "nobody reads it anyway". Graceful
+        // degrade: a null/absent event_seq (should not happen on the real
+        // wire per ResolveCheckResult's own doc, but the type allows it)
+        // simply skips the seed — the optimistic row below still renders
+        // once either way, it just isn't deduped against a future poll
+        // observation of the same event.
+        if (DURABLE_GENERATION_ENABLED && result.event_seq != null) {
+          renderedSeqsRef.current.add(result.event_seq);
+        }
+        appendLog({
+          who: username,
+          kind: 'system',
+          text: result.description,
+          ...(DURABLE_GENERATION_ENABLED && result.event_seq != null
+            ? { seq: result.event_seq }
+            : {}),
+        });
         // refreshGrounding() BEFORE narrate() so the scene card / check row are
         // already current when Suzu's beat lands (the engine may have set a
         // flag and/or auto-advanced the scene — never assumed from `result`).
@@ -2914,18 +2962,22 @@ export default function PlayPage() {
           }); // byte-unchanged legacy path
         }
       } catch (err) {
-        const status = (err as { status?: number } | null)?.status;
-        const body = (err as { body?: unknown } | null)?.body;
-        const reason = (body as { data?: { reason?: string } } | null)?.data?.reason;
-        if (status === 400 && reason === 'no_such_check') {
-          toast({ tone: 'info', message: `No ${skillLabel} check is available right now.` });
-        } else if (status === 400) {
-          toast({ tone: 'info', message: 'No authored adventure to check against.' });
-        } else if (status === 503) {
-          toast({ tone: 'info', message: 'Skill checks are not available right now.' });
-        } else {
-          toast({ tone: 'error', message: 'Could not resolve that check.' });
-        }
+        // F1/CAST-FAIL-SILENT: curated map wins for the three known reasons;
+        // an unmapped 4xx business refusal (e.g. 404 "Session not found.",
+        // or 400 "Unknown skill 'x'."/"Current scene could not be resolved."
+        // from resolve_scene_check — see routes/sessions.py) now surfaces
+        // the engine's own ready-to-show message instead of the old blanket
+        // "Could not resolve that check." for every non-400/503 status.
+        const fallback = 'Could not resolve that check.';
+        const message = engineErrorMessage(err, {
+          fallback,
+          reasonMap: {
+            no_such_check: `No ${skillLabel} check is available right now.`,
+            freeform_session: 'No authored adventure to check against.',
+            msm_disabled: 'Skill checks are not available right now.',
+          },
+        });
+        toast({ tone: message === fallback ? 'error' : 'info', message });
       } finally {
         checkBusyRef.current = false;
         setCheckBusy(false);
@@ -3003,12 +3055,22 @@ export default function PlayPage() {
         ); // byte-unchanged legacy path
       }
     } catch (err) {
-      const status = (err as { status?: number } | null)?.status;
-      if (status === 400) {
-        toast({ tone: 'info', message: "There's no scripted encounter here." });
-      } else {
-        toast({ tone: 'error', message: 'Could not start combat.' });
-      }
+      // F1/CAST-FAIL-SILENT: no curated reason map here — combat_from_scene's
+      // 400/409 refusals (NekoNova-DnDEngine routes/combat.py) never set
+      // data.reason, only a ready-to-show `message` ("No encounter available
+      // for the current scene.", "A combat is already active for this
+      // session.", "Encounter 'x' not found in the current scene…") — the
+      // 4xx-business branch below is what actually surfaces it; msm_disabled
+      // (503) is the one case that DOES carry a reason and gets curated copy.
+      toast({
+        tone: 'error',
+        message: engineErrorMessage(err, {
+          fallback: 'Could not start combat.',
+          reasonMap: {
+            msm_disabled: 'Multi-system content is not available for this session.',
+          },
+        }),
+      });
     } finally {
       combatBusyRef.current = false;
       setCombatBusy(false);
@@ -3044,11 +3106,20 @@ export default function PlayPage() {
               target_id: payload,
             });
           } catch (err) {
-            // Surface refused-action reason from the error body.
+            // F1/CAST-FAIL-SILENT: engineErrorMessage always returns a
+            // non-empty string (curated reason, else the engine's own 4xx
+            // message, else the fallback) — a bare "no data.reason" refusal
+            // (e.g. a 404 "Combat or session not found." with no reason
+            // code) used to fall through to `setRefusedReason(null)` here,
+            // silently clearing the banner with nothing shown at all.
+            setRefusedReason(
+              engineErrorMessage(err, {
+                fallback: 'That combat action did not land. Try again.',
+                reasonMap: COMBAT_REFUSAL_REASON_MAP,
+              }),
+            );
             const body = (err as { body?: unknown } | null)?.body;
-            const data = (body as { data?: { reason?: string; state?: CombatState } } | null)?.data;
-            const reason = humanRefusalReason(data?.reason);
-            setRefusedReason(reason);
+            const data = (body as { data?: { state?: CombatState } } | null)?.data;
             if (data?.state) {
               stateSeqRef.current += 1;
               setCombatState(data.state);
@@ -3131,14 +3202,19 @@ export default function PlayPage() {
           void refreshGrounding();
         }
       } catch (err) {
+        // F1/CAST-FAIL-SILENT: same chokepoint as the attack sub-branch
+        // above — always surfaces SOMETHING (curated/engine-message/
+        // fallback), so a dodge/dash/endturn refusal with no reason code no
+        // longer falls silently through the old `if (reason) … else toast`
+        // split with nothing shown for the in-between case.
+        setRefusedReason(
+          engineErrorMessage(err, {
+            fallback: 'That combat action did not land. Try again.',
+            reasonMap: COMBAT_REFUSAL_REASON_MAP,
+          }),
+        );
         const body = (err as { body?: unknown } | null)?.body;
-        const data = (body as { data?: { reason?: string; state?: CombatState } } | null)?.data;
-        const reason = humanRefusalReason(data?.reason);
-        if (reason) {
-          setRefusedReason(reason);
-        } else {
-          toast({ tone: 'error', message: 'That combat action did not land. Try again.' });
-        }
+        const data = (body as { data?: { state?: CombatState } } | null)?.data;
         if (data?.state) {
           stateSeqRef.current += 1;
           setCombatState(data.state);
@@ -3156,7 +3232,6 @@ export default function PlayPage() {
       appendLog,
       narrate,
       narrateDurableBeat,
-      toast,
       handleSceneAdvance,
       refreshGrounding,
     ],
@@ -3285,9 +3360,29 @@ export default function PlayPage() {
     sessionActionBusyRef.current = true;
     setSessionActionBusy('end');
     try {
-      await endSession(sessionId, { username, channel: session.channel });
+      const result = await endSession(sessionId, { username, channel: session.channel });
       await refreshSessionAfterAction();
-      toast({ tone: 'success', message: 'Session ended.' });
+      // F5/LEVELUP-NO-MOMENT (D3 — END-SESSION-ONLY scope): refetch the
+      // roster so a leveled-up character's stale level in PartyPanel is
+      // corrected. Deliberately scoped to THIS handler, not folded into the
+      // shared refreshSessionAfterAction above (which ALSO runs on pause/
+      // resume/award-XP, where a party refetch would be unnecessary chatter
+      // every time — see play.ddx25-session-controls's own regression pin on
+      // those handlers' getParticipants call count). Non-fatal on failure:
+      // the roster just stays stale until a future natural refresh; the
+      // "Session ended." toast below still fires either way (the session DID
+      // end) — never a double-toast for this secondary read.
+      try {
+        const party = await getParticipants(sessionId);
+        setParticipants(party);
+      } catch {
+        // Swallowed — see comment above.
+      }
+      const summary = levelUpsSummary(result.level_ups ?? []);
+      toast({
+        tone: 'success',
+        message: summary ? `Session ended. ${summary}` : 'Session ended.',
+      });
     } catch {
       toast({ tone: 'error', message: 'Could not end the session. Try again in a moment.' });
     } finally {
@@ -3530,11 +3625,13 @@ export default function PlayPage() {
   // ── derived combat UI state ──────────────────────────────────────────────────
 
   // Participants that are valid targets (living, targetable enemies).
+  // F2/CAST-DEAD-TARGET: shared with CastSpellPanel's own target picker via
+  // isLivingTargetableFoe (src/lib/dnd/combatTargets.ts) — Cast layers a
+  // heal-downed-ally exception on top of the same base rule instead of
+  // re-deriving it.
   const targetableFoes: CombatTarget[] = combatState
     ? combatState.participants
-        .filter((p): p is CombatParticipantState =>
-          !p.is_pc && p.can_be_targeted && p.is_alive,
-        )
+        .filter(isLivingTargetableFoe)
         .map((p) => ({
           id: p.participant_id,
           name: p.name,
@@ -3830,6 +3927,14 @@ export default function PlayPage() {
   const anyMonsterDown = !!combatState?.participants.some(
     (p) => !p.is_pc && !p.is_alive,
   );
+  // F3/COMBAT-NO-AUTO-RESOLVE: advisory (never blocking) — surfaced when the
+  // last hostile drops mid-combat. Reuses `targetableFoes` (isLivingTargetableFoe,
+  // src/lib/dnd/combatTargets.ts), the SAME signal the attack rail's own
+  // target picker already computes, rather than re-deriving "any living
+  // enemy" a second way. Gated on state==='active' explicitly (not just
+  // emptiness) — targetableFoes is ALSO empty before combat starts and after
+  // it ends, for a different reason; this must not fire in either case.
+  const allHostilesDown = combatState?.state === 'active' && targetableFoes.length === 0;
   const statusPill = combatIsActive ? (
     <Pill tone="lav" dot>
       round {round ?? 1} · combat
@@ -4528,7 +4633,10 @@ export default function PlayPage() {
                 ref={endCombatBtnRef}
                 type="button"
                 className={styles.endCombatBtn}
-                onClick={() => setOutcomeChooserOpen((v) => !v)}
+                onClick={(e) => {
+                  lastOpenerRef.current = e.currentTarget;
+                  setOutcomeChooserOpen((v) => !v);
+                }}
                 disabled={combatBusy}
                 aria-busy={combatBusy}
                 aria-haspopup="true"
@@ -4538,6 +4646,36 @@ export default function PlayPage() {
                 End
               </button>
             </div>
+            {/* F3/COMBAT-NO-AUTO-RESOLVE: advisory-only prompt (never auto-
+                resolves — the DM still picks victory/defeat/retreat/etc.).
+                Opens the SAME outcome chooser as the "End" button above;
+                never disables Dodge/Dash/End-Turn (those live in the
+                composer's action rail, entirely untouched by this banner). */}
+            {allHostilesDown && (
+              <div className={styles.autoResolvePrompt} role="status" aria-live="polite">
+                <Icon name="Skull" size={13} aria-hidden /> All enemies are down.
+                <button
+                  type="button"
+                  className={styles.autoResolvePromptBtn}
+                  onClick={(e) => {
+                    lastOpenerRef.current = e.currentTarget;
+                    setOutcomeChooserOpen(true);
+                  }}
+                  disabled={combatBusy}
+                  aria-busy={combatBusy}
+                  // Deliberately distinct wording from the "End" button's own
+                  // "End combat — choose outcome" aria-label above (not just
+                  // decoration — a shared "End combat" substring would make
+                  // the two controls indistinguishable by accessible name to
+                  // a screen-reader user tabbing through, and ambiguous to
+                  // any `getByRole('button', {name: /End combat/i})`-style
+                  // query, same failure mode either way).
+                  aria-label="All enemies are down — wrap up the fight and choose an outcome"
+                >
+                  Wrap up
+                </button>
+              </div>
+            )}
             {/* B3-1: outcome chooser popover */}
             {outcomeChooserOpen && (
               <div
@@ -4553,7 +4691,10 @@ export default function PlayPage() {
                   consumeEscape(e, {
                     onClose: () => setOutcomeChooserOpen(false),
                     canClose: !combatBusy,
-                    onRefocus: () => endCombatBtnRef.current?.focus(),
+                    // Iro MAJOR-1: refocus whichever control actually opened the
+                    // chooser ("End" or "Wrap up"), falling back to endCombatBtnRef
+                    // if it was somehow opened without going through an onClick.
+                    onRefocus: () => (lastOpenerRef.current ?? endCombatBtnRef.current)?.focus(),
                   })
                 }
               >
@@ -4631,7 +4772,8 @@ export default function PlayPage() {
                   className={styles.outcomeCancel}
                   onClick={() => {
                     setOutcomeChooserOpen(false);
-                    endCombatBtnRef.current?.focus();
+                    // Iro MAJOR-1: same opener-aware refocus as the Escape path above.
+                    (lastOpenerRef.current ?? endCombatBtnRef.current)?.focus();
                   }}
                   disabled={combatBusy}
                 >

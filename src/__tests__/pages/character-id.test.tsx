@@ -336,3 +336,51 @@ describe('Character sheet — T12 CurrencyPurse mount (page-level)', () => {
     expect(screen.queryByText(/NaN/i)).not.toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// F6 — MLP-SHEET-SPEED-CRASH (client half). Pre-fix, `<dd>{sheet.speed} ft</dd>`
+// handed React a raw object whenever `speed` was a compound dict (MLP
+// multi-mode movement, e.g. `{"walk": 25, "fly": 30}`) — a hard "Objects are
+// not valid as a React child" crash straight to the ErrorBoundary. The fix
+// routes through `raceSpeedLabel` (lib/dnd/codex.ts, DDX21-1 — same crash
+// class, already fixed once for the /codex route) so a stray object can
+// never reach JSX as a child. This is a belt-and-suspenders CLIENT fix that
+// must hold even before the engine's own `_normalize_speed` change lands.
+// ---------------------------------------------------------------------------
+describe('Character sheet — F6/MLP-SHEET-SPEED-CRASH: defensive speed render', () => {
+  it('regression pin: SRD scalar speed (30) still renders as "30 ft."', async () => {
+    mockGet.mockResolvedValue(ROGUE);
+    renderPage();
+
+    await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
+    expect(screen.getByText('30 ft.')).toBeInTheDocument();
+  });
+
+  it('MLP compound dict speed ({walk:25, fly:30}) renders a formatted compound string, no crash', async () => {
+    mockGet.mockResolvedValue({ ...ROGUE, speed: { walk: 25, fly: 30 } });
+    renderPage();
+
+    // Pre-fix this would throw during render ("Objects are not valid as a
+    // React child") and never reach this heading at all.
+    await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
+    expect(screen.getByText('25 ft., fly 30 ft.')).toBeInTheDocument();
+  });
+
+  it('adversarial junk speed (string) never crashes and never renders "[object Object]"', async () => {
+    mockGet.mockResolvedValue({ ...ROGUE, speed: 'fast' as unknown as number });
+    renderPage();
+
+    await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
+    expect(screen.getByText('—')).toBeInTheDocument();
+    expect(screen.queryByText(/\[object Object\]/)).not.toBeInTheDocument();
+  });
+
+  it('adversarial junk speed (null) never crashes and falls back to the em dash', async () => {
+    mockGet.mockResolvedValue({ ...ROGUE, speed: null as unknown as number });
+    renderPage();
+
+    await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
+    expect(screen.getByText('—')).toBeInTheDocument();
+    expect(screen.queryByText(/\[object Object\]/)).not.toBeInTheDocument();
+  });
+});

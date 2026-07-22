@@ -37,8 +37,9 @@ import Button from '@/components/Button';
 import Icon from '@/components/Icon';
 import { useToast } from '@/components/Toast';
 import { castSpell, getCharacterSheet, getKnownSpells } from '@/lib/api/dnd';
+import { engineErrorMessage } from '@/lib/dnd/engineError';
+import { isCastableCombatTarget } from '@/lib/dnd/combatTargets';
 import type {
-  ApiError,
   CharacterSheet,
   CombatParticipantState,
   SheetSpellEntry,
@@ -49,22 +50,14 @@ import styles from './CastSpellPanel.module.css';
 
 type FetchState = 'idle' | 'loading' | 'ok' | 'error';
 
-function isApiError(e: unknown): e is ApiError {
-  return e instanceof Error && 'status' in e;
-}
-
-/** Same body-shape probe as SpellbookPanel's refusalReason (data.reason /
- *  reason / e.code). */
-function refusalReason(e: ApiError): string | undefined {
-  const body = e.body as { data?: { reason?: string }; reason?: string } | null | undefined;
-  return body?.data?.reason ?? body?.reason ?? e.code;
-}
-
-// Deterministic cast refusals, sourced from engine.spells.SPELL_REASON_STATUS
-// + cast_spell_in_combat's own CombatResult reasons (NekoNova-DnDEngine
-// engine/spells.py, engine/commands/spell_commands.py::cmd_cast). A reason
-// NOT in this map, or a non-ApiError (network/unknown), falls back to the
-// generic transient message.
+// F1/CAST-FAIL-SILENT: curated cast refusals, sourced from
+// engine.spells.SPELL_REASON_STATUS + cast_spell_in_combat's own
+// CombatResult reasons (NekoNova-DnDEngine engine/spells.py,
+// engine/commands/spell_commands.py::cmd_cast). A reason NOT in this map now
+// falls through to engineErrorMessage's own 4xx-business-message branch
+// (surfacing the engine's own ready-to-show `err.body.message` verbatim,
+// never a raw reason CODE) rather than the old blanket generic fallback —
+// see D1 (WF-TAV-AUDIT-BATCH-2026-07-22 Pass P handoff).
 const CAST_REFUSAL_COPY: Record<string, string> = {
   no_combat: 'No active combat.',
   not_your_turn: "It's not your turn.",
@@ -77,10 +70,10 @@ const CAST_REFUSAL_COPY: Record<string, string> = {
 };
 
 function castErrorMessage(err: unknown, name: string): string {
-  const fallback = `Could not cast ${name}. Try again in a moment.`;
-  if (!isApiError(err)) return fallback;
-  const reason = refusalReason(err);
-  return CAST_REFUSAL_COPY[reason ?? ''] ?? fallback;
+  return engineErrorMessage(err, {
+    fallback: `Could not cast ${name}. Try again in a moment.`,
+    reasonMap: CAST_REFUSAL_COPY,
+  });
 }
 
 /** Cantrips + leveled spells, filtered to `castable_now`, sorted level-then-name. */
@@ -200,17 +193,23 @@ export default function CastSpellPanel({
     () => (selectedSpell ? upcastLevels(selectedSpell, spellSlots) : []),
     [selectedSpell, spellSlots],
   );
-  // TAV-CAST-SELF-HEAL-UI: the caster is excluded from the target list by
-  // default (you don't target yourself with an attack/utility spell), but a
-  // HEALING spell (`selectedSpell.heals`, from the engine's TAV-CAST-COMBAT-
-  // SELF-HEAL fix) is a legal self-cast in combat, so include the caster's
-  // own participant in that case rather than stranding them with no way to
-  // pick themselves.
+  // TAV-CAST-SELF-HEAL-UI + F2/CAST-DEAD-TARGET: the caster is excluded from
+  // the target list by default (you don't target yourself with an attack/
+  // utility spell), but a HEALING spell (`selectedSpell.heals`, from the
+  // engine's TAV-CAST-COMBAT-SELF-HEAL fix) is a legal self-cast in combat,
+  // so include the caster's own participant in that case rather than
+  // stranding them with no way to pick themselves. Layered on top:
+  // isCastableCombatTarget (src/lib/dnd/combatTargets.ts, shared with the
+  // Attack rail's targetableFoes) drops a downed/dead participant UNLESS the
+  // selected spell heals AND the participant is an ally/self (never a downed
+  // enemy, never a genuinely-dead PC even for a heal) — spell-kind-aware,
+  // not a blunt mirror of Attack's living-enemies-only rule.
   const targets = useMemo(() => {
-    const includeSelf = Boolean(selectedSpell?.heals);
+    const healSpellSelected = Boolean(selectedSpell?.heals);
     return participants.filter((p) => {
       const isSelf = String(p.entity_id) === String(characterId);
-      return includeSelf || !isSelf;
+      if (isSelf && !healSpellSelected) return false;
+      return isCastableCombatTarget(p, healSpellSelected);
     });
   }, [participants, characterId, selectedSpell]);
 

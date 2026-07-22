@@ -413,6 +413,105 @@ describe('P1-PLAYFIX — check affordance (C11)', () => {
     // Page did not crash — the button is still present/interactable.
     expect(screen.getByRole('button', { name: /Attempt Stealth/i })).toBeInTheDocument();
   });
+
+  it('F1/CAST-FAIL-SILENT: a non-400/503 refusal (e.g. 404 "Session not found.") surfaces the engine\'s own message, not the old blanket "Could not resolve that check."', async () => {
+    mGetGrounding.mockResolvedValue(GROUNDING_TIMBERWOLF);
+    const err = Object.assign(new Error('Session not found.'), {
+      status: 404,
+      body: { success: false, message: 'Session not found.', data: {} },
+    });
+    mResolveCheck.mockRejectedValue(err);
+
+    render(<PlayPage />);
+    const stealthBtn = await screen.findByRole('button', { name: /Attempt Stealth/i });
+    await act(async () => {
+      fireEvent.click(stealthBtn);
+    });
+
+    await waitFor(() =>
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Session not found.' }),
+      ),
+    );
+    expect(
+      mockToast.mock.calls.some(
+        (c) => (c[0] as { message?: string }).message === 'Could not resolve that check.',
+      ),
+    ).toBe(false);
+  });
+});
+
+// ── F4/CHECK-DOUBLE-RENDER: flag-OFF regression pin ──────────────────────────
+//
+// DURABLE_GENERATION_ENABLED is false in this file (no lib/config mock
+// override) — the legacy events poll (page.tsx's flag-OFF `poll`) only ever
+// appends `dice_roll`/`x_card` kinds (see its own `.filter` call), so a
+// check_resolved event re-delivered by that poll was NEVER double-rendered
+// even before F4. This pins that invariant explicitly so a future change
+// that widens the flag-OFF poll's kind filter — or that couples
+// renderedSeqsRef's flag-ON-only seeding to the flag-OFF path — gets caught
+// here rather than silently coupling the two poll paths.
+describe('F4/CHECK-DOUBLE-RENDER — flag-OFF poll never re-appends check_resolved', () => {
+  it('a resolved check with event_seq set renders once; a legacy poll tick carrying a duplicate-shaped check_resolved event does not double it', async () => {
+    mGetGrounding.mockResolvedValue(GROUNDING_TIMBERWOLF);
+    mResolveCheck.mockResolvedValue({
+      skill: 'stealth',
+      dc: 12,
+      total: 15,
+      success: true,
+      flag_set: [],
+      mechanics: 'd20+3 = 15 vs DC 12',
+      description: 'Anomaly slips past the timberwolf, flag-OFF path.',
+      event_seq: 99,
+    });
+
+    jest.useFakeTimers();
+    try {
+      render(<PlayPage />);
+      const stealthBtn = await screen.findByRole('button', { name: /Attempt Stealth/i });
+      await act(async () => {
+        fireEvent.click(stealthBtn);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      const log = await screen.findByRole('log');
+      expect(
+        within(log).getAllByText(/slips past the timberwolf, flag-OFF path/i),
+      ).toHaveLength(1);
+
+      // Legacy poll tick: getSessionEventsRaw re-serves a check_resolved
+      // event at the same seq — the flag-OFF poll's own kind filter
+      // (dice_roll/x_card only) means this is a complete no-op regardless.
+      mGetSessionEventsRaw.mockResolvedValue([
+        {
+          seq: 99,
+          kind: 'check_resolved',
+          actor: 'leon',
+          created_at: '2026-07-14T09:01:00Z',
+          data: {
+            skill: 'stealth',
+            dc: 12,
+            success: true,
+            description: 'Anomaly slips past the timberwolf, flag-OFF path.',
+          },
+        },
+      ]);
+      await act(async () => {
+        jest.advanceTimersByTime(4000);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(
+        within(log).getAllByText(/slips past the timberwolf, flag-OFF path/i),
+      ).toHaveLength(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
 
 // ── Iro Ship 2 CRITICAL-1: stranded focus after a resolved check / taken

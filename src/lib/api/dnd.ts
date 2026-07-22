@@ -27,6 +27,7 @@ import type {
   CombatState,
   EndCombatRequest,
   EndCombatResult,
+  EndSessionResult,
   EngineSessionEvent,
   EventsPage,
   GameSystem,
@@ -724,7 +725,7 @@ export const endSession = (
   req: SessionStartRequest,
   signal?: AbortSignal,
 ) =>
-  apiCall<{ message?: string }>(
+  apiCall<EndSessionResult>(
     `/api/dnd/sessions/${encodeURIComponent(sessionId)}/end`,
     { method: 'POST', json: req, signal },
   );

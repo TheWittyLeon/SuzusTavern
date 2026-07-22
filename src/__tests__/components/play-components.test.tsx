@@ -281,6 +281,40 @@ describe('PartyPanel', () => {
     expect(screen.getByText('Ashley')).toBeInTheDocument();
     expect(screen.getByText('you')).toBeInTheDocument();
   });
+
+  // F5/LEVELUP-NO-MOMENT: per-character "level up" badge driven from the
+  // roster's own character.pending_choices — no per-character sheet fetch.
+  it('shows a "level up" badge when character.pending_choices is non-empty', () => {
+    const partyWithPending: Participant[] = [
+      {
+        username: 'alice',
+        is_dm: false,
+        character: {
+          character_id: 'c1',
+          name: 'Velka',
+          char_class: 'Rogue',
+          level: 4,
+          current_hp: 8,
+          max_hp: 10,
+          ac: 14,
+          pending_choices: [{ id: 'ch1', type: 'asi', level: 4, label: 'Ability Score Improvement' }],
+        },
+      },
+    ];
+    render(<PartyPanel participants={partyWithPending} selfUsername="alice" />);
+    // Iro MAJOR-2: visible text stands on its own ("level up"); the `↑` glyph
+    // is aria-hidden (not read aloud) and the descriptive clause lives in
+    // sr-only text rather than a bare-span aria-label.
+    expect(screen.getByText(/level up/i)).toBeInTheDocument();
+    const glyph = screen.getByText('↑');
+    expect(glyph).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByText(/choose new features/i)).toHaveClass('sr-only');
+  });
+
+  it('shows NO "level up" badge when pending_choices is empty or absent', () => {
+    render(<PartyPanel participants={party} selfUsername="alice" />);
+    expect(screen.queryByText(/level up/i)).not.toBeInTheDocument();
+  });
 });
 
 describe('InitiativeTracker', () => {

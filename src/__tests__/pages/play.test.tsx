@@ -131,9 +131,14 @@ function streamOnce(events: NarrationEvent[]) {
 }
 
 /** Builds a mock ApiError with the given status code (mirrors the real ApiError shape). */
-function apiError(status: number, message: string): Error & { status: number } {
-  const err = new Error(message) as Error & { status: number };
+function apiError(status: number, message: string): Error & { status: number; body?: unknown } {
+  const err = new Error(message) as Error & { status: number; body?: unknown };
   err.status = status;
+  // F1/CAST-FAIL-SILENT: mirror the real makeApiError shape (src/lib/api/
+  // client.ts) — `.body` is the parsed `{success, message, data}` envelope,
+  // not just the bare Error `.message` string. engineErrorMessage reads
+  // `err.body.message`, never `err.message`.
+  err.body = { success: false, message, data: {} };
   return err;
 }
 
@@ -350,14 +355,17 @@ describe('ADV-6 — beginEncounter', () => {
     );
   });
 
-  it('adversarial: 400 "No encounter available" → friendly info toast, button resets', async () => {
+  it('F1/CAST-FAIL-SILENT: 400 "No encounter available" surfaces the engine\'s own ready-to-show message (not a generic fallback), button resets', async () => {
+    // combat_from_scene never sets data.reason for this refusal (see
+    // routes/combat.py) — no curated copy exists for it, so engineErrorMessage's
+    // 4xx-business branch is what surfaces the engine's own message verbatim.
     mCombatFromScene.mockRejectedValue(apiError(400, 'No encounter available for the current scene.'));
     const btn = await clickBeginEncounter();
     await waitFor(() =>
       expect(mockToast).toHaveBeenCalledWith(
         expect.objectContaining({
-          tone: 'info',
-          message: expect.stringMatching(/no scripted encounter/i),
+          tone: 'error',
+          message: 'No encounter available for the current scene.',
         }),
       ),
     );

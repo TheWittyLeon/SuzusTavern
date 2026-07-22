@@ -316,7 +316,20 @@ export interface CharacterSheet {
   ac: number;
   initiative: number;
   proficiency_bonus: number;
-  speed: number;
+  /**
+   * F6/MLP-SHEET-SPEED-CRASH: widened from a bare `number` — MLP multi-mode
+   * movement (walk/fly/swim) ships as a dict on the wire
+   * (`{"walk": 25, "fly": 30}`), and a raw `{sheet.speed}` JSX child on a
+   * dict is a hard "Objects are not valid as a React child" crash. Render
+   * via `raceSpeedLabel` (src/lib/dnd/codex.ts — DDX21-1, same crash class),
+   * never as a direct child. Belt-and-suspenders alongside the engine's
+   * `_normalize_speed`; this client-side widen stands on its own regardless
+   * of engine normalization state.
+   */
+  speed: number | Record<string, number>;
+  /** Additive: preserves per-mode movement (fly/swim/etc.) for a later
+   *  render pass when `speed` itself is normalized to a scalar engine-side. */
+  speed_modes?: Record<string, number>;
   xp: number;
   xp_next: number | null;
   hit_dice_remaining: number;
@@ -544,6 +557,29 @@ export interface Session {
 }
 export interface XpAwardRequest extends SessionStartRequest { amount: number; reason?: string }
 
+/** F5/LEVELUP-NO-MOMENT: one character's level-up, echoed by
+ *  `POST /sessions/{id}/end` (routes/sessions.py `level_ups_echo`).
+ *  `new_level` is that character's OWN new level (not a session-wide value)
+ *  — a multiplayer table may level several characters in one ending. */
+export interface EndSessionLevelUp {
+  character_id: string | null;
+  name: string | null;
+  new_level: number | null;
+}
+
+/**
+ * Response from `POST /api/dnd/sessions/{id}/end`. `message` is the
+ * unchanged chat-formatted string (still what the Twitch bot consumes).
+ * `level_ups` is always an array (`[]` if nobody leveled) — never absent.
+ * `xp_per_player` is present only when the engine's `end_session()` result
+ * carried it (the session-wide XP pool split across participants).
+ */
+export interface EndSessionResult {
+  message?: string;
+  level_ups: EndSessionLevelUp[];
+  xp_per_player?: number;
+}
+
 // ── DnD: combat ────────────────────────────────────────────────────────────
 export interface CombatActionRequest {
   username: string;
@@ -719,6 +755,15 @@ export interface ParticipantCharacter {
   current_hp: number | null;
   max_hp: number | null;
   ac: number | null;
+  /** F5/LEVELUP-NO-MOMENT: queued level-up decisions awaiting resolution
+   *  (subclass/ASI/spell), echoed onto the roster entry (routes/sessions.py
+   *  `GET /{session_id}/participants` — `entry["character"]["pending_choices"]
+   *  = sheet.get("pending_choices", [])`) so PartyPanel can render a
+   *  per-character "level up available" badge without a second per-character
+   *  sheet fetch. Optional for the same fixture-blast-radius reason as
+   *  CharacterSheet.pending_choices — the engine always sends `[]` on the
+   *  real wire when nothing is pending. */
+  pending_choices?: PendingLevelChoice[];
 }
 export interface Participant {
   username: string;
@@ -1095,6 +1140,16 @@ export interface ResolveCheckResult {
   flag_set: string[];
   mechanics: string;
   description: string;
+  /** F4/CHECK-DOUBLE-RENDER: the durable `check_resolved` session event's own
+   *  seq (int) that this resolution just wrote, or `null` if the write
+   *  failed for some reason the route still let through as a 200 (should not
+   *  happen — routes/sessions.py::resolve_scene_check 500s instead when the
+   *  event write itself fails) — never absent on the real wire. Seeding this
+   *  onto the client's own dedup ledger (`renderedSeqsRef`, page.tsx) before
+   *  the next durable poll tick observes the same event lets
+   *  reconcileDurableEvents' rule 1 (renderedSeqs.has(seq)) skip the poll's
+   *  duplicate instead of double-rendering the check's result row. */
+  event_seq?: number | null;
 }
 
 /**

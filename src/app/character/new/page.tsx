@@ -42,12 +42,20 @@
  * best-effort — a failed pick surfaces a toast but does not block navigating
  * to the new sheet, since the character itself was already created).
  *
- * Edit-after-create caveat: changing race/abilities/background/name AFTER a
- * caster's character has been silently created does NOT retroactively
- * update it (known limitation, documented in the DDX-11t handoff — the
- * straight-through creation flow this ships for is unaffected). Changing
- * CLASS after creation, however, invalidates the stale character (and its
- * picks) outright so Review never POSTs spells against the wrong class.
+ * Edit-after-create fix (F7/TAV-CREATE-EDIT-NOT-RETRO): changing race/
+ * subrace/abilities/background/name AFTER a caster's character has been
+ * silently created used to be silently dropped — the silent create is a
+ * POST, and no character PATCH endpoint exists engine-side (verified
+ * against NekoNova-DnDEngine's routes/characters.py). Since there is nothing
+ * to PATCH, `handleSubmit` instead snapshot-compares the fields the silent
+ * create actually persisted (`createdSnapshot`) against the live wizard
+ * state at final submit; on any drift it recreates a fresh character with
+ * the CURRENT fields, reapplies the spell picks to the new id, and only
+ * THEN soft-deletes the stale one (create-first ordering — never deletes
+ * before the replacement create has succeeded; a failed recreate aborts and
+ * deletes nothing). Changing CLASS after creation takes the simpler existing
+ * path: it invalidates the stale character (and its picks) outright via the
+ * effect below, so Review never POSTs spells against the wrong class.
  *
  * Accessibility:
  *  - Race/Class/Background are native <input type="radio"> grids.
@@ -66,8 +74,15 @@ import {
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import { useAuthGate } from '@/lib/auth/useAuthGate';
-import { createCharacter, getAvailableSpells, learnSpell, prepareSpell } from '@/lib/api/dnd';
+import {
+  createCharacter,
+  deleteCharacter,
+  getAvailableSpells,
+  learnSpell,
+  prepareSpell,
+} from '@/lib/api/dnd';
 import { useCatalog } from '@/lib/dnd/useCatalog';
+import { raceSpeedLabel } from '@/lib/dnd/codex';
 import { useWizardCommentary } from '@/lib/dnd/useWizardCommentary';
 import TavernShell from '@/components/TavernShell';
 import PageSkeleton from '@/components/PageSkeleton';
@@ -97,7 +112,7 @@ import {
   type AbilityScores,
 } from '@/lib/dnd/helpers';
 import type { WizardRace, WizardClass, WizardBackground } from '@/lib/dnd/catalog';
-import type { AvailableSpellEntry, AvailableSpellsResult } from '@/lib/api/types';
+import type { ApiError, AvailableSpellEntry, AvailableSpellsResult } from '@/lib/api/types';
 import styles from './CharacterCreate.module.css';
 
 type StepKey = 'race' | 'class' | 'abilities' | 'background' | 'spells' | 'review';
@@ -162,6 +177,68 @@ function buildSteps(isCaster: boolean): StepMeta[] {
   return isCaster ? [...BASE_STEPS, SPELLS_STEP, REVIEW_STEP] : [...BASE_STEPS, REVIEW_STEP];
 }
 
+// ── F7/TAV-CREATE-EDIT-NOT-RETRO — snapshot-compare-and-recreate ──────────────
+// The `createdSnapshot` state (below, in the component) captures exactly the
+// fields `createNow` persisted for a silently-created caster character.
+// `handleSubmit` diffs the LIVE wizard state against it at final submit —
+// this is a plain field comparison, not a re-derivation from catalog objects
+// (which could reorder/refetch), so it's cheap and exact.
+interface CreatedSnapshot {
+  name: string;
+  race: string;
+  subrace: string | undefined;
+  halfElfAsi: AbilityKey[];
+  background: string;
+  scores: AbilityScores;
+}
+
+function abilityScoresEqual(a: AbilityScores, b: AbilityScores): boolean {
+  return (
+    a.strength === b.strength &&
+    a.dexterity === b.dexterity &&
+    a.constitution === b.constitution &&
+    a.intelligence === b.intelligence &&
+    a.wisdom === b.wisdom &&
+    a.charisma === b.charisma
+  );
+}
+
+function snapshotsEqual(a: CreatedSnapshot, b: CreatedSnapshot): boolean {
+  return (
+    a.name === b.name &&
+    a.race === b.race &&
+    (a.subrace ?? '') === (b.subrace ?? '') &&
+    a.background === b.background &&
+    a.halfElfAsi.length === b.halfElfAsi.length &&
+    a.halfElfAsi.every((k, i) => k === b.halfElfAsi[i]) &&
+    abilityScoresEqual(a.scores, b.scores)
+  );
+}
+
+/**
+ * Kuro-Sec C1 (Cluster C security verdict — MANDATORY, do not deviate): a
+ * learn/prepare rejection during the create-first recreate's spell
+ * reapplication only "doesn't count" as a real failure when the ENGINE'S OWN
+ * reason says the spell is already known/prepared. Never on HTTP status
+ * alone, never on "any 4xx", never on `err.code` (which is just the
+ * stringified HTTP status here — see src/lib/api/client.ts's apiFetch: `code`
+ * only becomes a real machine string when the body carries `error`/`code`,
+ * which the engine's spell routes don't — the reason lives at
+ * `err.body.data.reason`). Every other reason/status — 401 actor_required,
+ * 404 not_found, and the six other 400 business reasons (unknown_spell,
+ * not_on_class_list, spell_level_too_high, over_cantrip_limit,
+ * over_known_limit, over_spellbook_limit, not_a_learning_caster) — must
+ * surface as a real failure.
+ */
+function isAlreadyKnownRejection(reason: unknown): boolean {
+  if (!(reason instanceof Error)) return false;
+  const body = (reason as ApiError).body;
+  if (!body || typeof body !== 'object') return false;
+  const data = (body as { data?: unknown }).data;
+  if (!data || typeof data !== 'object') return false;
+  return (data as { reason?: unknown }).reason === 'already_known';
+}
+
 // ── Suzu commentary for the abilities step (ST-053 v1) ─────────────────────────
 function abilitiesComment(scores: AbilityScores): string {
   if (scores.charisma <= 8) return 'Charisma of 8. Suzu approves of honesty.';
@@ -205,6 +282,10 @@ export default function CharacterNewPage(): ReactNode {
   // A class change invalidates it (see the effect below) so Review never
   // POSTs spell picks against a character created for a different class.
   const [characterId, setCharacterId] = useState<string | null>(null);
+  // F7/TAV-CREATE-EDIT-NOT-RETRO — see the module-level CreatedSnapshot
+  // comment above. Set the moment the silent create succeeds; reset
+  // alongside characterId whenever a class change invalidates it.
+  const [createdSnapshot, setCreatedSnapshot] = useState<CreatedSnapshot | null>(null);
   const [spellCantrips, setSpellCantrips] = useState<Set<string>>(new Set());
   const [spellLeveled, setSpellLeveled] = useState<Set<string>>(new Set());
 
@@ -269,6 +350,7 @@ export default function CharacterNewPage(): ReactNode {
     if (prevClsRef.current !== cls) {
       prevClsRef.current = cls;
       setCharacterId(null);
+      setCreatedSnapshot(null);
       setSpellCantrips(new Set());
       setSpellLeveled(new Set());
     }
@@ -355,6 +437,23 @@ export default function CharacterNewPage(): ReactNode {
 
   const canSubmit = canCreatePrereqs && !submitting;
 
+  // F7/TAV-CREATE-EDIT-NOT-RETRO — captures the LIVE wizard fields in the
+  // same shape as CreatedSnapshot, for comparison against the snapshot taken
+  // right after the silent create. Half-Elf's ASI picks are order-
+  // independent (the checkbox group can be toggled in any order and still
+  // mean the same two abilities), so both sides sort before compare.
+  const snapshotNow = useCallback(
+    (): CreatedSnapshot => ({
+      name: name.trim(),
+      race: raceObj?.name ?? '',
+      subrace: subrace ?? undefined,
+      halfElfAsi: raceNeedsAsi ? [...halfElfAsi].sort() : [],
+      background: bgObj?.name ?? '',
+      scores: { ...scores },
+    }),
+    [name, raceObj, subrace, raceNeedsAsi, halfElfAsi, bgObj, scores],
+  );
+
   // POST /api/dnd/characters. Shared by handleContinue's silent caster-path
   // create (leaving Background) and handleSubmit's non-caster-path create
   // (Review) — same payload either way.
@@ -393,6 +492,7 @@ export default function CharacterNewPage(): ReactNode {
       try {
         const id = await createNow();
         setCharacterId(id);
+        setCreatedSnapshot(snapshotNow());
         setStep((s) => Math.min(steps.length - 1, s + 1));
       } catch {
         setError(
@@ -404,7 +504,7 @@ export default function CharacterNewPage(): ReactNode {
       return;
     }
     setStep((s) => Math.min(steps.length - 1, s + 1));
-  }, [steps, stepKey, characterId, canCreatePrereqs, createNow]);
+  }, [steps, stepKey, characterId, canCreatePrereqs, createNow, snapshotNow]);
 
   const handleSubmit = useCallback(async () => {
     if (!canCreatePrereqs && !characterId) return;
@@ -412,15 +512,30 @@ export default function CharacterNewPage(): ReactNode {
     setError(null);
     try {
       let charId = characterId;
-      if (!charId) charId = await createNow();
+      // F7/TAV-CREATE-EDIT-NOT-RETRO — `staleCharId` stays null on the happy
+      // path (no prior silent create, or no drift since it ran); it's only
+      // ever set right before a replacement create is attempted, so the
+      // delete near the bottom can never fire ahead of a successful create
+      // (Kuro-Sec C2 — create-first ordering). If that replacement create
+      // throws, execution jumps straight to the catch below and nothing is
+      // deleted.
+      let staleCharId: string | null = null;
+      if (!charId) {
+        charId = await createNow();
+      } else if (createdSnapshot && !snapshotsEqual(createdSnapshot, snapshotNow())) {
+        staleCharId = charId;
+        charId = await createNow();
+        setCharacterId(charId);
+        setCreatedSnapshot(snapshotNow());
+      }
 
-      // Caster path: the character already existed (silently created leaving
-      // Background) — batch-apply the picks now. Cantrips are always a
-      // `learn`; leveled picks are `learn` for known/spellbook casters or
-      // `prepare` for a prepared caster (cleric/druid — see
-      // CLASS_CASTER_KIND's docstring in helpers.ts). Best-effort: a failed
-      // pick surfaces a toast but never blocks navigating to the new sheet —
-      // the character itself was already created successfully.
+      // Caster path: batch-apply the spell picks against whichever character
+      // is now current (the original silent create, or its replacement).
+      // Cantrips are always a `learn`; leveled picks are `learn` for known/
+      // spellbook casters or `prepare` for a prepared caster (cleric/druid —
+      // see CLASS_CASTER_KIND's docstring in helpers.ts). Best-effort: a
+      // failed pick surfaces a toast but never blocks navigating to the new
+      // sheet — the character itself already exists either way.
       if (isCasterClass && username) {
         const leveledAction = clsObj?.casterKind === 'prepared' ? 'prepare' : 'learn';
         // Slice B Fix 3: a wizard's (spellbook caster's) PICKED leveled
@@ -441,13 +556,35 @@ export default function CharacterNewPage(): ReactNode {
         ];
         if (picks.length > 0) {
           const results = await Promise.allSettled(picks);
-          const failed = results.filter((r) => r.status === 'rejected').length;
+          // Kuro-Sec C1 (MANDATORY): an `already_known` rejection is the
+          // ONLY rejection reason that doesn't count as a real failure — see
+          // isAlreadyKnownRejection's doc comment for the full list of
+          // reasons that must still surface. This also folds in the
+          // CREATE-ORPHAN fix: a redundant re-learn against a freshly
+          // recreated character would otherwise inflate this count.
+          const failed = results.filter(
+            (r) => r.status === 'rejected' && !isAlreadyKnownRejection(r.reason),
+          ).length;
           if (failed > 0) {
             toast({
               message: `Character created, but ${failed} starting spell${failed > 1 ? 's' : ''} couldn’t be added. You can add ${failed > 1 ? 'them' : 'it'} from the sheet.`,
               tone: 'warn',
             });
           }
+        }
+      }
+
+      // Kuro-Sec C2: only now, after the replacement create (and its spell
+      // picks) has fully succeeded, remove the stale character it replaced.
+      // Best-effort — a failed cleanup here leaves an orphan (same class of
+      // issue as CREATE-ORPHAN, not fatal) but never blocks navigating to
+      // the new, fully-playable sheet.
+      if (staleCharId && username) {
+        try {
+          await deleteCharacter(staleCharId, username);
+        } catch {
+          // Orphan cleanup is best-effort; full GC of abandoned-wizard
+          // orphans is out of scope for this fix (see the F7 handoff).
         }
       }
 
@@ -461,6 +598,8 @@ export default function CharacterNewPage(): ReactNode {
   }, [
     canCreatePrereqs,
     characterId,
+    createdSnapshot,
+    snapshotNow,
     createNow,
     isCasterClass,
     username,
@@ -1159,7 +1298,12 @@ function ReviewStep({
     { label: 'AC', value: String(derived.ac) },
     { label: 'INIT', value: formatMod(finalScores.dexterity) },
     { label: 'PROF', value: `+${derived.proficiencyBonus}` },
-    { label: 'SPD', value: `${derived.speed} ft` },
+    // F6b/MLP-SHEET-SPEED-CRASH (DDX21-1 precedent): a race's catalog `speed`
+    // is typed as a plain number, but a dict-shaped multi-mode value (e.g.
+    // MLP fly/swim speeds) can still arrive on the wire despite that type —
+    // raceSpeedLabel is deliberately typed to accept `unknown` and always
+    // reduces to a string, so this can never render "[object Object] ft".
+    { label: 'SPD', value: raceSpeedLabel(derived.speed) },
   ];
 
   return (
