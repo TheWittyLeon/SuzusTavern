@@ -193,6 +193,29 @@ const JOURNAL_FOCUSABLE_SELECTOR =
 const NARRATION_BEAT_KINDS = new Set(['dm_narration', 'narration']);
 
 /**
+ * Session-event kinds that can change scene affordances (available checks,
+ * transitions/gated exits) and therefore require a `grounding` re-fetch when
+ * they arrive over the `/events` poll.
+ *
+ * - `scene_advance` — the server-side cursor moved to a new scene.
+ * - `beat_resolved` / `beat_done` / `beat_override` — the STRUCT-006 beat ledger
+ *   changed. The beat classifier resolves required beats AFTER the narration
+ *   turn is delivered (deliberate — see the durable poll effect), and resolving
+ *   the last unmet required beat opens a previously-hidden anti-skip gate: a new
+ *   exit + its check appear in grounding WITHOUT the cursor advancing. Without a
+ *   re-fetch on these, a classifier-opened gate stays invisible until a manual
+ *   page reload. All three are written `visibility="table"` by the engine, so
+ *   they reach this feed. Both the durable and the flag-OFF/SSE poll branches
+ *   share this predicate so the two paths can't drift.
+ */
+const GROUNDING_INVALIDATING_KINDS = new Set([
+  'scene_advance',
+  'beat_resolved',
+  'beat_done',
+  'beat_override',
+]);
+
+/**
  * DDX-26 — scan a batch of raw session events (any order, any kind) for the
  * highest-seq 'x_card' event and the highest-seq narration-beat event. Pure,
  * shared by both the mount-time rehydration path (full history) and the
@@ -1496,19 +1519,34 @@ export default function PlayPage() {
             );
           }
 
-          // Scene panel objective / quick-checks are driven by `grounding`
-          // state. On the DURABLE path a scene_advance is discovered HERE (via
-          // this poll), not through narrate()'s SSE `sceneAdvancedSignal` — so
-          // without this refetch the Scene card lags on the previous scene
-          // after the runner advances the cursor server-side (the transcript
-          // shows the transition beat, but the objective/quick-checks stay
-          // stale). Keyed on `journalFresh` (seq-deduped) not `allNewEvents`,
-          // so it fires ONCE per advance rather than every tick under the
-          // NekoNova `since_seq`-drop full-history refetch. Mirrors narrate()'s
-          // sceneAdvancedSignal → refreshGrounding() for the SSE path; inlined
-          // (not refreshGrounding()) because that useCallback is declared below
-          // this effect — referencing it in the dep array would hit its TDZ.
-          if (journalFresh.some((e) => e.kind === 'scene_advance')) {
+          // Scene panel objective / quick-checks AND gated exits/checks are
+          // driven by `grounding` state. On the DURABLE path a scene_advance is
+          // discovered HERE (via this poll), not through narrate()'s SSE
+          // `sceneAdvancedSignal` — so without this refetch the Scene card lags
+          // on the previous scene after the runner advances the cursor
+          // server-side (the transcript shows the transition beat, but the
+          // objective/quick-checks stay stale).
+          //
+          // STRUCT-006 (2026-07-24): the beat classifier resolves required
+          // beats AFTER the narration turn is delivered (deliberate — grounding
+          // hides gated exits, so no INTENT on the turn that opens a gate could
+          // ever name that exit; zero added player latency). It writes
+          // beat_resolved (source=classifier) / beat_done / beat_override
+          // session events (all visibility="table", so they reach this feed),
+          // and resolving the last unmet required beat opens a previously-hidden
+          // anti-skip gate: a new exit + its check appear in grounding.
+          // scene_advance alone did NOT cover this — the gate opens WITHOUT the
+          // cursor moving — so a classifier-opened gate stayed invisible until a
+          // manual page reload (the one thing that materially breaks the
+          // feel-check). Re-fetching on the beat-ledger kinds too surfaces it
+          // within one poll cycle (~4s).
+          //
+          // Keyed on `journalFresh` (seq-deduped) not `allNewEvents`, so it
+          // fires ONCE per resolve rather than every tick under the NekoNova
+          // `since_seq`-drop full-history refetch. Inlined (not
+          // refreshGrounding()) because that useCallback is declared below this
+          // effect — referencing it in the dep array would hit its TDZ.
+          if (journalFresh.some((e) => e.kind != null && GROUNDING_INVALIDATING_KINDS.has(e.kind))) {
             getGrounding(sessionId)
               .then((g) => setGrounding(g))
               .catch(() => {});
@@ -1709,6 +1747,19 @@ export default function PlayPage() {
           setLatestNarrationSeq((prev) =>
             prev == null || narrationSeq > prev ? narrationSeq : prev,
           );
+        }
+        // STRUCT-006 (2026-07-24): mirror the durable poll's grounding
+        // invalidation. On the flag-OFF/SSE path the beat classifier still runs
+        // post-delivery (narration.py background thread + buffered) and writes
+        // beat_resolved, so a classifier-opened gate would otherwise stay hidden
+        // until reload here too. scene_advance normally reaches grounding via
+        // narrate()'s sceneAdvancedSignal, but re-fetching on it here as well is
+        // idempotent and also catches a cross-client advance this tab didn't
+        // originate. `newOnes` is seq-deduped, so this fires once per change.
+        if (newOnes.some((e) => e.kind != null && GROUNDING_INVALIDATING_KINDS.has(e.kind))) {
+          getGrounding(sessionId)
+            .then((g) => setGrounding(g))
+            .catch(() => {});
         }
         lastEventSeqRef.current = newOnes.reduce(
           (m, e) => Math.max(m, e.seq ?? 0),
