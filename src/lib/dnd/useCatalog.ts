@@ -60,7 +60,13 @@ export function useCatalog(): UseCatalogResult {
       .then(([raceRes, classRes, bgRes]) => {
         if (ac.signal.aborted) return;
         setData({
-          races: raceRes.items.map(catalogItemToRace),
+          // TAV-RETIRE-MLP-HUMAN: hide the 'mlp-human' race from the creation
+          // wizard's race list — this is the ONLY place the race list is
+          // assembled (see the module doc comment). Nothing engine-side
+          // changes; an existing character with this race keeps working.
+          races: raceRes.items
+            .filter((it) => it.slug !== 'mlp-human')
+            .map(catalogItemToRace),
           classes: classRes.items.map(catalogItemToClass),
           backgrounds: bgRes.items.map(catalogItemToBackground),
         });

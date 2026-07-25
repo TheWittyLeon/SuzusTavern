@@ -40,9 +40,16 @@ const mockGetAvailableSpells = jest.fn();
 const mockLearnSpell = jest.fn();
 const mockPrepareSpell = jest.fn();
 const mockDeleteCharacter = jest.fn();
+// TAV-SPELLPICK-DESCRIPTIONS: SpellsStep now also fetches the spell catalog
+// (name+school-only entries otherwise have no description). Defaults to an
+// empty pool so existing tests (none of which assert on description text)
+// keep rendering name+school-only rows unaffected — a real catalog response
+// is only supplied by the tests below that specifically exercise it.
+const mockGetCatalog = jest.fn();
 jest.mock('../../lib/api/dnd', () => ({
   createCharacter: (...args: unknown[]) => mockCreateCharacter(...args),
   getAvailableSpells: (...args: unknown[]) => mockGetAvailableSpells(...args),
+  getCatalog: (...args: unknown[]) => mockGetCatalog(...args),
   learnSpell: (...args: unknown[]) => mockLearnSpell(...args),
   prepareSpell: (...args: unknown[]) => mockPrepareSpell(...args),
   deleteCharacter: (...args: unknown[]) => mockDeleteCharacter(...args),
@@ -211,9 +218,13 @@ beforeEach(() => {
   mockLearnSpell.mockReset();
   mockPrepareSpell.mockReset();
   mockDeleteCharacter.mockReset();
+  mockGetCatalog.mockReset();
   mockLearnSpell.mockResolvedValue({ learned: true, budget: WIZARD_AVAILABLE.budget });
   mockPrepareSpell.mockResolvedValue({ prepared: true, prepared_used: 1, prepared_max: 2 });
   mockDeleteCharacter.mockResolvedValue({ message: 'deleted' });
+  // TAV-SPELLPICK-DESCRIPTIONS: empty catalog by default — rows render
+  // name+school-only, matching every pre-existing test's expectations.
+  mockGetCatalog.mockResolvedValue({ system: 'dnd5e', content_type: 'spell', items: [], total: 0, limit: 500, offset: 0 });
   catalogOverride = { ...defaultCatalog };
 });
 
@@ -493,6 +504,65 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     expect(mockGetAvailableSpells).not.toHaveBeenCalled();
     expect(mockLearnSpell).not.toHaveBeenCalled();
     expect(mockPrepareSpell).not.toHaveBeenCalled();
+  });
+
+  // ── TAV-SPELLPICK-DESCRIPTIONS ─────────────────────────────────────────────────
+  it('TAV-SPELLPICK-DESCRIPTIONS: renders the catalog description (and higher-levels line) once the catalog fetch resolves', async () => {
+    mockGetCatalog.mockResolvedValue({
+      system: 'dnd5e',
+      content_type: 'spell',
+      total: 1,
+      limit: 500,
+      offset: 0,
+      items: [
+        {
+          slug: 'fire-bolt',
+          name: 'Fire Bolt',
+          content_type: 'spell',
+          source_type: 'srd',
+          data: {
+            level: 0,
+            school: 'evocation',
+            casting_time: '1 action',
+            range: '120 feet',
+            components: { V: true, S: true },
+            duration: 'Instantaneous',
+            description: 'You hurl a mote of fire at a creature or object within range.',
+            higher_levels: 'The spell’s damage increases by 1d10 when you reach 5th level.',
+          },
+        },
+      ],
+    });
+    await advanceToSpells();
+
+    expect(mockGetCatalog).toHaveBeenCalledWith(
+      'dnd5e',
+      expect.objectContaining({ type: 'spell' }),
+    );
+    expect(
+      await screen.findByText(/You hurl a mote of fire at a creature or object within range\./),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/damage increases by 1d10/)).toBeInTheDocument();
+    expect(screen.getByText('1 action · 120 feet · V, S')).toBeInTheDocument();
+
+    // A spell with no matching catalog entry (Mage Hand — not in the fixture
+    // above) still renders name+school only, exactly as before — the
+    // description enrichment never blocks selection of un-enriched rows.
+    const mageHand = screen.getByRole('checkbox', { name: /Mage Hand/i });
+    expect(mageHand).not.toBeDisabled();
+    fireEvent.click(mageHand);
+    expect(mageHand).toBeChecked();
+  });
+
+  it('TAV-SPELLPICK-DESCRIPTIONS: a failed catalog fetch degrades gracefully — rows still render name+school and selection is never blocked', async () => {
+    mockGetCatalog.mockRejectedValue(new Error('network error'));
+    await advanceToSpells();
+
+    expect(screen.getByText('Fire Bolt')).toBeInTheDocument();
+    const fireBolt = screen.getByRole('checkbox', { name: /Fire Bolt/i });
+    expect(fireBolt).not.toBeDisabled();
+    fireEvent.click(fireBolt);
+    expect(fireBolt).toBeChecked();
   });
 
   // ── TAV-A11Y-SPELLSTEP-FIELDSET ────────────────────────────────────────────────
@@ -1041,5 +1111,60 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/character/char-1'));
     expect(mockCreateCharacter).toHaveBeenCalledTimes(1);
     expect(mockLearnSpell).toHaveBeenCalledTimes(1);
+  });
+
+  // ── TAV-CREATE-DEADEND-DIAGNOSABLE ────────────────────────────────────────────
+  describe('TAV-CREATE-DEADEND-DIAGNOSABLE: the silent Background -> Spells create surfaces a real reason on failure', () => {
+    it('surfaces the engine\'s own rejection message instead of the generic line, and does not advance past Background', async () => {
+      mockCreateCharacter.mockRejectedValueOnce(
+        Object.assign(new Error('400'), {
+          status: 400,
+          code: '400',
+          body: {
+            success: false,
+            message: 'Half-Elf ability score choices must be exactly two abilities, excluding Charisma.',
+            data: {},
+          },
+        }),
+      );
+      renderWizard();
+      pickRace();
+      fireEvent.click(screen.getByRole('radio', { name: /Wizard/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Abilities
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Background
+      fillBackground();
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // rejected create
+      });
+
+      expect(
+        await screen.findByText(
+          'Half-Elf ability score choices must be exactly two abilities, excluding Charisma.',
+        ),
+      ).toBeInTheDocument();
+      // Never advanced — still on Background, not silently stuck with no cue.
+      expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(
+        'Where did you come from?',
+      );
+    });
+
+    it('falls back to the generic line only when the failure carries no engine message (e.g. a network error)', async () => {
+      mockCreateCharacter.mockRejectedValueOnce(new Error('network'));
+      renderWizard();
+      pickRace();
+      fireEvent.click(screen.getByRole('radio', { name: /Wizard/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      fillBackground();
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      });
+
+      expect(
+        await screen.findByText(/Suzu couldn.?t write that down\. Check your choices/i),
+      ).toBeInTheDocument();
+    });
   });
 });

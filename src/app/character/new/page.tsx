@@ -78,11 +78,12 @@ import {
   createCharacter,
   deleteCharacter,
   getAvailableSpells,
+  getCatalog,
   learnSpell,
   prepareSpell,
 } from '@/lib/api/dnd';
 import { useCatalog } from '@/lib/dnd/useCatalog';
-import { raceSpeedLabel } from '@/lib/dnd/codex';
+import { raceSpeedLabel, spellComponentsLabel, spellDescription } from '@/lib/dnd/codex';
 import { useWizardCommentary } from '@/lib/dnd/useWizardCommentary';
 import TavernShell from '@/components/TavernShell';
 import PageSkeleton from '@/components/PageSkeleton';
@@ -112,7 +113,12 @@ import {
   type AbilityScores,
 } from '@/lib/dnd/helpers';
 import type { WizardRace, WizardClass, WizardBackground } from '@/lib/dnd/catalog';
-import type { ApiError, AvailableSpellEntry, AvailableSpellsResult } from '@/lib/api/types';
+import type {
+  ApiError,
+  AvailableSpellEntry,
+  AvailableSpellsResult,
+  CatalogSpellData,
+} from '@/lib/api/types';
 import styles from './CharacterCreate.module.css';
 
 type StepKey = 'race' | 'class' | 'abilities' | 'background' | 'spells' | 'review';
@@ -237,6 +243,32 @@ function isAlreadyKnownRejection(reason: unknown): boolean {
   const data = (body as { data?: unknown }).data;
   if (!data || typeof data !== 'object') return false;
   return (data as { reason?: unknown }).reason === 'already_known';
+}
+
+const GENERIC_CREATE_ERROR =
+  "Suzu couldn’t write that down. Check your choices and try again in a moment.";
+
+/**
+ * TAV-CREATE-DEADEND-DIAGNOSABLE: best-effort human-readable message for a
+ * failed createNow() call, replacing the old always-generic string. The
+ * engine's own error wire shape (NekoNova-DnDEngine routes/characters.py's
+ * `_err()`) is `{success: false, message: <human string>, data: {reason?}}`
+ * — `err.body.message` IS the engine's own explanation of what was rejected
+ * (e.g. an invalid race/subrace/ASI combination), already written to be
+ * shown to a player. `client.ts`'s apiFetch attaches the full parsed body
+ * verbatim as `err.body` on every non-2xx response, so this is always
+ * available except for a genuine network/abort failure or a malformed body
+ * — those fall back to the generic line, never to an undefined/`[object
+ * Object]` render.
+ */
+function describeCreateError(err: unknown): string {
+  if (!(err instanceof Error)) return GENERIC_CREATE_ERROR;
+  const body = (err as ApiError).body;
+  if (body && typeof body === 'object') {
+    const message = (body as { message?: unknown }).message;
+    if (typeof message === 'string' && message.trim().length > 0) return message;
+  }
+  return GENERIC_CREATE_ERROR;
 }
 
 // ── Suzu commentary for the abilities step (ST-053 v1) ─────────────────────────
@@ -435,6 +467,26 @@ export default function CharacterNewPage(): ReactNode {
     (!raceHasSubraces || !!subrace) &&
     (!raceNeedsAsi || halfElfAsi.length === 2);
 
+  // TAV-CREATE-DEADEND-DIAGNOSABLE: canCreatePrereqs's own "why". In practice
+  // the race/class/background gaps below are already blocked by canContinue
+  // disabling the Continue button on their own steps — this is a defensive
+  // backstop for the Background -> Spells silent-create branch (handleContinue)
+  // so that IF it's ever reached with a gap unmet, the user gets a real reason
+  // instead of a silent no-op (the bug this hardens against).
+  const missingPrereqsReason = useMemo((): string | null => {
+    if (!username) return 'You need to be signed in to create a character.';
+    if (!raceObj) return 'Pick a race before continuing.';
+    if (raceHasSubraces && !subrace) return 'Choose a subrace before continuing.';
+    if (raceNeedsAsi && halfElfAsi.length !== 2) {
+      return 'Choose your two ability increases before continuing.';
+    }
+    if (!clsObj) return 'Pick a class before continuing.';
+    if (remaining < 0) return 'Your ability scores are over budget — spend 27 points or fewer.';
+    if (!bgObj) return 'Pick a background before continuing.';
+    if (!name.trim()) return 'Give your character a name before continuing.';
+    return null;
+  }, [username, raceObj, raceHasSubraces, subrace, raceNeedsAsi, halfElfAsi, clsObj, remaining, bgObj, name]);
+
   const canSubmit = canCreatePrereqs && !submitting;
 
   // F7/TAV-CREATE-EDIT-NOT-RETRO — captures the LIVE wizard fields in the
@@ -486,7 +538,12 @@ export default function CharacterNewPage(): ReactNode {
     const idx = steps.findIndex((s) => s.key === stepKey);
     const next = steps[idx + 1];
     if (stepKey === 'background' && next?.key === 'spells' && !characterId) {
-      if (!canCreatePrereqs) return;
+      if (!canCreatePrereqs) {
+        // TAV-CREATE-DEADEND-DIAGNOSABLE: was a silent `return` — the user
+        // stayed on Background with zero feedback. Surface the specific gap.
+        setError(missingPrereqsReason ?? GENERIC_CREATE_ERROR);
+        return;
+      }
       setSubmitting(true);
       setError(null);
       try {
@@ -494,17 +551,17 @@ export default function CharacterNewPage(): ReactNode {
         setCharacterId(id);
         setCreatedSnapshot(snapshotNow());
         setStep((s) => Math.min(steps.length - 1, s + 1));
-      } catch {
-        setError(
-          "Suzu couldn’t write that down. Check your choices and try again in a moment.",
-        );
+      } catch (err) {
+        // TAV-CREATE-DEADEND-DIAGNOSABLE: was always the generic line — a
+        // rejected race/subrace/ASI/choice combination was undiagnosable.
+        setError(describeCreateError(err));
       } finally {
         setSubmitting(false);
       }
       return;
     }
     setStep((s) => Math.min(steps.length - 1, s + 1));
-  }, [steps, stepKey, characterId, canCreatePrereqs, createNow, snapshotNow]);
+  }, [steps, stepKey, characterId, canCreatePrereqs, missingPrereqsReason, createNow, snapshotNow]);
 
   const handleSubmit = useCallback(async () => {
     if (!canCreatePrereqs && !characterId) return;
@@ -589,10 +646,12 @@ export default function CharacterNewPage(): ReactNode {
       }
 
       router.push(`/character/${encodeURIComponent(charId)}`);
-    } catch {
-      setError(
-        "Suzu couldn’t write that down. Check your choices and try again in a moment.",
-      );
+    } catch (err) {
+      // TAV-CREATE-DEADEND-DIAGNOSABLE: same generic-string bug as
+      // handleContinue's silent-create catch — surface the real reason here
+      // too (Review's final submit hits this same createNow() call for a
+      // non-caster, and for a caster's F7 recreate-on-drift path).
+      setError(describeCreateError(err));
       setSubmitting(false);
     }
   }, [
@@ -1431,6 +1490,13 @@ function ReviewStep({
 // uses — rather than reimplementing the engine's per-class spell tables.
 type SpellFetchState = 'loading' | 'ok' | 'error';
 
+// TAV-SPELLPICK-DESCRIPTIONS: AvailableSpellEntry (GET /spells/:id/available)
+// has no description — that lives on the catalog (GET /catalog?type=spell),
+// same source the Codex reads (CodexDetail.tsx's SpellDetail). Comfortably
+// above the current spell count without risking the engine's silent
+// _MAX_LIMIT=500 truncation — mirrors useCodexCatalog.ts's PAGE_LIMIT.
+const SPELL_CATALOG_LIMIT = 500;
+
 function SpellsStep({
   characterId,
   username,
@@ -1450,6 +1516,11 @@ function SpellsStep({
 }) {
   const [available, setAvailable] = useState<AvailableSpellsResult | null>(null);
   const [fetchState, setFetchState] = useState<SpellFetchState>('loading');
+  // TAV-SPELLPICK-DESCRIPTIONS: slug -> catalog spell data, for the
+  // description/range/components/casting-time shown per row. Independent of
+  // the `available` fetch above (different endpoint) — a failure here never
+  // blocks spell selection, it just leaves rows at name+school as before.
+  const [spellCatalog, setSpellCatalog] = useState<Map<string, CatalogSpellData> | null>(null);
 
   useEffect(() => {
     if (!characterId) return;
@@ -1472,6 +1543,28 @@ function SpellsStep({
       cancelled = true;
     };
   }, [characterId, username]);
+
+  // TAV-SPELLPICK-DESCRIPTIONS: fetch the spell catalog once, in parallel with
+  // the above — best-effort, so a failure here degrades gracefully to
+  // name+school (the pool fetch above is the one thing that gates the step).
+  useEffect(() => {
+    let cancelled = false;
+    getCatalog('dnd5e', { type: 'spell', limit: SPELL_CATALOG_LIMIT })
+      .then((res) => {
+        if (cancelled) return;
+        const map = new Map<string, CatalogSpellData>();
+        for (const item of res.items) {
+          map.set(item.slug, item.data as CatalogSpellData);
+        }
+        setSpellCatalog(map);
+      })
+      .catch(() => {
+        // Graceful degradation — rows simply fall back to name+school.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function toggle(picked: Set<string>, onChange: (n: Set<string>) => void, slug: string, cap: number) {
     const next = new Set(picked);
@@ -1526,6 +1619,12 @@ function SpellsStep({
   ) => {
     const checked = picked.has(s.slug);
     const disabled = !checked && picked.size >= cap;
+    // TAV-SPELLPICK-DESCRIPTIONS: undefined when the catalog fetch hasn't
+    // resolved yet, failed, or simply has no entry for this slug — the row
+    // falls back to name+school only, exactly as before.
+    const entry = spellCatalog?.get(s.slug);
+    const descId = entry ? `spell-desc-${s.slug}` : undefined;
+    const describedBy = [descId, disabled ? capHintId : undefined].filter(Boolean).join(' ') || undefined;
     return (
       <li key={s.slug} className={styles.spellRow}>
         <label className={styles.spellRowLabel}>
@@ -1536,8 +1635,9 @@ function SpellsStep({
             disabled={disabled}
             // TAV-A11Y-CAP-HINT: when the pick cap is hit, the extra rows go
             // disabled with no spoken reason. Point AT at the section's hidden
-            // explanation so "dimmed, unavailable" gains a "why".
-            aria-describedby={disabled ? capHintId : undefined}
+            // explanation so "dimmed, unavailable" gains a "why". Also carries
+            // the row's description id (TAV-SPELLPICK-DESCRIPTIONS) when known.
+            aria-describedby={describedBy}
             onChange={() => toggle(picked, onChange, s.slug, cap)}
           />
           <span className={styles.spellRowName}>{s.name}</span>
@@ -1548,6 +1648,24 @@ function SpellsStep({
             {s.school}
           </span>
         </label>
+        {/* TAV-SPELLPICK-DESCRIPTIONS: a sibling of the <label>, not nested
+         * inside it — descendants of a <label> are folded into its control's
+         * accessible name, which would make every checkbox's name the whole
+         * spell description. Linked instead via aria-describedby above. */}
+        {entry && (
+          <div className={styles.spellRowDetail} id={descId}>
+            <p className={`mono ${styles.spellRowMeta}`}>
+              {[entry.casting_time ?? '—', entry.range ?? '—', spellComponentsLabel(entry)].join(' · ')}
+            </p>
+            <p className={styles.spellRowDescription}>{spellDescription(entry)}</p>
+            {entry.higher_levels && (
+              <p className={styles.spellRowHigherLevels}>
+                <strong>At higher levels: </strong>
+                {entry.higher_levels}
+              </p>
+            )}
+          </div>
+        )}
       </li>
     );
   };

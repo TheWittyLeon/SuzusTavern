@@ -112,6 +112,15 @@ export function spellComponentsLabel(d: CatalogSpellData): string {
   return parts.length ? parts.join(', ') : '—';
 }
 
+/** TAV spell-picker description helper — mirrors CodexDetail's SpellDetail
+ *  inline fallback so the wizard's Spells step and the read-only Codex show
+ *  identical copy for a spell with no catalog description recorded. */
+export function spellDescription(d: CatalogSpellData): string {
+  return d.description && d.description.trim().length > 0
+    ? d.description
+    : 'No description recorded for this spell yet.';
+}
+
 // ── Monster display helpers ────────────────────────────────────────────────────
 
 /**

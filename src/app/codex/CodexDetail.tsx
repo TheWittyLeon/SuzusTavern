@@ -34,6 +34,7 @@ import {
   raceSpeedLabel,
   sourceBadge,
   spellComponentsLabel,
+  spellDescription,
   spellLevelLabel,
   toneVar,
   type CodexKind,
@@ -110,7 +111,7 @@ function SpellDetail({ d }: { d: CatalogSpellData }) {
         </Section>
       )}
       <Section label="Description">
-        <p>{d.description || 'No description recorded for this spell yet.'}</p>
+        <p>{spellDescription(d)}</p>
       </Section>
       {d.higher_levels && (
         <Section label="At higher levels">
