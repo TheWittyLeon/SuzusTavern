@@ -3,12 +3,16 @@
  * client streamMode chunk handling in play/[sessionId]/page.tsx narrate().
  *
  * Coverage:
- *   - a streamMode:true chunk sets narratorText DIRECTLY (server already
- *     paces the reveal) — the client-side fake-typewriter interval
+ *   - a streamMode:true chunk updates the chat streaming row DIRECTLY (server
+ *     already paces the reveal) — the client-side fake-typewriter interval
  *     (revealText's setInterval) is never scheduled for that beat.
+ *     (TAV-NARRATION-DECOUPLE: this used to set the now-removed narratorText
+ *     bar; the chat log is the sole narration surface today.)
  *   - a chunk with no stream_mode key (flag-OFF / buffered beat) still runs
- *     the existing fake-typewriter reveal — regression lock for the
- *     A/B-invariant "flag off = unchanged" behaviour at the CLIENT layer.
+ *     the existing fake-typewriter reveal, now retargeted at the SAME chat
+ *     streaming row instead of the removed narratorText bar (the cadence/
+ *     A-B-invariant "flag off = unchanged" is about the TIMING, which is
+ *     unchanged — only the render target moved).
  *   - a pending typewriter interval from an EARLIER buffered chunk is
  *     cleared the moment a LATER chunk in the same beat switches to
  *     streamMode (defensive; the design says beats are never mixed in
@@ -163,7 +167,7 @@ afterEach(() => {
 });
 
 describe('DM-STREAM — narrate() streamMode chunk handling', () => {
-  it('sets narratorText directly on a streamMode chunk and never schedules the fake-typewriter interval', async () => {
+  it('updates the chat streaming row directly on a streamMode chunk and never schedules the fake-typewriter interval', async () => {
     const setIntervalSpy = jest.spyOn(window, 'setInterval');
     streamOnce([
       { kind: 'chunk', text: 'You wade', streamMode: true },
@@ -178,16 +182,16 @@ describe('DM-STREAM — narrate() streamMode chunk handling', () => {
     // instead of the plain narrate() call this test exercises.
     await sendMessage('I hum a little tune and wait.');
 
-    // Appears twice once settled (NarratorStrip panel + the ChatLog row) —
-    // use getAllByText rather than getByText to avoid a spurious
-    // "found multiple elements" throw.
+    // TAV-NARRATION-DECOUPLE: the chat log is now the SOLE narration
+    // surface (NarratorStrip no longer renders narration text at all) —
+    // exactly one occurrence, not "greater than 0" for a bar+chat duplicate.
     await waitFor(() => {
-      expect(screen.getAllByText('You wade toward the water.').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('You wade toward the water.')).toHaveLength(1);
     });
 
     // revealText's word-by-word setInterval (a distinctive 26ms cadence,
     // never used elsewhere in the component) was never scheduled for this
-    // beat — every delta went through the direct setNarratorText branch.
+    // beat — every delta went through the direct upsertStreamNarration branch.
     // (RTL's own `waitFor` polling ALSO uses setInterval — at a 50ms
     // cadence — so filter by delay rather than asserting zero total calls,
     // which would spuriously fail on RTL's own internal polling.)
@@ -195,7 +199,7 @@ describe('DM-STREAM — narrate() streamMode chunk handling', () => {
     expect(revealIntervalCalls).toHaveLength(0);
   });
 
-  it('runs the fake-typewriter reveal for a chunk with no stream_mode key (flag-OFF path unchanged)', async () => {
+  it('runs the fake-typewriter reveal into the chat streaming row for a chunk with no stream_mode key (TAV-NARRATION-DECOUPLE: retargeted off the removed narratorText bar, timing unchanged)', async () => {
     const setIntervalSpy = jest.spyOn(window, 'setInterval');
     streamOnce([{ kind: 'chunk', text: 'Hello there' }, { kind: 'done' }]);
     render(<PlayPage />);
@@ -205,8 +209,8 @@ describe('DM-STREAM — narrate() streamMode chunk handling', () => {
 
     // The buffered (non-streamMode) path still schedules revealText's
     // distinctive 26ms typewriter interval — regression lock for the
-    // unchanged flag-OFF path. (See delay-filter note above re: RTL's own
-    // 50ms polling interval sharing the same spy.)
+    // unchanged cadence. (See delay-filter note above re: RTL's own 50ms
+    // polling interval sharing the same spy.)
     await waitFor(() => {
       const revealIntervalCalls = setIntervalSpy.mock.calls.filter(([, delay]) => delay === 26);
       expect(revealIntervalCalls.length).toBeGreaterThan(0);
@@ -214,10 +218,75 @@ describe('DM-STREAM — narrate() streamMode chunk handling', () => {
 
     // The reveal eventually converges on the full text once every real tick
     // has run (revealText ticks every 26ms — well within the default
-    // waitFor timeout).
+    // waitFor timeout) — and lands in the chat log (its SOLE narration
+    // surface now), exactly once.
+    const log = await screen.findByRole('log');
     await waitFor(() => {
-      expect(screen.getAllByText('Hello there').length).toBeGreaterThan(0);
+      expect(within(log).getAllByText('Hello there')).toHaveLength(1);
     });
+
+    // Never leaks into any role=status region (NarratorStrip's repurposed
+    // scene/combat banner, the ai-off fallback, the Iro turn-status region,
+    // the x-card banner, etc.) — this is the exact gap that would have
+    // reappeared had revealText stayed pointed at the removed narratorText
+    // with nothing replacing it in the chat log.
+    for (const region of screen.getAllByRole('status')) {
+      expect(within(region).queryByText('Hello there')).not.toBeInTheDocument();
+    }
+  });
+
+  it('Kage-CR CRITICAL (review pass) — a `done` that races ahead of the typewriter interval\'s first tick does not orphan a second streaming row', async () => {
+    // Root cause: `{kind:'done'}` can arrive (and run the post-loop
+    // finalize) before revealText's setInterval has fired even once — this
+    // mock generator reproduces exactly that by yielding both events with
+    // NO real delay between them, so the interval (a real 26ms timer,
+    // faked here) is still pending when the loop's post-loop code runs.
+    // Without clearing `revealRef` before `finalizeStreamNarration`, that
+    // pending interval's NEXT tick calls `upsertStreamNarration` against a
+    // ref finalize already nulled out — creating a second, orphaned,
+    // aria-hidden row. Uses fake timers (mirroring the ddx20-durable-turn
+    // suite's established pattern) so the interval can be driven forward
+    // deterministically PAST full reveal, rather than relying on
+    // `waitFor`'s transient-window resolution (which would pass even with
+    // the bug present, since it stops polling the instant ONE row exists).
+    streamOnce([{ kind: 'chunk', text: 'Hello there' }, { kind: 'done' }]);
+
+    jest.useFakeTimers();
+    try {
+      render(<PlayPage />);
+      await screen.findByRole('textbox');
+
+      const input = screen.getByRole('textbox');
+      fireEvent.change(input, { target: { value: 'I look around.' } });
+      await act(async () => {
+        fireEvent.keyDown(input, { key: 'Enter' });
+      });
+      // Let the async generator's microtask chain (chunk -> done -> the
+      // post-loop finalize/clear-interval logic) fully settle BEFORE any
+      // fake-timer tick has a chance to fire.
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      // Advance well past the full word-by-word reveal duration (a couple
+      // tokens * 26ms is a few hundred ms at most) — if the interval was
+      // correctly cleared, this is a no-op; if not, its next tick(s) fire
+      // here and spawn the orphan row.
+      await act(async () => {
+        jest.advanceTimersByTime(5000);
+      });
+
+      const log = screen.getByRole('log');
+      expect(within(log).getAllByText('Hello there')).toHaveLength(1);
+      // The single row must be the finalized one (not aria-hidden) — an
+      // orphan left mid-stream would be a SECOND, permanently aria-hidden
+      // node that nothing ever finalizes.
+      expect(log.querySelectorAll('[aria-hidden="true"]')).toHaveLength(0);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('clears a pending typewriter interval when a later chunk in the same beat switches to streamMode', async () => {

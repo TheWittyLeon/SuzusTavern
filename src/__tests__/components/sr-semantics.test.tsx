@@ -24,13 +24,21 @@ describe('ChatLog', () => {
 });
 
 describe('NarratorStrip', () => {
-  it('is a polite status region with the streaming text hidden from AT', () => {
-    const { container } = render(<NarratorStrip text="The door creaks." talking />);
+  it('is a polite status region announcing the scene/combat text normally (not aria-hidden)', () => {
+    // TAV-NARRATION-DECOUPLE: NarratorStrip no longer streams narration
+    // token-by-token (that flood-risk lived in the chat log's own
+    // streaming row, which IS aria-hidden until finalize — see ChatLog's
+    // T1/TAV-S1 test). This banner updates rarely (scene change / turn
+    // change), so its text is announced normally, not aria-hidden.
+    const { container } = render(
+      <NarratorStrip sceneName="The Sooty Chimney" objective="Find the source." talking />,
+    );
     const status = screen.getByRole('status');
     expect(status).toHaveAttribute('aria-live', 'polite');
     expect(status).toHaveAttribute('aria-atomic', 'true');
-    // The word-by-word reveal must be aria-hidden so AT isn't flooded per token.
-    expect(screen.getByText('The door creaks.')).toHaveAttribute('aria-hidden', 'true');
+    expect(
+      screen.getByText('The Sooty Chimney — Find the source.'),
+    ).not.toHaveAttribute('aria-hidden');
     void container;
   });
 });

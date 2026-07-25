@@ -29,17 +29,6 @@
   font-style: italic;
 }
 
-.thinking {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.thinkingLabel {
-  color: var(--ink-2); /* AA on the tinted strip (Iro S3.3) */
-  font-style: italic;
-}
-
 .status {
   display: flex;
   align-items: center;

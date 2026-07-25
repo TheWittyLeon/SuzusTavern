@@ -341,10 +341,15 @@ describe('ADV-6 — beginEncounter', () => {
 
   it('happy path: wires the returned combat_id into the combat UI', async () => {
     await clickBeginEncounter();
-    // combat_id from FROM_SCENE_RESULT = 'combat-42'; UI shows "round 1 · combat"
-    await waitFor(() =>
-      expect(screen.getByText(/round.*combat/i)).toBeInTheDocument(),
-    );
+    // combat_id from FROM_SCENE_RESULT = 'combat-42' flips combatIsActive —
+    // this fixture's `getCombatState` mock resolves null (no structured
+    // state), so NarratorStrip's own "Round N" combat line has nothing to
+    // show yet; the "combat" status pill (narratorStatusPill, unconditional
+    // on combatIsActive alone) is the reliable signal that the UI actually
+    // transitioned into combat mode.
+    await waitFor(() => {
+      expect(screen.getAllByText(/^combat$/i).length).toBeGreaterThan(0);
+    });
   });
 
   it('happy path: monster names from the engine appear in the log', async () => {
@@ -371,8 +376,8 @@ describe('ADV-6 — beginEncounter', () => {
     );
     // Button must not be stuck in disabled/busy state after the 400.
     await waitFor(() => expect(btn).not.toBeDisabled());
-    // UI must NOT transition into combat mode (no "round · combat" pill).
-    expect(screen.queryByText(/round.*combat/i)).not.toBeInTheDocument();
+    // UI must NOT transition into combat mode (no "combat" status pill).
+    expect(screen.queryByText(/^combat$/i)).not.toBeInTheDocument();
   });
 
   it('adversarial: 500 server error → generic error toast, no crash', async () => {
@@ -386,7 +391,7 @@ describe('ADV-6 — beginEncounter', () => {
         }),
       ),
     );
-    expect(screen.queryByText(/round.*combat/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^combat$/i)).not.toBeInTheDocument();
   });
 
   it('adversarial: network error (no status) → generic error toast, no crash', async () => {
@@ -397,7 +402,7 @@ describe('ADV-6 — beginEncounter', () => {
         expect.objectContaining({ tone: 'error' }),
       ),
     );
-    expect(screen.queryByText(/round.*combat/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^combat$/i)).not.toBeInTheDocument();
   });
 
   it('adversarial: double-click does not double-submit (combatBusy guard)', async () => {

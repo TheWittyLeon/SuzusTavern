@@ -402,6 +402,146 @@ describe('deduped-resume — no double-append', () => {
   });
 });
 
+describe('TAV-NARRATION-DECOUPLE — poll-claim race (reconcileEvents rule 3 sub-case (c))', () => {
+  it('a durable narration event that lands on the poll BEFORE this client\'s first SSE chunk still reconciles to exactly one, server-authoritative, non-aria-hidden row — no ledger change needed, no double-render', async () => {
+    // The generator is gated so it yields NOTHING until released — this
+    // simulates the poll's own reconciliation tick observing the durable
+    // narration event before subscribeToJob's first SSE byte ever arrives
+    // (Kage #3's rule 3 sub-case (c)): `awaitingNarration` is registered
+    // synchronously (before subscribeDmJob is even called), but
+    // `narrationRowId` is never set locally because no chunk has run yet.
+    let releaseGen: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      releaseGen = resolve;
+    });
+    let capturedTurnKey = '';
+    mockPostDmTurn.mockImplementation(async (body: { turn_key: string }) => {
+      capturedTurnKey = body.turn_key;
+      return { job_id: 'job-race', turn_key: body.turn_key, status: 'pending', deduped: false };
+    });
+    mockSubscribeDmJob.mockImplementation(async function* () {
+      await gate;
+      yield { kind: 'chunk', text: 'Suzu narrates the scene fully.' };
+      yield { kind: 'done' };
+    });
+
+    jest.useFakeTimers();
+    try {
+      render(<PlayPage />);
+      await screen.findByText('Test Table');
+
+      const input = screen.getByRole('textbox');
+      fireEvent.change(input, { target: { value: 'I open the chest.' } });
+      await act(async () => {
+        fireEvent.keyDown(input, { key: 'Enter' });
+      });
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(capturedTurnKey).toMatch(UUID_RE);
+      // subscribeToJob has registered intent (awaitingNarration) but the
+      // generator is still gated — NO chat row exists yet for the
+      // narration (only the optimistic player row).
+      expect(screen.queryByText('Suzu narrates the scene fully.')).not.toBeInTheDocument();
+
+      // The poll now delivers BOTH events for this turn before this
+      // client's tail has produced a single chunk — sub-case (c) appends
+      // the durable row whole and claims `narrationRowId` for it.
+      mockGetSessionEventsPage.mockResolvedValue({
+        events: [
+          playerActionEvent(10, capturedTurnKey, 'I open the chest.'),
+          narrationEvent(11, 'Suzu narrates the scene fully.'),
+        ],
+        max_seq: 11,
+        has_more: false,
+        pending_generation: null,
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(4000);
+      });
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      // Exactly one row, server-authoritative text, already visible/
+      // announced (never aria-hidden) — reconcile's sub-case (c) treats
+      // this as a complete, final row from the moment it's appended.
+      expect(screen.getAllByText('Suzu narrates the scene fully.')).toHaveLength(1);
+      const preReleaseRow = screen.getByText('Suzu narrates the scene fully.').closest('.row');
+      expect(preReleaseRow).not.toHaveAttribute('aria-hidden');
+
+      // Now let the SSE tail actually run. Its chunk arrives AFTER the poll
+      // already claimed this turn's narrationRowId — `subscribeToJob` must
+      // detect that (pollClaimedNarration) and NEVER touch the transcript
+      // again for this beat: still exactly one row, unchanged text, same
+      // node (no supersede/replace churn).
+      await act(async () => {
+        releaseGen();
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(screen.getAllByText('Suzu narrates the scene fully.')).toHaveLength(1);
+      const postReleaseRow = screen.getByText('Suzu narrates the scene fully.').closest('.row');
+      expect(postReleaseRow).toBe(preReleaseRow);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
+
+describe('TAV-NARRATION-DECOUPLE — NarratorStrip no longer carries narration text', () => {
+  it('the durable narration text lands ONLY in the chat log; every role=status region (including NarratorStrip) shows scene/combat status, never the narration prose', async () => {
+    mockGetGrounding.mockResolvedValue({
+      scene_id: 'scene-1',
+      scene_name: 'The Sunken Archive',
+      objective: 'Find the missing ledger.',
+      boxed_text: '',
+      transitions: [],
+      checks: [],
+      flags: {},
+      encounter_state: {},
+    });
+    mockPostDmTurn.mockResolvedValue({
+      job_id: 'job-2',
+      turn_key: 'tk-bar-decouple',
+      status: 'pending',
+      deduped: false,
+    });
+    mockSubscribeDmJob.mockImplementation(async function* () {
+      yield { kind: 'chunk', text: 'The archive groans as you enter.' };
+      yield { kind: 'done' };
+    });
+
+    render(<PlayPage />);
+    await screen.findByText('Test Table');
+    // Scene banner shows on mount, before any turn is sent.
+    await screen.findByText('The Sunken Archive — Find the missing ledger.');
+
+    await sendMessage('I step inside.');
+    await flush();
+
+    // Narration is live in the chat log.
+    await waitFor(() => {
+      expect(screen.getAllByText(/The archive groans as you enter\.?/).length).toBeGreaterThan(0);
+    });
+
+    // The scene banner is untouched by the narration stream, and no
+    // role=status region (NarratorStrip included) ever renders the
+    // narration prose.
+    expect(
+      screen.getByText('The Sunken Archive — Find the missing ledger.'),
+    ).toBeInTheDocument();
+    for (const region of screen.getAllByRole('status')) {
+      expect(within(region).queryByText(/archive groans/i)).not.toBeInTheDocument();
+    }
+  });
+});
+
 describe("don't-re-POST rule (stateless poll-discovery)", () => {
   it('a pending_generation discovered on the poll subscribes to it — postDmTurn is NEVER called', async () => {
     mockSubscribeDmJob.mockImplementation(async function* () {

@@ -175,8 +175,9 @@ describe('S5.5-AC1 — ai_assist_level=off hides the Suzu narrator panel', () =>
     await act(async () => { await Promise.resolve(); });
 
     // The NarratorStrip idle text should NOT appear when ai is off.
-    // "Suzu is listening" is the NarratorStrip idle state.
-    expect(screen.queryByText(/Suzu is listening/i)).not.toBeInTheDocument();
+    // "Suzu is setting the scene…" is the NarratorStrip idle state
+    // (TAV-NARRATION-DECOUPLE — scene/combat banner, no grounding loaded yet).
+    expect(screen.queryByText(/Suzu is setting the scene/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Suzu is narrating/i)).not.toBeInTheDocument();
   });
 });
@@ -242,10 +243,11 @@ describe('S5.5-AC3 — NarratorStrip renders for ai_assist_level=full', () => {
     render(<PlayPage />);
 
     await waitFor(() => expect(mockGetSession).toHaveBeenCalled());
-    await act(async () => { await Promise.resolve(); });
 
     // NarratorStrip idle state should be visible.
-    expect(screen.getByText(/Suzu is listening/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/Suzu is setting the scene/i)).toBeInTheDocument();
+    });
   });
 });
 
@@ -262,10 +264,11 @@ describe('S5.5-AC4 — assist mode: NarratorStrip renders', () => {
     render(<PlayPage />);
 
     await waitFor(() => expect(mockGetSession).toHaveBeenCalled());
-    await act(async () => { await Promise.resolve(); });
 
     // The Suzu panel renders for assist (not hidden like 'off').
-    expect(screen.getByText(/Suzu is listening/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/Suzu is setting the scene/i)).toBeInTheDocument();
+    });
   });
 
   it('assist: narrate() does not auto-fire on player "say" send (Say/Act modes present)', async () => {
@@ -475,15 +478,16 @@ describe('S5.5-AC9 — ai gate reads session.ai_assist_level (server truth)', ()
     const { unmount } = render(<PlayPage />);
     await waitFor(() => expect(mockGetSession).toHaveBeenCalled());
     await act(async () => { await Promise.resolve(); });
-    expect(screen.queryByText(/Suzu is listening/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Suzu is setting the scene/i)).not.toBeInTheDocument();
     unmount();
 
     // Test 2: full session — panel visible.
     setupPlayPage(makeSession('full', 'ai'));
     render(<PlayPage />);
     await waitFor(() => expect(mockGetSession).toHaveBeenCalled());
-    await act(async () => { await Promise.resolve(); });
-    expect(screen.getByText(/Suzu is listening/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/Suzu is setting the scene/i)).toBeInTheDocument();
+    });
   });
 });
 

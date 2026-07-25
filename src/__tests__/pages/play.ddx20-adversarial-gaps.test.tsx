@@ -297,9 +297,9 @@ describe('ADVERSARIAL — reload mid-turn reconstructs purely from poll (mocked)
 
       // Exactly one TRANSCRIPT row with the durable (canonical) text — not
       // stuck as a live "Suzu is mid-sentence" preview row AND a separate
-      // appended durable row. Scoped to role="log" so the mirrored
-      // top-of-screen narratorText widget (a SEPARATE, expected DOM node)
-      // doesn't produce a false multi-match.
+      // appended durable row. Scoped to role="log" (TAV-NARRATION-DECOUPLE:
+      // NarratorStrip no longer mirrors narration text — this scoping is
+      // just defensive hygiene now, not a workaround for a duplicate node).
       await waitFor(() => {
         expect(within(log).getAllByText('Suzu finishes the sentence.')).toHaveLength(1);
       });

@@ -347,12 +347,10 @@ describe('DDX-20 recap guard — a durable recap event never hijacks an active n
     try {
       render(<PlayPage />);
       await screen.findByText('Test Table');
-      // Scoped to the transcript's `role="log"` region — NarratorStrip
-      // renders the SAME accumulating `narratorText` string as a live
-      // (aria-hidden) preview alongside the chat log's own streaming row, so
-      // an unscoped screen.getByText('The door cre') matches BOTH and throws
-      // "multiple elements found". Only the log's own row is what rule 3
-      // reconciles.
+      // Scoped to the transcript's `role="log"` region — the chat log's own
+      // streaming row is the ONLY place narration renders today
+      // (TAV-NARRATION-DECOUPLE: NarratorStrip no longer mirrors it). Only
+      // the log's own row is what rule 3 reconciles.
       const log = await screen.findByRole('log');
 
       const input = screen.getByRole('textbox');

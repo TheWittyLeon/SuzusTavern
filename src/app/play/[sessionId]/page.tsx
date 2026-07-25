@@ -370,7 +370,12 @@ export default function PlayPage() {
   const [state, setState] = useState<'loading' | 'ok' | 'error' | 'notfound'>('loading');
 
   const [log, setLog] = useState<LogRow[]>([]);
-  const [narratorText, setNarratorText] = useState('');
+  // TAV-NARRATION-DECOUPLE (2026-07-25): `narratorText` used to feed the top
+  // NarratorStrip with the live-streaming narration; removed when the strip
+  // was repurposed to a scene/combat status banner (ChatLog's
+  // upsertStreamNarration/finalizeStreamNarration is now the SOLE live
+  // narration surface — see subscribeToJob/narrate() below and revealText's
+  // own comment).
   const [talking, setTalking] = useState(false);
   const [thinking, setThinking] = useState(false);
 
@@ -793,9 +798,11 @@ export default function PlayPage() {
    * In every case SSE is a non-authoritative live accelerator (§3.3): the
    * durable poll (`pollDurable`) is what actually reconciles the finished
    * beat into the transcript via the ledger (rule 3) — this function only
-   * drives the live `thinking`/`talking`/narratorText UI and keeps
-   * `pendingByKeyRef`'s `narrationRowId` in sync so that reconciliation can
-   * find this row when the durable event lands.
+   * drives the live `thinking`/`talking` UI + the chat log's live streaming
+   * row (`upsertStreamNarration`, the SOLE narration surface post
+   * TAV-NARRATION-DECOUPLE) and keeps `pendingByKeyRef`'s `narrationRowId`
+   * in sync so that reconciliation can find this row when the durable event
+   * lands.
    *
    * `ledgerKey` is the turn_key when known (originating / mount-resume —
    * `PendingGeneration.turn_key` is always present); the 409-busy case does
@@ -866,7 +873,6 @@ export default function PlayPage() {
       narrationAbort.current = ctrl;
       setTalking(true);
       setThinking(true);
-      setNarratorText('');
       clearStreamNarration(true);
 
       let full = '';
@@ -874,9 +880,17 @@ export default function PlayPage() {
       // Kage #3 — true once the FIRST chunk observes that the poll's own
       // reconciliation already claimed (appended) this turn's narration
       // before we got here (see reconcileEvents.ts rule 3 sub-case (c)).
-      // Once true, every subsequent chunk still updates the ephemeral
-      // narratorText widget above but must NEVER touch the transcript log —
-      // the durable row the poll already appended is canonical.
+      // Once true, every subsequent chunk is dropped for the chat log too —
+      // the durable row the poll already appended is canonical, and (T1/
+      // TAV-S1) mutating an already-visible (non aria-hidden, already
+      // announced-once) row's text on every chunk would re-flood a screen
+      // reader exactly like the bug `streaming:true` was built to prevent.
+      // TAV-NARRATION-DECOUPLE: this is the only user-visible effect of the
+      // race — a beat whose durable event lands before this client's first
+      // SSE byte renders as one already-complete row instead of growing
+      // token-by-token. See play.ddx20-durable-turn.test.tsx's
+      // "poll-claim race" case for the non-vacuous proof that this stays a
+      // single, correctly-reconciled row either way.
       let pollClaimedNarration = false;
       // TAV-S1-ABORT-CLEAR: this tail's OWN streaming row id (see narrate()'s
       // identical comment above) — only meaningful when we, not the poll,
@@ -887,7 +901,6 @@ export default function PlayPage() {
           if (ev.kind === 'chunk') {
             full = ev.text;
             setThinking(false);
-            setNarratorText(full);
             if (!pollClaimedNarration) {
               if (!streamRowIdRef.current) {
                 // First chunk. If the ledger entry is already gone (both
@@ -953,7 +966,6 @@ export default function PlayPage() {
         // job is already done) is not a real failure; nothing to clean up.
         clearStreamNarration(true);
         pendingByKeyRef.current.delete(ledgerKey);
-        setNarratorText('');
 
         if (origin === 'beat') {
           // DDX-20 Pass 3 Finding 1 (Miko-QA/Kage-CR MUST-FIX) — a
@@ -1686,7 +1698,6 @@ export default function PlayPage() {
               turnKeyRef.current = null;
               pollFailureGraceRef.current = null;
               clearStreamNarration(true);
-              setNarratorText('');
               setTalking(false);
               setThinking(false);
               setActiveJob(null);
@@ -1889,26 +1900,39 @@ export default function PlayPage() {
     [],
   );
 
+  /**
+   * TAV-NARRATION-DECOUPLE (2026-07-25): the client-side fake-typewriter for
+   * the buffered/non-streamMode legacy SSE beat (server sends the whole
+   * accumulated text in one non-paced delta, see narrate()'s `else` branch
+   * below). This used to reveal word-by-word into the top NarratorStrip's
+   * now-removed `narratorText`; it now drives the SAME `upsertStreamNarration`
+   * chat row the streamMode branch uses directly, so the buffered path keeps
+   * a real live-streaming row in the chat log (its sole narration surface)
+   * instead of the row popping in whole at `narrate()`'s post-loop finalize.
+   * `streamRowIdRef` ends up set exactly as it would for a streamMode beat, so
+   * the existing `finalizeStreamNarration(full)` call at the end of `narrate()`
+   * still finalizes/announces it correctly — no new finalize path needed.
+   */
   const revealText = useCallback(
     (full: string) => {
       if (revealRef.current) clearInterval(revealRef.current);
       if (reduced) {
-        setNarratorText(full);
+        upsertStreamNarration(full);
         return;
       }
       const tokens = full.split(/(\s+)/);
       let i = 0;
-      setNarratorText('');
+      upsertStreamNarration('');
       revealRef.current = setInterval(() => {
         i += 1;
-        setNarratorText(tokens.slice(0, i).join(''));
+        upsertStreamNarration(tokens.slice(0, i).join(''));
         if (i >= tokens.length && revealRef.current) {
           clearInterval(revealRef.current);
           revealRef.current = null;
         }
       }, 26);
     },
-    [reduced],
+    [reduced, upsertStreamNarration],
   );
 
   /**
@@ -2011,7 +2035,6 @@ export default function PlayPage() {
       narrationAbort.current = ctrl;
       setTalking(true);
       setThinking(true);
-      setNarratorText('');
       // Drop any partial live-narration row left over from an aborted beat so
       // this beat starts a fresh bottom-of-chat row (never overwrites the old).
       clearStreamNarration(true);
@@ -2069,7 +2092,6 @@ export default function PlayPage() {
                 clearInterval(revealRef.current);
                 revealRef.current = null;
               }
-              setNarratorText(full);
               // Tora CRITICAL-1 (resurrection race): `readSSE` only checks
               // `signal.aborted` once per `reader.read()` chunk, not per SSE
               // event — a single network read can carry 2+ buffered events,
@@ -2091,7 +2113,9 @@ export default function PlayPage() {
                 ownStreamRowId = streamRowIdRef.current;
               }
             } else {
-              // Flag-OFF / buffered path — unchanged fake-reveal.
+              // Flag-OFF / buffered path — fake-reveal, now driving the chat
+              // streaming row directly (revealText, TAV-NARRATION-DECOUPLE)
+              // instead of the removed narratorText bar.
               revealText(full);
             }
             if (ev.offeredCheck) offeredCheckSignal = ev.offeredCheck;
@@ -2146,11 +2170,30 @@ export default function PlayPage() {
           kind: 'system',
           text: fallbackText,
         });
-        setNarratorText('');
         return;
       }
 
       if (streamRowIdRef.current) {
+        // Kage-CR CRITICAL (review pass) — the buffered/non-streamMode path
+        // drives its streaming row via revealText's setInterval (26ms
+        // ticks), which is independent of the SSE loop above: a `done`
+        // event can race ahead of the interval's next tick (e.g. the whole
+        // beat's text is short, or `done` simply arrives before the next
+        // 26ms boundary). Without clearing it HERE, that pending interval
+        // fires AFTER finalizeStreamNarration below has already nulled
+        // `streamRowIdRef` — its next `upsertStreamNarration` call then sees
+        // no existing id and CREATES a brand-new (orphaned, aria-hidden)
+        // streaming row that nothing ever finalizes, double-rendering
+        // Suzu's prose. Truncating the reveal here (showing the full text
+        // immediately instead of finishing the animation) is an acceptable
+        // degradation — same "pops in whole" tradeoff already accepted for
+        // the durable poll-claim race — the invariant that matters is
+        // exactly ONE row. The streamMode branch above (~2091) already
+        // clears this same ref for the identical reason; this mirrors it.
+        if (revealRef.current) {
+          clearInterval(revealRef.current);
+          revealRef.current = null;
+        }
         // Streamed path — the narration is already live in the bottom log as
         // an aria-hidden streaming row. T1 (TAV-S1): finalize by REMOUNTING a
         // fresh, non-hidden row (new id) in its place rather than mutating
@@ -3897,6 +3940,19 @@ export default function PlayPage() {
   const title = sessionTitle(session ?? {});
   const combatIsActive = !!combatId && combatState?.state !== 'ended';
 
+  // TAV-NARRATION-DECOUPLE (2026-07-25) — NarratorStrip's combat-status
+  // banner: an "if easy" glance at turn order, derived straight from the
+  // already-fetched combatState (no extra request). `combatState.initiative`
+  // is the ordered list of participant_ids (mirrors CombatSession's own
+  // initiative_order); mapped to display names and filtered defensively
+  // (a stale/unknown id — e.g. a monster removed mid-encounter — just drops
+  // out rather than rendering "undefined").
+  const narratorInitiativeOrder = combatIsActive && combatState
+    ? combatState.initiative
+        .map((id) => combatState.participants.find((p) => p.participant_id === id)?.name)
+        .filter((name): name is string => !!name)
+    : [];
+
   // B2-4: is the logged-in user the session DM?
   const isDm = !!(session?.dm_username && username &&
     session.dm_username.toLowerCase() === username.toLowerCase());
@@ -3995,6 +4051,22 @@ export default function PlayPage() {
       exploring
     </Pill>
   );
+  // Iro-A11y CRITICAL (review pass) — NarratorStrip's OWN combat line
+  // already states "Round N" explicitly (see its `combatParts`); embedding
+  // the full `statusPill` (which ALSO says "round N") in its `status` slot
+  // restated the round twice in the same node — visually redundant for
+  // sighted users, and (independent of NarratorStrip's aria-live="off"
+  // combat gate, which only suppresses AUTOMATIC announcement) still
+  // double-read verbatim by a screen reader user browsing the DOM manually.
+  // Scoped to ONLY the NarratorStrip prop — the aiOffStatus fallback below
+  // (ai_assist_level='off', no NarratorStrip/combat line rendered at all)
+  // still uses the full `statusPill` with its round, since nothing else on
+  // that path states it.
+  const narratorStatusPill = combatIsActive ? (
+    <Pill tone="lav" dot>
+      combat
+    </Pill>
+  ) : statusPill;
 
   const mobileClass =
     mobileView === 'scene'
@@ -4381,11 +4453,21 @@ export default function PlayPage() {
 
       {/* CENTRE — narrator + log + composer */}
       <main id="play-pane-story" className={`${styles.pane} ${styles.center}`}>
-        {/* S5.5: NarratorStrip (Suzu commentary panel) hidden when ai_assist_level='off'.
+        {/* S5.5: NarratorStrip (now a scene/combat status banner — see the
+            component's own doc comment) hidden when ai_assist_level='off'.
             When hidden, the combat status pill is surfaced inline so turn/round info
             remains visible. */}
         {showSuzuPanel ? (
-          <NarratorStrip text={narratorText} talking={talking} status={statusPill} />
+          <NarratorStrip
+            talking={talking}
+            sceneName={grounding?.scene_name ?? null}
+            objective={grounding?.objective ?? null}
+            combatActive={combatIsActive}
+            round={round}
+            turnStatusText={turnStatusText}
+            initiativeOrder={narratorInitiativeOrder}
+            status={narratorStatusPill}
+          />
         ) : (
           <div className={styles.aiOffStatus} role="status" aria-live="polite">
             {statusPill}
@@ -4408,6 +4490,7 @@ export default function PlayPage() {
           rows={log}
           thinking={thinking || resumeThinking}
           thinkingLabel={resumeThinking ? "Resuming Suzu's turn…" : undefined}
+          participants={participants}
         />
         {/* DDX-25: ONE persistent live region for session pause/end — mirrors
             the Iro MEDIUM-2 turn-status pattern just below (always mounted,

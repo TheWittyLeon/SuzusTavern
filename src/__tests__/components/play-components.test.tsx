@@ -15,19 +15,49 @@ import InitiativeTracker, { type InitEntry } from '@/components/InitiativeTracke
 import type { Participant } from '@/lib/api/types';
 
 describe('NarratorStrip', () => {
-  it('shows the narration text', () => {
-    render(<NarratorStrip text="The chimney smells of soot." />);
-    expect(screen.getByText('The chimney smells of soot.')).toBeInTheDocument();
+  it('shows the scene name + objective out of combat', () => {
+    render(<NarratorStrip sceneName="The Sooty Chimney" objective="Find the source of the smell." />);
+    expect(
+      screen.getByText('The Sooty Chimney — Find the source of the smell.'),
+    ).toBeInTheDocument();
   });
 
-  it('shows a narrating placeholder while talking with no text yet', () => {
-    render(<NarratorStrip text="" talking />);
-    expect(screen.getByText(/Suzu is narrating/i)).toBeInTheDocument();
+  it('shows an idle hint when there is no scene yet', () => {
+    render(<NarratorStrip />);
+    expect(screen.getByText(/Suzu is setting the scene/i)).toBeInTheDocument();
   });
 
-  it('shows an idle hint when empty and not talking', () => {
-    render(<NarratorStrip text="" />);
-    expect(screen.getByText(/Suzu is listening/i)).toBeInTheDocument();
+  it('shows combat status (round + whose turn) when combatActive, not the scene', () => {
+    render(
+      <NarratorStrip
+        sceneName="The Sooty Chimney"
+        objective="Find the source of the smell."
+        combatActive
+        round={2}
+        turnStatusText="Your turn!"
+      />,
+    );
+    expect(screen.getByText(/Round 2 — Your turn!/)).toBeInTheDocument();
+    expect(screen.queryByText(/The Sooty Chimney/)).not.toBeInTheDocument();
+  });
+
+  it('appends the initiative order when provided during combat', () => {
+    render(
+      <NarratorStrip
+        combatActive
+        round={1}
+        turnStatusText="Monster turn — Goblin"
+        initiativeOrder={['Goblin', 'Anomaly', 'Velka']}
+      />,
+    );
+    expect(
+      screen.getByText('Round 1 — Monster turn — Goblin — Order: Goblin, Anomaly, Velka'),
+    ).toBeInTheDocument();
+  });
+
+  it('shows an idle combat hint when combatActive but combatState has not loaded yet', () => {
+    render(<NarratorStrip combatActive />);
+    expect(screen.getByText(/Combat is underway/i)).toBeInTheDocument();
   });
 });
 
@@ -56,6 +86,113 @@ describe('ChatLog', () => {
   it('renders a thinking row when thinking', () => {
     render(<ChatLog rows={[]} thinking />);
     expect(screen.getByText(/narrating/i)).toBeInTheDocument();
+  });
+
+  describe('ST-CHARLABEL — "CharacterName (username)" player-row speaker labels', () => {
+    const PARTICIPANTS: Participant[] = [
+      {
+        username: 'alice',
+        is_dm: false,
+        character: {
+          character_id: 'c1',
+          name: 'Velka',
+          char_class: 'Rogue',
+          level: 3,
+          current_hp: 18,
+          max_hp: 20,
+          ac: 14,
+        },
+      },
+      {
+        username: 'bob',
+        is_dm: false,
+        // No character bound yet — the map-miss fallback case.
+        character: null,
+      },
+    ];
+
+    it('renders "CharacterName (username)" for a player row with a bound character', () => {
+      render(
+        <ChatLog
+          rows={[{ id: '1', who: 'alice', kind: 'player', text: 'I sneak in.', ts: '20:00' }]}
+          participants={PARTICIPANTS}
+        />,
+      );
+      expect(screen.getByText('Velka (alice)')).toBeInTheDocument();
+      expect(screen.queryByText('alice', { exact: true })).not.toBeInTheDocument();
+    });
+
+    it('falls back to the bare username for a player row with no bound character', () => {
+      render(
+        <ChatLog
+          rows={[{ id: '1', who: 'bob', kind: 'player', text: 'I look around.', ts: '20:00' }]}
+          participants={PARTICIPANTS}
+        />,
+      );
+      expect(screen.getByText('bob')).toBeInTheDocument();
+    });
+
+    it('falls back to the bare username when participants is omitted (pre-existing callers unaffected)', () => {
+      render(
+        <ChatLog
+          rows={[{ id: '1', who: 'alice', kind: 'player', text: 'I sneak in.', ts: '20:00' }]}
+        />,
+      );
+      expect(screen.getByText('alice')).toBeInTheDocument();
+    });
+
+    it('leaves Suzu/Scene/DM/Table rows literal even when the name happens to match a username', () => {
+      const rows: LogRow[] = [
+        { id: '1', who: 'Suzu', kind: 'narration', text: 'The floor groans.', ts: '20:00' },
+        { id: '2', who: 'Scene', kind: 'read_aloud_line', text: 'Welcome, travelers.', ts: '20:01' },
+        { id: '3', who: 'DM (alice)', kind: 'dm_override', text: 'The lock was already broken.', ts: '20:02' },
+        // Deliberately keyed to match PARTICIPANTS' username so a regression
+        // that stops gating on `kind === 'player'` would relabel this too.
+        { id: '4', who: 'alice', kind: 'system', text: 'alice rolled a natural 20.', ts: '20:03' },
+      ];
+      render(<ChatLog rows={rows} participants={PARTICIPANTS} />);
+      expect(screen.getByText('Suzu')).toBeInTheDocument();
+      expect(screen.getByText('Scene')).toBeInTheDocument();
+      expect(screen.getByText('DM (alice)')).toBeInTheDocument();
+      // The system row's speaker span is the bare "alice", not "Velka (alice)".
+      const systemRow = screen.getByText('alice rolled a natural 20.').closest('.row');
+      expect(systemRow).not.toBeNull();
+      expect(within(systemRow as HTMLElement).getByText('alice')).toBeInTheDocument();
+      expect(within(systemRow as HTMLElement).queryByText('Velka (alice)')).not.toBeInTheDocument();
+    });
+
+    it('preserves the player row color accent alongside the character label', () => {
+      render(
+        <ChatLog
+          rows={[
+            {
+              id: '1',
+              who: 'alice',
+              kind: 'player',
+              text: 'I sneak in.',
+              ts: '20:00',
+              color: 'var(--accent)',
+            },
+          ]}
+          participants={PARTICIPANTS}
+        />,
+      );
+      const label = screen.getByText('Velka (alice)');
+      // The color is applied to the wrapping .who element, not the span itself.
+      expect(label.closest(`.${'who'}`) || label.parentElement).toHaveStyle({
+        color: 'var(--accent)',
+      });
+    });
+
+    it('is case-insensitive when matching `who` against the roster username', () => {
+      render(
+        <ChatLog
+          rows={[{ id: '1', who: 'Alice', kind: 'player', text: 'I sneak in.', ts: '20:00' }]}
+          participants={PARTICIPANTS}
+        />,
+      );
+      expect(screen.getByText('Velka (Alice)')).toBeInTheDocument();
+    });
   });
 });
 

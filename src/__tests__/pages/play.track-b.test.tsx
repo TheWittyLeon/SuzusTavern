@@ -18,6 +18,30 @@ jest.mock('next/navigation', () => ({
   useParams: () => ({ sessionId: 's1' }),
 }));
 
+/**
+ * Iro-A11y CRITICAL (review pass) — the repurposed NarratorStrip's combat
+ * banner VISUALLY restates the same turn-status text as the pre-existing
+ * "Iro MEDIUM-2" persistent live region (page.tsx, near the composer), but
+ * NarratorStrip's own `aria-live` is forced to `'off'` during combat so a
+ * screen reader is only ever announced the text ONCE (from the MEDIUM-2
+ * region, which stays `polite`). jsdom has no real AT, so this walks the
+ * nearest ancestor carrying an `aria-live` attribute for each matching
+ * element and keeps only the ones under a `polite` (not `'off'`) region —
+ * i.e. the SR-VISIBLE occurrences, which must be exactly one.
+ */
+function nearestAriaLive(el: HTMLElement): string | null {
+  let node: HTMLElement | null = el;
+  while (node) {
+    const live = node.getAttribute('aria-live');
+    if (live) return live;
+    node = node.parentElement;
+  }
+  return null;
+}
+function srVisibleMatches(regex: RegExp): HTMLElement[] {
+  return screen.getAllByText(regex).filter((el) => nearestAriaLive(el) === 'polite');
+}
+
 const mockToast = jest.fn();
 jest.mock('../../components/Toast', () => ({
   useToast: () => ({ toast: mockToast }),
@@ -294,9 +318,20 @@ describe('B1-4 — per-user isPlayerTurn', () => {
     render(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
+    // TAV-NARRATION-DECOUPLE: the SAME status text also VISUALLY appears
+    // (folded into a longer "Round N — Waiting on Mira's turn..." line)
+    // inside the repurposed NarratorStrip combat banner — but Iro-A11y
+    // CRITICAL requires it be SR-announced from only ONE place (the
+    // pre-existing Iro MEDIUM-2 persistent live region), so NarratorStrip's
+    // own aria-live is muted ('off') during combat. Assert exactly one
+    // SR-visible (aria-live="polite") occurrence, not merely >0.
     await waitFor(() => {
-      expect(screen.getByText(/Waiting on Mira/i)).toBeInTheDocument();
+      expect(srVisibleMatches(/Waiting on Mira/i)).toHaveLength(1);
     });
+    // Sanity: the text is still visually present twice (banner + region) —
+    // this proves the assertion above isn't vacuously true because there's
+    // only one occurrence in the DOM at all.
+    expect(screen.getAllByText(/Waiting on Mira/i).length).toBeGreaterThan(1);
   });
 
   it('shows monster turn status when a monster has the active turn', async () => {
@@ -308,8 +343,9 @@ describe('B1-4 — per-user isPlayerTurn', () => {
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() => {
-      expect(screen.getByText(/Monster turn.*Goblin/i)).toBeInTheDocument();
+      expect(srVisibleMatches(/Monster turn.*Goblin/i)).toHaveLength(1);
     });
+    expect(screen.getAllByText(/Monster turn.*Goblin/i).length).toBeGreaterThan(1);
   });
 
   it('shows "Your turn" status when it is the logged-in user turn', async () => {
@@ -321,8 +357,9 @@ describe('B1-4 — per-user isPlayerTurn', () => {
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() => {
-      expect(screen.getByText(/Your turn/i)).toBeInTheDocument();
+      expect(srVisibleMatches(/Your turn/i)).toHaveLength(1);
     });
+    expect(screen.getAllByText(/Your turn/i).length).toBeGreaterThan(1);
   });
 
   it('solo regression: one PC bound, action rail enabled on PC turn (same as before)', async () => {
@@ -693,7 +730,7 @@ describe('B3-1 — outcome chooser', () => {
 // ── CR-pass: persistent turn-status live region ───────────────────────────────
 
 describe('Iro MEDIUM-2 — persistent turn-status live region', () => {
-  it('turn-status text is inside a role=status region', async () => {
+  it('turn-status text is SR-announced from exactly one role=status/aria-live=polite region', async () => {
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
     mGetParticipants.mockResolvedValue(PARTY_ALICE);
     mGetCombatState.mockResolvedValue(COMBAT_VELKA_ACTIVE);
@@ -702,19 +739,31 @@ describe('Iro MEDIUM-2 — persistent turn-status live region', () => {
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() => {
-      const yourTurnEl = screen.getByText(/Your turn/i);
-      // Walk up to find the closest role=status ancestor.
-      let el: HTMLElement | null = yourTurnEl;
-      let found = false;
-      while (el) {
-        if (el.getAttribute('role') === 'status') { found = true; break; }
-        el = el.parentElement;
+      // Iro-A11y CRITICAL (review pass): "Your turn" also renders VISUALLY
+      // inside the NarratorStrip combat banner (also role=status), but its
+      // aria-live is forced to 'off' during combat — only the Iro MEDIUM-2
+      // region (role=status, aria-live=polite) may announce it. Every
+      // matching element must resolve to a role=status ancestor (unchanged
+      // invariant), AND exactly one of them must be under a `polite`
+      // (SR-announcing) region.
+      const yourTurnEls = screen.getAllByText(/Your turn/i);
+      expect(yourTurnEls.length).toBeGreaterThan(1); // still visually doubled
+      let politeCount = 0;
+      for (const yourTurnEl of yourTurnEls) {
+        let el: HTMLElement | null = yourTurnEl;
+        let foundStatusRole = false;
+        while (el) {
+          if (el.getAttribute('role') === 'status') { foundStatusRole = true; break; }
+          el = el.parentElement;
+        }
+        expect(foundStatusRole).toBe(true);
+        if (nearestAriaLive(yourTurnEl) === 'polite') politeCount += 1;
       }
-      expect(found).toBe(true);
+      expect(politeCount).toBe(1);
     });
   });
 
-  it('shows "Waiting on" text in the persistent turn-status region', async () => {
+  it('shows "Waiting on" text in the persistent turn-status region, and ONLY that region announces it', async () => {
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
     mGetParticipants.mockResolvedValue(PARTY_TWO_PLAYERS);
     mGetCombatState.mockResolvedValue(COMBAT_MIRA_ACTIVE);
@@ -722,18 +771,22 @@ describe('Iro MEDIUM-2 — persistent turn-status live region', () => {
     render(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
-    // The persistent turn-status region (role=status aria-atomic=true) must
-    // contain the waiting text. There may be multiple role=status nodes in the
-    // page (NarratorStrip, combatNote); we target the one with aria-atomic.
+    // The persistent turn-status region (role=status aria-atomic=true,
+    // aria-live=polite) must contain the waiting text, and be the ONLY
+    // aria-live=polite region that does — NarratorStrip's own combat banner
+    // shows the same text but is muted (aria-live="off") during combat.
     await waitFor(() => {
       const atomicStatuses = document.querySelectorAll(
         '[role="status"][aria-live="polite"][aria-atomic="true"]',
       );
-      const waitingEl = Array.from(atomicStatuses).find(
-        (el) => /Waiting on Mira/i.test(el.textContent ?? ''),
+      const waitingEls = Array.from(atomicStatuses).filter((el) =>
+        /Waiting on Mira/i.test(el.textContent ?? ''),
       );
-      expect(waitingEl).toBeTruthy();
+      expect(waitingEls).toHaveLength(1);
     });
+    // Sanity: not vacuous — the text is still visually present more than
+    // once in the DOM (banner + region), just not double-announced.
+    expect(screen.getAllByText(/Waiting on Mira/i).length).toBeGreaterThan(1);
   });
 });
 

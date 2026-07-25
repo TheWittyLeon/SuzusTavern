@@ -11,11 +11,13 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   type ReactNode,
 } from 'react';
 import Die from '@/components/Die';
 import Waveform from '@/components/Waveform';
+import type { Participant } from '@/lib/api/types';
 import styles from './ChatLog.module.css';
 
 /**
@@ -109,6 +111,13 @@ export interface ChatLogProps {
    *  affordance (flag-ON only) — distinct copy, same aria-live="polite"
    *  announce-once mechanism (the row mounts/unmounts with `thinking`). */
   thinkingLabel?: string;
+  /** Session roster (page.tsx's `participants`, the raw `GET .../participants`
+   *  join) — used ONLY to resolve a `kind:'player'` row's bound character
+   *  name for the "CharacterName (username)" speaker label below. Optional:
+   *  omitted/empty degrades gracefully to the bare username (existing
+   *  behaviour), so every pre-existing caller/test that doesn't pass it
+   *  keeps rendering exactly as before. */
+  participants?: Participant[];
 }
 
 /** Imperative handle so the play screen can re-pin the log after a mobile
@@ -118,7 +127,7 @@ export interface ChatLogHandle {
 }
 
 const ChatLog = forwardRef<ChatLogHandle, ChatLogProps>(function ChatLog(
-  { rows, thinking = false, thinkingLabel = 'narrating…' },
+  { rows, thinking = false, thinkingLabel = 'narrating…', participants = [] },
   handleRef,
 ) {
   const ref = useRef<HTMLDivElement>(null);
@@ -126,6 +135,19 @@ const ChatLog = forwardRef<ChatLogHandle, ChatLogProps>(function ChatLog(
   // they are — so scrolling UP to re-read history isn't yanked back down by a
   // new line / narration completing (Tora S3.3 MAJOR-1).
   const atBottom = useRef(true);
+
+  // Character-label lookup (username -> bound character name), lower-cased
+  // key so a rehydrated row's `who` (server casing) matches the roster's
+  // username regardless of case. Rebuilt only when the roster identity
+  // changes (page.tsx refetches participants on load/rebind, not every
+  // poll tick), NOT per row/render.
+  const characterNameByUsername = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of participants) {
+      if (p.character?.name) map.set(p.username.toLowerCase(), p.character.name);
+    }
+    return map;
+  }, [participants]);
 
   const pin = useCallback((behavior: ScrollBehavior = 'auto') => {
     const el = ref.current;
@@ -189,6 +211,19 @@ const ChatLog = forwardRef<ChatLogHandle, ChatLogProps>(function ChatLog(
           );
         }
 
+        // ST-CHARLABEL: player-kind rows only — `who` is polymorphic for every
+        // OTHER kind ('Suzu', 'Scene', a human `DM (username)` label, 'Table',
+        // read_aloud/read_aloud_line speakers) and must stay literal. A player
+        // row with no bound character (map miss) falls back to the bare
+        // username, unchanged from today.
+        const speakerLabel =
+          r.kind === 'player'
+            ? (() => {
+                const charName = characterNameByUsername.get(r.who.toLowerCase());
+                return charName ? `${charName} (${r.who})` : r.who;
+              })()
+            : r.who;
+
         return (
           <div
             key={r.id}
@@ -201,7 +236,7 @@ const ChatLog = forwardRef<ChatLogHandle, ChatLogProps>(function ChatLog(
           >
             <div className={styles.who} style={r.color ? { color: r.color } : undefined}>
               <span>
-                {r.who}
+                {speakerLabel}
                 {r.kind === 'dm_override' && (
                   <span className="sr-only"> — DM ruling</span>
                 )}

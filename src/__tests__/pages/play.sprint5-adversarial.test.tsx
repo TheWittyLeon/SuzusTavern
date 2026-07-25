@@ -346,7 +346,7 @@ describe('ADV-S5.5D — stale client state: server truth wins on re-mount', () =
     const { unmount } = render(<PlayPage />);
     await waitFor(() => expect(mockGetSession).toHaveBeenCalled());
     await act(async () => { await Promise.resolve(); });
-    expect(screen.queryByText(/Suzu is listening/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Suzu is setting the scene/i)).not.toBeInTheDocument();
     unmount();
 
     // Mount 2: server now returns full — NarratorStrip MUST appear.
@@ -362,8 +362,9 @@ describe('ADV-S5.5D — stale client state: server truth wins on re-mount', () =
 
     render(<PlayPage />);
     await waitFor(() => expect(mockGetSession).toHaveBeenCalled());
-    await act(async () => { await Promise.resolve(); });
-    expect(screen.getByText(/Suzu is listening/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/Suzu is setting the scene/i)).toBeInTheDocument();
+    });
   });
 });
 
