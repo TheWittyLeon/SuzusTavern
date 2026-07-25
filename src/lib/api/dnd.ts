@@ -61,6 +61,7 @@ import type {
   SpellListResult,
   SpellSlotsResult,
   SpendCurrencyResult,
+  StartingEquipmentResult,
   SubmitOverrideRequest,
   SystemDefinition,
   WriteSessionEventRequest,
@@ -286,6 +287,28 @@ export const spendCurrency = (
   apiCall<SpendCurrencyResult>(
     `/api/dnd/characters/${encodeURIComponent(characterId)}/currency/spend`,
     { method: 'POST', json: { amount }, signal },
+  );
+
+/**
+ * 2026-07-24 Starting Equipment design — per-class + per-background SRD gear
+ * packages for the creation wizard's Equipment step.
+ * GET /api/dnd/starting-equipment?class=<name>&background=<name>
+ *
+ * Confirmed against NekoNova-DnDEngine's routes/starting_equipment.py: unknown
+ * class/background resolves to an EMPTY package (`{fixed: [], choices: []}`),
+ * never a 4xx — the wizard degrades to "no starting gear" for that half
+ * rather than blocking creation. No character_id is required — unlike
+ * getAvailableSpells, starting equipment is a pure function of class+
+ * background, so this is fetchable the moment both are chosen.
+ */
+export const getStartingEquipment = (
+  charClass: string,
+  background: string,
+  signal?: AbortSignal,
+) =>
+  apiCall<StartingEquipmentResult>(
+    `/api/dnd/starting-equipment?class=${encodeURIComponent(charClass)}&background=${encodeURIComponent(background)}`,
+    { method: 'GET', signal },
   );
 
 /**

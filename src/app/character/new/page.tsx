@@ -7,10 +7,22 @@
  * deleted (S2.4). If the catalog fetch fails, the wizard shows an error/retry
  * state — it does not fall back to a hardcoded list.
  *
- * 5 steps for a non-caster: Race → Class → Abilities (27-point buy) →
- * Background → Review. A CASTER class (wizard/cleric/sorcerer/…, gated on
- * WizardClass.isCaster — see helpers.ts's CLASS_CASTER_KIND) gets a 6th
- * "Spells" step inserted between Background and Review (T4/DDX-11t).
+ * 6 steps for a non-caster: Race → Class → Abilities (27-point buy) →
+ * Background → Equipment → Review. A CASTER class (wizard/cleric/sorcerer/…,
+ * gated on WizardClass.isCaster — see helpers.ts's CLASS_CASTER_KIND) gets a
+ * 7th "Spells" step inserted between Equipment and Review (T4/DDX-11t).
+ *
+ * Equipment (2026-07-24 Starting Equipment design) sits after Background (a
+ * background contributes its own gear package) and before Spells (so the
+ * caster silent-create — see below — fires with equipment_selections already
+ * collected). It applies to EVERY class, caster or not. On entering the step
+ * the wizard fetches GET /api/dnd/starting-equipment?class=&background= (no
+ * character required — a pure function of class+background) and renders each
+ * package's fixed grants read-only plus one radio group per choice, defaulted
+ * to each choice's first option so a player who breezes through still gets
+ * valid gear. A failed fetch degrades gracefully (allow proceeding — creation
+ * just goes gearless, matching the engine's fail-open/no-selections-sent
+ * no-op contract) rather than hard-blocking Continue.
  *
  * TAV-CREATE-SUBRACE-ASI-PICKER: the Race step grows two optional inline
  * sub-pickers once a race is chosen — a subrace radiogroup (any race whose
@@ -32,11 +44,13 @@
  * spell route is character-scoped, and CharacterCreateRequest has no spells/
  * cantrips field for the engine to consume even if we wanted to send one).
  * So for a caster, the character is created SILENTLY when leaving the
- * Background step (Continue → Spells) rather than at Review — the Spells
- * step then fetches the real pool/budget for that just-created character via
- * getAvailableSpells, same hop the shipped sheet Spells tab (SpellbookPanel)
- * uses. Review still reads as the final look (now including the spells you
- * picked) and "Begin your campaign" still does exactly one thing per path:
+ * Equipment step (Continue → Spells) rather than at Review — by then
+ * equipment_selections are collected, so the silent create's payload carries
+ * real starting gear too. The Spells step then fetches the real pool/budget
+ * for that just-created character via getAvailableSpells, same hop the
+ * shipped sheet Spells tab (SpellbookPanel) uses. Review still reads as the
+ * final look (now including the spells you picked) and "Begin your campaign"
+ * still does exactly one thing per path:
  * non-caster → create the character; caster → the character already exists,
  * so this batch-applies the picks via learnSpell/prepareSpell (sequential,
  * best-effort — a failed pick surfaces a toast but does not block navigating
@@ -79,6 +93,7 @@ import {
   deleteCharacter,
   getAvailableSpells,
   getCatalog,
+  getStartingEquipment,
   learnSpell,
   prepareSpell,
 } from '@/lib/api/dnd';
@@ -118,10 +133,12 @@ import type {
   AvailableSpellEntry,
   AvailableSpellsResult,
   CatalogSpellData,
+  EquipmentSelection,
+  StartingEquipmentResult,
 } from '@/lib/api/types';
 import styles from './CharacterCreate.module.css';
 
-type StepKey = 'race' | 'class' | 'abilities' | 'background' | 'spells' | 'review';
+type StepKey = 'race' | 'class' | 'abilities' | 'background' | 'equipment' | 'spells' | 'review';
 
 interface StepMeta {
   key: StepKey;
@@ -130,10 +147,11 @@ interface StepMeta {
   intro: string;
 }
 
-// Base 5 steps, always present. "Spells" (T4/DDX-11t) is spliced in between
-// Background and Review — ONLY for a caster class — by buildSteps below, so
-// the kicker ("Step N of TOTAL") and every index-sensitive bit of UI derives
-// from the built array's length/position rather than a hardcoded "of 5".
+// Base 6 steps, always present (Equipment applies to every class — see the
+// module doc comment). "Spells" (T4/DDX-11t) is spliced in between Equipment
+// and Review — ONLY for a caster class — by buildSteps below, so the kicker
+// ("Step N of TOTAL") and every index-sensitive bit of UI derives from the
+// built array's length/position rather than a hardcoded "of 6".
 const BASE_STEPS: readonly StepMeta[] = [
   {
     key: 'race',
@@ -161,6 +179,13 @@ const BASE_STEPS: readonly StepMeta[] = [
     heading: 'Where did you come from?',
     intro:
       'Background gives Suzu something to needle you about for forty sessions. Pick one. Tell her your name.',
+  },
+  {
+    key: 'equipment',
+    t: 'Equipment',
+    heading: 'What did you bring?',
+    intro:
+      "Your class and background both chip in gear. Some of it's fixed; some of it you choose. Suzu already picked the first option for everything — change your mind wherever you like.",
   },
 ];
 
@@ -196,6 +221,23 @@ interface CreatedSnapshot {
   halfElfAsi: AbilityKey[];
   background: string;
   scores: AbilityScores;
+  /** 2026-07-24 Starting Equipment design §5.3 — canonicalized
+   *  `{choiceId: optionId}` selections (see canonicalizeEquipmentSelections),
+   *  so a post-silent-create equipment change is caught by snapshotsEqual the
+   *  same way a race/background edit already is. */
+  equipment: string;
+}
+
+/**
+ * Order-independent, stable string form of an equipment-selections map — two
+ * Records with the same entries in a different insertion order must compare
+ * equal (mirrors halfElfAsi's own sort-before-compare for the same reason).
+ */
+function canonicalizeEquipmentSelections(sel: Record<string, string>): string {
+  return Object.keys(sel)
+    .sort()
+    .map((choiceId) => `${choiceId}=${sel[choiceId]}`)
+    .join('|');
 }
 
 function abilityScoresEqual(a: AbilityScores, b: AbilityScores): boolean {
@@ -217,7 +259,8 @@ function snapshotsEqual(a: CreatedSnapshot, b: CreatedSnapshot): boolean {
     a.background === b.background &&
     a.halfElfAsi.length === b.halfElfAsi.length &&
     a.halfElfAsi.every((k, i) => k === b.halfElfAsi[i]) &&
-    abilityScoresEqual(a.scores, b.scores)
+    abilityScoresEqual(a.scores, b.scores) &&
+    a.equipment === b.equipment
   );
 }
 
@@ -321,6 +364,21 @@ export default function CharacterNewPage(): ReactNode {
   const [spellCantrips, setSpellCantrips] = useState<Set<string>>(new Set());
   const [spellLeveled, setSpellLeveled] = useState<Set<string>>(new Set());
 
+  // 2026-07-24 Starting Equipment design — {choiceId: optionId}, one entry per
+  // EquipChoice group across both the class and background packages. Defaults
+  // to each choice's first option the moment the Equipment step's fetch
+  // resolves (EquipmentStep's effect calls setEquipmentSelections). `ready`
+  // choiceIds/loadState mirror what the LAST successful/failed fetch found —
+  // used both to gate this step's Continue and to decide whether createNow
+  // sends equipment_selections at all (omitted entirely on a failed fetch, so
+  // the engine's own no-selections-sent no-op gate keeps that path gearless,
+  // exactly like today).
+  const [equipmentSelections, setEquipmentSelections] = useState<Record<string, string>>({});
+  const [equipmentChoiceIds, setEquipmentChoiceIds] = useState<string[]>([]);
+  const [equipmentLoadState, setEquipmentLoadState] = useState<'loading' | 'ok' | 'error'>(
+    'loading',
+  );
+
   const headingRef = useRef<HTMLHeadingElement>(null);
   const errorRetryRef = useRef<HTMLButtonElement>(null);
   const mountedRef = useRef(false);
@@ -385,6 +443,14 @@ export default function CharacterNewPage(): ReactNode {
       setCreatedSnapshot(null);
       setSpellCantrips(new Set());
       setSpellLeveled(new Set());
+      // A class change invalidates the class half of the equipment package
+      // too (different class → different fixed grants/choice groups) — clear
+      // selections/choiceIds so a stale pick can't survive onto the new
+      // class's create payload; EquipmentStep re-fetches and re-defaults the
+      // moment the player reaches the step again.
+      setEquipmentSelections({});
+      setEquipmentChoiceIds([]);
+      setEquipmentLoadState('loading');
     }
   }, [cls]);
 
@@ -449,13 +515,50 @@ export default function CharacterNewPage(): ReactNode {
         return remaining >= 0;
       case 'background':
         return !!background && name.trim().length > 0;
+      case 'equipment':
+        // A failed fetch (equipmentLoadState === 'error') must never block
+        // Continue — creation just goes gearless (see the module doc
+        // comment). While still loading, block (nothing to default-select
+        // yet). Once 'ok', every discovered choice group must have a pick —
+        // EquipmentStep defaults them all to their first option on fetch
+        // success, so in practice this only blocks mid-fetch.
+        return (
+          equipmentLoadState !== 'loading' &&
+          (equipmentLoadState === 'error' ||
+            equipmentChoiceIds.every((id) => !!equipmentSelections[id]))
+        );
       // 'spells' and 'review' — the Spells step is optional (pick as few or
       // as many as you like up to budget); Review's Continue is the submit
       // button, gated separately by canSubmit below.
       default:
         return true;
     }
-  }, [stepKey, race, raceHasSubraces, subrace, raceNeedsAsi, halfElfAsi, cls, remaining, background, name]);
+  }, [
+    stepKey,
+    race,
+    raceHasSubraces,
+    subrace,
+    raceNeedsAsi,
+    halfElfAsi,
+    cls,
+    remaining,
+    background,
+    name,
+    equipmentLoadState,
+    equipmentChoiceIds,
+    equipmentSelections,
+  ]);
+
+  // 2026-07-24 Starting Equipment design — same defensive backstop rationale
+  // as the subrace/ASI checks below: the Equipment step's own canContinue
+  // already blocks Continue on an incomplete choice, but the silent-create
+  // branch (handleContinue, equipment -> spells) re-checks this before firing
+  // so a caster's create is never attempted mid-fetch or with a choice gap.
+  // A failed fetch is NOT a gap here (equipmentLoadState === 'error' means
+  // equipmentChoiceIds is already [] — the `every` is vacuously true).
+  const equipmentReady =
+    equipmentLoadState !== 'loading' &&
+    equipmentChoiceIds.every((id) => !!equipmentSelections[id]);
 
   const canCreatePrereqs =
     !!username &&
@@ -465,7 +568,8 @@ export default function CharacterNewPage(): ReactNode {
     name.trim().length > 0 &&
     remaining >= 0 &&
     (!raceHasSubraces || !!subrace) &&
-    (!raceNeedsAsi || halfElfAsi.length === 2);
+    (!raceNeedsAsi || halfElfAsi.length === 2) &&
+    equipmentReady;
 
   // TAV-CREATE-DEADEND-DIAGNOSABLE: canCreatePrereqs's own "why". In practice
   // the race/class/background gaps below are already blocked by canContinue
@@ -484,8 +588,21 @@ export default function CharacterNewPage(): ReactNode {
     if (remaining < 0) return 'Your ability scores are over budget — spend 27 points or fewer.';
     if (!bgObj) return 'Pick a background before continuing.';
     if (!name.trim()) return 'Give your character a name before continuing.';
+    if (!equipmentReady) return 'Choose your starting equipment before continuing.';
     return null;
-  }, [username, raceObj, raceHasSubraces, subrace, raceNeedsAsi, halfElfAsi, clsObj, remaining, bgObj, name]);
+  }, [
+    username,
+    raceObj,
+    raceHasSubraces,
+    subrace,
+    raceNeedsAsi,
+    halfElfAsi,
+    clsObj,
+    remaining,
+    bgObj,
+    name,
+    equipmentReady,
+  ]);
 
   const canSubmit = canCreatePrereqs && !submitting;
 
@@ -502,8 +619,9 @@ export default function CharacterNewPage(): ReactNode {
       halfElfAsi: raceNeedsAsi ? [...halfElfAsi].sort() : [],
       background: bgObj?.name ?? '',
       scores: { ...scores },
+      equipment: canonicalizeEquipmentSelections(equipmentSelections),
     }),
-    [name, raceObj, subrace, raceNeedsAsi, halfElfAsi, bgObj, scores],
+    [name, raceObj, subrace, raceNeedsAsi, halfElfAsi, bgObj, scores, equipmentSelections],
   );
 
   // POST /api/dnd/characters. Shared by handleContinue's silent caster-path
@@ -513,6 +631,22 @@ export default function CharacterNewPage(): ReactNode {
     if (!username || !raceObj || !clsObj || !bgObj || !name.trim()) {
       throw new Error('missing required fields');
     }
+    // 2026-07-24 Starting Equipment design §4.1/§6 — the presence gate IS the
+    // kill-switch: only send equipment_selections when the Equipment step's
+    // fetch actually resolved ('ok'). A failed fetch omits the field entirely
+    // (undefined, not []) so the engine's `_apply_starting_equipment` stamp
+    // no-ops exactly as it does for a pre-this-feature/Twitch create — never
+    // send [] as a stand-in for "fetch failed" (that would still grant every
+    // FIXED item, a different and wrong degraded behavior). Filtered to only
+    // the choiceIds from the LAST successful fetch — a stale key left over
+    // from a since-changed class/background is dropped rather than sent as a
+    // phantom selection.
+    const equipmentSelectionsPayload: EquipmentSelection[] | undefined =
+      equipmentLoadState === 'ok'
+        ? equipmentChoiceIds
+            .filter((id) => !!equipmentSelections[id])
+            .map((choice_id) => ({ choice_id, option_id: equipmentSelections[choice_id] }))
+        : undefined;
     const created = await createCharacter({
       username,
       name: name.trim(),
@@ -525,19 +659,35 @@ export default function CharacterNewPage(): ReactNode {
       // ASI submitted for a non-Half-Elf race.
       subrace: subrace ?? undefined,
       half_elf_asi: raceNeedsAsi && halfElfAsi.length === 2 ? halfElfAsi : undefined,
+      equipment_selections: equipmentSelectionsPayload,
     });
     if (!created.character_id) throw new Error('missing character_id');
     return created.character_id;
-  }, [username, raceObj, clsObj, bgObj, name, scores, subrace, raceNeedsAsi, halfElfAsi]);
+  }, [
+    username,
+    raceObj,
+    clsObj,
+    bgObj,
+    name,
+    scores,
+    subrace,
+    raceNeedsAsi,
+    halfElfAsi,
+    equipmentLoadState,
+    equipmentChoiceIds,
+    equipmentSelections,
+  ]);
 
-  // Nav "Continue" — the ONE special case is Background -> Spells for a
+  // Nav "Continue" — the ONE special case is Equipment -> Spells for a
   // caster: the character must exist before the Spells step can fetch a real
   // pool/budget (see the module doc comment), so this is async there and
-  // synchronous everywhere else.
+  // synchronous everywhere else. Moved here (was Background -> Spells) by
+  // the 2026-07-24 Starting Equipment design so equipment_selections are
+  // already collected when this POST fires.
   const handleContinue = useCallback(async () => {
     const idx = steps.findIndex((s) => s.key === stepKey);
     const next = steps[idx + 1];
-    if (stepKey === 'background' && next?.key === 'spells' && !characterId) {
+    if (stepKey === 'equipment' && next?.key === 'spells' && !characterId) {
       if (!canCreatePrereqs) {
         // TAV-CREATE-DEADEND-DIAGNOSABLE: was a silent `return` — the user
         // stayed on Background with zero feedback. Surface the specific gap.
@@ -678,6 +828,8 @@ export default function CharacterNewPage(): ReactNode {
     suzuLine = name.trim()
       ? `${name.trim()}. Suzu likes the sound of it.`
       : 'Names matter. Even the ones you change later.';
+  else if (stepKey === 'equipment')
+    suzuLine = 'A pack, a weapon, something sharp for emergencies. Suzu already picked for you — check her work.';
   else if (stepKey === 'spells')
     suzuLine = 'Cantrips are free tricks. First-level spells are the ones that cost you a slot — spend wisely.';
   else
@@ -701,9 +853,11 @@ export default function CharacterNewPage(): ReactNode {
           ? `In one wry sentence, react to how I've spread my character's ability scores.`
           : stepKey === 'background'
             ? `In one wry sentence, react to my character's name and background: ${name.trim() || 'unnamed'}, ${bgObj?.name ?? 'no background yet'}.`
-            : stepKey === 'spells'
-              ? `In one wry sentence, react to my ${clsObj?.name ?? 'caster'} picking their starting spells.`
-              : `In one wry sentence, send off my finished character ${name.trim() || 'the adventurer'}, a ${raceObj?.name ?? ''} ${clsObj?.name ?? ''}.`;
+            : stepKey === 'equipment'
+              ? `In one wry sentence, react to my ${clsObj?.name ?? 'character'}'s starting gear choices.`
+              : stepKey === 'spells'
+                ? `In one wry sentence, react to my ${clsObj?.name ?? 'caster'} picking their starting spells.`
+                : `In one wry sentence, send off my finished character ${name.trim() || 'the adventurer'}, a ${raceObj?.name ?? ''} ${clsObj?.name ?? ''}.`;
   const {
     enabled: suzuEnabled,
     text: suzuStream,
@@ -724,7 +878,9 @@ export default function CharacterNewPage(): ReactNode {
         ? 'Select a class to continue.'
         : stepKey === 'background'
           ? 'Enter a name and choose a background to continue.'
-          : '';
+          : stepKey === 'equipment' && equipmentLoadState === 'loading'
+            ? 'Loading your starting equipment…'
+            : '';
 
   const totalSpellPicks = spellCantrips.size + spellLeveled.size;
   const railSub = (key: StepKey): string => {
@@ -740,6 +896,12 @@ export default function CharacterNewPage(): ReactNode {
       }
       case 'background':
         return bgObj?.name ?? (name.trim() ? name.trim() : '—');
+      case 'equipment': {
+        const chosen = equipmentChoiceIds.filter((id) => !!equipmentSelections[id]).length;
+        if (equipmentLoadState === 'error') return 'gearless';
+        if (equipmentChoiceIds.length === 0) return equipmentLoadState === 'ok' ? 'all set' : '—';
+        return `${chosen}/${equipmentChoiceIds.length} chosen`;
+      }
       case 'spells':
         return totalSpellPicks > 0 ? `${totalSpellPicks} chosen` : '—';
       default:
@@ -886,6 +1048,16 @@ export default function CharacterNewPage(): ReactNode {
                 onChange={setBackground}
                 name={name}
                 onName={setName}
+              />
+            )}
+            {stepKey === 'equipment' && (
+              <EquipmentStep
+                clsObj={clsObj}
+                bgObj={bgObj}
+                selections={equipmentSelections}
+                onSelectionsChange={setEquipmentSelections}
+                onChoiceIdsChange={setEquipmentChoiceIds}
+                onLoadStateChange={setEquipmentLoadState}
               />
             )}
             {stepKey === 'spells' && username && (
@@ -1319,6 +1491,193 @@ function BackgroundStep({
           </label>
         ))}
       </fieldset>
+    </div>
+  );
+}
+
+// ── Step: Equipment (2026-07-24 Starting Equipment design) ───────────────────
+// Applies to EVERY class (unlike Spells). Fetches GET /starting-equipment the
+// moment class+background are both known — no character required, a pure
+// function of the two. Renders each package's fixed grants read-only, then
+// one radio group per choice group (class package's choices first, then the
+// background package's), defaulted to each choice's first option on fetch
+// success so a player who breezes through still gets valid gear. A failed
+// fetch degrades gracefully — see the module doc comment — never hard-blocks.
+type EquipmentLoadState = 'loading' | 'ok' | 'error';
+
+function EquipmentStep({
+  clsObj,
+  bgObj,
+  selections,
+  onSelectionsChange,
+  onChoiceIdsChange,
+  onLoadStateChange,
+}: {
+  clsObj: WizardClass | undefined;
+  bgObj: WizardBackground | undefined;
+  selections: Record<string, string>;
+  onSelectionsChange: (next: Record<string, string>) => void;
+  onChoiceIdsChange: (ids: string[]) => void;
+  onLoadStateChange: (state: EquipmentLoadState) => void;
+}) {
+  const [result, setResult] = useState<StartingEquipmentResult | null>(null);
+  const [loadState, setLoadState] = useState<EquipmentLoadState>('loading');
+  // Read inside the fetch effect without making `selections` a dependency —
+  // re-running the fetch every time the player picks a radio would refetch
+  // (and briefly flash a loading state) on every click. Only class/background
+  // changes should re-fetch. Synced in its own effect (never during render —
+  // React's react-hooks/refs rule forbids mutating a ref's `.current` in the
+  // render body) so the fetch effect below always reads the latest value.
+  const selectionsRef = useRef(selections);
+  useEffect(() => {
+    selectionsRef.current = selections;
+  });
+
+  useEffect(() => {
+    if (!clsObj || !bgObj) return;
+    let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLoadState('loading');
+    onLoadStateChange('loading');
+    getStartingEquipment(clsObj.name, bgObj.name)
+      .then((data) => {
+        if (cancelled) return;
+        setResult(data);
+        setLoadState('ok');
+        onLoadStateChange('ok');
+        const ids: string[] = [];
+        const merged: Record<string, string> = {};
+        for (const pkg of [data.class_package, data.background_package]) {
+          for (const choice of pkg.choices) {
+            ids.push(choice.id);
+            const existing = selectionsRef.current[choice.id];
+            merged[choice.id] = existing ?? choice.options[0]?.id ?? '';
+          }
+        }
+        onChoiceIdsChange(ids);
+        onSelectionsChange(merged);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setResult(null);
+        setLoadState('error');
+        onLoadStateChange('error');
+        onChoiceIdsChange([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clsObj?.name, bgObj?.name]);
+
+  if (loadState === 'loading') {
+    return (
+      <p className={styles.spellHint} aria-busy="true" aria-live="polite">
+        Suzu is checking what your class and background bring to the table…
+      </p>
+    );
+  }
+
+  if (loadState === 'error' || !result) {
+    return (
+      <p className={styles.spellHint} role="alert">
+        Suzu couldn&rsquo;t load your starting gear right now — that&rsquo;s all right, you
+        can add items from the character sheet once it&rsquo;s created instead.
+      </p>
+    );
+  }
+
+  const packages = [
+    { label: `${clsObj?.name ?? 'Class'} gear`, pkg: result.class_package },
+    { label: `${bgObj?.name ?? 'Background'} gear`, pkg: result.background_package },
+  ];
+  const anyFixed = packages.some(({ pkg }) => pkg.fixed.length > 0);
+  const anyChoices = packages.some(({ pkg }) => pkg.choices.length > 0);
+
+  function grantLabel(grants: { name: string; qty: number }[]): string {
+    return grants.map((g) => (g.qty > 1 ? `${g.name} ×${g.qty}` : g.name)).join(', ');
+  }
+
+  return (
+    <div>
+      {anyFixed && (
+        <div className={styles.equipSection}>
+          <p className="label" style={{ marginBottom: 10 }}>
+            You start with
+          </p>
+          <ul className={styles.equipFixedList}>
+            {packages.flatMap(({ label, pkg }) =>
+              pkg.fixed.map((grant) => (
+                <li key={`${label}-${grant.slug}`} className={styles.equipFixedItem}>
+                  <span className={styles.equipFixedName}>
+                    {grant.qty > 1 ? `${grant.name} ×${grant.qty}` : grant.name}
+                  </span>
+                  {grant.description && (
+                    <span className={styles.equipFixedDesc}>{grant.description}</span>
+                  )}
+                </li>
+              )),
+            )}
+          </ul>
+        </div>
+      )}
+
+      {!anyFixed && !anyChoices && (
+        <p className={styles.spellHint}>
+          Your class and background bring no starting gear of their own this time — Suzu
+          shrugs. You can add items from the character sheet later.
+        </p>
+      )}
+
+      {packages.map(({ label, pkg }) =>
+        pkg.choices.map((choice) => {
+          const legendId = `equip-choice-${choice.id}`;
+          return (
+            <fieldset key={choice.id} className={styles.equipSection} aria-labelledby={legendId}>
+              <legend id={legendId} className={styles.equipPrompt}>
+                {choice.prompt}
+              </legend>
+              <p className={styles.equipGroupSource}>{label}</p>
+              <ul className={styles.equipOptionList}>
+                {choice.options.map((option) => {
+                  const checked = selections[choice.id] === option.id;
+                  const descId = `equip-option-desc-${choice.id}-${option.id}`;
+                  return (
+                    <li key={option.id} className={styles.equipOption} data-selected={checked}>
+                      <label className={styles.equipOptionLabel}>
+                        <input
+                          type="radio"
+                          name={choice.id}
+                          value={option.id}
+                          checked={checked}
+                          aria-describedby={option.grants.length > 0 ? descId : undefined}
+                          onChange={() =>
+                            onSelectionsChange({ ...selections, [choice.id]: option.id })
+                          }
+                          className={styles.spellCheckbox}
+                        />
+                        <span className={styles.equipOptionLabelText}>{option.label}</span>
+                      </label>
+                      {option.grants.length > 0 && (
+                        <div className={styles.equipGrantDetail} id={descId}>
+                          <p className={styles.equipGrantNames}>{grantLabel(option.grants)}</p>
+                          {option.grants
+                            .filter((g) => g.description)
+                            .map((g) => (
+                              <p key={g.slug} className={styles.equipGrantDesc}>
+                                {g.description}
+                              </p>
+                            ))}
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </fieldset>
+          );
+        }),
+      )}
     </div>
   );
 }

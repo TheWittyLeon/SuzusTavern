@@ -630,6 +630,109 @@
   line-height: 1.5;
 }
 
+/* ── Equipment step (2026-07-24 Starting Equipment design) ────────────────────
+   Mirrors the Spells step's section/list idiom above — a plain <div> for the
+   read-only fixed-grant list, <fieldset>s (border/padding/min-inline-size
+   reset, same as .spellSection) for each choice group's radio list. */
+.equipSection {
+  margin-top: 22px;
+  margin-inline: 0;
+  border: 0;
+  padding: 0;
+  min-inline-size: 0;
+}
+.equipSection:first-child {
+  margin-top: 0;
+}
+
+.equipFixedList {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.equipFixedItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--card);
+  border: 1px solid var(--line);
+}
+.equipFixedName {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.equipFixedDesc {
+  font-size: 12px;
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+
+.equipPrompt {
+  font-family: var(--font-display);
+  font-size: 15px;
+  color: var(--ink);
+  padding: 0;
+  margin: 0 0 2px;
+}
+.equipGroupSource {
+  font-size: 11px;
+  color: var(--ink-3);
+  margin: 0 0 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.equipOptionList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.equipOption {
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--card);
+  transition: all 0.15s var(--ease);
+}
+.equipOption[data-selected='true'] {
+  border-color: color-mix(in oklab, var(--accent) 55%, transparent);
+  background: color-mix(in oklab, var(--accent) 14%, transparent);
+}
+.equipOptionLabel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px; /* WCAG 2.5.8 touch target */
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.equipOptionLabelText {
+  font-size: 13px;
+  color: var(--ink);
+}
+.equipGrantDetail {
+  padding: 0 12px 10px 40px;
+}
+.equipGrantNames {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+  margin: 0 0 2px;
+}
+.equipGrantDesc {
+  font-size: 12px;
+  color: var(--ink-3);
+  line-height: 1.5;
+  margin: 0 0 2px;
+  white-space: pre-line;
+}
+
 /* ── Review step ─────────────────────────────────────────────────────────────── */
 .review {
   display: grid;

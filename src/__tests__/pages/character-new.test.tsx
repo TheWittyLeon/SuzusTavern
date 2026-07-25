@@ -32,7 +32,22 @@ jest.mock('../../lib/api/auth', () => ({
 
 jest.mock('../../lib/api/dnd', () => ({
   createCharacter: jest.fn(),
+  // 2026-07-24 Starting Equipment design: EVERY class now passes through the
+  // Equipment step (unlike Spells, which is caster-only) — every test in this
+  // file that advances past Background needs this mocked.
+  getStartingEquipment: jest.fn(),
 }));
+
+/** Empty starting-equipment packages — no fixed grants, no choices. The
+ *  default fixture for every test in this file: Continue is immediately
+ *  enabled once the fetch resolves (equipmentChoiceIds is [], so the
+ *  every()-over-choices gate is vacuously true). */
+const EMPTY_EQUIPMENT = {
+  class: '',
+  background: '',
+  class_package: { fixed: [], choices: [] },
+  background_package: { fixed: [], choices: [] },
+};
 
 // Mock useCatalog so tests don't need a live engine.
 // Default: catalog loaded with 2 races, 2 classes, 2 backgrounds.
@@ -172,7 +187,22 @@ import CharacterNewPage from '../../app/character/new/page';
 import type { User } from '../../lib/api/types';
 
 const mockCreate = dnd.createCharacter as jest.MockedFunction<typeof dnd.createCharacter>;
+const mockGetStartingEquipment = dnd.getStartingEquipment as jest.MockedFunction<
+  typeof dnd.getStartingEquipment
+>;
 const ALICE: User = { id: 1, username: 'alice', email: null };
+
+/**
+ * Advance off the Equipment step. Must run AFTER landing on it (i.e. right
+ * after the Background step's Continue click) and BEFORE the next Continue
+ * click that leaves it — the fetch resolves on a microtask, so Continue
+ * starts disabled ('loading') and only becomes clickable once the mocked
+ * getStartingEquipment promise settles.
+ */
+async function advancePastEquipment() {
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+}
 
 function renderWizard() {
   return render(
@@ -186,6 +216,8 @@ beforeEach(() => {
   mockCreate.mockReset();
   mockPush.mockReset();
   mockRetry.mockReset();
+  mockGetStartingEquipment.mockReset();
+  mockGetStartingEquipment.mockResolvedValue(EMPTY_EQUIPMENT);
   // Reset to default (loaded) catalog state before each test.
   catalogOverride = { ...defaultCatalog };
 });
@@ -264,7 +296,8 @@ describe('Character creation wizard', () => {
     // Background + name
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Velka' } });
     fireEvent.click(screen.getByRole('radio', { name: /Charlatan/i }));
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Equipment
+    await advancePastEquipment(); // → Review
     // Review → submit
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
@@ -342,7 +375,7 @@ describe('Character creation wizard', () => {
       expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
     });
 
-    it('reflects the chosen subrace bonus + speed override in the Review preview', () => {
+    it('reflects the chosen subrace bonus + speed override in the Review preview', async () => {
       renderWizard();
       fireEvent.click(screen.getByRole('radio', { name: /^Elf\b/i }));
       fireEvent.click(screen.getByRole('radio', { name: /Wood Elf/i }));
@@ -352,7 +385,8 @@ describe('Character creation wizard', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Background
       fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Velka' } });
       fireEvent.click(screen.getByRole('radio', { name: /Charlatan/i }));
-      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Review
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Equipment
+      await advancePastEquipment(); // → Review
 
       // Elf: +2 DEX (base). Wood Elf: +1 WIS, 35ft speed.
       const wisLabel = screen.getByText('WIS');
@@ -424,7 +458,8 @@ describe('Character creation wizard', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
       fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Velka' } });
       fireEvent.click(screen.getByRole('radio', { name: /Charlatan/i }));
-      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Equipment
+      await advancePastEquipment(); // → Review
       await act(async () => {
         fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
       });
@@ -448,7 +483,8 @@ describe('Character creation wizard', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
       fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Velka' } });
       fireEvent.click(screen.getByRole('radio', { name: /Charlatan/i }));
-      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Equipment
+      await advancePastEquipment(); // → Review
       await act(async () => {
         fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
       });
@@ -495,7 +531,8 @@ describe('Character creation wizard', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
       fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Grok' } });
       fireEvent.click(screen.getByRole('radio', { name: /Charlatan/i }));
-      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Equipment
+      await advancePastEquipment(); // → Review
       await act(async () => {
         fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
       });
@@ -522,7 +559,8 @@ describe('Character creation wizard', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
       fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Grok' } });
       fireEvent.click(screen.getByRole('radio', { name: /Charlatan/i }));
-      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Equipment
+      await advancePastEquipment(); // → Review
       await act(async () => {
         fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
       });
@@ -554,7 +592,8 @@ describe('Character creation wizard', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
       fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Velka' } });
       fireEvent.click(screen.getByRole('radio', { name: /Charlatan/i }));
-      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Equipment
+      await advancePastEquipment(); // → Review
       await act(async () => {
         fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
       });
@@ -566,7 +605,7 @@ describe('Character creation wizard', () => {
       expect(body.half_elf_asi).toBeUndefined();
     });
 
-    it('preview matrix: Mountain Dwarf sums +2 STR (subrace) on top of +2 CON (base race) — not one or the other', () => {
+    it('preview matrix: Mountain Dwarf sums +2 STR (subrace) on top of +2 CON (base race) — not one or the other', async () => {
       renderWizard();
       fireEvent.click(screen.getByRole('radio', { name: /^Dwarf/i }));
       fireEvent.click(screen.getByRole('radio', { name: /Mountain Dwarf/i }));
@@ -576,7 +615,8 @@ describe('Character creation wizard', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Background
       fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Borin' } });
       fireEvent.click(screen.getByRole('radio', { name: /Charlatan/i }));
-      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Equipment
+      await advancePastEquipment(); // -> Review
 
       // Base scores are all 8. Dwarf +2 CON (base) + Mountain Dwarf +2 STR
       // (subrace) => STR 10, CON 10. Speed is the Dwarf's own 25ft (no
@@ -606,7 +646,8 @@ describe('Character creation wizard', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Background
       fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Pip' } });
       fireEvent.click(screen.getByRole('radio', { name: /Charlatan/i }));
-      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Equipment
+      await advancePastEquipment(); // -> Review
 
       // Only the base Gnome +2 INT applies; the cosmetic subrace adds nothing.
       // Scoped to the "Ability scores" panel (see Dwarf preview test above
@@ -668,7 +709,8 @@ describe('Character creation wizard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // abilities → background
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Velka' } });
     fireEvent.click(screen.getByRole('radio', { name: /Charlatan/i }));
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → review
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Equipment
+    await advancePastEquipment(); // → review
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
     });
@@ -691,7 +733,7 @@ describe('Character creation wizard', () => {
   });
 
   // ── F6b/MLP-SHEET-SPEED-CRASH (review-card half) ────────────────────────────
-  it('F6b: a dict-shaped race speed renders as a formatted string on the review card, never "[object Object] ft" (DDX21-1 precedent)', () => {
+  it('F6b: a dict-shaped race speed renders as a formatted string on the review card, never "[object Object] ft" (DDX21-1 precedent)', async () => {
     catalogOverride = {
       ...defaultCatalog,
       data: {
@@ -718,7 +760,8 @@ describe('Character creation wizard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Background
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Skyla' } });
     fireEvent.click(screen.getByRole('radio', { name: /Charlatan/i }));
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Review
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Equipment
+    await advancePastEquipment(); // → Review
 
     expect(screen.queryByText(/\[object Object\]/)).not.toBeInTheDocument();
     expect(screen.getByText('30 ft., fly 60 ft.')).toBeInTheDocument();

@@ -65,8 +65,71 @@ export interface CharacterCreateRequest {
    * race, and 400s anything other than two distinct non-Charisma abilities.
    */
   half_elf_asi?: string[];
+  /**
+   * 2026-07-24 Starting Equipment design — the player's resolved starting-gear
+   * choices (one per class/background EquipChoice group), from the new
+   * Equipment wizard step. Omitting this field entirely (undefined, not an
+   * empty array) is the back-compat/kill-switch gate: the engine's
+   * `_apply_starting_equipment` stamp no-ops on `selections is None`, so a
+   * client that never sends this field (Twitch `~create`, or the Tavern
+   * wizard degrading after a failed GET /starting-equipment) produces exactly
+   * today's gearless character. An empty array is meaningfully different (it
+   * still grants every FIXED item — only choice-group grants are skipped) —
+   * only send `[]` when the packages genuinely resolved with zero choices,
+   * never as a stand-in for "fetch failed".
+   */
+  equipment_selections?: EquipmentSelection[];
 }
 export interface CharacterCreated { character_id: string; [k: string]: unknown }
+
+// ── DnD: starting equipment (2026-07-24 design) ─────────────────────────────
+// Shapes confirmed against NekoNova-DnDEngine's routes/starting_equipment.py
+// (GET /starting-equipment?class=&background=) — every grant is enriched
+// server-side with the catalog's `name`/`description` (a slug that fails to
+// resolve is still included as {name: slug, description: ''}, never omitted).
+
+export interface EquipGrant {
+  slug: string;
+  qty: number;
+  name: string;
+  description: string;
+}
+
+export interface EquipOption {
+  id: string;
+  label: string;
+  grants: EquipGrant[];
+}
+
+export interface EquipChoice {
+  id: string;
+  prompt: string;
+  options: EquipOption[];
+}
+
+export interface EquipPackage {
+  fixed: EquipGrant[];
+  choices: EquipChoice[];
+}
+
+/** GET /api/dnd/starting-equipment response data. Unknown class/background
+ *  resolves to an EMPTY package ({fixed: [], choices: []}) on that side,
+ *  never a 4xx — degrade to "no starting gear" for that half, not an error. */
+export interface StartingEquipmentResult {
+  class: string;
+  background: string;
+  class_package: EquipPackage;
+  background_package: EquipPackage;
+}
+
+/** One resolved choice-group pick, sent back on CharacterCreateRequest.
+ *  `choice_id`/`option_id` are index-only — the engine always re-resolves the
+ *  actual item slug from its own server-side package, never trusts the
+ *  client to name one (see the design doc's §4.1 security note). */
+export interface EquipmentSelection {
+  choice_id: string;
+  option_id: string;
+}
 
 export interface Character {
   character_id: string;

@@ -46,10 +46,15 @@ const mockDeleteCharacter = jest.fn();
 // keep rendering name+school-only rows unaffected — a real catalog response
 // is only supplied by the tests below that specifically exercise it.
 const mockGetCatalog = jest.fn();
+// 2026-07-24 Starting Equipment design: the new Equipment step sits between
+// Background and Spells for EVERY class — every helper below that reaches
+// Spells now passes through it first.
+const mockGetStartingEquipment = jest.fn();
 jest.mock('../../lib/api/dnd', () => ({
   createCharacter: (...args: unknown[]) => mockCreateCharacter(...args),
   getAvailableSpells: (...args: unknown[]) => mockGetAvailableSpells(...args),
   getCatalog: (...args: unknown[]) => mockGetCatalog(...args),
+  getStartingEquipment: (...args: unknown[]) => mockGetStartingEquipment(...args),
   learnSpell: (...args: unknown[]) => mockLearnSpell(...args),
   prepareSpell: (...args: unknown[]) => mockPrepareSpell(...args),
   deleteCharacter: (...args: unknown[]) => mockDeleteCharacter(...args),
@@ -211,6 +216,16 @@ const CLERIC_AVAILABLE = {
   },
 };
 
+/** Empty starting-equipment packages — no fixed grants, no choices. The
+ *  default fixture for every test in this file: Continue off the Equipment
+ *  step is enabled the moment the fetch resolves (no choice groups to fill). */
+const EMPTY_EQUIPMENT = {
+  class: '',
+  background: '',
+  class_package: { fixed: [], choices: [] },
+  background_package: { fixed: [], choices: [] },
+};
+
 beforeEach(() => {
   mockPush.mockReset();
   mockCreateCharacter.mockReset();
@@ -219,12 +234,14 @@ beforeEach(() => {
   mockPrepareSpell.mockReset();
   mockDeleteCharacter.mockReset();
   mockGetCatalog.mockReset();
+  mockGetStartingEquipment.mockReset();
   mockLearnSpell.mockResolvedValue({ learned: true, budget: WIZARD_AVAILABLE.budget });
   mockPrepareSpell.mockResolvedValue({ prepared: true, prepared_used: 1, prepared_max: 2 });
   mockDeleteCharacter.mockResolvedValue({ message: 'deleted' });
   // TAV-SPELLPICK-DESCRIPTIONS: empty catalog by default — rows render
   // name+school-only, matching every pre-existing test's expectations.
   mockGetCatalog.mockResolvedValue({ system: 'dnd5e', content_type: 'spell', items: [], total: 0, limit: 500, offset: 0 });
+  mockGetStartingEquipment.mockResolvedValue(EMPTY_EQUIPMENT);
   catalogOverride = { ...defaultCatalog };
 });
 
@@ -239,18 +256,19 @@ function fillBackground() {
 }
 
 describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
-  it('shows NO Spells step for a non-caster (fighter) — 5 steps total', () => {
+  it('shows NO Spells step for a non-caster (fighter) — 6 steps total (Equipment applies to every class)', () => {
     renderWizard();
     pickRace();
     fireEvent.click(screen.getByRole('radio', { name: /Fighter/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 
     expect(screen.queryByRole('button', { name: 'Spells' })).not.toBeInTheDocument();
-    // Race → Class → now on Abilities (step 3 of the 5-step non-caster flow).
-    expect(screen.getByText('3 / 5')).toBeInTheDocument();
+    // Race → Class → now on Abilities (step 3 of the 6-step non-caster flow:
+    // Race, Class, Abilities, Background, Equipment, Review).
+    expect(screen.getByText('3 / 6')).toBeInTheDocument();
   });
 
-  it('shows the Spells step for a caster (wizard) — 6 steps total, and silently creates the character on Background → Spells', async () => {
+  it('shows the Spells step for a caster (wizard) — 7 steps total, and silently creates the character on Equipment → Spells', async () => {
     mockCreateCharacter.mockResolvedValue({ character_id: 'char-1' });
     mockGetAvailableSpells.mockResolvedValue(WIZARD_AVAILABLE);
     renderWizard();
@@ -259,7 +277,8 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Abilities
     fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Background
     fillBackground();
-
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Equipment
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Spells (creates!)
     });
@@ -271,8 +290,9 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     await waitFor(() => expect(mockGetAvailableSpells).toHaveBeenCalledWith('char-1', 'alice'));
     expect(await screen.findByText('Fire Bolt')).toBeInTheDocument();
     expect(screen.getByText('Magic Missile')).toBeInTheDocument();
-    // Spells is step 5 of the caster's 6-step flow.
-    expect(screen.getByText('5 / 6')).toBeInTheDocument();
+    // Spells is step 6 of the caster's 7-step flow (Race, Class, Abilities,
+    // Background, Equipment, Spells, Review).
+    expect(screen.getByText('6 / 7')).toBeInTheDocument();
   });
 
   async function advanceToSpells() {
@@ -284,6 +304,8 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fillBackground();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Equipment
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     });
@@ -364,6 +386,8 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fillBackground();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Equipment
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     });
@@ -425,6 +449,8 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fillBackground();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Equipment
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     });
@@ -494,6 +520,8 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fillBackground();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Equipment
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Review directly
 
     await act(async () => {
@@ -597,6 +625,8 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fillBackground();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Equipment
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     });
@@ -640,6 +670,8 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fillBackground();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Equipment
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     });
@@ -673,6 +705,8 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fillBackground();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Equipment
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     });
@@ -708,7 +742,8 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     expect(mockCreateCharacter).toHaveBeenCalledTimes(1);
     expect(mockGetAvailableSpells).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Back' })); // -> Background
+    fireEvent.click(screen.getByRole('button', { name: 'Back' })); // -> Equipment (remounts, refetches)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Spells again
     });
@@ -729,13 +764,18 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Abilities
     fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Background
     fillBackground();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Equipment
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Spells (silently creates char-wizard-orphan)
     });
     await screen.findByText('Fire Bolt');
     fireEvent.click(screen.getByRole('checkbox', { name: /Fire Bolt/i }));
 
-    // Walk back to Class and switch to a non-caster.
+    // Walk back to Class and switch to a non-caster. Spells is now step
+    // index 5 (Equipment sits between Background and Spells for every
+    // class) — 4 Backs, not 3, to reach Class.
+    fireEvent.click(screen.getByRole('button', { name: 'Back' })); // -> Equipment
     fireEvent.click(screen.getByRole('button', { name: 'Back' })); // -> Background
     fireEvent.click(screen.getByRole('button', { name: 'Back' })); // -> Abilities
     fireEvent.click(screen.getByRole('button', { name: 'Back' })); // -> Class
@@ -745,6 +785,8 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     // forward again; there is now NO Spells step at all.
     fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Abilities
     fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Background
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Equipment
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review directly
 
     expect(screen.queryByText('Sound about right?')).toBeInTheDocument();
@@ -777,6 +819,8 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fillBackground();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Equipment
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Spells (char-wizard-orphan)
     });
@@ -784,6 +828,8 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: /Fire Bolt/i }));
     fireEvent.click(screen.getByRole('checkbox', { name: /Magic Missile/i }));
 
+    // 4 Backs (not 3) — Equipment sits between Background and Spells now.
+    fireEvent.click(screen.getByRole('button', { name: 'Back' })); // -> Equipment
     fireEvent.click(screen.getByRole('button', { name: 'Back' })); // -> Background
     fireEvent.click(screen.getByRole('button', { name: 'Back' })); // -> Abilities
     fireEvent.click(screen.getByRole('button', { name: 'Back' })); // -> Class
@@ -791,6 +837,8 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Abilities
     fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Background
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Equipment
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Spells again (fresh create)
     });
@@ -862,9 +910,11 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Abilities
     fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Background
     fillBackground();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Equipment
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
 
     fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // fires silent create, PENDING
-    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Where did you come from?'); // still Background
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('What did you bring?'); // still Equipment
 
     // Back is now gated on `submitting` (as Continue/Begin already were), so the
     // user cannot navigate away mid-create and desync the landing step.
@@ -875,8 +925,8 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
       await Promise.resolve();
     });
 
-    // Lands on the Spells step as intended — no longer on Background.
-    expect(screen.getByRole('heading', { level: 2 })).not.toHaveTextContent('Where did you come from?');
+    // Lands on the Spells step as intended — no longer on Equipment.
+    expect(screen.getByRole('heading', { level: 2 })).not.toHaveTextContent('What did you bring?');
     expect(mockCreateCharacter).toHaveBeenCalledTimes(1);
   });
 
@@ -892,7 +942,7 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
   });
 
   // ── Same-button rapid double-click — positive confirmation, not assumed ───────
-  it('CONFIRMED SAFE: rapid double-click on Continue at Background -> Spells does not double-create (native `disabled` flips synchronously before the 2nd click is dispatched)', async () => {
+  it('CONFIRMED SAFE: rapid double-click on Continue at Equipment -> Spells does not double-create (native `disabled` flips synchronously before the 2nd click is dispatched)', async () => {
     let resolveCreate!: (v: unknown) => void;
     mockCreateCharacter.mockImplementation(
       () => new Promise((res) => { resolveCreate = res; }),
@@ -904,6 +954,8 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fillBackground();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Equipment
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
 
     const cont = screen.getByRole('button', { name: 'Continue' });
     fireEvent.click(cont);
@@ -925,10 +977,14 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
       mockGetAvailableSpells.mockResolvedValue(WIZARD_AVAILABLE);
       await advanceToSpells(); // silent create #1 with DEFAULT_SCORES (str 8)
 
+      // 3 Backs (not 2) — Equipment sits between Background and Spells now.
+      fireEvent.click(screen.getByRole('button', { name: 'Back' })); // -> Equipment
       fireEvent.click(screen.getByRole('button', { name: 'Back' })); // -> Background
       fireEvent.click(screen.getByRole('button', { name: 'Back' })); // -> Abilities
       fireEvent.click(screen.getByRole('button', { name: 'Increase Strength' })); // str 8 -> 9
       fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Background
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Equipment
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
       fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Spells (characterId already set, no recreate here)
       await screen.findByText('Fire Bolt');
       fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
@@ -959,14 +1015,20 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Abilities
       fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Background
       fillBackground();
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Equipment
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
       await act(async () => {
         fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // silent create #1: char-1
       });
       await screen.findByText('Fire Bolt');
 
-      // Go back and edit the background/name AFTER the silent create.
+      // Go back and edit the background/name AFTER the silent create. 2 Backs
+      // (not 1) — Equipment sits between Background and Spells now.
+      fireEvent.click(screen.getByRole('button', { name: 'Back' })); // -> Equipment
       fireEvent.click(screen.getByRole('button', { name: 'Back' })); // -> Background
       fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Velka the Second' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Equipment
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
       fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Spells (no recreate at Continue-time)
       await screen.findByText('Fire Bolt');
       fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
@@ -999,13 +1061,19 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
       fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
       fillBackground();
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Equipment
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
       await act(async () => {
         fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // silent create #1
       });
       await screen.findByText('Fire Bolt');
 
+      // 2 Backs (not 1) — Equipment sits between Background and Spells now.
+      fireEvent.click(screen.getByRole('button', { name: 'Back' })); // -> Equipment
       fireEvent.click(screen.getByRole('button', { name: 'Back' })); // -> Background
       fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Velka Edited' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Equipment
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
       fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Spells
       await screen.findByText('Fire Bolt');
       fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
@@ -1114,7 +1182,7 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
   });
 
   // ── TAV-CREATE-DEADEND-DIAGNOSABLE ────────────────────────────────────────────
-  describe('TAV-CREATE-DEADEND-DIAGNOSABLE: the silent Background -> Spells create surfaces a real reason on failure', () => {
+  describe('TAV-CREATE-DEADEND-DIAGNOSABLE: the silent Equipment -> Spells create surfaces a real reason on failure', () => {
     it('surfaces the engine\'s own rejection message instead of the generic line, and does not advance past Background', async () => {
       mockCreateCharacter.mockRejectedValueOnce(
         Object.assign(new Error('400'), {
@@ -1133,7 +1201,8 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Abilities
       fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Background
       fillBackground();
-
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Equipment
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
       await act(async () => {
         fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // rejected create
       });
@@ -1143,9 +1212,10 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
           'Half-Elf ability score choices must be exactly two abilities, excluding Charisma.',
         ),
       ).toBeInTheDocument();
-      // Never advanced — still on Background, not silently stuck with no cue.
+      // Never advanced — still on Equipment (the step the rejected create
+      // fired from), not silently stuck with no cue.
       expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(
-        'Where did you come from?',
+        'What did you bring?',
       );
     });
 
@@ -1157,7 +1227,8 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
       fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
       fillBackground();
-
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Equipment
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
       await act(async () => {
         fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
       });

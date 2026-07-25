@@ -63,6 +63,7 @@ import {
   getCombatState,
   resolveCheck,
   learnSpell,
+  getStartingEquipment,
 } from '../../lib/api/dnd';
 
 // ---------------------------------------------------------------------------
@@ -88,6 +89,25 @@ describe('Characters', () => {
     expect(url).toBe('/api/dnd/characters');
     expect(method).toBe('POST');
     expect(body).toMatchObject({ username: 'u', name: 'Aria' });
+  });
+
+  // 2026-07-24 Starting Equipment design
+  it('createCharacter — carries equipment_selections when provided', async () => {
+    await createCharacter({
+      username: 'u',
+      name: 'Aria',
+      equipment_selections: [{ choice_id: 'class:armor', option_id: 'a' }],
+    });
+    const { body } = lastCall();
+    expect(body).toMatchObject({
+      equipment_selections: [{ choice_id: 'class:armor', option_id: 'a' }],
+    });
+  });
+
+  it('createCharacter — omits equipment_selections entirely when not provided (back-compat/kill-switch gate)', async () => {
+    await createCharacter({ username: 'u', name: 'Aria' });
+    const { body } = lastCall();
+    expect(body as Record<string, unknown>).not.toHaveProperty('equipment_selections');
   });
 
   it('getCharacter — GET /api/dnd/characters/:id?username=...', async () => {
@@ -241,6 +261,60 @@ describe('Characters', () => {
     );
     const result = await spendCurrency('char-1', 25);
     expect(result).toEqual({ currency_gp: 75, spent: 25 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Starting Equipment (2026-07-24 design)
+// ---------------------------------------------------------------------------
+
+describe('getStartingEquipment', () => {
+  it('GET /api/dnd/starting-equipment?class=&background=', async () => {
+    await getStartingEquipment('Fighter', 'Soldier');
+    const { url, method } = lastCall();
+    expect(url).toBe('/api/dnd/starting-equipment?class=Fighter&background=Soldier');
+    expect(method).toBe('GET');
+  });
+
+  it('encodes special characters in class/background', async () => {
+    await getStartingEquipment('a class', 'a/background');
+    const { url } = lastCall();
+    expect(url).toContain('class=a%20class');
+    expect(url).toContain('background=a%2Fbackground');
+  });
+
+  it('resolves to the {class, background, class_package, background_package} envelope', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            class: 'fighter',
+            background: 'soldier',
+            class_package: {
+              fixed: [{ slug: 'explorer-pack', qty: 1, name: "Explorer's Pack", description: '' }],
+              choices: [
+                {
+                  id: 'class:armor',
+                  prompt: '(a) chain mail or (b) leather armor',
+                  options: [
+                    { id: 'a', label: 'chain mail', grants: [{ slug: 'chain-mail', qty: 1, name: 'Chain Mail', description: 'Heavy armor.' }] },
+                    { id: 'b', label: 'leather armor', grants: [{ slug: 'leather-armor', qty: 1, name: 'Leather Armor', description: 'Light armor.' }] },
+                  ],
+                },
+              ],
+            },
+            background_package: { fixed: [], choices: [] },
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    const result = await getStartingEquipment('fighter', 'soldier');
+    expect(result.class).toBe('fighter');
+    expect(result.class_package.fixed[0]).toMatchObject({ slug: 'explorer-pack', name: "Explorer's Pack" });
+    expect(result.class_package.choices[0].options).toHaveLength(2);
+    expect(result.background_package).toEqual({ fixed: [], choices: [] });
   });
 });
 
