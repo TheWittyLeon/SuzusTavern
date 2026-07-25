@@ -5003,9 +5003,14 @@ export default function PlayPage() {
             aria-label="Scene transition"
           >
             <div className={styles.moveOnLabel}>Scene transition</div>
-            {availableTransitions.map((t) => (
+            {availableTransitions.map((t, i) => (
               <button
-                key={t.to}
+                // t.to is NOT unique — an adventure can author two exits to the
+                // same target scene (different labels), which collided under a
+                // bare key={t.to} (React "two children with the same key"
+                // warning, risking a dropped/duplicated exit button). Composite
+                // with the label + index guarantees uniqueness.
+                key={`${t.to}-${t.label ?? ''}-${i}`}
                 type="button"
                 className={styles.moveOnBtn}
                 onClick={() => void onMoveOn(t.to)}
