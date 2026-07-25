@@ -85,6 +85,14 @@
   gap: 6px;
   margin-top: 10px;
 }
+/* CHAR-LANG: Languages card pill row — same flex-wrap chip layout as
+   .conditions above, separate class for semantic clarity (not a status
+   condition). */
+.languages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
 .idLevel {
   text-align: right;
 }

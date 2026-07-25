@@ -489,6 +489,28 @@ export default function CharacterPage() {
               </ul>
             )}
           </Card>
+
+          {/* CHAR-LANG: languages known — race's concrete languages plus the
+              setting-wide "Equestrian" grant (every PC speaks it regardless
+              of race). `languages` is optional on the wire (pre-existing
+              fixtures / a character created before this field existed), so
+              this defaults to an empty list rather than crashing. */}
+          <Card>
+            <h2 className="label" style={{ margin: '0 0 10px' }}>
+              Languages
+            </h2>
+            {(sheet.languages ?? []).length === 0 ? (
+              <p className={styles.emptyRow}>No languages recorded.</p>
+            ) : (
+              <div className={styles.languages}>
+                {(sheet.languages ?? []).map((lang) => (
+                  <Pill key={lang} tone="muted">
+                    {lang}
+                  </Pill>
+                ))}
+              </div>
+            )}
+          </Card>
         </div>
       </div>
     </TavernShell>

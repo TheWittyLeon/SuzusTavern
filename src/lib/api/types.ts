@@ -428,6 +428,15 @@ export interface CharacterSheet {
    *  live wire, this is purely so pre-existing `CharacterSheet` object
    *  literals across the test suite keep compiling. */
   currency_gp?: number;
+  /** CHAR-LANG: concrete languages known — race's languages (choice-text
+   *  placeholders like "one extra language of your choice" filtered out)
+   *  plus "Equestrian", granted setting-wide to every PC regardless of race.
+   *  Optional for the same fixture-blast-radius reason as `feats`/
+   *  `pending_choices`/`currency_gp` above — the engine always sends a real
+   *  array on the live wire (`[]` for a pre-existing character with no
+   *  persisted languages), this is purely so pre-existing `CharacterSheet`
+   *  object literals across the test suite keep compiling. */
+  languages?: string[];
 }
 
 // ── DnD: sessions ──────────────────────────────────────────────────────────

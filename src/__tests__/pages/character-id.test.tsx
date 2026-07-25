@@ -187,6 +187,43 @@ describe('Character sheet', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// CHAR-LANG — Languages card. `languages` is optional on the wire (a
+// pre-existing character/fixture created before this field existed has no
+// key at all — ROGUE above is exactly that shape); the card must render the
+// concrete language pills when present and a muted empty state when absent,
+// never crash on `undefined`.
+// ---------------------------------------------------------------------------
+describe('Character sheet — CHAR-LANG languages card', () => {
+  it('renders each language as a pill when the sheet has languages', async () => {
+    mockGet.mockResolvedValue({ ...ROGUE, languages: ['Common', 'Equestrian'] });
+    renderPage();
+
+    await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
+    expect(screen.getByRole('heading', { level: 2, name: 'Languages' })).toBeInTheDocument();
+    expect(screen.getByText('Common')).toBeInTheDocument();
+    expect(screen.getByText('Equestrian')).toBeInTheDocument();
+  });
+
+  it('back-compat: a sheet with no languages key at all renders the empty state, never crashes', async () => {
+    expect('languages' in ROGUE).toBe(false);
+    mockGet.mockResolvedValue(ROGUE);
+    renderPage();
+
+    await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
+    expect(screen.getByRole('heading', { level: 2, name: 'Languages' })).toBeInTheDocument();
+    expect(screen.getByText('No languages recorded.')).toBeInTheDocument();
+  });
+
+  it('an explicit empty languages array also renders the empty state', async () => {
+    mockGet.mockResolvedValue({ ...ROGUE, languages: [] });
+    renderPage();
+
+    await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
+    expect(screen.getByText('No languages recorded.')).toBeInTheDocument();
+  });
+});
+
 describe('Character sheet — DDX-10 level-up button gating', () => {
   it('owner + xp >= xp_next: Level up is shown and enabled', async () => {
     mockGet.mockResolvedValue({ ...ROGUE, xp: 300, xp_next: 300 });
