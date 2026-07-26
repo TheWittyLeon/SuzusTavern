@@ -356,7 +356,15 @@ describe('P1-PLAYFIX-2 §A.5/§A.6 — offered_check surfaces the matching affor
     expect(mResolveCheck).not.toHaveBeenCalled();
   });
 
-  it('an offeredCheck for a skill NOT authored on this scene is never surfaced (defensive)', async () => {
+  // Phase 4 (Sora-Arch design §4 Fork 3; Miko-QA "the sleeper bug" fix,
+  // 2026-07-26) — SUPERSEDES this test's pre-Phase-4 name/assertion. The old
+  // behavior silently DROPPED an offer for a skill outside `availableChecks`
+  // ("never surfaced (defensive)"); that silent drop was itself the sleeper
+  // bug. The offer is no longer dropped — it now routes to a dedicated
+  // freeform "Attempt {skill}" affordance (quickChecks/postRoll ->
+  // `/roll (kind=skill)`), never the authored `.checkWrap` panel (which has
+  // no Survival button on this stealth-only scene at all).
+  it('an offeredCheck for a skill NOT authored on this scene routes to the freeform "Attempt {skill}" affordance instead of being dropped', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_STEALTH_ONLY); // only stealth authored
     streamOnce([
       { kind: 'chunk', text: 'Something about the ground catches your eye.', offeredCheck: { skill: 'survival' } },
@@ -368,7 +376,17 @@ describe('P1-PLAYFIX-2 §A.5/§A.6 — offered_check surfaces the matching affor
     await sendMessage('I look around curiously.');
 
     await waitFor(() => expect(mStream).toHaveBeenCalledTimes(1));
-    expect(screen.queryByText('Suzu invited this check.')).not.toBeInTheDocument();
+    // The freeform affordance renders (never the authored chip — Survival
+    // isn't in GROUNDING_STEALTH_ONLY.checks).
+    expect(
+      await screen.findByRole('button', { name: /Attempt Survival/i }),
+    ).toBeInTheDocument();
+    expect(mockToast).toHaveBeenCalledWith(
+      expect.objectContaining({ tone: 'info', message: expect.stringContaining('Survival') }),
+    );
+    // Never auto-rolled and never routed through the authored /check route
+    // (that route 400s `no_such_check` for anything unauthored).
+    expect(mResolveCheck).not.toHaveBeenCalled();
   });
 
   // Iro MAJOR-1: the offered_check validation must read the FRESHLY-FETCHED

@@ -248,6 +248,29 @@ function nowStamp(): string {
 }
 
 /**
+ * Phase 4 (Sora-Arch design §4 Fork 3) — parse an `offered_check` payload off
+ * a durable `narration`/`dm_narration` session event's `data` (the field the
+ * completed-job payload carries per the locked wire contract:
+ * `{skill, dc: int|null, note: str|null}`). This is the durable-poll
+ * counterpart to src/lib/stream.ts's identical SSE-side parsing — same
+ * defensive posture: any missing/malformed shape simply returns null
+ * (presence is a bonus, never a requirement), so a pre-Phase-4 engine/proxy
+ * that doesn't send this field yet degrades to "no offer", never a crash.
+ */
+function parseOfferedCheckPayload(
+  data: Record<string, unknown> | null | undefined,
+): OfferedCheck | null {
+  const raw = data?.['offered_check'];
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const skill = r['skill'];
+  if (typeof skill !== 'string') return null;
+  const dc = typeof r['dc'] === 'number' ? (r['dc'] as number) : undefined;
+  const note = typeof r['note'] === 'string' ? (r['note'] as string) : undefined;
+  return { skill, ...(dc !== undefined ? { dc } : {}), ...(note !== undefined ? { note } : {}) };
+}
+
+/**
  * P1-READALOUD: Build the verbatim read-aloud block text from grounding data.
  * Matches the authored structure the AI-off path used to produce (§3.2 of the
  * design doc), now shared by all session types (AI-on, AI-off, human-DM).
@@ -430,6 +453,19 @@ export default function PlayPage() {
   // stale offer never lingers past the turn it was made on. NEVER drives an
   // auto-roll — it only makes the matching "Attempt {skill}" button hard to miss.
   const [offeredCheckSkill, setOfferedCheckSkill] = useState<string | null>(null);
+
+  // Phase 4 (Sora-Arch design §4 Fork 3; Miko-QA "the sleeper bug" fix) — a
+  // skill Suzu invited this turn that is NOT one of the current scene's
+  // AUTHORED checks (grounding.checks) — a freeform/unauthored offer. The
+  // pre-Phase-4 client validated every offer against `availableChecks` and
+  // silently DROPPED anything outside it; this state instead routes such an
+  // offer to a dedicated "Attempt {skill}" affordance that rolls via the
+  // always-available quickChecks/postRoll -> engine `/roll (kind=skill)`
+  // primitive (never `/check`, which 400s `no_such_check` for anything
+  // unauthored). Mutually exclusive with `offeredCheckSkill` above — see
+  // `applyOfferedCheckSignal` below, which sets exactly one of the two per
+  // offer and clears both at the top of every new beat.
+  const [freeformOfferedCheck, setFreeformOfferedCheck] = useState<string | null>(null);
 
   // B1-4: the logged-in user's bound character_id (stringified) for per-user
   // turn resolution. Populated from the participants endpoint on load + on rebind.
@@ -703,6 +739,10 @@ export default function PlayPage() {
   const sceneHeadRef = useRef<HTMLDivElement>(null);
   const checkWrapRef = useRef<HTMLDivElement>(null);
   const transitionWrapRef = useRef<HTMLDivElement>(null);
+  // Phase 4 (Miko-QA "the sleeper bug" fix) — scroll anchor for the freeform
+  // "Attempt {skill}" affordance (see `freeformOfferedCheck` below), mirrors
+  // `checkWrapRef`'s identical role for the authored checks group.
+  const freeformCheckRef = useRef<HTMLDivElement>(null);
 
   // Tora MAJOR-2: same stranded-focus problem as above, but at a combat
   // turn boundary — a rail button (player Attack/Dodge/Dash/End-turn, or DM
@@ -1646,10 +1686,52 @@ export default function PlayPage() {
           // `since_seq`-drop full-history refetch. Inlined (not
           // refreshGrounding()) because that useCallback is declared below this
           // effect — referencing it in the dep array would hit its TDZ.
-          if (journalFresh.some((e) => e.kind != null && GROUNDING_INVALIDATING_KINDS.has(e.kind))) {
+          const invalidatesGrounding = journalFresh.some(
+            (e) => e.kind != null && GROUNDING_INVALIDATING_KINDS.has(e.kind),
+          );
+
+          // Phase 4 (Sora-Arch design §4 Fork 3; Miko-QA "the sleeper bug"
+          // fix, the single most important new client-side assertion in the
+          // whole plan) — durable-poll parity for `offered_check`.
+          // narrate()'s SSE path already surfaces this (src/lib/stream.ts);
+          // the durable poll never read it at all, so a completed job's
+          // check offer sat silently on the wire, unrendered. Only the
+          // HIGHEST-seq narration/dm_narration event THIS TICK decides the
+          // outcome — mirrors narrate() clearing offeredCheckSkill/
+          // freeformOfferedCheck at the top of EVERY beat, then only
+          // re-setting one at the bottom if THAT beat offered one: an older
+          // beat's stale offer must never win over a newer beat's "no
+          // offer" just because both landed in the same catch-up batch
+          // (e.g. a backgrounded tab resuming several beats at once).
+          let latestNarrationEvent: EngineSessionEvent | null = null;
+          for (const e of journalFresh) {
+            if (e.kind !== 'narration' && e.kind !== 'dm_narration') continue;
+            if (!latestNarrationEvent || (e.seq ?? 0) > (latestNarrationEvent.seq ?? 0)) {
+              latestNarrationEvent = e;
+            }
+          }
+          const offerThisTick = latestNarrationEvent
+            ? parseOfferedCheckPayload(latestNarrationEvent.data)
+            : undefined; // no NEW narration beat this tick at all — leave offer state untouched
+
+          if (invalidatesGrounding || offerThisTick) {
+            // Iro MAJOR-1 parity: validate the offer against CURRENT
+            // grounding, never the closure's `grounding` (this poll, like
+            // narrate(), treats it as unreliable — see the effect's own
+            // convention of always refetching fresh below).
             getGrounding(sessionId)
-              .then((g) => setGrounding(g))
+              .then((g) => {
+                if (invalidatesGrounding) setGrounding(g);
+                if (offerThisTick) applyOfferedCheckSignal(offerThisTick, g);
+              })
               .catch(() => {});
+          }
+          if (latestNarrationEvent && !offerThisTick) {
+            // A new beat landed this tick and offered nothing — clear any
+            // stale highlight from an earlier beat (mirrors narrate()'s
+            // per-beat clear at the top of the SSE function).
+            setOfferedCheckSkill(null);
+            setFreeformOfferedCheck(null);
           }
 
           // §10 observability (Kage-CR low suggestion) — snapshot which
@@ -1905,6 +1987,13 @@ export default function PlayPage() {
     // (getSessionEventsPage, eventToLogRow, scanXCardTracking,
     // reconcileDurableEvents, applyReconcileResult) since those aren't
     // component-scoped values ESLint tracks the same way.
+    //
+    // Phase 4: `applyOfferedCheckSignal` (used by `pollDurable` above) is
+    // deliberately omitted too — it's declared BELOW this effect in source
+    // (same forward-reference shape as `openScene`'s own omission near the
+    // mount effect above), so listing it here would hit the same dep-array
+    // TDZ this comment already documents for `refreshGrounding`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, state, subscribeToJob, appendLog, clearStreamNarration]);
 
   // Re-pin the chat to the latest line when returning to the Story view.
@@ -2185,6 +2274,44 @@ export default function PlayPage() {
   }, []);
 
   /**
+   * Phase 4 (Sora-Arch design §4 Fork 3; Miko-QA "the sleeper bug" fix) —
+   * surface an `offered_check` signal from EITHER narration path: the
+   * legacy/flag-OFF SSE beat (`narrate()`, below) or the durable
+   * session-events poll (`pollDurable`, defined further UP in this
+   * component — a genuine forward reference, safe because that effect only
+   * INVOKES this closure well after the whole component body has finished
+   * executing for this render; see the `openScene` comment near the mount
+   * effect above for the identical established pattern). NEVER auto-rolls —
+   * only makes the matching "Attempt {skill}" affordance impossible to
+   * miss: either the authored highlighted chip (`offeredCheckSkill`), or —
+   * the sleeper-bug fix — a dedicated freeform "Attempt {skill}" button
+   * (`freeformOfferedCheck`) when the offered skill isn't one of THIS
+   * scene's authored checks. The two are mutually exclusive; this function
+   * is the ONLY writer of either, so every call sets exactly one and clears
+   * the other.
+   */
+  const applyOfferedCheckSignal = useCallback(
+    (signal: OfferedCheck, currentGrounding: GroundingData | null) => {
+      const isAuthoredCheck = (currentGrounding?.checks ?? []).some(
+        (c) => c.skill === signal.skill,
+      );
+      setOfferedCheckSkill(isAuthoredCheck ? signal.skill : null);
+      setFreeformOfferedCheck(isAuthoredCheck ? null : signal.skill);
+      toast({
+        tone: 'info',
+        message: `Suzu invites a ${titleCaseSkill(signal.skill)} check — the Attempt button is ready when you are.`,
+        duration: 8000,
+      });
+      requestAnimationFrame(() => {
+        (isAuthoredCheck ? checkWrapRef : freeformCheckRef).current?.scrollIntoView({
+          block: 'nearest',
+        });
+      });
+    },
+    [toast],
+  );
+
+  /**
    * Stream one DM-narration beat; `mechanics` empty = pure roleplay beat.
    *
    * A1: optional `opts.kind` can be 'opening' — when set:
@@ -2243,8 +2370,12 @@ export default function PlayPage() {
       // this beat starts a fresh bottom-of-chat row (never overwrites the old).
       clearStreamNarration(true);
       // P1-PLAYFIX-2 §A.6 — clear any stale offer from a previous beat; THIS
-      // turn's response (if any) re-sets it below.
+      // turn's response (if any) re-sets it below. Phase 4: clears the
+      // freeform sibling too — `applyOfferedCheckSignal` is the only writer
+      // of either, but only ONE beat's worth of clearing needs to happen
+      // here regardless of which one a prior beat set.
       setOfferedCheckSkill(null);
+      setFreeformOfferedCheck(null);
 
       const isOpening = opts?.kind === 'opening';
 
@@ -2442,32 +2573,18 @@ export default function PlayPage() {
 
       // P1-PLAYFIX-2 §A.5/§A.6 — surface an offered check. Per §A.3 this NEVER
       // auto-rolls; it only makes the matching "Attempt {skill}" affordance
-      // impossible to miss. Defensive: only surface when the offered skill is
-      // actually one of THIS scene's authored checks — never trust the signal
-      // blindly. Uses the toast/aria-live channel (not a stolen DOM focus) so
-      // screen-reader users get the invite without yanking focus off the
-      // composer mid-conversation.
+      // impossible to miss. Phase 4 (Miko-QA "the sleeper bug" fix):
+      // `applyOfferedCheckSignal` no longer DROPS an offer whose skill isn't
+      // one of this scene's authored checks — it routes to the freeform
+      // "Attempt {skill}" affordance instead (`freeformOfferedCheck`).
       if (offeredCheckSignal) {
         // Iro MAJOR-1: validate against the freshly-fetched grounding when
         // this beat just advanced the scene — the `grounding` closure value
         // is stale until the next render (setGrounding() is async), so
-        // validating against it here would wrongly drop a check authored on
-        // the scene we JUST advanced to.
+        // validating against it here would wrongly treat a check authored on
+        // the scene we JUST advanced to as unauthored/freeform.
         const currentGrounding = sceneAdvancedSignal ? freshGrounding : grounding;
-        const isAuthoredCheck = (currentGrounding?.checks ?? []).some(
-          (c) => c.skill === offeredCheckSignal.skill,
-        );
-        if (isAuthoredCheck) {
-          setOfferedCheckSkill(offeredCheckSignal.skill);
-          toast({
-            tone: 'info',
-            message: `Suzu invites a ${titleCaseSkill(offeredCheckSignal.skill)} check — the Attempt button is ready when you are.`,
-            duration: 8000,
-          });
-          requestAnimationFrame(() => {
-            checkWrapRef.current?.scrollIntoView({ block: 'nearest' });
-          });
-        }
+        applyOfferedCheckSignal(offeredCheckSignal, currentGrounding);
       }
     },
     [
@@ -2481,7 +2598,7 @@ export default function PlayPage() {
       refreshGrounding,
       refocusSceneHeadIfStranded,
       grounding,
-      toast,
+      applyOfferedCheckSignal,
     ],
   );
 
@@ -4002,6 +4119,38 @@ export default function PlayPage() {
     ? combatState.encounter_id
     : null;
 
+  // Phase 4 Package B (Sora-Arch design §3 Fork 2) — does the CURRENT scene
+  // define an authored combat encounter at all (any trigger, before it's
+  // ever started)? Purely a COPY signal for the "Begin an encounter"/"Stand
+  // and fight" button below — `beginEncounter`'s own logic/gating is
+  // untouched (no `manual` vs `on_enter` branching here either; Package B
+  // never auto-starts, it only relabels the existing button).
+  const sceneHasEncounter = grounding?.encounter != null;
+
+  // Iro-A11y MAJOR-2 — the "Begin an encounter"→"Stand and fight" reframe
+  // swaps the SAME button's text child in place (`sceneHasEncounter` is not
+  // part of any mount/unmount ternary condition), so a screen-reader user
+  // who already read the button earlier is never told its meaning changed
+  // once a scene-advance flips it. Fires the SAME toast infra
+  // `applyOfferedCheckSignal` above uses (not a new shape) on the RISING
+  // edge only (false -> true), and only while the button is actually
+  // rendered (`!combatId` — beginEncounter's own gate). Deliberately NOT a
+  // live region wrapped around the button itself: that would double-announce
+  // on mount (the button's initial text is read once when it first appears;
+  // wrapping it in aria-live would announce it again immediately) — the
+  // toast is the safe, out-of-band channel, same reasoning as
+  // offeredCheckSkill's own toast above.
+  const prevSceneHasEncounterRef = useRef(sceneHasEncounter);
+  useEffect(() => {
+    if (sceneHasEncounter && !prevSceneHasEncounterRef.current && !combatId) {
+      toast({
+        tone: 'warn',
+        message: 'This scene can turn into a fight — "Stand and fight" is ready when you are.',
+      });
+    }
+    prevSceneHasEncounterRef.current = sceneHasEncounter;
+  }, [sceneHasEncounter, combatId, toast]);
+
   // P1-PLAYFIX-2 §A.3: memoized (not a plain const) — the new onSend
   // keyword-fast-path useCallback below depends on this array, and a fresh
   // array literal every render would recreate onSend every render too.
@@ -5194,7 +5343,14 @@ export default function PlayPage() {
             <Icon name="Sword" size={13} aria-hidden /> Combat ended
           </div>
         ) : !combatId ? (
-          // No combat at all: offer to begin one.
+          // No combat at all: offer to begin one. Phase 4 Package B
+          // (Sora-Arch design §3 Fork 2): when the current scene has an
+          // authored combat encounter (`sceneHasEncounter`, any trigger,
+          // unstarted), relabel the SAME button "Stand and fight" so the
+          // moment reads as a fight-or-flee choice rather than a generic
+          // "start a fight" invite — the flee checks below already render
+          // pre-combat, no gate relaxation. Copy-only: `beginEncounter`'s
+          // own logic/gating is completely unchanged.
           <button
             type="button"
             className={styles.beginCombat}
@@ -5202,7 +5358,8 @@ export default function PlayPage() {
             disabled={combatBusy}
             aria-busy={combatBusy}
           >
-            <Icon name="Sword" size={14} aria-hidden /> Begin an encounter
+            <Icon name="Sword" size={14} aria-hidden />{' '}
+            {sceneHasEncounter ? 'Stand and fight' : 'Begin an encounter'}
           </button>
         ) : null}
 
@@ -5260,6 +5417,63 @@ export default function PlayPage() {
                 </button>
               );
             })}
+          </div>
+        )}
+
+        {/* Phase 4 (Sora-Arch design §4 Fork 3; Miko-QA "the sleeper bug"
+            fix — the single most important new client-side assertion in the
+            whole plan) — a skill Suzu invited this turn that is NOT one of
+            this scene's AUTHORED checks (a freeform/unauthored offer). The
+            .checkWrap group above only ever renders `availableChecks`
+            (grounding.checks) — silently dropping this offer instead of
+            surfacing SOME affordance is exactly the bug this fixes. Routes
+            through `onRoll` — the SAME quickChecks/postRoll → engine
+            `/roll (kind=skill)` primitive used elsewhere on this page, NOT
+            `onAttemptCheck` (`/check`, which 400s `no_such_check` for
+            anything unauthored) — always-available, server-authoritative,
+            no client-supplied DC. Deliberately NOT gated on combat state,
+            mirroring the generic quick-checks panel below (also
+            always-available) — Package B's own combat gate on the
+            AUTHORED checks above is untouched.
+
+            Iro-A11y MAJOR-1: when this scene ALSO has authored checks
+            (availableChecks.length > 0), the authored .checkWrap group below
+            renders back-to-back with this one — two adjacent
+            role="group" blocks would collide on the exact same accessible
+            name ("Skill check") without the skill-specific suffix here. The
+            offeredCheckSkill/freeformOfferedCheck mutual-exclusivity only
+            keeps the two OFFER states apart from each other; it says
+            nothing about `availableChecks`, so this is a real, reachable
+            case (exactly the scenario this phase targets), not a
+            theoretical one. Visible `.checkLabel` text stays the generic
+            "Skill check" for sighted users — only the accessible name
+            differs. */}
+        {freeformOfferedCheck && (
+          <div
+            ref={freeformCheckRef}
+            className={styles.checkWrap}
+            role="group"
+            aria-label={`Skill check: ${titleCaseSkill(freeformOfferedCheck)}`}
+          >
+            <div className={styles.checkLabel}>Skill check</div>
+            <button
+              type="button"
+              className={`${styles.checkBtn} ${styles.checkBtnOffered}`}
+              onClick={() =>
+                void onRoll({
+                  kind: 'check',
+                  skill: freeformOfferedCheck,
+                  label: titleCaseSkill(freeformOfferedCheck),
+                })
+              }
+              disabled={rollBusy || talking || combatBusy || sessionLocked}
+              aria-busy={rollBusy || talking}
+              aria-disabled={rollBusy || talking || combatBusy || sessionLocked}
+            >
+              <Icon name="Check" size={13} aria-hidden />
+              {`Attempt ${titleCaseSkill(freeformOfferedCheck)}`}
+              <span className="sr-only">Suzu invited this check.</span>
+            </button>
           </div>
         )}
 

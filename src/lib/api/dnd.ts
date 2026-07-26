@@ -48,6 +48,7 @@ import type {
   RollRequest,
   RollResult,
   SceneCheck,
+  SceneEncounterInfo,
   SceneNpc,
   SceneTransition,
   Session,
@@ -1124,6 +1125,17 @@ const normalizeGrounding = (raw: unknown): GroundingData | null => {
           (n): n is SceneNpc => !!n && typeof n.name === 'string',
         )
       : [],
+    // Phase 4 (Package B) — the current scene's authored combat encounter
+    // block (current_scene.encounter), when defined. `...r` above does NOT
+    // flatten this (nested under current_scene, not a top-level raw key,
+    // same reasoning as npcs_present just above) — mapped explicitly so
+    // page.tsx's "Stand and fight" reframe can read grounding.encounter
+    // directly. Defensive: anything that isn't a plain object degrades to
+    // null (no authored encounter), never thrown.
+    encounter:
+      scene.encounter && typeof scene.encounter === 'object'
+        ? (scene.encounter as SceneEncounterInfo)
+        : null,
   };
 };
 

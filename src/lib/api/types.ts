@@ -1118,6 +1118,22 @@ export interface SceneNpc {
 }
 
 /**
+ * Phase 4 (Package B, Sora-Arch design §3 Fork 2) — the current scene's
+ * authored combat encounter block, when one is defined
+ * (engine `current_scene.encounter`), regardless of `trigger` or whether
+ * combat has started yet. Presence alone is what reframes the "Begin an
+ * encounter" button as "Stand and fight" (page.tsx `sceneHasEncounter`).
+ * Defensive/minimal shape (mirrors SceneNpc's own `[k: string]: unknown`
+ * pattern) — only `kind`/`trigger` are read client-side; monsters/outcomes
+ * stay server-side, never surfaced until an actual combat starts.
+ */
+export interface SceneEncounterInfo {
+  kind?: string;
+  trigger?: string;
+  [k: string]: unknown;
+}
+
+/**
  * P1-PLAYFIX §3.4 — an authored skill check offered by the current scene.
  * Deliberately omits `on_success`/`on_failure` (the authored flag names): the
  * client only needs to know WHICH skill can be attempted, never what flag it
@@ -1158,6 +1174,10 @@ export interface GroundingData {
    *  Always an array (empty when the scene has none, no scene yet, or a
    *  pre-DDX-22 engine). Used by JournalPane's "NPCs met" section. */
   npcs_present?: SceneNpc[];
+  /** Phase 4 (Package B) — present when the current scene defines a combat
+   *  encounter (any trigger), even before it starts. `null`/absent = no
+   *  authored encounter for this scene. See SceneEncounterInfo. */
+  encounter?: SceneEncounterInfo | null;
   [k: string]: unknown;
 }
 
@@ -1342,6 +1362,11 @@ export interface AdventureCatalogItem {
 export interface OfferedCheck {
   skill: string;
   dc?: number;
+  /** Phase 4 — free-text note the classifier/narrator attached to the offer
+   *  (mirrors SceneCheck.note for an authored check). Absent on the
+   *  pre-Phase-4 authored-check-only shape; never client/classifier-supplied
+   *  DC — this field is purely informational, like `dc` above. */
+  note?: string;
 }
 
 export type NarrationEvent =
