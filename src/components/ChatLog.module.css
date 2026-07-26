@@ -144,6 +144,37 @@
   font-size: 13px;
 }
 
+/* TAV-COMPOSING (Phase 1, 2026-07-26) — the "Suzu is composing…" cue must
+   read as an ACTIVE status, not a faded row (the previous opacity:0.7
+   treatment made it look like it was already disappearing, which is why
+   Leon reported "no indicator" even while it was mounted). Token-based tint
+   + left accent bar, mirroring .narration's own left-border treatment for
+   visual continuity with the rest of the log. */
+.composing {
+  background: color-mix(in oklab, var(--accent) 10%, transparent);
+  border-left: 2px solid var(--accent);
+  border-radius: 0 4px 4px 0;
+  padding: 6px 10px 6px 8px;
+}
+
+/* Iro-A11y MAJOR-1 — plain `.narration .who { color: var(--accent) }` fails
+   AA in the `candlelit` vibe once this row's own 10%-accent-tinted
+   background is added (4.11:1). `--accent-ink` is the token that already
+   solves this exact "accent text on an accent-tinted surface" case
+   elsewhere (5.97:1 in candlelit; the dark vibes already pass and
+   `--accent-ink` falls back to `--accent` where a vibe doesn't define one).
+   Scoped to `.composing` only — the finalized `.narration` row has no tinted
+   background, so its own `.who` colour is untouched. */
+.composing .who {
+  color: var(--accent-ink, var(--accent));
+}
+
+.composing .thinkingLabel {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
 /* ── P1-READALOUD: verbatim scene-set block ─────────────────────────────────
    Parchment-tint background + left accent border + "READ ALOUD" small-caps
    gutter label. Uses design-token colours only; works across all data-vibe

@@ -402,14 +402,21 @@ describe('deduped-resume — no double-append', () => {
   });
 });
 
-describe('TAV-NARRATION-DECOUPLE — poll-claim race (reconcileEvents rule 3 sub-case (c))', () => {
-  it('a durable narration event that lands on the poll BEFORE this client\'s first SSE chunk still reconciles to exactly one, server-authoritative, non-aria-hidden row — no ledger change needed, no double-render', async () => {
+describe('TAV-NARRATION-DECOUPLE Phase 2 — poll-claim race NO LONGER pops in whole (reconcileEvents rule 3 sub-case (a), was (c))', () => {
+  it('a durable narration event that lands on the poll BEFORE this client\'s first SSE chunk now reconciles by REPLACING the precreated anchor (sub-case a) — still exactly one, server-authoritative, non-aria-hidden row, no double-render, no pop-in', async () => {
     // The generator is gated so it yields NOTHING until released — this
     // simulates the poll's own reconciliation tick observing the durable
-    // narration event before subscribeToJob's first SSE byte ever arrives
-    // (Kage #3's rule 3 sub-case (c)): `awaitingNarration` is registered
-    // synchronously (before subscribeDmJob is even called), but
-    // `narrationRowId` is never set locally because no chunk has run yet.
+    // narration event before subscribeToJob's first SSE byte ever arrives.
+    // Pre-Phase-2, `narrationRowId` was never set locally until the first
+    // chunk ran, so this raced into rule 3 sub-case (c) (APPEND whole — the
+    // pop-in). Phase 2's `precreateRow` claims `narrationRowId` onto a
+    // pre-created EMPTY anchor SYNCHRONOUSLY at job-start (before this
+    // generator even starts), so the SAME race now lands on sub-case (a)
+    // (REPLACE) instead — see the `narration_anchor_precreated` debug
+    // assertion below for the non-vacuous proof that precreate is what
+    // changed (the reconcileEvents.test.ts sibling test proves the
+    // mechanism directly at the ledger level: an empty anchor with
+    // narrationRowId pre-set takes sub-case (a), not (c)).
     let releaseGen: () => void = () => {};
     const gate = new Promise<void>((resolve) => {
       releaseGen = resolve;
@@ -424,6 +431,8 @@ describe('TAV-NARRATION-DECOUPLE — poll-claim race (reconcileEvents rule 3 sub
       yield { kind: 'chunk', text: 'Suzu narrates the scene fully.' };
       yield { kind: 'done' };
     });
+
+    const debugSpy = jest.spyOn(console, 'debug').mockImplementation(() => {});
 
     jest.useFakeTimers();
     try {
@@ -441,14 +450,26 @@ describe('TAV-NARRATION-DECOUPLE — poll-claim race (reconcileEvents rule 3 sub
       });
 
       expect(capturedTurnKey).toMatch(UUID_RE);
-      // subscribeToJob has registered intent (awaitingNarration) but the
-      // generator is still gated — NO chat row exists yet for the
-      // narration (only the optimistic player row).
+
+      // Non-vacuous proof #1: the precreate block actually ran for THIS
+      // turn — this debug marker only fires when `precreateRow` is true.
+      expect(debugSpy).toHaveBeenCalledWith(
+        'narration_anchor_precreated',
+        expect.objectContaining({ job_id: 'job-race', ledger_key: capturedTurnKey }),
+      );
+
+      // subscribeToJob has registered intent (awaitingNarration) and
+      // precreated its anchor, but the anchor is still EMPTY (no chunk has
+      // run yet) — ChatLog's empty-anchor guard renders nothing for it, so
+      // no chat row is visible yet for the narration (only the optimistic
+      // player row). The "composing" cue is the only visible cue.
       expect(screen.queryByText('Suzu narrates the scene fully.')).not.toBeInTheDocument();
+      expect(screen.getByText(/Suzu is composing/i)).toBeInTheDocument();
 
       // The poll now delivers BOTH events for this turn before this
-      // client's tail has produced a single chunk — sub-case (c) appends
-      // the durable row whole and claims `narrationRowId` for it.
+      // client's tail has produced a single chunk — Phase 2: sub-case (a)
+      // REPLACES the precreated anchor in place (fresh id, announce-once),
+      // rather than appending a fresh row (sub-case c).
       mockGetSessionEventsPage.mockResolvedValue({
         events: [
           playerActionEvent(10, capturedTurnKey, 'I open the chest.'),
@@ -467,17 +488,18 @@ describe('TAV-NARRATION-DECOUPLE — poll-claim race (reconcileEvents rule 3 sub
       });
 
       // Exactly one row, server-authoritative text, already visible/
-      // announced (never aria-hidden) — reconcile's sub-case (c) treats
-      // this as a complete, final row from the moment it's appended.
+      // announced (never aria-hidden), composing cue cleared (§4c poll-side
+      // clear — the ledger entry for this turn_key is now gone).
       expect(screen.getAllByText('Suzu narrates the scene fully.')).toHaveLength(1);
       const preReleaseRow = screen.getByText('Suzu narrates the scene fully.').closest('.row');
       expect(preReleaseRow).not.toHaveAttribute('aria-hidden');
+      expect(screen.queryByText(/Suzu is composing/i)).not.toBeInTheDocument();
 
       // Now let the SSE tail actually run. Its chunk arrives AFTER the poll
-      // already claimed this turn's narrationRowId — `subscribeToJob` must
-      // detect that (pollClaimedNarration) and NEVER touch the transcript
-      // again for this beat: still exactly one row, unchanged text, same
-      // node (no supersede/replace churn).
+      // already replaced the anchor and swapped its id — `upsertStreamNarration`
+      // does a find-by-id against the STALE (pre-swap) anchor id, which no
+      // row matches anymore, so it silently no-ops (SR-flood guard holds by
+      // construction): still exactly one row, unchanged text, same node.
       await act(async () => {
         releaseGen();
         await Promise.resolve();
@@ -490,6 +512,184 @@ describe('TAV-NARRATION-DECOUPLE — poll-claim race (reconcileEvents rule 3 sub
       expect(postReleaseRow).toBe(preReleaseRow);
     } finally {
       jest.useRealTimers();
+      debugSpy.mockRestore();
+    }
+  });
+});
+
+describe('TAV-NARRATION-DECOUPLE Phase 2 — durable happy path streams token-by-token into the precreated anchor', () => {
+  it('shows "Suzu is composing…" immediately at send, streams multiple chunks into ONE growing (aria-hidden) row, and the poll finalizes to exactly one final, announced row', async () => {
+    let capturedTurnKey = '';
+    mockPostDmTurn.mockImplementation(async (body: { turn_key: string }) => {
+      capturedTurnKey = body.turn_key;
+      return { job_id: 'job-stream', turn_key: body.turn_key, status: 'pending', deduped: false };
+    });
+    // Gated so the FIRST chunk doesn't land until released — gives a stable
+    // window to assert the composing cue is up with zero visible narration
+    // content yet (not just "briefly, before a same-tick chunk races it").
+    let releaseGen: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      releaseGen = resolve;
+    });
+    mockSubscribeDmJob.mockImplementation(async function* () {
+      await gate;
+      yield { kind: 'chunk', text: 'The door' };
+      yield { kind: 'chunk', text: 'The door creaks' };
+      yield { kind: 'chunk', text: 'The door creaks open.' };
+      await new Promise(() => {}); // never yields `done` — the poll finalizes instead
+    });
+
+    jest.useFakeTimers();
+    try {
+      render(<PlayPage />);
+      await screen.findByText('Test Table');
+
+      const input = screen.getByRole('textbox');
+      fireEvent.change(input, { target: { value: 'I push the door open.' } });
+      await act(async () => {
+        fireEvent.keyDown(input, { key: 'Enter' });
+      });
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      // Composing cue shown immediately — narrateDurable sets
+      // talking/thinking SYNCHRONOUSLY before any await (Miko-QA finding b)
+      // — and stays up through the precreate + gated SSE tail with zero
+      // narration content visible yet.
+      expect(screen.getByText(/Suzu is composing/i)).toBeInTheDocument();
+      expect(capturedTurnKey).toMatch(UUID_RE);
+
+      await act(async () => {
+        releaseGen();
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      // Growing row shows the latest chunk's text, still aria-hidden
+      // (streaming) — this is the SAME precreated anchor being upserted
+      // into, not a fresh row per chunk. Composing cue is gone (Phase 1
+      // re-timing — cleared once real, non-empty content is visible).
+      await waitFor(() => {
+        expect(screen.getByText('The door creaks open.')).toBeInTheDocument();
+      });
+      expect(screen.queryByText(/Suzu is composing/i)).not.toBeInTheDocument();
+      const growingRow = screen.getByText('The door creaks open.').closest('.row');
+      expect(growingRow).toHaveAttribute('aria-hidden', 'true');
+      // Intermediate deltas never became their own separate rows.
+      expect(screen.queryByText('The door')).not.toBeInTheDocument();
+      expect(screen.queryByText('The door creaks')).not.toBeInTheDocument();
+
+      // The poll now reconciles both durable events for this turn.
+      mockGetSessionEventsPage.mockResolvedValue({
+        events: [
+          playerActionEvent(10, capturedTurnKey, 'I push the door open.'),
+          narrationEvent(11, 'The door creaks open.'),
+        ],
+        max_seq: 11,
+        has_more: false,
+        pending_generation: null,
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(4000);
+      });
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      // Exactly one final row, no longer aria-hidden — sub-case (a)
+      // replaced the growing anchor in the same array slot with a fresh,
+      // announce-once id.
+      expect(screen.getAllByText('The door creaks open.')).toHaveLength(1);
+      const finalRow = screen.getByText('The door creaks open.').closest('.row');
+      expect(finalRow).not.toHaveAttribute('aria-hidden');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
+
+describe('TAV-NARRATION-DECOUPLE Phase 2 — abort/failure clears the precreated anchor + indicator (no stuck "composing…")', () => {
+  it('an SSE-tail error on an originating (precreated) turn clears the composing indicator and leaves no orphaned/aria-hidden row', async () => {
+    mockPostDmTurn.mockResolvedValue({
+      job_id: 'job-fail',
+      turn_key: 'tk-fail-precreate',
+      status: 'pending',
+      deduped: false,
+    });
+    mockSubscribeDmJob.mockImplementation(async function* () {
+      yield { kind: 'error', error: 'generation failed' };
+    });
+
+    render(<PlayPage />);
+    await screen.findByText('Test Table');
+
+    await sendMessage('I try something risky.');
+    await flush();
+
+    // Indicator cleared — not stuck on "composing…".
+    expect(screen.queryByText(/Suzu is composing/i)).not.toBeInTheDocument();
+    // No orphaned streaming/anchor ROW left behind anywhere in the log —
+    // scoped to `.row` (not the generic `[aria-hidden]` selector, which also
+    // matches the Waveform component's own always-aria-hidden decorative
+    // bars whenever ANY thinking/resume cue is mounted; that's unrelated to
+    // this invariant).
+    const log = screen.getByRole('log');
+    expect(log.querySelectorAll('.row[aria-hidden="true"]')).toHaveLength(0);
+    // The existing failure affordance still surfaces normally.
+    expect(screen.getByText(/stepped away for a moment/i)).toBeInTheDocument();
+  });
+});
+
+describe('TAV-NARRATION-DECOUPLE Phase 2 — resume/reload path scoped OFF precreate (accepted trade-off)', () => {
+  it('a pending_generation discovered via reload/resume does NOT precreate an anchor — pre-existing create-on-first-chunk behavior is unchanged there', async () => {
+    mockSubscribeDmJob.mockImplementation(async function* () {
+      yield { kind: 'chunk', text: 'Suzu is finishing a beat.' };
+      await new Promise(() => {});
+    });
+
+    const debugSpy = jest.spyOn(console, 'debug').mockImplementation(() => {});
+
+    jest.useFakeTimers();
+    try {
+      render(<PlayPage />);
+      await screen.findByText('Test Table');
+
+      mockGetSessionEventsPage.mockResolvedValue({
+        events: [],
+        max_seq: 5,
+        has_more: false,
+        pending_generation: {
+          turn_key: 'tk-other-client',
+          job_id: 'job-other',
+          status: 'streaming',
+          trigger_seq: 5,
+          started_at: '2026-07-14T10:00:00Z',
+        },
+      });
+
+      await act(async () => {
+        jest.advanceTimersByTime(4000);
+      });
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      // precreate never runs for the stateless resume-discovery path.
+      expect(debugSpy).not.toHaveBeenCalledWith('narration_anchor_precreated', expect.anything());
+
+      // The first (and only) SSE chunk still renders via the pre-existing
+      // create-on-first-chunk path — unchanged, deliberately out of scope.
+      await waitFor(() => {
+        expect(screen.getByText('Suzu is finishing a beat.')).toBeInTheDocument();
+      });
+    } finally {
+      jest.useRealTimers();
+      debugSpy.mockRestore();
     }
   });
 });

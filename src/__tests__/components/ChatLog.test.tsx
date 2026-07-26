@@ -42,6 +42,32 @@ describe('ChatLog — keyboard focusability (TAV-19)', () => {
   });
 });
 
+describe('ChatLog — TAV-NARRATION-DECOUPLE Phase 2: empty streaming anchor renders nothing', () => {
+  it('a streaming row with empty text (a precreated anchor, or the legacy revealText momentary tick) renders no bubble at all', () => {
+    const rows: LogRow[] = [
+      { id: 'r1', who: 'leon', kind: 'player', text: 'I push open the door.', ts: '10:00' },
+      { id: 'anchor', who: 'Suzu', kind: 'narration', text: '', ts: '10:01', streaming: true },
+    ];
+    render(<ChatLog rows={rows} thinking thinkingLabel="Suzu is composing…" />);
+    // The player row still renders normally.
+    expect(screen.getByText('I push open the door.')).toBeInTheDocument();
+    // Exactly ONE "Suzu" speaker label exists — the thinking waveform row's
+    // own. If the empty anchor also rendered a bubble, this would be 2.
+    expect(screen.getAllByText('Suzu')).toHaveLength(1);
+    expect(screen.getByText('Suzu is composing…')).toBeInTheDocument();
+  });
+
+  it('once the anchor gains text, it renders normally as an aria-hidden growing row', () => {
+    const rows: LogRow[] = [
+      { id: 'anchor', who: 'Suzu', kind: 'narration', text: 'The door cre', ts: '10:01', streaming: true },
+    ];
+    render(<ChatLog rows={rows} />);
+    const textEl = screen.getByText('The door cre');
+    const row = textEl.closest('.row') as HTMLElement;
+    expect(row.getAttribute('aria-hidden')).toBe('true');
+  });
+});
+
 describe('ChatLog — DM-NARRATION-MARKDOWN inline emphasis', () => {
   const narr = (text: string): LogRow[] => [
     { id: 'n', who: 'Suzu', kind: 'narration', text, ts: '10:00' },

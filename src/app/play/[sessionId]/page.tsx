@@ -840,6 +840,19 @@ export default function PlayPage() {
    * conservatively to 'composer' — see that call site's own comment), 'beat'
    * for `narrateDurableBeat`'s two call sites. Drives whether an SSE-tail
    * `error` may surface the shared composer Retry banner.
+   *
+   * `precreateRow` (TAV-NARRATION-DECOUPLE Phase 2, 2026-07-26) — when true,
+   * pre-create THIS turn's streaming anchor row and claim it in the ledger
+   * (`entry.narrationRowId`) synchronously, before any await, so the poll's
+   * reconciliation (rule 3) always finds a `streaming` row to REPLACE
+   * (sub-case a) instead of appending a fresh one whole (sub-case c, the
+   * pop-in). `true` for all four originating-client subscribes
+   * (narrateDurable's 200 + 409-pivot, narrateDurableBeat's 200 + 409-pivot);
+   * `false` for the poll's stateless resume-discovery subscribe (§4b) —
+   * scoped OFF that path deliberately: on a reload the narration may already
+   * exist server-side by the time this client discovers the job, so
+   * pre-creating an anchor there risks an orphaned empty row racing a
+   * same-tick append. See the design doc's §3 Phase 2 / §11 trade-offs.
    */
   const subscribeToJob = useCallback(
     async (
@@ -847,6 +860,7 @@ export default function PlayPage() {
       ledgerKey: string,
       triggerSeq: number | undefined,
       origin: 'composer' | 'beat',
+      precreateRow: boolean,
     ) => {
       // DDX-20 Pass 3 Finding 2 (Kage-CR MAJOR-1 / Miko-QA) — de-dupe by
       // job_id BEFORE touching anything else. A 409-busy-pivot (composer or
@@ -914,11 +928,59 @@ export default function PlayPage() {
       // identical comment above) — only meaningful when we, not the poll,
       // own the live row.
       let ownStreamRowId: string | null = null;
+
+      // TAV-NARRATION-DECOUPLE Phase 2 (2026-07-26) — pre-create THIS turn's
+      // streaming anchor row and claim it in the ledger BEFORE the SSE tail
+      // even starts, so the poll's reconcile (rule 3) always finds a
+      // `streaming` row to REPLACE (sub-case a) rather than appending a
+      // fresh one whole once no chunk has arrived yet (sub-case c, the
+      // pop-in). Runs synchronously, after `clearStreamNarration(true)`
+      // above (drops any superseded beat's stale row first) and before the
+      // `for await` below suspends — so `entry.narrationRowId` is set before
+      // the poll's setInterval tick could possibly run again, closing the
+      // gap even tighter than the first-chunk claim below does.
+      //
+      // Why the SR-flood guard still holds: if the poll replaces this anchor
+      // (sub-case a) before any chunk lands, the row's `id` in `log` is
+      // swapped to the durable row's OWN fresh id (announce-once) — but
+      // `streamRowIdRef.current` still holds the OLD anchor id. The first
+      // chunk's `if (!streamRowIdRef.current)` check below is FALSE (an id
+      // is still present), so it skips the poll-claimed-detection branch —
+      // but `upsertStreamNarration(full)` then does a find-by-id against the
+      // STALE anchor id, which no row matches anymore, so it silently no-ops
+      // (see `upsertStreamNarration`'s `existingId` branch). The
+      // already-announced durable row is never touched again. Identical
+      // outcome to today's "poll replaced the streaming row mid-stream"
+      // case — just reached from a pre-existing id instead of one the first
+      // chunk minted.
+      if (precreateRow) {
+        upsertStreamNarration('');
+        ownStreamRowId = streamRowIdRef.current;
+        const precreateEntry = pendingByKeyRef.current.get(ledgerKey);
+        if (precreateEntry && ownStreamRowId) {
+          precreateEntry.narrationRowId = ownStreamRowId;
+        }
+        // §8 masked observability — correlation ids only, no prose/mechanics.
+        console.debug('narration_anchor_precreated', {
+          job_id: jobId,
+          ledger_key: ledgerKey,
+          origin,
+        });
+      }
+
       try {
         for await (const ev of subscribeDmJob(jobId, sessionId, { signal: ctrl.signal })) {
           if (ev.kind === 'chunk') {
             full = ev.text;
-            setThinking(false);
+            // TAV-COMPOSING (Phase 1, 2026-07-26) — do NOT clear `thinking`
+            // here unconditionally. On the poll-claim race (below) this
+            // chunk's row is never rendered by THIS tail at all — clearing
+            // on the bare event flashed the indicator off while the full
+            // text was already sitting in the log (the "pops up then shows
+            // the whole message" complaint). Clear only once something is
+            // actually visible: either the poll-claimed detection just below
+            // (the row is already on-screen, non-hidden), or the upsert below
+            // that carries real (non-empty) text.
             if (!pollClaimedNarration) {
               if (!streamRowIdRef.current) {
                 // First chunk. If the ledger entry is already gone (both
@@ -930,6 +992,10 @@ export default function PlayPage() {
                 const preEntry = pendingByKeyRef.current.get(ledgerKey);
                 if (!preEntry || preEntry.narrationRowId) {
                   pollClaimedNarration = true;
+                  // TAV-COMPOSING — the poll already rendered this beat's
+                  // narration as a real, visible (non-streaming) row; the
+                  // composing cue has nothing left to cover.
+                  setThinking(false);
                 }
               }
               // Tora CRITICAL-1 (resurrection race) — same gate as narrate():
@@ -951,6 +1017,10 @@ export default function PlayPage() {
                 if (entry && streamRowIdRef.current) {
                   entry.narrationRowId = streamRowIdRef.current;
                 }
+                // TAV-COMPOSING — clear once the row genuinely carries
+                // visible text (guards a precreated anchor's first empty
+                // upsert, and a stray empty first chunk in general).
+                if (full.trim() !== '') setThinking(false);
               }
             }
           } else if (ev.kind === 'error') {
@@ -1665,7 +1735,18 @@ export default function PlayPage() {
           // on a genuine beat-job SSE error post-reload is a Retry banner
           // whose click no-ops (onRetryFailedTurn already guards on a null
           // lastDurableTurnRef), not a wrong-content resubmit.
-          void subscribeToJob(pending.job_id, pending.turn_key, pending.trigger_seq, 'composer');
+          // precreateRow: false (TAV-NARRATION-DECOUPLE Phase 2) — deliberately
+          // scoped OFF this stateless resume path: the narration may already
+          // exist server-side by the time a reload discovers the job, so
+          // pre-creating an anchor here risks racing a same-tick append.
+          // Resume pop-in stays possible but is rare/accepted (design §11).
+          void subscribeToJob(
+            pending.job_id,
+            pending.turn_key,
+            pending.trigger_seq,
+            'composer',
+            false,
+          );
         } else if (!pending) {
           subscribedJobIdRef.current = null;
         }
@@ -1677,6 +1758,16 @@ export default function PlayPage() {
           clearTurnKey(sessionId);
           turnKeyRef.current = null;
           pollFailureGraceRef.current = null;
+          // TAV-COMPOSING (Phase 1, 2026-07-26) — this turn's own ledger
+          // entry is gone, so the beat resolved via the poll's reconciliation
+          // (rule 3 sub-case a/b) BEFORE (or without) subscribeToJob's tail
+          // ever clearing the indicator itself (e.g. the poll replaced a
+          // precreated anchor before the first SSE chunk). Scoped to
+          // `turnKeyRef` — the composer's own current turn — so it never
+          // clears a DIFFERENT, still-in-flight beat's indicator; a beat's
+          // own tail always self-clears at its SSE end (:973-ish) regardless.
+          setThinking(false);
+          setTalking(false);
         }
 
         // §4d, mechanism 2 (Miko-QA finding c) — poll-only failure detection.
@@ -2013,12 +2104,22 @@ export default function PlayPage() {
    * `streamRowIdRef` ends up set exactly as it would for a streamMode beat, so
    * the existing `finalizeStreamNarration(full)` call at the end of `narrate()`
    * still finalizes/announces it correctly — no new finalize path needed.
+   *
+   * TAV-COMPOSING (Phase 1, 2026-07-26): this starts the row EMPTY
+   * (`upsertStreamNarration('')`) and grows it word-by-word, so `thinking`
+   * must NOT clear the moment this function is called (the caller's `full`
+   * argument is non-empty, but nothing visible exists yet) — it clears
+   * itself, right here, once the first tick actually paints non-empty text.
+   * Until then the composing cue stays up and covers the empty-anchor gap
+   * (ChatLog renders `null` for a streaming row with no text — see its own
+   * TAV-NARRATION-DECOUPLE Phase 2 guard).
    */
   const revealText = useCallback(
     (full: string) => {
       if (revealRef.current) clearInterval(revealRef.current);
       if (reduced) {
         upsertStreamNarration(full);
+        if (full.trim() !== '') setThinking(false);
         return;
       }
       const tokens = full.split(/(\s+)/);
@@ -2026,7 +2127,9 @@ export default function PlayPage() {
       upsertStreamNarration('');
       revealRef.current = setInterval(() => {
         i += 1;
-        upsertStreamNarration(tokens.slice(0, i).join(''));
+        const shown = tokens.slice(0, i).join('');
+        upsertStreamNarration(shown);
+        if (shown.trim() !== '') setThinking(false);
         if (i >= tokens.length && revealRef.current) {
           clearInterval(revealRef.current);
           revealRef.current = null;
@@ -2182,7 +2285,16 @@ export default function PlayPage() {
         )) {
           if (ev.kind === 'chunk') {
             full = ev.text;
-            setThinking(false);
+            // TAV-COMPOSING (Phase 1, 2026-07-26) — same re-timing as
+            // subscribeToJob above: don't clear on the bare event, clear once
+            // real content is actually visible. The streamMode branch below
+            // upserts the real accumulated text directly (no gap); the
+            // buffered/revealText branch fake-types word-by-word starting
+            // from '', so it clears itself internally once its first
+            // non-empty tick paints (see revealText's own definition) —
+            // clearing it here too would flash the indicator off during that
+            // empty first tick, right as ChatLog's empty-anchor guard also
+            // hides the row, leaving nothing on screen for one 26ms tick.
             if (ev.streamMode) {
               // DM-STREAM: the server is already pacing the reveal
               // token-by-token — set the cumulative text directly instead of
@@ -2212,11 +2324,16 @@ export default function PlayPage() {
                 // TAV-S1-ABORT-CLEAR: snapshot the row id THIS beat owns right
                 // after the synchronous upsert sets it.
                 ownStreamRowId = streamRowIdRef.current;
+                // TAV-COMPOSING — real accumulated text lands directly (no
+                // fake-typewriter lag), so clear as soon as it's non-empty.
+                if (full.trim() !== '') setThinking(false);
               }
             } else {
               // Flag-OFF / buffered path — fake-reveal, now driving the chat
               // streaming row directly (revealText, TAV-NARRATION-DECOUPLE)
-              // instead of the removed narratorText bar.
+              // instead of the removed narratorText bar. revealText itself
+              // clears `thinking` once its first non-empty tick paints (see
+              // its own TAV-COMPOSING comment) — do NOT also clear it here.
               revealText(full);
             }
             if (ev.offeredCheck) offeredCheckSignal = ev.offeredCheck;
@@ -2482,7 +2599,10 @@ export default function PlayPage() {
           trigger_seq: handle.trigger_seq,
           started_at: new Date().toISOString(),
         });
-        void subscribeToJob(handle.job_id, `busy:${handle.job_id}`, handle.trigger_seq, 'composer');
+        // precreateRow: true — this IS an originating (composer) subscribe,
+        // just pivoted onto another client's job (TAV-NARRATION-DECOUPLE
+        // Phase 2).
+        void subscribeToJob(handle.job_id, `busy:${handle.job_id}`, handle.trigger_seq, 'composer', true);
         return;
       }
 
@@ -2498,7 +2618,10 @@ export default function PlayPage() {
         trigger_seq: 0,
         started_at: new Date().toISOString(),
       });
-      void subscribeToJob(handle.job_id, turnKey, undefined, 'composer');
+      // precreateRow: true (TAV-NARRATION-DECOUPLE Phase 2) — the common
+      // "type + send" path; pre-create the streaming anchor so the poll
+      // always replaces (rule 3 sub-case a) instead of popping in whole.
+      void subscribeToJob(handle.job_id, turnKey, undefined, 'composer', true);
     },
     [session, username, sessionId, appendLog, subscribeToJob, toast],
   );
@@ -2631,7 +2754,9 @@ export default function PlayPage() {
           trigger_seq: handle.trigger_seq,
           started_at: new Date().toISOString(),
         });
-        void subscribeToJob(handle.job_id, `busy:${handle.job_id}`, handle.trigger_seq, 'beat');
+        // precreateRow: true — originating (beat) subscribe pivoted onto
+        // another client's job (TAV-NARRATION-DECOUPLE Phase 2).
+        void subscribeToJob(handle.job_id, `busy:${handle.job_id}`, handle.trigger_seq, 'beat', true);
         return;
       }
 
@@ -2643,7 +2768,10 @@ export default function PlayPage() {
         trigger_seq: 0,
         started_at: new Date().toISOString(),
       });
-      void subscribeToJob(handle.job_id, turnKey, undefined, 'beat');
+      // precreateRow: true (TAV-NARRATION-DECOUPLE Phase 2) — synthetic
+      // beats originate client-side too; pre-create so the poll replaces
+      // instead of popping in whole.
+      void subscribeToJob(handle.job_id, turnKey, undefined, 'beat', true);
     },
     [session, username, sessionId, subscribeToJob],
   );

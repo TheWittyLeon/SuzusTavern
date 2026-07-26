@@ -241,6 +241,57 @@ describe('reconcileDurableEvents — rule 3 (narration)', () => {
     expect(pendingByKey.has('tk-1')).toBe(false);
   });
 
+  it('TAV-NARRATION-DECOUPLE Phase 2 — a pre-created EMPTY anchor (narrationRowId set before any chunk landed) still takes sub-case (a) REPLACE, not append — the exact mechanism page.tsx\'s subscribeToJob precreate relies on to turn the poll-claim race\'s pop-in (sub-case c) into a stream (sub-case a)', () => {
+    const renderedSeqs = new Set<number>();
+    // This is the literal precreate shape: `upsertStreamNarration('')` sets
+    // streaming:true with EMPTY text, and narrationRowId is claimed
+    // SYNCHRONOUSLY at job-start — before the SSE tail's first chunk (if
+    // any) has even had a chance to arrive.
+    const pendingByKey = new Map<string, PendingTurnEntry>([
+      ['tk-precreate', { narrationRowId: 'r-anchor', triggerSeq: undefined, awaitingNarration: true }],
+    ]);
+    const anchorRow: LogRow = {
+      id: 'r-anchor',
+      who: 'Suzu',
+      kind: 'narration',
+      text: '',
+      ts: '10:00',
+      streaming: true,
+    };
+    const events: EngineSessionEvent[] = [
+      { seq: 300, kind: 'narration', data: { text: 'The door creaks open.' } },
+    ];
+    const result = reconcileDurableEvents(
+      events,
+      renderedSeqs,
+      pendingByKey,
+      (id) => (id === 'r-anchor' ? anchorRow : undefined),
+    );
+
+    // Sub-case (a): REPLACE the anchor in place — NOT the sibling "Kage #3"
+    // test's sub-case (c) APPEND outcome (compare the `appended`/`stamped`
+    // shapes directly against that test above: no narrationRowId pre-set
+    // there -> appended; narrationRowId pre-set here, even to an EMPTY
+    // anchor -> stamped/replaced). This is the non-vacuous proof that
+    // precreate is what flips the poll-claim race from pop-in to stream.
+    expect(result.appended).toHaveLength(0);
+    expect(result.stamped).toHaveLength(1);
+    expect(result.stamped[0].matchId).toBe('r-anchor');
+    expect(result.stamped[0].patch).toMatchObject({
+      id: 'ev300',
+      text: 'The door creaks open.',
+      streaming: false,
+    });
+
+    // End-to-end through the merge: the anchor's id/text/streaming flip in
+    // the SAME array slot (a real remount, not an in-place mutation of an
+    // aria-hidden node) — the announce-once contract holds even though the
+    // row started life completely empty.
+    const merged = applyReconcileResult([anchorRow], result);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toMatchObject({ id: 'ev300', text: 'The door creaks open.', streaming: false });
+  });
+
   it('Kage #3 — the claimed entry survives when playerRowId is still pending (rare ordering edge)', () => {
     const renderedSeqs = new Set<number>();
     const pendingByKey = new Map<string, PendingTurnEntry>([

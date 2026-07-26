@@ -105,9 +105,11 @@ export interface LogRow {
 export interface ChatLogProps {
   rows: LogRow[];
   thinking?: boolean;
-  /** DDX-20 §9 — override the thinking row's label. Defaults to 'narrating…'
-   *  (today's shipped copy, unchanged when omitted). Used by the play screen
-   *  to reuse this SAME waveform row for the "Resuming Suzu's turn…" resume
+  /** DDX-20 §9 — override the thinking row's label. Defaults to 'Suzu is
+   *  composing…' (TAV-COMPOSING, 2026-07-26 — was 'narrating…'; Suzu hasn't
+   *  narrated anything yet at this point, she's composing the beat, so the
+   *  old copy set the wrong mental model). Used by the play screen to reuse
+   *  this SAME waveform row for the "Resuming Suzu's turn…" resume
    *  affordance (flag-ON only) — distinct copy, same aria-live="polite"
    *  announce-once mechanism (the row mounts/unmounts with `thinking`). */
   thinkingLabel?: string;
@@ -127,7 +129,7 @@ export interface ChatLogHandle {
 }
 
 const ChatLog = forwardRef<ChatLogHandle, ChatLogProps>(function ChatLog(
-  { rows, thinking = false, thinkingLabel = 'narrating…', participants = [] },
+  { rows, thinking = false, thinkingLabel = 'Suzu is composing…', participants = [] },
   handleRef,
 ) {
   const ref = useRef<HTMLDivElement>(null);
@@ -184,6 +186,15 @@ const ChatLog = forwardRef<ChatLogHandle, ChatLogProps>(function ChatLog(
       tabIndex={0}
     >
       {rows.map((r) => {
+        // TAV-NARRATION-DECOUPLE Phase 2 (precreated streaming anchor) — a
+        // streaming row with no text yet is a reconcile-only anchor (or,
+        // pre-existing on the legacy buffered/revealText path, a momentary
+        // empty tick before the fake-typewriter's first token lands). Render
+        // nothing rather than an empty "Suzu:" bubble — the `thinking`
+        // waveform row below is the sole visible cue until real content
+        // fills this row (Phase 1) or the poll replaces it outright.
+        if (r.streaming && !r.text.trim()) return null;
+
         // P1-READALOUD: verbatim scene-set block. Rendered without typewriter
         // animation — authored text appears instantly at the player's own pace.
         if (r.kind === 'read_aloud') {
@@ -285,8 +296,18 @@ const ChatLog = forwardRef<ChatLogHandle, ChatLogProps>(function ChatLog(
       })}
 
       {thinking && (
-        <div className={`${styles.row} ${styles.narration}`} style={{ opacity: 0.7 }}>
-          <div className={styles.who}>
+        // TAV-COMPOSING (Phase 1) — no more opacity:0.7 fade; `.composing`
+        // gives this row a token-based tint/left-accent so it reads as an
+        // ACTIVE status, not something already fading out.
+        <div className={`${styles.row} ${styles.narration} ${styles.composing}`}>
+          {/* Iro-A11y MINOR-1 — this "Suzu" label is purely a sighted
+              column-alignment label (every OTHER row has one in the same
+              slot); `thinkingLabel` ("Suzu is composing…"/"Resuming Suzu's
+              turn…") already names Suzu for AT, so leaving this un-hidden
+              doubles up as "Suzu Suzu is composing…". aria-hidden here only
+              — the finalized rows above keep their own `.who` label
+              announced normally. */}
+          <div className={styles.who} aria-hidden="true">
             <span>Suzu</span>
           </div>
           <div className={styles.thinking}>

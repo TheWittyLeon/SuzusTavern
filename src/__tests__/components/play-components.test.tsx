@@ -84,8 +84,11 @@ describe('ChatLog', () => {
   });
 
   it('renders a thinking row when thinking', () => {
+    // TAV-COMPOSING (2026-07-26): default copy changed from 'narrating…' to
+    // 'Suzu is composing…' — Suzu hasn't narrated anything yet at this
+    // point, she's composing the beat.
     render(<ChatLog rows={[]} thinking />);
-    expect(screen.getByText(/narrating/i)).toBeInTheDocument();
+    expect(screen.getByText(/composing/i)).toBeInTheDocument();
   });
 
   describe('ST-CHARLABEL — "CharacterName (username)" player-row speaker labels', () => {
