@@ -19,7 +19,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import { useAuthGate } from '@/lib/auth/useAuthGate';
-import { listSessions, listMyCharacters } from '@/lib/api/dnd';
+import {
+  listSessions,
+  listMyCharacters,
+  deleteCharacter,
+  restoreCharacter,
+  deleteSession,
+  restoreSession,
+} from '@/lib/api/dnd';
 import type { Character, Session } from '@/lib/api/types';
 import TavernShell from '@/components/TavernShell';
 import PageSkeleton from '@/components/PageSkeleton';
@@ -31,7 +38,10 @@ import SuzuDM from '@/components/SuzuDM';
 import SectionHead from '@/components/SectionHead';
 import DeleteCharacterButton from '@/components/DeleteCharacterButton';
 import DeleteCampaignButton from '@/components/DeleteCampaignButton';
+import BulkActionBar from '@/components/BulkActionBar';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import SessionRecap from '@/components/SessionRecap';
+import { useBulkDelete } from '@/lib/useBulkDelete';
 import { sessionTitle, formatStarted } from '@/lib/format';
 import styles from './Dashboard.module.css';
 
@@ -115,7 +125,7 @@ function DashEmpty({
   );
 }
 
-// ── Character grid (ST-044) ───────────────────────────────────────────────────
+// ── Character grid (ST-044 + BULK-DEL) ────────────────────────────────────────
 function CharacterGrid({
   characters,
   username,
@@ -125,9 +135,54 @@ function CharacterGrid({
   username: string;
   onChanged: () => void;
 }) {
+  // Focus fallback (Iro MAJOR-1 pattern): a stable, always-mounted heading to
+  // refocus onto once select mode exits and the checkboxes/bar unmount.
+  const sectionRef = useRef<HTMLDivElement>(null);
+  const bulk = useBulkDelete({
+    noun: 'character',
+    deleteOne: deleteCharacter,
+    restoreOne: restoreCharacter,
+    username,
+    onChanged,
+    focusFallbackRef: sectionRef,
+  });
+
+  const allIds = characters.map((c) => c.character_id);
+  const n = bulk.selected.size;
+
   return (
     <div>
-      <SectionHead title="Your characters" level={2} />
+      <SectionHead
+        ref={sectionRef}
+        title="Your characters"
+        level={2}
+        tabIndex={-1}
+        action={
+          characters.length > 0 ? (
+            <Button
+              variant="ghost"
+              aria-pressed={bulk.selectMode}
+              onClick={() =>
+                bulk.selectMode ? bulk.exitSelectMode() : bulk.enterSelectMode()
+              }
+            >
+              {bulk.selectMode ? 'Cancel' : 'Select'}
+            </Button>
+          ) : undefined
+        }
+      />
+
+      {n > 0 && (
+        <BulkActionBar
+          count={n}
+          noun="character"
+          onSelectAll={() => bulk.selectAll(allIds)}
+          onClear={bulk.clear}
+          onCancel={bulk.exitSelectMode}
+          onDelete={bulk.openConfirm}
+        />
+      )}
+
       <div className={styles.charGrid}>
         {characters.map((c) => {
           const cls = String(c.char_class ?? c.class ?? '').toLowerCase();
@@ -135,46 +190,89 @@ function CharacterGrid({
           const sub = [cls, level !== undefined ? String(level) : '']
             .filter(Boolean)
             .join(' ');
-          // The delete control is a SIBLING of the card <Link> (never nested —
-          // a button inside an anchor is invalid + breaks AT). The wrapper is the
-          // positioning context for the corner button.
+          const name = String(c.name ?? 'this character');
+          const cardBody = (
+            <>
+              <span className={styles.charAvatar} aria-hidden>
+                {String(c.name ?? '?').charAt(0).toUpperCase()}
+              </span>
+              <span className={styles.charName}>{c.name}</span>
+              <span className={styles.charSub}>{sub}</span>
+            </>
+          );
+          // The delete control (or, in select mode, the checkbox) is a SIBLING
+          // of the card (never nested — a button/input inside an anchor is
+          // invalid + breaks AT). The wrapper is the positioning context for
+          // the corner control.
           return (
             <div key={c.character_id} className={styles.charCardWrap}>
-              <Link
-                href={`/character/${encodeURIComponent(c.character_id)}`}
-                className={styles.charCard}
-              >
-                <span className={styles.charAvatar} aria-hidden>
-                  {String(c.name ?? '?').charAt(0).toUpperCase()}
-                </span>
-                <span className={styles.charName}>{c.name}</span>
-                <span className={styles.charSub}>{sub}</span>
-              </Link>
-              <DeleteCharacterButton
-                characterId={c.character_id}
-                characterName={String(c.name ?? 'this character')}
-                username={username}
-                onChanged={onChanged}
-                className={styles.charDelete}
-              />
+              {bulk.selectMode ? (
+                // Select mode: the card is no longer a navigation link — the
+                // checkbox is the primary control, so clicking the card body
+                // would otherwise navigate away mid-selection. tabIndex is left
+                // off this div deliberately; the checkbox below is the real
+                // keyboard-reachable control.
+                <div className={styles.charCard}>{cardBody}</div>
+              ) : (
+                <Link
+                  href={`/character/${encodeURIComponent(c.character_id)}`}
+                  className={styles.charCard}
+                >
+                  {cardBody}
+                </Link>
+              )}
+              {bulk.selectMode ? (
+                <label className={styles.charCheckWrap}>
+                  <input
+                    type="checkbox"
+                    className={styles.charCheck}
+                    checked={bulk.selected.has(c.character_id)}
+                    onChange={() => bulk.toggle(c.character_id)}
+                    aria-label={`Select ${name}`}
+                  />
+                </label>
+              ) : (
+                <DeleteCharacterButton
+                  characterId={c.character_id}
+                  characterName={name}
+                  username={username}
+                  onChanged={onChanged}
+                  className={styles.charDelete}
+                />
+              )}
             </div>
           );
         })}
         {/* TAV-17: the two visible words compose the accessible name "New create",
             which reads as nonsense to a screen reader. Give the link an explicit
-            aria-label; the "New" / "create" stack stays as the visual card copy. */}
-        <Link
-          href="/character/new"
-          className={`${styles.charCard} ${styles.charNew}`}
-          aria-label="Create a new character"
-        >
-          <span className={styles.charNewIcon} aria-hidden>
-            <Icon name="Plus" size={20} />
-          </span>
-          <span className={styles.charName}>New</span>
-          <span className={styles.charSub}>create</span>
-        </Link>
+            aria-label; the "New" / "create" stack stays as the visual card copy.
+            Hidden in select mode — it isn't a selectable/deletable row. */}
+        {!bulk.selectMode && (
+          <Link
+            href="/character/new"
+            className={`${styles.charCard} ${styles.charNew}`}
+            aria-label="Create a new character"
+          >
+            <span className={styles.charNewIcon} aria-hidden>
+              <Icon name="Plus" size={20} />
+            </span>
+            <span className={styles.charName}>New</span>
+            <span className={styles.charSub}>create</span>
+          </Link>
+        )}
       </div>
+
+      <ConfirmDialog
+        open={bulk.confirmOpen}
+        tone="danger"
+        title={`Delete ${n} character${n === 1 ? '' : 's'}?`}
+        body="They'll move to your trash, recoverable for 7 days."
+        confirmLabel="Move to trash"
+        cancelLabel="Keep"
+        busy={bulk.busy}
+        onConfirm={() => void bulk.runDelete()}
+        onCancel={bulk.closeConfirm}
+      />
     </div>
   );
 }
@@ -198,6 +296,25 @@ function DashActive({
   // order) and pass it to DeleteCampaignButton as focusFallbackRef. After a
   // confirmed delete the button focuses this element before the row disappears.
   const campaignsSectionRef = useRef<HTMLDivElement>(null);
+
+  // BULK-DEL: only the DM of a campaign can delete it (engine enforces this
+  // server-side too — a non-owner delete call 404s). "Select all" only ever
+  // selects DM-owned rows; non-DM rows never render a checkbox.
+  const isDmOf = useCallback(
+    (s: Session) =>
+      !!username && (s.dm_username ?? '').toLowerCase() === username.toLowerCase(),
+    [username],
+  );
+  const campaignBulk = useBulkDelete({
+    noun: 'campaign',
+    deleteOne: deleteSession,
+    restoreOne: restoreSession,
+    username,
+    onChanged,
+    focusFallbackRef: campaignsSectionRef,
+  });
+  const dmSessionIds = sessions.filter(isDmOf).map((s) => s.session_id);
+  const nCampaigns = campaignBulk.selected.size;
 
   const hero = sessions[0];
   const heroTitle = sessionTitle(hero);
@@ -249,26 +366,73 @@ function DashActive({
             level={2}
             tabIndex={-1}
             action={
-              <Button
-                variant="ghost"
-                href="/modules"
-                leadingIcon={<Icon name="Plus" size={12} aria-hidden />}
-              >
-                New
-              </Button>
+              <div className={styles.campaignHeadActions}>
+                {dmSessionIds.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    aria-pressed={campaignBulk.selectMode}
+                    onClick={() =>
+                      campaignBulk.selectMode
+                        ? campaignBulk.exitSelectMode()
+                        : campaignBulk.enterSelectMode()
+                    }
+                  >
+                    {campaignBulk.selectMode ? 'Cancel' : 'Select'}
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  href="/modules"
+                  leadingIcon={<Icon name="Plus" size={12} aria-hidden />}
+                >
+                  New
+                </Button>
+              </div>
             }
           />
+
+          {nCampaigns > 0 && (
+            <BulkActionBar
+              count={nCampaigns}
+              noun="campaign"
+              onSelectAll={() => campaignBulk.selectAll(dmSessionIds)}
+              onClear={campaignBulk.clear}
+              onCancel={campaignBulk.exitSelectMode}
+              onDelete={campaignBulk.openConfirm}
+            />
+          )}
+
           <Card padding={false} className={styles.campaignList}>
             {sessions.map((s) => {
               const suzu = (s.dm_username ?? '').toLowerCase() === 'suzu';
-              // Only the campaign's DM (owner) sees the delete control; the engine
-              // also enforces owner-only delete (a non-owner gets a 404).
-              const isDM =
-                !!username &&
-                (s.dm_username ?? '').toLowerCase() === username.toLowerCase();
+              // Only the campaign's DM (owner) sees the delete control (single
+              // or bulk); the engine also enforces owner-only delete (a
+              // non-owner delete call 404s).
+              const isDM = isDmOf(s);
               const campaignName = sessionTitle(s);
               return (
-                <div key={s.session_id} className={styles.campaignRow}>
+                <div
+                  key={s.session_id}
+                  className={
+                    campaignBulk.selectMode
+                      ? `${styles.campaignRow} ${styles.campaignRowSelect}`
+                      : styles.campaignRow
+                  }
+                >
+                  {campaignBulk.selectMode && (
+                    <span className={styles.campaignCheckCol}>
+                      {isDM && (
+                        <label className={styles.campaignCheckWrap}>
+                          <input
+                            type="checkbox"
+                            checked={campaignBulk.selected.has(s.session_id)}
+                            onChange={() => campaignBulk.toggle(s.session_id)}
+                            aria-label={`Select campaign ${campaignName}`}
+                          />
+                        </label>
+                      )}
+                    </span>
+                  )}
                   <span className={styles.campaignIcon} aria-hidden>
                     <Icon name="Scroll" size={18} />
                   </span>
@@ -289,7 +453,7 @@ function DashActive({
                     >
                       Open
                     </Button>
-                    {isDM && (
+                    {isDM && !campaignBulk.selectMode && (
                       <DeleteCampaignButton
                         sessionId={s.session_id}
                         campaignName={campaignName}
@@ -304,6 +468,34 @@ function DashActive({
               );
             })}
           </Card>
+
+          <ConfirmDialog
+            open={campaignBulk.confirmOpen}
+            tone="danger"
+            title={`Delete ${nCampaigns} campaign${nCampaigns === 1 ? '' : 's'}?`}
+            body={
+              nCampaigns === 1 ? (
+                <>
+                  This closes the table for everyone at it and moves it to your
+                  trash. Your players&rsquo; characters are kept. You can restore
+                  it for the next 7 days, after which it&rsquo;s permanently
+                  removed.
+                </>
+              ) : (
+                <>
+                  This closes the table for everyone at these {nCampaigns}{' '}
+                  campaigns and moves them to your trash. Your players&rsquo;
+                  characters are kept. You can restore them for the next 7 days,
+                  after which they&rsquo;re permanently removed.
+                </>
+              )
+            }
+            confirmLabel="Move to trash"
+            cancelLabel="Keep"
+            busy={campaignBulk.busy}
+            onConfirm={() => void campaignBulk.runDelete()}
+            onCancel={campaignBulk.closeConfirm}
+          />
         </div>
 
         <div className={styles.colSide}>
