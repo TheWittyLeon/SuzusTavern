@@ -16,8 +16,14 @@
  * `character.pending_choices.length > 0` (queued subclass/ASI/spell picks
  * awaiting resolution) — driven straight off the roster the parent already
  * fetches, no extra per-character request.
+ *
+ * TAV-PARTY-INLINE-SHEET: a member card with a character used to be a
+ * `<Link href="/character/[id]">` — clicking it navigated away and reloaded
+ * the whole play session. It's now a `<button>` that calls `onSelectMember`
+ * so the caller (the play page) can open the sheet in an inline drawer
+ * instead. A member with no character stays non-interactive, exactly as
+ * before.
  */
-import Link from 'next/link';
 import type { CombatState, Participant } from '@/lib/api/types';
 import styles from './PartyPanel.module.css';
 
@@ -27,6 +33,9 @@ export interface PartyPanelProps {
   loading?: boolean;
   /** Live combat state for in-combat HP overrides (CUI-11). */
   combatState?: CombatState | null;
+  /** TAV-PARTY-INLINE-SHEET: called with a member's participant when their
+   *  card is clicked (only fires for members who have a character). */
+  onSelectMember?: (participant: Participant) => void;
 }
 
 function hpColor(ratio: number): string {
@@ -40,6 +49,7 @@ export default function PartyPanel({
   selfUsername,
   loading = false,
   combatState = null,
+  onSelectMember,
 }: PartyPanelProps) {
   const self = (selfUsername ?? '').toLowerCase();
 
@@ -172,9 +182,13 @@ export default function PartyPanel({
           return (
             <li key={p.username}>
               {c?.character_id ? (
-                <Link href={`/character/${encodeURIComponent(c.character_id)}`} className={styles.link}>
+                <button
+                  type="button"
+                  className={styles.link}
+                  onClick={() => onSelectMember?.(p)}
+                >
                   {display}
-                </Link>
+                </button>
               ) : (
                 display
               )}

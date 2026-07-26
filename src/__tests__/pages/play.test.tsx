@@ -9,9 +9,9 @@
  *   - spawnMonster is NOT called from beginEncounter
  */
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import type { NarrationEvent, Participant, Session } from '@/lib/api/types';
+import type { CharacterSheet, NarrationEvent, Participant, Session } from '@/lib/api/types';
 
 jest.mock('next/navigation', () => ({
   useParams: () => ({ sessionId: 's1' }),
@@ -158,6 +158,137 @@ describe('Play page', () => {
     // B2-4: "Velka" now appears in both PartyPanel and the rebind section label.
     const velkaEls = await screen.findAllByText('Velka');
     expect(velkaEls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  // ── TAV-PARTY-INLINE-SHEET ───────────────────────────────────────────────────
+  const VELKA_SHEET: CharacterSheet = {
+    character_id: 'c1',
+    owner_username: 'alice',
+    name: 'Velka',
+    race: 'Human',
+    subrace: '',
+    char_class: 'Rogue',
+    subclass: '',
+    level: 1,
+    background: '',
+    alignment: '',
+    ability_scores: {
+      strength: { score: 10, modifier: 0 },
+      dexterity: { score: 16, modifier: 3 },
+      constitution: { score: 12, modifier: 1 },
+      intelligence: { score: 10, modifier: 0 },
+      wisdom: { score: 10, modifier: 0 },
+      charisma: { score: 10, modifier: 0 },
+    },
+    hp: { current: 8, max: 10, temp: 0 },
+    ac: 14,
+    initiative: 3,
+    proficiency_bonus: 2,
+    speed: 30,
+    xp: 0,
+    xp_next: 300,
+    hit_dice_remaining: 1,
+    proficient_saves: [],
+    proficient_skills: ['stealth'],
+    class_features: ['Sneak Attack'],
+    conditions: [],
+    spellcasting: null,
+    spell_slots: {},
+    is_spellcaster: false,
+    inventory: [{ name: 'Shortsword', item_type: 'weapon', sub: '', quantity: 1, equipped: true }],
+    inventory_weight: 2,
+    languages: ['Common'],
+  };
+
+  const BOB_SHEET: CharacterSheet = {
+    ...VELKA_SHEET,
+    character_id: 'c2',
+    owner_username: 'bob',
+    name: 'Grask',
+    class_features: ['Rage'],
+    inventory: [{ name: 'Greataxe', item_type: 'weapon', sub: '', quantity: 1, equipped: true }],
+  };
+
+  const PARTY_WITH_BOB: Participant[] = [
+    ...PARTY,
+    {
+      username: 'bob',
+      is_dm: false,
+      character: {
+        character_id: 'c2',
+        name: 'Grask',
+        char_class: 'Barbarian',
+        level: 1,
+        current_hp: 12,
+        max_hp: 12,
+        ac: 13,
+      },
+    },
+  ];
+
+  it("TAV-PARTY-INLINE-SHEET: clicking your OWN party card opens the drawer from the already-loaded sheet, no navigation, no extra fetch", async () => {
+    const mGetCharacterSheet = dnd.getCharacterSheet as jest.MockedFunction<
+      typeof dnd.getCharacterSheet
+    >;
+    // Resolves for EVERY call (including the page's own boundCharId hydration
+    // effect) — this is what makes `mySheet` already populated by the time
+    // the party card is clicked.
+    mGetCharacterSheet.mockResolvedValue(VELKA_SHEET);
+
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+    await waitFor(() => expect(mGetCharacterSheet).toHaveBeenCalled());
+    const callsBeforeClick = mGetCharacterSheet.mock.calls.length;
+
+    // The card is a <button> now, not a <Link> — no navigation on click.
+    const card = screen.getByRole('button', { name: /Velka/ });
+    expect(screen.queryByRole('link', { name: /Velka/ })).not.toBeInTheDocument();
+
+    fireEvent.click(card);
+
+    const dialog = await screen.findByRole('dialog', { name: /Velka/ });
+    expect(within(dialog).getByText('Sneak Attack')).toBeInTheDocument();
+    expect(within(dialog).getByText(/Shortsword/)).toBeInTheDocument();
+    // Reused mySheet — no NEW getCharacterSheet call fired for the click itself.
+    expect(mGetCharacterSheet.mock.calls.length).toBe(callsBeforeClick);
+
+    // Still on the same play page — no route change.
+    expect(screen.getByText('The Hollow Tide')).toBeInTheDocument();
+
+    // Closing via Escape returns the drawer to hidden (role="dialog" gone).
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: /Velka/ })).not.toBeInTheDocument(),
+    );
+  });
+
+  it('TAV-PARTY-INLINE-SHEET: clicking a DIFFERENT member\'s card fetches and shows THEIR sheet, not navigation', async () => {
+    mGetParticipants.mockResolvedValue(PARTY_WITH_BOB);
+    const mGetCharacterSheet = dnd.getCharacterSheet as jest.MockedFunction<
+      typeof dnd.getCharacterSheet
+    >;
+    mGetCharacterSheet.mockImplementation((id: string) =>
+      id === 'c1'
+        ? Promise.resolve(VELKA_SHEET)
+        : id === 'c2'
+          ? Promise.resolve(BOB_SHEET)
+          : Promise.reject(new Error('not found')),
+    );
+
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+
+    const card = screen.getByRole('button', { name: /Grask/ });
+    expect(screen.queryByRole('link', { name: /Grask/ })).not.toBeInTheDocument();
+    fireEvent.click(card);
+
+    const dialog = await screen.findByRole('dialog', { name: /Grask/ });
+    expect(within(dialog).getByText('Rage')).toBeInTheDocument();
+    expect(within(dialog).getByText(/Greataxe/)).toBeInTheDocument();
+    expect(mGetCharacterSheet).toHaveBeenCalledWith('c2', 'alice');
+
+    // Still on the same play page — no route change.
+    expect(screen.getByText('The Hollow Tide')).toBeInTheDocument();
   });
 
   it('mobile view tabs switch Story / Party / Scene (party reachable on mobile)', async () => {

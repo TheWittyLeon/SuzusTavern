@@ -534,44 +534,49 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     expect(mockPrepareSpell).not.toHaveBeenCalled();
   });
 
-  // ── TAV-SPELLPICK-DESCRIPTIONS ─────────────────────────────────────────────────
-  it('TAV-SPELLPICK-DESCRIPTIONS: renders the catalog description (and higher-levels line) once the catalog fetch resolves', async () => {
-    mockGetCatalog.mockResolvedValue({
-      system: 'dnd5e',
-      content_type: 'spell',
-      total: 1,
-      limit: 500,
-      offset: 0,
-      items: [
-        {
-          slug: 'fire-bolt',
-          name: 'Fire Bolt',
-          content_type: 'spell',
-          source_type: 'srd',
-          data: {
-            level: 0,
-            school: 'evocation',
-            casting_time: '1 action',
-            range: '120 feet',
-            components: { V: true, S: true },
-            duration: 'Instantaneous',
-            description: 'You hurl a mote of fire at a creature or object within range.',
-            higher_levels: 'The spell’s damage increases by 1d10 when you reach 5th level.',
-          },
+  // ── TAV-SPELLPICK-DESCRIPTIONS / TAV-SPELLPICK-OVERLAY ────────────────────────
+  const FIRE_BOLT_CATALOG_RESPONSE = {
+    system: 'dnd5e',
+    content_type: 'spell',
+    total: 1,
+    limit: 500,
+    offset: 0,
+    items: [
+      {
+        slug: 'fire-bolt',
+        name: 'Fire Bolt',
+        content_type: 'spell',
+        source_type: 'srd',
+        data: {
+          level: 0,
+          school: 'evocation',
+          casting_time: '1 action',
+          range: '120 feet',
+          components: { V: true, S: true },
+          duration: 'Instantaneous',
+          description: 'You hurl a mote of fire at a creature or object within range.',
+          higher_levels: 'The spell’s damage increases by 1d10 when you reach 5th level.',
         },
-      ],
-    });
+      },
+    ],
+  };
+
+  it('TAV-SPELLPICK-DESCRIPTIONS: compact card shows level/casting-time/range/components once the catalog fetch resolves — no inline description', async () => {
+    mockGetCatalog.mockResolvedValue(FIRE_BOLT_CATALOG_RESPONSE);
     await advanceToSpells();
 
     expect(mockGetCatalog).toHaveBeenCalledWith(
       'dnd5e',
       expect.objectContaining({ type: 'spell' }),
     );
+    // The compact meta line: level now leads casting time/range/components.
+    expect(screen.getByText('Cantrip · 1 action · 120 feet · V, S')).toBeInTheDocument();
+    // The long description/higher-levels text is NOT inline anymore — it only
+    // lives behind the 🔍 overlay (see the "opens the details overlay" test).
     expect(
-      await screen.findByText(/You hurl a mote of fire at a creature or object within range\./),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/damage increases by 1d10/)).toBeInTheDocument();
-    expect(screen.getByText('1 action · 120 feet · V, S')).toBeInTheDocument();
+      screen.queryByText(/You hurl a mote of fire at a creature or object within range\./),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/damage increases by 1d10/)).not.toBeInTheDocument();
 
     // A spell with no matching catalog entry (Mage Hand — not in the fixture
     // above) still renders name+school only, exactly as before — the
@@ -582,7 +587,38 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     expect(mageHand).toBeChecked();
   });
 
-  it('TAV-SPELLPICK-DESCRIPTIONS: a failed catalog fetch degrades gracefully — rows still render name+school and selection is never blocked', async () => {
+  it('TAV-SPELLPICK-OVERLAY: clicking the 🔍 opens the shared details overlay with the full description and higher-levels text', async () => {
+    mockGetCatalog.mockResolvedValue(FIRE_BOLT_CATALOG_RESPONSE);
+    await advanceToSpells();
+
+    // No overlay open yet.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'View Fire Bolt details' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(
+      within(dialog).getByText(/You hurl a mote of fire at a creature or object within range\./),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText(/damage increases by 1d10/)).toBeInTheDocument();
+
+    // Escape closes it (CodexDetailModal's own behavior — proves the reuse,
+    // not just that the overlay rendered once).
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('TAV-SPELLPICK-OVERLAY: the 🔍 is disabled for a spell with no matching catalog entry', async () => {
+    mockGetCatalog.mockResolvedValue(FIRE_BOLT_CATALOG_RESPONSE);
+    await advanceToSpells();
+
+    // Mage Hand has no catalog entry in the fixture above.
+    expect(screen.getByRole('button', { name: 'View Mage Hand details' })).toBeDisabled();
+    // Fire Bolt does, and stays enabled.
+    expect(screen.getByRole('button', { name: 'View Fire Bolt details' })).toBeEnabled();
+  });
+
+  it('TAV-SPELLPICK-DESCRIPTIONS: a failed catalog fetch degrades gracefully — rows still render name+school, selection is never blocked, and every 🔍 is disabled', async () => {
     mockGetCatalog.mockRejectedValue(new Error('network error'));
     await advanceToSpells();
 
@@ -591,6 +627,7 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     expect(fireBolt).not.toBeDisabled();
     fireEvent.click(fireBolt);
     expect(fireBolt).toBeChecked();
+    expect(screen.getByRole('button', { name: 'View Fire Bolt details' })).toBeDisabled();
   });
 
   // ── TAV-A11Y-SPELLSTEP-FIELDSET ────────────────────────────────────────────────

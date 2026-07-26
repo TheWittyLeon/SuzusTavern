@@ -98,7 +98,7 @@ import {
   prepareSpell,
 } from '@/lib/api/dnd';
 import { useCatalog } from '@/lib/dnd/useCatalog';
-import { raceSpeedLabel, spellComponentsLabel, spellDescription } from '@/lib/dnd/codex';
+import { raceSpeedLabel, spellComponentsLabel, spellLevelLabel } from '@/lib/dnd/codex';
 import { useWizardCommentary } from '@/lib/dnd/useWizardCommentary';
 import TavernShell from '@/components/TavernShell';
 import PageSkeleton from '@/components/PageSkeleton';
@@ -109,6 +109,7 @@ import Icon from '@/components/Icon';
 import SuzuDM from '@/components/SuzuDM';
 import Waveform from '@/components/Waveform';
 import { useToast } from '@/components/Toast';
+import CodexDetailModal from '@/app/codex/CodexDetailModal';
 import {
   ABILITIES,
   DEFAULT_SCORES,
@@ -132,6 +133,7 @@ import type {
   ApiError,
   AvailableSpellEntry,
   AvailableSpellsResult,
+  CatalogItem,
   CatalogSpellData,
   EquipmentSelection,
   StartingEquipmentResult,
@@ -1875,11 +1877,17 @@ function SpellsStep({
 }) {
   const [available, setAvailable] = useState<AvailableSpellsResult | null>(null);
   const [fetchState, setFetchState] = useState<SpellFetchState>('loading');
-  // TAV-SPELLPICK-DESCRIPTIONS: slug -> catalog spell data, for the
-  // description/range/components/casting-time shown per row. Independent of
-  // the `available` fetch above (different endpoint) — a failure here never
-  // blocks spell selection, it just leaves rows at name+school as before.
-  const [spellCatalog, setSpellCatalog] = useState<Map<string, CatalogSpellData> | null>(null);
+  // TAV-SPELLPICK-DESCRIPTIONS: slug -> full catalog item (kept whole, not
+  // just `.data`, so TAV-SPELLPICK-OVERLAY below can hand the exact same
+  // CatalogItem straight to CodexDetailModal — same shape the read-only
+  // Codex already renders, no synthetic item construction needed). Fetch is
+  // independent of the `available` fetch above (different endpoint) — a
+  // failure here never blocks spell selection, it just leaves rows at
+  // name+school as before and the 🔍 button disabled.
+  const [spellCatalog, setSpellCatalog] = useState<Map<string, CatalogItem> | null>(null);
+  // TAV-SPELLPICK-OVERLAY: the one shared details overlay for both the
+  // cantrip and 1st-level lists, driven by whichever row's 🔍 was clicked.
+  const [openSpell, setOpenSpell] = useState<CatalogItem | null>(null);
 
   useEffect(() => {
     if (!characterId) return;
@@ -1911,9 +1919,9 @@ function SpellsStep({
     getCatalog('dnd5e', { type: 'spell', limit: SPELL_CATALOG_LIMIT })
       .then((res) => {
         if (cancelled) return;
-        const map = new Map<string, CatalogSpellData>();
+        const map = new Map<string, CatalogItem>();
         for (const item of res.items) {
-          map.set(item.slug, item.data as CatalogSpellData);
+          map.set(item.slug, item);
         }
         setSpellCatalog(map);
       })
@@ -1981,49 +1989,67 @@ function SpellsStep({
     // TAV-SPELLPICK-DESCRIPTIONS: undefined when the catalog fetch hasn't
     // resolved yet, failed, or simply has no entry for this slug — the row
     // falls back to name+school only, exactly as before.
-    const entry = spellCatalog?.get(s.slug);
+    const catalogItem = spellCatalog?.get(s.slug);
+    const entry = catalogItem?.data as CatalogSpellData | undefined;
     const descId = entry ? `spell-desc-${s.slug}` : undefined;
     const describedBy = [descId, disabled ? capHintId : undefined].filter(Boolean).join(' ') || undefined;
     return (
       <li key={s.slug} className={styles.spellRow}>
-        <label className={styles.spellRowLabel}>
-          <input
-            type="checkbox"
-            className={styles.spellCheckbox}
-            checked={checked}
-            disabled={disabled}
-            // TAV-A11Y-CAP-HINT: when the pick cap is hit, the extra rows go
-            // disabled with no spoken reason. Point AT at the section's hidden
-            // explanation so "dimmed, unavailable" gains a "why". Also carries
-            // the row's description id (TAV-SPELLPICK-DESCRIPTIONS) when known.
-            aria-describedby={describedBy}
-            onChange={() => toggle(picked, onChange, s.slug, cap)}
-          />
-          <span className={styles.spellRowName}>{s.name}</span>
-          {/* Iro MINOR-1: hide the school from the checkbox's accessible name —
-           * without this a screen reader announces "Fire Bolt evocation" as
-           * the label instead of just the spell name. */}
-          <span className={`mono ${styles.spellRowSchool}`} aria-hidden="true">
-            {s.school}
-          </span>
-        </label>
+        <div className={styles.spellRowTop}>
+          <label className={styles.spellRowLabel}>
+            <input
+              type="checkbox"
+              className={styles.spellCheckbox}
+              checked={checked}
+              disabled={disabled}
+              // TAV-A11Y-CAP-HINT: when the pick cap is hit, the extra rows go
+              // disabled with no spoken reason. Point AT at the section's hidden
+              // explanation so "dimmed, unavailable" gains a "why". Also carries
+              // the row's meta-line id (TAV-SPELLPICK-DESCRIPTIONS) when known.
+              aria-describedby={describedBy}
+              onChange={() => toggle(picked, onChange, s.slug, cap)}
+            />
+            <span className={styles.spellRowName}>{s.name}</span>
+            {/* Iro MINOR-1: hide the school from the checkbox's accessible name —
+             * without this a screen reader announces "Fire Bolt evocation" as
+             * the label instead of just the spell name. */}
+            <span className={`mono ${styles.spellRowSchool}`} aria-hidden="true">
+              {s.school}
+            </span>
+          </label>
+          {/* TAV-SPELLPICK-OVERLAY: a sibling of the <label>, not nested inside
+           * it — descendants of a <label> fold into its control's accessible
+           * name, which would make every checkbox's name include "View X
+           * details". Opens the shared CodexDetailModal (same component the
+           * read-only Codex uses) with this row's full catalog entry. Disabled
+           * until the catalog fetch resolves an entry for this slug — no entry
+           * means no description to show. */}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={styles.spellRowDetailBtn}
+            aria-label={`View ${s.name} details`}
+            disabled={!catalogItem}
+            onClick={() => setOpenSpell(catalogItem ?? null)}
+          >
+            <Icon name="Search" size={14} />
+          </Button>
+        </div>
         {/* TAV-SPELLPICK-DESCRIPTIONS: a sibling of the <label>, not nested
          * inside it — descendants of a <label> are folded into its control's
-         * accessible name, which would make every checkbox's name the whole
-         * spell description. Linked instead via aria-describedby above. */}
+         * accessible name. Linked instead via aria-describedby above. Compact
+         * card meta line only (level · casting time · range · components) —
+         * the full description/higher-levels text lives in the 🔍 overlay now. */}
         {entry && (
-          <div className={styles.spellRowDetail} id={descId}>
-            <p className={`mono ${styles.spellRowMeta}`}>
-              {[entry.casting_time ?? '—', entry.range ?? '—', spellComponentsLabel(entry)].join(' · ')}
-            </p>
-            <p className={styles.spellRowDescription}>{spellDescription(entry)}</p>
-            {entry.higher_levels && (
-              <p className={styles.spellRowHigherLevels}>
-                <strong>At higher levels: </strong>
-                {entry.higher_levels}
-              </p>
-            )}
-          </div>
+          <p className={`mono ${styles.spellRowMeta}`} id={descId}>
+            {[
+              spellLevelLabel(entry.level),
+              entry.casting_time ?? '—',
+              entry.range ?? '—',
+              spellComponentsLabel(entry),
+            ].join(' · ')}
+          </p>
         )}
       </li>
     );
@@ -2094,6 +2120,16 @@ function SpellsStep({
           {level1.map((s) => renderRow(s, leveled, onLeveled, leveledCap, 'leveled-cap-hint'))}
         </ul>
       </fieldset>
+
+      {/* TAV-SPELLPICK-OVERLAY: one shared overlay for every row's 🔍, driven
+          by `openSpell` — reuses /codex's own detail modal (portal dialog,
+          focus-trap, Escape, backdrop-click) rather than a bespoke dialog. */}
+      <CodexDetailModal
+        open={openSpell !== null}
+        item={openSpell}
+        kind="spell"
+        onClose={() => setOpenSpell(null)}
+      />
     </div>
   );
 }

@@ -121,6 +121,7 @@ import Composer, {
 import DmNarrationPanel from '@/components/DmNarrationPanel';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import JournalPane, { JOURNAL_HEADING_ID } from '@/components/JournalPane';
+import MemberSheetPanel, { MEMBER_SHEET_HEADING_ID } from '@/components/MemberSheetPanel';
 import styles from './Play.module.css';
 
 /**
@@ -440,6 +441,23 @@ export default function PlayPage() {
   // quickChecks below; refreshed by CastSpellPanel itself after a successful
   // cast (onSheetChanged), mirroring SpellSlotsPanel's onChanged contract.
   const [mySheet, setMySheet] = useState<CharacterSheet | null>(null);
+
+  // TAV-PARTY-INLINE-SHEET: clicking a party card used to navigate to
+  // /character/[id], reloading the whole session — this instead opens the
+  // selected member's sheet in an inline drawer (mirrors the Journal drawer
+  // below: always-mounted <aside>, gated by `memberSheetOpen`/
+  // `memberSheetVisible`, scrim, focus-trap, Esc via consumeEscape). The
+  // fetched sheet + the clicked row's display name persist across a close
+  // (only cleared on the NEXT selection) so the slide-out transition has a
+  // "from" state to animate, exactly like `journalEvents` above.
+  const [memberSheetOpen, setMemberSheetOpen] = useState(false);
+  const [selectedMemberSheet, setSelectedMemberSheet] = useState<CharacterSheet | null>(null);
+  const [selectedMemberName, setSelectedMemberName] = useState<string | null>(null);
+  const [memberSheetLoading, setMemberSheetLoading] = useState(false);
+  const [memberSheetError, setMemberSheetError] = useState(false);
+  const memberSheetDialogRef = useRef<HTMLElement>(null);
+  const memberSheetCloseBtnRef = useRef<HTMLButtonElement>(null);
+  const memberSheetPreviouslyFocusedRef = useRef<HTMLElement | null>(null);
 
   // B3-1: outcome chooser state (null = chooser closed).
   const [outcomeChooserOpen, setOutcomeChooserOpen] = useState(false);
@@ -1869,6 +1887,89 @@ export default function PlayPage() {
       }
     },
     [closeJournal],
+  );
+
+  // TAV-PARTY-INLINE-SHEET: "close" only flips the open flag — the fetched
+  // sheet/name/error state stay mounted (mirrors closeJournal not clearing
+  // journalEvents) so the drawer's slide-out transition has a "from" state,
+  // and re-opening the SAME member instantly shows their last-loaded sheet
+  // instead of flashing back to loading.
+  const closeMemberSheet = useCallback(() => {
+    setMemberSheetOpen(false);
+  }, []);
+
+  // Focus management on open/close — mirrors the Journal drawer's effect
+  // exactly: remember whatever was focused (always the clicked party card),
+  // focus the drawer's close button after paint, restore focus on close.
+  useEffect(() => {
+    if (!memberSheetOpen) return;
+    memberSheetPreviouslyFocusedRef.current = document.activeElement as HTMLElement | null;
+    const t = setTimeout(() => memberSheetCloseBtnRef.current?.focus(), 0);
+    return () => {
+      clearTimeout(t);
+      memberSheetPreviouslyFocusedRef.current?.focus?.();
+    };
+  }, [memberSheetOpen]);
+
+  // Esc + generic Tab-trap — mirrors onJournalKeyDown, reusing the same
+  // JOURNAL_FOCUSABLE_SELECTOR (it's content-agnostic, not journal-specific).
+  const onMemberSheetKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        consumeEscape(e, { onClose: closeMemberSheet });
+        return;
+      }
+      if (e.key === 'Tab' && memberSheetDialogRef.current) {
+        const focusables = Array.from(
+          memberSheetDialogRef.current.querySelectorAll<HTMLElement>(JOURNAL_FOCUSABLE_SELECTOR),
+        );
+        if (focusables.length === 0) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    },
+    [closeMemberSheet],
+  );
+
+  // TAV-PARTY-INLINE-SHEET: PartyPanel's card onClick. The viewer's own row
+  // reuses the already-loaded `mySheet` (no extra hop); any other member's
+  // row fetches their sheet fresh via the same getCharacterSheet call the
+  // rebind-onChanged path above already uses. Errors surface inline in the
+  // drawer (MemberSheetPanel's own error branch) rather than a toast — the
+  // drawer is already the "here's what went wrong" surface.
+  const onSelectMember = useCallback(
+    (p: Participant) => {
+      if (!p.character) return;
+      setMemberSheetOpen(true);
+      setSelectedMemberName(p.character.name ?? p.username);
+      const isSelf = p.username.toLowerCase() === (username ?? '').toLowerCase();
+      if (isSelf && mySheet) {
+        setSelectedMemberSheet(mySheet);
+        setMemberSheetError(false);
+        setMemberSheetLoading(false);
+        return;
+      }
+      setSelectedMemberSheet(null);
+      setMemberSheetError(false);
+      setMemberSheetLoading(true);
+      getCharacterSheet(String(p.character.character_id), username ?? '')
+        .then((sheet) => {
+          setSelectedMemberSheet(sheet);
+          setMemberSheetLoading(false);
+        })
+        .catch(() => {
+          setMemberSheetError(true);
+          setMemberSheetLoading(false);
+        });
+    },
+    [username, mySheet],
   );
 
   // B1-4: fire-once toast when combat becomes active and the user has no bound
@@ -4377,6 +4478,7 @@ export default function PlayPage() {
           participants={participants}
           selfUsername={username}
           combatState={combatState}
+          onSelectMember={onSelectMember}
         />
         {/* B2-4: rebind affordances — one "Change character" button per party row.
             Self sees their own row's button always; DM sees all rows. */}
@@ -4675,6 +4777,48 @@ export default function PlayPage() {
                 </button>
               </>
             )}
+          </div>
+        )}
+        {/* TAV-CHECK-DISCOVERABILITY (Phase-1 #6, Leon "option A"): the SAME
+            `availableChecks` the right Scene panel's `.checkWrap` group
+            renders (P1-PLAYFIX §3.3.3 above), surfaced a SECOND time right
+            above the composer. During play the player is looking at the
+            narration/composer, not the right-side panel, so the authored
+            "Attempt {skill}" buttons live there get missed — this is purely
+            a more-discoverable second PLACEMENT of the identical
+            affordance: same `onAttemptCheck` handler, same
+            checkBusy/talking/sessionLocked disabled gate, same
+            `availableChecks` (including its combat-active gate in the
+            useMemo above — untouched here; the flee-checks-during-combat
+            question is deferred to Phase 4). The side-panel `.checkWrap`
+            group is left completely as-is — this does not replace it.
+            A11Y: `aria-hidden` on the wrapper + `tabIndex={-1}` on every
+            chip keep screen-reader/keyboard users on the ONE canonical
+            `.checkWrap` group instead of hitting "Attempt Survival, DC 15"
+            twice in the tab order for the exact same action — sighted/
+            mouse/touch users still see and can click these chips fine,
+            since aria-hidden only affects the accessibility tree, not
+            visual rendering or pointer events. */}
+        {availableChecks.length > 0 && (
+          <div className={styles.checkChipsWrap} aria-hidden="true">
+            <span className={styles.checkChipsLabel}>Available checks</span>
+            {availableChecks.map((c) => {
+              const isOffered = c.skill === offeredCheckSkill;
+              return (
+                <button
+                  key={`check-chip-${c.skill}-${c.dc}`}
+                  type="button"
+                  tabIndex={-1}
+                  className={`${styles.checkChip} ${isOffered ? styles.checkChipOffered : ''}`}
+                  onClick={() => void onAttemptCheck(c.skill)}
+                  disabled={checkBusy || talking || sessionLocked}
+                  title={c.note}
+                >
+                  <Icon name="Check" size={12} aria-hidden />
+                  {`Attempt ${titleCaseSkill(c.skill)}, DC ${c.dc}`}
+                </button>
+              );
+            })}
           </div>
         )}
         <Composer
@@ -5120,6 +5264,45 @@ export default function PlayPage() {
           grounding={grounding}
           onClose={closeJournal}
           closeButtonRef={journalCloseBtnRef}
+        />
+      </aside>
+
+      {/* TAV-PARTY-INLINE-SHEET: a right-edge slide-over drawer for a
+          selected party member's sheet — clones the Journal drawer's shape
+          exactly (always-mounted <aside>, scrim, dialog semantics, Tab-trap,
+          Esc via consumeEscape, inert when closed) but unlike the Journal
+          drawer has no separate mobile-tab presentation to reconcile with,
+          so it's simply always the fixed drawer at any viewport width
+          (Play.module.css's `.memberSheetDrawer` is not media-gated the way
+          `.journalDrawer` is). */}
+      {memberSheetOpen && (
+        <div className={styles.memberSheetScrim} onClick={closeMemberSheet} />
+      )}
+      <aside
+        id="play-pane-member-sheet"
+        ref={memberSheetDialogRef}
+        className={`${styles.memberSheetDrawer} ${
+          memberSheetOpen ? styles.memberSheetDrawerOpen : ''
+        }`}
+        role={memberSheetOpen ? 'dialog' : undefined}
+        aria-modal={memberSheetOpen ? true : undefined}
+        aria-labelledby={MEMBER_SHEET_HEADING_ID}
+        // Same jsdom-doesn't-implement-`inert` belt-and-suspenders as the
+        // Journal drawer above — aria-hidden is honored by
+        // dom-accessibility-api's isInaccessible() in both real browsers and
+        // this repo's test environment.
+        aria-hidden={memberSheetOpen ? undefined : true}
+        inert={!memberSheetOpen}
+        tabIndex={memberSheetOpen ? -1 : undefined}
+        onKeyDown={memberSheetOpen ? onMemberSheetKeyDown : undefined}
+      >
+        <MemberSheetPanel
+          sheet={selectedMemberSheet}
+          loading={memberSheetLoading}
+          error={memberSheetError}
+          memberName={selectedMemberName}
+          onClose={closeMemberSheet}
+          closeButtonRef={memberSheetCloseBtnRef}
         />
       </aside>
 

@@ -653,6 +653,126 @@ describe('P1-PLAYFIX Ship 2 — check-note aria wiring + group labels', () => {
   });
 });
 
+// ── TAV-CHECK-DISCOVERABILITY (Phase-1 #6, Leon "option A") ──────────────────
+// A second, composer-adjacent placement of the SAME availableChecks the
+// side-panel .checkWrap group renders — aria-hidden (tabIndex=-1 chips) so
+// screen-reader/keyboard users see the check exactly once (the canonical
+// .checkWrap group), while sighted/mouse/touch users get it in both places.
+describe('TAV-CHECK-DISCOVERABILITY — composer-adjacent check chips (Phase-1 #6)', () => {
+  it('renders an "Attempt {skill}, DC {dc}" chip near the composer whenever the scene has authored checks, alongside (not instead of) the side-panel group', async () => {
+    mGetGrounding.mockResolvedValue(GROUNDING_TIMBERWOLF);
+    render(<PlayPage />);
+    await screen.findByRole('textbox');
+
+    await waitFor(() => {
+      // aria-hidden={true} elements are excluded from getByRole by default —
+      // querying with {hidden: true} surfaces the duplicate chip alongside
+      // the canonical accessible button.
+      expect(
+        screen.getAllByRole('button', { name: /Attempt Stealth, DC 12/i, hidden: true }).length,
+      ).toBe(2);
+      expect(
+        screen.getAllByRole('button', { name: /Attempt Survival, DC 12/i, hidden: true }).length,
+      ).toBe(2);
+    });
+
+    // The DEFAULT (accessibility-tree) query still finds exactly ONE of each
+    // — the side-panel .checkWrap button — proving the chip duplicate is
+    // genuinely excluded from the a11y tree, not merely visually offset.
+    expect(screen.getAllByRole('button', { name: /Attempt Stealth, DC 12/i })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: /Attempt Survival, DC 12/i })).toHaveLength(1);
+  });
+
+  it('the composer-adjacent chip is aria-hidden and unreachable by Tab (tabIndex -1), unlike the side-panel button', async () => {
+    mGetGrounding.mockResolvedValue(GROUNDING_TIMBERWOLF);
+    const { container } = render(<PlayPage />);
+    await screen.findByRole('textbox');
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole('button', { name: /Attempt Stealth, DC 12/i, hidden: true }),
+      ).toHaveLength(2),
+    );
+    const chipsWrap = container.querySelector('[aria-hidden="true"] button');
+    expect(chipsWrap).not.toBeNull();
+    // Walk up from the hidden chip button to confirm its ancestor wrapper
+    // (not the button itself) carries aria-hidden.
+    const hiddenAncestor = chipsWrap?.closest('[aria-hidden="true"]');
+    expect(hiddenAncestor).not.toBeNull();
+    expect(chipsWrap).toHaveAttribute('tabindex', '-1');
+
+    // The canonical side-panel button has NO tabindex override (a normal,
+    // fully keyboard-reachable button).
+    const canonicalBtn = screen.getByRole('button', { name: /Attempt Stealth, DC 12/i });
+    expect(canonicalBtn).not.toHaveAttribute('tabindex');
+  });
+
+  it('clicking the composer-adjacent chip invokes the SAME resolveCheck handler as the side-panel button', async () => {
+    mGetGrounding.mockResolvedValue(GROUNDING_TIMBERWOLF);
+    mResolveCheck.mockResolvedValue({
+      skill: 'survival',
+      dc: 12,
+      total: 15,
+      success: true,
+      flag_set: [],
+      mechanics: 'Survival check vs DC 12: rolled 15 — SUCCESS.',
+      description: 'Survival check (DC 12): 15 — success.',
+    });
+
+    render(<PlayPage />);
+    await screen.findByRole('textbox');
+
+    const chips = await screen.findAllByRole('button', {
+      name: /Attempt Survival, DC 12/i,
+      hidden: true,
+    });
+    expect(chips).toHaveLength(2);
+    // The SECOND match (queried in DOM order) is the composer-adjacent chip
+    // — it lives after the side-panel group in this component's render order.
+    const composerChip = chips[1];
+
+    await act(async () => {
+      fireEvent.click(composerChip);
+    });
+
+    await waitFor(() => expect(mResolveCheck).toHaveBeenCalledTimes(1));
+    expect(mResolveCheck.mock.calls[0][0]).toBe('s1');
+    expect(mResolveCheck.mock.calls[0][1]).toMatchObject({
+      skill: 'survival',
+      actor_username: 'leon',
+    });
+    await waitFor(() =>
+      expect(screen.getByText('Survival check (DC 12): 15 — success.')).toBeInTheDocument(),
+    );
+  });
+
+  it('renders NO composer-adjacent chip when the scene offers no checks', async () => {
+    mGetGrounding.mockResolvedValue(GROUNDING_FORK);
+    render(<PlayPage />);
+    await screen.findByRole('button', { name: /Follow the smoke/i });
+    expect(screen.queryAllByRole('button', { name: /^Attempt/i, hidden: true })).toHaveLength(0);
+  });
+
+  it('renders NO composer-adjacent chip during active combat (same availableChecks gate, untouched)', async () => {
+    mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
+    mGetGrounding.mockResolvedValue(GROUNDING_TIMBERWOLF);
+    (dnd.getCombatState as jest.MockedFunction<typeof dnd.getCombatState>).mockResolvedValue(
+      COMBAT_STATE_ACTIVE,
+    );
+    render(<PlayPage />);
+
+    await screen.findByRole('textbox');
+    await waitFor(() => {
+      expect(
+        screen.queryAllByRole('button', { name: /Attempt Stealth/i, hidden: true }),
+      ).toHaveLength(0);
+      expect(
+        screen.queryAllByRole('button', { name: /Attempt Survival/i, hidden: true }),
+      ).toHaveLength(0);
+    });
+  });
+});
+
 // Iro MINOR-1 (P1-PLAYFIX-2 gate fix): key / noteId / offeredId collided when
 // a scene authors two checks with the SAME skill (different DC) — e.g. a
 // bargain-vs-intimidate Persuasion beat offered at two DCs. Keyed by

@@ -382,6 +382,61 @@
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 25%, transparent);
 }
 
+/* ── TAV-CHECK-DISCOVERABILITY (Phase-1 #6): composer-adjacent check chips ──
+   A compact, horizontal-chip DUPLICATE of .checkWrap/.checkBtn above (same
+   authored checks, same handler — see page.tsx), placed right above the
+   composer instead of the right Scene panel so the affordance sits in the
+   player's eyeline while they're reading narration/typing. Chips, not
+   full-width rows, so it doesn't crowd the composer; wraps on narrow
+   widths instead of overflowing. min-height 36px clears WCAG 2.5.8's 24px
+   pointer-target floor while staying visibly compact. */
+.checkChipsWrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.checkChipsLabel {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-right: 2px;
+}
+
+.checkChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--warn) 40%, transparent);
+  background: color-mix(in oklab, var(--warn) 10%, transparent);
+  color: var(--ink);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.checkChip:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--warn) 18%, transparent);
+}
+
+.checkChip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Same "Suzu invited this" cue as .checkBtnOffered — border+shadow, not
+   color alone. */
+.checkChipOffered {
+  border: 2px solid var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 25%, transparent);
+}
+
 /* ── "Move on" affordance (ADV-7T) ── */
 .moveOnWrap {
   margin-bottom: 16px;
@@ -872,6 +927,47 @@
 
 @media (prefers-reduced-motion: reduce) {
   .journalDrawer {
+    transition: none;
+  }
+}
+
+/* ── TAV-PARTY-INLINE-SHEET: member-sheet drawer ──────────────────────────────
+   Same right-edge slide-over shape as .journalDrawer above, but NOT gated to
+   >880px — unlike the Journal there is no separate mobile-tab presentation
+   for this drawer to hand off to, so it stays the fixed overlay at every
+   viewport width (width: min(380px, 90vw) already collapses gracefully on a
+   narrow phone). `top`/`height` subtract --env-banner-h for the same reason
+   as .journalDrawer (never let the dev/local EnvBanner strip get covered by —
+   or let this drawer overflow past — the actual available viewport). */
+.memberSheetDrawer {
+  position: fixed;
+  top: var(--env-banner-h, 0px);
+  right: 0;
+  z-index: 900;
+  height: calc(100dvh - var(--env-banner-h, 0px));
+  width: min(380px, 90vw);
+  padding: 16px;
+  overflow-y: auto;
+  background: var(--bg-2);
+  border-left: 1px solid var(--line);
+  box-shadow: var(--shadow-pop);
+  transform: translateX(100%);
+  transition: transform var(--dur) var(--ease);
+}
+
+.memberSheetDrawerOpen {
+  transform: none;
+}
+
+.memberSheetScrim {
+  position: fixed;
+  inset: 0;
+  z-index: 899;
+  background: rgba(10, 7, 18, 0.45);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .memberSheetDrawer {
     transition: none;
   }
 }

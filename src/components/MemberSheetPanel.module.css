@@ -1,0 +1,218 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  color: var(--ink);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Mirrors JournalPane's .closeBtn: visual 32x32, content-box padding trick
+   brings the hit target to 44x44. */
+.closeBtn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  /* A11Y-BUTTON-BORDER-CONTRAST: clickable close button — --line-strong
+     clears WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--ink-2);
+  flex-shrink: 0;
+  box-sizing: content-box;
+  padding: 6px;
+  margin: -6px;
+  cursor: pointer;
+}
+
+.closeBtn:hover {
+  border-color: color-mix(in oklab, var(--accent) 35%, transparent);
+  color: var(--ink);
+}
+
+.status {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+  margin: 0;
+}
+
+.statusError {
+  font-size: 0.8125rem;
+  color: var(--bad-ink);
+  margin: 0;
+}
+
+.section {
+  flex-shrink: 0;
+}
+
+.sectionHeading {
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin: 0 0 8px;
+}
+
+.subtitle {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+  margin: 0 0 10px;
+}
+
+.statRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 0;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stat dt {
+  font-size: 0.625rem;
+  letter-spacing: 0.08em;
+  color: var(--ink-3);
+}
+
+.stat dd {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--ink);
+}
+
+.abilityRow {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.abilityBox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--ink) 4%, transparent);
+  border: 1px solid var(--line-2);
+}
+
+.abilityName {
+  font-size: 0.625rem;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+}
+
+.abilityVal {
+  font-size: 1rem;
+  color: var(--ink);
+}
+
+.abilityMod {
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+.skillGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+
+.skillRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+
+.skillName {
+  flex: 1;
+}
+
+.skillMod {
+  color: var(--ink);
+}
+
+.profDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+}
+
+.profOn {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.empty {
+  font-size: 0.8125rem;
+  color: var(--ink-3);
+  margin: 0;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.list li {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--ink-2);
+  padding-left: 10px;
+  border-left: 2px solid color-mix(in oklab, var(--accent) 30%, transparent);
+}
+
+.itemRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.equippedBadge {
+  font-size: 0.625rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent-2);
+  flex-shrink: 0;
+}
+
+.tagList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}

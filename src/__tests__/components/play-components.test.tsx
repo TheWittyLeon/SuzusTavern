@@ -452,6 +452,42 @@ describe('PartyPanel', () => {
     render(<PartyPanel participants={party} selfUsername="alice" />);
     expect(screen.queryByText(/level up/i)).not.toBeInTheDocument();
   });
+
+  // TAV-PARTY-INLINE-SHEET: a member card with a character is now a <button>
+  // that calls onSelectMember, not a <Link> that navigates away.
+  describe('TAV-PARTY-INLINE-SHEET', () => {
+    it('a member with a character renders as a button and calls onSelectMember with their participant on click (no navigation)', () => {
+      const onSelectMember = jest.fn();
+      render(
+        <PartyPanel participants={party} selfUsername="alice" onSelectMember={onSelectMember} />,
+      );
+      const card = screen.getByRole('button', { name: /Velka/ });
+      expect(screen.queryByRole('link')).not.toBeInTheDocument();
+      fireEvent.click(card);
+      expect(onSelectMember).toHaveBeenCalledTimes(1);
+      expect(onSelectMember).toHaveBeenCalledWith(party[0]);
+    });
+
+    it('a member with no character stays non-interactive (no button, onSelectMember never called)', () => {
+      const onSelectMember = jest.fn();
+      const noCharacterParty: Participant[] = [{ username: 'bob', is_dm: false, character: null }];
+      render(
+        <PartyPanel
+          participants={noCharacterParty}
+          selfUsername="alice"
+          onSelectMember={onSelectMember}
+        />,
+      );
+      expect(screen.getByText('no character yet')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /bob/i })).not.toBeInTheDocument();
+      expect(onSelectMember).not.toHaveBeenCalled();
+    });
+
+    it('clicking a member card with no onSelectMember prop wired does not throw', () => {
+      render(<PartyPanel participants={party} selfUsername="alice" />);
+      expect(() => fireEvent.click(screen.getByRole('button', { name: /Velka/ }))).not.toThrow();
+    });
+  });
 });
 
 describe('InitiativeTracker', () => {
