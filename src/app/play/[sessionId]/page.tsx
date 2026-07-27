@@ -69,6 +69,7 @@ import {
   dodge as combatDodge,
   dash as combatDash,
   endTurn as combatEndTurn,
+  rollDeathSave as combatDeathSave,
   postRoll,
   postXCard,
 } from '@/lib/api/dnd';
@@ -3591,6 +3592,14 @@ export default function PlayPage() {
           newState = res.state ?? null;
           message = res.message ?? 'You take the Dash action.';
           playerLine = 'I dash.';
+        } else if (action === 'deathsave') {
+          // Combat-UX Fixes 2026-07-27, Fix B: solo self-resolve — omit
+          // target/target_id, cmd_deathsave resolves the caller's own downed
+          // character first.
+          const res = await combatDeathSave({ username, combat_id: combatId });
+          newState = res.state ?? null;
+          message = res.message ?? 'You roll a death save.';
+          playerLine = 'I roll a death save.';
         } else if (action === 'endturn') {
           const res = await combatEndTurn({ username, combat_id: combatId });
           newState = res.state ?? null;
@@ -4097,14 +4106,47 @@ export default function PlayPage() {
     ? activeIsMine
     : true; // out of combat: always enabled
 
+  // Combat-UX Fixes 2026-07-27, Fix B: the gate for the "Roll death save"
+  // affordance — the viewer's own PC, on their turn, at 0 HP, not stable, not
+  // dead (death_saves.is_dying already encodes exactly that on the wire).
+  // Narrower than "downed" — a stabilised-but-still-0-HP PC is is_downed but
+  // no longer is_dying, so the rail correctly stops offering the roll once
+  // 3 successes land.
+  const isDying = activeIsMine && activeParticipant?.death_saves?.is_dying === true;
+
+  // Combat-UX Fixes 2026-07-27 §UI-states "Dead" row (Kage-CR/test-plan §4.2):
+  // a dead PC is NOT the active-turn participant (is_active flips false at 3
+  // failures, so `_advance` skips them — `activeParticipant`/`isDying` above
+  // will never observe this state), so it needs its own lookup across the
+  // full roster rather than piggybacking on activeParticipant. Precise
+  // entity_id match only (mirrors activeIsMine's own match rule; no name
+  // fallback needed here — this just gates a notice, not a mutation).
+  const myDeathSaveParticipant =
+    myCharacterIdStr != null
+      ? (combatState?.participants.find(
+          (p) => p.is_pc && p.entity_id === myCharacterIdStr,
+        ) ?? null)
+      : null;
+  const isMyPcDead = myDeathSaveParticipant?.death_saves?.is_dead === true;
+
   // Iro MEDIUM-2: derive the turn-status label during render so the single
   // persistent live region (rendered below) updates its text in place. null =
   // hidden. Derived (not effect+state) to avoid a set-state-in-effect cascade.
+  //
+  // Iro MAJOR-2 (Combat-UX Fixes 2026-07-27, Fix B follow-up): a plain "Your
+  // turn!" when isDying is misleading — the player is at 0 HP and Attack/
+  // Dodge/Dash are disabled-visible; they need to be told to roll a death
+  // save. Kept STATIC per turn (no live successes/failures baked in here) —
+  // ChatLog's own live region already announces each roll's outcome, so
+  // folding the tally into this label too would double-announce the same
+  // event through two separate aria-live regions.
   const turnStatusText: string | null =
     !combatId || combatState?.state !== 'active' || !activeParticipant
       ? null
       : activeIsMine
-        ? 'Your turn!'
+        ? isDying
+          ? 'Your turn — you are down. Roll a death save.'
+          : 'Your turn!'
         : activeParticipant.is_pc
           ? `Waiting on ${activeParticipant.name}'s turn...`
           : `Monster turn — ${activeParticipant.name}`;
@@ -4907,12 +4949,24 @@ export default function PlayPage() {
             aria-live="polite"
             aria-atomic="true"
             className={
-              turnStatusText === 'Your turn!'
-                ? styles.myTurnStatus
-                : styles.offTurnStatus
+              // Iro MAJOR-2: was an exact string match on 'Your turn!', which
+              // silently fell through to offTurnStatus styling for the new
+              // isDying label. Key off activeIsMine directly instead — both
+              // "your turn" variants (normal + dying) style as your-turn.
+              activeIsMine ? styles.myTurnStatus : styles.offTurnStatus
             }
           >
             {turnStatusText}
+          </div>
+        )}
+        {/* Combat-UX Fixes 2026-07-27 §UI-states "Dead" row (Kage-CR/test-plan
+            §4.2, previously dropped): a dead PC never becomes the active-turn
+            participant again, so this can't reuse the turnStatusText live
+            region above — it needs its own always-checked gate keyed on the
+            viewer's own roster entry, independent of whose turn it is. */}
+        {combatIsActive && isMyPcDead && (
+          <div role="status" aria-live="polite" aria-atomic="true" className={styles.deadStatus}>
+            Your character has died.
           </div>
         )}
         {/* Tora MAJOR-1: DmNarrationPanel + ConditionsPanel are the DM-side
@@ -5133,6 +5187,14 @@ export default function PlayPage() {
                     busy: combatBusy || sessionLocked,
                     isPlayerTurn,
                     refusedReason,
+                    // Combat-UX Fixes 2026-07-27, Fix B.
+                    isDying,
+                    deathSaves: activeParticipant?.death_saves
+                      ? {
+                          successes: activeParticipant.death_saves.successes,
+                          failures: activeParticipant.death_saves.failures,
+                        }
+                      : null,
                   }
                 : null
           }

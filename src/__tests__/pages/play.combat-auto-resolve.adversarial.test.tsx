@@ -127,7 +127,7 @@ const COMBAT_ALL_DOWN: CombatState = {
       can_be_targeted: true,
       is_active_turn: true,
       took_turn: false,
-      death_saves: { successes: 0, failures: 0, is_downed: false, is_stable: false, is_dead: false },
+      death_saves: { successes: 0, failures: 0, is_downed: false, is_dying: false, is_stable: false, is_dead: false },
     },
     {
       participant_id: 'p_gob1',

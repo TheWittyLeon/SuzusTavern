@@ -57,6 +57,20 @@ describe('globals.css token verification', () => {
     expect(cssContent).toContain('forced-colors: active')
     expect(cssContent).toContain('outline: 2px solid Highlight')
   })
+
+  it('has a global select color-scheme rule so native <select> popups follow the active vibe', () => {
+    // Dark-mode dropdown fix: a styled select with a custom background loses
+    // the inherited color-scheme in the browser's popup renderer, so the open
+    // option list renders light even in dark vibes. This global rule fixes
+    // CastSpellPanel/ConditionsPanel/GrantCurrencyPanel/DmOverrideModal at once.
+    expect(cssContent).toMatch(/select\s*\{\s*color-scheme:\s*inherit;?\s*\}/)
+  })
+
+  it('has a global select option rule using solid theme tokens', () => {
+    const optionBlock = cssContent.match(/select option\s*\{([\s\S]*?)\}/)?.[1] ?? ''
+    expect(optionBlock).toContain('var(--card-solid)')
+    expect(optionBlock).toContain('var(--ink)')
+  })
 })
 
 describe('A11Y-BUTTON-BORDER-CONTRAST: --line-strong meets WCAG 1.4.11 (3:1 non-text)', () => {

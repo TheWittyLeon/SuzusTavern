@@ -855,6 +855,21 @@
   flex-shrink: 0;
 }
 
+/* Combat-UX Fixes 2026-07-27 §UI-states "Dead" row — mirrors
+   .sessionEndedStatus's danger styling (same semantic weight: play is over
+   for this participant either way). */
+.deadStatus {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--bad-ink);
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--bad) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--bad) 30%, transparent);
+  text-align: center;
+  flex-shrink: 0;
+}
+
 /* ── DDX-20 §4d/§9: retry-after-failed row (flag-ON only) ──
    Iro MINOR-1: flex-wrap + text-align:center so the message + button don't
    clip under text-only browser zoom (mirrors the reflow requirement every

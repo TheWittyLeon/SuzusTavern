@@ -19,7 +19,7 @@ import { consumeEscape } from '@/lib/a11y/escapeConsume';
 import styles from './Composer.module.css';
 
 export type ComposeMode = 'say' | 'act' | 'ooc' | 'dm_narration';
-export type CombatAction = 'attack' | 'dodge' | 'dash' | 'endturn';
+export type CombatAction = 'attack' | 'dodge' | 'dash' | 'endturn' | 'deathsave';
 
 export interface CombatTarget {
   id: string;
@@ -40,6 +40,15 @@ export interface ComposerCombat {
   isPlayerTurn?: boolean;
   /** Reason text to surface when an action was refused by the engine. */
   refusedReason?: string | null;
+  /** Combat-UX Fixes 2026-07-27, Fix B: true when the viewer's own PC is the
+   *  active-turn combatant AND `death_saves.is_dying` (0 HP, active, not
+   *  stable). Attack/Dodge/Dash render disabled-visible (not removed) and a
+   *  "Roll death save" affordance + pips appear instead. End turn is
+   *  unaffected — a downed PC can still pass their turn without rolling. */
+  isDying?: boolean;
+  /** Death-save tally for the viewer's own downed PC. Only meaningful (and
+   *  only read) when `isDying` is true. */
+  deathSaves?: { successes: number; failures: number } | null;
 }
 
 export interface ComposerProps {
@@ -183,10 +192,22 @@ function ActionRail({
     }
   };
 
-  // Attack is disabled when: busy, no targets, or not the player's turn.
-  const attackDisabled = combat.busy || combat.targets.length === 0 || notYourTurn;
-  // Non-attack actions (dodge/dash) are also gated on turn.
-  const actionDisabled = combat.busy || notYourTurn;
+  // Combat-UX Fixes 2026-07-27, Fix B: while the viewer's own PC is dying,
+  // Attack/Dodge/Dash are invalid (0 HP) and render disabled-visible rather
+  // than being removed — less layout jump, and "these are invalid now" reads
+  // clearly. End turn stays independently gated (see endTurnDisabled below) —
+  // a downed PC can still pass without rolling.
+  const isDying = combat.isDying === true;
+
+  // Attack is disabled when: busy, no targets, not the player's turn, or dying.
+  const attackDisabled = combat.busy || combat.targets.length === 0 || notYourTurn || isDying;
+  // Dodge/dash are also gated on turn + dying.
+  const actionDisabled = combat.busy || notYourTurn || isDying;
+  // End turn is NOT gated on isDying — a downed PC can pass without rolling.
+  const endTurnDisabled = combat.busy || notYourTurn;
+  // Roll death save is only ever offered while genuinely dying; busy is the
+  // only other gate (isDying already implies it's this player's turn).
+  const deathSaveDisabled = combat.busy;
 
   return (
     <div
@@ -255,11 +276,13 @@ function ActionRail({
           aria-expanded={targetOpen}
           aria-haspopup="menu"
           aria-label={
-            notYourTurn
-              ? 'Attack (not your turn)'
-              : combat.targets.length === 0
-                ? 'Attack (no valid targets)'
-                : 'Attack'
+            isDying
+              ? 'Attack (unavailable — you are down)'
+              : notYourTurn
+                ? 'Attack (not your turn)'
+                : combat.targets.length === 0
+                  ? 'Attack (no valid targets)'
+                  : 'Attack'
           }
         >
           <Icon name="Sword" size={13} /> Attack
@@ -270,7 +293,13 @@ function ActionRail({
           onClick={() => fire('dodge')}
           disabled={actionDisabled}
           aria-disabled={actionDisabled}
-          aria-label={notYourTurn ? 'Dodge (not your turn)' : 'Dodge'}
+          aria-label={
+            isDying
+              ? 'Dodge (unavailable — you are down)'
+              : notYourTurn
+                ? 'Dodge (not your turn)'
+                : 'Dodge'
+          }
         >
           <Icon name="Shield" size={13} /> Dodge
         </button>
@@ -280,7 +309,13 @@ function ActionRail({
           onClick={() => fire('dash')}
           disabled={actionDisabled}
           aria-disabled={actionDisabled}
-          aria-label={notYourTurn ? 'Dash (not your turn)' : 'Dash'}
+          aria-label={
+            isDying
+              ? 'Dash (unavailable — you are down)'
+              : notYourTurn
+                ? 'Dash (not your turn)'
+                : 'Dash'
+          }
         >
           <Icon name="Compass" size={13} /> Dash
         </button>
@@ -288,13 +323,78 @@ function ActionRail({
           type="button"
           className={styles.action}
           onClick={() => fire('endturn')}
-          disabled={actionDisabled}
-          aria-disabled={actionDisabled}
+          disabled={endTurnDisabled}
+          aria-disabled={endTurnDisabled}
           aria-label={notYourTurn ? 'End turn (not your turn)' : 'End turn'}
         >
           <Icon name="Check" size={13} /> End turn
         </button>
       </div>
+      {isDying && (
+        <div className={styles.deathSaveRow}>
+          <button
+            type="button"
+            className={`${styles.action} ${styles.deathSaveBtn}`}
+            onClick={() => fire('deathsave')}
+            disabled={deathSaveDisabled}
+            aria-disabled={deathSaveDisabled}
+            aria-label="Roll death save"
+          >
+            <Icon name="Heart" size={13} /> Roll death save
+          </button>
+          {/* Death-save pips: 3 success (left) + 3 failure (right), filled from
+              the live tally. aria-hidden on the visual dots + numeric readout —
+              the group's own aria-label carries the same info as an accessible
+              sentence so a screen reader isn't forced to parse dot-by-dot.
+              Iro MAJOR-1 (WCAG 1.4.1, not color-only): success pips stay
+              circular; failure pips get a distinct SHAPE (rounded square, see
+              .pipFailure) so success/failure are never distinguished by hue
+              alone. The small `{n}/3` readout beside each group gives sighted
+              color-blind/low-vision users the tally without a screen reader. */}
+          <div
+            className={styles.deathSavePips}
+            role="group"
+            aria-label={`Death saves: ${combat.deathSaves?.successes ?? 0} of 3 successes, ${combat.deathSaves?.failures ?? 0} of 3 failures`}
+          >
+            <span className={styles.pipGroup}>
+              <span aria-hidden="true" className={styles.pipGroupDots}>
+                {[0, 1, 2].map((i) => (
+                  <span
+                    key={`ds-success-${i}`}
+                    data-testid="death-save-pip-success"
+                    className={
+                      i < (combat.deathSaves?.successes ?? 0)
+                        ? `${styles.pip} ${styles.pipSuccess}`
+                        : styles.pip
+                    }
+                  />
+                ))}
+              </span>
+              <span aria-hidden="true" className={styles.pipCount}>
+                {combat.deathSaves?.successes ?? 0}/3
+              </span>
+            </span>
+            <span className={styles.pipGroup}>
+              <span aria-hidden="true" className={styles.pipGroupDots}>
+                {[0, 1, 2].map((i) => (
+                  <span
+                    key={`ds-failure-${i}`}
+                    data-testid="death-save-pip-failure"
+                    className={
+                      i < (combat.deathSaves?.failures ?? 0)
+                        ? `${styles.pip} ${styles.pipFailure}`
+                        : styles.pip
+                    }
+                  />
+                ))}
+              </span>
+              <span aria-hidden="true" className={styles.pipCount}>
+                {combat.deathSaves?.failures ?? 0}/3
+              </span>
+            </span>
+          </div>
+        </div>
+      )}
       {targetOpen && (
         <div
           className={styles.pop}

@@ -428,7 +428,7 @@ describe('CastSpellPanel — target picker', () => {
       is_alive: true,
       can_be_targeted: false,
       hp_current: 0,
-      death_saves: { successes: 0, failures: 0, is_downed: true, is_stable: false, is_dead: false },
+      death_saves: { successes: 0, failures: 0, is_downed: true, is_dying: true, is_stable: false, is_dead: false },
     });
     render(
       <ToastProvider>
@@ -470,7 +470,7 @@ describe('CastSpellPanel — target picker', () => {
       is_alive: false,
       can_be_targeted: false,
       hp_current: 0,
-      death_saves: { successes: 0, failures: 3, is_downed: false, is_stable: false, is_dead: true },
+      death_saves: { successes: 0, failures: 3, is_downed: false, is_dying: false, is_stable: false, is_dead: true },
     });
     render(
       <ToastProvider>

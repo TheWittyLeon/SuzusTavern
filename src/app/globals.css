@@ -529,6 +529,20 @@ a { color: inherit; text-decoration: none; }
   }
 }
 
+/* Native <select> popups follow the active vibe's color-scheme, and options get a
+   SOLID themed backdrop so the open list is legible in dark AND light vibes.
+   Root cause: a styled select with a custom (translucent) background loses the
+   inherited color-scheme in Chromium's popup renderer, so the OPEN option list
+   renders with the UA default (light) chrome even inside dusk-tavern/aetheric/
+   moonlit-grove. Scoped globally (not per-component) — CastSpellPanel,
+   ConditionsPanel, GrantCurrencyPanel, and DmOverrideModal each ship their own
+   .select class; this rule fixes all four in one place. */
+select { color-scheme: inherit; }
+select option {
+  background-color: var(--card-solid);
+  color: var(--ink);
+}
+
 /* Focus ring for keyboard nav */
 :focus-visible {
   outline: 2px solid var(--accent);

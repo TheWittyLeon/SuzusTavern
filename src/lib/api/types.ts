@@ -714,8 +714,15 @@ export interface CombatStatus {
 export interface CombatDeathSaves {
   successes: number;
   failures: number;
-  /** hp_current === 0 && is_alive (still making saves). */
+  /** hp_current === 0 && is_alive. Stays true once a PC stabilises (3
+   *  successes) — `is_downed` alone does NOT mean "must roll a save right
+   *  now". Use `is_dying` for the actionable gate; it's false once stable. */
   is_downed: boolean;
+  /** hp_current === 0 && is_active && !is_stable — the actionable "must roll a
+   *  death save this turn" state (Combat-UX Fixes 2026-07-27, Fix B). Narrower
+   *  than `is_downed`: a downed-but-stable PC is still `is_downed` but no
+   *  longer `is_dying`, since 3 successes stops the save loop. */
+  is_dying: boolean;
   /** Three successes — PC stabilised. */
   is_stable: boolean;
   /** !is_alive && entity_type === 'character'. */

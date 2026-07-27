@@ -50,6 +50,7 @@ import {
   dodge,
   dash,
   endTurn,
+  rollDeathSave,
   getCombatStatus,
   castSpell,
   applyCondition,
@@ -463,6 +464,15 @@ describe('Combat', () => {
     await endTurn({ username: 'u', combat_id: 'c1' });
     const { url } = lastCall();
     expect(url).toBe('/api/dnd/combat/endturn');
+  });
+
+  // Combat-UX Fixes 2026-07-27, Fix B.
+  it('rollDeathSave — POST /api/dnd/combat/death-save', async () => {
+    await rollDeathSave({ username: 'u', combat_id: 'c1' });
+    const { url, method, body } = lastCall();
+    expect(url).toBe('/api/dnd/combat/death-save');
+    expect(method).toBe('POST');
+    expect(body).toMatchObject({ username: 'u', combat_id: 'c1' });
   });
 
   it('getCombatStatus — GET /api/dnd/combat/:id/status', async () => {

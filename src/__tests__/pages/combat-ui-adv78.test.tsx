@@ -54,6 +54,7 @@ jest.mock('../../lib/api/dnd', () => ({
   dodge: jest.fn(),
   dash: jest.fn(),
   endTurn: jest.fn(),
+  rollDeathSave: jest.fn(),
   endCombat: jest.fn(),
   advanceScene: jest.fn(),
   setFlag: jest.fn(),
@@ -87,6 +88,7 @@ const mRollInitiative = dnd.rollInitiative as jest.MockedFunction<typeof dnd.rol
 const mMonsterTurn = dnd.monsterTurn as jest.MockedFunction<typeof dnd.monsterTurn>;
 const mAttack = dnd.attack as jest.MockedFunction<typeof dnd.attack>;
 const mEndTurn = dnd.endTurn as jest.MockedFunction<typeof dnd.endTurn>;
+const mRollDeathSave = dnd.rollDeathSave as jest.MockedFunction<typeof dnd.rollDeathSave>;
 const mEndCombat = dnd.endCombat as jest.MockedFunction<typeof dnd.endCombat>;
 const mAdvanceScene = dnd.advanceScene as jest.MockedFunction<typeof dnd.advanceScene>;
 const mStream = stream.streamDmNarration as jest.MockedFunction<typeof stream.streamDmNarration>;
@@ -152,7 +154,7 @@ const COMBAT_STATE: CombatState = {
       can_be_targeted: true,
       is_active_turn: true,
       took_turn: false,
-      death_saves: { successes: 0, failures: 0, is_downed: false, is_stable: false, is_dead: false },
+      death_saves: { successes: 0, failures: 0, is_downed: false, is_dying: false, is_stable: false, is_dead: false },
     },
     {
       participant_id: 'p_gob1',
@@ -794,6 +796,7 @@ describe('InitiativeTracker — downed PC indicator', () => {
             successes: 1,
             failures: 2,
             is_downed: true,
+            is_dying: true,
             is_stable: false,
             is_dead: false,
           },
@@ -811,5 +814,247 @@ describe('InitiativeTracker — downed PC indicator', () => {
       // Use the more specific death-saves text to distinguish from PartyPanel's badge.
       expect(screen.getByLabelText(/downed — death saves/i)).toBeInTheDocument();
     });
+  });
+});
+
+// ── Combat-UX Fixes 2026-07-27, Fix B: death-save UI ────────────────────────
+
+/** Velka (participant[0]) is the active-turn PC, at 0 HP, dying. */
+const COMBAT_STATE_DYING: CombatState = {
+  ...COMBAT_STATE,
+  participants: [
+    {
+      ...COMBAT_STATE.participants[0],
+      hp_current: 0,
+      death_saves: {
+        successes: 1,
+        failures: 2,
+        is_downed: true,
+        is_dying: true,
+        is_stable: false,
+        is_dead: false,
+      },
+    },
+    COMBAT_STATE.participants[1],
+  ],
+};
+
+/** Velka is downed and dying, but it is the goblin's turn (not hers). */
+const COMBAT_STATE_DYING_NOT_TURN: CombatState = {
+  ...COMBAT_STATE,
+  active_participant_id: 'p_gob1',
+  participants: [
+    {
+      ...COMBAT_STATE.participants[0],
+      hp_current: 0,
+      is_active_turn: false,
+      death_saves: {
+        successes: 1,
+        failures: 2,
+        is_downed: true,
+        is_dying: true,
+        is_stable: false,
+        is_dead: false,
+      },
+    },
+    { ...COMBAT_STATE.participants[1], is_active_turn: true },
+  ],
+};
+
+describe('Combat-UX Fixes 2026-07-27, Fix B — death-save UI', () => {
+  it('shows "Roll death save" + pips when the active PC is mine and dying', async () => {
+    mGetCombatState.mockResolvedValue(COMBAT_STATE_DYING);
+    mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Roll death save/i })).toBeInTheDocument();
+    });
+    // Pips reflect successes/failures from the fixture (1 success, 2 failures).
+    const successPips = screen.getAllByTestId('death-save-pip-success');
+    const failurePips = screen.getAllByTestId('death-save-pip-failure');
+    expect(successPips).toHaveLength(3);
+    expect(failurePips).toHaveLength(3);
+    // Iro MINOR-1: aria-label carries the max ("of 3") and never branches
+    // singular/plural — correct at every count, not just plural counts.
+    expect(
+      screen.getByRole('group', { name: /Death saves: 1 of 3 successes, 2 of 3 failures/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('Iro MAJOR-1: failure pips are NOT color-only — distinct shape + visible numeric readout', async () => {
+    mGetCombatState.mockResolvedValue(COMBAT_STATE_DYING);
+    mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Roll death save/i })).toBeInTheDocument();
+    });
+    // Shape: FILLED failure pips carry a class FILLED success pips don't
+    // (asserted via className since jsdom doesn't compute border-radius from
+    // CSS Modules hashed classnames, but the class itself is the
+    // shape-differentiator — .pipFailure sets border-radius: 2px vs the base
+    // .pip's circular 999px, so hue is never the only cue). Fixture has 1
+    // success (index 0 filled) and 2 failures (indices 0-1 filled, index 2
+    // still an empty/unfilled pip) — only assert the FILLED ones.
+    const failurePips = screen.getAllByTestId('death-save-pip-failure');
+    const successPips = screen.getAllByTestId('death-save-pip-success');
+    expect(failurePips[0].className).toMatch(/pipFailure/);
+    expect(failurePips[1].className).toMatch(/pipFailure/);
+    expect(failurePips[2].className).not.toMatch(/pipFailure/); // unfilled 3rd pip
+    expect(successPips[0].className).toMatch(/pipSuccess/);
+    expect(successPips[0].className).not.toMatch(/pipFailure/);
+    // Visible numeric fallback ("1/3" successes, "2/3" failures) — not
+    // screen-reader-only, so a sighted color-blind/low-vision user reading
+    // the rail (no assistive tech) still gets the tally.
+    expect(screen.getByText('1/3')).toBeInTheDocument();
+    expect(screen.getByText('2/3')).toBeInTheDocument();
+  });
+
+  it('does NOT show "Roll death save" when it is not my turn', async () => {
+    mGetCombatState.mockResolvedValue(COMBAT_STATE_DYING_NOT_TURN);
+    mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
+    // No-op the auto monster-turn driver so the goblin-turn state persists.
+    mMonsterTurn.mockResolvedValue(null as never);
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: /Attack/i }).length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByRole('button', { name: /Roll death save/i })).not.toBeInTheDocument();
+  });
+
+  it('does NOT show "Roll death save" when the active PC is mine but not dying', async () => {
+    mGetCombatState.mockResolvedValue(COMBAT_STATE);
+    mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: /Attack/i }).length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByRole('button', { name: /Roll death save/i })).not.toBeInTheDocument();
+  });
+
+  it('Attack/Dodge/Dash render disabled-visible (not removed) while dying', async () => {
+    mGetCombatState.mockResolvedValue(COMBAT_STATE_DYING);
+    mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Roll death save/i })).toBeInTheDocument();
+    });
+    const attackBtn = screen.getByRole('button', { name: /Attack \(unavailable/i });
+    const dodgeBtn = screen.getByRole('button', { name: /Dodge \(unavailable/i });
+    const dashBtn = screen.getByRole('button', { name: /Dash \(unavailable/i });
+    expect(attackBtn).toBeDisabled();
+    expect(dodgeBtn).toBeDisabled();
+    expect(dashBtn).toBeDisabled();
+    // End turn stays available — a downed PC can pass without rolling.
+    expect(screen.getByRole('button', { name: /^End turn$/i })).not.toBeDisabled();
+  });
+
+  it('clicking "Roll death save" calls rollDeathSave with username + combat_id', async () => {
+    mGetCombatState.mockResolvedValue(COMBAT_STATE_DYING);
+    mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
+    mRollDeathSave.mockResolvedValue({
+      message: 'You roll a 14. Success! (2 successes, 2 failures)',
+      state: COMBAT_STATE_DYING,
+    });
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+    const rollBtn = await screen.findByRole('button', { name: /Roll death save/i });
+    await act(async () => { fireEvent.click(rollBtn); });
+    await waitFor(() => expect(mRollDeathSave).toHaveBeenCalledTimes(1));
+    expect(mRollDeathSave.mock.calls[0][0]).toEqual({
+      username: 'alice',
+      combat_id: 'combat-42',
+    });
+  });
+});
+
+// ── Iro MAJOR-2: dying turn-start announcement ──────────────────────────────
+
+describe('Combat-UX Fixes 2026-07-27, Iro MAJOR-2 — dying turn-status text', () => {
+  it('announces "Your turn — you are down. Roll a death save." (not the generic label), styled as your-turn', async () => {
+    mGetCombatState.mockResolvedValue(COMBAT_STATE_DYING);
+    mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+    const status = await screen.findByText('Your turn — you are down. Roll a death save.');
+    expect(status).toBeInTheDocument();
+    expect(status).toHaveAttribute('role', 'status');
+    // Fixed render-site className: was an exact `turnStatusText === 'Your turn!'`
+    // match that would've silently fallen through to offTurnStatus for this
+    // new label. Now keyed on activeIsMine directly.
+    expect(status.className).toMatch(/myTurnStatus/);
+    expect(status.className).not.toMatch(/offTurnStatus/);
+    // The old generic label is not ALSO rendered somewhere.
+    expect(screen.queryByText('Your turn!')).not.toBeInTheDocument();
+    // Static per-turn — no live successes/failures tally baked into this
+    // text (ChatLog's own live region announces each roll's outcome).
+    expect(status.textContent).not.toMatch(/success|failure/i);
+  });
+
+  it('still shows the plain "Your turn!" label when active and mine but not dying', async () => {
+    mGetCombatState.mockResolvedValue(COMBAT_STATE);
+    mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+    const status = await screen.findByText('Your turn!');
+    expect(status).toHaveAttribute('role', 'status');
+    expect(status.className).toMatch(/myTurnStatus/);
+  });
+});
+
+// ── Kage-CR dropped spec item: dead-PC notice (design §UI-states, test-plan §4.2) ──
+
+/** Velka (mine) has died; it's the goblin's turn (a dead PC never regains the
+ *  active turn — is_active flips false at 3 failures, so this can't reuse
+ *  the isDying/active-participant fixtures above). */
+const COMBAT_STATE_MY_PC_DEAD: CombatState = {
+  ...COMBAT_STATE,
+  active_participant_id: 'p_gob1',
+  participants: [
+    {
+      ...COMBAT_STATE.participants[0],
+      hp_current: 0,
+      is_alive: false,
+      is_active_turn: false,
+      can_be_targeted: false,
+      death_saves: {
+        successes: 0,
+        failures: 3,
+        is_downed: false,
+        is_dying: false,
+        is_stable: false,
+        is_dead: true,
+      },
+    },
+    { ...COMBAT_STATE.participants[1], is_active_turn: true },
+  ],
+};
+
+describe('Combat-UX Fixes 2026-07-27 §UI-states "Dead" — dead-PC notice', () => {
+  it('shows a "Your character has died." status notice when my PC is dead', async () => {
+    mGetCombatState.mockResolvedValue(COMBAT_STATE_MY_PC_DEAD);
+    mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
+    // No-op the auto monster-turn driver so the fixture's state persists.
+    mMonsterTurn.mockResolvedValue(null as never);
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+    const notice = await screen.findByText('Your character has died.');
+    expect(notice).toBeInTheDocument();
+    expect(notice).toHaveAttribute('role', 'status');
+  });
+
+  it('does NOT show the dead-PC notice when my PC is alive', async () => {
+    mGetCombatState.mockResolvedValue(COMBAT_STATE);
+    mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: /Attack/i }).length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByText('Your character has died.')).not.toBeInTheDocument();
   });
 });

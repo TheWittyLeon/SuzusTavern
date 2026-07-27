@@ -32,7 +32,7 @@ const VELKA: CombatParticipantState = {
   can_be_targeted: true,
   is_active_turn: true,
   took_turn: false,
-  death_saves: { successes: 0, failures: 0, is_downed: false, is_stable: false, is_dead: false },
+  death_saves: { successes: 0, failures: 0, is_downed: false, is_dying: false, is_stable: false, is_dead: false },
 };
 
 const GOBLIN: CombatParticipantState = {
@@ -62,7 +62,7 @@ const DEAD_GOBLIN: CombatParticipantState = {
 const DOWNED_VELKA: CombatParticipantState = {
   ...VELKA,
   hp_current: 0,
-  death_saves: { successes: 1, failures: 2, is_downed: true, is_stable: false, is_dead: false },
+  death_saves: { successes: 1, failures: 2, is_downed: true, is_dying: true, is_stable: false, is_dead: false },
 };
 
 // ── Structured renderer (CUI-11) ─────────────────────────────────────────────

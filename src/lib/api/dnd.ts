@@ -922,6 +922,23 @@ export const dash = (req: CombatActionRequest, signal?: AbortSignal) =>
     signal,
   });
 
+/**
+ * Roll a death save for your own downed PC (Combat-UX Fixes 2026-07-27, Fix B).
+ * `target`/`target_id` are part of the shared `CombatActionRequest` shape but
+ * should be omitted here — the engine's `cmd_deathsave` resolves the caller's
+ * own downed character and rejects a target the caller doesn't own, so this
+ * is an own-PC-only action, not a "roll for another member" path. (Kage-CR
+ * review correction: an earlier version of this docstring claimed the engine
+ * permits rolling for another downed member "in extremis" — verify against
+ * the engine before relying on that claim again.)
+ */
+export const rollDeathSave = (req: CombatActionRequest, signal?: AbortSignal) =>
+  apiCall<CombatMessageResult>('/api/dnd/combat/death-save', {
+    method: 'POST',
+    json: req,
+    signal,
+  });
+
 export const endTurn = (req: CombatActionRequest, signal?: AbortSignal) =>
   apiCall<CombatMessageResult>('/api/dnd/combat/endturn', {
     method: 'POST',

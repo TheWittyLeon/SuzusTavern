@@ -213,6 +213,75 @@
   cursor: not-allowed;
 }
 
+/* Combat-UX Fixes 2026-07-27, Fix B: death-save affordance + pip tally. */
+.deathSaveRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.deathSaveBtn {
+  border-color: color-mix(in oklab, var(--bad) 45%, var(--line-strong));
+  color: var(--bad-ink);
+}
+
+.deathSaveBtn:hover:not(:disabled) {
+  border-color: var(--bad);
+  color: var(--bad-ink);
+}
+
+.deathSavePips {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pipGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pipGroupDots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Iro MAJOR-1 (WCAG 1.4.1): visible numeric fallback beside each pip group so
+   the tally reads without relying on success/failure hue. aria-hidden — the
+   pip group's own aria-label already carries the full accessible sentence. */
+.pipCount {
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+}
+
+.pip {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px solid var(--line-strong);
+}
+
+.pipSuccess {
+  background: var(--good);
+  border-color: var(--good);
+}
+
+/* Iro MAJOR-1 (WCAG 1.4.1, not color-only): failure pips get a distinct SHAPE
+   (rounded square) in addition to --bad, so success vs failure never depends
+   on hue alone — the sub-2:1 luminance gap between --good/--bad in every vibe
+   isn't enough on its own. */
+.pipFailure {
+  background: var(--bad);
+  border-color: var(--bad);
+  border-radius: 2px;
+}
+
 .pop {
   position: absolute;
   bottom: calc(100% + 6px);
