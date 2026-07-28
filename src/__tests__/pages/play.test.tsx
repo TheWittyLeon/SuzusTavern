@@ -78,6 +78,7 @@ import PlayPage from '@/app/play/[sessionId]/page';
 
 const mGetSession = dnd.getSession as jest.MockedFunction<typeof dnd.getSession>;
 const mGetParticipants = dnd.getParticipants as jest.MockedFunction<typeof dnd.getParticipants>;
+const mGetGrounding = dnd.getGrounding as jest.MockedFunction<typeof dnd.getGrounding>;
 const mStream = stream.streamDmNarration as jest.MockedFunction<typeof stream.streamDmNarration>;
 const mCombatFromScene = dnd.combatFromScene as jest.MockedFunction<typeof dnd.combatFromScene>;
 const mSpawnMonster = dnd.spawnMonster as jest.MockedFunction<typeof dnd.spawnMonster>;
@@ -445,11 +446,23 @@ describe('Play page', () => {
 // ── ADV-6: beginEncounter / combatFromScene ───────────────────────────────────
 
 describe('ADV-6 — beginEncounter', () => {
-  /** Helper: render, wait for session, click "Begin an encounter". */
+  // TAVERN PLAY-UI NITS (2026-07-23 pre-flight playthrough) item a: the
+  // begin-combat button is now gated on the current scene having an
+  // authored encounter (`grounding.encounter`) — this whole describe block
+  // exercises the click flow itself, so it needs one to be present for the
+  // button to render at all. Once gated, the button's label is always
+  // "Stand and fight" (see play.combat-begin-gate.test.tsx for the
+  // dedicated render-gate coverage; play.p4-fight-or-flee.test.tsx for the
+  // label reframe itself).
+  beforeEach(() => {
+    mGetGrounding.mockResolvedValue({ encounter: { kind: 'combat', trigger: 'manual' } });
+  });
+
+  /** Helper: render, wait for session, click the begin-combat button. */
   async function clickBeginEncounter() {
     render(<PlayPage />);
     await screen.findByText('The Hollow Tide');
-    const btn = screen.getByRole('button', { name: /begin an encounter/i });
+    const btn = screen.getByRole('button', { name: /stand and fight/i });
     await act(async () => {
       fireEvent.click(btn);
     });
@@ -543,7 +556,7 @@ describe('ADV-6 — beginEncounter', () => {
 
     render(<PlayPage />);
     await screen.findByText('The Hollow Tide');
-    const btn = screen.getByRole('button', { name: /begin an encounter/i });
+    const btn = screen.getByRole('button', { name: /stand and fight/i });
 
     // First click — starts the request.
     await act(async () => { fireEvent.click(btn); });

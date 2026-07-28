@@ -95,6 +95,7 @@ const mockListChars = dnd.listMyCharacters as jest.MockedFunction<typeof dnd.lis
 const mockGetCatalog = dnd.getCatalog as jest.MockedFunction<typeof dnd.getCatalog>;
 const mGetSession = dnd.getSession as jest.MockedFunction<typeof dnd.getSession>;
 const mGetParticipants = dnd.getParticipants as jest.MockedFunction<typeof dnd.getParticipants>;
+const mGetGrounding = dnd.getGrounding as jest.MockedFunction<typeof dnd.getGrounding>;
 const mCombatFromScene = dnd.combatFromScene as jest.MockedFunction<typeof dnd.combatFromScene>;
 const mRollInitiative = dnd.rollInitiative as jest.MockedFunction<typeof dnd.rollInitiative>;
 const mStream = stream.streamDmNarration as jest.MockedFunction<typeof stream.streamDmNarration>;
@@ -344,11 +345,20 @@ describe('Tora MINOR-2 — retry guard ignores clicks when not in error state', 
 // ── Iro MINOR-1: beginEncounter aria-busy ─────────────────────────────────────
 
 describe('Iro MINOR-1 — beginEncounter button aria-busy', () => {
+  // TAVERN PLAY-UI NITS (2026-07-23 pre-flight playthrough) item a: the
+  // begin-combat button now only renders when the current scene has an
+  // authored encounter. Once gated, its label is always "Stand and fight"
+  // (see play.combat-begin-gate.test.tsx for the dedicated render-gate +
+  // busy-disabled coverage).
+  beforeEach(() => {
+    mGetGrounding.mockResolvedValue({ encounter: { kind: 'combat', trigger: 'manual' } });
+  });
+
   it('button has aria-busy=false when not busy', async () => {
     render(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
-    const btn = screen.getByRole('button', { name: /begin an encounter/i });
+    const btn = screen.getByRole('button', { name: /stand and fight/i });
     expect(btn).toHaveAttribute('aria-busy', 'false');
   });
 
@@ -360,7 +370,7 @@ describe('Iro MINOR-1 — beginEncounter button aria-busy', () => {
     render(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
-    const btn = screen.getByRole('button', { name: /begin an encounter/i });
+    const btn = screen.getByRole('button', { name: /stand and fight/i });
 
     // Click — starts the async request.
     await act(async () => {

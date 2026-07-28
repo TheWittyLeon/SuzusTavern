@@ -313,6 +313,13 @@ describe('ADV-S5.5B — scene advance narrate() call is suppressed when ai=off',
 describe('ADV-S5.5C — combat start (beginEncounter) does not call streamDmNarration when ai=off', () => {
   it('starting combat fires zero streamDmNarration calls', async () => {
     setupPlayPage(AI_OFF_SESSION);
+    // TAVERN PLAY-UI NITS (2026-07-23 pre-flight playthrough) item a: the
+    // begin-combat button now only renders when the scene has an authored
+    // encounter — setupPlayPage defaults grounding to null, so this test
+    // needs its own override for the button (and thus this test's actual
+    // click-path coverage) to exist at all. Once gated, its label is always
+    // "Stand and fight".
+    mockGetGrounding.mockResolvedValue({ encounter: { kind: 'combat', trigger: 'manual' } });
     mockCombatFromScene.mockResolvedValue({
       combat_id: 'c1',
       monsters: [{ name: 'Goblin Grunt' }],
@@ -325,13 +332,11 @@ describe('ADV-S5.5C — combat start (beginEncounter) does not call streamDmNarr
     await waitFor(() => expect(mockGetSession).toHaveBeenCalled());
     await act(async () => { await Promise.resolve(); });
 
-    const beginBtn = screen.queryByRole('button', { name: /Begin an encounter/i });
-    if (beginBtn) {
-      await act(async () => {
-        fireEvent.click(beginBtn);
-      });
-      await act(async () => { await Promise.resolve(); });
-    }
+    const beginBtn = await screen.findByRole('button', { name: /Stand and fight/i });
+    await act(async () => {
+      fireEvent.click(beginBtn);
+    });
+    await act(async () => { await Promise.resolve(); });
 
     expect(mockStreamDmNarration).not.toHaveBeenCalled();
   });

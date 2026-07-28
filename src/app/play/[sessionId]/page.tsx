@@ -4163,25 +4163,33 @@ export default function PlayPage() {
 
   // Phase 4 Package B (Sora-Arch design §3 Fork 2) — does the CURRENT scene
   // define an authored combat encounter at all (any trigger, before it's
-  // ever started)? Purely a COPY signal for the "Begin an encounter"/"Stand
-  // and fight" button below — `beginEncounter`'s own logic/gating is
-  // untouched (no `manual` vs `on_enter` branching here either; Package B
-  // never auto-starts, it only relabels the existing button).
+  // ever started)? Drives the "Begin an encounter"/"Stand and fight" button
+  // below: originally a copy-only signal (which label to show), it is now
+  // ALSO that button's render gate (TAVERN PLAY-UI NITS item a, 2026-07-23
+  // pre-flight playthrough nit) — the button no longer mounts at all when
+  // this is false. `beginEncounter`'s own logic/gating is still untouched
+  // (no `manual` vs `on_enter` branching here either; Package B never
+  // auto-starts).
   const sceneHasEncounter = grounding?.encounter != null;
 
-  // Iro-A11y MAJOR-2 — the "Begin an encounter"→"Stand and fight" reframe
-  // swaps the SAME button's text child in place (`sceneHasEncounter` is not
-  // part of any mount/unmount ternary condition), so a screen-reader user
-  // who already read the button earlier is never told its meaning changed
-  // once a scene-advance flips it. Fires the SAME toast infra
+  // Iro-A11y MAJOR-2 — the "Begin an encounter"→"Stand and fight" reframe.
+  // Originally this swapped the SAME button's text child in place while the
+  // button itself stayed mounted; `sceneHasEncounter` is now ALSO that
+  // button's mount/unmount condition (TAVERN PLAY-UI NITS item a above), so
+  // the rising edge below now corresponds to the button APPEARING for the
+  // first time, not just relabeling — arguably an even stronger case for
+  // the toast, not a weaker one. Still fires the SAME toast infra
   // `applyOfferedCheckSignal` above uses (not a new shape) on the RISING
   // edge only (false -> true), and only while the button is actually
-  // rendered (`!combatId` — beginEncounter's own gate). Deliberately NOT a
-  // live region wrapped around the button itself: that would double-announce
-  // on mount (the button's initial text is read once when it first appears;
-  // wrapping it in aria-live would announce it again immediately) — the
-  // toast is the safe, out-of-band channel, same reasoning as
-  // offeredCheckSkill's own toast above.
+  // rendered (`!combatId` — beginEncounter's own gate, unchanged). Still
+  // deliberately NOT a live region wrapped around the button itself: that
+  // would double-announce on mount (the button's initial text is read once
+  // when it first appears; wrapping it in aria-live would announce it
+  // again immediately) — the toast remains the safe, out-of-band channel,
+  // same reasoning as offeredCheckSkill's own toast above. No code change
+  // needed below: the effect only reads `sceneHasEncounter`/`combatId`
+  // state, never the DOM, so it fires identically whether the button's
+  // presence is driven by a text swap or a real mount.
   const prevSceneHasEncounterRef = useRef(sceneHasEncounter);
   useEffect(() => {
     if (sceneHasEncounter && !prevSceneHasEncounterRef.current && !combatId) {
@@ -4192,6 +4200,38 @@ export default function PlayPage() {
     }
     prevSceneHasEncounterRef.current = sceneHasEncounter;
   }, [sceneHasEncounter, combatId, toast]);
+
+  // Iro-A11y CRITICAL-1 — focus-strand on unmount. Making `sceneHasEncounter`
+  // a MOUNT condition (not just a copy signal, see above) means the button
+  // can disappear out from under a focused user: a background poll/grounding
+  // refresh moving the scene to one with no encounter, OR the button's own
+  // successful click (which sets combatId, taking the SAME ternary branch to
+  // `null`), can both unmount it while it may still hold focus. The browser
+  // force-blurs to <body> in that case and nothing recovers it. Unlike
+  // `refocusSceneHeadIfStranded` above (called synchronously from inside a
+  // click handler, which captures `hadFocusInGroup` BEFORE its own state
+  // update because several sibling groups could have had focus), this effect
+  // has no single triggering user gesture to race — poll, click, and scene
+  // advance can all independently flip the button's visibility — so it
+  // instead watches the computed visibility itself and reacts on the
+  // FALLING edge (true -> false), using the same rAF-after-commit +
+  // `document.activeElement === document.body` check to avoid stomping a
+  // user who had already tabbed elsewhere in the interim. Seeded to `false`
+  // so the first render (whatever `sceneHasEncounter` happens to be on
+  // mount) can never satisfy the falling-edge condition — no refocus fires
+  // on initial mount.
+  const beginEncounterVisibleRef = useRef(false);
+  useEffect(() => {
+    const nowVisible = !combatId && sceneHasEncounter;
+    if (beginEncounterVisibleRef.current && !nowVisible) {
+      requestAnimationFrame(() => {
+        if (document.activeElement === document.body) {
+          sceneHeadRef.current?.focus();
+        }
+      });
+    }
+    beginEncounterVisibleRef.current = nowVisible;
+  }, [combatId, sceneHasEncounter]);
 
   // P1-PLAYFIX-2 §A.3: memoized (not a plain const) — the new onSend
   // keyword-fast-path useCallback below depends on this array, and a fresh
@@ -5404,21 +5444,41 @@ export default function PlayPage() {
           <div className={styles.combatNote} role="status" aria-live="polite">
             <Icon name="Sword" size={13} aria-hidden /> Combat ended
           </div>
-        ) : !combatId ? (
-          // No combat at all: offer to begin one. Phase 4 Package B
-          // (Sora-Arch design §3 Fork 2): when the current scene has an
-          // authored combat encounter (`sceneHasEncounter`, any trigger,
-          // unstarted), relabel the SAME button "Stand and fight" so the
-          // moment reads as a fight-or-flee choice rather than a generic
-          // "start a fight" invite — the flee checks below already render
-          // pre-combat, no gate relaxation. Copy-only: `beginEncounter`'s
-          // own logic/gating is completely unchanged.
+        ) : !combatId && sceneHasEncounter ? (
+          // No combat at all, AND the current scene has an authored combat
+          // encounter (`sceneHasEncounter`): offer to begin it. 2026-07-23
+          // pre-flight playthrough nit (backlog "TAVERN PLAY-UI NITS") — this
+          // button used to render on EVERY non-combat scene, so clicking it
+          // on a scene with no authored encounter always 400'd
+          // ("No encounter available for the current scene.", surfaced by
+          // the catch below). Now the button is simply absent for those
+          // scenes — the flee checks and scene-transition affordances
+          // elsewhere in this pane already cover them, no placeholder
+          // needed. Phase 4 Package B (Sora-Arch design §3 Fork 2) relabels
+          // the SAME button "Stand and fight" so the moment reads as a
+          // fight-or-flee choice rather than a generic "start a fight"
+          // invite — no longer copy-only now that sceneHasEncounter also
+          // gates the button's existence (in practice the button can now
+          // only ever render with the "Stand and fight" label; the
+          // "Begin an encounter" branch is kept as-is, unreachable, to keep
+          // this fix to the two changes it was scoped to). `beginEncounter`'s
+          // own logic/gating is still completely unchanged. Also disabled
+          // while narration/session/other rolls are busy (talking/
+          // sessionLocked/rollBusy), matching the sibling action rail below —
+          // previously only `combatBusy` gated it, so a click could race an
+          // in-flight narration and 409 on the durable turn-key guard.
+          // Iro-A11y MINOR-1/MINOR-2: aria-busy is the adjudicated sibling
+          // convention (own-busy-ref || talking; sessionLocked/rollBusy
+          // deliberately excluded — those are OTHER things being busy, not
+          // this control); aria-disabled mirrors `disabled` byte-for-byte,
+          // same pairing as checkBtn/moveOnBtn/the freeform check button.
           <button
             type="button"
             className={styles.beginCombat}
             onClick={beginEncounter}
-            disabled={combatBusy}
-            aria-busy={combatBusy}
+            disabled={talking || combatBusy || sessionLocked || rollBusy}
+            aria-busy={combatBusy || talking}
+            aria-disabled={talking || combatBusy || sessionLocked || rollBusy}
           >
             <Icon name="Sword" size={14} aria-hidden />{' '}
             {sceneHasEncounter ? 'Stand and fight' : 'Begin an encounter'}

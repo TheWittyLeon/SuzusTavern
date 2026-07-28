@@ -5,12 +5,14 @@
  * Coverage:
  *   - a scene with an authored combat encounter (`grounding.encounter`) and
  *     no active combat renders the button labelled "Stand and fight".
- *   - a scene with NO authored encounter keeps the generic "Begin an
- *     encounter" label (regression pin — the reframe is copy-only and scoped
- *     to scenes that actually have one).
- *   - clicking either label still calls the SAME `combatFromScene` ->
- *     `rollInitiative` flow, unchanged — Package B is copy-only, no logic
- *     change to `beginEncounter`.
+ *   - a scene with NO authored encounter renders NO begin-combat button at
+ *     all (2026-07-23 pre-flight playthrough nit — the button used to stay
+ *     mounted with the generic "Begin an encounter" label and always 400
+ *     when clicked there; see play.combat-begin-gate.test.tsx for the
+ *     dedicated render-gate + busy-disabled coverage).
+ *   - clicking "Stand and fight" still calls the SAME `combatFromScene` ->
+ *     `rollInitiative` flow, unchanged — the label swap itself is
+ *     copy-only, no logic change to `beginEncounter`.
  */
 import React from 'react';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
@@ -182,14 +184,12 @@ describe('Package B — "Stand and fight" reframe', () => {
     expect(await screen.findByRole('button', { name: /Attempt Athletics, DC 13/i })).toBeInTheDocument();
   });
 
-  it('a scene with NO authored encounter keeps the generic "Begin an encounter" label (regression pin)', async () => {
+  it('a scene with NO authored encounter renders no begin-combat button at all (regression pin — dedicated render-gate coverage lives in play.combat-begin-gate.test.tsx)', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_NO_ENCOUNTER);
     render(<PlayPage />);
-    await screen.findByText('Test Table');
+    await screen.findByText('The Outskirts');
 
-    expect(
-      await screen.findByRole('button', { name: /^Begin an encounter$/i }),
-    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Begin an encounter$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Stand and fight/i })).not.toBeInTheDocument();
   });
 
@@ -222,14 +222,21 @@ describe('Iro-A11y MAJOR-2 — toast on the sceneHasEncounter rising edge', () =
     render(<PlayPage />);
     await screen.findByText('Test Table');
 
-    // Mount value has no encounter — no rising edge yet.
-    await screen.findByRole('button', { name: /^Begin an encounter$/i });
+    // Mount value has no encounter — the button is entirely absent (render
+    // gate, TAVERN PLAY-UI NITS item a), so there is no rising edge yet.
+    await screen.findByText('The Outskirts');
+    expect(
+      screen.queryByRole('button', { name: /Begin an encounter|Stand and fight/i }),
+    ).not.toBeInTheDocument();
     expect(mockToast).not.toHaveBeenCalledWith(expect.objectContaining({ tone: 'warn' }));
 
     // A beat signals sceneAdvanced -> refreshGrounding() picks up the
-    // encounter-bearing fixture queued above; the button relabels in place
-    // (same node, no mount/unmount) so a screen-reader user needs the toast
-    // to learn its meaning changed.
+    // encounter-bearing fixture queued above; the button now MOUNTS for the
+    // first time (post-render-gate — previously it relabeled an
+    // already-mounted node in place). It still isn't wrapped in its own
+    // live region (would double-announce on mount), so the toast remains
+    // the channel that tells a screen-reader user a new fight-or-flee
+    // option just appeared.
     streamOnce([
       {
         kind: 'chunk',

@@ -73,6 +73,7 @@ import PlayPage from '@/app/play/[sessionId]/page';
 
 const mGetSession = dnd.getSession as jest.MockedFunction<typeof dnd.getSession>;
 const mGetParticipants = dnd.getParticipants as jest.MockedFunction<typeof dnd.getParticipants>;
+const mGetGrounding = dnd.getGrounding as jest.MockedFunction<typeof dnd.getGrounding>;
 const mStream = stream.streamDmNarration as jest.MockedFunction<typeof stream.streamDmNarration>;
 const mCombatFromScene = dnd.combatFromScene as jest.MockedFunction<typeof dnd.combatFromScene>;
 const mRollInitiative = dnd.rollInitiative as jest.MockedFunction<typeof dnd.rollInitiative>;
@@ -110,6 +111,13 @@ beforeEach(() => {
   jest.clearAllMocks();
   mGetSession.mockResolvedValue(SESSION);
   mGetParticipants.mockResolvedValue(PARTY);
+  // TAVERN PLAY-UI NITS (2026-07-23 pre-flight playthrough) item a: the
+  // begin-combat button now only renders when the current scene has an
+  // authored encounter — every test in this file exercises that exact
+  // button, so it needs one to be present. Once gated, its label is always
+  // "Stand and fight" (see play.combat-begin-gate.test.tsx for the
+  // dedicated render-gate coverage).
+  mGetGrounding.mockResolvedValue({ encounter: { kind: 'combat', trigger: 'manual' } });
   mStream.mockImplementation(async function* () {
     yield { kind: 'chunk' as const, text: 'The door creaks.' };
     yield { kind: 'done' as const };
@@ -120,7 +128,7 @@ beforeEach(() => {
 async function clickBeginEncounter() {
   render(<PlayPage />);
   await screen.findByText('The Hollow Tide');
-  const btn = screen.getByRole('button', { name: /begin an encounter/i });
+  const btn = screen.getByRole('button', { name: /stand and fight/i });
   await act(async () => {
     fireEvent.click(btn);
   });

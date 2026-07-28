@@ -584,6 +584,15 @@ describe('Pass-3 synthetic beat #3 (scene-transition / onMoveOn) — flag ON, §
 });
 
 describe('Pass-3 synthetic beat #5 (combat-start / beginEncounter) — flag ON, §8 items 2/4/6', () => {
+  // TAVERN PLAY-UI NITS (2026-07-23 pre-flight playthrough) item a: the
+  // begin-combat button now only renders when the current scene has an
+  // authored encounter — the file-level beforeEach defaults grounding to
+  // null, so this describe block needs its own override for the button to
+  // exist at all. Once gated, its label is always "Stand and fight".
+  beforeEach(() => {
+    mockGetGrounding.mockResolvedValue({ encounter: { kind: 'combat', trigger: 'manual' } });
+  });
+
   it('mechanics passthrough + suppress_intent omitted (false): postDmTurn carries the combat-start instruction, not suppress_intent', async () => {
     mockCombatFromScene.mockResolvedValue({
       combat_id: 'combat-1',
@@ -602,7 +611,7 @@ describe('Pass-3 synthetic beat #5 (combat-start / beginEncounter) — flag ON, 
     });
 
     await renderAndOpenScene();
-    const beginBtn = await screen.findByRole('button', { name: /Begin an encounter/i });
+    const beginBtn = await screen.findByRole('button', { name: /Stand and fight/i });
     await act(async () => {
       fireEvent.click(beginBtn);
     });
@@ -636,7 +645,7 @@ describe('Pass-3 synthetic beat #5 (combat-start / beginEncounter) — flag ON, 
     jest.useFakeTimers();
     try {
       await renderAndOpenScene();
-      const beginBtn = await screen.findByRole('button', { name: /Begin an encounter/i });
+      const beginBtn = await screen.findByRole('button', { name: /Stand and fight/i });
       await act(async () => {
         fireEvent.click(beginBtn);
       });

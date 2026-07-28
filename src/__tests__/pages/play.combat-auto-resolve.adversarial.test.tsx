@@ -238,10 +238,19 @@ describe('F3/COMBAT-NO-AUTO-RESOLVE — never fires outside the exact trigger co
     mGetSession.mockResolvedValue({ ...SESSION_WITH_COMBAT, active_combat_id: null });
     render(<PlayPage />);
     await screen.findByText('The Hollow Tide');
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: /begin an encounter/i })).toBeInTheDocument(),
-    );
+    // TAVERN PLAY-UI NITS (2026-07-23 pre-flight playthrough) item a: the
+    // begin-combat button now only renders when the scene has an authored
+    // encounter, which this file's grounding mock never sets — so it can no
+    // longer serve as this test's "page has settled" proxy. `getCombatState`
+    // is also never called with no combatId, so flush a couple of ticks
+    // (mirrors the sibling "combat has ended" case above) and assert the
+    // no-combat state directly instead.
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
     expect(screen.queryByText(/All enemies are down/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^combat$/i)).not.toBeInTheDocument();
   });
 });
 
