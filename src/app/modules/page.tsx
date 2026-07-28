@@ -334,6 +334,9 @@ function StarterForm({
   // the form prevents it by disabling 'off'/'assist' when dmMode==='ai').
   const [aiAssistLevel, setAiAssistLevel] = useState<AiAssistLevel>('full');
   const [visibility, setVisibility] = useState<Visibility>('private');
+  // HB-P2: casting model — 'slots' (classic, default) vs 'points' (DMG spell-point
+  // variant). Locked at creation; only 'points' is ever sent on the wire.
+  const [castingModel, setCastingModel] = useState<'slots' | 'points'>('slots');
   const [rating, setRating] = useState<ContentRating>('sfw');
   const [submitting, setSubmitting] = useState(false);
 
@@ -431,6 +434,9 @@ function StarterForm({
         adventure_ref: adventure.public_id,
         // Character binding: include selected character_id when the player has chosen one.
         ...(selectedCharId !== undefined ? { character_id: selectedCharId } : {}),
+        // HB-P2: only an explicit 'points' goes on the wire — omitting keeps the
+        // engine's slots default and stores nothing on the campaign row.
+        ...(castingModel === 'points' ? { casting_model: 'points' as const } : {}),
       });
       // Persist client-side enrichment as a fallback for pre-upgrade backends.
       const key = session?.session_id ?? channel;
@@ -582,6 +588,23 @@ function StarterForm({
           value={visibility}
           onChange={onVisibilityChange}
           options={VISIBILITIES}
+        />
+      </fieldset>
+
+      <fieldset className={styles.field}>
+        <legend className={styles.fieldLabel}>Spellcasting</legend>
+        <RadioGroup
+          label="Spellcasting"
+          value={castingModel}
+          onChange={setCastingModel}
+          options={[
+            { id: 'slots', label: 'Spell slots', note: 'classic 5e · default' },
+            {
+              id: 'points',
+              label: 'Spell points',
+              note: 'one pool, cast big or small · warlocks keep slots',
+            },
+          ]}
         />
       </fieldset>
 

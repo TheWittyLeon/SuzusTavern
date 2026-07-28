@@ -474,6 +474,13 @@ export interface SessionStartRequest {
    *  'dnd5e:adventure:hollow-tide-cave'). Omit = freeform/sandbox campaign.
    *  The engine stamps this as campaign.adventure_ref and initialises progress. */
   adventure_ref?: string;
+  /** HB-P2: casting model for this table. 'points' = DMG spell-point variant
+   *  (one pool instead of slots; one 6th+ slot of each level per long rest).
+   *  Omit or 'slots' = classic slots — the engine stores nothing and every
+   *  existing behaviour is unchanged. Locked at creation (no mid-campaign
+   *  switch). Warlocks always use slots regardless (Pact Magic is excluded
+   *  from the variant). */
+  casting_model?: 'slots' | 'points';
 }
 /** A row from the engine's `session_events` log (S3.6 recap source).
  *  Field-name convention used by buildRecap and pre-existing callers. */

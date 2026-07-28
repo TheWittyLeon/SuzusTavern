@@ -306,7 +306,7 @@ describe('RadioGroup keyboard navigation (S3.4)', () => {
   it('groups are radiogroups with roving tabindex (checked=0, others=-1)', async () => {
     await openForm();
     const groups = screen.getAllByRole('radiogroup');
-    expect(groups.length).toBe(3); // DM · visibility · content rating
+    expect(groups.length).toBe(4); // DM · spellcasting · visibility · content rating
     const ai = screen.getByRole('radio', { name: /suzu dms/i });
     const solo = screen.getByRole('radio', { name: /solo/i });
     expect(ai).toHaveAttribute('tabindex', '0');
