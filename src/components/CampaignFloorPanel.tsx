@@ -122,10 +122,26 @@ export default function CampaignFloorPanel({
     requestAnimationFrame(() => pencilRef.current?.focus());
   }
 
+  // Kage m9: if the panel is disabled while the editor is open (session
+  // ended / another session action started), close the editor — Save must
+  // not stay live against an ended table. Render-time adjustment per
+  // React's "adjusting state when a prop changes" pattern
+  // (GrantCurrencyPanel's own prevParticipants convention).
+  const [prevDisabled, setPrevDisabled] = useState(disabled);
+  if (disabled !== prevDisabled) {
+    setPrevDisabled(disabled);
+    if (disabled && editing) setEditing(false);
+  }
+
   async function saveEdit() {
-    if (!draftValid || busy || mutationBusyRef.current) return;
+    if (!draftValid || busy || disabled || mutationBusyRef.current) return;
     mutationBusyRef.current = true;
     setBusy(true);
+    // Kage m10: clear the live region BEFORE the await — aria-live only
+    // announces on content CHANGE, so an identical back-to-back summary
+    // would otherwise be silent to a screen reader (and a stale apply
+    // result would sit under an unrelated save).
+    setLastResult(null);
     try {
       try {
         await setStartingLevel(sessionId, username, draftNum);
@@ -152,9 +168,10 @@ export default function CampaignFloorPanel({
   }
 
   async function confirmApply() {
-    if (busy || mutationBusyRef.current) return;
+    if (busy || disabled || mutationBusyRef.current) return;
     mutationBusyRef.current = true;
     setBusy(true);
+    setLastResult(null); // Kage m10 — see saveEdit.
     try {
       let res;
       try {
@@ -219,7 +236,7 @@ export default function CampaignFloorPanel({
               aria-invalid={!draftValid}
               aria-describedby={!draftValid ? `${uid}-floor-invalid` : undefined}
               value={draft}
-              disabled={busy}
+              disabled={busy || disabled}
               onChange={(e) => setDraft(e.target.value)}
             />
             <Button variant="ghost" onClick={closeEdit} disabled={busy}>
@@ -227,7 +244,7 @@ export default function CampaignFloorPanel({
             </Button>
             <Button
               variant="primary"
-              disabled={busy || !draftValid}
+              disabled={busy || disabled || !draftValid}
               aria-busy={busy}
               onClick={() => void saveEdit()}
             >

@@ -707,9 +707,11 @@ export const createSession = (req: SessionStartRequest, signal?: AbortSignal) =>
  * LVL-1: createSession's full-payload sibling. Same POST, but keeps the
  * response's `floor_applied` echo (non-null when the creator's bound
  * character was auto-leveled to the table's starting_level at create time)
- * alongside the session. `createSession` above keeps its pinned
- * session-or-null contract for existing callers; new call sites that need
- * the floor toast (modules/StarterForm) use this one.
+ * alongside the session. `createSession` above has NO production callers
+ * left (Kage m11 — modules/StarterForm was the only one and now uses this);
+ * it is kept solely for its pinned wire contract in api-dnd.test.ts
+ * (session-or-null, the pre-upgrade-backend null case) until a caller needs
+ * it again or a cleanup pass removes both together.
  */
 export const createSessionFull = (req: SessionStartRequest, signal?: AbortSignal) =>
   apiCall<{

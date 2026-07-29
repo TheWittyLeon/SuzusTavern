@@ -2083,6 +2083,9 @@ export default function PlayPage() {
   // instead of flashing back to loading.
   const closeMemberSheet = useCallback(() => {
     setMemberSheetOpen(false);
+    // Kage n3: don't leave the previous selection's self-flag lingering
+    // between opens (always re-set on open, but stale state is stale state).
+    setSelectedMemberIsSelf(false);
   }, []);
 
   // Focus management on open/close — mirrors the Journal drawer's effect
@@ -4846,7 +4849,10 @@ export default function PlayPage() {
                 end-session handler's paired refetch. */}
             <CampaignFloorPanel
               sessionId={sessionId}
-              username={username ?? ''}
+              // Kage n5: isDm implies a resolved username, but '' would be
+              // the wrong wire shape (engine Field(min_length=1) → 422, not
+              // a clean _err) — send the real value, never a fallback.
+              username={username as string}
               participants={participants}
               startingLevel={session?.starting_level ?? 1}
               disabled={sessionActionBusy !== null || isEnded}

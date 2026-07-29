@@ -234,3 +234,48 @@ it('auto-bind still fires when sessions resolve before characters (race fix)', a
     expect(payload).toHaveProperty('character_id', 10);
   });
 });
+
+// ── LVL-1 (Kage m4): the join floor-echo toast ───────────────────────────────
+
+it('LVL: a floor_applied echo on join fires the auto-leveled toast with the table name + Resolve now', async () => {
+  mockListSessions.mockResolvedValue([suzuTable]);
+  mockJoin.mockResolvedValue({
+    floor_applied: {
+      character_id: 7,
+      name: 'Rook',
+      from_level: 1,
+      to_level: 5,
+      pending_added: 2,
+    },
+  });
+  renderLobby();
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: /join table: hollow tide/i }),
+    ).toBeInTheDocument(),
+  );
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /join table: hollow tide/i }));
+  });
+  expect(await screen.findByText(/rook leveled up!/i)).toBeInTheDocument();
+  expect(
+    screen.getByText(/joined hollow tide — auto-leveled to match the table: 1 → 5\. 2 choices waiting\./i),
+  ).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /resolve now/i })).toBeInTheDocument();
+});
+
+it('LVL: a null floor_applied keeps the plain joined toast (no level-up copy)', async () => {
+  mockListSessions.mockResolvedValue([suzuTable]);
+  mockJoin.mockResolvedValue({ floor_applied: null });
+  renderLobby();
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: /join table: hollow tide/i }),
+    ).toBeInTheDocument(),
+  );
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /join table: hollow tide/i }));
+  });
+  expect(await screen.findByText(/joined hollow tide\./i)).toBeInTheDocument();
+  expect(screen.queryByText(/leveled up!/i)).not.toBeInTheDocument();
+});

@@ -1262,3 +1262,23 @@ describe('LevelChoicePicker — spell choice: busy-latch during the learnSpell b
     });
   });
 });
+
+// ── LVL (Kage m4): defensive ascending-by-level sort ─────────────────────────
+
+describe('LVL: stacked-choice ordering', () => {
+  it('renders cards ascending by level even when the wire order is shuffled', async () => {
+    renderPicker([
+      { ...ASI_CHOICE, id: 'asi:4', level: 4 },
+      { ...SUBCLASS_CHOICE, id: 'subclass:3', level: 3 },
+    ]);
+    await flush();
+    const headings = screen.getAllByRole('heading', { level: 3 });
+    const text = headings.map((h) => h.textContent ?? '').join(' | ');
+    // The level-3 subclass card must precede the level-4 ASI card in the DOM
+    // regardless of wire order — "in the order they were earned".
+    expect(text.toLowerCase().indexOf('archetype')).toBeGreaterThanOrEqual(0);
+    expect(text.toLowerCase().indexOf('archetype')).toBeLessThan(
+      text.toLowerCase().indexOf('ability score'),
+    );
+  });
+});

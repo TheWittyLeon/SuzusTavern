@@ -764,3 +764,60 @@ describe('Miko F3: local state reconciliation after release-succeeded/create-fai
     expect(screen.queryByText(/in the shadowfell keep/i)).not.toBeInTheDocument();
   });
 });
+
+// ── LVL-1 (Kage m3): starting_level payload + Begin gating ───────────────────
+
+it('LVL: default starting level 1 is OMITTED from the create payload', async () => {
+  await openForm();
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
+  });
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  const call = mockCreate.mock.calls[0][0] as SessionStartRequest;
+  expect('starting_level' in call).toBe(false);
+});
+
+it('LVL: a raised starting level reaches the create payload', async () => {
+  await openForm();
+  fireEvent.change(screen.getByLabelText(/starting level/i), {
+    target: { value: '5' },
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
+  });
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  const call = mockCreate.mock.calls[0][0] as SessionStartRequest;
+  expect(call.starting_level).toBe(5);
+});
+
+it('LVL: an invalid starting level disables Begin and shows the error copy', async () => {
+  await openForm();
+  fireEvent.change(screen.getByLabelText(/starting level/i), {
+    target: { value: '21' },
+  });
+  expect(screen.getByRole('button', { name: /^begin$/i })).toBeDisabled();
+  expect(screen.getByText(/enter a level from 1 to 20/i)).toBeInTheDocument();
+  expect(mockCreate).not.toHaveBeenCalled();
+});
+
+it('LVL: a floor_applied echo on create fires the auto-leveled toast', async () => {
+  mockCreate.mockResolvedValue({
+    session: { session_id: 's9', channel: 'x' } as Session,
+    floor_applied: {
+      character_id: 42,
+      name: 'Rook',
+      from_level: 1,
+      to_level: 5,
+      pending_added: 3,
+    },
+  });
+  await openForm();
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
+  });
+  expect(await screen.findByText(/rook leveled up!/i)).toBeInTheDocument();
+  expect(
+    screen.getByText(/auto-leveled to match the table: 1 → 5\. 3 choices waiting\./i),
+  ).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /resolve now/i })).toBeInTheDocument();
+});

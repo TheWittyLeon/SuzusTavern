@@ -228,10 +228,12 @@ export default function LobbyPage() {
         const floor = res?.floor_applied;
         if (floor) {
           const n = floor.pending_added;
+          // Kage n4: the floor toast REPLACES the generic join toast, so it
+          // must carry the join confirmation + table name itself.
           toast({
             tone: 'success',
             title: `${floor.name ?? 'Your character'} leveled up!`,
-            message: `Auto-leveled to match the table: ${floor.from_level} → ${floor.to_level}.${n > 0 ? ` ${n} choice${n === 1 ? '' : 's'} waiting.` : ''}`,
+            message: `Joined ${sessionTitle(s)} — auto-leveled to match the table: ${floor.from_level} → ${floor.to_level}.${n > 0 ? ` ${n} choice${n === 1 ? '' : 's'} waiting.` : ''}`,
             action: {
               label: 'Resolve now',
               onClick: () =>

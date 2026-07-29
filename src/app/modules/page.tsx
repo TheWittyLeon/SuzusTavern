@@ -413,7 +413,7 @@ function StarterForm({
     const engineAiAssist: AiAssistLevel = dmMode === 'ai' ? 'full' : aiAssistLevel;
 
     // Miko F3: only set once the release call actually succeeds — used in the
-    // catch below to reconcile local state if createSession fails afterward.
+    // catch below to reconcile local state if createSessionFull fails afterward.
     let released = false;
     try {
       // ONE-CHAR-ONE-CAMPAIGN-UX: release a busy character from its current
@@ -422,7 +422,7 @@ function StarterForm({
       // dialog's Confirm action (CharacterPicker never sets selectedCharId to
       // an in-use character directly) — so this is reachable only after an
       // explicit confirm, never silently. If release throws, the catch below
-      // shows the failure toast and createSession never runs — the character
+      // shows the failure toast and createSessionFull never runs — the character
       // stays exactly where it was (the design's accepted non-atomic-window
       // safe state), and `submitting` still guards double-submit.
       const picked = characters?.find((c) => Number(c.character_id) === selectedCharId);
@@ -496,7 +496,7 @@ function StarterForm({
         router.push('/dashboard');
       }
     } catch {
-      // Miko F3: release succeeded but createSession failed — the character
+      // Miko F3: release succeeded but createSessionFull failed — the character
       // is now free server-side, but the local list still shows "In {old
       // campaign}". Clear it optimistically so a retry doesn't read as
       // reissuing a release (it would still be harmlessly idempotent, but
@@ -645,38 +645,35 @@ function StarterForm({
           input, deliberately NOT a RadioGroup — twenty chip options for a
           scalar 1-20 is a scroll-wall; the settings-blob/omit-if-default
           WIRE pattern still mirrors casting_model exactly (Aoi §2's stated
-          deviation). Inline validation on every keystroke, no silent clamp. */}
-      <fieldset className={styles.field}>
-        <legend className={styles.fieldLabel}>Starting level</legend>
-        <div>
-          <input
-            id="starting-level-input"
-            className="input"
-            type="number"
-            inputMode="numeric"
-            min={1}
-            max={20}
-            step={1}
-            style={{ maxWidth: 120 }}
-            value={startingLevelInput}
-            aria-describedby="starting-level-hint"
-            aria-invalid={!startingLevelValid}
-            disabled={submitting}
-            onChange={(e) => setStartingLevelInput(e.target.value)}
-          />
-        </div>
-        <p
-          id="starting-level-hint"
-          className={styles.interlock}
-          style={!startingLevelValid ? { color: 'var(--bad, #c33)' } : undefined}
-        >
-          {!startingLevelValid
-            ? 'Enter a level from 1 to 20.'
-            : startingLevelNum > 1
-              ? `Characters below level ${startingLevelNum} are auto-leveled to ${startingLevelNum} the moment they join — any subclass or Ability Score Improvement picks along the way are still theirs to make.`
-              : 'Everyone starts at level 1 — the classic climb.'}
-        </p>
-      </fieldset>
+          deviation). Inline validation on every keystroke, no silent clamp.
+          Kage m1: label/span wrapper (the "Table name" pattern above), not a
+          fieldset — a legend names a GROUP, leaving a lone control unnamed. */}
+      <label className={styles.field}>
+        <span className={styles.fieldLabel}>Starting level</span>
+        <input
+          className={`input ${styles.floorInput}`}
+          type="number"
+          inputMode="numeric"
+          min={1}
+          max={20}
+          step={1}
+          value={startingLevelInput}
+          aria-describedby="starting-level-hint"
+          aria-invalid={!startingLevelValid}
+          disabled={submitting}
+          onChange={(e) => setStartingLevelInput(e.target.value)}
+        />
+      </label>
+      <p
+        id="starting-level-hint"
+        className={`${styles.interlock} ${!startingLevelValid ? styles.hintInvalid : ''}`}
+      >
+        {!startingLevelValid
+          ? 'Enter a level from 1 to 20.'
+          : startingLevelNum > 1
+            ? `Characters below level ${startingLevelNum} are auto-leveled to ${startingLevelNum} the moment they join — any subclass or Ability Score Improvement picks along the way are still theirs to make.`
+            : 'Everyone starts at level 1 — the classic climb.'}
+      </p>
 
       <fieldset className={styles.field}>
         <legend className={styles.fieldLabel}>Content rating</legend>

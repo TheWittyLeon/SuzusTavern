@@ -258,3 +258,13 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* LVL-1 (Kage m2): starting-level floor input + invalid-hint ink — tokens
+   only, no inline styles. */
+.floorInput {
+  max-width: 120px;
+}
+
+.hintInvalid {
+  color: var(--bad);
+}

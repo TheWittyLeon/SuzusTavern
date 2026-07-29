@@ -119,8 +119,8 @@ export default function MemberSheetPanel({
             <div className={styles.pendingCallout} role="note">
               <Icon name="Sparkle" size={14} aria-hidden />
               <p>
-                {sheet.pending_choices!.length} level choice
-                {sheet.pending_choices!.length > 1 ? 's' : ''} waiting —{' '}
+                {sheet.pending_choices?.length ?? 0} level choice
+                {(sheet.pending_choices?.length ?? 0) > 1 ? 's' : ''} waiting —{' '}
                 <Link href={`/character/${encodeURIComponent(sheet.character_id)}`}>
                   resolve on your character sheet
                 </Link>
