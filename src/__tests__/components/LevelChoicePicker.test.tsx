@@ -1282,3 +1282,50 @@ describe('LVL: stacked-choice ordering', () => {
     );
   });
 });
+
+// ── LVL-FEAT-SELF-ABORT regression (found live: "Loading feats…" stuck) ──────
+
+describe('feat-mode fetch does not abort itself', () => {
+  it("switching to feat mode fetches ONCE and the request's signal is never aborted", async () => {
+    mockGetCatalog.mockResolvedValue({
+      items: [
+        { slug: 'grappler', name: 'Grappler', content_type: 'feat', data: {} },
+      ],
+    });
+    renderPicker([{ ...ASI_CHOICE }]);
+    await flush();
+    fireEvent.click(screen.getByRole('radio', { name: /take a feat/i }));
+    await flush();
+    // The pre-fix effect kept featLoadState in its deps: setting 'loading'
+    // re-fired it and the cleanup aborted the just-started request. The
+    // real network always lost that race (both requests net::ERR_ABORTED,
+    // state stuck on 'loading'); the jest mock always WON it, which is why
+    // this suite stayed green. Pin the mechanism, not the race: the fetch's
+    // AbortSignal must remain un-aborted after settle.
+    const featCalls = mockGetCatalog.mock.calls.filter(
+      (c) => (c[1] as { type?: string } | undefined)?.type === 'feat',
+    );
+    expect(featCalls).toHaveLength(1);
+    const signal = featCalls[0][2] as AbortSignal;
+    expect(signal.aborted).toBe(false);
+    expect(screen.getByRole('radio', { name: /grappler/i })).toBeInTheDocument();
+    expect(screen.queryByText(/loading feats/i)).not.toBeInTheDocument();
+  });
+
+  it('Retry after a failed feat fetch refetches (loadKey bump, not an idle reset)', async () => {
+    mockGetCatalog.mockRejectedValueOnce(new Error('boom'));
+    renderPicker([{ ...ASI_CHOICE }]);
+    await flush();
+    fireEvent.click(screen.getByRole('radio', { name: /take a feat/i }));
+    await flush();
+    expect(screen.getByText(/couldn.t load feats/i)).toBeInTheDocument();
+    mockGetCatalog.mockResolvedValue({
+      items: [
+        { slug: 'grappler', name: 'Grappler', content_type: 'feat', data: {} },
+      ],
+    });
+    fireEvent.click(screen.getByRole('button', { name: /retry/i }));
+    await flush();
+    expect(screen.getByRole('radio', { name: /grappler/i })).toBeInTheDocument();
+  });
+});

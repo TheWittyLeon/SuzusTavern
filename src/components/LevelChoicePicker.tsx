@@ -292,10 +292,12 @@ function SubclassChoiceCard({
   const charClass = choice.class || sheet.char_class;
   const [options, setOptions] = useState<CatalogItem[] | null>(null);
   const [loadState, setLoadState] = useState<'loading' | 'ok' | 'error'>('loading');
-  // A11Y/QA (SERIOUS-4, DEFECT-2): bump to retry a failed catalog fetch —
-  // mirrors AsiChoiceCard's feat-mode Retry (setFeatLoadState('idle')), just
-  // via an effect-dep counter instead of an idle state, since this effect
-  // isn't gated on an idle check the way the feat one is.
+  // A11Y/QA (SERIOUS-4, DEFECT-2): bump to retry a failed catalog fetch via
+  // an effect-dep counter. This is THE canonical retry shape for every fetch
+  // card in this file — the feat card originally retried by resetting its
+  // load state to 'idle' with that state in the effect deps, which made the
+  // idle→loading transition abort its own fetch (LVL-FEAT-SELF-ABORT); it
+  // now mirrors THIS counter pattern.
   const [loadKey, setLoadKey] = useState(0);
   const [selectedSlug, setSelectedSlug] = useState('');
   const [busy, setBusy] = useState(false);
@@ -447,6 +449,10 @@ function AsiChoiceCard({ characterId, username, sheet, choice, onResolved }: Cho
   const [allocations, setAllocations] = useState<Partial<Record<AbilityKey, number>>>({});
   const [feats, setFeats] = useState<CatalogItem[] | null>(null);
   const [featLoadState, setFeatLoadState] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle');
+  // LVL-FEAT-SELF-ABORT fix: retry via an effect-dep counter (the
+  // SubclassChoiceCard/SpellChoiceCard convention), NOT by resetting
+  // featLoadState to 'idle' — see the effect's comment below.
+  const [featLoadKey, setFeatLoadKey] = useState(0);
   const [selectedFeat, setSelectedFeat] = useState('');
   const [busy, setBusy] = useState(false);
   /** Synchronous double-submit latch — see SubclassChoiceCard's comment. */
@@ -461,10 +467,19 @@ function AsiChoiceCard({ characterId, username, sheet, choice, onResolved }: Cho
   const totalAllocated = ABILITIES.reduce((sum, a) => sum + (allocations[a.key] ?? 0), 0);
 
   useEffect(() => {
-    if (mode !== 'feat' || featLoadState !== 'idle') return;
+    // LVL-FEAT-SELF-ABORT fix (found live by Leon: "Loading feats…" stuck
+    // forever). The old effect kept `featLoadState` in its dep array AND
+    // set it to 'loading' inside — so starting the fetch re-fired the
+    // effect, whose cleanup ac.abort()'d the request it had just started,
+    // and the abort guard in .catch swallowed the rejection: state stuck on
+    // 'loading' with zero surviving requests (both showed net::ERR_ABORTED
+    // in the browser; jest never caught it because the mock settled on the
+    // next microtask, winning the race the real network always loses).
+    // Now the state machine is NOT a dependency: the fetch runs on feat-mode
+    // entry / retry-key bump / taken-feats change, exactly the counter
+    // pattern the sibling cards use.
+    if (mode !== 'feat') return;
     const ac = new AbortController();
-    // Canonical fetch-on-mount pattern (React docs "Fetching data" example).
-    // There's no external store to subscribe to here.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setFeatLoadState('loading');
     getCatalog(SYSTEM, { type: 'feat' }, ac.signal)
@@ -483,7 +498,7 @@ function AsiChoiceCard({ characterId, username, sheet, choice, onResolved }: Cho
         setFeatLoadState('error');
       });
     return () => ac.abort();
-  }, [mode, featLoadState, sheet.feats]);
+  }, [mode, featLoadKey, sheet.feats]);
 
   // QA (Miko DEFECT-1): switching ASI mode must not leave a stale allocation
   // (or a stale feat pick) silently submittable from the OTHER mode — reset
@@ -695,7 +710,7 @@ function AsiChoiceCard({ characterId, username, sheet, choice, onResolved }: Cho
           {featLoadState === 'error' && (
             <p className={styles.emptyRow} aria-live="polite" aria-atomic="true">
               Couldn&rsquo;t load feats.{' '}
-              <Button variant="ghost" size="default" onClick={() => setFeatLoadState('idle')}>
+              <Button variant="ghost" size="default" onClick={() => setFeatLoadKey((k) => k + 1)}>
                 Retry
               </Button>
             </p>
