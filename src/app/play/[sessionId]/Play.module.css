@@ -437,6 +437,29 @@
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 25%, transparent);
 }
 
+/* Check Retry + Fail-Forward (2026-07-28 design §7.1) — a locked check stays
+   in the list (never removed, unlike resolved), always rendered `disabled`.
+   Shared by both .checkBtn (canonical) and .checkChip (composer-adjacent
+   duplicate) — applied alongside either base class. Swaps the warm --warn
+   "you can attempt this" tint for a muted --bad "this is closed" one;
+   native :disabled already supplies the opacity/cursor treatment, so this
+   layer only recolours border/background. Placed after .checkBtn/.checkChip
+   above so source-order gives it precedence at equal specificity. */
+.checkBtnLocked {
+  border-color: color-mix(in oklab, var(--bad) 40%, transparent);
+  background: color-mix(in oklab, var(--bad) 8%, transparent);
+  /* Iro-A11y MAJOR-3/MAJOR-4 (2026-07-28): a purely-locked button (no other
+     transient busy state) is no longer native `disabled` -- it stays
+     Tab-reachable so the sr-only close reason and lock label are announced
+     (the generic .checkBtn:disabled opacity 0.5 rule dropped Iro-measured
+     contrast to 2.93:1 in candlelit, a WCAG FAIL; native disabled also pulls
+     the element out of the tab order entirely). This class now owns its own
+     not-allowed cursor since it can no longer rely on :disabled for it --
+     the click itself is guarded in JS (`if (isLocked) return;`), not by the
+     browser. */
+  cursor: not-allowed;
+}
+
 /* ── "Move on" affordance (ADV-7T) ── */
 .moveOnWrap {
   margin-bottom: 16px;

@@ -87,6 +87,20 @@ export interface LogRow {
    *  finalized narration lands as a BRAND-NEW row (fresh id/key, this flag
    *  unset) once streaming completes, so it's announced exactly once. */
   streaming?: boolean;
+  /** Iro-A11y MAJOR-2 (Check Retry + Fail-Forward, 2026-07-28): true for a
+   *  row whose event was ALREADY announced through a different aria-live
+   *  channel (e.g. a toast) — hides it from screen readers the same way
+   *  `streaming` does, so the SAME event is never announced twice through
+   *  two independent aria-live="polite" regions (ChatLog's own role="log"
+   *  region here, plus ToastViewport). The row still renders normally for
+   *  sighted/scrollback readers — this only removes it from the
+   *  accessibility tree, mirroring the existing `streaming` mechanism
+   *  exactly (see that field's own doc comment above) rather than adding a
+   *  second one. Mirrors the codebase's own established anti-double-
+   *  announcement convention (see page.tsx's `turnStatusText` and
+   *  `beginEncounterVisibleRef` comments: "the toast remains the safe,
+   *  out-of-band channel"). */
+  silent?: boolean;
   /** DDX-20 (flag-ON only): the durable `session_events.seq` this row has
    *  been reconciled to, once the poll observes it. Dedup metadata only —
    *  never read by rendering. Optional/non-breaking: absent on every
@@ -242,8 +256,12 @@ const ChatLog = forwardRef<ChatLogHandle, ChatLogProps>(function ChatLog(
             // T1 (TAV-S1): a growing in-progress stream row is hidden from
             // screen readers — announcing every token-by-token delta floods
             // the AT. The finalized row (a fresh id, `streaming` unset)
-            // replaces this one and IS announced, exactly once.
-            aria-hidden={r.streaming ? 'true' : undefined}
+            // replaces this one and IS announced, exactly once. Iro-A11y
+            // MAJOR-2: `silent` hides a row whose event was ALREADY
+            // announced through a different aria-live channel (e.g. the
+            // Check Retry + Fail-Forward success-payoff toast) — same
+            // mechanism, different reason, see LogRow.silent's own comment.
+            aria-hidden={r.streaming || r.silent ? 'true' : undefined}
           >
             <div className={styles.who} style={r.color ? { color: r.color } : undefined}>
               <span>
