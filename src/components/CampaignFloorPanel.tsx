@@ -97,6 +97,9 @@ export default function CampaignFloorPanel({
   // Widened to Button's forwardRef element union (button-or-anchor).
   const pencilRef = useRef<HTMLButtonElement | HTMLAnchorElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  /** Focus-rescue target for the m9 auto-close (the pencil is disabled at
+   *  that moment, so the container takes focus — tabIndex={-1}). */
+  const panelRef = useRef<HTMLDivElement>(null);
 
   const draftNum = Number(draft.trim());
   const draftValid = /^\d+$/.test(draft.trim()) && draftNum >= 1 && draftNum <= 20;
@@ -130,7 +133,13 @@ export default function CampaignFloorPanel({
   const [prevDisabled, setPrevDisabled] = useState(disabled);
   if (disabled !== prevDisabled) {
     setPrevDisabled(disabled);
-    if (disabled && editing) setEditing(false);
+    if (disabled && editing) {
+      setEditing(false);
+      // Kage re-review g2: the focused input is about to unmount and the
+      // pencil is disabled too — rescue focus to the panel container so a
+      // keyboard/SR user isn't dropped at <body>.
+      requestAnimationFrame(() => panelRef.current?.focus());
+    }
   }
 
   async function saveEdit() {
@@ -201,7 +210,7 @@ export default function CampaignFloorPanel({
   }
 
   return (
-    <div className={styles.panel} aria-busy={busy}>
+    <div ref={panelRef} tabIndex={-1} className={styles.panel} aria-busy={busy}>
       <p className={styles.panelLabel}>
         <Icon name="Sparkle" size={12} aria-hidden /> Starting level
       </p>

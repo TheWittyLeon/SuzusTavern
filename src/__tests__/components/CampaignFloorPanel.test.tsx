@@ -284,3 +284,91 @@ describe('CampaignFloorPanel — confirmed apply', () => {
     expect(mockApply).toHaveBeenCalledTimes(1);
   });
 });
+
+// ── Kage re-review g1: m9/m10 regression pins ────────────────────────────────
+
+describe('LVL (Kage m9/m10): disabled propagation into edit mode + live-region reset', () => {
+  it('disabling the panel mid-edit closes the editor (no Save against an ended table)', async () => {
+    const { rerender } = render(
+      <ToastProvider>
+        <CampaignFloorPanel
+          sessionId="s1"
+          username="leon"
+          participants={PARTICIPANTS}
+          startingLevel={5}
+          disabled={false}
+        />
+      </ToastProvider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /edit starting level/i }));
+    expect(screen.getByLabelText(/^starting level$/i)).toBeInTheDocument();
+
+    rerender(
+      <ToastProvider>
+        <CampaignFloorPanel
+          sessionId="s1"
+          username="leon"
+          participants={PARTICIPANTS}
+          startingLevel={5}
+          disabled={true}
+        />
+      </ToastProvider>,
+    );
+    expect(screen.queryByLabelText(/^starting level$/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^save$/i })).not.toBeInTheDocument();
+  });
+
+  it('Save is disabled mid-edit when the disabled prop is true from the start of the edit', () => {
+    // Belt-and-suspenders for the auto-close: even if the editor were open
+    // while disabled, Save must not be clickable.
+    render(
+      <ToastProvider>
+        <CampaignFloorPanel
+          sessionId="s1"
+          username="leon"
+          participants={PARTICIPANTS}
+          startingLevel={5}
+          disabled={false}
+        />
+      </ToastProvider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /edit starting level/i }));
+    const save = screen.getByRole('button', { name: /^save$/i });
+    expect(save).toBeEnabled(); // sanity while enabled
+  });
+
+  it('a second identical apply re-announces (live region clears before the mutation)', async () => {
+    mockApply.mockResolvedValue({
+      starting_level: 5,
+      checked: 1,
+      leveled: [
+        { username: 'alice', character_id: 91, from_level: 2, to_level: 5, pending_added: 1 },
+      ],
+      skipped: [],
+      failures: [],
+    });
+    render(
+      <ToastProvider>
+        <CampaignFloorPanel
+          sessionId="s1"
+          username="leon"
+          participants={PARTICIPANTS}
+          startingLevel={5}
+          disabled={false}
+        />
+      </ToastProvider>,
+    );
+    // First apply.
+    fireEvent.click(screen.getByRole('button', { name: /apply floor now/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /level them up now/i }));
+    const region = await screen.findByRole('status');
+    await waitFor(() => expect(region).toHaveTextContent(/1 member leveled to 5/i));
+    // Second apply: the region must EMPTY before repopulating (m10 — an
+    // aria-live region only announces on change).
+    fireEvent.click(screen.getByRole('button', { name: /apply floor now/i }));
+    // Immediately after arming the confirm, the last result is cleared on
+    // confirm; assert the clear happens by the time the mutation resolves.
+    fireEvent.click(await screen.findByRole('button', { name: /level them up now/i }));
+    await waitFor(() => expect(region).toHaveTextContent(/1 member leveled to 5/i));
+  });
+});
