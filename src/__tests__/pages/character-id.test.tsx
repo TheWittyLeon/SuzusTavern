@@ -260,6 +260,62 @@ describe('Character sheet — DDX-10 level-up button gating', () => {
     expect(screen.queryByRole('button', { name: /level up/i })).not.toBeInTheDocument();
   });
 
+  // LVL (AC-8, QA gap): the design's own §14 flags this explicitly — AC-8
+  // is enforced by the character PAGE's owner-only mount
+  // (`{username && isOwner && <LevelUpButton .../>}`), which is agnostic to
+  // `sheet.levelup_policy`'s contents. The pre-existing DDX-10 test above
+  // only exercises the pre-upgrade fallback shape (no levelup_policy on
+  // ROGUE). Pinning the same absence explicitly for a WORKSHOP-mode and a
+  // FLOOR-mode verdict closes the gap: a non-owner must never see the
+  // button regardless of which of the four levelup_policy modes the SERVER
+  // would otherwise grant.
+  it('non-owner viewing a sheet in WORKSHOP mode: Level up is still not rendered at all', async () => {
+    mockGet.mockResolvedValue({
+      ...ROGUE,
+      owner_username: 'someone-else',
+      levelup_policy: {
+        outcome: 'allowed_workshop',
+        mode: 'workshop',
+        can_level: true,
+        xp_short: null,
+        floor: null,
+        next_level: 2,
+      },
+    });
+    renderPage();
+
+    await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
+    // No level-up AFFORDANCE of any kind (AC-8) — the identity card's own
+    // informational "· workshop" XP marker is legitimately visible to any
+    // viewer (it's sheet state, not an action), so this only asserts the
+    // absence of the button and its flavor-reason copy, not every mention
+    // of the word "workshop" on the page.
+    expect(screen.queryByRole('button', { name: /level up/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('Workshop — level freely, no campaign yet.'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('non-owner viewing a sheet in FLOOR (catch-up) mode: Level up is still not rendered at all', async () => {
+    mockGet.mockResolvedValue({
+      ...ROGUE,
+      owner_username: 'someone-else',
+      levelup_policy: {
+        outcome: 'allowed_floor',
+        mode: 'floor',
+        can_level: true,
+        xp_short: null,
+        floor: 5,
+        next_level: 2,
+      },
+    });
+    renderPage();
+
+    await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
+    expect(screen.queryByRole('button', { name: /level up/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/catch up/i)).not.toBeInTheDocument();
+  });
+
   // T13 (DDX-14t/15t) — LevelChoicePicker shares the exact same isOwner gate
   // (page.tsx: `username && isOwner && (sheet.pending_choices?.length ?? 0) > 0`).
   // dnd.ts is NOT mocked with getCatalog/resolveLevelChoice in this file's
