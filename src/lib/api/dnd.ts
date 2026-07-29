@@ -7,9 +7,11 @@ import type {
   AdvanceSceneRequest,
   AdvanceSceneResult,
   ApplyConditionRequest,
+  ApplyFloorResult,
   AvailableSpellsResult,
   BindCharacterRequest,
   BindCharacterResult,
+  FloorApplied,
   CatalogCounts,
   CatalogResponse,
   Character,
@@ -701,6 +703,29 @@ export const createSession = (req: SessionStartRequest, signal?: AbortSignal) =>
     signal,
   }).then((d) => d.session ?? null);
 
+/**
+ * LVL-1: createSession's full-payload sibling. Same POST, but keeps the
+ * response's `floor_applied` echo (non-null when the creator's bound
+ * character was auto-leveled to the table's starting_level at create time)
+ * alongside the session. `createSession` above keeps its pinned
+ * session-or-null contract for existing callers; new call sites that need
+ * the floor toast (modules/StarterForm) use this one.
+ */
+export const createSessionFull = (req: SessionStartRequest, signal?: AbortSignal) =>
+  apiCall<{
+    message?: string;
+    session?: Session;
+    character_bind?: string | null;
+    floor_applied?: FloorApplied | null;
+  }>('/api/dnd/sessions', {
+    method: 'POST',
+    json: req,
+    signal,
+  }).then((d) => ({
+    session: d.session ?? null,
+    floor_applied: d.floor_applied ?? null,
+  }));
+
 // DDX-25 R2: LIVE at lobby/page.tsx (fire-and-forget — the resolved value is
 // never read there), but retyped for the same reason as startSession above:
 // the engine's POST /sessions/{id}/join route resolves to `{message,
@@ -710,7 +735,14 @@ export const joinSession = (
   req: SessionStartRequest,
   signal?: AbortSignal,
 ) =>
-  apiCall<{ message?: string; session?: Session }>(
+  apiCall<{
+    message?: string;
+    session?: Session;
+    /** LVL-1: non-null when this join auto-leveled the joiner's character to
+     *  the campaign's starting_level floor — drives the lobby's
+     *  "auto-leveled to match the table" toast (Aoi gap C). */
+    floor_applied?: FloorApplied | null;
+  }>(
     `/api/dnd/sessions/${encodeURIComponent(sessionId)}/join`,
     { method: 'POST', json: req, signal },
   );
@@ -804,6 +836,58 @@ export const restoreSession = (
 ) =>
   apiCall<{ message?: string }>(
     `/api/dnd/sessions/${encodeURIComponent(sessionId)}/restore`,
+    { method: 'POST', json: { username }, signal },
+  );
+
+/**
+ * LVL-1 (FR-1/FR-8) — DM sets the campaign's starting-level floor.
+ * POST /api/dnd/sessions/{sessionId}/starting-level
+ *
+ * NEVER applies the floor (D3 — a different URL owns that): existing
+ * members catch up lazily at their next bind/join/re-bind (or their own
+ * Level-up button), or eagerly via applyCampaignFloor below. Setting 1
+ * removes the stored key (byte-identical to never-set). DM identity is
+ * proven engine-side by guard_dm against the verified actor; a non-DM gets
+ * a 404 (oracle-closing), never a 403.
+ *
+ * Refusals — status / data.reason:
+ *   503 msm_disabled · 404 session_not_found · 404 not_found (guard_dm) ·
+ *   400 not_dm (enforcement-off belt-and-suspenders) ·
+ *   400 invalid_starting_level (not an int, or outside 1..20)
+ */
+export const setStartingLevel = (
+  sessionId: string,
+  username: string,
+  startingLevel: number,
+  signal?: AbortSignal,
+) =>
+  apiCall<{ starting_level: number; previous_starting_level: number }>(
+    `/api/dnd/sessions/${encodeURIComponent(sessionId)}/starting-level`,
+    { method: 'POST', json: { username, starting_level: startingLevel }, signal },
+  );
+
+/**
+ * LVL-1 (FR-9) — DM's explicit "Apply floor now": eagerly level every
+ * current member below the campaign's starting_level.
+ * POST /api/dnd/sessions/{sessionId}/apply-floor
+ *
+ * Idempotent + resumable — safe to re-invoke; already-caught-up members are
+ * skipped and a partially-walked member resumes. Partial success is a 200
+ * with a non-empty `failures` array (never a 5xx — some members WERE
+ * leveled and the response says so truthfully). Worst case is
+ * O(members × levels) engine-side — callers should show a busy state.
+ *
+ * Refusals — status / data.reason:
+ *   503 msm_disabled · 404 session_not_found · 404 not_found (guard_dm) ·
+ *   400 not_dm (enforcement-off) · 400 no_floor (starting_level <= 1)
+ */
+export const applyCampaignFloor = (
+  sessionId: string,
+  username: string,
+  signal?: AbortSignal,
+) =>
+  apiCall<ApplyFloorResult>(
+    `/api/dnd/sessions/${encodeURIComponent(sessionId)}/apply-floor`,
     { method: 'POST', json: { username }, signal },
   );
 

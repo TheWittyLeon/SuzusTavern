@@ -183,7 +183,14 @@ export default function LevelChoicePicker({
   sheet,
   onResolved,
 }: LevelChoicePickerProps) {
-  const pending = sheet.pending_choices ?? [];
+  // LVL (Aoi gap A, defensive): sort ascending by level so a stacked
+  // floor-walk queue (subclass:3, asi:4, spell:5, …) always renders in the
+  // order the levels were earned — the engine appends in walk order today,
+  // but the "in the order they were earned" framing upstream must not
+  // depend on an ordering guarantee the wire contract never made.
+  const pending = [...(sheet.pending_choices ?? [])].sort(
+    (a, b) => (a.level ?? 0) - (b.level ?? 0),
+  );
   // A11Y (Iro CRITICAL-4a): focus-restore target after a card resolves. Only
   // relevant when THIS component stays mounted (other choices still
   // pending) — the just-resolved card unmounts out from under its own

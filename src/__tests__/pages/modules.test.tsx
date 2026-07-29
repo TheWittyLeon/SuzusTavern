@@ -29,6 +29,8 @@ jest.mock('../../lib/api/auth', () => ({
 
 jest.mock('../../lib/api/dnd', () => ({
   createSession: jest.fn(),
+  // LVL: StarterForm now uses the full-payload sibling (floor echo).
+  createSessionFull: jest.fn(),
   listMyCharacters: jest.fn(),
   getCatalog: jest.fn(),
   bindCharacter: jest.fn(),
@@ -41,7 +43,7 @@ import { ToastProvider } from '../../components/Toast';
 import ModulesPage from '../../app/modules/page';
 import type { Character, Session, SessionStartRequest, User } from '../../lib/api/types';
 
-const mockCreate = dnd.createSession as jest.MockedFunction<typeof dnd.createSession>;
+const mockCreate = dnd.createSessionFull as jest.MockedFunction<typeof dnd.createSessionFull>;
 const mockListChars = dnd.listMyCharacters as jest.MockedFunction<typeof dnd.listMyCharacters>;
 const mockGetCatalog = dnd.getCatalog as jest.MockedFunction<typeof dnd.getCatalog>;
 const mockBind = dnd.bindCharacter as jest.MockedFunction<typeof dnd.bindCharacter>;
@@ -122,7 +124,7 @@ function renderModules() {
 
 beforeEach(() => {
   mockPush.mockClear();
-  mockCreate.mockReset().mockResolvedValue({ session_id: 's9', channel: 'x' } as Session);
+  mockCreate.mockReset().mockResolvedValue({ session: { session_id: 's9', channel: 'x' } as Session, floor_applied: null });
   mockListChars.mockReset().mockResolvedValue([]);
   mockBind.mockReset().mockResolvedValue({
     campaign_id: 'campaign-old',
@@ -260,7 +262,7 @@ it('Begin creates a session with a unique-suffixed channel, verbatim name, and r
 });
 
 it('Begin falls back to /dashboard when createSession resolves null (pre-upgrade backend)', async () => {
-  mockCreate.mockResolvedValue(null);
+  mockCreate.mockResolvedValue({ session: null, floor_applied: null });
   await openForm();
   await act(async () => {
     fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));

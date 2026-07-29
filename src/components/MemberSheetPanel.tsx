@@ -26,6 +26,7 @@
  * on open").
  */
 import type { RefObject } from 'react';
+import Link from 'next/link';
 import Icon from '@/components/Icon';
 import Pill from '@/components/Pill';
 import { ABILITIES, SKILLS } from '@/lib/dnd/helpers';
@@ -53,6 +54,12 @@ export interface MemberSheetPanelProps {
   /** The clicked row's display name — shown as a heading fallback while the
    *  real sheet is still loading (or failed to load). */
   memberName: string | null;
+  /** LVL (Aoi gap B): true when the drawer is showing the VIEWER's own
+   *  sheet. This panel stays deliberately read-only (see the header
+   *  comment) — but your own row's "↑ level up" badge opening a drawer with
+   *  no way to act on it is a dead end, so the self view gets a callout
+   *  that points at the one surface that CAN resolve pending choices. */
+  isSelf?: boolean;
   onClose: () => void;
   closeButtonRef?: RefObject<HTMLButtonElement | null>;
 }
@@ -62,6 +69,7 @@ export default function MemberSheetPanel({
   loading,
   error,
   memberName,
+  isSelf = false,
   onClose,
   closeButtonRef,
 }: MemberSheetPanelProps) {
@@ -103,6 +111,23 @@ export default function MemberSheetPanel({
 
       {!loading && !error && sheet && (
         <>
+          {/* LVL (Aoi gap B): FIRST thing in the body — what a top-to-bottom
+              screen-reader pass (and a sighted eye) hits before anything
+              else. Not a new mutation surface: it links out to the character
+              page, respecting this panel's read-only philosophy. */}
+          {isSelf && (sheet.pending_choices?.length ?? 0) > 0 && (
+            <div className={styles.pendingCallout} role="note">
+              <Icon name="Sparkle" size={14} aria-hidden />
+              <p>
+                {sheet.pending_choices!.length} level choice
+                {sheet.pending_choices!.length > 1 ? 's' : ''} waiting —{' '}
+                <Link href={`/character/${encodeURIComponent(sheet.character_id)}`}>
+                  resolve on your character sheet
+                </Link>
+                .
+              </p>
+            </div>
+          )}
           <section className={styles.section}>
             <p className={styles.subtitle}>
               {[sheet.race, `${sheet.char_class} ${sheet.level}`, sheet.subclass || null]

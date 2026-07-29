@@ -19,7 +19,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import { useAuthGate } from '@/lib/auth/useAuthGate';
 import { useToast } from '@/components/Toast';
-import { bindCharacter, createSession, getCatalog, listMyCharacters } from '@/lib/api/dnd';
+import { bindCharacter, createSessionFull, getCatalog, listMyCharacters } from '@/lib/api/dnd';
 import type { AdventureCatalogItem, Character, ContentRating, DmMode, Visibility } from '@/lib/api/types';
 
 type AiAssistLevel = 'full' | 'assist' | 'off';
@@ -337,6 +337,18 @@ function StarterForm({
   // HB-P2: casting model — 'slots' (classic, default) vs 'points' (DMG spell-point
   // variant). Locked at creation; only 'points' is ever sent on the wire.
   const [castingModel, setCastingModel] = useState<'slots' | 'points'>('slots');
+  // LVL-1 (FR-1): campaign starting-level floor. String state so the input
+  // can hold intermediate/invalid text without clamping silently — an
+  // out-of-range value shows the error copy and blocks Begin instead of
+  // auto-correcting (consistent with D3's "never a silent mutation" feel).
+  // Only a valid value > 1 goes on the wire (settings-blob omit-if-default,
+  // same pattern as casting_model above).
+  const [startingLevelInput, setStartingLevelInput] = useState('1');
+  const startingLevelNum = Number(startingLevelInput.trim());
+  const startingLevelValid =
+    /^\d+$/.test(startingLevelInput.trim()) &&
+    startingLevelNum >= 1 &&
+    startingLevelNum <= 20;
   const [rating, setRating] = useState<ContentRating>('sfw');
   const [submitting, setSubmitting] = useState(false);
 
@@ -419,7 +431,7 @@ function StarterForm({
         released = true;
       }
 
-      const session = await createSession({
+      const { session, floor_applied } = await createSessionFull({
         username,
         channel,
         // Verbatim human name from the form (trimmed) — stored as the campaign display
@@ -437,6 +449,11 @@ function StarterForm({
         // HB-P2: only an explicit 'points' goes on the wire — omitting keeps the
         // engine's slots default and stores nothing on the campaign row.
         ...(castingModel === 'points' ? { casting_model: 'points' as const } : {}),
+        // LVL-1: only a raised floor goes on the wire — omitting keeps the
+        // engine's level-1 default and stores nothing on the campaign row.
+        ...(startingLevelValid && startingLevelNum > 1
+          ? { starting_level: startingLevelNum }
+          : {}),
       });
       // Persist client-side enrichment as a fallback for pre-upgrade backends.
       const key = session?.session_id ?? channel;
@@ -455,6 +472,22 @@ function StarterForm({
         title: 'Table set',
         message: successMsg,
       });
+      // LVL-1 (Aoi gap C, create touchpoint): the bind crossed the table's
+      // starting-level floor — say so, with a jump to where the queued
+      // choices get resolved. Absent on the common no-floor path.
+      if (floor_applied) {
+        const n = floor_applied.pending_added;
+        toast({
+          tone: 'success',
+          title: `${floor_applied.name ?? 'Your character'} leveled up!`,
+          message: `Auto-leveled to match the table: ${floor_applied.from_level} → ${floor_applied.to_level}.${n > 0 ? ` ${n} choice${n === 1 ? '' : 's'} waiting.` : ''}`,
+          action: {
+            label: 'Resolve now',
+            onClick: () =>
+              router.push(`/character/${encodeURIComponent(String(floor_applied.character_id))}`),
+          },
+        });
+      }
       // Land directly in the new session (mirrors dashboard/page.tsx's Resume link).
       // Pre-upgrade backends can return a null session — fall back to /dashboard.
       if (session?.session_id) {
@@ -608,6 +641,43 @@ function StarterForm({
         />
       </fieldset>
 
+      {/* LVL-1 (Aoi touchpoint 1): starting-level floor. A bounded number
+          input, deliberately NOT a RadioGroup — twenty chip options for a
+          scalar 1-20 is a scroll-wall; the settings-blob/omit-if-default
+          WIRE pattern still mirrors casting_model exactly (Aoi §2's stated
+          deviation). Inline validation on every keystroke, no silent clamp. */}
+      <fieldset className={styles.field}>
+        <legend className={styles.fieldLabel}>Starting level</legend>
+        <div>
+          <input
+            id="starting-level-input"
+            className="input"
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={20}
+            step={1}
+            style={{ maxWidth: 120 }}
+            value={startingLevelInput}
+            aria-describedby="starting-level-hint"
+            aria-invalid={!startingLevelValid}
+            disabled={submitting}
+            onChange={(e) => setStartingLevelInput(e.target.value)}
+          />
+        </div>
+        <p
+          id="starting-level-hint"
+          className={styles.interlock}
+          style={!startingLevelValid ? { color: 'var(--bad, #c33)' } : undefined}
+        >
+          {!startingLevelValid
+            ? 'Enter a level from 1 to 20.'
+            : startingLevelNum > 1
+              ? `Characters below level ${startingLevelNum} are auto-leveled to ${startingLevelNum} the moment they join — any subclass or Ability Score Improvement picks along the way are still theirs to make.`
+              : 'Everyone starts at level 1 — the classic climb.'}
+        </p>
+      </fieldset>
+
       <fieldset className={styles.field}>
         <legend className={styles.fieldLabel}>Content rating</legend>
         <RadioGroup
@@ -690,7 +760,7 @@ function StarterForm({
         <Button
           variant="primary"
           onClick={() => void handleBegin()}
-          disabled={submitting || name.trim().length === 0}
+          disabled={submitting || name.trim().length === 0 || !startingLevelValid}
           leadingIcon={<Icon name="D20" size={14} aria-hidden />}
         >
           {submitting ? 'Setting the table…' : 'Begin'}

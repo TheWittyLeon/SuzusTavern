@@ -437,6 +437,88 @@ export interface CharacterSheet {
    *  persisted languages), this is purely so pre-existing `CharacterSheet`
    *  object literals across the test suite keep compiling. */
   languages?: string[];
+  /** LVL (FR-12/FR-14): the SERVER-decided level-up gate. The button renders
+   *  this verbatim — `can_level` drives disabled, `outcome`/`mode` drive the
+   *  copy; the client does NO xp/xp_next arithmetic for gating (that exact
+   *  duplication is what the seam exists to kill). Optional for the same
+   *  fixture-blast-radius reason as `feats`/`pending_choices` above, AND as
+   *  the pre-upgrade-backend shim: when absent, LevelUpButton falls back to
+   *  today's client-computed xp/xp_next logic. */
+  levelup_policy?: LevelUpPolicy;
+}
+
+/** LVL — the `levelup_policy` wire block on CharacterSheet (engine
+ *  `level_policy.evaluate`, design §6.1). Exactly one of five outcomes;
+ *  `denied_max_level` keeps its real `mode` (a level-20 workshop character
+ *  still reads as a workshop piece). The max-level discriminator is
+ *  `outcome === 'denied_max_level'` (with `next_level: null` as the
+ *  secondary signal) — NOT `xp_next == null`, which is ambiguous the moment
+ *  workshop mode exists (reconciliation item 3). */
+export interface LevelUpPolicy {
+  outcome:
+    | 'allowed_xp'
+    | 'allowed_workshop'
+    | 'allowed_floor'
+    | 'denied_xp'
+    | 'denied_max_level';
+  /** Which ruleset is in force — drives copy selection.
+   *  'xp' = XP-gated (bound, at/above floor); 'workshop' = no campaign
+   *  binding (LVL-2); 'floor' = bound below the table's starting_level
+   *  (LVL-1 catch-up, OQ-1 self-service). */
+  mode: 'xp' | 'workshop' | 'floor';
+  /** The server's decision — the button's disabled state is `!can_level`. */
+  can_level: boolean;
+  /** XP still needed for the next level; non-null ONLY on `denied_xp`. */
+  xp_short: number | null;
+  /** The bound campaign's starting_level when bound AND > 1; else null.
+   *  Present in every mode so the sheet can say "this table starts at N". */
+  floor: number | null;
+  /** level + 1, or null at level 20. */
+  next_level: number | null;
+}
+
+/** LVL-1 (FR-9): result of POST /sessions/{id}/apply-floor — the DM's
+ *  explicit "Apply floor now". Partial success is a 200 with a non-empty
+ *  `failures` array (some members WERE leveled; the response says so
+ *  truthfully); a failures entry with to_level > from_level is a PARTIAL
+ *  walk that resumes on re-invocation. */
+export interface ApplyFloorResult {
+  starting_level: number;
+  checked: number;
+  leveled: {
+    username: string;
+    character_id: number;
+    from_level: number;
+    to_level: number;
+    pending_added: number;
+  }[];
+  skipped: {
+    username: string;
+    character_id: number | null;
+    reason: string;
+  }[];
+  failures: {
+    username: string;
+    character_id: number | null;
+    from_level: number | null;
+    to_level: number | null;
+    reason: string;
+  }[];
+}
+
+/** LVL-1 (reconciliation item 4): the floor echo on create / join / re-bind
+ *  responses — non-null when that bind auto-leveled the character to the
+ *  campaign's starting_level. Mirrors EndSessionLevelUp's "tell the player
+ *  what just happened to their sheet" precedent; drives the "auto-leveled to
+ *  match the table" toast with its Resolve-now action. */
+export interface FloorApplied {
+  character_id: number;
+  name: string | null;
+  from_level: number;
+  to_level: number;
+  /** Count of newly queued pending choices across the walk (subclass/ASI/
+   *  spell picks) — the toast's "N choices waiting". */
+  pending_added: number;
 }
 
 // ── DnD: sessions ──────────────────────────────────────────────────────────
@@ -481,6 +563,12 @@ export interface SessionStartRequest {
    *  switch). Warlocks always use slots regardless (Pact Magic is excluded
    *  from the variant). */
   casting_model?: 'slots' | 'points';
+  /** LVL-1 (FR-1): campaign starting-level floor, 1–20. Omit (or 1) = the
+   *  classic level-1 climb — the engine stores nothing and every existing
+   *  behaviour is unchanged (the absent key IS the off switch). Characters
+   *  below the floor are auto-leveled to it the moment they bind; the floor
+   *  is never a ceiling (an above-floor character is untouched). */
+  starting_level?: number;
 }
 /** A row from the engine's `session_events` log (S3.6 recap source).
  *  Field-name convention used by buildRecap and pre-existing callers. */
@@ -620,6 +708,11 @@ export interface Session {
   xp_pool?: number;
   participant_usernames?: string[];
   player_count?: number;
+  /** LVL-1: the campaign's starting-level floor (settings.starting_level,
+   *  1 when unset). Engine-authoritative via _session_summary — follows
+   *  xp_pool's settings→summary path exactly. Optional purely for
+   *  pre-upgrade backends; CampaignFloorPanel treats absent as 1. */
+  starting_level?: number;
   // ── Client-side enrichment (engine has no column yet) ──────────────────────
   /** STORY-312 — narration mode. */
   dm_mode?: DmMode;
@@ -1345,6 +1438,10 @@ export interface BindCharacterResult {
   username: string;
   role: string;
   character_id: number | null;
+  /** LVL-1: non-null when this bind floor-leveled the character (null when
+   *  no floor applied, no character bound, or the walk errored — the bind
+   *  itself still succeeded and is reported truthfully regardless). */
+  floor_applied?: FloorApplied | null;
 }
 
 // ── DnD: catalog — adventure items (ADV-9) ────────────────────────────────────

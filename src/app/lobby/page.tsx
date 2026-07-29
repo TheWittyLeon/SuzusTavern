@@ -17,6 +17,7 @@
  * listSessions throws → treated as an empty list (clean "no tables" state).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import { useAuthGate } from '@/lib/auth/useAuthGate';
 import { useToast } from '@/components/Toast';
@@ -169,6 +170,7 @@ function TableCard({
 export default function LobbyPage() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const router = useRouter();
   const [sessions, setSessions] = useState<Session[] | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
   const [joiningId, setJoiningId] = useState<string | null>(null);
@@ -217,8 +219,28 @@ export default function LobbyPage() {
         if (characterId !== undefined) {
           joinReq.character_id = characterId;
         }
-        await joinSession(s.session_id, joinReq);
-        toast({ tone: 'success', message: `Joined ${sessionTitle(s)}.` });
+        const res = await joinSession(s.session_id, joinReq);
+        // LVL-1 (Aoi gap C): joining a floored table auto-levels the bound
+        // character server-side — a join must never mutate your character
+        // SILENTLY. When the engine echoes floor_applied, the toast says
+        // what happened and offers the jump to resolve the queued choices;
+        // the common no-floor join keeps today's generic toast unchanged.
+        const floor = res?.floor_applied;
+        if (floor) {
+          const n = floor.pending_added;
+          toast({
+            tone: 'success',
+            title: `${floor.name ?? 'Your character'} leveled up!`,
+            message: `Auto-leveled to match the table: ${floor.from_level} → ${floor.to_level}.${n > 0 ? ` ${n} choice${n === 1 ? '' : 's'} waiting.` : ''}`,
+            action: {
+              label: 'Resolve now',
+              onClick: () =>
+                router.push(`/character/${encodeURIComponent(String(floor.character_id))}`),
+            },
+          });
+        } else {
+          toast({ tone: 'success', message: `Joined ${sessionTitle(s)}.` });
+        }
         void load();
       } catch {
         toast({ tone: 'error', message: 'Could not join that table. Try again.' });
@@ -226,7 +248,7 @@ export default function LobbyPage() {
         setJoiningId(null);
       }
     },
-    [username, toast, load],
+    [username, toast, load, router],
   );
 
   // Resolving (silent refresh) → bounded skeleton; failed refresh → re-auth

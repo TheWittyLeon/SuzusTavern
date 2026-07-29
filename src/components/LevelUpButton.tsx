@@ -134,14 +134,39 @@ export default function LevelUpButton({
    *  visible immediately to the second invocation. */
   const levelUpBusyRef = useRef(false);
 
-  const atMaxLevel = sheet.xp_next == null;
-  const xpShort = sheet.xp_next != null ? Math.max(0, sheet.xp_next - sheet.xp) : 0;
-  const canLevelUp = !atMaxLevel && sheet.xp_next != null && sheet.xp >= sheet.xp_next;
+  // LVL (D5/FR-14): the gate is the SERVER's verdict — `levelup_policy` off
+  // the sheet (engine level_policy.evaluate). Four states on this one
+  // control: XP-gated disabled/enabled (unchanged), workshop (unbound —
+  // level freely, LVL-2), floor catch-up (below the bound table's
+  // starting_level, LVL-1/OQ-1). Max level discriminates on
+  // `outcome === 'denied_max_level'`, NEVER on `xp_next == null` — that
+  // null is ambiguous the moment workshop mode exists (reconciliation
+  // item 3). The client-computed block below survives ONLY as the
+  // pre-upgrade-backend fallback (levelup_policy absent), mirroring
+  // characterBadge()'s `!c.in_use` fallback convention in modules/page.tsx.
+  const policy = sheet.levelup_policy;
+  const fallbackAtMax = sheet.xp_next == null;
+  const fallbackCanLevel =
+    !fallbackAtMax && sheet.xp_next != null && sheet.xp >= sheet.xp_next;
+  const fallbackXpShort =
+    sheet.xp_next != null ? Math.max(0, sheet.xp_next - sheet.xp) : 0;
+
+  const atMaxLevel = policy ? policy.outcome === 'denied_max_level' : fallbackAtMax;
+  const canLevelUp = policy ? policy.can_level : fallbackCanLevel;
+  const xpShort = policy ? (policy.xp_short ?? 0) : fallbackXpShort;
+  // Reason text doubles as mode flavor: it stays rendered (and
+  // aria-describedby-associated) even while the button is ENABLED in
+  // workshop/floor mode — a described-by that vanishes when the button
+  // becomes enabled is a screen-reader regression (design §10).
   const reason = atMaxLevel
     ? 'Max level reached.'
-    : !canLevelUp
-      ? `Needs ${xpShort.toLocaleString()} more XP.`
-      : '';
+    : policy?.mode === 'workshop'
+      ? 'Workshop — level freely, no campaign yet.'
+      : policy?.outcome === 'allowed_floor'
+        ? `Catch up to table level ${policy.floor ?? sheet.level + 1}.`
+        : !canLevelUp
+          ? `Needs ${xpShort.toLocaleString()} more XP.`
+          : '';
 
   async function confirmLevelUp() {
     // D1: check-and-set BEFORE the first await, synchronously — closes the

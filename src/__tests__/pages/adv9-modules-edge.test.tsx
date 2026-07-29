@@ -31,6 +31,8 @@ jest.mock('../../lib/api/auth', () => ({
 
 jest.mock('../../lib/api/dnd', () => ({
   createSession: jest.fn(),
+  // LVL: StarterForm now uses the full-payload sibling (floor echo).
+  createSessionFull: jest.fn(),
   listMyCharacters: jest.fn(),
   getCatalog: jest.fn(),
 }));
@@ -42,7 +44,7 @@ import { ToastProvider } from '../../components/Toast';
 import ModulesPage from '../../app/modules/page';
 import type { Session, User } from '../../lib/api/types';
 
-const mockCreate = dnd.createSession as jest.MockedFunction<typeof dnd.createSession>;
+const mockCreate = dnd.createSessionFull as jest.MockedFunction<typeof dnd.createSessionFull>;
 const mockListChars = dnd.listMyCharacters as jest.MockedFunction<typeof dnd.listMyCharacters>;
 const mockGetCatalog = dnd.getCatalog as jest.MockedFunction<typeof dnd.getCatalog>;
 
@@ -62,7 +64,7 @@ function renderModules() {
 
 beforeEach(() => {
   mockPush.mockClear();
-  mockCreate.mockReset().mockResolvedValue({ session_id: 's9', channel: 'x' } as Session);
+  mockCreate.mockReset().mockResolvedValue({ session: { session_id: 's9', channel: 'x' } as Session, floor_applied: null });
   mockListChars.mockReset().mockResolvedValue([]);
   mockGetCatalog.mockReset();
 });

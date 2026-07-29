@@ -32,6 +32,8 @@ jest.mock('../../lib/api/auth', () => ({
 
 jest.mock('../../lib/api/dnd', () => ({
   createSession: jest.fn(),
+  // LVL: StarterForm now uses the full-payload sibling (floor echo).
+  createSessionFull: jest.fn(),
   listMyCharacters: jest.fn(),
   getCatalog: jest.fn(),
   getSession: jest.fn(),
@@ -90,7 +92,7 @@ import { ToastProvider } from '../../components/Toast';
 import ModulesPage from '../../app/modules/page';
 import PlayPage from '@/app/play/[sessionId]/page';
 
-const mockCreate = dnd.createSession as jest.MockedFunction<typeof dnd.createSession>;
+const mockCreate = dnd.createSessionFull as jest.MockedFunction<typeof dnd.createSessionFull>;
 const mockListChars = dnd.listMyCharacters as jest.MockedFunction<typeof dnd.listMyCharacters>;
 const mockGetCatalog = dnd.getCatalog as jest.MockedFunction<typeof dnd.getCatalog>;
 const mGetSession = dnd.getSession as jest.MockedFunction<typeof dnd.getSession>;
@@ -194,7 +196,7 @@ function renderModules() {
 beforeEach(() => {
   jest.clearAllMocks();
   mockPush.mockClear();
-  mockCreate.mockReset().mockResolvedValue({ session_id: 's9', channel: 'x' } as Session);
+  mockCreate.mockReset().mockResolvedValue({ session: { session_id: 's9', channel: 'x' } as Session, floor_applied: null });
   mockListChars.mockReset().mockResolvedValue([]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   mockGetCatalog.mockReset().mockResolvedValue(SINGLE_ADVENTURE_CATALOG as any);
@@ -219,7 +221,7 @@ describe('Tora MAJOR-1 — handleBegin finally block', () => {
     // resolves the button is no longer in submitting state before the router navigates.
     // We verify by inspecting that createSession was called (success path ran) and
     // then that the push was triggered — meaning the finally ran without throwing.
-    mockCreate.mockResolvedValue({ session_id: 's9', channel: 'x' } as Session);
+    mockCreate.mockResolvedValue({ session: { session_id: 's9', channel: 'x' } as Session, floor_applied: null });
 
     renderModules();
     const runBtn = await screen.findByRole('button', { name: /run this — the hollow tide cave/i });

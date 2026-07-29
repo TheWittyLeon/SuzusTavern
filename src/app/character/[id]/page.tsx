@@ -255,9 +255,19 @@ export default function CharacterPage() {
             <div className={styles.idLevel}>
               <p className="label">Level</p>
               <p className={styles.idLevelNum}>{sheet.level}</p>
+              {/* LVL (Aoi §3b): mode-aware XP line — in workshop mode
+                  "XP 0 / 300" four pixels above a button saying "level
+                  freely" is a straight contradiction, so the threshold is
+                  replaced with a workshop marker. Falls back to today's
+                  exact rendering when levelup_policy is absent
+                  (pre-upgrade backend). */}
               <p className={`mono ${styles.idXp}`}>
                 XP {sheet.xp.toLocaleString()}
-                {sheet.xp_next != null ? ` / ${sheet.xp_next.toLocaleString()}` : ''}
+                {sheet.levelup_policy?.mode === 'workshop'
+                  ? ' · workshop'
+                  : sheet.xp_next != null
+                    ? ` / ${sheet.xp_next.toLocaleString()}`
+                    : ''}
               </p>
             </div>
             {/* DDX-10: owner-only level-up affordance. Absent entirely for a
@@ -282,6 +292,18 @@ export default function CharacterPage() {
               own-Card-per-affordance split. */}
           {username && isOwner && (sheet.pending_choices?.length ?? 0) > 0 && (
             <Card>
+              {/* LVL (Aoi gap A): a floor walk (or several banked manual
+                  level-ups) stacks 2+ choice cards at once — one framing
+                  sentence turns "unrelated-looking cards" into one climb.
+                  MUST precede the picker in DOM order so sequential/braille
+                  reading hits the framing before the first card. */}
+              {(sheet.pending_choices?.length ?? 0) > 1 && (
+                <p className={styles.floorWalkNote}>
+                  {sheet.name} climbed to level {sheet.level} — resolve these{' '}
+                  {sheet.pending_choices?.length} choices in the order they
+                  were earned.
+                </p>
+              )}
               <LevelChoicePicker
                 characterId={id}
                 username={username}

@@ -84,6 +84,8 @@ const mockGetCombatState = jest.fn<Promise<unknown>, unknown[]>(() => Promise.re
 const mockGetCharacterSheet = jest.fn<Promise<unknown>, unknown[]>(() => Promise.resolve(null));
 const mockPostSessionEvent = jest.fn<Promise<unknown>, unknown[]>(() => Promise.resolve({ seq: 1 }));
 const mockCreateSession = jest.fn<Promise<unknown>, unknown[]>();
+// LVL: the StarterForm now calls createSessionFull ({session, floor_applied}).
+const mockCreateSessionFull = jest.fn<Promise<unknown>, unknown[]>();
 const mockGetCatalog = jest.fn<Promise<unknown>, unknown[]>();
 const mockListMyCharacters = jest.fn<Promise<unknown[]>, unknown[]>(() => Promise.resolve([]));
 
@@ -97,6 +99,8 @@ jest.mock('../../lib/api/dnd', () => ({
   getCharacterSheet: (...args: Parameters<AnyFn>) => mockGetCharacterSheet(...args),
   postSessionEvent: (...args: Parameters<AnyFn>) => mockPostSessionEvent(...args),
   createSession: (...args: Parameters<AnyFn>) => mockCreateSession(...args),
+  // LVL: StarterForm now uses the full-payload sibling (floor echo).
+  createSessionFull: (...args: Parameters<AnyFn>) => mockCreateSessionFull(...args),
   getCatalog: (...args: Parameters<AnyFn>) => mockGetCatalog(...args),
   listMyCharacters: (...args: Parameters<AnyFn>) => mockListMyCharacters(...args),
   npcAction: jest.fn(),
@@ -328,6 +332,7 @@ function setupModulesPage() {
   mockGetCatalog.mockResolvedValue(CATALOG_RESPONSE);
   mockListMyCharacters.mockResolvedValue([]);
   mockCreateSession.mockResolvedValue({ session_id: 'new-s1', channel: 'new_session_test' });
+  mockCreateSessionFull.mockResolvedValue({ session: { session_id: 'new-s1', channel: 'new_session_test' }, floor_applied: null });
 }
 
 describe('S5.5-AC5 — StarterForm shows ai_assist_level radio for human/solo modes', () => {
@@ -421,9 +426,9 @@ describe('S5.5-AC7 — createSession carries ai_assist_level=off for human+off',
       fireEvent.click(screen.getByRole('button', { name: /Begin/i }));
     });
 
-    await waitFor(() => expect(mockCreateSession).toHaveBeenCalled());
+    await waitFor(() => expect(mockCreateSessionFull).toHaveBeenCalled());
 
-    expect(mockCreateSession).toHaveBeenCalledWith(
+    expect(mockCreateSessionFull).toHaveBeenCalledWith(
       expect.objectContaining({
         dm_mode: 'human',
         ai_assist_level: 'off',
@@ -458,9 +463,9 @@ describe('S5.5-AC8 — createSession carries ai_assist_level=assist for human+as
       fireEvent.click(screen.getByRole('button', { name: /Begin/i }));
     });
 
-    await waitFor(() => expect(mockCreateSession).toHaveBeenCalled());
+    await waitFor(() => expect(mockCreateSessionFull).toHaveBeenCalled());
 
-    expect(mockCreateSession).toHaveBeenCalledWith(
+    expect(mockCreateSessionFull).toHaveBeenCalledWith(
       expect.objectContaining({
         dm_mode: 'human',
         ai_assist_level: 'assist',

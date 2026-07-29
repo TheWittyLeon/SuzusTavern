@@ -216,3 +216,20 @@
   flex-wrap: wrap;
   gap: 6px;
 }
+
+/* LVL (Aoi gap B): self-view pending-choices callout — first element in the
+   drawer body, links out to the character page (this panel stays read-only). */
+.pendingCallout {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--accent-2) 8%, transparent);
+  font-size: 13px;
+}
+
+.pendingCallout p {
+  margin: 0;
+}

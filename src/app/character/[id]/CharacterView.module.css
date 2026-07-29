@@ -108,6 +108,13 @@
   color: var(--ink-3);
 }
 
+/* LVL (Aoi gap A): framing sentence above a stacked pending-choices run. */
+.floorWalkNote {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
 /* ── Ability stat boxes (ST-056) ─────────────────────────────────────────────── */
 .abilityRow {
   display: grid;

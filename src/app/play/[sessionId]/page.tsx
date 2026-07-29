@@ -109,6 +109,7 @@ import NarratorStrip from '@/components/NarratorStrip';
 import CastSpellPanel from '@/components/CastSpellPanel';
 import ConditionsPanel from '@/components/ConditionsPanel';
 import GrantCurrencyPanel from '@/components/GrantCurrencyPanel';
+import CampaignFloorPanel from '@/components/CampaignFloorPanel';
 import SessionRecap from '@/components/SessionRecap';
 import ChatLog, { type ChatLogHandle, type LogRow } from '@/components/ChatLog';
 import PartyPanel from '@/components/PartyPanel';
@@ -490,6 +491,11 @@ export default function PlayPage() {
   const [memberSheetOpen, setMemberSheetOpen] = useState(false);
   const [selectedMemberSheet, setSelectedMemberSheet] = useState<CharacterSheet | null>(null);
   const [selectedMemberName, setSelectedMemberName] = useState<string | null>(null);
+  // LVL (Aoi gap B): whether the drawer is showing the viewer's OWN sheet —
+  // drives MemberSheetPanel's pending-choices callout (the read-only drawer
+  // can't resolve choices; for your own row it must at least point at the
+  // character page that can).
+  const [selectedMemberIsSelf, setSelectedMemberIsSelf] = useState(false);
   const [memberSheetLoading, setMemberSheetLoading] = useState(false);
   const [memberSheetError, setMemberSheetError] = useState(false);
   const memberSheetDialogRef = useRef<HTMLElement>(null);
@@ -2131,6 +2137,7 @@ export default function PlayPage() {
       setMemberSheetOpen(true);
       setSelectedMemberName(p.character.name ?? p.username);
       const isSelf = p.username.toLowerCase() === (username ?? '').toLowerCase();
+      setSelectedMemberIsSelf(isSelf);
       if (isSelf && mySheet) {
         setSelectedMemberSheet(mySheet);
         setMemberSheetError(false);
@@ -4831,6 +4838,27 @@ export default function PlayPage() {
               participants={participants}
               disabled={sessionActionBusy !== null || isEnded}
             />
+            {/* LVL-1 (T5): floor display/edit + "Apply floor now". Peer of
+                GrantCurrencyPanel — same isDm gate, same disabled
+                expression, self-contained panel. onChanged refetches the
+                session (new starting_level on the summary) AND the roster
+                (leveled members' PartyPanel badges) — mirrors the
+                end-session handler's paired refetch. */}
+            <CampaignFloorPanel
+              sessionId={sessionId}
+              username={username ?? ''}
+              participants={participants}
+              startingLevel={session?.starting_level ?? 1}
+              disabled={sessionActionBusy !== null || isEnded}
+              onChanged={() => {
+                void refreshSessionAfterAction();
+                getParticipants(sessionId)
+                  .then(setParticipants)
+                  .catch(() => {
+                    /* non-fatal — roster refreshes on the next poll */
+                  });
+              }}
+            />
           </div>
         )}
         <PartyPanel
@@ -5765,6 +5793,7 @@ export default function PlayPage() {
           loading={memberSheetLoading}
           error={memberSheetError}
           memberName={selectedMemberName}
+          isSelf={selectedMemberIsSelf}
           onClose={closeMemberSheet}
           closeButtonRef={memberSheetCloseBtnRef}
         />
