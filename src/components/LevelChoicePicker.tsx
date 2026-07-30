@@ -1192,14 +1192,27 @@ function FeatureChoiceCard({ characterId, username, sheet, choice, onResolved }:
       next.delete(slug);
     } else if (next.size < cap) {
       next.add(slug);
-      // A slug can't be both a new pick and the swap replacement.
-      if (swapAdd === slug) setSwapAdd('');
+      // Miko P2-1 (INVOC gate): a slug can't be both a new pick and the
+      // swap replacement — and clearing ONLY swapAdd used to orphan the
+      // still-pressed drop half (Confirm silently dead, no copy anywhere).
+      // Picking the option as a new pick withdraws the whole swap intent.
+      if (swapAdd === slug) {
+        setSwapAdd('');
+        setSwapDrop('');
+      }
     }
     setPicked(next);
   }
 
   // Swap is all-or-nothing: both halves chosen, or neither.
   const swapComplete = (swapDrop === '') === (swapAdd === '');
+  // Miko P2-2 (INVOC gate): a choice can ask for more picks than the
+  // character can currently take (count > non-known, level-eligible
+  // options) — reachable for a thin homebrew menu, and previously an
+  // UNMESSAGED permanent dead end (Confirm disabled, counter looked like
+  // ordinary in-progress state). Detect it and say so below.
+  const eligibleCount = pool.filter((o) => o.level <= sheet.level).length;
+  const shortfall = options.length > 0 && eligibleCount < cap;
   const canConfirm =
     !busy && options.length > 0 && picked.size === cap && swapComplete;
 
@@ -1290,6 +1303,15 @@ function FeatureChoiceCard({ characterId, username, sheet, choice, onResolved }:
           <p id={pickHintId} className={styles.hint} aria-live="polite" aria-atomic="true">
             New picks — {picked.size} of {cap} chosen
           </p>
+          {/* Miko P2-2: say WHY Confirm can never enable, instead of looking
+              like ordinary in-progress state forever. */}
+          {shortfall && (
+            <p className={styles.emptyRow} aria-live="polite" aria-atomic="true">
+              Only {eligibleCount} of the {cap} required picks{' '}
+              {eligibleCount === 1 ? 'is' : 'are'} available at level {sheet.level} —
+              level up further to finish this choice.
+            </p>
+          )}
           <div className={styles.optionRow} role="group" aria-labelledby={pickHintId}>
             {pool.map((o) =>
               optionButton(
@@ -1306,6 +1328,14 @@ function FeatureChoiceCard({ characterId, username, sheet, choice, onResolved }:
                 Optional: swap one known pick (choose one to drop AND its
                 replacement, or leave both unselected)
               </p>
+              {/* Miko P2-1 rider: a half-selected swap silently disabled
+                  Confirm — name the reason while it's incomplete. */}
+              {!swapComplete && (
+                <p className={styles.emptyRow} aria-live="polite" aria-atomic="true">
+                  Finish the swap ({swapDrop ? 'pick its replacement' : 'pick what to drop'})
+                  or clear it to confirm.
+                </p>
+              )}
               <div role="group" aria-labelledby={swapHintId}>
                 <p className={styles.levelSubLabel}>Drop</p>
                 <div className={styles.optionRow}>

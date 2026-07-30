@@ -1060,4 +1060,56 @@ describe('SpellbookPanel — over-capacity hint (CALC-AC S4 rider)', () => {
       await screen.findByText(/spellbook over capacity for this level/i),
     ).toBeInTheDocument();
   });
+
+  it('Miko-QA adversarial: the hint is purely derived from the LATEST fetch — a refreshKey-driven refetch (e.g. right after resolving the INVOC feature_choice pick) clears a stale over-capacity hint in place, no flicker to a blank/error panel first', async () => {
+    // Tab-switching alone does NOT refetch a successfully-loaded Browse tab
+    // (confirmed separately) — the real invalidation path or a same-tab
+    // Learn/Forget resolve is `refreshKey`. Prove the hint tracks the FRESH
+    // budget on that path too, not a memoized first-load value.
+    mockGetKnown.mockResolvedValue(KNOWN_WIZARD);
+    mockGetAvailable.mockResolvedValueOnce({
+      ...AVAILABLE_WIZARD,
+      budget: { ...BUDGET, cantrips_known: 5, cantrips_max: 4 },
+    });
+    const { rerender } = renderPanel({ refreshKey: 0 });
+    fireEvent.click(screen.getByRole('tab', { name: 'Browse' }));
+    expect(
+      await screen.findByText(/spellbook over capacity for this level/i),
+    ).toBeInTheDocument();
+
+    mockGetKnown.mockResolvedValueOnce(KNOWN_WIZARD);
+    mockGetAvailable.mockResolvedValueOnce(AVAILABLE_WIZARD); // now within cap
+    rerender(
+      <ToastProvider>
+        <SpellbookPanel characterId="cid-2" username="leon" isOwner isCaster refreshKey={1} />
+      </ToastProvider>,
+    );
+    await flush();
+
+    expect(mockGetAvailable).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText(/loading available spells/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/spellbook over capacity for this level/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it('Miko-QA adversarial: an error retry that resolves to an over-cap budget shows the hint fresh (not suppressed by the prior error)', async () => {
+    mockGetKnown.mockResolvedValue(KNOWN_WIZARD);
+    mockGetAvailable.mockRejectedValueOnce(new Error('network down'));
+    renderPanel();
+    fireEvent.click(screen.getByRole('tab', { name: 'Browse' }));
+    await flush();
+    expect(screen.getByText(/Couldn.t load available spells\./)).toBeInTheDocument();
+
+    mockGetAvailable.mockResolvedValueOnce({
+      ...AVAILABLE_WIZARD,
+      budget: { ...BUDGET, cantrips_known: 5, cantrips_max: 4 },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await flush();
+
+    expect(
+      await screen.findByText(/spellbook over capacity for this level/i),
+    ).toBeInTheDocument();
+  });
 });

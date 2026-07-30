@@ -1537,3 +1537,178 @@ describe('LevelChoicePicker — INVOC feature_choice card', () => {
     expect(mockResolve).not.toHaveBeenCalled();
   });
 });
+
+describe('Miko-QA adversarial — INVOC feature_choice card', () => {
+  const INVOCATION_OPTIONS = [
+    {
+      slug: 'agonizing-blast',
+      name: 'Agonizing Blast',
+      level: 2,
+      description: 'Add your Charisma modifier to eldritch blast damage.',
+    },
+    {
+      slug: "devil's-sight",
+      name: "Devil's Sight",
+      level: 2,
+      description: 'See normally in magical and nonmagical darkness.',
+    },
+    {
+      slug: 'thirsting-blade',
+      name: 'Thirsting Blade',
+      level: 5,
+      description: 'Attack twice with your pact weapon.',
+    },
+  ];
+
+  function invocChoice(over: Partial<PendingLevelChoice> = {}): PendingLevelChoice {
+    return {
+      id: 'feature_choice:2',
+      type: 'feature_choice',
+      level: 2,
+      class: 'Warlock',
+      label: 'Choose 2 Eldritch Invocations (level 2)',
+      menu_label: 'Eldritch Invocations',
+      count: 2,
+      options: INVOCATION_OPTIONS,
+      ...over,
+    };
+  }
+
+  it('Miko P2-2 FIXED: count > eligible-at-level options now says WHY Confirm can never enable', () => {
+    // A level-2 character offered a choice that asks for 2 picks, but ALL
+    // non-known options on the menu require a higher level. Unreachable
+    // with the real 32-entry warlock catalog (always >=16 level-2-eligible
+    // options) but reachable for a thin homebrew menu (the CONTENT-BREADTH
+    // risk — see test_declared_empty_options_list_strands_the_menu on the
+    // engine). Previously an UNMESSAGED dead end indistinguishable from
+    // "hasn't clicked yet"; the card now names the shortfall.
+    const allUnmetOptions = [
+      { slug: 'a', name: 'Option A', level: 9, description: 'x' },
+      { slug: 'b', name: 'Option B', level: 9, description: 'y' },
+    ];
+    renderPicker([invocChoice({ options: allUnmetOptions })], {
+      char_class: 'Warlock',
+      level: 2,
+    });
+
+    const confirm = screen.getByRole('button', { name: /confirm eldritch invocations/i });
+    // Both options stay visible-but-disabled (the intended "plan ahead" UX)…
+    expect(screen.getByRole('button', { name: /Option A — requires level 9/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Option B — requires level 9/i })).toBeDisabled();
+    expect(confirm).toBeDisabled();
+    // …and the shortfall copy explains the stuck state.
+    expect(
+      screen.getByText(/only 0 of the 2 required picks are available at level 2/i),
+    ).toBeInTheDocument();
+  });
+
+  it('Miko P2-2 rider: no shortfall copy when enough options are eligible', () => {
+    renderPicker([invocChoice()], { char_class: 'Warlock' });
+    expect(screen.queryByText(/required picks .* available at level/i)).not.toBeInTheDocument();
+  });
+
+  it('FINDING (P3): a sheet feature_choices group label that drifts from choice.menu_label hides the swap section AND fails to exclude already-known picks from the new-picks pool', () => {
+    // known matching is `sheet.feature_choices.find(g => g.label ===
+    // choice.menu_label)` — an exact-string match with no normalization.
+    // If the two ever diverge (e.g. a catalog label rename lands between an
+    // earlier resolve and a later queue), the client silently treats the
+    // character as knowing NOTHING from this menu.
+    const knownPick = {
+      slug: 'agonizing-blast',
+      name: 'Agonizing Blast',
+      level: 2,
+      description: 'x',
+    };
+    renderPicker(
+      [invocChoice({ id: 'feature_choice:5', level: 5, count: 1, menu_label: 'Eldritch Invocations' })],
+      {
+        char_class: 'Warlock',
+        level: 5,
+        // Label drifted ("Invocations" -> "Invocation") relative to the
+        // pending choice's menu_label.
+        feature_choices: [{ label: 'Eldritch Invocation', picks: [knownPick] }],
+      },
+    );
+
+    // No swap section at all — the character's real known pick is invisible.
+    expect(screen.queryByRole('group', { name: /swap one known pick/i })).not.toBeInTheDocument();
+    // Worse: the ALREADY-KNOWN option is offered as a fresh new pick.
+    const newPicks = screen.getByRole('group', { name: /new picks/i });
+    expect(within(newPicks).getByRole('button', { name: 'Agonizing Blast' })).toBeInTheDocument();
+    // A player who picks it will be refused server-side (duplicate_option)
+    // — not a security issue (server re-validates), but a confusing,
+    // entirely avoidable refusal for a state the client had the data to
+    // prevent.
+  });
+
+  it('a same-tick double click on Confirm only calls resolveLevelChoice once', async () => {
+    let releaseResolve: (() => void) | undefined;
+    mockResolve.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releaseResolve = () => resolve({ message: 'ok' });
+        }),
+    );
+    renderPicker([invocChoice()], { char_class: 'Warlock' });
+    fireEvent.click(screen.getByRole('button', { name: 'Agonizing Blast' }));
+    fireEvent.click(screen.getByRole('button', { name: "Devil's Sight" }));
+    const confirm = screen.getByRole('button', { name: /confirm eldritch invocations/i });
+
+    fireEvent.click(confirm);
+    fireEvent.click(confirm);
+    expect(mockResolve).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      releaseResolve?.();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  });
+
+  it('Miko P2-1 FIXED: picking a new-pick slug that is also the current swap-add withdraws the WHOLE swap — Confirm enables, resolve carries no swap', async () => {
+    // The original defect: togglePick's cross-clear only cleared swapAdd,
+    // leaving swapDrop pressed — the all-or-nothing invariant broke with no
+    // user action on the swap section and no copy explaining the dead
+    // Confirm. Fixed: the collision clears BOTH halves (picking the option
+    // as a new pick withdraws the swap intent), and while a swap is
+    // half-selected the card now says so ("Finish the swap … or clear it").
+    const knownPick = {
+      slug: 'agonizing-blast',
+      name: 'Agonizing Blast',
+      level: 2,
+      description: 'x',
+    };
+    renderPicker(
+      [invocChoice({ id: 'feature_choice:5', level: 5, count: 1, menu_label: 'Eldritch Invocations' })],
+      {
+        char_class: 'Warlock',
+        level: 5,
+        feature_choices: [{ label: 'Eldritch Invocations', picks: [knownPick] }],
+      },
+    );
+    const swapGroup = screen.getByRole('group', { name: /swap one known pick/i });
+    const dropBtn = within(swapGroup).getByRole('button', { name: 'Agonizing Blast' });
+    fireEvent.click(dropBtn); // swapDrop = 'agonizing-blast'
+    // Half-swap state now has explanatory copy (the P2-1 rider).
+    expect(screen.getByText(/finish the swap \(pick its replacement\)/i)).toBeInTheDocument();
+    fireEvent.click(within(swapGroup).getByRole('button', { name: "Devil's Sight" })); // swapAdd
+    expect(screen.queryByText(/finish the swap/i)).not.toBeInTheDocument();
+
+    const newPicks = screen.getByRole('group', { name: /new picks/i });
+    // Pick the SAME slug that is currently the swap-add, as a new pick.
+    fireEvent.click(within(newPicks).getByRole('button', { name: "Devil's Sight" }));
+
+    expect(screen.getByText(/new picks — 1 of 1 chosen/i)).toBeInTheDocument();
+    // The WHOLE swap withdrew — drop is no longer pressed, no half-state.
+    expect(dropBtn).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByText(/finish the swap/i)).not.toBeInTheDocument();
+
+    const confirm = screen.getByRole('button', { name: /confirm eldritch invocations/i });
+    expect(confirm).toBeEnabled();
+    fireEvent.click(confirm);
+    await flush();
+    expect(mockResolve).toHaveBeenCalledWith('cid-1', 'leon', 'feature_choice:5', {
+      picks: ["devil's-sight"], // no swap key — the intent was withdrawn
+    });
+  });
+});

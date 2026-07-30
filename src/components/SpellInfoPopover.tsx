@@ -54,9 +54,9 @@ export interface SpellInfoPopoverProps {
   children?: ReactNode;
   className?: string;
   /** INVOC: what the trigger's accessible name calls the content —
-   *  "Spell details" by default; the invocation picker passes "Invocation
-   *  details" so SR users aren't told an invocation is a spell. Also swaps
-   *  the empty-state noun. */
+   *  "Spell details" by default; the invocation picker and the sheet's
+   *  feature-choices block pass "Feature details" so SR users aren't told
+   *  an invocation is a spell. Also swaps the empty-state noun. */
   detailsLabel?: string;
 }
 
