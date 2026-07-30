@@ -113,18 +113,24 @@ export default function LevelUpDialog({
     const t = setTimeout(() => cancelRef.current?.focus(), 0);
     return () => {
       clearTimeout(t);
-      // Kage M2: the remembered trigger may be disabled (sheet re-rendered
-      // post-level-up) or gone — .focus() on it is a silent no-op that
-      // drops focus at <body>. Fall back to the parent's stable container
-      // (the CampaignFloorPanel g2 rescue pattern).
+      // Kage M2/r2-3: the remembered trigger may be disabled (sheet
+      // re-rendered post-level-up), gone, or otherwise unfocusable — a
+      // silent no-op .focus() drops the user at <body>. OUTCOME-based
+      // check (did focus actually land?) covers the whole class; the
+      // explicit disabled test rides along because jsdom lets disabled
+      // buttons take focus (real browsers refuse), so tests would
+      // otherwise pass a state browsers fail. Fallback = the parent's
+      // stable container (the CampaignFloorPanel g2 rescue pattern).
       const prev = previouslyFocused.current;
-      const prevUsable =
-        prev &&
-        document.contains(prev) &&
+      prev?.focus?.();
+      const landed =
+        prev != null &&
+        document.activeElement === prev &&
         !(prev as HTMLButtonElement).disabled;
-      if (prevUsable) {
-        prev.focus?.();
-      } else {
+      if (!landed) {
+        // Reading the ref at CLEANUP time is the point — the fallback
+        // target must be whatever the parent's container is now, at close.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         restoreFocusRef?.current?.focus?.();
       }
     };

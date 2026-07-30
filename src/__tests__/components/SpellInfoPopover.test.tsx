@@ -133,8 +133,14 @@ describe('SpellInfoPopover', () => {
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
 
     // Pinned open by click, then the mouse leaves — must still close.
+    // Kage r2-7: enter-then-click would CLOSE (hover already opened it), so
+    // reach the pinned state for real: hover, leave (closed), click (pins
+    // with no hover), hover over it again, leave — pin must not survive.
     firePointer(wrap, 'pointerenter', 'mouse');
+    firePointer(wrap, 'pointerleave', 'mouse');
     fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true'); // pinned
+    firePointer(wrap, 'pointerenter', 'mouse');
     firePointer(wrap, 'pointerleave', 'mouse');
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
   });
@@ -147,6 +153,12 @@ describe('SpellInfoPopover', () => {
     // Touch browsers synthesize enter-before-click on the first tap — the
     // old mouseenter listener turned that into open-then-toggle-closed.
     firePointer(wrap, 'pointerenter', 'touch');
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    // Kage r2-1: the REAL regression pin — iOS/Android also send a legacy
+    // synthesized mouseover on tap; re-adding an onMouseEnter listener to
+    // the wrapper reintroduces M3, and only THIS assertion catches it
+    // (red at base, green at HEAD — verified by the reviewer).
+    fireEvent.mouseEnter(wrap);
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(trigger);
     expect(trigger).toHaveAttribute('aria-expanded', 'true');

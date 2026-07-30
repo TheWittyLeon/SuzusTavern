@@ -122,6 +122,8 @@ export default function SpellInfoPopover({
         // before click, which both broke the first tap on the trigger and
         // opened the panel over the next targets when tapping the wrapped
         // control. Touch goes through the pinned click path instead.
+        // r2-9: pen is DELIBERATELY excluded too (closer to touch — a
+        // stylus tap should pin, not hover-flash).
         if (e.pointerType === 'mouse') setHoverOpen(true);
       }}
       onPointerLeave={(e) => {
@@ -209,7 +211,9 @@ export default function SpellInfoPopover({
                 </span>
               )}
               {spell.higher_levels && (
-                <span className={styles.description}>
+                // r2-5: same scrollable region as the description — same
+                // keyboard reachability (homebrew prose isn't bounded).
+                <span className={styles.description} tabIndex={0}>
                   <strong>At higher levels.</strong> {spell.higher_levels}
                 </span>
               )}

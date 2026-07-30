@@ -234,6 +234,44 @@ describe('LevelUpButton — confirm -> levelUpCharacter -> refetch flow', () => 
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
+  it('after Done, focus falls back to the wrap when the trigger came back disabled (Kage M2/r2-2)', async () => {
+    mockLevelUp.mockResolvedValue({ message: 'ok' });
+    mockGetSheet.mockResolvedValue({ ...BASE, level: 5, xp_next: 14000 });
+    // A CONTROLLED parent — onLeveledUp must actually apply the refetched
+    // sheet, or the trigger never re-disables and the fallback path is
+    // unreachable (the jest.fn() default makes this test pass vacuously).
+    function Controlled() {
+      const [sheet, setSheet] = React.useState<CharacterSheet>(BASE);
+      return (
+        <ToastProvider>
+          <LevelUpButton
+            characterId="cid-1"
+            username="leon"
+            sheet={sheet}
+            onLeveledUp={setSheet}
+          />
+        </ToastProvider>
+      );
+    }
+    render(<Controlled />);
+    const trigger = screen.getByRole('button', { name: /^level up$/i });
+    // jsdom clicks don't move focus — do what a real click does explicitly,
+    // or previouslyFocused captures <body> and body.focus() satisfies the
+    // outcome check (the exact artifact from the r2 re-probe).
+    trigger.focus();
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole('button', { name: /^yes, level up$/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /^done$/i }));
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+    );
+    // Sheet applied → XP-gated again → trigger disabled → the remembered
+    // node can't take focus; the wrap (tabIndex=-1) must have it instead
+    // of <body>.
+    expect(trigger).toBeDisabled();
+    expect(document.activeElement).toBe(trigger.parentElement);
+  });
+
   it('two same-tick clicks on Yes-level-up fire exactly one mutate (D1 latch through the new dialog)', async () => {
     let resolveMutate: (v: unknown) => void = () => {};
     mockLevelUp.mockImplementation(

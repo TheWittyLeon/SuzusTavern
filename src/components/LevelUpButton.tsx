@@ -247,6 +247,11 @@ export default function LevelUpButton({
         // verify, and don't say "try again" (that reads as "nothing happened
         // yet", which risks a real second level-up attempt).
         setConfirming(false);
+        // Kage r2-6: clear any PRIOR success summary — with the live region
+        // gated on !confirming, a stale "Leveled up!" from an earlier
+        // attempt would otherwise reappear at the exact moment this attempt
+        // failed to refetch.
+        setGain(null);
         toast({
           message: "Couldn't refresh your sheet — reload to see the result.",
           tone: 'warn',
