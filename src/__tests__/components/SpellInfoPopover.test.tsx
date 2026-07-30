@@ -152,6 +152,34 @@ describe('SpellInfoPopover', () => {
     expect(outerKeyDown).toHaveBeenCalledTimes(1);
   });
 
+  it('Escape at the WRAPPED CHILD while hover-open closes and is consumed (Miko P2)', () => {
+    // The real mount shape: LevelChoicePicker wraps its own option <button>.
+    // Open via hover only (no trigger focus/click), focus on the child —
+    // Escape must still close the panel and never reach a parent overlay.
+    const outerKeyDown = jest.fn();
+    render(
+      <div onKeyDown={outerKeyDown}>
+        <SpellInfoPopover spell={FIREBALL}>
+          <button type="button">Fireball</button>
+        </SpellInfoPopover>
+      </div>,
+    );
+    const trigger = screen.getByRole('button', { name: /spell details/i });
+    const child = screen.getByRole('button', { name: 'Fireball' });
+    const wrap = trigger.parentElement as HTMLElement;
+
+    fireEvent.mouseEnter(wrap);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    child.focus();
+    fireEvent.keyDown(child, { key: 'Escape' });
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    expect(outerKeyDown).not.toHaveBeenCalled();
+
+    // Closed: the child's Escape is not ours — it must bubble.
+    fireEvent.keyDown(child, { key: 'Escape' });
+    expect(outerKeyDown).toHaveBeenCalledTimes(1);
+  });
+
   it('pointerdown outside closes a pinned-open panel (iOS no-focus backstop)', () => {
     render(
       <>

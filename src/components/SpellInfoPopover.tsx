@@ -116,6 +116,22 @@ export default function SpellInfoPopover({
         setHoverOpen(false);
         setPinned(false);
       }}
+      onKeyDown={(e) => {
+        // Miko P2: Escape is handled on the WRAPPER, not the trigger —
+        // keydown bubbles here from the wrapped child too, so a player whose
+        // focus sits on the spell's own option button (panel open via hover)
+        // still closes the panel instead of leaking Escape to whatever
+        // ancestor overlay owns it. Only consumed while open — a closed
+        // popover's Escape is not ours.
+        if (e.key === 'Escape' && open) {
+          consumeEscape(e, {
+            onClose: () => {
+              setPinned(false);
+              setHoverOpen(false);
+            },
+          });
+        }
+      }}
     >
       {children}
       <button
@@ -138,16 +154,6 @@ export default function SpellInfoPopover({
         onBlur={() => {
           setHoverOpen(false);
           setPinned(false);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Escape' && open) {
-            consumeEscape(e, {
-              onClose: () => {
-                setPinned(false);
-                setHoverOpen(false);
-              },
-            });
-          }
         }}
       >
         <Icon name="Eye" size={13} aria-hidden />

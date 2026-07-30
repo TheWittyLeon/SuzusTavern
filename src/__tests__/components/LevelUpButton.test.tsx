@@ -230,6 +230,38 @@ describe('LevelUpButton — confirm -> levelUpCharacter -> refetch flow', () => 
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
+  it('two same-tick clicks on Yes-level-up fire exactly one mutate (D1 latch through the new dialog)', async () => {
+    let resolveMutate: (v: unknown) => void = () => {};
+    mockLevelUp.mockImplementation(
+      () => new Promise((r) => { resolveMutate = r; }),
+    );
+    mockGetSheet.mockResolvedValue({ ...BASE, level: 5, xp_next: 14000 });
+    renderButton();
+
+    fireEvent.click(screen.getByRole('button', { name: /level up/i }));
+    const confirm = screen.getByRole('button', { name: /^yes, level up$/i });
+    // Same tick, before any state commit — only the synchronous ref latch
+    // can stop the second dispatch.
+    fireEvent.click(confirm);
+    fireEvent.click(confirm);
+    expect(mockLevelUp).toHaveBeenCalledTimes(1);
+    resolveMutate({ message: 'ok' });
+    await waitFor(() => expect(mockGetSheet).toHaveBeenCalled());
+  });
+
+  it('Escape while the mutate is genuinely in flight does not close the dialog', async () => {
+    mockLevelUp.mockImplementation(() => new Promise(() => {})); // never settles
+    renderButton();
+
+    fireEvent.click(screen.getByRole('button', { name: /level up/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^yes, level up$/i }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /rolling…/i })).toBeDisabled(),
+    );
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
   it('Cancel closes the dialog without calling the API', () => {
     renderButton();
     fireEvent.click(screen.getByRole('button', { name: /level up/i }));
