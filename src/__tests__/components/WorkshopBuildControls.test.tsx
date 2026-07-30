@@ -7,7 +7,7 @@
  * case (close + refetch + point at Level up), and the double-submit latch.
  */
 import React from 'react';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 jest.mock('../../lib/api/dnd', () => ({
@@ -209,8 +209,15 @@ describe('WorkshopBuildControls — rebuild flow', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /level down/i }));
     const confirm = screen.getByRole('button', { name: /yes, down to 3/i });
-    fireEvent.click(confirm);
-    fireEvent.click(confirm);
+    // Kage S1: sequential fireEvent.clicks flush the busy re-render between
+    // them, so ConfirmDialog's disabled prop absorbs the second click and
+    // the test passes with the ref latch DELETED. Two raw DOM clicks inside
+    // ONE act() batch reach the handler before any re-render commits — only
+    // the synchronous ref can stop the second one.
+    await act(async () => {
+      confirm.click();
+      confirm.click();
+    });
     expect(mockRebuild).toHaveBeenCalledTimes(1);
     resolve({ from_level: 4, to_level: 3 });
     await waitFor(() => expect(mockGetSheet).toHaveBeenCalled());
