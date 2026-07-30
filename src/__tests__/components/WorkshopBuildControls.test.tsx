@@ -62,6 +62,7 @@ const BASE: CharacterSheet = {
   spell_slots: {},
   is_spellcaster: false,
   inventory: [],
+  inventory_weight: 0,
   levelup_policy: {
     outcome: 'allowed_workshop',
     mode: 'workshop',
@@ -107,6 +108,13 @@ describe('WorkshopBuildControls — render gate (fail-closed)', () => {
   it('renders nothing when bound (xp mode) or floor mode', () => {
     renderControls({
       levelup_policy: { ...BASE.levelup_policy!, mode: 'xp' },
+    });
+    expect(screen.queryByRole('button', { name: /level down/i })).not.toBeInTheDocument();
+  });
+
+  it('renders nothing in floor mode (Miko P3 — the sibling non-workshop mode)', () => {
+    renderControls({
+      levelup_policy: { ...BASE.levelup_policy!, mode: 'floor', outcome: 'allowed_floor' },
     });
     expect(screen.queryByRole('button', { name: /level down/i })).not.toBeInTheDocument();
   });
