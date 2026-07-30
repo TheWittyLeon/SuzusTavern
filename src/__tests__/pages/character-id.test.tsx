@@ -519,6 +519,26 @@ describe('Character sheet — INVOC chosen feature choices (Kage I2/m8)', () => 
     expect(screen.queryByRole('button', { name: /spell details: agonizing blast/i })).not.toBeInTheDocument();
   });
 
+  it('Kage r2-1 pin: an unresolvable pick (blank description) opens to the NEUTRAL empty copy, never "for this spell yet"', async () => {
+    mockGet.mockResolvedValue({
+      ...ROGUE,
+      char_class: 'Warlock',
+      feature_choices: [
+        {
+          label: 'Eldritch Invocations',
+          // Catalog drift: slug didn't resolve server-side — name titleized,
+          // description empty (character_msm degrades, never drops).
+          picks: [{ slug: 'lost-option', name: 'Lost Option', level: 0, description: '' }],
+        },
+      ],
+    });
+    renderPage();
+    await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
+    fireEvent.click(screen.getByRole('button', { name: 'Feature details: Lost Option' }));
+    expect(screen.getByText('No details available yet.')).toBeInTheDocument();
+    expect(screen.queryByText(/for this spell yet/i)).not.toBeInTheDocument();
+  });
+
   it('empty/absent feature_choices renders no group headings (pre-INVOC backend)', async () => {
     mockGet.mockResolvedValue({ ...ROGUE, feature_choices: [] });
     renderPage();

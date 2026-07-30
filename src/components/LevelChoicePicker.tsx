@@ -1287,6 +1287,7 @@ function FeatureChoiceCard({ characterId, username, sheet, choice, onResolved }:
         key={o.slug}
         spell={{ name: o.name, description: o.description }}
         detailsLabel="Feature details"
+        emptyLabel="No details available yet."
       >
         <button
           type="button"
@@ -1361,7 +1362,13 @@ function FeatureChoiceCard({ characterId, username, sheet, choice, onResolved }:
                   setSwapOpen((v) => !v);
                 }}
               >
-                {swapOpen ? 'Hide swap' : 'Swap a known pick…'}
+                {/* Kage r2-7: closing DISCARDS any selection — say so
+                    when one exists instead of a neutral "Hide". */}
+                {swapOpen
+                  ? swapDrop || swapAdd
+                    ? 'Cancel swap'
+                    : 'Hide swap'
+                  : 'Swap a known pick…'}
               </Button>
               {swapOpen && (
                 <>

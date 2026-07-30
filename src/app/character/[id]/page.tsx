@@ -570,6 +570,7 @@ export default function CharacterPage() {
                         <SpellInfoPopover
                           spell={{ name: pick.name, description: pick.description }}
                           detailsLabel="Feature details"
+                          emptyLabel="No details available yet."
                         >
                           {pick.name}
                         </SpellInfoPopover>

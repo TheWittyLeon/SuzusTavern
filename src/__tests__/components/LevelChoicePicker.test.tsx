@@ -1391,6 +1391,37 @@ describe('LevelChoicePicker — FEAT-PREREQ-UX (prereq-unmet feats disabled inli
     expect(mockResolve).not.toHaveBeenCalled();
   });
 
+  it('Kage r2-3 pin: a full-sentence prereq the ENGINE does not enforce stays ENABLED here too (exact-match mirror, no substring)', async () => {
+    // The engine normalizes the whole string and requires exact membership
+    // in ABILITIES — "Strength 13 or higher" is NOT enforced server-side, so
+    // the client must not block it with an invented threshold (the
+    // CONTENT-BREADTH bulk-import shape). Red if the .includes substring
+    // match ever comes back.
+    mockGetCatalog.mockImplementation((_system: string, opts: { type?: string }) =>
+      Promise.resolve(
+        catalogResponse(
+          opts?.type === 'feat'
+            ? [
+                {
+                  slug: 'grappler',
+                  name: 'Grappler',
+                  content_type: 'feat',
+                  source_type: 'srd',
+                  data: { prerequisites: ['Strength 13 or higher'] },
+                },
+              ]
+            : SUBCLASS_ITEMS,
+        ),
+      ),
+    );
+    renderPicker([ASI_CHOICE], {
+      ability_scores: { ...BASE_SHEET.ability_scores, strength: ability(9, -1) },
+    });
+    fireEvent.click(screen.getByRole('radio', { name: 'Take a feat' }));
+    const opt = await screen.findByRole('radio', { name: 'Grappler' });
+    expect(opt).toBeEnabled(); // no invented "requires STR 13" block
+  });
+
   it('the same feat with the prereq met stays enabled, auto-selected, and resolvable', async () => {
     mockFeatCatalog();
     renderPicker([ASI_CHOICE]); // BASE_SHEET: STR 16 — met
@@ -1764,7 +1795,10 @@ describe('LevelChoicePicker — Kage I3 swap disclosure', () => {
     fireEvent.click(within(newPicks).getByRole('button', { name: "Devil's Sight" }));
     const confirm = screen.getByRole('button', { name: /confirm eldritch invocations/i });
     expect(confirm).toBeDisabled(); // half-swap blocks
-    fireEvent.click(screen.getByRole('button', { name: /hide swap/i }));
+    // Kage r2-7: with a selection present, the close button says what it
+    // DOES — Cancel swap, not a neutral Hide.
+    expect(screen.queryByRole('button', { name: /hide swap/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /cancel swap/i }));
     expect(confirm).toBeEnabled(); // partial swap cleared with the close
   });
 
