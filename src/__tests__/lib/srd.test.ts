@@ -217,6 +217,21 @@ describe('derivedStats (helpers — mirrors cmd_create level-1 math)', () => {
     expect(d.ac).toBe(14); // 10 + 2 DEX + 2 WIS
   });
 
+  it('unarmored defense with a penalty never previews below plain 10+DEX (CALC-AC-UD RAW better-of)', () => {
+    // Kage I1: the engine now takes the better calculation, so a WIS-8 monk
+    // persists 10+DEX — the preview must not show one lower.
+    const scores = {
+      strength: 10,
+      dexterity: 14,
+      constitution: 12,
+      intelligence: 10,
+      wisdom: 8,
+      charisma: 10,
+    };
+    const d = derivedStats(scores, { id: 'monk', hitDie: 8 }, 30);
+    expect(d.ac).toBe(12); // max(10+2, 10+2-1) — never 11
+  });
+
   it('undefined class falls back to d8 hit die', () => {
     const d = derivedStats(DEFAULT_SCORES, undefined, 30);
     expect(d.maxHp).toBe(7); // 8 + (-1 CON at score 8)

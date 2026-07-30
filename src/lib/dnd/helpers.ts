@@ -179,8 +179,16 @@ export interface DerivedStats {
 
 /**
  * Compute level-1 derived stats from FINAL (post-racial) scores.
- * Mirrors cmd_create: HP = hit die + CON mod; AC = 10 + DEX mod
- * (+ CON for Barbarian unarmored, + WIS for Monk unarmored).
+ * Display-only PREVIEW — cmd_create owns the persisted values.
+ *
+ * CALC-AC-UD (Kage I1): the engine's unarmored defense is now the RAW
+ * better-of — a penalty CON/WIS never drags AC below plain 10 + DEX —
+ * so this preview mirrors that with Math.max. KNOWN LIMITATION: the
+ * barbarian/monk ids are still hardcoded here, so a homebrew class that
+ * declares its own unarmored defense previews as plain 10 + DEX until the
+ * class catalog wire carries the declaration (backlog:
+ * TAV-WIZARD-UD-PREVIEW); the engine persists the correct value either
+ * way.
  */
 export function derivedStats(
   finalScores: AbilityScores,
@@ -192,8 +200,8 @@ export function derivedStats(
   const wisMod = abilityMod(finalScores.wisdom);
   const hitDie = cls?.hitDie ?? 8;
   let ac = 10 + dexMod;
-  if (cls?.id === 'barbarian') ac = 10 + dexMod + conMod;
-  else if (cls?.id === 'monk') ac = 10 + dexMod + wisMod;
+  if (cls?.id === 'barbarian') ac = Math.max(ac, 10 + dexMod + conMod);
+  else if (cls?.id === 'monk') ac = Math.max(ac, 10 + dexMod + wisMod);
   return {
     maxHp: Math.max(1, hitDie + conMod),
     ac,
