@@ -52,6 +52,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Button from '@/components/Button';
 import Pill from '@/components/Pill';
+import SpellInfoPopover from '@/components/SpellInfoPopover';
 import { useToast } from '@/components/Toast';
 import {
   getAvailableSpells,
@@ -512,7 +513,11 @@ export default function SpellbookPanel({
                             className={styles.spellRow}
                             tabIndex={-1}
                           >
-                            <span className={styles.spellName}>{s.name}</span>
+                            <span className={styles.spellName}>
+                              {/* LEVELUP-UX: hover the name (or tap ⓘ) for
+                                  full spell details — see SpellInfoPopover. */}
+                              <SpellInfoPopover spell={s}>{s.name}</SpellInfoPopover>
+                            </span>
                             <span className={`mono ${styles.spellSchool}`}>{s.school}</span>
                           </li>
                         ))}
@@ -535,7 +540,7 @@ export default function SpellbookPanel({
                               tabIndex={-1}
                             >
                               <span className={styles.spellName}>
-                                {s.name}
+                                <SpellInfoPopover spell={s}>{s.name}</SpellInfoPopover>
                                 {s.prepared && (
                                   <Pill tone="good" className={styles.spellPill}>
                                     prepared
@@ -689,7 +694,7 @@ function BrowseLevelGroup({
               tabIndex={-1}
             >
               <span className={styles.spellName}>
-                {s.name}
+                <SpellInfoPopover spell={s}>{s.name}</SpellInfoPopover>
                 {s.in_repertoire && (
                   <Pill tone={s.prepared ? 'good' : 'muted'} className={styles.spellPill}>
                     {s.prepared ? 'prepared' : 'known'}

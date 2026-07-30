@@ -1,0 +1,125 @@
+/* SpellInfoPopover — LEVELUP-UX spell-details toggletip.
+   Panel geometry follows DmNarrationPanel's .npcTargetMenu (the established
+   absolute floating-surface pattern); the small trigger borrows
+   ConditionChipList's invisible pseudo-element hit-slop so the 13px glyph
+   still meets target-size guidance. */
+
+.wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.trigger {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+/* Hit-slop: 20px visual → 32px effective target (44px on mobile), without
+   inflating the row layout. */
+.trigger::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+}
+
+@media (max-width: 880px) {
+  .trigger::before {
+    inset: -12px;
+  }
+}
+
+.trigger:hover,
+.trigger:focus-visible,
+.trigger[aria-expanded='true'] {
+  color: var(--ink);
+  background: color-mix(in oklab, currentColor 14%, transparent);
+}
+
+.panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: max-content;
+  min-width: 220px;
+  max-width: min(320px, 82vw);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  box-shadow: 0 10px 28px -10px rgba(0, 0, 0, 0.5);
+  /* The wrapper sits inside buttons/rows with their own text styles — reset
+     so panel typography is self-owned. */
+  font-style: normal;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  text-align: left;
+  cursor: default;
+}
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.name {
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.meta {
+  font-size: 10px;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.rowLabel {
+  flex: 0 0 92px;
+  color: var(--ink-3);
+}
+
+.rowValue {
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.description {
+  display: block;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  max-height: 180px;
+  overflow-y: auto;
+  white-space: pre-line;
+}

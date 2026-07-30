@@ -100,6 +100,9 @@ export default function CharacterPage() {
   // comment. Track the previous pending count so this only fires on a
   // >0 -> 0 transition, never on the initial load (which may already be 0).
   const abilityHeadingRef = useRef<HTMLHeadingElement>(null);
+  // LEVELUP-UX: scroll/focus target for the dialog's "Resolve your choices"
+  // CTA — a tabIndex={-1} wrapper around the pending-choices Card.
+  const pendingChoicesRef = useRef<HTMLDivElement>(null);
   const prevPendingCountRef = useRef(sheet?.pending_choices?.length ?? 0);
   useEffect(() => {
     const count = sheet?.pending_choices?.length ?? 0;
@@ -279,6 +282,19 @@ export default function CharacterPage() {
                 username={username}
                 sheet={sheet}
                 onLeveledUp={setSheet}
+                // LEVELUP-UX: the dialog's "Resolve your choices" CTA lands
+                // the user on the pending-choices Card below — scroll +
+                // focus (tabIndex={-1} wrapper) so keyboard/SR users arrive
+                // too, not just the viewport.
+                onResolveChoices={() => {
+                  requestAnimationFrame(() => {
+                    pendingChoicesRef.current?.scrollIntoView({
+                      block: 'start',
+                      behavior: 'smooth',
+                    });
+                    pendingChoicesRef.current?.focus({ preventScroll: true });
+                  });
+                }}
               />
             )}
           </Card>
@@ -291,6 +307,7 @@ export default function CharacterPage() {
               pending, not merely empty, mirroring LevelUpButton's own
               own-Card-per-affordance split. */}
           {username && isOwner && (sheet.pending_choices?.length ?? 0) > 0 && (
+            <div ref={pendingChoicesRef} tabIndex={-1}>
             <Card>
               {/* LVL (Aoi gap A): a floor walk (or several banked manual
                   level-ups) stacks 2+ choice cards at once — one framing
@@ -316,6 +333,7 @@ export default function CharacterPage() {
                 }}
               />
             </Card>
+            </div>
           )}
 
           {/* Ability scores (ST-056). Heading added as a stable a11y focus

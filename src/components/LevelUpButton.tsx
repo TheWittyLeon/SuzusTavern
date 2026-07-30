@@ -14,11 +14,14 @@
  * button with a reason rather than removing it, so a maxed-out character still
  * gets a clear "why not" instead of a mysteriously absent button.
  *
- * Flow: click -> ConfirmDialog -> levelUpCharacter -> refetch the sheet
- * (refetch-after-mutate — the engine is the source of truth for HP/slots/
- * features, same model as DDX-09/DDX-25's session-control handlers) -> diff
- * the pre/post sheets to report what was gained -> hand the fresh sheet up via
- * onLeveledUp so the whole page re-renders off the authoritative new state.
+ * Flow (LEVELUP-UX): click -> LevelUpDialog confirm phase (roll-or-average
+ * HP radio, roll preselected) -> levelUpCharacter(hp_mode) -> refetch the
+ * sheet (refetch-after-mutate — the engine is the source of truth for HP/
+ * slots/features, same model as DDX-09/DDX-25's session-control handlers)
+ * -> diff the pre/post sheets -> the dialog flips to its results phase (die
+ * roll from the engine's structured data.levelup, gains from the diff,
+ * resolve-choices CTA) -> hand the fresh sheet up via onLeveledUp so the
+ * whole page re-renders off the authoritative new state.
  *
  * "Success" is decided by the level ACTUALLY incrementing on the refetched
  * sheet, not by the mutate call merely resolving — see the dnd.ts contract
@@ -51,7 +54,10 @@
 import { useId, useRef, useState } from 'react';
 import Button from '@/components/Button';
 import Icon from '@/components/Icon';
-import ConfirmDialog from '@/components/ConfirmDialog';
+import LevelUpDialog, {
+  type HpMode,
+  type LevelUpDialogResult,
+} from '@/components/LevelUpDialog';
 import { useToast } from '@/components/Toast';
 import { getCharacterSheet, levelUpCharacter } from '@/lib/api/dnd';
 import type { CharacterSheet } from '@/lib/api/types';
@@ -77,6 +83,10 @@ export interface LevelUpButtonProps {
   /** Fired with the freshly-refetched sheet after a successful level-up, so
    *  the parent page re-renders every other panel off the new state too. */
   onLeveledUp: (updated: CharacterSheet) => void;
+  /** LEVELUP-UX: the results-phase "Resolve your choices" CTA — the parent
+   *  owns the pending-choices Card, so it owns getting the user there
+   *  (scroll + focus). Absent → the CTA just closes the dialog. */
+  onResolveChoices?: () => void;
   className?: string;
 }
 
@@ -119,12 +129,19 @@ export default function LevelUpButton({
   username,
   sheet,
   onLeveledUp,
+  onResolveChoices,
   className,
 }: LevelUpButtonProps) {
   const { toast } = useToast();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [gain, setGain] = useState<LevelUpGain | null>(null);
+  // LEVELUP-UX: the dialog's results phase — null while confirming, set
+  // (with the refetched sheet's pending count) after a real level-up.
+  const [dialogResult, setDialogResult] = useState<LevelUpDialogResult | null>(
+    null,
+  );
+  const [pendingCount, setPendingCount] = useState(0);
   // Micro-hardening: a hardcoded id would collide if two LevelUpButton
   // instances ever render on the same page at once.
   const reasonId = useId();
@@ -168,7 +185,7 @@ export default function LevelUpButton({
           ? `Needs ${xpShort.toLocaleString()} more XP.`
           : '';
 
-  async function confirmLevelUp() {
+  async function confirmLevelUp(hpMode: HpMode) {
     // D1: check-and-set BEFORE the first await, synchronously — closes the
     // same-tick double-click window (mirrors sessionActionBusyRef's
     // check-and-return-then-set-true ordering in play/[sessionId]/page.tsx).
@@ -182,19 +199,28 @@ export default function LevelUpButton({
       // side — see the dnd.ts contract note — so nothing past this point may
       // be reported as a level-up failure, and nothing past this point may
       // invite a retry (a retry would be a second, real level-up attempt).
+      // LEVELUP-UX: `step` is the engine's structured data.levelup block
+      // (die roll included) — null on refusal or a pre-upgrade backend.
+      let step: LevelUpDialogResult['step'] = null;
       try {
-        await levelUpCharacter(characterId, username);
+        const res = await levelUpCharacter(characterId, username, hpMode);
+        step = res.levelup ?? null;
       } catch {
+        // Dialog stays OPEN on the mutate failing (the CampaignFloorPanel/
+        // GrantCurrencyPanel convention) — the toast says "try again", so
+        // the retry affordance should still be on screen.
         toast({ message: 'Could not level up. Try again in a moment.', tone: 'error' });
-        setConfirming(false);
         return;
       }
 
       try {
         const after = await getCharacterSheet(characterId, username);
-        setConfirming(false);
         if (after.level > sheet.level) {
-          setGain(summarizeLevelUpGain(sheet, after));
+          const g = summarizeLevelUpGain(sheet, after);
+          setGain(g);
+          // Flip the dialog to its results phase instead of closing it.
+          setDialogResult({ gain: g, step });
+          setPendingCount(after.pending_choices?.length ?? 0);
           toast({
             title: 'Level up!',
             message: `${after.name} is now level ${after.level}.`,
@@ -205,6 +231,7 @@ export default function LevelUpButton({
           // call is not proof anything changed. The refetched level not moving
           // means it didn't, regardless of what the mutate response said.
           setGain(null);
+          setConfirming(false);
           toast({ message: 'Suzu says: not quite enough XP yet.', tone: 'info' });
         }
         onLeveledUp(after);
@@ -227,6 +254,11 @@ export default function LevelUpButton({
     }
   }
 
+  function closeDialog() {
+    setConfirming(false);
+    setDialogResult(null);
+  }
+
   return (
     <>
       <div className={`${styles.wrap} ${className ?? ''}`}>
@@ -235,7 +267,10 @@ export default function LevelUpButton({
           leadingIcon={<Icon name="Crown" size={14} aria-hidden />}
           disabled={!canLevelUp}
           aria-describedby={reason ? reasonId : undefined}
-          onClick={() => setConfirming(true)}
+          onClick={() => {
+            setDialogResult(null);
+            setConfirming(true);
+          }}
         >
           Level up
         </Button>
@@ -246,26 +281,24 @@ export default function LevelUpButton({
         )}
       </div>
 
-      {/* confirmLabel is deliberately "Yes, level up", not "Level up" — the
-          trigger button above already owns that exact accessible name and
-          both are on screen at once while the dialog is open (same trap as
-          DDX-25's End Session button; a same-named trigger+confirm pair
-          breaks naive getByRole('button', {name}) queries in tests). */}
-      <ConfirmDialog
+      {/* LEVELUP-UX: the two-phase dialog — confirm (roll-or-average radio)
+          then results (die roll, gains, resolve-choices CTA). Its confirm
+          button is "Yes, level up", never "Level up" — the trigger above
+          owns that accessible name (the DDX-25 same-name trap). */}
+      <LevelUpDialog
         open={confirming}
-        title={`Level up ${sheet.name}?`}
-        body={
-          <>
-            {sheet.name} will advance to level {sheet.level + 1}. HP, hit dice
-            {sheet.is_spellcaster ? ', spell slots,' : ''} and class features
-            update immediately — this can&rsquo;t be undone.
-          </>
-        }
-        confirmLabel="Yes, level up"
-        cancelLabel="Not yet"
+        characterName={sheet.name}
+        nextLevel={sheet.level + 1}
+        isSpellcaster={sheet.is_spellcaster}
         busy={busy}
-        onConfirm={() => void confirmLevelUp()}
-        onCancel={() => setConfirming(false)}
+        result={dialogResult}
+        pendingChoiceCount={pendingCount}
+        onConfirm={(hpMode) => void confirmLevelUp(hpMode)}
+        onClose={closeDialog}
+        onResolveChoices={() => {
+          closeDialog();
+          onResolveChoices?.();
+        }}
       />
 
       {/* Result announcement — polite live region, always mounted so screen

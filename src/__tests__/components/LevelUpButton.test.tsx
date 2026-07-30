@@ -61,7 +61,11 @@ const BASE: CharacterSheet = {
   inventory_weight: 0,
 };
 
-function renderButton(overrides?: Partial<CharacterSheet>, onLeveledUp = jest.fn()) {
+function renderButton(
+  overrides?: Partial<CharacterSheet>,
+  onLeveledUp = jest.fn(),
+  onResolveChoices?: () => void,
+) {
   render(
     <ToastProvider>
       <LevelUpButton
@@ -69,6 +73,7 @@ function renderButton(overrides?: Partial<CharacterSheet>, onLeveledUp = jest.fn
         username="leon"
         sheet={{ ...BASE, ...overrides }}
         onLeveledUp={onLeveledUp}
+        onResolveChoices={onResolveChoices}
       />
     </ToastProvider>,
   );
@@ -127,12 +132,20 @@ describe('LevelUpButton — confirm -> levelUpCharacter -> refetch flow', () => 
 
     fireEvent.click(screen.getByRole('button', { name: /^yes, level up$/i }));
 
-    await waitFor(() => expect(mockLevelUp).toHaveBeenCalledWith('cid-1', 'leon'));
+    // LEVELUP-UX: the roll-or-average radio defaults to 'roll'; the chosen
+    // mode rides the wrapper call.
+    await waitFor(() => expect(mockLevelUp).toHaveBeenCalledWith('cid-1', 'leon', 'roll'));
     expect(mockGetSheet).toHaveBeenCalledWith('cid-1', 'leon');
     expect(await screen.findByText(/leveled up! lv\.4 → lv\.5\./i)).toBeInTheDocument();
-    expect(screen.getByText(/\+7 hp \(now 45\)/i)).toBeInTheDocument();
-    expect(screen.getByText(/new: extra attack/i)).toBeInTheDocument();
     expect(onLeveledUp).toHaveBeenCalledWith(after);
+    // LEVELUP-UX: the dialog does NOT close on success — it flips to its
+    // results phase (die/HP/features + Done) and closes on Done.
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    // Both the dialog's results phase AND the persistent live region carry
+    // the gain — assert at least one of each text.
+    expect(screen.getAllByText(/\+7 hp/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/new: extra attack/i).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', { name: /^done$/i }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
@@ -156,9 +169,10 @@ describe('LevelUpButton — confirm -> levelUpCharacter -> refetch flow', () => 
     fireEvent.click(screen.getByRole('button', { name: /level up/i }));
     fireEvent.click(screen.getByRole('button', { name: /^yes, level up$/i }));
 
-    expect(await screen.findByText(/new spell slots:/i)).toBeInTheDocument();
-    expect(screen.getByText(/lv\.1 3→4/i)).toBeInTheDocument();
-    expect(screen.getByText(/lv\.2 0→2/i)).toBeInTheDocument();
+    // Dialog results phase + live region both render the slot line.
+    expect((await screen.findAllByText(/new spell slots:/i)).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/lv\.1 3→4/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/lv\.2 0→2/i).length).toBeGreaterThan(0);
   });
 
   it('points at the LevelChoicePicker (T13) when a gained feature is Ability Score Improvement', async () => {
@@ -177,6 +191,45 @@ describe('LevelUpButton — confirm -> levelUpCharacter -> refetch flow', () => 
     expect(await screen.findByText(/pick your ability score improvement below/i)).toBeInTheDocument();
   });
 
+  it('results phase offers Resolve-your-choices off the REFETCHED pending count and routes the CTA', async () => {
+    // LEVELUP-UX: the CTA keys on after.pending_choices (banked older
+    // choices included), and its click closes the dialog then hands off to
+    // the parent's scroll/focus callback.
+    mockLevelUp.mockResolvedValue({
+      message: 'ok',
+      levelup: {
+        from_level: 4,
+        to_level: 5,
+        hp_gain: 7,
+        hp_roll: 5,
+        hp_mode: 'roll',
+        hp_max: 45,
+        new_features: ['Ability Score Improvement'],
+        newly_queued: 1,
+      },
+    });
+    mockGetSheet.mockResolvedValue({
+      ...BASE,
+      level: 5,
+      xp_next: 14000,
+      pending_choices: [
+        { id: 'asi:4', type: 'asi', label: 'Ability Score Improvement (level 4)' },
+      ],
+    });
+    const onResolveChoices = jest.fn();
+    renderButton(undefined, undefined, onResolveChoices);
+
+    fireEvent.click(screen.getByRole('button', { name: /level up/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^yes, level up$/i }));
+
+    // The engine rolled a 5 — the results phase shows the die.
+    expect(await screen.findByText(/the die came up/i)).toBeInTheDocument();
+    const cta = screen.getByRole('button', { name: /resolve your choices/i });
+    fireEvent.click(cta);
+    expect(onResolveChoices).toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
   it('Cancel closes the dialog without calling the API', () => {
     renderButton();
     fireEvent.click(screen.getByRole('button', { name: /level up/i }));
@@ -186,7 +239,7 @@ describe('LevelUpButton — confirm -> levelUpCharacter -> refetch flow', () => 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('a rejected levelUpCharacter call surfaces an error toast and closes the dialog', async () => {
+  it('a rejected levelUpCharacter call surfaces an error toast and keeps the dialog open for retry', async () => {
     mockLevelUp.mockRejectedValue(new Error('network'));
     renderButton();
 
@@ -195,7 +248,10 @@ describe('LevelUpButton — confirm -> levelUpCharacter -> refetch flow', () => 
 
     expect(await screen.findByText(/could not level up/i)).toBeInTheDocument();
     expect(mockGetSheet).not.toHaveBeenCalled();
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    // LEVELUP-UX: the toast says "try again", so the dialog STAYS OPEN (the
+    // CampaignFloorPanel/GrantCurrencyPanel stay-open-on-failure convention).
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^yes, level up$/i })).toBeEnabled();
   });
 
   it('does not report a level-up when the refetched level did not move (engine "not enough XP" 200)', async () => {

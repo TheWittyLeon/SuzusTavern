@@ -235,8 +235,26 @@ export interface SpellBudget {
   prepared_max: number | null;
 }
 
+/**
+ * LEVELUP-UX: descriptive spell fields the info popover renders, inlined on
+ * both spell-list wires by the engine (spells_msm._spell_wire_info). ALL
+ * optional — a frontend deploy that lands before the engine enrichment
+ * ships degrades safely (undefined -> the popover simply shows what it has;
+ * the SheetSpellEntry.heals convention).
+ */
+export interface SpellWireInfo {
+  casting_time?: string;
+  range?: string;
+  /** SRD component flags: V/S true when required, M the material text (or
+   *  true). E.g. {V: true, S: true, M: "a bit of fur"}. */
+  components?: Record<string, boolean | string>;
+  duration?: string;
+  description?: string;
+  higher_levels?: string | null;
+}
+
 /** One entry in the character's own repertoire (GET /spells/:id/list). */
-export interface SheetSpellEntry {
+export interface SheetSpellEntry extends SpellWireInfo {
   slug: string;
   name: string;
   level: number;
@@ -269,7 +287,7 @@ export interface SpellListResult {
 /** One entry in the class's learnable/preparable pool (GET
  *  /spells/:id/available). Distinct from SheetSpellEntry — no `source`/
  *  `castable_now`/`is_cantrip`/`min_slot_level`; adds `in_repertoire`. */
-export interface AvailableSpellEntry {
+export interface AvailableSpellEntry extends SpellWireInfo {
   slug: string;
   name: string;
   level: number;
@@ -278,6 +296,23 @@ export interface AvailableSpellEntry {
   ritual: boolean;
   in_repertoire: boolean;
   prepared: boolean;
+}
+
+/**
+ * LEVELUP-UX: the engine's structured level-up step (POST .../levelup
+ * `data.levelup`, filled from cmd_levelup's levelup_out on an actual
+ * level-up; null/absent on refusal or a pre-upgrade backend). hp_roll is
+ * the server-side 1d(hit_die) — null on the average path.
+ */
+export interface LevelUpStep {
+  from_level: number;
+  to_level: number;
+  hp_gain: number;
+  hp_roll: number | null;
+  hp_mode: 'roll' | 'average';
+  hp_max: number;
+  new_features: string[];
+  newly_queued: number;
 }
 
 /** GET /api/dnd/spells/:id/available response data. */

@@ -83,6 +83,7 @@
  */
 import { useEffect, useId, useRef, useState } from 'react';
 import Button from '@/components/Button';
+import SpellInfoPopover from '@/components/SpellInfoPopover';
 import { useToast } from '@/components/Toast';
 import {
   getAvailableSpells,
@@ -926,16 +927,22 @@ function SpellChoiceCard({ characterId, username, sheet, choice, onResolved }: C
       const checked = picked.has(s.slug);
       const disabled = busy || (!checked && picked.size >= cap);
       return (
-        <button
-          key={s.slug}
-          type="button"
-          aria-pressed={checked}
-          className={checked ? `${styles.option} ${styles.optionOn}` : styles.option}
-          disabled={disabled}
-          onClick={() => toggle(picked, setPicked, s.slug, cap)}
-        >
-          {s.name}
-        </button>
+        // LEVELUP-UX: each option gets a SpellInfoPopover wrapper — hovering
+        // the option (or focusing/tapping its ⓘ trigger) shows casting time/
+        // range/components/duration/description, inlined on the entry by the
+        // engine. The toggle button itself is unchanged (no nested
+        // interactives — the trigger is a sibling).
+        <SpellInfoPopover key={s.slug} spell={s}>
+          <button
+            type="button"
+            aria-pressed={checked}
+            className={checked ? `${styles.option} ${styles.optionOn}` : styles.option}
+            disabled={disabled}
+            onClick={() => toggle(picked, setPicked, s.slug, cap)}
+          >
+            {s.name}
+          </button>
+        </SpellInfoPopover>
       );
     });
   }

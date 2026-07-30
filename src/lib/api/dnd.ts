@@ -38,6 +38,7 @@ import type {
   HpAdjustResult,
   Inventory,
   LearnSpellResult,
+  LevelUpStep,
   NpcActionRequest,
   NpcActionResult,
   OpeningLine,
@@ -112,11 +113,20 @@ export const getCharacter = (
 export const levelUpCharacter = (
   characterId: string,
   username: string,
+  // LEVELUP-UX: how HP gain is determined — 'roll' asks the ENGINE for an
+  // authoritative 1d(hit_die) (never rolled client-side), 'average' keeps
+  // the classic fixed formula. Omitted -> the engine's own default
+  // (average), so pre-upgrade proxies/back ends behave exactly as before.
+  hpMode?: 'roll' | 'average',
   signal?: AbortSignal,
 ) =>
-  apiCall<{ message?: string }>(
+  apiCall<{ message?: string; levelup?: LevelUpStep | null }>(
     `/api/dnd/characters/${encodeURIComponent(characterId)}/levelup`,
-    { method: 'POST', json: { username }, signal },
+    {
+      method: 'POST',
+      json: hpMode ? { username, hp_mode: hpMode } : { username },
+      signal,
+    },
   );
 
 /**
