@@ -11,12 +11,18 @@
  *
  * Interaction contract (Tora: no nested interactives, hover never fights a
  * click target):
- *   - The wrapper span is the HOVER surface: mousing over the child (the
- *     option button / spell name) or the trigger shows the panel; mousing
- *     away hides it. Hover is additive-only — it never intercepts clicks on
- *     the wrapped control.
- *   - The ⓘ trigger button is the TAP/KEYBOARD surface: click toggles a
- *     pinned-open state (touch has no hover), focus shows, blur hides.
+ *   - The wrapper span is the HOVER surface — gated on pointerType==='mouse'
+ *     (Kage M3: touch browsers synthesize mouseenter BEFORE click, which
+ *     made the first tap open-then-toggle-closed AND popped the panel over
+ *     the next tap targets when selecting a wrapped option). Mousing over
+ *     the child (the option button / spell name) or the trigger shows the
+ *     panel; mousing away hides it. Hover is additive-only — it never
+ *     intercepts clicks on the wrapped control.
+ *   - The info trigger button (Eye glyph — the icon set has no Info) is the
+ *     TAP/KEYBOARD surface: click toggles a pinned-open state (touch has no
+ *     hover), focus shows; focus leaving the WRAPPER hides (so keyboard
+ *     users can Tab into the scrollable description without the panel
+ *     vanishing under them, Kage m8).
  *   - Escape closes — routed through consumeEscape ONLY while open, so a
  *     closed popover lets Escape bubble to whatever overlay owns it.
  *   - iOS Safari doesn't focus buttons on tap (blur can never fire), so a
@@ -111,10 +117,27 @@ export default function SpellInfoPopover({
     <span
       ref={wrapRef}
       className={`${styles.wrap} ${className ?? ''}`}
-      onMouseEnter={() => setHoverOpen(true)}
-      onMouseLeave={() => {
-        setHoverOpen(false);
-        setPinned(false);
+      onPointerEnter={(e) => {
+        // Kage M3: real mouse hover ONLY — touch synthesizes mouseenter
+        // before click, which both broke the first tap on the trigger and
+        // opened the panel over the next targets when tapping the wrapped
+        // control. Touch goes through the pinned click path instead.
+        if (e.pointerType === 'mouse') setHoverOpen(true);
+      }}
+      onPointerLeave={(e) => {
+        if (e.pointerType === 'mouse') {
+          setHoverOpen(false);
+          setPinned(false);
+        }
+      }}
+      onBlur={(e) => {
+        // Kage m8: close when focus leaves the WRAPPER (focusout bubbles
+        // here), not on trigger blur — Tab from the trigger into the
+        // scrollable description must not unmount the panel mid-move.
+        if (!wrapRef.current?.contains(e.relatedTarget as Node)) {
+          setHoverOpen(false);
+          setPinned(false);
+        }
       }}
       onKeyDown={(e) => {
         // Miko P2: Escape is handled on the WRAPPER, not the trigger —
@@ -151,10 +174,6 @@ export default function SpellInfoPopover({
           }
         }}
         onFocus={() => setHoverOpen(true)}
-        onBlur={() => {
-          setHoverOpen(false);
-          setPinned(false);
-        }}
       >
         <Icon name="Eye" size={13} aria-hidden />
       </button>
@@ -183,7 +202,11 @@ export default function SpellInfoPopover({
                 </span>
               )}
               {spell.description && (
-                <span className={styles.description}>{spell.description}</span>
+                // Kage m8: the description scrolls (max-height) — tabIndex
+                // makes the scroll region keyboard-reachable (WCAG 2.1.1).
+                <span className={styles.description} tabIndex={0}>
+                  {spell.description}
+                </span>
               )}
               {spell.higher_levels && (
                 <span className={styles.description}>

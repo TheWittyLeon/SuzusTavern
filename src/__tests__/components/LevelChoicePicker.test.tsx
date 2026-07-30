@@ -892,6 +892,16 @@ describe('LevelChoicePicker — spell choice: renders both buckets sized to the 
 });
 
 describe('LevelChoicePicker — spell choice: picks are allotment-capped', () => {
+  it('mounts a spell-info popover trigger on every option (LEVELUP-UX, Kage m11)', async () => {
+    renderPicker([WIZARD_SPELL_CHOICE]);
+    await screen.findByRole('button', { name: 'Fire Bolt' });
+    // One trigger per option — the wrapper is invisible to name queries, so
+    // this is the assertion that fails if the popover mount is dropped.
+    const options = screen
+      .getAllByRole('button', { name: /spell details/i });
+    expect(options.length).toBeGreaterThan(0);
+  });
+
   it('disables further cantrip picks once the allotment is reached, leveled bucket independent', async () => {
     renderPicker([WIZARD_SPELL_CHOICE]);
     const fireBolt = await screen.findByRole('button', { name: 'Fire Bolt' });

@@ -150,6 +150,10 @@ export default function LevelUpButton({
    *  read it before either dispatch's re-render commits; a ref mutation is
    *  visible immediately to the second invocation. */
   const levelUpBusyRef = useRef(false);
+  /** Kage M2: dialog-close focus fallback — after a successful level-up the
+   *  trigger is usually disabled again (XP gate), so the dialog restores
+   *  focus HERE instead of no-op-focusing a disabled button. */
+  const wrapRef = useRef<HTMLDivElement>(null);
 
   // LVL (D5/FR-14): the gate is the SERVER's verdict — `levelup_policy` off
   // the sheet (engine level_policy.evaluate). Four states on this one
@@ -261,7 +265,7 @@ export default function LevelUpButton({
 
   return (
     <>
-      <div className={`${styles.wrap} ${className ?? ''}`}>
+      <div ref={wrapRef} tabIndex={-1} className={`${styles.wrap} ${className ?? ''}`}>
         <Button
           variant="primary"
           leadingIcon={<Icon name="Crown" size={14} aria-hidden />}
@@ -299,13 +303,18 @@ export default function LevelUpButton({
           closeDialog();
           onResolveChoices?.();
         }}
+        restoreFocusRef={wrapRef}
       />
 
       {/* Result announcement — polite live region, always mounted so screen
           readers reliably pick up the content change (WAI-ARIA authoring
-          practice); visible text too, never color-only. */}
+          practice); visible text too, never color-only. Kage m4: content is
+          withheld while the dialog is open — its results phase already
+          announces the same summary (focus lands on Done), so populating
+          both at once double-announced; the region fills on close instead,
+          keeping the persistent on-page record. */}
       <div role="status" aria-live="polite" className={styles.result}>
-        {gain && (
+        {gain && !confirming && (
           <p>
             <strong>
               Leveled up! Lv.{gain.fromLevel} → Lv.{gain.toLevel}.

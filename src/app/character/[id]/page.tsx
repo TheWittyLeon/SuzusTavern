@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import { useAuthGate } from '@/lib/auth/useAuthGate';
+import { useReducedMotion } from '@/lib/useReducedMotion';
 import { getCharacterSheet } from '@/lib/api/dnd';
 import DeleteCharacterButton from '@/components/DeleteCharacterButton';
 import LevelUpButton from '@/components/LevelUpButton';
@@ -101,8 +102,10 @@ export default function CharacterPage() {
   // >0 -> 0 transition, never on the initial load (which may already be 0).
   const abilityHeadingRef = useRef<HTMLHeadingElement>(null);
   // LEVELUP-UX: scroll/focus target for the dialog's "Resolve your choices"
-  // CTA — a tabIndex={-1} wrapper around the pending-choices Card.
-  const pendingChoicesRef = useRef<HTMLDivElement>(null);
+  // CTA — the pending-choices Card itself (Card forwards its root ref and
+  // spreads tabIndex; Kage m7 — no extra wrapper DOM node needed).
+  const pendingChoicesRef = useRef<HTMLElement>(null);
+  const reducedMotion = useReducedMotion();
   const prevPendingCountRef = useRef(sheet?.pending_choices?.length ?? 0);
   useEffect(() => {
     const count = sheet?.pending_choices?.length ?? 0;
@@ -290,7 +293,10 @@ export default function CharacterPage() {
                   requestAnimationFrame(() => {
                     pendingChoicesRef.current?.scrollIntoView({
                       block: 'start',
-                      behavior: 'smooth',
+                      // Kage m6: the JS option overrides CSS scroll-behavior,
+                      // so honor prefers-reduced-motion here explicitly (the
+                      // codex page's convention).
+                      behavior: reducedMotion ? 'auto' : 'smooth',
                     });
                     pendingChoicesRef.current?.focus({ preventScroll: true });
                   });
@@ -307,8 +313,7 @@ export default function CharacterPage() {
               pending, not merely empty, mirroring LevelUpButton's own
               own-Card-per-affordance split. */}
           {username && isOwner && (sheet.pending_choices?.length ?? 0) > 0 && (
-            <div ref={pendingChoicesRef} tabIndex={-1}>
-            <Card>
+            <Card ref={pendingChoicesRef} tabIndex={-1}>
               {/* LVL (Aoi gap A): a floor walk (or several banked manual
                   level-ups) stacks 2+ choice cards at once — one framing
                   sentence turns "unrelated-looking cards" into one climb.
@@ -333,7 +338,6 @@ export default function CharacterPage() {
                 }}
               />
             </Card>
-            </div>
           )}
 
           {/* Ability scores (ST-056). Heading added as a stable a11y focus

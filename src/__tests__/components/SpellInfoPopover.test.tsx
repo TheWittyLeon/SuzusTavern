@@ -17,6 +17,23 @@ import SpellInfoPopover, {
   formatComponents,
 } from '../../components/SpellInfoPopover';
 
+/** jsdom has no PointerEvent, and React synthesizes onPointerEnter/-Leave
+ *  from bubbling pointerover/pointerout pairs — so build THOSE by hand with
+ *  an outside relatedTarget and stamp pointerType (which the component
+ *  gates on). */
+function firePointer(
+  el: Element,
+  type: 'pointerenter' | 'pointerleave',
+  pointerType: 'mouse' | 'touch',
+) {
+  const evt = new MouseEvent(
+    type === 'pointerenter' ? 'pointerover' : 'pointerout',
+    { bubbles: true, cancelable: true, relatedTarget: document.body },
+  );
+  Object.defineProperty(evt, 'pointerType', { value: pointerType });
+  fireEvent(el, evt);
+}
+
 const FIREBALL = {
   name: 'Fireball',
   level: 3,
@@ -105,29 +122,70 @@ describe('SpellInfoPopover', () => {
     expect(screen.getByText(/cantrip · evocation/i)).toBeInTheDocument();
   });
 
-  it('hover on the wrapper opens; mouseleave closes (and unpins)', () => {
+  it('mouse hover on the wrapper opens; mouse leave closes (and unpins)', () => {
     render(<SpellInfoPopover spell={FIREBALL}>Fireball</SpellInfoPopover>);
     const trigger = screen.getByRole('button', { name: /spell details/i });
     const wrap = trigger.parentElement as HTMLElement;
 
-    fireEvent.mouseEnter(wrap);
+    firePointer(wrap, 'pointerenter', 'mouse');
     expect(trigger).toHaveAttribute('aria-expanded', 'true');
-    fireEvent.mouseLeave(wrap);
+    firePointer(wrap, 'pointerleave', 'mouse');
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
 
     // Pinned open by click, then the mouse leaves — must still close.
-    fireEvent.mouseEnter(wrap);
+    firePointer(wrap, 'pointerenter', 'mouse');
     fireEvent.click(trigger);
-    fireEvent.mouseLeave(wrap);
+    firePointer(wrap, 'pointerleave', 'mouse');
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('focus opens, blur closes', () => {
+  it('touch: synthesized pointerenter does NOT open, so the FIRST tap on the trigger opens (Kage M3)', () => {
+    render(<SpellInfoPopover spell={FIREBALL}>Fireball</SpellInfoPopover>);
+    const trigger = screen.getByRole('button', { name: /spell details/i });
+    const wrap = trigger.parentElement as HTMLElement;
+
+    // Touch browsers synthesize enter-before-click on the first tap — the
+    // old mouseenter listener turned that into open-then-toggle-closed.
+    firePointer(wrap, 'pointerenter', 'touch');
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    // And the second tap closes.
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('touch: tapping the WRAPPED control does not pop the panel over the next targets (Kage M3)', () => {
+    const onPick = jest.fn();
+    render(
+      <SpellInfoPopover spell={FIREBALL}>
+        <button type="button" onClick={onPick}>Fireball</button>
+      </SpellInfoPopover>,
+    );
+    const trigger = screen.getByRole('button', { name: /spell details/i });
+    const child = screen.getByRole('button', { name: 'Fireball' });
+    const wrap = trigger.parentElement as HTMLElement;
+
+    firePointer(wrap, 'pointerenter', 'touch');
+    fireEvent.click(child);
+    expect(onPick).toHaveBeenCalled();
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('focus opens; focus leaving the wrapper closes; focus moving INTO the panel does not', () => {
     render(<SpellInfoPopover spell={FIREBALL}>Fireball</SpellInfoPopover>);
     const trigger = screen.getByRole('button', { name: /spell details/i });
     fireEvent.focus(trigger);
     expect(trigger).toHaveAttribute('aria-expanded', 'true');
-    fireEvent.blur(trigger);
+
+    // Kage m8: Tab from the trigger into the scrollable description
+    // (tabIndex=0) must NOT unmount the panel mid-move.
+    const description = screen.getByText(/bright streak flashes/i);
+    fireEvent.blur(trigger, { relatedTarget: description });
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+
+    // Focus leaving the wrapper entirely closes.
+    fireEvent.blur(description, { relatedTarget: document.body });
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
   });
 
@@ -168,7 +226,7 @@ describe('SpellInfoPopover', () => {
     const child = screen.getByRole('button', { name: 'Fireball' });
     const wrap = trigger.parentElement as HTMLElement;
 
-    fireEvent.mouseEnter(wrap);
+    firePointer(wrap, 'pointerenter', 'mouse');
     expect(trigger).toHaveAttribute('aria-expanded', 'true');
     child.focus();
     fireEvent.keyDown(child, { key: 'Escape' });

@@ -136,17 +136,18 @@ describe('LevelUpButton — confirm -> levelUpCharacter -> refetch flow', () => 
     // mode rides the wrapper call.
     await waitFor(() => expect(mockLevelUp).toHaveBeenCalledWith('cid-1', 'leon', 'roll'));
     expect(mockGetSheet).toHaveBeenCalledWith('cid-1', 'leon');
-    expect(await screen.findByText(/leveled up! lv\.4 → lv\.5\./i)).toBeInTheDocument();
-    expect(onLeveledUp).toHaveBeenCalledWith(after);
     // LEVELUP-UX: the dialog does NOT close on success — it flips to its
     // results phase (die/HP/features + Done) and closes on Done.
+    expect(await screen.findByText(/level up! lv\.4 → lv\.5/i)).toBeInTheDocument();
+    expect(onLeveledUp).toHaveBeenCalledWith(after);
     expect(screen.getByRole('dialog')).toBeInTheDocument();
-    // Both the dialog's results phase AND the persistent live region carry
-    // the gain — assert at least one of each text.
     expect(screen.getAllByText(/\+7 hp/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/new: extra attack/i).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole('button', { name: /^done$/i }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    // Kage m4: the persistent live region fills on CLOSE (the dialog already
+    // announced the same summary while open).
+    expect(screen.getByText(/leveled up! lv\.4 → lv\.5\./i)).toBeInTheDocument();
   });
 
   it('surfaces new spell slots for a caster', async () => {
@@ -188,6 +189,9 @@ describe('LevelUpButton — confirm -> levelUpCharacter -> refetch flow', () => 
     fireEvent.click(screen.getByRole('button', { name: /level up/i }));
     fireEvent.click(screen.getByRole('button', { name: /^yes, level up$/i }));
 
+    // Kage m4: the live region (which carries this pointer) fills when the
+    // results dialog closes.
+    fireEvent.click(await screen.findByRole('button', { name: /^done$/i }));
     expect(await screen.findByText(/pick your ability score improvement below/i)).toBeInTheDocument();
   });
 

@@ -276,7 +276,19 @@ describe('LevelUpButton adversarial — result region is a real announced live r
     fireEvent.click(screen.getByRole('button', { name: /^level up$/i }));
     fireEvent.click(screen.getByRole('button', { name: /^yes, level up$/i }));
 
-    const status = await screen.findByRole('status');
-    await waitFor(() => expect(status).toHaveTextContent(/leveled up! lv\.4 → lv\.5\./i));
+    // Kage m4: the live region is deliberately withheld while the results
+    // dialog is open (the dialog already announces via focus) — it fills
+    // when the dialog closes.
+    fireEvent.click(await screen.findByRole('button', { name: /^done$/i }));
+    // The success toast is ALSO role="status" and may still be mounted at
+    // this point — assert the gain summary lands in at least one of them.
+    await waitFor(() => {
+      const statuses = screen.getAllByRole('status');
+      expect(
+        statuses.some((s) =>
+          /leveled up! lv\.4 → lv\.5\./i.test(s.textContent ?? ''),
+        ),
+      ).toBe(true);
+    });
   });
 });

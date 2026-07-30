@@ -215,6 +215,12 @@ describe('SpellbookPanel — Known tab rendering', () => {
     expect(screen.getByText('Magic Missile')).toBeInTheDocument();
     expect(screen.getByText('Shield')).toBeInTheDocument();
     expect(screen.getByText('prepared')).toBeInTheDocument();
+    // LEVELUP-UX (Kage m11): the spell-info popover trigger is mounted on
+    // every row in this host — the wrapper is invisible to getByText, so
+    // this is the one assertion that fails if the mount is dropped.
+    expect(
+      screen.getAllByRole('button', { name: /spell details/i }).length,
+    ).toBeGreaterThan(0);
   });
 
   it('renders the empty-spellbook graceful message for a caster with nothing known yet', async () => {

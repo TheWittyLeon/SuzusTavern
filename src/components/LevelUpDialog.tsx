@@ -64,6 +64,12 @@ export interface LevelUpDialogProps {
   /** Results-phase "Resolve your choices" CTA — the parent closes and moves
    *  the user to the picker. Falls back to onClose when absent. */
   onResolveChoices?: () => void;
+  /** Kage M2: where focus lands on close when the remembered trigger can't
+   *  take it — after a successful level-up the parent's sheet re-renders
+   *  and the trigger is usually DISABLED (XP-gated again), so restoring to
+   *  it is a silent no-op that strands keyboard/SR users at <body>. A ref
+   *  (stable identity) so the focus effect never re-runs mid-open. */
+  restoreFocusRef?: React.RefObject<HTMLElement | null>;
 }
 
 export default function LevelUpDialog({
@@ -77,6 +83,7 @@ export default function LevelUpDialog({
   onConfirm,
   onClose,
   onResolveChoices,
+  restoreFocusRef,
 }: LevelUpDialogProps) {
   const [hpMode, setHpMode] = useState<HpMode>('roll');
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -106,8 +113,25 @@ export default function LevelUpDialog({
     const t = setTimeout(() => cancelRef.current?.focus(), 0);
     return () => {
       clearTimeout(t);
-      previouslyFocused.current?.focus?.();
+      // Kage M2: the remembered trigger may be disabled (sheet re-rendered
+      // post-level-up) or gone — .focus() on it is a silent no-op that
+      // drops focus at <body>. Fall back to the parent's stable container
+      // (the CampaignFloorPanel g2 rescue pattern).
+      const prev = previouslyFocused.current;
+      const prevUsable =
+        prev &&
+        document.contains(prev) &&
+        !(prev as HTMLButtonElement).disabled;
+      if (prevUsable) {
+        prev.focus?.();
+      } else {
+        restoreFocusRef?.current?.focus?.();
+      }
     };
+    // restoreFocusRef is a ref (stable) — deliberately not a dep; re-running
+    // this effect mid-open would re-capture previouslyFocused as a node
+    // INSIDE the dialog.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   // Phase flip: move focus to the results-phase primary so SR users hear
@@ -244,16 +268,13 @@ export default function LevelUpDialog({
                 variant="primary"
                 disabled={busy}
                 aria-busy={busy || undefined}
-                aria-label={
-                  busy
-                    ? hpMode === 'roll'
-                      ? 'Rolling…'
-                      : 'Leveling up…'
-                    : undefined
-                }
                 onClick={() => onConfirm(hpMode)}
               >
-                {busy ? (hpMode === 'roll' ? 'Rolling…' : '…') : 'Yes, level up'}
+                {busy
+                  ? hpMode === 'roll'
+                    ? 'Rolling…'
+                    : 'Saving…'
+                  : 'Yes, level up'}
               </Button>
             </div>
           </>
