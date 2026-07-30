@@ -172,7 +172,7 @@ describe('applyRacialBonuses — subrace + Half-Elf ASI (TAV-CREATE-SUBRACE-ASI-
   });
 });
 
-describe('derivedStats (helpers — mirrors cmd_create level-1 math)', () => {
+describe('derivedStats (helpers — display-only preview of cmd_create level-1 math)', () => {
   it('Fighter d10 + CON 14 → 12 HP, AC 10 + DEX mod', () => {
     const scores: AbilityScores = {
       strength: 14,
