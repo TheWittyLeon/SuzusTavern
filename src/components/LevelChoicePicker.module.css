@@ -167,3 +167,13 @@
   border-color: var(--accent-2);
   box-shadow: 0 0 0 2px var(--accent-2);
 }
+
+/* FEAT-PREREQ-UX: inline requirement note on a prereq-unmet feat option —
+   rendered inside the (disabled) option button, so it inherits the disabled
+   opacity; --ink-2 keeps the note itself readable per the Iro CRITICAL-2
+   token rule above (load-bearing "why is this disabled" text, not a caption). */
+.prereqNote {
+  font-size: 11px;
+  color: var(--ink-2);
+  font-style: italic;
+}

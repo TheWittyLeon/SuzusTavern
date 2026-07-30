@@ -1339,3 +1339,72 @@ describe('feat-mode fetch does not abort itself', () => {
     expect(screen.getByRole('radio', { name: /grappler/i })).toBeInTheDocument();
   });
 });
+
+describe('LevelChoicePicker — FEAT-PREREQ-UX (prereq-unmet feats disabled inline)', () => {
+  // The real wire Grappler row DOES carry prerequisites (5e-bits abbreviated
+  // ability names — scripts/import_srd.py::transform_feat emits ["STR"]);
+  // the base FEAT_ITEMS fixture's data:{} models a prereq-less feat, which is
+  // why every earlier test keeps passing unchanged.
+  const GRAPPLER_WITH_PREREQ: CatalogItem[] = [
+    {
+      slug: 'grappler',
+      name: 'Grappler',
+      content_type: 'feat',
+      source_type: 'srd',
+      data: { prerequisites: ['STR'], description: 'You are a grappler.' },
+    },
+  ];
+
+  function mockFeatCatalog() {
+    mockGetCatalog.mockImplementation((_system: string, opts: { type?: string }) => {
+      if (opts?.type === 'feat') return Promise.resolve(catalogResponse(GRAPPLER_WITH_PREREQ));
+      return Promise.resolve(catalogResponse(SUBCLASS_ITEMS));
+    });
+  }
+
+  it('an unmet feat renders disabled with the requirement inline, is never auto-selected, arrow-nav skips it, and Confirm stays disabled', async () => {
+    mockFeatCatalog();
+    renderPicker([ASI_CHOICE], {
+      ability_scores: { ...BASE_SHEET.ability_scores, strength: ability(9, -1) },
+    });
+    fireEvent.click(screen.getByRole('radio', { name: 'Take a feat' }));
+
+    // Requirement is part of the option's own text — screen-reader users
+    // hear the "why" with the name, not just "dimmed, unavailable".
+    const opt = await screen.findByRole('radio', { name: /Grappler — requires STR 13/i });
+    expect(opt).toBeDisabled();
+    expect(opt).toHaveAttribute('aria-checked', 'false');
+
+    // Every offered feat unmet → the steering hint renders.
+    expect(
+      screen.getByText(/doesn’t meet any offered feat’s prerequisites/i),
+    ).toBeInTheDocument();
+
+    // Arrow movement SELECTS in a radio group — it must skip unmet options
+    // rather than arm a pick the engine can only refuse.
+    fireEvent.keyDown(screen.getByRole('radiogroup', { name: 'Feat (level 4)' }), {
+      key: 'ArrowRight',
+    });
+    expect(opt).toHaveAttribute('aria-checked', 'false');
+
+    expect(screen.getByRole('button', { name: /confirm feat/i })).toBeDisabled();
+    expect(mockResolve).not.toHaveBeenCalled();
+  });
+
+  it('the same feat with the prereq met stays enabled, auto-selected, and resolvable', async () => {
+    mockFeatCatalog();
+    renderPicker([ASI_CHOICE]); // BASE_SHEET: STR 16 — met
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Take a feat' }));
+    const opt = await screen.findByRole('radio', { name: 'Grappler' });
+    expect(opt).toBeEnabled();
+    expect(opt).toHaveAttribute('aria-checked', 'true'); // auto-selected
+
+    fireEvent.click(screen.getByRole('button', { name: /confirm feat/i }));
+    await flush();
+    expect(mockResolve).toHaveBeenCalledWith('cid-1', 'leon', 'asi:4', {
+      mode: 'feat',
+      feat: 'grappler',
+    });
+  });
+});

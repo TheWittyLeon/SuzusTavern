@@ -149,6 +149,32 @@ function resolveErrorMessage(err: unknown): string {
 // engine's own allowlist grows.
 const ASI_ELIGIBLE_FEAT_SLUGS = new Set<string>(['grappler']);
 
+// FEAT-PREREQ-UX: client mirror of the engine's best-effort feat-prereq
+// check (_resolve_asi_feat): a `prerequisites` entry naming an ability (the
+// wire carries 5e-bits' abbreviated names, e.g. "STR" for Grappler) requires
+// a score of 13+ in that ability. Only ability minimums are understood, and
+// the threshold is the same hardcoded 13 — deliberately, so the disabled
+// state here always agrees with the `feat_prereq_unmet` refusal the engine
+// would return for the same pick. Returns the unmet requirements as display
+// strings ("STR 13"), empty when the character qualifies.
+function unmetFeatPrereqs(item: CatalogItem, sheet: CharacterSheet): string[] {
+  const raw = (item.data as { prerequisites?: unknown }).prerequisites;
+  const prereqs = Array.isArray(raw) ? raw : [];
+  const unmet: string[] = [];
+  for (const entry of prereqs) {
+    const text = String(entry ?? '')
+      .trim()
+      .toLowerCase();
+    const ability = ABILITIES.find(
+      (a) => text === a.abbr.toLowerCase() || text.includes(a.key),
+    );
+    if (ability && (sheet.ability_scores[ability.key]?.score ?? 10) < 13) {
+      unmet.push(`${ability.abbr} 13`);
+    }
+  }
+  return unmet;
+}
+
 const SYSTEM = 'dnd5e';
 
 /** A11Y (Iro CRITICAL-1): roving-tabindex radiogroup arrow-key nav, mirrors
@@ -490,7 +516,15 @@ function AsiChoiceCard({ characterId, username, sheet, choice, onResolved }: Cho
           (item) => ASI_ELIGIBLE_FEAT_SLUGS.has(item.slug) && !alreadyTaken.has(item.slug),
         );
         setFeats(eligible);
-        setSelectedFeat((prev) => prev || eligible[0]?.slug || '');
+        // FEAT-PREREQ-UX: auto-select the first feat the character actually
+        // QUALIFIES for — never a prereq-unmet one (those render disabled,
+        // and pre-selecting one would arm a Confirm that can only refuse).
+        setSelectedFeat(
+          (prev) =>
+            prev ||
+            eligible.find((f) => unmetFeatPrereqs(f, sheet).length === 0)?.slug ||
+            '',
+        );
         setFeatLoadState('ok');
       })
       .catch(() => {
@@ -564,9 +598,14 @@ function AsiChoiceCard({ characterId, username, sheet, choice, onResolved }: Cho
       successMessage = `${sheet.name}'s Ability Score Improvement: ${allocationNames}.`;
     } else {
       if (!selectedFeat) return;
+      // FEAT-PREREQ-UX backstop: the unmet options are disabled and skipped
+      // by arrow-nav, so this should be unreachable — but a stale selection
+      // (e.g. scores changed under us via a sibling ASI card) must never
+      // submit a pick the engine will refuse.
+      const chosen = feats?.find((f) => f.slug === selectedFeat);
+      if (!chosen || unmetFeatPrereqs(chosen, sheet).length > 0) return;
       selection = { mode: 'feat', feat: selectedFeat };
-      const featName = feats?.find((f) => f.slug === selectedFeat)?.name ?? selectedFeat;
-      successMessage = `${sheet.name} takes the ${featName} feat!`;
+      successMessage = `${sheet.name} takes the ${chosen.name} feat!`;
     }
 
     busyRef.current = true;
@@ -722,39 +761,71 @@ function AsiChoiceCard({ characterId, username, sheet, choice, onResolved }: Cho
             </p>
           )}
           {featLoadState === 'ok' && feats && feats.length > 0 && (
-            <div
-              className={styles.optionRow}
-              role="radiogroup"
-              aria-label={`Feat (level ${choice.level})`}
-              onKeyDown={(e) => {
-                const idx = feats.findIndex((f) => f.slug === selectedFeat);
-                const next = radioStepIndex(e.key, idx, feats.length);
-                if (next === null) return;
-                e.preventDefault();
-                setSelectedFeat(feats[next].slug);
-                featRefs.current[next]?.focus();
-              }}
-            >
-              {feats.map((f, i) => (
-                <button
-                  key={f.slug}
-                  ref={(el) => {
-                    featRefs.current[i] = el;
-                  }}
-                  type="button"
-                  role="radio"
-                  aria-checked={selectedFeat === f.slug}
-                  tabIndex={selectedFeat === f.slug ? 0 : -1}
-                  className={
-                    selectedFeat === f.slug ? `${styles.option} ${styles.optionOn}` : styles.option
+            <>
+              <div
+                className={styles.optionRow}
+                role="radiogroup"
+                aria-label={`Feat (level ${choice.level})`}
+                onKeyDown={(e) => {
+                  // FEAT-PREREQ-UX: arrow-nav must skip prereq-unmet feats —
+                  // they're disabled below, and arrow movement SELECTS in a
+                  // radio group, so stepping onto one would arm a pick the
+                  // engine can only refuse. Walk until an enabled option is
+                  // found (bounded by the list length).
+                  let idx = feats.findIndex((f) => f.slug === selectedFeat);
+                  for (let step = 0; step < feats.length; step += 1) {
+                    const next = radioStepIndex(e.key, idx, feats.length);
+                    if (next === null) return;
+                    if (unmetFeatPrereqs(feats[next], sheet).length === 0) {
+                      e.preventDefault();
+                      setSelectedFeat(feats[next].slug);
+                      featRefs.current[next]?.focus();
+                      return;
+                    }
+                    idx = next;
                   }
-                  disabled={busy}
-                  onClick={() => setSelectedFeat(f.slug)}
-                >
-                  {f.name}
-                </button>
-              ))}
-            </div>
+                  e.preventDefault(); // every option unmet — nothing to move to
+                }}
+              >
+                {feats.map((f, i) => {
+                  // FEAT-PREREQ-UX: a feat the character can't take renders
+                  // disabled with the requirement inline — the old behavior
+                  // offered it as the ONLY option and let the (correct)
+                  // refusal toast be the first hint.
+                  const unmet = unmetFeatPrereqs(f, sheet);
+                  return (
+                    <button
+                      key={f.slug}
+                      ref={(el) => {
+                        featRefs.current[i] = el;
+                      }}
+                      type="button"
+                      role="radio"
+                      aria-checked={selectedFeat === f.slug}
+                      tabIndex={selectedFeat === f.slug ? 0 : -1}
+                      className={
+                        selectedFeat === f.slug
+                          ? `${styles.option} ${styles.optionOn}`
+                          : styles.option
+                      }
+                      disabled={busy || unmet.length > 0}
+                      onClick={() => setSelectedFeat(f.slug)}
+                    >
+                      {f.name}
+                      {unmet.length > 0 && (
+                        <span className={styles.prereqNote}> — requires {unmet.join(', ')}</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              {feats.every((f) => unmetFeatPrereqs(f, sheet).length > 0) && (
+                <p className={styles.hint} aria-live="polite" aria-atomic="true">
+                  {sheet.name} doesn&rsquo;t meet any offered feat&rsquo;s prerequisites —
+                  choose an ability increase instead.
+                </p>
+              )}
+            </>
           )}
         </>
       )}
