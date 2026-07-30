@@ -56,8 +56,13 @@ export interface SpellInfoPopoverProps {
   /** INVOC: what the trigger's accessible name calls the content —
    *  "Spell details" by default; the invocation picker and the sheet's
    *  feature-choices block pass "Feature details" so SR users aren't told
-   *  an invocation is a spell. Also swaps the empty-state noun. */
+   *  an invocation is a spell. */
   detailsLabel?: string;
+  /** Kage m9: the empty-state copy, its OWN prop rather than a comparison
+   *  against the detailsLabel default (which silently flipped the copy for
+   *  any caller passing "Spell details" explicitly, and would break on a
+   *  default rename). */
+  emptyLabel?: string;
 }
 
 /** {V:true, S:true, M:'a bit of fur'} → "V, S, M (a bit of fur)". Exported
@@ -77,6 +82,7 @@ export default function SpellInfoPopover({
   children,
   className,
   detailsLabel = 'Spell details',
+  emptyLabel = 'No details available for this spell yet.',
 }: SpellInfoPopoverProps) {
   const [hoverOpen, setHoverOpen] = useState(false);
   const [pinned, setPinned] = useState(false);
@@ -225,11 +231,7 @@ export default function SpellInfoPopover({
               )}
             </>
           ) : (
-            <span className={styles.description}>
-              {detailsLabel === 'Spell details'
-                ? 'No details available for this spell yet.'
-                : 'No details available yet.'}
-            </span>
+            <span className={styles.description}>{emptyLabel}</span>
           )}
         </span>
       )}

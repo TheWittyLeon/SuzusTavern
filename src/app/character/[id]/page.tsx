@@ -559,8 +559,9 @@ export default function CharacterPage() {
               .filter((group) => group.picks.length > 0)
               .map((group) => (
                 <div key={group.label}>
-                  {/* h3 — nested under this card's "Features" h2. */}
-                  <h3 className="label" style={{ margin: '10px 0 6px', fontSize: 11 }}>
+                  {/* h3 — nested under this card's "Features" h2. Kage S1:
+                      no raw fontSize override — .label owns the type scale. */}
+                  <h3 className="label" style={{ margin: '10px 0 6px' }}>
                     {group.label}
                   </h3>
                   <ul className={styles.featureList}>

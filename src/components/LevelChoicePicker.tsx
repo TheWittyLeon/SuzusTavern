@@ -174,8 +174,13 @@ function unmetFeatPrereqs(item: CatalogItem, sheet: CharacterSheet): string[] {
     const text = String(entry ?? '')
       .trim()
       .toLowerCase();
+    // Kage I4 (INVOC r1): EXACT match only — the engine normalizes the
+    // whole string and requires exact membership in ABILITIES, so a
+    // full-sentence prereq ("Strength 13 or higher") is NOT enforced
+    // server-side. A substring match here would block a feat the engine
+    // allows, with a threshold this client invented. Mirror = exact.
     const ability = ABILITIES.find(
-      (a) => text === a.abbr.toLowerCase() || text.includes(a.key),
+      (a) => text === a.abbr.toLowerCase() || text === a.key,
     );
     if (ability && (sheet.ability_scores[ability.key]?.score ?? 10) < 13) {
       unmet.push(`${ability.abbr} 13`);
@@ -1176,6 +1181,13 @@ function FeatureChoiceCard({ characterId, username, sheet, choice, onResolved }:
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [swapDrop, setSwapDrop] = useState('');
   const [swapAdd, setSwapAdd] = useState('');
+  // Kage I3 (INVOC r1): the swap section duplicates the entire option pool
+  // (~124 tab stops on one card for an L5 warlock) for an optional feature
+  // most resolutions never use — collapsed behind a disclosure; the lists
+  // only render (and only enter the tab order) while open. Closing it
+  // clears any partial swap so a hidden half-selection can't hold Confirm
+  // hostage.
+  const [swapOpen, setSwapOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   /** Synchronous double-submit latch — same useRef pattern as the sibling cards. */
   const busyRef = useRef(false);
@@ -1213,8 +1225,10 @@ function FeatureChoiceCard({ characterId, username, sheet, choice, onResolved }:
   // ordinary in-progress state). Detect it and say so below.
   const eligibleCount = pool.filter((o) => o.level <= sheet.level).length;
   const shortfall = options.length > 0 && eligibleCount < cap;
+  // cap >= 1 pairs with the render-side dead-end (Kage m6): a malformed
+  // count-less entry must never be confirmable at zero picks.
   const canConfirm =
-    !busy && options.length > 0 && picked.size === cap && swapComplete;
+    !busy && options.length > 0 && cap >= 1 && picked.size === cap && swapComplete;
 
   async function handleResolve() {
     if (busyRef.current || !canConfirm) return;
@@ -1239,8 +1253,14 @@ function FeatureChoiceCard({ characterId, username, sheet, choice, onResolved }:
           .filter((o) => picked.has(o.slug))
           .map((o) => o.name)
           .join(', ');
+        // Kage m13: a swap deserves confirmation too — the engine's own
+        // message includes it, the toast shouldn't drop it.
+        const swapNote =
+          selection.swap != null
+            ? ` (swapped ${known.find((o) => o.slug === selection.swap?.drop)?.name ?? selection.swap.drop} for ${options.find((o) => o.slug === selection.swap?.add)?.name ?? selection.swap.add})`
+            : '';
         toast({
-          message: `${sheet.name} learns ${names || menuLabel}!`,
+          message: `${sheet.name} learns ${names || menuLabel}${swapNote}!`,
           tone: 'success',
         });
       } catch {
@@ -1290,10 +1310,10 @@ function FeatureChoiceCard({ characterId, username, sheet, choice, onResolved }:
       <h3 id={headingId} className={styles.cardLabel}>
         {choice.label}
       </h3>
-      {options.length === 0 ? (
-        // Enrichment missing (shouldn't happen on a same-version backend —
-        // the engine only queues feature_choice WITH sheet-time options).
-        // Honest dead-end rather than a confirmable empty pick.
+      {options.length === 0 || cap < 1 ? (
+        // Enrichment missing OR a malformed/legacy entry with no count
+        // (Kage m6: cap 0 used to make Confirm enable at zero picks and
+        // silently consume the choice). Honest dead-end either way.
         <p className={styles.emptyRow} aria-live="polite" aria-atomic="true">
           The {menuLabel} menu isn&rsquo;t available right now — reload the sheet
           to try again.
@@ -1324,50 +1344,73 @@ function FeatureChoiceCard({ characterId, username, sheet, choice, onResolved }:
           </div>
           {known.length > 0 && (
             <>
-              <p id={swapHintId} className={styles.hint}>
-                Optional: swap one known pick (choose one to drop AND its
-                replacement, or leave both unselected)
-              </p>
-              {/* Miko P2-1 rider: a half-selected swap silently disabled
-                  Confirm — name the reason while it's incomplete. */}
-              {!swapComplete && (
-                <p className={styles.emptyRow} aria-live="polite" aria-atomic="true">
-                  Finish the swap ({swapDrop ? 'pick its replacement' : 'pick what to drop'})
-                  or clear it to confirm.
-                </p>
-              )}
-              <div role="group" aria-labelledby={swapHintId}>
-                <p className={styles.levelSubLabel}>Drop</p>
-                <div className={styles.optionRow}>
-                  {known.map((o) =>
-                    optionButton(
-                      o,
-                      swapDrop === o.slug,
-                      () => {
-                        if (busy) return;
-                        setSwapDrop((prev) => (prev === o.slug ? '' : o.slug));
-                      },
-                      false,
-                    ),
+              {/* Kage I3: disclosure — the drop/add lists (a near-full
+                  second copy of the pool) render only while open. */}
+              <Button
+                variant="ghost"
+                size="default"
+                aria-expanded={swapOpen}
+                disabled={busy}
+                onClick={() => {
+                  if (swapOpen) {
+                    // Closing clears any partial swap — a hidden
+                    // half-selection must not keep Confirm disabled.
+                    setSwapDrop('');
+                    setSwapAdd('');
+                  }
+                  setSwapOpen((v) => !v);
+                }}
+              >
+                {swapOpen ? 'Hide swap' : 'Swap a known pick…'}
+              </Button>
+              {swapOpen && (
+                <>
+                  <p id={swapHintId} className={styles.hint}>
+                    Optional: swap one known pick (choose one to drop AND its
+                    replacement, or leave both unselected)
+                  </p>
+                  {/* Miko P2-1 rider: a half-selected swap silently disabled
+                      Confirm — name the reason while it's incomplete. */}
+                  {!swapComplete && (
+                    <p className={styles.emptyRow} aria-live="polite" aria-atomic="true">
+                      Finish the swap ({swapDrop ? 'pick its replacement' : 'pick what to drop'})
+                      or clear it to confirm.
+                    </p>
                   )}
-                </div>
-                <p className={styles.levelSubLabel}>Add instead</p>
-                <div className={styles.optionRow}>
-                  {pool
-                    .filter((o) => !picked.has(o.slug))
-                    .map((o) =>
-                      optionButton(
-                        o,
-                        swapAdd === o.slug,
-                        () => {
-                          if (busy) return;
-                          setSwapAdd((prev) => (prev === o.slug ? '' : o.slug));
-                        },
-                        false,
-                      ),
-                    )}
-                </div>
-              </div>
+                  <div role="group" aria-labelledby={swapHintId}>
+                    <p className={styles.levelSubLabel}>Drop</p>
+                    <div className={styles.optionRow}>
+                      {known.map((o) =>
+                        optionButton(
+                          o,
+                          swapDrop === o.slug,
+                          () => {
+                            if (busy) return;
+                            setSwapDrop((prev) => (prev === o.slug ? '' : o.slug));
+                          },
+                          false,
+                        ),
+                      )}
+                    </div>
+                    <p className={styles.levelSubLabel}>Add instead</p>
+                    <div className={styles.optionRow}>
+                      {pool
+                        .filter((o) => !picked.has(o.slug))
+                        .map((o) =>
+                          optionButton(
+                            o,
+                            swapAdd === o.slug,
+                            () => {
+                              if (busy) return;
+                              setSwapAdd((prev) => (prev === o.slug ? '' : o.slug));
+                            },
+                            false,
+                          ),
+                        )}
+                    </div>
+                  </div>
+                </>
+              )}
             </>
           )}
         </>

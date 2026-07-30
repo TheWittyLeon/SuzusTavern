@@ -598,6 +598,21 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
+  it('Kage m12 pin: the synthetic overlay renders NO source badge — not an empty pill (source_type is deliberately blank)', async () => {
+    await advanceToSpells(WIZARD_AVAILABLE_ENRICHED);
+    fireEvent.click(screen.getByRole('button', { name: 'View Fire Bolt details' }));
+    const dialog = await screen.findByRole('dialog');
+    // No SRD/Homebrew label was invented…
+    expect(within(dialog).queryByText('SRD')).not.toBeInTheDocument();
+    expect(within(dialog).queryByText('Homebrew')).not.toBeInTheDocument();
+    // …and no EMPTY pill chip rendered either (CodexDetail skips the badge
+    // entirely for a blank label — red if the {badge.label && …} guard goes).
+    const pills = dialog.querySelectorAll('[data-component="Pill"]');
+    for (const pill of Array.from(pills)) {
+      expect(pill.textContent?.trim()).not.toBe('');
+    }
+  });
+
   it('TAV-SPELLPICK-OVERLAY: the 🔍 is disabled for an entry with no inline description', async () => {
     await advanceToSpells(WIZARD_AVAILABLE_ENRICHED);
 

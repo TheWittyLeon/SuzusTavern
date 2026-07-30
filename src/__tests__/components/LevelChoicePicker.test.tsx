@@ -1504,7 +1504,10 @@ describe('LevelChoicePicker — INVOC feature_choice card', () => {
     // Known pick is not offered as a NEW pick…
     const newPicks = screen.getByRole('group', { name: /new picks/i });
     expect(within(newPicks).queryByRole('button', { name: 'Agonizing Blast' })).not.toBeInTheDocument();
-    // …but IS offered as the swap drop.
+    // …but IS offered as the swap drop — behind the disclosure (Kage I3:
+    // the drop/add lists only render, and only enter the tab order, once
+    // the player opens the swap).
+    fireEvent.click(screen.getByRole('button', { name: /swap a known pick/i }));
     const swapGroup = screen.getByRole('group', { name: /swap one known pick/i });
     expect(within(swapGroup).getByRole('button', { name: 'Agonizing Blast' })).toBeInTheDocument();
 
@@ -1686,6 +1689,7 @@ describe('Miko-QA adversarial — INVOC feature_choice card', () => {
         feature_choices: [{ label: 'Eldritch Invocations', picks: [knownPick] }],
       },
     );
+    fireEvent.click(screen.getByRole('button', { name: /swap a known pick/i })); // Kage I3 disclosure
     const swapGroup = screen.getByRole('group', { name: /swap one known pick/i });
     const dropBtn = within(swapGroup).getByRole('button', { name: 'Agonizing Blast' });
     fireEvent.click(dropBtn); // swapDrop = 'agonizing-blast'
@@ -1710,5 +1714,64 @@ describe('Miko-QA adversarial — INVOC feature_choice card', () => {
     expect(mockResolve).toHaveBeenCalledWith('cid-1', 'leon', 'feature_choice:5', {
       picks: ["devil's-sight"], // no swap key — the intent was withdrawn
     });
+  });
+});
+
+describe('LevelChoicePicker — Kage I3 swap disclosure', () => {
+  const knownPick = {
+    slug: 'agonizing-blast',
+    name: 'Agonizing Blast',
+    level: 2,
+    description: 'x',
+  };
+  const swapChoice = (): PendingLevelChoice => ({
+    id: 'feature_choice:5',
+    type: 'feature_choice',
+    level: 5,
+    class: 'Warlock',
+    label: 'Choose 1 Eldritch Invocation (level 5)',
+    menu_label: 'Eldritch Invocations',
+    count: 1,
+    options: [
+      knownPick,
+      { slug: "devil's-sight", name: "Devil's Sight", level: 2, description: 'y' },
+      { slug: 'eldritch-spear', name: 'Eldritch Spear', level: 2, description: 'z' },
+    ],
+  });
+  const swapSheet = (): Partial<CharacterSheet> => ({
+    char_class: 'Warlock',
+    level: 5,
+    feature_choices: [{ label: 'Eldritch Invocations', picks: [knownPick] }],
+  });
+
+  it('the drop/add lists are OUT of the DOM until opened (the ~124-tab-stop fix)', () => {
+    renderPicker([swapChoice()], swapSheet());
+    expect(screen.queryByRole('group', { name: /swap one known pick/i })).not.toBeInTheDocument();
+    const toggle = screen.getByRole('button', { name: /swap a known pick/i });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(toggle);
+    expect(screen.getByRole('group', { name: /swap one known pick/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /hide swap/i })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('closing the disclosure clears a partial swap so a hidden half-selection cannot hold Confirm hostage', () => {
+    renderPicker([swapChoice()], swapSheet());
+    fireEvent.click(screen.getByRole('button', { name: /swap a known pick/i }));
+    const swapGroup = screen.getByRole('group', { name: /swap one known pick/i });
+    fireEvent.click(within(swapGroup).getByRole('button', { name: 'Agonizing Blast' })); // half a swap
+    // Required pick.
+    const newPicks = screen.getByRole('group', { name: /new picks/i });
+    fireEvent.click(within(newPicks).getByRole('button', { name: "Devil's Sight" }));
+    const confirm = screen.getByRole('button', { name: /confirm eldritch invocations/i });
+    expect(confirm).toBeDisabled(); // half-swap blocks
+    fireEvent.click(screen.getByRole('button', { name: /hide swap/i }));
+    expect(confirm).toBeEnabled(); // partial swap cleared with the close
+  });
+
+  it('m6: a count-less (malformed) entry is a dead end, not confirmable at zero picks', () => {
+    const noCount = { ...swapChoice(), count: undefined, label: 'Corrupted entry' };
+    renderPicker([noCount], swapSheet());
+    expect(screen.getByText(/menu isn’t available right now/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /confirm eldritch invocations/i })).toBeDisabled();
   });
 });

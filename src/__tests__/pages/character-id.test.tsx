@@ -477,3 +477,52 @@ describe('Character sheet — F6/MLP-SHEET-SPEED-CRASH: defensive speed render',
     expect(screen.queryByText(/\[object Object\]/)).not.toBeInTheDocument();
   });
 });
+
+describe('Character sheet — INVOC chosen feature choices (Kage I2/m8)', () => {
+  it('renders each feature_choices group with its picks and Feature-details popover triggers', async () => {
+    mockGet.mockResolvedValue({
+      ...ROGUE,
+      char_class: 'Warlock',
+      feature_choices: [
+        {
+          label: 'Eldritch Invocations',
+          picks: [
+            {
+              slug: 'agonizing-blast',
+              name: 'Agonizing Blast',
+              level: 2,
+              description: 'Add your Charisma modifier to eldritch blast damage.',
+            },
+            {
+              slug: "devil's-sight",
+              name: "Devil's Sight",
+              level: 2,
+              description: 'See normally in magical and nonmagical darkness.',
+            },
+          ],
+        },
+      ],
+    });
+    renderPage();
+
+    await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
+    // The group heading renders inside the Features card…
+    expect(screen.getByRole('heading', { level: 3, name: 'Eldritch Invocations' })).toBeInTheDocument();
+    // …with each chosen pick…
+    expect(screen.getByText('Agonizing Blast')).toBeInTheDocument();
+    expect(screen.getByText("Devil's Sight")).toBeInTheDocument();
+    // …and the popover trigger announces FEATURE details, not spell details
+    // (m8: the detailsLabel → aria-label wiring, previously unpinned).
+    expect(
+      screen.getByRole('button', { name: 'Feature details: Agonizing Blast' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /spell details: agonizing blast/i })).not.toBeInTheDocument();
+  });
+
+  it('empty/absent feature_choices renders no group headings (pre-INVOC backend)', async () => {
+    mockGet.mockResolvedValue({ ...ROGUE, feature_choices: [] });
+    renderPage();
+    await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
+    expect(screen.queryByRole('heading', { level: 3, name: /invocations/i })).not.toBeInTheDocument();
+  });
+});
