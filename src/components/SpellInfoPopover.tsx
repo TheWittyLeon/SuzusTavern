@@ -53,6 +53,11 @@ export interface SpellInfoPopoverProps {
    *  popover annotates. Rendered inside the wrapper, BEFORE the trigger. */
   children?: ReactNode;
   className?: string;
+  /** INVOC: what the trigger's accessible name calls the content —
+   *  "Spell details" by default; the invocation picker passes "Invocation
+   *  details" so SR users aren't told an invocation is a spell. Also swaps
+   *  the empty-state noun. */
+  detailsLabel?: string;
 }
 
 /** {V:true, S:true, M:'a bit of fur'} → "V, S, M (a bit of fur)". Exported
@@ -71,6 +76,7 @@ export default function SpellInfoPopover({
   spell,
   children,
   className,
+  detailsLabel = 'Spell details',
 }: SpellInfoPopoverProps) {
   const [hoverOpen, setHoverOpen] = useState(false);
   const [pinned, setPinned] = useState(false);
@@ -164,7 +170,7 @@ export default function SpellInfoPopover({
         className={styles.trigger}
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
-        aria-label={`Spell details: ${spell.name}`}
+        aria-label={`${detailsLabel}: ${spell.name}`}
         onClick={() => {
           // Toggling off must also drop hover — on a mouse click the pointer
           // is still over the wrapper, so hoverOpen alone would hold it open.
@@ -220,7 +226,9 @@ export default function SpellInfoPopover({
             </>
           ) : (
             <span className={styles.description}>
-              No details available for this spell yet.
+              {detailsLabel === 'Spell details'
+                ? 'No details available for this spell yet.'
+                : 'No details available yet.'}
             </span>
           )}
         </span>

@@ -21,6 +21,7 @@ import DeleteCharacterButton from '@/components/DeleteCharacterButton';
 import LevelUpButton from '@/components/LevelUpButton';
 import WorkshopBuildControls from '@/components/WorkshopBuildControls';
 import LevelChoicePicker from '@/components/LevelChoicePicker';
+import SpellInfoPopover from '@/components/SpellInfoPopover';
 import type { CharacterSheet } from '@/lib/api/types';
 import TavernShell from '@/components/TavernShell';
 import PageSkeleton from '@/components/PageSkeleton';
@@ -549,6 +550,33 @@ export default function CharacterPage() {
                 ))}
               </ul>
             )}
+            {/* INVOC — the character's CHOSEN menu picks (warlock Eldritch
+                Invocations today; generic per menu group). Rendered inside
+                the same Features card, one titled block per group; each pick
+                gets the SpellInfoPopover treatment so its rules text is one
+                hover/tap away (same pattern as the level-up picker). */}
+            {(sheet.feature_choices ?? [])
+              .filter((group) => group.picks.length > 0)
+              .map((group) => (
+                <div key={group.label}>
+                  {/* h3 — nested under this card's "Features" h2. */}
+                  <h3 className="label" style={{ margin: '10px 0 6px', fontSize: 11 }}>
+                    {group.label}
+                  </h3>
+                  <ul className={styles.featureList}>
+                    {group.picks.map((pick) => (
+                      <li key={pick.slug} className={styles.featureRow}>
+                        <SpellInfoPopover
+                          spell={{ name: pick.name, description: pick.description }}
+                          detailsLabel="Feature details"
+                        >
+                          {pick.name}
+                        </SpellInfoPopover>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
           </Card>
 
           {/* CHAR-LANG: languages known — race's concrete languages plus the

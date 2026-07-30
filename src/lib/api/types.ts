@@ -382,6 +382,17 @@ export interface SheetFeat {
  * filtered to it); absent it should fall back to the sheet's own
  * `char_class`.
  */
+/** INVOC: one option in a class's choose-N feature menu (warlock Eldritch
+ *  Invocations; generic for any homebrew menu). `level` is the minimum
+ *  character level required to take the option (2 = available as soon as
+ *  the menu opens). */
+export interface FeatureChoiceOption {
+  slug: string;
+  name: string;
+  level: number;
+  description?: string;
+}
+
 export interface PendingLevelChoice {
   id: string;
   type: string;
@@ -399,6 +410,26 @@ export interface PendingLevelChoice {
    *  picks granted this level (may be 0 if only cantrips grew, or always 0
    *  for a 'prepared' caster_kind, which auto-knows its full class list). */
   spells?: number;
+  /** INVOC — present on `type === 'feature_choice'` choices: which of the
+   *  class's declared menus this choice belongs to ("Eldritch
+   *  Invocations"), also the key picks are stored under. */
+  menu_label?: string;
+  /** INVOC — number of NEW picks this choice grants (entitlement delta,
+   *  self-healing: a backfilled warlock gets the full missed count). */
+  count?: number;
+  /** INVOC — the full option menu, enriched onto the pending entry at
+   *  SHEET READ time (display + client-side pre-validation only; the
+   *  resolver re-validates server-side). Absent on a pre-upgrade backend
+   *  that queued the choice without enrichment. */
+  options?: FeatureChoiceOption[];
+}
+
+/** INVOC: one resolved menu group on the sheet — the character's CHOSEN
+ *  picks (e.g. label "Eldritch Invocations", picks = the invocations the
+ *  player actually selected), name/description resolved server-side. */
+export interface SheetFeatureChoiceGroup {
+  label: string;
+  picks: FeatureChoiceOption[];
 }
 
 /** One skill entry returned by the engine's `skills` array on GET /sheet (A2). */
@@ -468,6 +499,10 @@ export interface CharacterSheet {
    *  for the same fixture-blast-radius reason as `feats` above — the engine
    *  always sends `[]` when there is nothing pending. */
   pending_choices?: PendingLevelChoice[];
+  /** INVOC — the character's resolved choose-N menu picks (warlock
+   *  Eldritch Invocations today; generic for any homebrew menu). Optional
+   *  for the same fixture-blast-radius reason as `feats` above. */
+  feature_choices?: SheetFeatureChoiceGroup[];
   /** T12 (DDX-23t): gold purse. Confirmed on both engine backends —
    *  `engine/commands/character_msm.py:349` and
    *  `engine/commands/character_commands.py:517` both project

@@ -688,6 +688,24 @@ export default function SpellbookPanel({
           )}
           {availableState === 'ok' && available && (
             <>
+              {/* CALC-AC S4 rider (Kage, LVLDN gate): after a rebuild to a
+                  lower level, a caster's KNOWN count can exceed the rebuilt
+                  level's cap — every learn refuses over_*_limit until Forget
+                  frees slots. Say why up-front instead of letting refusal
+                  toasts explain one failed click at a time. Known limitation:
+                  the budget wire carries spells_known/max only for 'known'
+                  casters (null for a wizard's spellbook), so a rebuilt
+                  wizard's overflow isn't detectable here — cantrips still
+                  are, for every caster kind. */}
+              {(available.budget.cantrips_known > available.budget.cantrips_max ||
+                (available.budget.spells_known != null &&
+                  available.budget.spells_max != null &&
+                  available.budget.spells_known > available.budget.spells_max)) && (
+                <p className={styles.emptyRow} aria-live="polite" aria-atomic="true">
+                  Spellbook over capacity for this level — Forget a spell on
+                  the Known tab to free a slot before learning new ones.
+                </p>
+              )}
               {available.cantrips.length === 0 &&
               Object.values(available.by_level).every((l) => l.length === 0) ? (
                 <p className={styles.emptyRow} aria-live="polite" aria-atomic="true">

@@ -10,7 +10,7 @@
  * error); success toast + refetch-after-mutate.
  */
 import React from 'react';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 jest.mock('../../lib/api/dnd', () => ({
@@ -1406,5 +1406,134 @@ describe('LevelChoicePicker — FEAT-PREREQ-UX (prereq-unmet feats disabled inli
       mode: 'feat',
       feat: 'grappler',
     });
+  });
+});
+
+describe('LevelChoicePicker — INVOC feature_choice card', () => {
+  const INVOCATION_OPTIONS = [
+    {
+      slug: 'agonizing-blast',
+      name: 'Agonizing Blast',
+      level: 2,
+      description: 'Add your Charisma modifier to eldritch blast damage.',
+    },
+    {
+      slug: "devil's-sight",
+      name: "Devil's Sight",
+      level: 2,
+      description: 'See normally in magical and nonmagical darkness.',
+    },
+    {
+      slug: 'thirsting-blade',
+      name: 'Thirsting Blade',
+      level: 5,
+      description: 'Attack twice with your pact weapon.',
+    },
+  ];
+
+  function invocChoice(over: Partial<PendingLevelChoice> = {}): PendingLevelChoice {
+    return {
+      id: 'feature_choice:2',
+      type: 'feature_choice',
+      level: 2,
+      class: 'Warlock',
+      label: 'Choose 2 Eldritch Invocations (level 2)',
+      menu_label: 'Eldritch Invocations',
+      count: 2,
+      options: INVOCATION_OPTIONS,
+      ...over,
+    };
+  }
+
+  it('renders the menu from the choice entry itself (no fetch), gates Confirm on exactly `count` picks, and resolves with {picks}', async () => {
+    const { onResolved } = renderPicker([invocChoice()], { char_class: 'Warlock' });
+
+    // No fetch — the options ride on the pending entry (sheet enrichment).
+    expect(mockGetCatalog).not.toHaveBeenCalled();
+    expect(mockGetAvailableSpells).not.toHaveBeenCalled();
+
+    const confirm = screen.getByRole('button', { name: /confirm eldritch invocations/i });
+    expect(confirm).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Agonizing Blast' }));
+    expect(confirm).toBeDisabled(); // 1 of 2
+    fireEvent.click(screen.getByRole('button', { name: "Devil's Sight" }));
+    expect(confirm).toBeEnabled();
+
+    fireEvent.click(confirm);
+    await flush();
+    expect(mockResolve).toHaveBeenCalledWith('cid-1', 'leon', 'feature_choice:2', {
+      picks: expect.arrayContaining(['agonizing-blast', "devil's-sight"]),
+    });
+    expect(onResolved).toHaveBeenCalled();
+  });
+
+  it('an option above the character level renders disabled with the requirement inline (BASE_SHEET is level 3; Thirsting Blade needs 5)', () => {
+    renderPicker([invocChoice()], { char_class: 'Warlock' });
+    const opt = screen.getByRole('button', { name: /Thirsting Blade — requires level 5/i });
+    expect(opt).toBeDisabled();
+  });
+
+  it('enforces the pick cap — with count 1, the second option disables once one is chosen', () => {
+    renderPicker([invocChoice({ count: 1, label: 'Choose 1 Eldritch Invocation (level 2)' })], {
+      char_class: 'Warlock',
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Agonizing Blast' }));
+    expect(screen.getByRole('button', { name: "Devil's Sight" })).toBeDisabled();
+    // Toggle back off frees the cap.
+    fireEvent.click(screen.getByRole('button', { name: 'Agonizing Blast' }));
+    expect(screen.getByRole('button', { name: "Devil's Sight" })).toBeEnabled();
+  });
+
+  it('already-known picks leave the new-picks pool; the swap section offers drop-known + add-new and rides the same resolve', async () => {
+    const knownPick = {
+      slug: 'agonizing-blast',
+      name: 'Agonizing Blast',
+      level: 2,
+      description: 'Add your Charisma modifier to eldritch blast damage.',
+    };
+    renderPicker(
+      [invocChoice({ id: 'feature_choice:5', level: 5, count: 1, label: 'Choose 1 Eldritch Invocation (level 5)' })],
+      {
+        char_class: 'Warlock',
+        level: 5, // Thirsting Blade (level 5) becomes takeable
+        feature_choices: [{ label: 'Eldritch Invocations', picks: [knownPick] }],
+      },
+    );
+
+    // Known pick is not offered as a NEW pick…
+    const newPicks = screen.getByRole('group', { name: /new picks/i });
+    expect(within(newPicks).queryByRole('button', { name: 'Agonizing Blast' })).not.toBeInTheDocument();
+    // …but IS offered as the swap drop.
+    const swapGroup = screen.getByRole('group', { name: /swap one known pick/i });
+    expect(within(swapGroup).getByRole('button', { name: 'Agonizing Blast' })).toBeInTheDocument();
+
+    // Required pick first.
+    fireEvent.click(within(newPicks).getByRole('button', { name: "Devil's Sight" }));
+
+    // Half a swap blocks Confirm (all-or-nothing).
+    const confirm = screen.getByRole('button', { name: /confirm eldritch invocations/i });
+    fireEvent.click(within(swapGroup).getByRole('button', { name: 'Agonizing Blast' }));
+    expect(confirm).toBeDisabled();
+    fireEvent.click(within(swapGroup).getByRole('button', { name: 'Thirsting Blade' }));
+    expect(confirm).toBeEnabled();
+
+    fireEvent.click(confirm);
+    await flush();
+    expect(mockResolve).toHaveBeenCalledWith('cid-1', 'leon', 'feature_choice:5', {
+      picks: ["devil's-sight"],
+      swap: { drop: 'agonizing-blast', add: 'thirsting-blade' },
+    });
+  });
+
+  it('missing options (enrichment absent) is an honest dead-end — message shown, Confirm disabled', () => {
+    renderPicker([invocChoice({ options: undefined })], { char_class: 'Warlock' });
+    // Substring within one text node — the menu label is a separate JSX
+    // interpolation, so a cross-node regex would never match.
+    expect(screen.getByText(/menu isn’t available right now/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /confirm eldritch invocations/i }),
+    ).toBeDisabled();
+    expect(mockResolve).not.toHaveBeenCalled();
   });
 });

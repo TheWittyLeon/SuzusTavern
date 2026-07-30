@@ -1017,3 +1017,47 @@ describe('SpellbookPanel — Forget (LVLDN)', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 });
+
+describe('SpellbookPanel — over-capacity hint (CALC-AC S4 rider)', () => {
+  it('shows the Forget-first hint on Browse when the budget says known exceeds cap (post-rebuild state)', async () => {
+    mockGetKnown.mockResolvedValue(KNOWN_WIZARD);
+    mockGetAvailable.mockResolvedValue({
+      ...AVAILABLE_WIZARD,
+      // A rebuild to a lower level left more cantrips known than the
+      // rebuilt level allows.
+      budget: { ...BUDGET, cantrips_known: 5, cantrips_max: 4 },
+    });
+    renderPanel();
+    fireEvent.click(screen.getByRole('tab', { name: 'Browse' }));
+
+    expect(
+      await screen.findByText(/spellbook over capacity for this level/i),
+    ).toBeInTheDocument();
+  });
+
+  it('no hint when the budget is within cap', async () => {
+    mockGetKnown.mockResolvedValue(KNOWN_WIZARD);
+    mockGetAvailable.mockResolvedValue(AVAILABLE_WIZARD);
+    renderPanel();
+    fireEvent.click(screen.getByRole('tab', { name: 'Browse' }));
+
+    await screen.findByText('Mage Hand');
+    expect(
+      screen.queryByText(/spellbook over capacity for this level/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it('a known-caster spell overflow also trips the hint (spells_known > spells_max)', async () => {
+    mockGetKnown.mockResolvedValue(KNOWN_WIZARD);
+    mockGetAvailable.mockResolvedValue({
+      ...AVAILABLE_WIZARD,
+      budget: { ...BUDGET, spells_known: 7, spells_max: 5 },
+    });
+    renderPanel();
+    fireEvent.click(screen.getByRole('tab', { name: 'Browse' }));
+
+    expect(
+      await screen.findByText(/spellbook over capacity for this level/i),
+    ).toBeInTheDocument();
+  });
+});

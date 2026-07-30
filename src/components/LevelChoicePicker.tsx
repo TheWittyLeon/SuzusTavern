@@ -99,6 +99,7 @@ import type {
   AvailableSpellsResult,
   CatalogItem,
   CharacterSheet,
+  FeatureChoiceOption,
   PendingLevelChoice,
 } from '@/lib/api/types';
 import styles from './LevelChoicePicker.module.css';
@@ -128,6 +129,14 @@ const RESOLVE_REFUSAL_COPY: Record<string, string> = {
   unknown_feat: "That feat isn't available right now.",
   feat_prereq_unmet: "This character doesn't meet that feat's prerequisites.",
   feat_already_taken: 'That feat has already been taken.',
+  // INVOC — the feature_choice resolver's refusals (engine:
+  // _resolve_feature_choice).
+  invalid_feature_choice: "That selection doesn't match the expected shape.",
+  unknown_option: "That option isn't on this class's menu.",
+  option_level_unmet: 'One of those picks needs a higher character level.',
+  duplicate_option: 'One of those picks is already known.',
+  invalid_swap: "That swap isn't valid — drop something known, add something new.",
+  over_menu_cap: 'That would exceed the number of picks this class can know.',
 };
 
 function resolveErrorMessage(err: unknown): string {
@@ -282,8 +291,21 @@ export default function LevelChoicePicker({
             />
           );
         }
+        if (choice.type === 'feature_choice') {
+          return (
+            <FeatureChoiceCard
+              key={choice.id}
+              characterId={characterId}
+              username={username}
+              sheet={sheet}
+              choice={choice}
+              onResolved={handleChildResolved}
+            />
+          );
+        }
         // unsupported_choice_type — the engine queues only subclass/asi/
-        // spell today; this is forward-compat scaffolding, not a live path.
+        // spell/feature_choice today; this is forward-compat scaffolding,
+        // not a live path.
         return (
           <div key={choice.id} className={styles.card}>
             {/* TAV-SHEET-HEADING-ORDER: h3 — nested under "Pending choices"
@@ -1119,6 +1141,213 @@ function SpellChoiceCard({ characterId, username, sheet, choice, onResolved }: C
         // intentional knowing-forgo path (fetch genuinely failed, nothing
         // more to wait for).
         disabled={busy || loadState === 'loading'}
+        onClick={() => void handleResolve()}
+      >
+        {busy ? '…' : 'Confirm'}
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * INVOC — `feature_choice` choice: a class's choose-N feature menu (warlock
+ * Eldritch Invocations today; generic for any menu a homebrew class row
+ * declares). Unlike the sibling cards there is NO fetch: the option menu
+ * rides ON the pending-choice entry itself (`choice.options`, enriched at
+ * sheet-read time) — display + pre-validation only, `_resolve_feature_choice`
+ * re-validates everything server-side. Options above the character's level
+ * render disabled with the requirement inline (the FEAT-PREREQ-UX pattern).
+ * RAW swap-one-on-level-up rides the same resolution: when the character
+ * already knows picks from this menu, an optional swap section offers
+ * drop-one-known + add-one-new alongside the new picks.
+ */
+function FeatureChoiceCard({ characterId, username, sheet, choice, onResolved }: ChoiceCardProps) {
+  const { toast } = useToast();
+  const headingId = useId();
+  const cap = choice.count ?? 0;
+  const options = choice.options ?? [];
+  const menuLabel = choice.menu_label ?? 'options';
+  const known =
+    sheet.feature_choices?.find((g) => g.label === choice.menu_label)?.picks ?? [];
+  const knownSlugs = new Set(known.map((p) => p.slug));
+  const pickHintId = `${headingId}-picks`;
+  const swapHintId = `${headingId}-swap`;
+
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [swapDrop, setSwapDrop] = useState('');
+  const [swapAdd, setSwapAdd] = useState('');
+  const [busy, setBusy] = useState(false);
+  /** Synchronous double-submit latch — same useRef pattern as the sibling cards. */
+  const busyRef = useRef(false);
+
+  // The new-picks pool: everything not already known. Level-unmet options
+  // stay VISIBLE but disabled with the requirement inline — players plan
+  // ahead, and hiding them would make the menu look smaller than it is.
+  const pool = options.filter((o) => !knownSlugs.has(o.slug));
+
+  function togglePick(slug: string) {
+    if (busy) return;
+    const next = new Set(picked);
+    if (next.has(slug)) {
+      next.delete(slug);
+    } else if (next.size < cap) {
+      next.add(slug);
+      // A slug can't be both a new pick and the swap replacement.
+      if (swapAdd === slug) setSwapAdd('');
+    }
+    setPicked(next);
+  }
+
+  // Swap is all-or-nothing: both halves chosen, or neither.
+  const swapComplete = (swapDrop === '') === (swapAdd === '');
+  const canConfirm =
+    !busy && options.length > 0 && picked.size === cap && swapComplete;
+
+  async function handleResolve() {
+    if (busyRef.current || !canConfirm) return;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      const selection: {
+        picks: string[];
+        swap?: { drop: string; add: string };
+      } = { picks: Array.from(picked) };
+      if (swapDrop && swapAdd) selection.swap = { drop: swapDrop, add: swapAdd };
+      try {
+        await resolveLevelChoice(characterId, username, choice.id, selection);
+      } catch (err) {
+        toast({ message: resolveErrorMessage(err), tone: 'error' });
+        return;
+      }
+      try {
+        const after = await getCharacterSheet(characterId, username);
+        onResolved(after);
+        const names = options
+          .filter((o) => picked.has(o.slug))
+          .map((o) => o.name)
+          .join(', ');
+        toast({
+          message: `${sheet.name} learns ${names || menuLabel}!`,
+          tone: 'success',
+        });
+      } catch {
+        toast({
+          message: "Couldn't refresh your sheet — reload to see the result.",
+          tone: 'warn',
+        });
+      }
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
+
+  function optionButton(
+    o: FeatureChoiceOption,
+    isOn: boolean,
+    onClick: () => void,
+    atCap: boolean,
+  ) {
+    const levelUnmet = o.level > sheet.level;
+    return (
+      <SpellInfoPopover
+        key={o.slug}
+        spell={{ name: o.name, description: o.description }}
+        detailsLabel="Feature details"
+      >
+        <button
+          type="button"
+          aria-pressed={isOn}
+          className={isOn ? `${styles.option} ${styles.optionOn}` : styles.option}
+          disabled={busy || levelUnmet || (!isOn && atCap)}
+          onClick={onClick}
+        >
+          {o.name}
+          {levelUnmet && (
+            <span className={styles.prereqNote}> — requires level {o.level}</span>
+          )}
+        </button>
+      </SpellInfoPopover>
+    );
+  }
+
+  return (
+    <div className={styles.card} aria-busy={busy}>
+      {/* TAV-SHEET-HEADING-ORDER: h3 — nested under "Pending choices" (h2). */}
+      <h3 id={headingId} className={styles.cardLabel}>
+        {choice.label}
+      </h3>
+      {options.length === 0 ? (
+        // Enrichment missing (shouldn't happen on a same-version backend —
+        // the engine only queues feature_choice WITH sheet-time options).
+        // Honest dead-end rather than a confirmable empty pick.
+        <p className={styles.emptyRow} aria-live="polite" aria-atomic="true">
+          The {menuLabel} menu isn&rsquo;t available right now — reload the sheet
+          to try again.
+        </p>
+      ) : (
+        <>
+          <p id={pickHintId} className={styles.hint} aria-live="polite" aria-atomic="true">
+            New picks — {picked.size} of {cap} chosen
+          </p>
+          <div className={styles.optionRow} role="group" aria-labelledby={pickHintId}>
+            {pool.map((o) =>
+              optionButton(
+                o,
+                picked.has(o.slug),
+                () => togglePick(o.slug),
+                picked.size >= cap,
+              ),
+            )}
+          </div>
+          {known.length > 0 && (
+            <>
+              <p id={swapHintId} className={styles.hint}>
+                Optional: swap one known pick (choose one to drop AND its
+                replacement, or leave both unselected)
+              </p>
+              <div role="group" aria-labelledby={swapHintId}>
+                <p className={styles.levelSubLabel}>Drop</p>
+                <div className={styles.optionRow}>
+                  {known.map((o) =>
+                    optionButton(
+                      o,
+                      swapDrop === o.slug,
+                      () => {
+                        if (busy) return;
+                        setSwapDrop((prev) => (prev === o.slug ? '' : o.slug));
+                      },
+                      false,
+                    ),
+                  )}
+                </div>
+                <p className={styles.levelSubLabel}>Add instead</p>
+                <div className={styles.optionRow}>
+                  {pool
+                    .filter((o) => !picked.has(o.slug))
+                    .map((o) =>
+                      optionButton(
+                        o,
+                        swapAdd === o.slug,
+                        () => {
+                          if (busy) return;
+                          setSwapAdd((prev) => (prev === o.slug ? '' : o.slug));
+                        },
+                        false,
+                      ),
+                    )}
+                </div>
+              </div>
+            </>
+          )}
+        </>
+      )}
+      <Button
+        variant="primary"
+        size="default"
+        aria-label={`Confirm ${menuLabel} (level ${choice.level})`}
+        aria-busy={busy}
+        disabled={!canConfirm}
         onClick={() => void handleResolve()}
       >
         {busy ? '…' : 'Confirm'}
