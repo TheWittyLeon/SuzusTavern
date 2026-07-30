@@ -218,9 +218,12 @@ export default function LevelUpDialog({
               Level up {characterName}?
             </h2>
             <p id={bodyId} className={styles.body}>
+              {/* {' '} is load-bearing: JSX drops the newline after the
+                  ternary, which rendered "spell slots,and" (live-caught —
+                  inherited from the ConfirmDialog-era copy). */}
               {characterName} will advance to level {nextLevel}. HP, hit dice
-              {isSpellcaster ? ', spell slots,' : ''} and class features update
-              immediately — this can&rsquo;t be undone.
+              {isSpellcaster ? ', spell slots,' : ''}{' '}and class features
+              update immediately — this can&rsquo;t be undone.
             </p>
             <fieldset
               className={styles.hpGroup}
