@@ -19,6 +19,7 @@ import { useReducedMotion } from '@/lib/useReducedMotion';
 import { getCharacterSheet } from '@/lib/api/dnd';
 import DeleteCharacterButton from '@/components/DeleteCharacterButton';
 import LevelUpButton from '@/components/LevelUpButton';
+import WorkshopBuildControls from '@/components/WorkshopBuildControls';
 import LevelChoicePicker from '@/components/LevelChoicePicker';
 import type { CharacterSheet } from '@/lib/api/types';
 import TavernShell from '@/components/TavernShell';
@@ -300,6 +301,22 @@ export default function CharacterPage() {
                     });
                     pendingChoicesRef.current?.focus({ preventScroll: true });
                   });
+                }}
+              />
+            )}
+            {/* LVLDN: workshop-only build editing (level down / reset) —
+                renders nothing for bound characters or on a pre-upgrade
+                backend (the component's own fail-closed gate). Repertoire
+                survives a rebuild but slots/budget change, so the spellbook
+                gets the same refresh nudge as a picker resolve. */}
+            {username && isOwner && (
+              <WorkshopBuildControls
+                characterId={id}
+                username={username}
+                sheet={sheet}
+                onRebuilt={(updated) => {
+                  setSheet(updated);
+                  setSpellbookRefreshKey((k) => k + 1);
                 }}
               />
             )}

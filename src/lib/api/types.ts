@@ -299,6 +299,20 @@ export interface AvailableSpellEntry extends SpellWireInfo {
 }
 
 /**
+ * LVLDN — POST .../rebuild response data: the workshop level-down/reset
+ * summary. `pending_added` is the choice count re-queued by the walk
+ * (absent when target was 1); `reached_level` appears only on the
+ * walk_incomplete 500 (coherent lower-level build, finish via Level up).
+ */
+export interface RebuildResult {
+  from_level: number;
+  to_level: number;
+  name?: string;
+  pending_added?: number;
+  reached_level?: number;
+}
+
+/**
  * LEVELUP-UX: the engine's structured level-up step (POST .../levelup
  * `data.levelup`, filled from cmd_levelup's levelup_out on an actual
  * level-up; null/absent on refusal or a pre-upgrade backend). hp_roll is

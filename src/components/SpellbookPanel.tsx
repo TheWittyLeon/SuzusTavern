@@ -51,10 +51,12 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Button from '@/components/Button';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import Pill from '@/components/Pill';
 import SpellInfoPopover from '@/components/SpellInfoPopover';
 import { useToast } from '@/components/Toast';
 import {
+  forgetSpell,
   getAvailableSpells,
   getKnownSpells,
   learnSpell,
@@ -120,6 +122,21 @@ function prepareErrorMessage(err: unknown, name: string): string {
   return PREPARE_REFUSAL_COPY[reason ?? ''] ?? fallback;
 }
 
+// LVLDN — forget refusals, same convention as the two maps above.
+const FORGET_REFUSAL_COPY: Record<string, string> = {
+  not_known: "That spell isn't in your repertoire.",
+  unknown_spell: "That spell doesn't exist in the catalog.",
+  innate_spell:
+    "That spell is part of your build (racial or subclass) — it can't be forgotten.",
+};
+
+function forgetErrorMessage(err: unknown, name: string): string {
+  const fallback = `Could not forget ${name}. Try again in a moment.`;
+  if (!isApiError(err)) return fallback;
+  const reason = refusalReason(err);
+  return FORGET_REFUSAL_COPY[reason ?? ''] ?? fallback;
+}
+
 export interface SpellbookPanelProps {
   characterId: string;
   username: string;
@@ -173,6 +190,12 @@ export default function SpellbookPanel({
   const [busyKey, setBusyKey] = useState<string | null>(null);
   /** Synchronous double-submit latch — see InventoryPanel's header comment. */
   const mutationBusyRef = useRef(false);
+  /** LVLDN — the spell a Forget confirm dialog is open for (null = closed).
+   *  Forgetting is destructive-ish (the pick is gone; re-learning costs a
+   *  budget slot back), so it always confirms. */
+  const [forgetTarget, setForgetTarget] = useState<{ slug: string; name: string } | null>(
+    null,
+  );
 
   // A11Y (Iro CRITICAL-1/MAJOR-2): roving-tabindex refs for the tab buttons
   // (indexed by tabOrder position, mirrors Composer.tsx's mode tablist) and
@@ -379,6 +402,41 @@ export default function SpellbookPanel({
     }
   }
 
+  async function handleForget(slug: string, name: string) {
+    const key = `forget:${slug}`;
+    if (mutationBusyRef.current) return;
+    mutationBusyRef.current = true;
+    setBusy(true);
+    setBusyKey(key);
+    try {
+      try {
+        await forgetSpell(characterId, username, slug);
+      } catch (err) {
+        toast({ message: forgetErrorMessage(err, name), tone: 'error' });
+        return;
+      }
+      setForgetTarget(null);
+      try {
+        await refetchAfterMutate();
+        toast({ message: `Forgot ${name} — the slot is free for a new pick.`, tone: 'success' });
+      } catch {
+        toast({
+          message: "Couldn't refresh your spellbook — reload to see the result.",
+          tone: 'warn',
+        });
+      }
+    } finally {
+      mutationBusyRef.current = false;
+      setBusy(false);
+      setBusyKey(null);
+      // A11Y (Iro MAJOR-3 convention): the row this came from may have just
+      // unmounted (the spell is gone from Known) — the stable row ref is the
+      // best-effort target, the panel heading catches the unmount case via
+      // the rowRefs map simply missing the slug.
+      rowRefs.current.get(slug)?.focus();
+    }
+  }
+
   async function handlePrepare(slug: string, name: string, prepared: boolean) {
     const key = `prepare:${slug}`;
     if (mutationBusyRef.current) return;
@@ -514,11 +572,26 @@ export default function SpellbookPanel({
                             tabIndex={-1}
                           >
                             <span className={styles.spellName}>
-                              {/* LEVELUP-UX: hover the name (or tap ⓘ) for
-                                  full spell details — see SpellInfoPopover. */}
+                              {/* LEVELUP-UX: hover the name (or tap the info
+                                  trigger) for details — see SpellInfoPopover. */}
                               <SpellInfoPopover spell={s}>{s.name}</SpellInfoPopover>
                             </span>
                             <span className={`mono ${styles.spellSchool}`}>{s.school}</span>
+                            {/* LVLDN: learned rows only — innate/subclass
+                                grants refuse engine-side; hiding the button
+                                for them saves a guaranteed refusal toast. */}
+                            {isOwner && (s.source ?? 'class') === 'class' && (
+                              <Button
+                                variant="ghost"
+                                size="default"
+                                className={styles.spellBtn}
+                                aria-label={`Forget ${s.name}`}
+                                disabled={busy}
+                                onClick={() => setForgetTarget({ slug: s.slug, name: s.name })}
+                              >
+                                Forget
+                              </Button>
+                            )}
                           </li>
                         ))}
                       </ul>
@@ -559,6 +632,19 @@ export default function SpellbookPanel({
                                   onClick={() => void handlePrepare(s.slug, s.name, !s.prepared)}
                                 >
                                   {rowBusy ? '…' : s.prepared ? 'Unprepare' : 'Prepare'}
+                                </Button>
+                              )}
+                              {/* LVLDN — see the cantrip row's note. */}
+                              {isOwner && (s.source ?? 'class') === 'class' && (
+                                <Button
+                                  variant="ghost"
+                                  size="default"
+                                  className={styles.spellBtn}
+                                  aria-label={`Forget ${s.name}`}
+                                  disabled={busy}
+                                  onClick={() => setForgetTarget({ slug: s.slug, name: s.name })}
+                                >
+                                  Forget
                                 </Button>
                               )}
                             </li>
@@ -646,6 +732,28 @@ export default function SpellbookPanel({
           )}
         </div>
       )}
+
+      {/* LVLDN — Forget always confirms: the pick is gone and re-learning
+          costs the budget slot back. Dialog stays open on failure (the
+          CampaignFloorPanel convention). */}
+      <ConfirmDialog
+        open={forgetTarget != null}
+        title={`Forget ${forgetTarget?.name ?? ''}?`}
+        body={
+          <>
+            {forgetTarget?.name} leaves your repertoire and its slot frees up
+            for a new pick. You can re-learn it later — it costs the slot
+            back.
+          </>
+        }
+        confirmLabel="Forget it"
+        cancelLabel="Keep it"
+        busy={busy}
+        onConfirm={() => {
+          if (forgetTarget) void handleForget(forgetTarget.slug, forgetTarget.name);
+        }}
+        onCancel={() => setForgetTarget(null)}
+      />
     </>
   );
 }

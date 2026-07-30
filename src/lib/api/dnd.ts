@@ -45,6 +45,7 @@ import type {
   OverrideResult,
   Participant,
   PrepareSpellResult,
+  RebuildResult,
   ResolveCheckRequest,
   ResolveCheckResult,
   RemoveConditionRequest,
@@ -417,6 +418,48 @@ export const prepareSpell = (
   apiCall<PrepareSpellResult>(
     `/api/dnd/spells/${encodeURIComponent(characterId)}/prepare`,
     { method: 'POST', json: { username, slug, prepared }, signal },
+  );
+
+/**
+ * LVLDN — remove a learned spell from the repertoire (the inverse of
+ * learnSpell; only learned rows — the engine refuses innate/subclass grants
+ * with 'innate_spell'). Forgetting frees the count-enforced budget slot, so
+ * forget-then-learn is the respec path after a rebuild. Throws ApiError with
+ * body.data.reason: not_known / unknown_spell / innate_spell -> 400;
+ * unknown_character -> 404; save_failed -> 500.
+ */
+export const forgetSpell = (
+  characterId: string,
+  username: string,
+  slug: string,
+  signal?: AbortSignal,
+) =>
+  apiCall<{ forgotten: string }>(
+    `/api/dnd/spells/${encodeURIComponent(characterId)}/forget`,
+    { method: 'POST', json: { username, slug }, signal },
+  );
+
+/**
+ * LVLDN — level down / reset a WORKSHOP (unbound) character: the engine
+ * rebuilds the build at target_level from creation identity and re-climbs
+ * (choices re-queue, HP becomes the average, recorded ASI increases are
+ * subtracted; gear/gold/spells survive). Refetch-after-mutate applies — the
+ * caller MUST getCharacterSheet afterwards. Throws ApiError with
+ * body.data.reason: invalid_target_level / bound_to_campaign /
+ * creation_scores_unavailable / asi_history_incomplete / rebuild_failed ->
+ * 400; not_found -> 404; save_failed / walk_incomplete -> 500
+ * (walk_incomplete leaves a coherent lower-level build — the workshop
+ * Level-up button finishes the climb).
+ */
+export const rebuildCharacter = (
+  characterId: string,
+  username: string,
+  targetLevel: number,
+  signal?: AbortSignal,
+) =>
+  apiCall<RebuildResult>(
+    `/api/dnd/characters/${encodeURIComponent(characterId)}/rebuild`,
+    { method: 'POST', json: { username, target_level: targetLevel }, signal },
   );
 
 /** Structured character sheet (ST-054–058). Distinct from getCharacter, which

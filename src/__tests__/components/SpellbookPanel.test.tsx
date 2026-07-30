@@ -14,6 +14,7 @@ jest.mock('../../lib/api/dnd', () => ({
   getAvailableSpells: jest.fn(),
   learnSpell: jest.fn(),
   prepareSpell: jest.fn(),
+  forgetSpell: jest.fn(),
 }));
 
 import * as dnd from '../../lib/api/dnd';
@@ -29,6 +30,7 @@ const mockGetKnown = dnd.getKnownSpells as jest.Mock;
 const mockGetAvailable = dnd.getAvailableSpells as jest.Mock;
 const mockLearn = dnd.learnSpell as jest.Mock;
 const mockPrepare = dnd.prepareSpell as jest.Mock;
+const mockForget = dnd.forgetSpell as jest.Mock;
 
 const BUDGET: SpellBudget = {
   cantrips_known: 2,
@@ -183,6 +185,7 @@ beforeEach(() => {
   mockGetAvailable.mockReset();
   mockLearn.mockReset();
   mockPrepare.mockReset();
+  mockForget.mockReset();
 });
 
 describe('SpellbookPanel — non-caster renders nothing', () => {
@@ -936,5 +939,81 @@ describe('SpellbookPanel — REN fix 3: Browse Prepare requires in_repertoire', 
     await flush();
 
     expect(screen.getByRole('button', { name: 'Prepare Shield' })).toBeInTheDocument();
+  });
+});
+
+
+describe('SpellbookPanel — Forget (LVLDN)', () => {
+  function apiError(status: number, reason: string) {
+    const e = new Error(reason) as Error & { status: number; body: unknown };
+    e.status = status;
+    e.body = { success: false, data: { reason } };
+    return e;
+  }
+
+  it('renders a Forget button on learned Known rows for the owner only', async () => {
+    mockGetKnown.mockResolvedValue(KNOWN_WIZARD);
+    renderPanel();
+    await flush();
+    expect(screen.getByRole('button', { name: 'Forget Fire Bolt' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Forget Magic Missile' })).toBeInTheDocument();
+  });
+
+  it('non-owner: no Forget buttons at all', async () => {
+    mockGetKnown.mockResolvedValue(KNOWN_WIZARD);
+    renderPanel({ isOwner: false });
+    await flush();
+    expect(screen.queryByRole('button', { name: /^forget/i })).not.toBeInTheDocument();
+  });
+
+  it('innate-source rows get no Forget button (guaranteed engine refusal)', async () => {
+    mockGetKnown.mockResolvedValue({
+      ...KNOWN_WIZARD,
+      cantrips: [
+        { ...KNOWN_WIZARD.cantrips[0], slug: 'dancing-lights', name: 'Dancing Lights', source: 'innate' },
+      ],
+    });
+    renderPanel();
+    await flush();
+    expect(
+      screen.queryByRole('button', { name: 'Forget Dancing Lights' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('confirm-then-forget-then-refetch, with a success toast', async () => {
+    mockGetKnown.mockResolvedValue(KNOWN_WIZARD);
+    mockForget.mockResolvedValue({ forgotten: 'magic-missile' });
+    renderPanel();
+    await flush();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Forget Magic Missile' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent(/forget magic missile\?/i);
+    // Repertoire refetch resolves to the post-forget list.
+    mockGetKnown.mockResolvedValue({
+      ...KNOWN_WIZARD,
+      spells: KNOWN_WIZARD.spells.filter((s) => s.slug !== 'magic-missile'),
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Forget it' }));
+
+    await waitFor(() =>
+      expect(mockForget).toHaveBeenCalledWith('cid-2', 'leon', 'magic-missile'),
+    );
+    expect(await screen.findByText(/forgot magic missile/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('innate_spell refusal (engine-side race) shows the mapped copy and keeps the dialog open', async () => {
+    mockGetKnown.mockResolvedValue(KNOWN_WIZARD);
+    mockForget.mockRejectedValue(apiError(400, 'innate_spell'));
+    renderPanel();
+    await flush();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Forget Magic Missile' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Forget it' }));
+
+    expect(
+      await screen.findByText(/part of your build.*can.t be forgotten/i),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 });
