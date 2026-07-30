@@ -113,6 +113,33 @@ describe('LevelUpDialog — confirm phase', () => {
     fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Tab' });
     expect(screen.getByRole('radio', { name: /roll for it/i })).toHaveFocus();
   });
+
+  it('busy flip parks focus on the dialog itself (Kage m5 focus park)', async () => {
+    // LEVELUP-UX-A11Y-TAIL: in a REAL browser, disabling the focused button
+    // blurs focus to <body>, so the keydown-based busy-Tab park can never
+    // fire — the EFFECT must park focus when busy flips. jsdom lets
+    // disabled buttons keep focus (browsers refuse), so assert the OUTCOME:
+    // the dialog node itself holds focus once busy is true.
+    const { rerender } = renderDialog();
+    await new Promise((r) => setTimeout(r, 5)); // let the open-focus land
+    rerender(
+      <LevelUpDialog
+        open
+        characterName="Aria"
+        nextLevel={5}
+        isSpellcaster={false}
+        busy
+        result={null}
+        pendingChoiceCount={0}
+        onConfirm={jest.fn()}
+        onClose={jest.fn()}
+        onResolveChoices={jest.fn()}
+      />,
+    );
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveFocus();
+    expect(dialog).toHaveAttribute('tabindex', '-1');
+  });
 });
 
 describe('LevelUpDialog — results phase', () => {

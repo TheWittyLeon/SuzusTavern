@@ -92,7 +92,6 @@ import {
   createCharacter,
   deleteCharacter,
   getAvailableSpells,
-  getCatalog,
   getStartingEquipment,
   learnSpell,
   prepareSpell,
@@ -1851,12 +1850,37 @@ function ReviewStep({
 // uses — rather than reimplementing the engine's per-class spell tables.
 type SpellFetchState = 'loading' | 'ok' | 'error';
 
-// TAV-SPELLPICK-DESCRIPTIONS: AvailableSpellEntry (GET /spells/:id/available)
-// has no description — that lives on the catalog (GET /catalog?type=spell),
-// same source the Codex reads (CodexDetail.tsx's SpellDetail). Comfortably
-// above the current spell count without risking the engine's silent
-// _MAX_LIMIT=500 truncation — mirrors useCodexCatalog.ts's PAGE_LIMIT.
-const SPELL_CATALOG_LIMIT = 500;
+// TAV-SPELLPICK-DESCRIPTIONS v2 (LEVELUP-UX-A11Y-TAIL c): the engine now
+// inlines `_spell_wire_info` (casting time/range/components/duration/
+// description/higher levels) on every AvailableSpellEntry, so the wizard no
+// longer fetches the whole spell catalog just for descriptions — the row
+// meta line and the 🔍 overlay are both fed from the entry itself. The
+// synthetic CatalogItem hands CodexDetailModal exactly the fields the entry
+// carries: catalog-only extras (class list, damage dice, source badge)
+// simply don't render, and an entry with no description keeps its 🔍
+// disabled — the same graceful fallback the old catalog-fetch-failed path
+// had. source_type is deliberately '' (the wire doesn't say; CodexDetail
+// skips the badge for an empty label rather than mislabeling homebrew).
+function spellEntryToCatalogItem(s: AvailableSpellEntry): CatalogItem {
+  return {
+    slug: s.slug,
+    name: s.name,
+    content_type: 'spell',
+    source_type: '',
+    data: {
+      level: s.level,
+      school: s.school,
+      casting_time: s.casting_time,
+      range: s.range,
+      components: s.components as CatalogSpellData['components'],
+      duration: s.duration,
+      concentration: s.concentration,
+      ritual: s.ritual,
+      description: s.description,
+      higher_levels: s.higher_levels,
+    },
+  };
+}
 
 function SpellsStep({
   characterId,
@@ -1877,16 +1901,10 @@ function SpellsStep({
 }) {
   const [available, setAvailable] = useState<AvailableSpellsResult | null>(null);
   const [fetchState, setFetchState] = useState<SpellFetchState>('loading');
-  // TAV-SPELLPICK-DESCRIPTIONS: slug -> full catalog item (kept whole, not
-  // just `.data`, so TAV-SPELLPICK-OVERLAY below can hand the exact same
-  // CatalogItem straight to CodexDetailModal — same shape the read-only
-  // Codex already renders, no synthetic item construction needed). Fetch is
-  // independent of the `available` fetch above (different endpoint) — a
-  // failure here never blocks spell selection, it just leaves rows at
-  // name+school as before and the 🔍 button disabled.
-  const [spellCatalog, setSpellCatalog] = useState<Map<string, CatalogItem> | null>(null);
   // TAV-SPELLPICK-OVERLAY: the one shared details overlay for both the
-  // cantrip and 1st-level lists, driven by whichever row's 🔍 was clicked.
+  // cantrip and 1st-level lists, driven by whichever row's 🔍 was clicked —
+  // a synthetic CatalogItem built from that row's own inline wire info
+  // (TAV-SPELLPICK-DESCRIPTIONS v2: no second catalog fetch anymore).
   const [openSpell, setOpenSpell] = useState<CatalogItem | null>(null);
 
   useEffect(() => {
@@ -1910,28 +1928,6 @@ function SpellsStep({
       cancelled = true;
     };
   }, [characterId, username]);
-
-  // TAV-SPELLPICK-DESCRIPTIONS: fetch the spell catalog once, in parallel with
-  // the above — best-effort, so a failure here degrades gracefully to
-  // name+school (the pool fetch above is the one thing that gates the step).
-  useEffect(() => {
-    let cancelled = false;
-    getCatalog('dnd5e', { type: 'spell', limit: SPELL_CATALOG_LIMIT })
-      .then((res) => {
-        if (cancelled) return;
-        const map = new Map<string, CatalogItem>();
-        for (const item of res.items) {
-          map.set(item.slug, item);
-        }
-        setSpellCatalog(map);
-      })
-      .catch(() => {
-        // Graceful degradation — rows simply fall back to name+school.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   function toggle(picked: Set<string>, onChange: (n: Set<string>) => void, slug: string, cap: number) {
     const next = new Set(picked);
@@ -1986,12 +1982,12 @@ function SpellsStep({
   ) => {
     const checked = picked.has(s.slug);
     const disabled = !checked && picked.size >= cap;
-    // TAV-SPELLPICK-DESCRIPTIONS: undefined when the catalog fetch hasn't
-    // resolved yet, failed, or simply has no entry for this slug — the row
-    // falls back to name+school only, exactly as before.
-    const catalogItem = spellCatalog?.get(s.slug);
-    const entry = catalogItem?.data as CatalogSpellData | undefined;
-    const descId = entry ? `spell-desc-${s.slug}` : undefined;
+    // TAV-SPELLPICK-DESCRIPTIONS v2: the meta line reads the entry's own
+    // inline wire info. A pre-upgrade backend (no inline fields) renders
+    // name+school only — the same fallback the old catalog-fetch-failed
+    // path had.
+    const hasMeta = Boolean(s.casting_time || s.range || s.components);
+    const descId = hasMeta ? `spell-desc-${s.slug}` : undefined;
     const describedBy = [descId, disabled ? capHintId : undefined].filter(Boolean).join(' ') || undefined;
     return (
       <li key={s.slug} className={styles.spellRow}>
@@ -2021,17 +2017,18 @@ function SpellsStep({
            * it — descendants of a <label> fold into its control's accessible
            * name, which would make every checkbox's name include "View X
            * details". Opens the shared CodexDetailModal (same component the
-           * read-only Codex uses) with this row's full catalog entry. Disabled
-           * until the catalog fetch resolves an entry for this slug — no entry
-           * means no description to show. */}
+           * read-only Codex uses) with a synthetic item built from this row's
+           * inline wire info. Disabled when the entry carries no description
+           * (pre-upgrade backend / a spell with none recorded) — nothing
+           * meaningful to show. */}
           <Button
             type="button"
             variant="ghost"
             size="icon"
             className={styles.spellRowDetailBtn}
             aria-label={`View ${s.name} details`}
-            disabled={!catalogItem}
-            onClick={() => setOpenSpell(catalogItem ?? null)}
+            disabled={!s.description}
+            onClick={() => setOpenSpell(spellEntryToCatalogItem(s))}
           >
             <Icon name="Search" size={14} />
           </Button>
@@ -2041,13 +2038,16 @@ function SpellsStep({
          * accessible name. Linked instead via aria-describedby above. Compact
          * card meta line only (level · casting time · range · components) —
          * the full description/higher-levels text lives in the 🔍 overlay now. */}
-        {entry && (
+        {hasMeta && (
           <p className={`mono ${styles.spellRowMeta}`} id={descId}>
             {[
-              spellLevelLabel(entry.level),
-              entry.casting_time ?? '—',
-              entry.range ?? '—',
-              spellComponentsLabel(entry),
+              spellLevelLabel(s.level),
+              s.casting_time ?? '—',
+              s.range ?? '—',
+              spellComponentsLabel({
+                level: s.level,
+                components: s.components as CatalogSpellData['components'],
+              }),
             ].join(' · ')}
           </p>
         )}

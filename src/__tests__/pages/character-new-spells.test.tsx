@@ -295,9 +295,9 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     expect(screen.getByText('6 / 7')).toBeInTheDocument();
   });
 
-  async function advanceToSpells() {
+  async function advanceToSpells(available: typeof WIZARD_AVAILABLE = WIZARD_AVAILABLE) {
     mockCreateCharacter.mockResolvedValue({ character_id: 'char-1' });
-    mockGetAvailableSpells.mockResolvedValue(WIZARD_AVAILABLE);
+    mockGetAvailableSpells.mockResolvedValue(available);
     renderWizard();
     pickRace();
     fireEvent.click(screen.getByRole('radio', { name: /Wizard/i }));
@@ -534,53 +534,44 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     expect(mockPrepareSpell).not.toHaveBeenCalled();
   });
 
-  // ── TAV-SPELLPICK-DESCRIPTIONS / TAV-SPELLPICK-OVERLAY ────────────────────────
-  const FIRE_BOLT_CATALOG_RESPONSE = {
-    system: 'dnd5e',
-    content_type: 'spell',
-    total: 1,
-    limit: 500,
-    offset: 0,
-    items: [
-      {
-        slug: 'fire-bolt',
-        name: 'Fire Bolt',
-        content_type: 'spell',
-        source_type: 'srd',
-        data: {
-          level: 0,
-          school: 'evocation',
-          casting_time: '1 action',
-          range: '120 feet',
-          components: { V: true, S: true },
-          duration: 'Instantaneous',
-          description: 'You hurl a mote of fire at a creature or object within range.',
-          higher_levels: 'The spell’s damage increases by 1d10 when you reach 5th level.',
-        },
-      },
-    ],
+  // ── TAV-SPELLPICK-DESCRIPTIONS v2 / TAV-SPELLPICK-OVERLAY ─────────────────────
+  // LEVELUP-UX-A11Y-TAIL (c): the second catalog round trip is GONE — the
+  // engine inlines `_spell_wire_info` on every AvailableSpellEntry, and the
+  // meta line + 🔍 overlay read the entry itself. Fire Bolt is enriched in
+  // this fixture; Mage Hand deliberately is not (pre-upgrade backend shape).
+  const WIZARD_AVAILABLE_ENRICHED = {
+    ...WIZARD_AVAILABLE,
+    cantrips: WIZARD_AVAILABLE.cantrips.map((s) =>
+      s.slug === 'fire-bolt'
+        ? {
+            ...s,
+            casting_time: '1 action',
+            range: '120 feet',
+            components: { V: true, S: true },
+            duration: 'Instantaneous',
+            description: 'You hurl a mote of fire at a creature or object within range.',
+            higher_levels: 'The spell’s damage increases by 1d10 when you reach 5th level.',
+          }
+        : s,
+    ),
   };
 
-  it('TAV-SPELLPICK-DESCRIPTIONS: compact card shows level/casting-time/range/components once the catalog fetch resolves — no inline description', async () => {
-    mockGetCatalog.mockResolvedValue(FIRE_BOLT_CATALOG_RESPONSE);
-    await advanceToSpells();
+  it('TAV-SPELLPICK-DESCRIPTIONS v2: compact card shows level/casting-time/range/components from the entry’s own inline info — no catalog fetch, no inline description', async () => {
+    await advanceToSpells(WIZARD_AVAILABLE_ENRICHED);
 
-    expect(mockGetCatalog).toHaveBeenCalledWith(
-      'dnd5e',
-      expect.objectContaining({ type: 'spell' }),
-    );
-    // The compact meta line: level now leads casting time/range/components.
+    // The round trip is gone — this pins the removal, red if it comes back.
+    expect(mockGetCatalog).not.toHaveBeenCalled();
+    // The compact meta line: level leads casting time/range/components.
     expect(screen.getByText('Cantrip · 1 action · 120 feet · V, S')).toBeInTheDocument();
-    // The long description/higher-levels text is NOT inline anymore — it only
-    // lives behind the 🔍 overlay (see the "opens the details overlay" test).
+    // The long description/higher-levels text is NOT inline — it only lives
+    // behind the 🔍 overlay (see the "opens the details overlay" test).
     expect(
       screen.queryByText(/You hurl a mote of fire at a creature or object within range\./),
     ).not.toBeInTheDocument();
     expect(screen.queryByText(/damage increases by 1d10/)).not.toBeInTheDocument();
 
-    // A spell with no matching catalog entry (Mage Hand — not in the fixture
-    // above) still renders name+school only, exactly as before — the
-    // description enrichment never blocks selection of un-enriched rows.
+    // An entry with no inline info (Mage Hand) still renders name+school
+    // only — enrichment never blocks selection of un-enriched rows.
     const mageHand = screen.getByRole('checkbox', { name: /Mage Hand/i });
     expect(mageHand).not.toBeDisabled();
     fireEvent.click(mageHand);
@@ -588,8 +579,7 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
   });
 
   it('TAV-SPELLPICK-OVERLAY: clicking the 🔍 opens the shared details overlay with the full description and higher-levels text', async () => {
-    mockGetCatalog.mockResolvedValue(FIRE_BOLT_CATALOG_RESPONSE);
-    await advanceToSpells();
+    await advanceToSpells(WIZARD_AVAILABLE_ENRICHED);
 
     // No overlay open yet.
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
@@ -608,19 +598,17 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('TAV-SPELLPICK-OVERLAY: the 🔍 is disabled for a spell with no matching catalog entry', async () => {
-    mockGetCatalog.mockResolvedValue(FIRE_BOLT_CATALOG_RESPONSE);
-    await advanceToSpells();
+  it('TAV-SPELLPICK-OVERLAY: the 🔍 is disabled for an entry with no inline description', async () => {
+    await advanceToSpells(WIZARD_AVAILABLE_ENRICHED);
 
-    // Mage Hand has no catalog entry in the fixture above.
+    // Mage Hand carries no inline description in the fixture above.
     expect(screen.getByRole('button', { name: 'View Mage Hand details' })).toBeDisabled();
     // Fire Bolt does, and stays enabled.
     expect(screen.getByRole('button', { name: 'View Fire Bolt details' })).toBeEnabled();
   });
 
-  it('TAV-SPELLPICK-DESCRIPTIONS: a failed catalog fetch degrades gracefully — rows still render name+school, selection is never blocked, and every 🔍 is disabled', async () => {
-    mockGetCatalog.mockRejectedValue(new Error('network error'));
-    await advanceToSpells();
+  it('TAV-SPELLPICK-DESCRIPTIONS v2: a pre-upgrade backend (no inline fields at all) degrades gracefully — rows still render name+school, selection is never blocked, and every 🔍 is disabled', async () => {
+    await advanceToSpells(); // plain WIZARD_AVAILABLE: no inline info anywhere
 
     expect(screen.getByText('Fire Bolt')).toBeInTheDocument();
     const fireBolt = screen.getByRole('checkbox', { name: /Fire Bolt/i });

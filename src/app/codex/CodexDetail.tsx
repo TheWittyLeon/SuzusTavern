@@ -419,7 +419,10 @@ export default function CodexDetail({ item, kind, headingId }: CodexDetailProps)
         <div className={`${styles.detailKind} label`}>{meta.noun}</div>
         <h2 id={headingId} className={styles.detailTitle}>{item.name}</h2>
         <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-          <Pill tone={badge.tone}>{badge.label}</Pill>
+          {/* LEVELUP-UX-A11Y-TAIL: skip the pill entirely for an item with no
+              source_type (the wizard's synthetic spell entries carry none) —
+              an empty Pill renders as a bare chip. */}
+          {badge.label && <Pill tone={badge.tone}>{badge.label}</Pill>}
         </div>
       </div>
       <div className={styles.detailBody}>

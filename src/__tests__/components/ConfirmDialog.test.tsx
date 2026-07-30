@@ -61,3 +61,23 @@ test('backdrop click cancels', () => {
   fireEvent.click(backdrop);
   expect(onCancel).toHaveBeenCalledTimes(1);
 });
+
+test('busy flip parks focus on the dialog itself (Kage m5 focus park)', async () => {
+  // LEVELUP-UX-A11Y-TAIL: in a REAL browser, disabling the focused button
+  // blurs focus to <body>, so the keydown-based busy-Tab park can never fire
+  // — the EFFECT must park focus the moment busy flips. jsdom lets disabled
+  // buttons keep focus (browsers refuse), so this asserts the OUTCOME (the
+  // dialog node itself holds focus) — the state real browsers end up needing.
+  const { rerender } = render(
+    <ConfirmDialog open title="X" onConfirm={() => {}} onCancel={() => {}} />,
+  );
+  await new Promise((r) => setTimeout(r, 5)); // let the open-focus land
+  rerender(
+    <ConfirmDialog open busy title="X" onConfirm={() => {}} onCancel={() => {}} />,
+  );
+  const dialog = screen.getByRole('dialog');
+  expect(dialog).toHaveFocus();
+  // The park target is focusable-but-not-tabbable (tabIndex=-1) — the trap
+  // convention every overlay here uses.
+  expect(dialog).toHaveAttribute('tabindex', '-1');
+});

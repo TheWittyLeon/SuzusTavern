@@ -88,6 +88,16 @@ export default function ConfirmDialog({
     };
   }, [open]);
 
+  // LEVELUP-UX-A11Y-TAIL (Kage m5): when `busy` flips true, a REAL browser
+  // blurs the now-disabled focused button to <body> — after which the
+  // onKeyDown busy-Tab park below never fires (keydown lands on body, not
+  // the dialog). Park focus on the dialog via an effect instead, at the
+  // moment busy starts. jsdom lets disabled buttons keep focus, so tests
+  // must assert the OUTCOME (dialog focused) rather than the blur.
+  useEffect(() => {
+    if (open && busy) dialogRef.current?.focus();
+  }, [open, busy]);
+
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === 'Escape') {
