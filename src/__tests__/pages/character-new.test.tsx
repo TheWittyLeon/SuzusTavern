@@ -205,6 +205,26 @@ const defaultCatalog = {
         primary: [],
         spellcastingAbility: 'wisdom' as const,
       },
+      {
+        // TAV-WIZARD-UD-PREVIEW ADVERSARIAL fixture (Miko-QA): a HOMEBREW
+        // class id — never 'barbarian'/'monk' — that still declares its own
+        // Unarmored Defense ability. This is the actual regression class the
+        // rider closes: a test using the 'monk' id alone can't distinguish
+        // "derives UD from the declared field" from "still hardcoded on the
+        // id", because monk matches both. This id doesn't exist in the old
+        // hardcoded set, so it only previews UD AC if the field genuinely
+        // drives it end-to-end (Kage IMPORTANT-3).
+        id: 'chakra-adept',
+        name: 'Chakra Adept',
+        hitDie: 8,
+        saves: ['wisdom', 'dexterity'] as ['wisdom', 'dexterity'],
+        icon: 'Monk' as const,
+        accent: 'var(--accent-2)',
+        flavor: 'Homebrew: ki without the id literal.',
+        isCaster: false,
+        primary: ['wisdom'] as ['wisdom'],
+        unarmoredDefenseAbility: 'wisdom' as const,
+      },
     ],
     backgrounds: [
       { id: 'acolyte', name: 'Acolyte', skills: ['insight', 'religion'], blurb: 'you were good at the prayers.' },
@@ -503,6 +523,88 @@ describe('Character creation wizard', () => {
       }),
     );
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/character/abc-123'));
+  });
+
+  // ── TAV-WIZARD-UD-PREVIEW ───────────────────────────────────────────────────
+  describe('TAV-WIZARD-UD-PREVIEW (Review-step AC preview)', () => {
+    // Before this rider, only the point-buy hint (TAV-CLASS-STAT-GUIDANCE,
+    // "Unarmored Defense adds your X modifier to AC.") read
+    // clsObj.unarmoredDefenseAbility — the Review step's AC number came from
+    // derivedStats(), which still branched on the 'monk'/'barbarian' id
+    // literal. Kage IMPORTANT-3: a homebrew class could show the correct
+    // HINT copy while the Review AC preview silently lied and showed plain
+    // 10+DEX. These walk the WHOLE wizard (no direct derivedStats() call) to
+    // prove the field reaches page.tsx:492's memo, not just the hint.
+    function advanceToAbilitiesAsClass(classNamePattern: RegExp) {
+      fireEvent.click(screen.getByRole('radio', { name: /Human/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Class
+      fireEvent.click(screen.getByRole('radio', { name: classNamePattern }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Abilities
+    }
+
+    async function finishToReview() {
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Background
+      fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Kaida' } });
+      fireEvent.click(screen.getByRole('radio', { name: /Charlatan/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Equipment
+      await advancePastEquipment(); // → Review
+    }
+
+    it('Review AC preview includes the Monk WIS bonus end-to-end (not just the point-buy hint)', async () => {
+      renderWizard();
+      advanceToAbilitiesAsClass(/^Monk/i);
+      // 8 → 14 WIS pre-racial (6 increments), 15 after Human's +1 → +2 mod;
+      // DEX stays 8 → 9 after the +1 → -1 mod. Both racial bumps land inside
+      // the same modifier bucket, so UD strictly beats plain 10+DEX (Kage:
+      // name the racial step — retuned increments can cross a mod boundary).
+      const incWis = screen.getByRole('button', { name: 'Increase Wisdom' });
+      for (let i = 0; i < 6; i++) fireEvent.click(incWis);
+      await finishToReview();
+
+      // 10 - 1 DEX + 2 WIS = 11 beats plain 10 - 1 DEX = 9 — proves the UD
+      // branch actually fired in the full wizard, not a coincidental match
+      // with plain AC.
+      const acLabel = screen.getByText('AC');
+      expect(within(acLabel.closest('div') as HTMLElement).getByText('11')).toBeInTheDocument();
+    });
+
+    it('a penalty UD ability never drags Review AC below plain 10+DEX (RAW better-of, full-wizard level)', async () => {
+      renderWizard();
+      advanceToAbilitiesAsClass(/^Monk/i);
+      // Leave every score at the point-buy default: 8 pre-racial → 9 after
+      // Human's +1 → -1 mod everywhere. A naive "always add the UD mod"
+      // implementation would show AC 8 (10 - 1 DEX - 1 WIS); the RAW
+      // better-of must hold at 9 (DEX alone).
+      await finishToReview();
+
+      const acLabel = screen.getByText('AC');
+      expect(within(acLabel.closest('div') as HTMLElement).getByText('9')).toBeInTheDocument();
+    });
+
+    // ── ADVERSARIAL (Miko-QA) — the actual regression class the rider closes.
+    // A test that only ever picks 'monk' can't tell "derives UD from the
+    // declared wire field" apart from "still hardcoded on the class id",
+    // because monk satisfies both. 'chakra-adept' is not in the old
+    // hardcoded set — it only previews UD AC if the field genuinely drives
+    // it (verified by reverting src/lib/dnd/helpers.ts to the pre-rider
+    // id-branch locally: this test goes red — plain AC 9, not 11 — while the
+    // Monk tests above stay green, confirming they were NOT discriminating).
+    it('a HOMEBREW class id (never hardcoded) still previews UD AC at Review — proves the field drives it, not the id', async () => {
+      renderWizard();
+      advanceToAbilitiesAsClass(/^Chakra Adept/i);
+      // Kage: pin BOTH halves of the IMPORTANT-3 defect shape for the
+      // homebrew id in one walk — the point-buy hint promises UD-based AC…
+      expect(
+        screen.getByText(/Unarmored Defense adds your Wisdom modifier to AC\./),
+      ).toBeInTheDocument();
+      const incWis = screen.getByRole('button', { name: 'Increase Wisdom' });
+      for (let i = 0; i < 6; i++) fireEvent.click(incWis);
+      await finishToReview();
+
+      // …and the Review AC preview honours the same promise.
+      const acLabel = screen.getByText('AC');
+      expect(within(acLabel.closest('div') as HTMLElement).getByText('11')).toBeInTheDocument();
+    });
   });
 
   // ── TAV-CREATE-SUBRACE-ASI-PICKER ───────────────────────────────────────────

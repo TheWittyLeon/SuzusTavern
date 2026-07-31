@@ -190,7 +190,12 @@ describe('derivedStats (helpers — display-only preview of cmd_create level-1 m
     expect(d.speed).toBe(30);
   });
 
-  it('Barbarian unarmored AC adds CON mod', () => {
+  // TAV-WIZARD-UD-PREVIEW: the UD ability now comes from the class's DECLARED
+  // unarmoredDefenseAbility (the catalog wire field), not barbarian/monk id
+  // literals — the fixtures below mirror what catalogItemToClass actually
+  // hands the wizard.
+
+  it('Barbarian unarmored AC adds CON mod (declared, not id-matched)', () => {
     const scores: AbilityScores = {
       strength: 14,
       dexterity: 14,
@@ -199,12 +204,16 @@ describe('derivedStats (helpers — display-only preview of cmd_create level-1 m
       wisdom: 10,
       charisma: 8,
     };
-    const d = derivedStats(scores, { id: 'barbarian', hitDie: 12 }, 25);
+    const d = derivedStats(
+      scores,
+      { id: 'barbarian', hitDie: 12, unarmoredDefenseAbility: 'constitution' },
+      25,
+    );
     expect(d.ac).toBe(15); // 10 + 2 DEX + 3 CON
     expect(d.speed).toBe(25);
   });
 
-  it('Monk unarmored AC adds WIS mod', () => {
+  it('Monk unarmored AC adds WIS mod (declared, not id-matched)', () => {
     const scores: AbilityScores = {
       strength: 10,
       dexterity: 14,
@@ -213,7 +222,11 @@ describe('derivedStats (helpers — display-only preview of cmd_create level-1 m
       wisdom: 14,
       charisma: 10,
     };
-    const d = derivedStats(scores, { id: 'monk', hitDie: 8 }, 30);
+    const d = derivedStats(
+      scores,
+      { id: 'monk', hitDie: 8, unarmoredDefenseAbility: 'wisdom' },
+      30,
+    );
     expect(d.ac).toBe(14); // 10 + 2 DEX + 2 WIS
   });
 
@@ -228,8 +241,64 @@ describe('derivedStats (helpers — display-only preview of cmd_create level-1 m
       wisdom: 8,
       charisma: 10,
     };
-    const d = derivedStats(scores, { id: 'monk', hitDie: 8 }, 30);
+    const d = derivedStats(
+      scores,
+      { id: 'monk', hitDie: 8, unarmoredDefenseAbility: 'wisdom' },
+      30,
+    );
     expect(d.ac).toBe(12); // max(10+2, 10+2-1) — never 11
+  });
+
+  it('a HOMEBREW class with a declared UD ability previews UD AC — no id literals (HB-P1)', () => {
+    // The whole point of the rider: pre-rider this previewed 10 + DEX while
+    // the hint two steps earlier promised WIS-based AC (Kage IMPORTANT-3).
+    const scores: AbilityScores = {
+      strength: 10,
+      dexterity: 14,
+      constitution: 12,
+      intelligence: 10,
+      wisdom: 16,
+      charisma: 10,
+    };
+    const d = derivedStats(
+      scores,
+      { id: 'chakra-adept', hitDie: 8, unarmoredDefenseAbility: 'wisdom' },
+      30,
+    );
+    expect(d.ac).toBe(15); // 10 + 2 DEX + 3 WIS
+  });
+
+  it('barbarian/monk WITHOUT the declared field preview plain 10+DEX (wire is the truth)', () => {
+    // No silent id-literal resurrection: if the wire field is absent (it is
+    // never absent for SRD rows — the engine stamps the hardcoded fallback),
+    // the preview does NOT guess from the class id.
+    const scores: AbilityScores = {
+      strength: 14,
+      dexterity: 14,
+      constitution: 16,
+      intelligence: 8,
+      wisdom: 10,
+      charisma: 8,
+    };
+    expect(derivedStats(scores, { id: 'barbarian', hitDie: 12 }, 25).ac).toBe(12);
+    expect(derivedStats(scores, { id: 'monk', hitDie: 8 }, 30).ac).toBe(12);
+  });
+
+  it('a declared DEX unarmored defense is ignored — no double-count (engine I3 mirror)', () => {
+    const scores: AbilityScores = {
+      strength: 10,
+      dexterity: 18,
+      constitution: 10,
+      intelligence: 10,
+      wisdom: 10,
+      charisma: 10,
+    };
+    const d = derivedStats(
+      scores,
+      { id: 'chakra-adept', hitDie: 8, unarmoredDefenseAbility: 'dexterity' },
+      30,
+    );
+    expect(d.ac).toBe(14); // 10 + 4 DEX, never 10 + 4 + 4
   });
 
   it('undefined class falls back to d8 hit die', () => {
