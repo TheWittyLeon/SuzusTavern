@@ -95,6 +95,7 @@ const defaultCatalog = {
         accent: 'var(--cool)',
         flavor: 'Hit it until it stops.',
         isCaster: false,
+        primary: ['strength', 'dexterity'] as ['strength', 'dexterity'],
       },
       {
         id: 'wizard',
@@ -106,6 +107,8 @@ const defaultCatalog = {
         flavor: 'A spell for every problem.',
         isCaster: true,
         casterKind: 'spellbook' as const,
+        primary: ['intelligence'] as ['intelligence'],
+        spellcastingAbility: 'intelligence' as const,
       },
       {
         id: 'cleric',
@@ -117,6 +120,8 @@ const defaultCatalog = {
         flavor: 'Mend, smite, repeat.',
         isCaster: true,
         casterKind: 'prepared' as const,
+        primary: ['wisdom'] as ['wisdom'],
+        spellcastingAbility: 'wisdom' as const,
       },
       {
         id: 'sorcerer',
@@ -128,6 +133,8 @@ const defaultCatalog = {
         flavor: 'Innate, not studied.',
         isCaster: true,
         casterKind: 'known' as const,
+        primary: ['charisma'] as ['charisma'],
+        spellcastingAbility: 'charisma' as const,
       },
     ],
     backgrounds: [

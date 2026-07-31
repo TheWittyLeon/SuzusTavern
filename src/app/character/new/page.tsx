@@ -117,6 +117,8 @@ import {
   POINT_BUY_MIN,
   SUZU_LINES,
   WIZARD_LEVEL1_SPELLBOOK_SIZE,
+  abilityAbbrLabel,
+  abilityDisplayName,
   applyRacialBonuses,
   costFor,
   derivedStats,
@@ -1040,7 +1042,12 @@ export default function CharacterNewPage(): ReactNode {
               />
             )}
             {stepKey === 'abilities' && (
-              <AbilitiesStep scores={scores} remaining={remaining} onStep={setScore} />
+              <AbilitiesStep
+                scores={scores}
+                remaining={remaining}
+                onStep={setScore}
+                cls={clsObj}
+              />
             )}
             {stepKey === 'background' && (
               <BackgroundStep
@@ -1346,6 +1353,13 @@ function ClassStep({
           </span>
           <span className={styles.optName}>{c.name}</span>
           <span className={styles.optSub}>{c.flavor}</span>
+          {/* TAV-CLASS-STAT-GUIDANCE — declared recommendation only; a class
+              with no catalog guidance renders no chip (never fabricated). */}
+          {c.primary.length > 0 && (
+            <span className={`mono ${styles.optFocus}`}>
+              Suggested focus: {abilityAbbrLabel(c.primary)}
+            </span>
+          )}
           <span className={`mono ${styles.optBonus}`}>d{c.hitDie} hit die</span>
         </label>
       ))}
@@ -1358,13 +1372,44 @@ function AbilitiesStep({
   scores,
   remaining,
   onStep,
+  cls,
 }: {
   scores: AbilityScores;
   remaining: number;
   onStep: (key: AbilityKey, delta: number) => void;
+  /** The chosen class, for the stat-guidance hint. Undefined (or a class
+   *  with no declared guidance) renders no hint at all. */
+  cls?: WizardClass;
 }) {
+  // TAV-CLASS-STAT-GUIDANCE — guidance, not command ("Suggested"), composed
+  // ONLY from the class's declared catalog data: the primary-ability focus,
+  // the spellcasting ability when it has one ("spellcasting runs off …"),
+  // and the Unarmored Defense ability for barbarian/monk-likes. Static per
+  // step (class is picked on an earlier step), so a plain paragraph — no
+  // live region needed.
+  const hintParts: string[] = [];
+  if (cls) {
+    if (cls.primary.length > 0) {
+      hintParts.push(
+        `Suggested focus for your ${cls.name}: ${abilityAbbrLabel(cls.primary)}.`,
+      );
+    }
+    if (cls.spellcastingAbility) {
+      hintParts.push(
+        `Spellcasting runs off ${abilityDisplayName(cls.spellcastingAbility)}.`,
+      );
+    }
+    if (cls.unarmoredDefenseAbility) {
+      hintParts.push(
+        `Unarmored Defense adds your ${abilityDisplayName(cls.unarmoredDefenseAbility)} modifier to AC.`,
+      );
+    }
+  }
   return (
     <div>
+      {hintParts.length > 0 && (
+        <p className={styles.abilityHint}>{hintParts.join(' ')}</p>
+      )}
       <div className={styles.budget}>
         <span
           className={styles.budgetNum}

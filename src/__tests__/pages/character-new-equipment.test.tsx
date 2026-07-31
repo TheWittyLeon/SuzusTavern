@@ -68,6 +68,7 @@ const defaultCatalog = {
         accent: 'var(--cool)',
         flavor: 'Hit it until it stops.',
         isCaster: false,
+        primary: ['strength', 'dexterity'] as ['strength', 'dexterity'],
       },
     ],
     backgrounds: [

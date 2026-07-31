@@ -302,6 +302,29 @@
   color: var(--ink-3);
   margin-top: auto;
 }
+/* TAV-CLASS-STAT-GUIDANCE — "Suggested focus: DEX · WIS" chip on a class card.
+   --ink-2 (not --ink-3) because the chip sits on an accent-tinted fill — the
+   same disposal as the selected-card .optSub rule. (Token-math places --ink-3
+   near the AA floor here but it is UNMEASURED — live contrast check is on the
+   Landing Checklist; don't treat this comment as screenshot-sampled.) */
+.optFocus {
+  font-size: 10px;
+  color: var(--ink-2);
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: color-mix(in oklab, var(--opt-accent, var(--accent)) 10%, transparent);
+}
+.optCard[data-selected='true'] .optFocus {
+  /* Iro CRITICAL-1 (confirmed independently by Kage): on a selected card the
+     chip's 10% tint stacks on the card's own 14% (~22.6% effective accent),
+     and 9 of 12 classes declare no --*-ink token — the raw-accent fallback
+     collapsed to 1.29:1 (cleric/candlelit) as accent-on-accent. Fall back to
+     --ink-2 (worst case 5.46:1 across all 4 vibes, per-token math); the 3
+     audited --*-ink tokens (cool/crit) still win where declared. */
+  color: var(--opt-accent-ink, var(--ink-2));
+  border-color: color-mix(in oklab, var(--opt-accent, var(--accent)) 35%, var(--line));
+}
 .optCard[data-selected='true'] .optBonus {
   /* --opt-accent-ink is the candlelit-safe text variant (cool/crit accents fail
      AA as text on parchment); falls back to the decorative accent then --accent. */
@@ -364,6 +387,18 @@
 }
 
 /* ── Abilities (point buy) ───────────────────────────────────────────────────── */
+/* TAV-CLASS-STAT-GUIDANCE — the class's stat hint beside the point-buy
+   controls. --ink-2 for AA on the tinted fill (see .optFocus rationale). */
+.abilityHint {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  background: color-mix(in oklab, var(--accent-2) 8%, transparent);
+  border: 1px solid var(--line);
+}
 .budget {
   display: flex;
   align-items: center;

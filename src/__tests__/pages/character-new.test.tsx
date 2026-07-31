@@ -143,6 +143,7 @@ const defaultCatalog = {
         accent: 'var(--accent)',
         flavor: 'Sneak, stab, vanish.',
         isCaster: false,
+        primary: ['dexterity'] as ['dexterity'],
       },
       {
         id: 'wizard',
@@ -154,6 +155,55 @@ const defaultCatalog = {
         flavor: 'A spell for every problem.',
         isCaster: true,
         casterKind: 'spellbook' as const,
+        primary: ['intelligence'] as ['intelligence'],
+        spellcastingAbility: 'intelligence' as const,
+      },
+      {
+        // TAV-CLASS-STAT-GUIDANCE fixture: carries the Unarmored Defense
+        // ability so the point-buy hint's UD line has an integration path.
+        id: 'monk',
+        name: 'Monk',
+        hitDie: 8,
+        saves: ['strength', 'dexterity'] as ['strength', 'dexterity'],
+        icon: 'Monk' as const,
+        accent: 'var(--accent-2)',
+        flavor: 'Fists, focus, ki.',
+        isCaster: false,
+        primary: ['dexterity', 'wisdom'] as ['dexterity', 'wisdom'],
+        unarmoredDefenseAbility: 'wisdom' as const,
+      },
+      {
+        // TAV-CLASS-STAT-GUIDANCE negative control: a class with NO declared
+        // guidance anywhere must render NO chip and NO point-buy hint — the
+        // engine withheld a recommendation, so the client shows nothing
+        // (never a fabricated one).
+        id: 'mystic',
+        name: 'Mystic',
+        hitDie: 8,
+        saves: ['wisdom', 'charisma'] as ['wisdom', 'charisma'],
+        icon: 'Wizard' as const,
+        accent: 'var(--accent)',
+        flavor: 'Homebrew, undeclared.',
+        isCaster: false,
+        primary: [],
+      },
+      {
+        // TAV-CLASS-STAT-GUIDANCE ADVERSARIAL fixture (Miko-QA): a caster
+        // whose catalog entry declares spellcasting_ability but NOT
+        // primary_ability (a plausible partial-data/homebrew catalog gap).
+        // Must show the spellcasting line with NO "Suggested focus" line and
+        // NO card chip — the two fields are independent, not a package deal.
+        id: 'oracle',
+        name: 'Oracle',
+        hitDie: 6,
+        saves: ['wisdom', 'charisma'] as ['wisdom', 'charisma'],
+        icon: 'Wizard' as const,
+        accent: 'var(--accent)',
+        flavor: 'Fate, spoken aloud.',
+        isCaster: true,
+        casterKind: 'known' as const,
+        primary: [],
+        spellcastingAbility: 'wisdom' as const,
       },
     ],
     backgrounds: [
@@ -279,6 +329,137 @@ describe('Character creation wizard', () => {
     // one-way "spent >= 1 ever" flag).
     fireEvent.click(screen.getByRole('button', { name: 'Decrease Strength' }));
     expect(screen.getByText('1 pt spent')).toBeInTheDocument();
+  });
+
+  // ── TAV-CLASS-STAT-GUIDANCE ──────────────────────────────────────────────────
+  describe('TAV-CLASS-STAT-GUIDANCE', () => {
+    function advanceToClass() {
+      fireEvent.click(screen.getByRole('radio', { name: /Human/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    }
+
+    it('renders a Suggested-focus chip on class cards with declared guidance', () => {
+      renderWizard();
+      advanceToClass();
+      expect(screen.getByText('Suggested focus: DEX')).toBeInTheDocument(); // rogue
+      expect(screen.getByText('Suggested focus: INT')).toBeInTheDocument(); // wizard
+      expect(screen.getByText('Suggested focus: DEX · WIS')).toBeInTheDocument(); // monk
+    });
+
+    it('renders NO chip for a class with no declared guidance (no fiction)', () => {
+      renderWizard();
+      advanceToClass();
+      const mystic = screen.getByRole('radio', { name: /Mystic/i }).closest('label');
+      expect(mystic).not.toBeNull();
+      expect(within(mystic as HTMLElement).queryByText(/Suggested focus/i)).not.toBeInTheDocument();
+    });
+
+    it('shows the point-buy hint naming the spellcasting ability for a caster', () => {
+      renderWizard();
+      advanceToClass();
+      fireEvent.click(screen.getByRole('radio', { name: /Wizard/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      expect(
+        screen.getByText(
+          /Suggested focus for your Wizard: INT\. Spellcasting runs off Intelligence\./,
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it('shows the Unarmored Defense ability in the point-buy hint', () => {
+      renderWizard();
+      advanceToClass();
+      fireEvent.click(screen.getByRole('radio', { name: /Monk/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      expect(
+        screen.getByText(/Unarmored Defense adds your Wisdom modifier to AC\./),
+      ).toBeInTheDocument();
+    });
+
+    it('shows NO point-buy hint for a guidance-less class', () => {
+      renderWizard();
+      advanceToClass();
+      fireEvent.click(screen.getByRole('radio', { name: /Mystic/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      // On the Abilities step now — nothing guidance-shaped anywhere.
+      expect(screen.getByRole('group', { name: 'Strength' })).toBeInTheDocument();
+      expect(screen.queryByText(/Suggested focus/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/runs off/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Unarmored Defense/i)).not.toBeInTheDocument();
+    });
+
+    // ── ADVERSARIAL (Miko-QA) ────────────────────────────────────────────────
+    it('a caster with a declared spellcastingAbility but NO declared primary renders the spellcasting line with no focus line or chip', () => {
+      renderWizard();
+      advanceToClass();
+      // No card chip for Oracle (primary is [] even though it IS a caster).
+      const oracleLabel = screen.getByRole('radio', { name: /Oracle/i }).closest('label');
+      expect(oracleLabel).not.toBeNull();
+      expect(
+        within(oracleLabel as HTMLElement).queryByText(/Suggested focus/i),
+      ).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('radio', { name: /Oracle/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Abilities
+
+      // The spellcasting line renders standalone — no "Suggested focus for
+      // your Oracle" prefix, because that line is gated on primary.length.
+      expect(screen.getByText('Spellcasting runs off Wisdom.')).toBeInTheDocument();
+      expect(screen.queryByText(/Suggested focus/i)).not.toBeInTheDocument();
+    });
+
+    it('updates the point-buy hint after Back + reselect — no stale guidance from the previously chosen class', () => {
+      renderWizard();
+      advanceToClass();
+      fireEvent.click(screen.getByRole('radio', { name: /Wizard/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Abilities
+      expect(screen.getByText(/Suggested focus for your Wizard: INT\./)).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Back' })); // -> Class
+      fireEvent.click(screen.getByRole('radio', { name: /Mystic/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Abilities
+
+      // Mystic has no declared guidance — the Wizard hint must NOT linger.
+      // (Kage: scoped to the hint copy, not a whole-document /Wizard/ negative
+      // — a future header/breadcrumb containing "Wizard" must not redden this.)
+      expect(screen.queryByText(/Suggested focus for your Wizard/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Suggested focus/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/runs off/i)).not.toBeInTheDocument();
+    });
+
+    it('updates the point-buy hint from guidance-less to guidance-bearing after Back + reselect (not just the clearing direction)', () => {
+      renderWizard();
+      advanceToClass();
+      fireEvent.click(screen.getByRole('radio', { name: /Mystic/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Abilities
+      expect(screen.queryByText(/Suggested focus/i)).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Back' })); // -> Class
+      fireEvent.click(screen.getByRole('radio', { name: /Monk/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Abilities
+
+      expect(screen.getByText(/Suggested focus for your Monk: DEX · WIS\./)).toBeInTheDocument();
+      expect(
+        screen.getByText(/Unarmored Defense adds your Wisdom modifier to AC\./),
+      ).toBeInTheDocument();
+    });
+
+    it('clicking a Suggested-focus chip selects its own class card, not a different one with overlapping ability text (label click-delegation preserved)', () => {
+      renderWizard();
+      advanceToClass();
+      const rogueRadio = screen.getByRole('radio', { name: /^Rogue/i });
+      const monkRadio = screen.getByRole('radio', { name: /^Monk/i });
+      expect(rogueRadio).not.toBeChecked();
+      expect(monkRadio).not.toBeChecked();
+
+      // Rogue's chip text is "Suggested focus: DEX" — a strict substring of
+      // Monk's "Suggested focus: DEX · WIS". Clicking IT must select Rogue,
+      // never Monk, and the radio's accessible name must still resolve
+      // unambiguously despite the shared "DEX" text.
+      fireEvent.click(screen.getByText('Suggested focus: DEX'));
+      expect(rogueRadio).toBeChecked();
+      expect(monkRadio).not.toBeChecked();
+    });
   });
 
   it('submits base scores + canonical names, then routes to the new sheet (ST-052)', async () => {

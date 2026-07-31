@@ -12,6 +12,7 @@ import {
   CLASS_DECORATION,
   BACKGROUND_DECORATION,
   CLASS_CASTER_KIND,
+  ABILITY_KEYS,
   type AbilityKey,
   type CasterKind,
 } from './helpers';
@@ -81,6 +82,17 @@ export interface WizardClass {
   /** Undefined for a non-caster; see CLASS_CASTER_KIND's docstring for what
    *  each kind means for the creation-time learn/prepare hop. */
   casterKind?: CasterKind;
+  /** TAV-CLASS-STAT-GUIDANCE — the class's DECLARED recommended abilities
+   *  (catalog `primary_ability`, validated), in declared order. [] when the
+   *  class declares none — render nothing; guidance is never fabricated
+   *  client-side (a hardcoded class→stats map here is an HB-P1 reject). */
+  primary: AbilityKey[];
+  /** The class's spellcasting ability, when it declares one (includes
+   *  paladin/ranger, who cast from level 2 — still true guidance at creation). */
+  spellcastingAbility?: AbilityKey;
+  /** The class's Unarmored Defense ability (barbarian CON / monk WIS /
+   *  homebrew-declared), when it declares one. */
+  unarmoredDefenseAbility?: AbilityKey;
 }
 
 export interface WizardBackground {
@@ -101,6 +113,16 @@ const ABILITY_ABBR: Record<string, string> = {
   wisdom: 'WIS',
   charisma: 'CHA',
 };
+
+/** Runtime guard for a wire ability value — the engine normalises to full
+ *  lowercase names, but this adapter never trusts the wire shape (a malformed
+ *  value must degrade to "no guidance", not crash the wizard). Kage: uses
+ *  ABILITY_KEYS.includes, NOT `in ABILITY_ABBR` — `in` walks the prototype
+ *  chain, so a wire value of "toString"/"constructor" would pass and render
+ *  "Suggested focus: TOSTRING". Also keeps one truth table for the six keys. */
+function isAbilityKey(s: unknown): s is AbilityKey {
+  return typeof s === 'string' && (ABILITY_KEYS as string[]).includes(s);
+}
 
 function buildBonusLabel(bonus: Partial<Record<string, number>>): string {
   const parts = Object.entries(bonus)
@@ -153,6 +175,19 @@ export function catalogItemToClass(item: CatalogItem): WizardClass {
     (s): s is AbilityKey => s in ABILITY_ABBR,
   );
   const casterKind = CLASS_CASTER_KIND[item.slug];
+  // TAV-CLASS-STAT-GUIDANCE — guidance fields, validated defensively:
+  // Array.isArray before .filter (a garbage string on the wire would
+  // otherwise throw), unknown entries dropped. Absent data maps to []/
+  // undefined and renders nothing — never a fabricated recommendation.
+  const primary = (Array.isArray(d.primary_ability) ? d.primary_ability : []).filter(
+    isAbilityKey,
+  );
+  const spellcastingAbility = isAbilityKey(d.spellcasting_ability)
+    ? d.spellcasting_ability
+    : undefined;
+  const unarmoredDefenseAbility = isAbilityKey(d.unarmored_defense_ability)
+    ? d.unarmored_defense_ability
+    : undefined;
   return {
     id: item.slug,
     name: item.name,
@@ -164,6 +199,9 @@ export function catalogItemToClass(item: CatalogItem): WizardClass {
     flavor: deco.flavor,
     isCaster: casterKind !== undefined,
     casterKind,
+    primary,
+    spellcastingAbility,
+    unarmoredDefenseAbility,
   };
 }
 

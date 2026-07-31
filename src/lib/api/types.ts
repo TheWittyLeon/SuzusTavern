@@ -1096,6 +1096,11 @@ export interface CatalogClassData {
   skill_count?: number;
   subclass_level?: number;
   spellcasting_ability?: string | null;
+  /** TAV-CLASS-STAT-GUIDANCE — the class's Unarmored Defense ability
+   *  (barbarian → constitution, monk → wisdom, homebrew-declared), flat
+   *  convenience key stamped by the engine's catalog route. Absent when the
+   *  class has no unarmored defense. */
+  unarmored_defense_ability?: string | null;
   level1_features?: string[];
 }
 

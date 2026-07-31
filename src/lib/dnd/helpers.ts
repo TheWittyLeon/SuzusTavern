@@ -41,6 +41,18 @@ export const ABILITIES: AbilityMeta[] = [
 
 export const ABILITY_KEYS: AbilityKey[] = ABILITIES.map((a) => a.key);
 
+/** 'wisdom' → 'Wisdom' — display name for guidance copy (TAV-CLASS-STAT-GUIDANCE). */
+export function abilityDisplayName(key: AbilityKey): string {
+  return ABILITIES.find((a) => a.key === key)?.name ?? key;
+}
+
+/** ['dexterity','wisdom'] → 'DEX · WIS' — the guidance-chip label. */
+export function abilityAbbrLabel(keys: AbilityKey[]): string {
+  return keys
+    .map((k) => ABILITIES.find((a) => a.key === k)?.abbr ?? k.toUpperCase())
+    .join(' · ');
+}
+
 // ── Skills ─────────────────────────────────────────────────────────────────────
 
 export interface SkillDef {
