@@ -1250,12 +1250,27 @@ const normalizeGrounding = (raw: unknown): GroundingData | null => {
     // P1-PLAYFIX §3.4: surface only {skill, dc, note} — the authored scene may
     // (and does) carry on_success/on_failure flag names on the wire, but the
     // client type/shape never exposes them. Never spread the raw check object.
+    // Check Retry + Fail-Forward (2026-07-28 design §6/T2): state/
+    // attempts_used/max_attempts/lock_reason pass through when the engine
+    // sent them (SUZU_DND_CHECK_RETRY_POLICY on); omitted entirely — not
+    // even as `undefined` keys — when absent, same optional convention as
+    // `note` above, so a flag-OFF server's payload round-trips unchanged.
     checks: Array.isArray(scene.checks)
       ? (scene.checks as Record<string, unknown>[]).map(
           (c): SceneCheck => ({
             skill: c.skill as string,
             dc: c.dc as number,
             ...(c.note ? { note: c.note as string } : {}),
+            ...(c.state ? { state: c.state as SceneCheck['state'] } : {}),
+            ...(c.attempts_used !== undefined
+              ? { attempts_used: c.attempts_used as number | null }
+              : {}),
+            ...(c.max_attempts !== undefined
+              ? { max_attempts: c.max_attempts as number | null }
+              : {}),
+            ...(c.lock_reason !== undefined
+              ? { lock_reason: c.lock_reason as SceneCheck['lock_reason'] }
+              : {}),
           }),
         )
       : [],

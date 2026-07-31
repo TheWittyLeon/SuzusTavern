@@ -114,6 +114,20 @@ function beatResolved(seq: number): EngineSessionEvent {
   };
 }
 
+// Check Retry + Fail-Forward (2026-07-28 design §7.4/item 25): the SAME
+// generalized re-fetch mechanism, exercised for check_resolved on the
+// flag-OFF/SSE poll branch (page.tsx ~L1979).
+function checkResolved(seq: number): EngineSessionEvent {
+  return {
+    seq,
+    kind: 'check_resolved',
+    actor: 'leon',
+    visibility: 'table',
+    created_at: '2026-07-24T10:00:00Z',
+    data: { skill: 'survival', dc: 13, total: 15, success: true, flag_set: 'beat_a' },
+  };
+}
+
 async function tick() {
   await act(async () => {
     jest.advanceTimersByTime(4000);
@@ -155,6 +169,24 @@ describe('STRUCT-006 flag-OFF poll — beat_resolved re-fetches grounding', () =
 
     // The classifier resolves a beat post-delivery; the next legacy poll sees it.
     mockGetSessionEventsRaw.mockResolvedValue([beatResolved(5)]);
+    await tick();
+
+    expect(mockGetGrounding.mock.calls.length).toBe(baseline + 1);
+  });
+
+  it('a poll carrying a check_resolved event triggers a grounding re-fetch', async () => {
+    render(<PlayPage />);
+    await screen.findByText('Test Table');
+    await act(async () => {
+      jest.advanceTimersByTime(200);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const baseline = mockGetGrounding.mock.calls.length;
+
+    mockGetSessionEventsRaw.mockResolvedValue([checkResolved(5)]);
     await tick();
 
     expect(mockGetGrounding.mock.calls.length).toBe(baseline + 1);

@@ -1334,11 +1334,25 @@ export interface SceneEncounterInfo {
  * Deliberately omits `on_success`/`on_failure` (the authored flag names): the
  * client only needs to know WHICH skill can be attempted, never what flag it
  * sets. Authored branching stays opaque to the browser (C8).
+ *
+ * Check Retry + Fail-Forward (2026-07-28 design §6/T1) — `state`,
+ * `attempts_used`, `max_attempts`, `lock_reason` are ALL optional: absent
+ * means the engine's SUZU_DND_CHECK_RETRY_POLICY flag is off (or the server
+ * predates this feature), in which case the check renders exactly as
+ * `available` always has. `dc` is already the EFFECTIVE dc (base +
+ * escalate_dc accumulated so far) whenever `state` is present — the engine
+ * projects it that way (engine/check_policy.py::project_checks_for_wire),
+ * never a separate field here.
  */
 export interface SceneCheck {
   skill: string;
   dc: number;
   note?: string;
+  /** 'available' | 'locked' | 'resolved'. Absent = pre-CHECK-RETRY server. */
+  state?: 'available' | 'locked' | 'resolved';
+  attempts_used?: number | null;
+  max_attempts?: number | null;
+  lock_reason?: 'nat1' | 'fail_by_5' | 'max_attempts' | 'resolved' | null;
 }
 
 /** Grounding data for the current session / scene (ADV-5). */

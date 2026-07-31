@@ -179,7 +179,10 @@ describe('STRUCT-006 durable poll — a beat-ledger event re-fetches grounding',
   // The classifier path (beat_resolved) is the load-bearing one; beat_done and
   // beat_override cover the operator CLI / reopen paths; scene_advance is the
   // pre-existing behavior this fix generalizes and must NOT regress.
-  it.each(['beat_resolved', 'beat_done', 'beat_override', 'scene_advance'])(
+  // check_resolved (Check Retry + Fail-Forward, 2026-07-28 design §7.4/item
+  // 25) reuses this SAME generalized mechanism -- a resolved/locked check at
+  // one client's table must invalidate every OTHER client's grounding too.
+  it.each(['beat_resolved', 'beat_done', 'beat_override', 'scene_advance', 'check_resolved'])(
     'a poll carrying a %s event triggers exactly one grounding re-fetch',
     async (kind) => {
       const baseline = await mountAndSettle();

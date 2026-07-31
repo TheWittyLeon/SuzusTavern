@@ -85,7 +85,7 @@ import {
   applyReconcileResult,
   type PendingTurnEntry,
 } from '@/lib/dnd/reconcileEvents';
-import { engineErrorMessage } from '@/lib/dnd/engineError';
+import { engineErrorMessage, extractReason, isApiError } from '@/lib/dnd/engineError';
 import { isLivingTargetableFoe } from '@/lib/dnd/combatTargets';
 import type {
   CharacterSheet,
@@ -216,7 +216,24 @@ const GROUNDING_INVALIDATING_KINDS = new Set([
   'beat_resolved',
   'beat_done',
   'beat_override',
+  // Check Retry + Fail-Forward (2026-07-28 design section 7.4): a
+  // resolved/locked check changes this scene's check rail. Without this, a
+  // second client at the same table keeps showing a check as available
+  // after another player already resolved it, and eats a 409 on click.
+  'check_resolved',
 ]);
+
+/**
+ * Check Retry + Fail-Forward (2026-07-28 design section 7.1) — human-facing
+ * copy for a locked check's sr-only reason span. Keyed by `SceneCheck.lock_reason`;
+ * an unrecognised/absent reason falls back to the max_attempts line, same
+ * fallback convention as the engine's own `complication_line`.
+ */
+const CHECK_LOCK_REASON_COPY: Record<string, string> = {
+  nat1: 'A critical failure closed this approach.',
+  fail_by_5: 'A decisive failure closed this approach.',
+  max_attempts: 'Out of attempts.',
+};
 
 /**
  * DDX-26 — scan a batch of raw session events (any order, any kind) for the
@@ -1157,7 +1174,22 @@ export default function PlayPage() {
           getSessionEventsRaw(sessionId, ctrl.signal),
         ]);
         if (ctrl.signal.aborted) return;
-        if (g) setGrounding(g);
+        if (g) {
+          setGrounding(g);
+          // Check Retry + Fail-Forward Iro-A11y MAJOR-1: seed the
+          // disappearance-explanation baseline on the VERY FIRST grounding
+          // read too -- without this, prevCheckStatesRef would stay empty
+          // through mount, and the first poll/refresh afterward would also
+          // see an empty "prev" and wrongly treat a genuine transition (one
+          // that happened between mount and that first tick) as an
+          // unseen-before check, silently dropping the explanation.
+          // Forward-reference-safe: diffAndExplainResolvedChecks is
+          // declared later in this component, but this async closure only
+          // executes after the whole component body has finished
+          // evaluating for this render (same pattern as `openScene`'s own
+          // documented forward reference near this same mount effect).
+          diffAndExplainResolvedChecks(g);
+        }
         setParticipants(party);
 
         // Sorted once, defensively (the engine's GET /events has no
@@ -1728,7 +1760,31 @@ export default function PlayPage() {
             // convention of always refetching fresh below).
             getGrounding(sessionId)
               .then((g) => {
-                if (invalidatesGrounding) setGrounding(g);
+                if (invalidatesGrounding) {
+                  // Tora-Gesture CRITICAL-1 (2026-07-28): this setGrounding
+                  // can unmount the check the player currently has focus on
+                  // (another table member resolved/locked it, or a
+                  // STRUCT-006 classifier did via roleplay -- no click on
+                  // THIS client at all), stranding focus on <body> with no
+                  // recovery. Same rescue onAttemptCheck's own click path
+                  // already uses (page.tsx ~L3366+) -- capture synchronously
+                  // right before the state update that may unmount, refocus
+                  // after. `refocusSceneHeadIfStranded` is declared BELOW
+                  // this effect in source, same safe forward-reference shape
+                  // `applyOfferedCheckSignal` on the next line already uses
+                  // (this closure only runs long after the whole component
+                  // body -- and its consts -- have finished evaluating for
+                  // this render; NOT safe to add to this effect's own deps
+                  // array, see that array's existing TDZ comment).
+                  const hadFocusInCheckWrap =
+                    checkWrapRef.current?.contains(document.activeElement) ?? false;
+                  setGrounding(g);
+                  // Iro-A11y MAJOR-1: same forward-reference-safe shape as
+                  // refocusSceneHeadIfStranded just below -- see
+                  // diffAndExplainResolvedChecks's own declaration comment.
+                  diffAndExplainResolvedChecks(g);
+                  refocusSceneHeadIfStranded(hadFocusInCheckWrap);
+                }
                 if (offerThisTick) applyOfferedCheckSignal(offerThisTick, g);
               })
               .catch(() => {});
@@ -1967,7 +2023,24 @@ export default function PlayPage() {
         // originate. `newOnes` is seq-deduped, so this fires once per change.
         if (newOnes.some((e) => e.kind != null && GROUNDING_INVALIDATING_KINDS.has(e.kind))) {
           getGrounding(sessionId)
-            .then((g) => setGrounding(g))
+            .then((g) => {
+              // Tora-Gesture CRITICAL-1 (2026-07-28): SSE/flag-off mirror of
+              // the durable poll's identical fix above -- capture focus
+              // synchronously right before the state update that may
+              // unmount a focused check (poll-driven removal, no click on
+              // THIS client), refocus the scene heading after. Same
+              // deliberate deps-array omission as `refocusSceneHeadIfStranded`
+              // would trigger the same TDZ this effect's own deps-array
+              // comment documents for `applyOfferedCheckSignal` -- safe to
+              // call from inside this closure, not safe to list as a dep.
+              const hadFocusInCheckWrap =
+                checkWrapRef.current?.contains(document.activeElement) ?? false;
+              setGrounding(g);
+              // Iro-A11y MAJOR-1: same forward-reference-safe shape as
+              // refocusSceneHeadIfStranded just below.
+              diffAndExplainResolvedChecks(g);
+              refocusSceneHeadIfStranded(hadFocusInCheckWrap);
+            })
             .catch(() => {});
         }
         lastEventSeqRef.current = newOnes.reduce(
@@ -2251,12 +2324,81 @@ export default function PlayPage() {
    * offered_check check) don't have to rely on the `grounding` closure value,
    * which is stale until the next render commits this call's setGrounding().
    */
+  // Check Retry + Fail-Forward (2026-07-28 design) — Iro-A11y MAJOR-1:
+  // disappearance-explanation for a check resolved by someone OTHER than
+  // this client's own click (a table-mate's action, or a STRUCT-006
+  // classifier resolving the gating flag through roleplay -- no click on
+  // THIS client at all). The acting client's own resolution gets the toast
+  // + SILENT log row (onAttemptCheck, MAJOR-2, below); every OTHER client
+  // only sees the check silently vanish from the rail unless this fires.
+  // Keyed `${skill}-${dc}`, mirroring the engine's own check_key
+  // convention (minus scene_id -- these refs are scene-scoped and reset on
+  // scene change instead, see below).
+  const lastDiffedSceneIdRef = useRef<string | null | undefined>(undefined);
+  const prevCheckStatesRef = useRef<Map<string, string | undefined>>(new Map());
+  const explainedResolvedKeysRef = useRef<Set<string>>(new Set());
+  const ownResolvedCheckKeysRef = useRef<Set<string>>(new Set());
+
+  const diffAndExplainResolvedChecks = useCallback(
+    (g: GroundingData | null | undefined) => {
+      const sceneId = g?.scene_id ?? null;
+      if (sceneId !== lastDiffedSceneIdRef.current) {
+        // Scene changed (or this is the very first call this mount) --
+        // a check sharing the SAME skill+dc key in a DIFFERENT scene is a
+        // different authored check entirely; start every ref fresh so
+        // nothing carries over across the boundary. This also means the
+        // very first diff of a fresh scene never spuriously "explains" a
+        // check that was already resolved before this client ever looked
+        // -- an empty prevCheckStatesRef means nothing counts as a
+        // transition on that first pass (see `wasSeenBefore` below).
+        lastDiffedSceneIdRef.current = sceneId;
+        prevCheckStatesRef.current = new Map();
+        explainedResolvedKeysRef.current = new Set();
+        ownResolvedCheckKeysRef.current = new Set();
+      }
+
+      const prev = prevCheckStatesRef.current;
+      const next = new Map<string, string | undefined>();
+      for (const c of g?.checks ?? []) {
+        if (!c || typeof c.skill !== 'string') continue;
+        const key = `${c.skill}-${c.dc}`;
+        next.set(key, c.state);
+        const wasSeenBefore = prev.has(key);
+        const wasResolved = prev.get(key) === 'resolved';
+        const isResolved = c.state === 'resolved';
+        // Double-append guard: `explainedResolvedKeysRef` is checked AND
+        // set synchronously in the same pass as the transition check, so
+        // even if two grounding fetches raced (both reading the same
+        // pre-update `prev`), only the first to actually execute this loop
+        // body can win the append -- diffAndExplainResolvedChecks itself
+        // never awaits mid-diff, so the two calls can't interleave.
+        if (
+          isResolved &&
+          !wasResolved &&
+          wasSeenBefore &&
+          !ownResolvedCheckKeysRef.current.has(key) &&
+          !explainedResolvedKeysRef.current.has(key)
+        ) {
+          explainedResolvedKeysRef.current.add(key);
+          appendLog({
+            who: 'Suzu',
+            kind: 'system',
+            text: `✦ The ${titleCaseSkill(c.skill)} approach resolves.`,
+          });
+        }
+      }
+      prevCheckStatesRef.current = next;
+    },
+    [appendLog],
+  );
+
   const refreshGrounding = useCallback(async (): Promise<GroundingData | null> => {
     if (!sessionId) return null;
     const g = await getGrounding(sessionId).catch(() => null);
     setGrounding(g);
+    diffAndExplainResolvedChecks(g);
     return g;
-  }, [sessionId]);
+  }, [sessionId, diffAndExplainResolvedChecks]);
 
   /**
    * Iro Ship 2 CRITICAL-1 — refocus the scene heading if a `refreshGrounding()`
@@ -3394,11 +3536,43 @@ export default function PlayPage() {
             ? { seq: result.event_seq }
             : {}),
         });
+        // Check Retry + Fail-Forward Iro-A11y MAJOR-1 (2026-07-28): mark this
+        // key as "resolved via my own click" BEFORE refreshGrounding() below
+        // runs the disappearance-explanation diff, so it skips explaining a
+        // resolution *I* just caused -- I get the toast + silent row instead
+        // (below), not the spectator-facing explanation row.
+        if (result.success && result.flag_set.length > 0) {
+          ownResolvedCheckKeysRef.current.add(`${skill}-${result.dc}`);
+        }
         // refreshGrounding() BEFORE narrate() so the scene card / check row are
         // already current when Suzu's beat lands (the engine may have set a
         // flag and/or auto-advanced the scene — never assumed from `result`).
         await refreshGrounding();
         refocusSceneHeadIfStranded(hadFocusInCheckWrap);
+        // Check Retry + Fail-Forward (2026-07-28 design section 7.3): the
+        // "zero success signal" half of the cold-open bug report -- a check
+        // that resolves successfully AND sets a flag gets an explicit
+        // payoff. This also doubles as the explanation for why the button
+        // is about to vanish from availableChecks (section 7.2's
+        // hide-resolved a11y mitigation) once refreshGrounding() above
+        // lands, rather than reading as a silent glitch.
+        if (result.success && result.flag_set.length > 0) {
+          toast({ tone: 'success', message: 'The way forward opens.' });
+          // Iro-A11y MAJOR-2 (2026-07-28): `silent: true` keeps this row in
+          // the transcript for sighted/scrollback readers but hides it from
+          // ChatLog's own aria-live region -- without it, the SAME beat
+          // announced through two independent aria-live="polite" regions
+          // (the toast above, and this row) double-announces to a screen
+          // reader. The toast is the one spoken channel for the acting
+          // client; MAJOR-1's disappearance-explanation row (below) is the
+          // spoken channel for everyone else at the table.
+          appendLog({
+            who: username,
+            kind: 'system',
+            text: '✦ The way forward opens.',
+            silent: true,
+          });
+        }
         // Kage #1 / Miko DEFECT-2: resolveCheck() above already resolved the
         // check (and any resulting flag/auto-advance) server-side — suppress
         // the INTENT classifier from acting on this confirmation beat too.
@@ -3426,9 +3600,30 @@ export default function PlayPage() {
             no_such_check: `No ${skillLabel} check is available right now.`,
             freeform_session: 'No authored adventure to check against.',
             msm_disabled: 'Skill checks are not available right now.',
+            // Check Retry + Fail-Forward (2026-07-28 design section 7.5):
+            // curated copy wins over the engine's own 409 message (which
+            // carries the narration-facing complication prose instead --
+            // see engineError.ts's precedence).
+            check_locked: 'That approach is closed — find another way.',
+            check_resolved: "You've already settled that one.",
           },
         });
         toast({ tone: message === fallback ? 'error' : 'info', message });
+        // Tora-Gesture MAJOR-1 (2026-07-28): a check_locked/check_resolved
+        // 409 means THIS client's grounding is stale relative to the server
+        // -- the button that just refused is still rendered plainly
+        // "available" and stays clickable, inviting an identical re-click/
+        // re-toast with zero self-correction until the next ~4s poll tick.
+        // Self-correct immediately for these two reasons ONLY, mirroring the
+        // success path's own refresh+refocus above -- every other reason
+        // (no_such_check/freeform_session/msm_disabled/unmapped) is a
+        // session- or scene-level refusal, not a per-check staleness
+        // signal, so those keep the current (no-refresh) behaviour.
+        const reason = isApiError(err) ? extractReason(err) : undefined;
+        if (reason === 'check_locked' || reason === 'check_resolved') {
+          await refreshGrounding();
+          refocusSceneHeadIfStranded(hadFocusInCheckWrap);
+        }
       } finally {
         checkBusyRef.current = false;
         setCheckBusy(false);
@@ -4290,6 +4485,16 @@ export default function PlayPage() {
     const seen = new Set<string>();
     const deduped: SceneCheck[] = [];
     for (const c of raw) {
+      // Check Retry + Fail-Forward (2026-07-28 design section 7.1/7.2): a
+      // resolved check is removed from the rail entirely (Leon's pick --
+      // a checkmarked row of dead buttons accumulates into visual debt).
+      // `state` absent (pre-CHECK-RETRY server, flag off) always passes
+      // through unchanged. `locked` deliberately stays in the list --
+      // rendered disabled with a reason below, not hidden ("a vanished
+      // button reads as a bug; a closed door reads as a consequence").
+      // One filter here covers BOTH render surfaces (.checkWrap + the
+      // chip row), since both derive from this same memo.
+      if (c.state === 'resolved') continue;
       const key = `${c.skill}-${c.dc}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -5209,18 +5414,50 @@ export default function PlayPage() {
             <span className={styles.checkChipsLabel}>Available checks</span>
             {availableChecks.map((c) => {
               const isOffered = c.skill === offeredCheckSkill;
+              // Check Retry + Fail-Forward (2026-07-28 design section 7.1):
+              // same locked/last-attempt derivation as the canonical
+              // .checkWrap group below -- this row is aria-hidden (a
+              // sighted/mouse-only duplicate placement), so no sr-only
+              // reason span here; disabled + the visible label change are
+              // still needed for sighted/touch users.
+              const isLocked = c.state === 'locked';
+              // Miko-QA Finding 5 (2026-07-28): require state === 'available'
+              // explicitly, not just !isLocked -- a partial/malformed wire
+              // payload (attempts_used/max_attempts present, `state` absent)
+              // must not render "last attempt" just because it also isn't
+              // literally 'locked'.
+              const isLastAttempt =
+                c.state === 'available' &&
+                c.max_attempts != null &&
+                c.attempts_used != null &&
+                c.attempts_used > 0 &&
+                c.max_attempts - c.attempts_used === 1;
               return (
                 <button
                   key={`check-chip-${c.skill}-${c.dc}`}
                   type="button"
                   tabIndex={-1}
-                  className={`${styles.checkChip} ${isOffered ? styles.checkChipOffered : ''}`}
-                  onClick={() => void onAttemptCheck(c.skill)}
+                  className={`${styles.checkChip} ${isOffered && !isLocked ? styles.checkChipOffered : ''} ${isLocked ? styles.checkBtnLocked : ''}`}
+                  onClick={() => {
+                    // Iro-A11y MAJOR-3/MAJOR-4 mirror: this row is already
+                    // tabIndex={-1} + aria-hidden (excluded from keyboard/AT
+                    // entirely), so the Tab-reachability half of the fix
+                    // doesn't apply here -- but `isLocked` still needs to
+                    // come out of native `disabled` for the SAME visual
+                    // contrast reason (the generic :disabled opacity rule
+                    // applies to sighted MOUSE users regardless of
+                    // aria-hidden), which means the click needs the same JS
+                    // guard a removed native `disabled` no longer provides.
+                    if (isLocked) return;
+                    void onAttemptCheck(c.skill);
+                  }}
                   disabled={checkBusy || talking || sessionLocked}
                   title={c.note}
                 >
                   <Icon name="Check" size={12} aria-hidden />
-                  {`Attempt ${titleCaseSkill(c.skill)}, DC ${c.dc}`}
+                  {isLocked
+                    ? `${titleCaseSkill(c.skill)}, DC ${c.dc} — closed`
+                    : `Attempt ${titleCaseSkill(c.skill)}, DC ${c.dc}${isLastAttempt ? ' — last attempt' : ''}`}
                 </button>
               );
             })}
@@ -5548,27 +5785,62 @@ export default function PlayPage() {
               // via aria-live when the offer landed (see narrate()).
               const isOffered = c.skill === offeredCheckSkill;
               const offeredId = isOffered ? `check-offered-${checkKey}` : undefined;
-              const describedBy = [offeredId, noteId].filter(Boolean).join(' ') || undefined;
+              // Check Retry + Fail-Forward (2026-07-28 design section 7.1):
+              // locked checks stay in the list -- disabled, with the reason
+              // available to screen readers. Absent `state` (pre-CHECK-RETRY
+              // server) leaves isLocked/isLastAttempt both false, so nothing
+              // here changes for a flag-OFF server.
+              const isLocked = c.state === 'locked';
+              // Miko-QA Finding 5 (2026-07-28): require state === 'available'
+              // explicitly, not just !isLocked -- a partial/malformed wire
+              // payload (attempts_used/max_attempts present, `state` absent)
+              // must not render "last attempt" just because it also isn't
+              // literally 'locked'.
+              const isLastAttempt =
+                c.state === 'available' &&
+                c.max_attempts != null &&
+                c.attempts_used != null &&
+                c.attempts_used > 0 &&
+                c.max_attempts - c.attempts_used === 1;
+              const lockReasonId = isLocked ? `check-locked-${checkKey}` : undefined;
+              const lockReasonText = isLocked
+                ? (CHECK_LOCK_REASON_COPY[c.lock_reason ?? ''] ?? CHECK_LOCK_REASON_COPY.max_attempts)
+                : undefined;
+              const describedBy =
+                [offeredId, noteId, lockReasonId].filter(Boolean).join(' ') || undefined;
               return (
                 <button
                   key={checkKey}
                   type="button"
-                  className={`${styles.checkBtn} ${isOffered ? styles.checkBtnOffered : ''}`}
-                  onClick={() => void onAttemptCheck(c.skill)}
+                  className={`${styles.checkBtn} ${isOffered && !isLocked ? styles.checkBtnOffered : ''} ${isLocked ? styles.checkBtnLocked : ''}`}
+                  onClick={() => {
+                    // Iro-A11y MAJOR-3/MAJOR-4 (2026-07-28): `isLocked` is
+                    // deliberately NOT in the native `disabled` prop below
+                    // (a locked check must stay Tab-reachable so its
+                    // sr-only close reason is announced) -- the click is
+                    // guarded here in JS instead of by the browser.
+                    if (isLocked) return;
+                    void onAttemptCheck(c.skill);
+                  }}
                   disabled={checkBusy || talking || sessionLocked}
                   aria-busy={checkBusy || talking}
-                  aria-disabled={checkBusy || talking || sessionLocked}
+                  aria-disabled={isLocked || checkBusy || talking || sessionLocked}
                   aria-describedby={describedBy}
                   title={c.note}
                 >
                   <Icon name="Check" size={13} aria-hidden />
                   {/* Iro Ship 2 MINOR-1: comma reads better in AT/TTS than parens. */}
-                  {`Attempt ${titleCaseSkill(c.skill)}, DC ${c.dc}`}
+                  {isLocked
+                    ? `${titleCaseSkill(c.skill)}, DC ${c.dc} — closed`
+                    : `Attempt ${titleCaseSkill(c.skill)}, DC ${c.dc}${isLastAttempt ? ' — last attempt' : ''}`}
                   {isOffered && (
                     <span id={offeredId} className="sr-only">Suzu invited this check.</span>
                   )}
                   {c.note && (
                     <span id={noteId} className="sr-only">{c.note}</span>
+                  )}
+                  {isLocked && (
+                    <span id={lockReasonId} className="sr-only">{lockReasonText}</span>
                   )}
                 </button>
               );

@@ -40,7 +40,15 @@ export function isApiError(err: unknown): err is ApiError {
   return err instanceof Error && 'status' in err;
 }
 
-function extractReason(err: ApiError): string | undefined {
+/**
+ * Exported (2026-07-28, Tora-Gesture MAJOR-1 follow-up) so a caller can
+ * branch on the machine-readable reason itself, not just the curated copy --
+ * e.g. the play page's onAttemptCheck self-corrects (refreshes grounding)
+ * specifically for `check_locked`/`check_resolved`, where stale client
+ * grounding is the actual cause, without hardcoding/duplicating the
+ * body-shape probe a second time.
+ */
+export function extractReason(err: ApiError): string | undefined {
   const body = err.body as { data?: { reason?: string }; reason?: string } | null | undefined;
   return body?.data?.reason ?? body?.reason ?? err.code;
 }
