@@ -13,9 +13,10 @@
  *
  * Presentational only: the play screen derives every string from
  * `grounding`/`combatState` and passes it down — this component does no
- * fetching/polling of its own. `talking` still drives the SuzuDM avatar's
- * talking animation (Suzu is still "live" while a beat generates, even
- * though her prose no longer streams here).
+ * fetching/polling of its own. `talking` drives the SuzuDM avatar's talking
+ * animation AND (out of combat) a visible-only "Suzu is narrating…" cue line
+ * under the scene text — TAV-PLAY-INPUT-LOCK-NO-FEEDBACK (2026-08-01), see
+ * the comment at the `narrating` derivation for why the cue is aria-hidden.
  *
  * Iro-A11y CRITICAL (review pass) — during combat, the pre-existing "Iro
  * MEDIUM-2" persistent turn-status live region elsewhere on the page
@@ -79,6 +80,25 @@ export default function NarratorStrip({
     : '';
   const line = combatActive ? combatLine : sceneLine;
   const empty = combatActive ? combatParts.length === 0 : !sceneLine.trim();
+  // TAV-PLAY-INPUT-LOCK-NO-FEEDBACK (2026-08-01, reworked per Kage-CR
+  // IMPORTANT-2 + Iro-A11y MAJOR-2): while a beat generates, every input on
+  // the page is disabled via the `talking` gate — but the only signal used to
+  // be the avatar's talking animation, which playtesting showed reads as "the
+  // screen froze". Out of combat a "Suzu is narrating…" cue line now appears
+  // UNDER the scene line — the scene name + objective stay visible for the
+  // whole 24–34s window (they're the player's "what am I doing" anchor).
+  //
+  // The cue is deliberately `aria-hidden` (VISIBLE-ONLY): this strip is an
+  // `aria-atomic` polite region whose accessible text was invariant across
+  // `talking` before the cue existed, and swapping/adding announced text here
+  // costs TWO extra polite utterances per beat (entry + a full atomic re-read
+  // of banner-plus-pill on exit, queued right before the narration the player
+  // actually waited for) — the exact double-announce this file's combat
+  // budget already forbids. Screen-reader users are not left out: ChatLog's
+  // pre-existing "Suzu is composing…" thinking row (inside its own polite
+  // `role="log"` region) already announces the same state at beat start, and
+  // stays the single authoritative SR channel for it.
+  const narrating = talking && !combatActive;
 
   return (
     // role=status stays regardless (it's still a live-region CONTAINER, just
@@ -95,6 +115,12 @@ export default function NarratorStrip({
     >
       <SuzuDM size={56} glow={false} talking={talking} />
       <div className={styles.dialog}>
+        {/* The dialog line NEVER changes with `talking` — not even the idle
+            hint (Kage IMPORTANT-4: suppressing the hint mutated the atomic
+            region's accessible text on the cold-open beat, re-creating the
+            per-beat double announcement on exactly that path). On an empty
+            scene, "Suzu is setting the scene…" already IS the narrating
+            feedback, so the cue is gated to non-empty scenes only. */}
         {empty ? (
           <span className={styles.idle}>
             {combatActive ? 'Combat is underway.' : 'Suzu is setting the scene…'}
@@ -102,6 +128,12 @@ export default function NarratorStrip({
         ) : (
           <span className={styles.text}>{line}</span>
         )}
+        {narrating && !empty ? (
+          <span className={styles.narrating} aria-hidden="true">
+            Suzu is narrating
+            <span className={styles.narratingDots}>…</span>
+          </span>
+        ) : null}
       </div>
       {status ? <div className={styles.status}>{status}</div> : null}
     </div>

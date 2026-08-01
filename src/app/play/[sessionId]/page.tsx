@@ -4579,6 +4579,16 @@ export default function PlayPage() {
     onMoveOn,
   ]);
 
+  // NOTE (TAV-PLAY-INPUT-LOCK-NO-FEEDBACK review, 2026-08-01): the composer
+  // lock (`talking`/paused/ended/`dmNarrationPending`) strands keyboard focus
+  // on <body> when it disables the control the user was on — a real gap (Iro
+  // MAJOR-1), deliberately NOT patched inline here: a naive rising-edge
+  // refocus fires on session load and teleports the DM to the scene heading
+  // on every send (Kage IMPORTANT-3). Tracked as its own story
+  // (TAV-COMPOSER-FOCUS-STRAND) with the design constraints: route through
+  // refocusSceneHeadIfStranded's provenance flag, restore toward the
+  // composer/ChatLog on the falling edge, and pin it with a test.
+
   // ── auth gate (UIR2-TAV-3) ──────────────────────────────────────────────────
   // A SEPARATE, earlier guard from the session `state` machine below — this
   // page never had ANY auth gate before, so it rendered its play UI (and the
@@ -5476,6 +5486,18 @@ export default function PlayPage() {
           // DDX-25: a paused/ended session shouldn't accept turns — extend the
           // existing `talking` disabled-gate rather than inventing a new one.
           disabled={talking || sessionLocked}
+          // TAV-PLAY-INPUT-LOCK-NO-FEEDBACK (2026-08-01): say WHY the input is
+          // inert. Order matters — a locked session stays locked through a
+          // narration beat, so the lock reason wins over the transient one.
+          disabledReason={
+            isEnded
+              ? 'This session has ended.'
+              : isPaused
+                ? 'Session is paused.'
+                : talking
+                  ? 'Suzu is narrating — one moment…'
+                  : null
+          }
           availableModes={composerModes}
           pending={dmNarrationPending}
           sendError={mode === 'dm_narration' ? dmNarrationError : null}

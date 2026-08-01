@@ -30,8 +30,14 @@ describe('NarratorStrip', () => {
     // streaming row, which IS aria-hidden until finalize — see ChatLog's
     // T1/TAV-S1 test). This banner updates rarely (scene change / turn
     // change), so its text is announced normally, not aria-hidden.
-    const { container } = render(
-      <NarratorStrip sceneName="The Sooty Chimney" objective="Find the source." talking />,
+    // TAV-PLAY-INPUT-LOCK-NO-FEEDBACK (2026-08-01, Kage IMPORTANT-2 / Iro
+    // MAJOR-2 rework): the `talking` cue is VISIBLE-ONLY (aria-hidden) so the
+    // atomic region's accessible text stays invariant across `talking` — no
+    // entry/exit announcements, no per-beat atomic re-read of the banner.
+    // ChatLog's "Suzu is composing…" thinking row is the single SR channel
+    // for the generating state.
+    const { rerender } = render(
+      <NarratorStrip sceneName="The Sooty Chimney" objective="Find the source." />,
     );
     const status = screen.getByRole('status');
     expect(status).toHaveAttribute('aria-live', 'polite');
@@ -39,7 +45,17 @@ describe('NarratorStrip', () => {
     expect(
       screen.getByText('The Sooty Chimney — Find the source.'),
     ).not.toHaveAttribute('aria-hidden');
-    void container;
+    rerender(
+      <NarratorStrip sceneName="The Sooty Chimney" objective="Find the source." talking />,
+    );
+    // Scene text stays announced normally while talking…
+    expect(
+      screen.getByText('The Sooty Chimney — Find the source.'),
+    ).not.toHaveAttribute('aria-hidden');
+    // …and the whole cue (text + pulsing ellipsis) is out of the accessible
+    // tree, so the region's computed text is unchanged by the talking flip.
+    const cue = screen.getByText(/Suzu is narrating/i);
+    expect(cue).toHaveAttribute('aria-hidden', 'true');
   });
 });
 

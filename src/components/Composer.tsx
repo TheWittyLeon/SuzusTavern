@@ -66,6 +66,17 @@ export interface ComposerProps {
   sendError?: string | null;
   /** When true the send button shows a spinner (submit pending). */
   pending?: boolean;
+  /** TAV-PLAY-INPUT-LOCK-NO-FEEDBACK (2026-08-01): human-readable reason the
+   *  composer is locked ("Suzu is narrating — one moment…", "Session is
+   *  paused."). Rendered as a visible `.lockStatus` banner above the field
+   *  while the input is locked (`disabled` OR `pending`) — the banner is the
+   *  primary channel, since a controlled textarea only paints its placeholder
+   *  on an empty value and the DM send path keeps the draft in the field.
+   *  The placeholder + title carry the same reason as supplementary channels
+   *  for the empty-value case. A pending-only lock with no supplied reason
+   *  falls back to "Sending…" (Miko-QA find: the human-DM send round-trip
+   *  locks via `pending` alone). */
+  disabledReason?: string | null;
   /** Tora MAJOR-2: exposes the action rail's own container so the play page
    *  can refocus it if a turn-transition disables the button the user was
    *  just on, stranding focus on <body> (mirrors the sceneHeadRef tabIndex={-1}
@@ -438,12 +449,24 @@ export default function Composer({
   availableModes,
   sendError = null,
   pending = false,
+  disabledReason = null,
   railRef,
   localTurnActionRef,
 }: ComposerProps) {
   // Use caller-supplied mode list if provided; default to the standard 3-tab set.
   const MODES = availableModes ?? DEFAULT_MODES;
   const canSend = value.trim().length > 0 && !disabled && !pending;
+  // TAV-PLAY-INPUT-LOCK-NO-FEEDBACK: the textarea locks on `disabled || pending`
+  // (below), so the self-explaining lock reason must cover BOTH — a supplied
+  // reason wins; a pending-only lock with no reason falls back to "Sending…"
+  // (matches the send button's aria-label for the same state). The
+  // `disabled && pending && no-reason` cell deliberately yields null rather
+  // than fabricate "Sending…" for a lock that outlives the request (Kage-CR:
+  // unreachable from the live caller, which always supplies a reason when
+  // disabled — degrade to the normal placeholder if that invariant breaks).
+  const locked = disabled || pending;
+  const lockReason =
+    (locked && disabledReason) || (pending && !disabled ? 'Sending…' : null);
   // Refs to the mode tab buttons so Arrow keys move DOM focus (not just
   // selection) to the newly-active tab — APG tablist contract (Iro S3.4).
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -479,6 +502,27 @@ export default function Composer({
           aria-atomic="true"
         >
           {sendError}
+        </div>
+      )}
+      {/* TAV-PLAY-INPUT-LOCK-NO-FEEDBACK (Kage-CR IMPORTANT-1 / Iro-A11y
+          CRITICAL-1): the lock reason gets a VISIBLE banner, not just the
+          placeholder — a controlled textarea only paints its placeholder when
+          `value` is empty, and the human-DM send path keeps the draft in the
+          field for the whole pending window (cleared only on success), so a
+          placeholder-only reason never renders exactly where it's needed.
+          aria-live: polite ONLY for the pending-only case (nothing else
+          announces "Sending…"); a `disabled` lock is already announced by its
+          owner (ChatLog's composing row for `talking`, the DDX-25 session
+          status region for paused/ended) — announcing it again here would
+          double-speak every beat. */}
+      {lockReason && (
+        <div
+          className={styles.lockStatus}
+          role="status"
+          aria-live={disabled ? 'off' : 'polite'}
+          aria-atomic="true"
+        >
+          {lockReason}
         </div>
       )}
       <div className={styles.row}>
@@ -526,10 +570,11 @@ export default function Composer({
         <textarea
           ref={textareaRef}
           className={styles.input}
-          placeholder={PLACEHOLDER[mode] ?? ''}
+          placeholder={lockReason ?? (PLACEHOLDER[mode] ?? '')}
           value={value}
           rows={1}
           aria-label={`Compose (${mode})`}
+          title={lockReason ?? undefined}
           disabled={disabled || pending}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={(e) => {

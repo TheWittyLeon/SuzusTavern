@@ -293,6 +293,45 @@ describe('S5.2 — DM narration composer mode swap', () => {
     // Resolve the request.
     await act(async () => { resolveSend(); });
   });
+
+  // Regression pin (Miko-QA find + Kage-CR IMPORTANT-1, 2026-08-01): the
+  // human-DM send round-trip locks the textarea via `pending` alone (never
+  // `talking` — onSendDmNarration has no setTalking call, and the human-DM
+  // composer modes exclude say/act, so the narrate() setTalking sites are
+  // unreachable here), AND it keeps the draft in the field until success —
+  // so a placeholder-only reason would never paint (placeholder renders only
+  // on an empty value). The proof of the fix is the VISIBLE "Sending…"
+  // banner rendered while the draft is still in the box.
+  it('DM-narration send-pending shows the visible "Sending…" banner while the draft stays in the field (TAV-PLAY-INPUT-LOCK-NO-FEEDBACK)', async () => {
+    let resolveSend!: () => void;
+    mockPostSessionEvent.mockReturnValue(
+      new Promise<{ seq: number }>((r) => { resolveSend = () => r({ seq: 2 }); }),
+    );
+
+    render(<PlayPage />);
+    await waitFor(() =>
+      expect(screen.queryByRole('tab', { name: /DM Narration/i })).toBeInTheDocument(),
+    );
+
+    const textarea = screen.getByRole('textbox', { name: /Compose/i });
+    fireEvent.change(textarea, { target: { value: 'Sending now.' } });
+
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: /^Send$/i }));
+    });
+
+    try {
+      await waitFor(() => expect(textarea).toBeDisabled());
+      // The draft is STILL in the field (cleared only on success) — which is
+      // exactly why the placeholder channel alone could never carry the
+      // reason on this path.
+      expect((textarea as HTMLTextAreaElement).value).toBe('Sending now.');
+      // The visible banner is the channel that actually lands.
+      expect(screen.getByText('Sending…')).toBeInTheDocument();
+    } finally {
+      await act(async () => { resolveSend(); });
+    }
+  });
 });
 
 // ── S5.3 — DM monster panel -------------------------------------------------

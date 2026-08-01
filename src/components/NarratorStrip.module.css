@@ -29,6 +29,31 @@
   font-style: italic;
 }
 
+.narrating {
+  /* Cue line under the scene text (visible-only — aria-hidden in the TSX; see
+     the component comment for the live-region budget rationale). Same AA-safe
+     ink as .idle (Iro S3.3 note above). The TEXT never animates — only the
+     decorative ellipsis pulses — so contrast holds at all times and
+     reduced-motion users lose nothing but the pulse. Single truncated line so
+     a long scene line + cue can never grow the sticky strip. */
+  composes: idle;
+  display: block;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.narratingDots {
+  display: inline-block;
+  animation: narr-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes narr-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
 .status {
   display: flex;
   align-items: center;
@@ -43,4 +68,5 @@
 
 @media (prefers-reduced-motion: reduce) {
   .text { animation: none; }
+  .narratingDots { animation: none; }
 }

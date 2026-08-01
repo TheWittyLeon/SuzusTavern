@@ -585,3 +585,149 @@ describe('DDX-25 adversarial — engine refusal / refetch-failure degradation', 
     expect(screen.getByRole('textbox', { name: /Compose/i })).not.toBeDisabled();
   });
 });
+
+// Miko-QA adversarial (TAV-PLAY-INPUT-LOCK-NO-FEEDBACK review, 2026-08-01) —
+// page.tsx's disabledReason ternary (`isEnded ? ... : isPaused ? ... : talking
+// ? ... : null`) is asserted by NO test anywhere in the suite before this one:
+// play-components.test.tsx only feeds the literal reason strings into
+// Composer directly as hardcoded props (proves Composer's own rendering, not
+// page.tsx's precedence wiring), and grepping the whole __tests__ tree for
+// the exact "Suzu is narrating — one moment" string turns up zero page-level
+// hits. This closes that gap: a REAL narrate() call is left hanging
+// (`talking` stays true) and the session is paused out from under it — the
+// exact "locked session stays locked through a narration beat" scenario the
+// source comment on that ternary calls out by name.
+describe('TAV-PLAY-INPUT-LOCK-NO-FEEDBACK — disabledReason precedence (paused wins over talking)', () => {
+  it('once paused mid-beat, the placeholder switches from the narrating reason to the paused reason (isPaused outranks talking)', async () => {
+    mockUsername = 'dm_alice';
+    setup(BASE_SESSION, [{ username: 'dm_alice', is_dm: true, character: null }]);
+
+    // A generator that yields one chunk then hangs forever — `talking` is
+    // set true by narrate() before the loop starts and only cleared after
+    // the loop (and the whole for-await) completes, so this keeps `talking`
+    // true for the entire test, same as a real beat still generating.
+    let releaseHang: () => void = () => {};
+    mockStreamDmNarration.mockImplementation(async function* () {
+      yield { kind: 'chunk' as const, text: 'The torches flicker' };
+      await new Promise<void>((resolve) => {
+        releaseHang = resolve;
+      });
+      yield { kind: 'done' as const };
+    });
+
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+
+    const input = screen.getByRole('textbox', { name: /Compose/i });
+    fireEvent.change(input, { target: { value: 'I light a torch.' } });
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' });
+    });
+    await flush();
+
+    try {
+      // Sanity: the beat is genuinely in flight and the reason reflects it.
+      expect(input).toBeDisabled();
+      expect(input).toHaveAttribute(
+        'placeholder',
+        'Suzu is narrating — one moment…',
+      );
+
+      // The DM pauses the table while that same beat is still generating.
+      mockGetSession.mockResolvedValue({ ...BASE_SESSION, status: 'paused' });
+      const pauseBtn = screen.getByRole('button', { name: /^Pause$/i });
+      await act(async () => {
+        fireEvent.click(pauseBtn);
+      });
+      await flush();
+
+      // Still locked either way — but the REASON must now be the durable one
+      // (the session stays paused after this beat ends; "one moment" would be
+      // actively misleading once the DM has paused the table).
+      expect(input).toBeDisabled();
+      expect(input).toHaveAttribute('placeholder', 'Session is paused.');
+    } finally {
+      // Release the hung generator even on assertion failure so it doesn't
+      // leak into other tests (Kage-CR 🟢-8).
+      releaseHang();
+      await flush();
+    }
+  });
+
+  // Kage-CR 🟢-6: 'This session has ended.' previously had zero page-level
+  // coverage — only the literal string fed into a Composer unit test.
+  it('an ended session shows the ended reason (isEnded outranks everything)', async () => {
+    mockUsername = 'dm_alice';
+    setup(
+      { ...BASE_SESSION, status: 'ended' },
+      [{ username: 'dm_alice', is_dm: true, character: null }],
+    );
+
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+
+    const input = screen.getByRole('textbox', { name: /Compose/i });
+    expect(input).toBeDisabled();
+    expect(input).toHaveAttribute('placeholder', 'This session has ended.');
+  });
+});
+
+// Miko-QA adversarial (TAV-PLAY-INPUT-LOCK-NO-FEEDBACK review, 2026-08-01) —
+// "should a human DM ever see 'Suzu is narrating'?" Traced all four
+// `setTalking(true)` call sites in page.tsx (narrate, narrateDurable,
+// narrateDurableBeat, subscribeToJob) — every one is gated behind
+// `dm_mode !== 'human' && aiLevel !== 'off' && aiLevel !== 'assist'` (or, for
+// subscribeToJob, is only ever reached from those same gated callers). The
+// composer-send path is already covered (S5.2-AC2: postSessionEvent fires,
+// streamDmNarration never does) — this test proves the SAME invariant holds
+// for a DIFFERENT trigger (a DiceTray quick-check auto-narrate) that reaches
+// `narrate()` through a wholly separate call path (onRoll, not onSend), with
+// `ai_assist_level: 'assist'` so the Suzu panel is actually mounted
+// (showSuzuPanel = aiLevel !== 'off') — the harder case, since a sighted user
+// really is looking at the strip that COULD say "Suzu is narrating" here.
+describe('TAV-PLAY-INPUT-LOCK-NO-FEEDBACK — human DM never sees "Suzu is narrating"', () => {
+  it('a quick-check auto-narrate never fires the LLM path (and never shows the narrating line) for a human-DM table, even in assist mode', async () => {
+    mockUsername = 'bob';
+    setup(
+      { ...BASE_SESSION, dm_mode: 'human', ai_assist_level: 'assist' },
+      [
+        { username: 'dm_alice', is_dm: true, character: null },
+        {
+          username: 'bob',
+          is_dm: false,
+          character: {
+            character_id: '55',
+            name: 'Rook',
+            char_class: 'Fighter',
+            level: 3,
+            current_hp: 10,
+            max_hp: 10,
+            ac: 14,
+          },
+        },
+      ],
+    );
+    mockGetCharacterSheet.mockResolvedValue({
+      skills: [{ name: 'perception', ability: 'wisdom', modifier: 3 }],
+    });
+
+    render(<PlayPage />);
+    const rollBtn = await screen.findByRole('button', {
+      name: /Roll Perception check, modifier \+3/i,
+    });
+    expect(rollBtn).not.toBeDisabled(); // not paused/ended — the human-DM gate is inside narrate() itself
+
+    await act(async () => {
+      fireEvent.click(rollBtn);
+    });
+    await flush();
+
+    // The LLM path was never reached...
+    expect(mockStreamDmNarration).not.toHaveBeenCalled();
+    // ...so `talking` was never set, so the composer was never locked...
+    expect(screen.getByRole('textbox', { name: /Compose/i })).not.toBeDisabled();
+    // ...and the Suzu panel (mounted here, since aiLevel 'assist' !== 'off')
+    // never renders the narrating line.
+    expect(screen.queryByText(/Suzu is narrating/i)).not.toBeInTheDocument();
+  });
+});
