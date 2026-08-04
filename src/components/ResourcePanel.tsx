@@ -58,9 +58,19 @@ function spendErrorMessage(err: unknown, label: string): string {
   if (reason?.startsWith('insufficient_')) return `Not enough ${label} left.`;
   if (reason === 'no_such_resource') return `${label} is not available yet.`;
   if (reason === 'invalid_amount') return 'Spend amount must be a positive whole number.';
-  // NB: `track_not_adjustable` is deliberately NOT handled here — only
-  // /adjust emits it, never /spend (Kage-CR S1). A track never renders a Use
-  // control at all, so this path is unreachable from the panel.
+  // `track_not_spendable` (D5): the engine refuses a track's spend outright
+  // (ENGINE-TRACK-SPEND-GUARD). The panel already declines to render a Use
+  // control for a track, so this is not the primary defence — it is what the
+  // player sees when the two disagree, which a stale sheet can arrange: load
+  // a resource while it is a pool, spend it after content redeclares it a
+  // track. Mapped rather than left to the fallback because "could not spend,
+  // try again" invites a retry that can never succeed.
+  //
+  // NB: `track_not_adjustable` is still deliberately absent — that is the
+  // /adjust half of the same rule, and this panel ships no adjust control.
+  if (reason === 'track_not_spendable') {
+    return `${label} is not spent by hand — it changes through play.`;
+  }
   return fallback;
 }
 
@@ -314,8 +324,15 @@ export default function ResourcePanel({
             : Math.max(0, Math.min(100, Math.round((res.current / res.maximum) * 100)));
           const danger = isTrack && res.current * 2 >= res.maximum && res.current > 0;
           // A track is "spent" by the mechanics that raise it, never by the
-          // player, and the engine refuses a track adjust outright — so no
-          // spend control for tracks.
+          // player, and the engine now refuses a track SPEND outright
+          // (`track_not_spendable`, D5) — so no spend control for tracks.
+          //
+          // This comment used to cite the engine's *adjust* refusal as the
+          // backing for withholding the *spend* control, which was the wrong
+          // guard for this control and, until ENGINE-TRACK-SPEND-GUARD
+          // (2026-08-04), a guard that did not exist for spend at all: this
+          // `!isTrack` was the ONLY thing preventing a track from being
+          // drained. It is now the first of two, and no longer the last.
           const canSpend = isOwner && !locked && !isTrack && res.current > 0;
 
           return (

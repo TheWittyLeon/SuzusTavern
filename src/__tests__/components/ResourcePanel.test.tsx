@@ -221,6 +221,35 @@ describe('spend', () => {
     expect(await screen.findByText('Not enough Ki left.')).toBeInTheDocument();
   });
 
+  it('maps track_not_spendable rather than falling through to a retry prompt', async () => {
+    // The reachable path for this refusal is a STALE SHEET: the row loaded as
+    // a pool (so a Use control rendered), and by the time the click lands the
+    // engine says it is a track. `!isTrack` in the render is the primary
+    // defence and it is doing its job here — the engine's guard
+    // (ENGINE-TRACK-SPEND-GUARD) is what makes the disagreement safe, and this
+    // copy is what makes it legible. The generic fallback would say "try again
+    // in a moment", inviting a retry that can never succeed.
+    mockList.mockResolvedValue({ resources: [pool()], undoable: null });
+    const err = Object.assign(new Error('nope'), {
+      status: 409,
+      body: { data: { reason: 'track_not_spendable' } },
+    });
+    mockSpend.mockRejectedValue(err);
+    renderPanel();
+    await screen.findByLabelText('Use one Ki');
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Use one Ki'));
+    });
+    expect(
+      await screen.findByText('Ki is not spent by hand — it changes through play.'),
+    ).toBeInTheDocument();
+    // The assertion that makes the one above non-vacuous: the generic
+    // fallback also renders a toast, so "some toast appeared" proves nothing.
+    expect(
+      screen.queryByText('Could not spend Ki. Try again in a moment.'),
+    ).not.toBeInTheDocument();
+  });
+
   it('latches against a same-tick double click', async () => {
     mockList.mockResolvedValue({ resources: [pool()], undoable: null });
     let resolve: (v: unknown) => void = () => {};
