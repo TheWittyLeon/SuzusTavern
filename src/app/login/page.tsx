@@ -505,6 +505,22 @@ function LoginForm() {
         session.encrypted · ed25519
       </p>
 
+      {/* Forgot-passphrase entry point (AUTH-PASSWORD-SELF-SERVICE). Without
+          it the reset flow is unreachable from the one page where a locked-out
+          user actually is. Styled to match the sign-up link below. */}
+      <p className={styles.footer} style={{ marginTop: 8, fontSize: 12, color: 'var(--ink-3)' }}>
+        <a
+          href="/forgot-password"
+          style={{
+            color: 'var(--accent)',
+            textDecoration: 'underline',
+            textUnderlineOffset: 2,
+          }}
+        >
+          Forgotten your passphrase?
+        </a>
+      </p>
+
       {/* Sign-up link — shown when mode != closed (B3). Plain text; mode is
           not pre-fetched here to keep the login page dead-simple. The link is
           always present and /signup handles the closed-mode message itself. */}

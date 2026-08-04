@@ -232,6 +232,19 @@ function UserMenu() {
             </>
           )}
           <div className={styles.menuSep} />
+          {/* AUTH-PASSWORD-SELF-SERVICE: the only in-app entry point to
+              changing a passphrase. Sits above the separator-and-Sign-out
+              pair so a destructive action stays last. */}
+          <Link
+            href="/settings"
+            role="menuitem"
+            className={styles.menuRow}
+            onClick={() => close(false)}
+          >
+            <Icon name="Sliders" size={14} aria-hidden />
+            <span>Account</span>
+          </Link>
+          <div className={styles.menuSep} />
           <button
             type="button"
             role="menuitem"

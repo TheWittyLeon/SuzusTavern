@@ -1,0 +1,40 @@
+/* ChangePassphrasePanel — signed-in passphrase change.
+ * Token-driven; no hardcoded colours. */
+
+.wrap {
+  margin-top: 12px;
+}
+
+.title {
+  margin: 0 0 4px;
+  font-size: 15px;
+  color: var(--ink);
+}
+
+.sub {
+  margin: 0 0 16px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.fieldGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.fieldLabel {
+  font-size: 13px;
+}
+
+.errors {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--bad);
+}
