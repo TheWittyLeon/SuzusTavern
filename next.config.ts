@@ -8,6 +8,19 @@ const nextConfig: NextConfig = {
   // or future typo still lands the admin on the right page. 307 (temporary)
   // rather than 308 — this is a UI reroute, not a permanent URL change we
   // want search engines/clients to cache forever.
+  // DEV-ONLY, and it is what makes the dev Tavern browser-testable at all.
+  // The dev stack is served from another host (10.69.69.226:13000), and
+  // Next 16 blocks dev-time client assets/HMR for a cross-origin dev request
+  // unless that origin is listed here — it prints this exact suggestion in
+  // the container log. Without it the shell renders (SSR) but the React
+  // client never executes, so every page sits on "Loading…" forever and
+  // fires zero API calls. That looked like an app bug and was in fact an
+  // unconfigured dev server; it also meant no UI change on that box could be
+  // verified in a real browser.
+  //
+  // Ignored entirely by `next build` / production — this cannot affect the
+  // deployed container's behaviour.
+  allowedDevOrigins: ['10.69.69.226'],
   async redirects() {
     return [
       {

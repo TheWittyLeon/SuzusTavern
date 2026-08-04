@@ -1774,3 +1774,80 @@ export interface NpcActionResult {
   turn_advanced?: boolean;
   [k: string]: unknown;
 }
+
+/** VESSEL/SRD class resources — one entry from GET /api/dnd/characters/{id}/resources.
+ *
+ *  These are the engine's generic, class-DECLARED stat-derived resources (Ki,
+ *  Rage, Action Surge, Channel Divinity, the Vessel's Resonance/Instability, a
+ *  subclass's Natural Recovery, ...). Spell slots and concentration are
+ *  excluded engine-side — they belong to the spell surface — so this list is
+ *  safe to render wholesale.
+ *
+ *  `kind` drives how the number READS, and the two are not interchangeable:
+ *    - "pool"  — spending counts DOWN from `maximum` (Ki 3/5 means 3 left).
+ *    - "track" — a risk meter counting UP toward `maximum` (Instability 6/10
+ *      means 6 accrued). A full track is BAD; a full pool is good.
+ *  Rendering a track with a pool's visual language is actively misleading, so
+ *  the panel branches on this rather than treating every row as a pool.
+ *
+ *  `maximum: 0` means "not available at this character's level yet" (a level-1
+ *  monk's Ki, a level-1 warlock's Mystic Arcanum). The engine still stores the
+ *  row so it can grow in place on level-up.
+ */
+export interface ClassResource {
+  key: string;
+  label: string;
+  kind: 'pool' | 'track';
+  current: number;
+  maximum: number;
+  /** "short" | "long" | "none" | "daily" | "encounter" — the cadence at THIS
+   *  character's level (the engine resolves a level-gated cadence, e.g. Bardic
+   *  Inspiration flipping to short-or-long at 5th, before serving it). */
+  refresh: string;
+  /** Currently always "class" engine-side. Do NOT branch on it — it is a
+   *  provably constant field pending SOURCE-FIELD-CONSTANT. */
+  source?: string;
+}
+
+/** The last spend that can still be reversed, or null. Shape mirrors the
+ *  engine's `_undoable_for_wire`; the panel only needs the key + seq. */
+export interface UndoableSpend {
+  key: string;
+  seq?: number;
+  [k: string]: unknown;
+}
+
+export interface ListResourcesResult {
+  resources: ClassResource[];
+  undoable: UndoableSpend | null;
+}
+
+/** POST .../resources/{key}/spend — returns the FULL post-spend state, so the
+ *  panel can move the number immediately without waiting on a refetch (same
+ *  contract as adjustHp / spendCurrency). */
+export interface SpendResourceResult {
+  key: string;
+  label: string;
+  current: number;
+  maximum: number;
+  spent: number;
+  undoable: UndoableSpend | null;
+}
+
+/** POST .../resources/undo-last — a DIFFERENT shape from a spend, verified
+ *  against the engine's `undo_last_resource_route`: `{key, current, maximum,
+ *  restored, requested}`. It carries NO `label`, NO `spent` and NO `undoable`.
+ *
+ *  Typed separately rather than reusing `SpendResourceResult` (Kage-CR I4):
+ *  that reuse declared three fields that are `undefined` at runtime and left
+ *  the two real ones untyped — the same species of invented-contract bug as
+ *  the undo `reason` codes this panel already got wrong once. */
+export interface UndoResourceResult {
+  key: string;
+  current: number;
+  maximum: number;
+  /** How much was actually restored (may be clamped). */
+  restored: number;
+  /** How much the undone spend originally took. */
+  requested: number;
+}

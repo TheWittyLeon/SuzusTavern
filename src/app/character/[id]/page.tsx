@@ -32,6 +32,7 @@ import Icon from '@/components/Icon';
 import SuzuDM from '@/components/SuzuDM';
 import InventoryPanel from '@/components/InventoryPanel';
 import CurrencyPurse from '@/components/CurrencyPurse';
+import ResourcePanel from '@/components/ResourcePanel';
 import HpControl from '@/components/HpControl';
 import SpellSlotsPanel from '@/components/SpellSlotsPanel';
 import SpellbookPanel from '@/components/SpellbookPanel';
@@ -473,6 +474,19 @@ export default function CharacterPage() {
               isOwner={isOwner}
               currencyGp={sheet.currency_gp ?? 0}
               onChanged={setSheet}
+            />
+            {/* Class-declared resources (Ki, Rage, Channel Divinity, a
+                subclass's Natural Recovery, ...). Shares the economy card:
+                these are the other "spend a finite thing" affordances, and
+                the panel renders NOTHING for a class that declares none, so
+                a rogue's card is unchanged. `refreshToken` is the sheet's own
+                level — a level-up regrows maxima, and the panel owns its own
+                fetch rather than the sheet carrying resource state. */}
+            <ResourcePanel
+              characterId={id}
+              username={username ?? ''}
+              isOwner={isOwner}
+              refreshToken={sheet.level}
             />
           </Card>
         </div>

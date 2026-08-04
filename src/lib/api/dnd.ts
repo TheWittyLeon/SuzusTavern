@@ -11,7 +11,6 @@ import type {
   AvailableSpellsResult,
   BindCharacterRequest,
   BindCharacterResult,
-  FloorApplied,
   CatalogCounts,
   CatalogResponse,
   Character,
@@ -32,6 +31,7 @@ import type {
   EndSessionResult,
   EngineSessionEvent,
   EventsPage,
+  FloorApplied,
   GameSystem,
   GrantCurrencyResult,
   GroundingData,
@@ -39,6 +39,7 @@ import type {
   Inventory,
   LearnSpellResult,
   LevelUpStep,
+  ListResourcesResult,
   NpcActionRequest,
   NpcActionResult,
   OpeningLine,
@@ -46,9 +47,9 @@ import type {
   Participant,
   PrepareSpellResult,
   RebuildResult,
+  RemoveConditionRequest,
   ResolveCheckRequest,
   ResolveCheckResult,
-  RemoveConditionRequest,
   RollRequest,
   RollResult,
   SceneCheck,
@@ -66,9 +67,11 @@ import type {
   SpellListResult,
   SpellSlotsResult,
   SpendCurrencyResult,
+  SpendResourceResult,
   StartingEquipmentResult,
   SubmitOverrideRequest,
   SystemDefinition,
+  UndoResourceResult,
   WriteSessionEventRequest,
   XpAwardRequest,
 } from './types';
@@ -1478,3 +1481,67 @@ export const getSystemDefinition = (
     `/api/dnd/systems/${encodeURIComponent(systemId)}/definition`,
     { method: 'GET', signal },
   ).then((d) => d.system);
+
+/**
+ * Every class-declared resource with its live state.
+ * GET /api/dnd/characters/{id}/resources?username=<username>
+ *
+ * `username` is a query param (the NekoNova proxy 400s without it) — the same
+ * convention `getCharacter` uses. It is a HINT, not authority: with actor
+ * enforcement on, the engine resolves the effective scope from the verified
+ * actor headers the proxy stamps, and `guard_owner` proves ownership. The
+ * Tavern proxy's SECURITY-3 param strip is an exact match on `user`/`packs`,
+ * so `username` is deliberately not caught by it.
+ *
+ * Spell slots and concentration are filtered out engine-side, so the returned
+ * list can be rendered wholesale.
+ */
+export const listResources = (
+  characterId: string,
+  username: string,
+  signal?: AbortSignal,
+) =>
+  apiCall<ListResourcesResult>(
+    `/api/dnd/characters/${encodeURIComponent(characterId)}/resources` +
+      `?username=${encodeURIComponent(username)}`,
+    { signal },
+  );
+
+/**
+ * Spend `amount` of one declared resource. Atomic engine-side: a spend that
+ * would go below 0 is REFUSED whole (reason `insufficient_<key>`), never
+ * partially applied. Returns the full post-spend state.
+ * POST /api/dnd/characters/{id}/resources/{key}/spend
+ */
+export const spendResource = (
+  characterId: string,
+  resourceKey: string,
+  username: string,
+  amount: number,
+  signal?: AbortSignal,
+) =>
+  apiCall<SpendResourceResult>(
+    `/api/dnd/characters/${encodeURIComponent(characterId)}/resources/` +
+      `${encodeURIComponent(resourceKey)}/spend`,
+    { method: 'POST', json: { username, amount }, signal },
+  );
+
+/**
+ * Reverse the most recent undoable spend.
+ * POST /api/dnd/characters/{id}/resources/undo-last
+ *
+ * `seq` is OPTIONAL and is an IDENTIFIER, not a rules input: when supplied,
+ * an undo that would land on a DIFFERENT event is refused rather than
+ * silently retargeted, so a stale panel cannot undo a spend the player never
+ * saw. Always pass the `seq` the panel last rendered.
+ */
+export const undoLastResource = (
+  characterId: string,
+  username: string,
+  seq?: number,
+  signal?: AbortSignal,
+) =>
+  apiCall<UndoResourceResult>(
+    `/api/dnd/characters/${encodeURIComponent(characterId)}/resources/undo-last`,
+    { method: 'POST', json: seq === undefined ? { username } : { username, seq }, signal },
+  );

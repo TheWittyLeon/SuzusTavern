@@ -1,0 +1,124 @@
+/* ResourcePanel — class-declared resources on the character sheet.
+ * Token-driven; no hardcoded colors (project rule). Geometry mirrors
+ * CurrencyPurse's .wrap/.head so the sheet's panels stack consistently. */
+
+.wrap {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 0;
+}
+
+.muted {
+  font-size: 13px;
+  color: var(--ink-3);
+  margin: 8px 0 0;
+}
+
+.list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rowHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.value {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+
+/* A not-yet-unlocked resource reads as informational, not as an error. */
+.mutedValue {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--ink-3);
+}
+
+.meter {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--bg-3);
+  overflow: hidden;
+}
+
+/* POOL — what is LEFT. Full is good, so it uses the affirmative token. */
+.fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: inherit;
+  transition: width 160ms ease;
+}
+
+/* TRACK — what has ACCRUED. Neutral until it passes half; a track filling up
+ * is the opposite of a pool filling up, and the colour has to say so. */
+.fillTrack {
+  height: 100%;
+  background: var(--ink-3);
+  border-radius: inherit;
+  transition: width 160ms ease;
+}
+
+.fillDanger {
+  height: 100%;
+  background: var(--bad);
+  border-radius: inherit;
+  transition: width 160ms ease;
+}
+
+.rowFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 28px;
+}
+
+.cadence {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+/* Honour a reduced-motion preference — the meter is decorative movement. */
+@media (prefers-reduced-motion: reduce) {
+  .fill,
+  .fillTrack,
+  .fillDanger {
+    transition: none;
+  }
+}
