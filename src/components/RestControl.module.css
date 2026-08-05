@@ -1,13 +1,14 @@
 /* RestControl — short/long rest on the character sheet.
- * Token-driven; no hardcoded colors (project rule). Geometry mirrors
- * ResourcePanel's .wrap/.head/.muted so the sheet's panels stack
- * consistently — this sits directly beside it in the same Card. */
-
-.wrap {
-  margin-top: 12px;
-  border-top: 1px solid var(--line);
-  padding-top: 12px;
-}
+ * Token-driven; no hardcoded colors (project rule).
+ *
+ * There is deliberately NO `.wrap` rule, unlike ResourcePanel's
+ * otherwise-identical component. This one owns its whole Card rather than
+ * stacking under a sibling inside a shared one, so it needs neither the
+ * top divider nor the top margin ResourcePanel uses to separate itself from
+ * the purse above it — a border-top here would draw a line across the top of
+ * a card with nothing above it. The Card supplies the padding. The rest of
+ * the geometry still mirrors ResourcePanel so the two read as one family
+ * down the column. */
 
 .head {
   display: flex;

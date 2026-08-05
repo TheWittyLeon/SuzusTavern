@@ -552,10 +552,22 @@ export default function CharacterPage() {
               // refetch would silently not fire. See ResourcePanel's prop doc.
               refreshToken={`${sheet.level}:${restEpoch}`}
             />
-            {/* Rest is a SIBLING of the resource panel, not part of it: it
-                restores hit points, hit dice and spell slots too, and the
-                panel above renders nothing at all for a class that declares
-                no resources — those characters still need to rest. */}
+          </Card>
+
+          {/* ITS OWN CARD, deliberately (Leon's ruling, 2026-08-04).
+              Rest first shipped inside the economy Card above, next to the
+              purse and the resource panel. That was wrong twice over: those
+              two are about SPENDING a finite thing and rest is the opposite
+              verb, and rest's broadest effect — hit points — is rendered
+              several cards further up, so the control sat as far as possible
+              from the number it moves. It is also not a member of any one
+              panel's subject: it restores hit points, hit dice, spell slots
+              AND class resources, and the resource panel renders nothing at
+              all for a class that declares none (rogue, ranger) or for
+              everyone when the class-resource flag is off — exactly the
+              characters who still need to rest. A standalone Card says
+              "broad-effect action", which is what it is. */}
+          <Card>
             <RestControl
               characterId={id}
               username={username ?? ''}

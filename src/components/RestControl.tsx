@@ -219,7 +219,7 @@ export default function RestControl({
   if (!isOwner) return null;
 
   return (
-    <div className={styles.wrap} aria-busy={busy}>
+    <div aria-busy={busy}>
       <div className={styles.head}>
         <h2 className={styles.title}>Rest</h2>
       </div>
