@@ -32,6 +32,7 @@ import {
   unequipItem,
   giveItem,
   spendCurrency,
+  characterRest,
   getInventory,
   listMyCharacters,
   startSession,
@@ -262,6 +263,30 @@ describe('Characters', () => {
     );
     const result = await spendCurrency('char-1', 25);
     expect(result).toEqual({ currency_gp: 75, spent: 25 });
+  });
+
+  // TAV-REST-UI. This wrapper had ZERO wire coverage on landing, and it is the
+  // one place where a silent typo is fatal: `rest_type` is the exact key the
+  // NekoNova hop hard-400s on, so mistyping it (or the path) breaks EVERY rest
+  // in the app while the component suite stays green — it mocks this module
+  // wholesale. Proven, not assumed: Kage-CR mutated both the path and the body
+  // key at once and 122 tests still passed.
+  it('characterRest — POST /api/dnd/characters/:id/rest, body {username, rest_type}', async () => {
+    await characterRest('char-1', 'leon', 'long');
+    const { url, method, body } = lastCall();
+    expect(url).toBe('/api/dnd/characters/char-1/rest');
+    expect(method).toBe('POST');
+    expect(body).toEqual({ username: 'leon', rest_type: 'long' });
+  });
+
+  it('characterRest — sends the SHORT variant unchanged (not a default)', async () => {
+    await characterRest('char-1', 'leon', 'short');
+    expect(lastCall().body).toEqual({ username: 'leon', rest_type: 'short' });
+  });
+
+  it('characterRest — url-encodes the character id', async () => {
+    await characterRest('a/b c', 'leon', 'short');
+    expect(lastCall().url).toBe('/api/dnd/characters/a%2Fb%20c/rest');
   });
 });
 

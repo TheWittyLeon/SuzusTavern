@@ -1834,6 +1834,28 @@ export interface SpendResourceResult {
   undoable: UndoableSpend | null;
 }
 
+/** Which rest was taken. The NekoNova hop translates these to the engine's
+ *  `/spells/{id}/longrest` / `/shortrest` and FAILS LOUD on anything else
+ *  (400 `invalid_rest_type`) rather than defaulting — a typo must never
+ *  silently take a long rest and wipe a track the player was carrying. */
+export type RestType = 'short' | 'long';
+
+/** POST /api/dnd/characters/{id}/rest — verified against the engine's
+ *  `short_rest` / `long_rest` routes, which both return `_ok({"message": ...})`.
+ *
+ *  A MESSAGE IS ALL YOU GET. There is no post-rest state in this response:
+ *  no HP, no hit dice, no slots, no resources. That is not an oversight to
+ *  work around by inventing fields — it is why every rest must be followed by
+ *  a refetch of the sheet AND of the resource panel. Typed narrowly on
+ *  purpose, for the same reason `UndoResourceResult` is: declaring fields the
+ *  server never sends is how this codebase already shipped an invented
+ *  contract once. */
+export interface RestResult {
+  /** Human-readable summary from the engine (≤500 chars), e.g. what was
+   *  recovered. Optional because a degraded hop can answer `{}`. */
+  message?: string;
+}
+
 /** POST .../resources/undo-last — a DIFFERENT shape from a spend, verified
  *  against the engine's `undo_last_resource_route`: `{key, current, maximum,
  *  restored, requested}`. It carries NO `label`, NO `spent` and NO `undoable`.

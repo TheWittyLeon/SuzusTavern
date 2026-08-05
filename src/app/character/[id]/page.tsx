@@ -33,6 +33,7 @@ import SuzuDM from '@/components/SuzuDM';
 import InventoryPanel from '@/components/InventoryPanel';
 import CurrencyPurse from '@/components/CurrencyPurse';
 import ResourcePanel from '@/components/ResourcePanel';
+import RestControl from '@/components/RestControl';
 import HpControl from '@/components/HpControl';
 import SpellSlotsPanel from '@/components/SpellSlotsPanel';
 import SpellbookPanel from '@/components/SpellbookPanel';
@@ -63,27 +64,86 @@ export default function CharacterPage() {
   // subclass/asi resolve is harmless.
   const [spellbookRefreshKey, setSpellbookRefreshKey] = useState(0);
 
+  // TAV-REST-UI: a rest changes state owned by TWO different places — the
+  // sheet (hit points, hit dice, spell slots) and ResourcePanel's own fetch
+  // (class resources) — and the rest response carries neither, only a
+  // message. So a successful rest has to drive both refreshes explicitly;
+  // there is nothing to patch locally.
+  const [restEpoch, setRestEpoch] = useState(0);
+
   // Suzu's note (ST-080) — called unconditionally (rules of hooks); null-safe
   // until the sheet loads. No aiAssistLevel source on a session-less sheet yet
   // (FLAGGED), so it defaults to the deterministic placeholder with ZERO LLM
   // calls; a persisted note (once generated) is read back verbatim.
   const { note: suzuNote } = useSuzuNote(sheet);
 
+  /** Monotonic load generation. Several panels on this sheet (HpControl,
+   *  SpellSlotsPanel, CurrencyPurse, InventoryPanel) each refetch and
+   *  `setSheet` on their own, and only the panel you clicked greys itself
+   *  out — so a slow refetch can land AFTER a later, faster one and revert
+   *  the sheet to a stale snapshot. Reproduced (Kage-CR I5): start a rest,
+   *  heal 5 while its reconcile is in flight, and the meter goes 4/9 → 9/9 →
+   *  back to 4/9 when the rest's GET finally answers. Same defect and same
+   *  fix as ResourcePanel's own `loadGenRef`. */
+  const loadGenRef = useRef(0);
+
+  /** EVERY direct sheet write goes through here, not through `setSheet`.
+   *
+   *  The generation counter above only orders `load()` against `load()`. The
+   *  panels that cause the race do NOT go through `load` — HpControl,
+   *  CurrencyPurse, InventoryPanel and SpellSlotsPanel each run their own
+   *  `getCharacterSheet` and hand the result straight back via `onChanged`,
+   *  so without this they never invalidate an in-flight load and the guard
+   *  is inert against exactly the scenario it was added for (Kage-CR I5,
+   *  round 2 — reproduced against the real page after the first fix, which
+   *  is why the counter alone was not enough).
+   *
+   *  Bumping the generation on every direct write makes ANY writer invalidate
+   *  ANY in-flight load. The field-visible case is the reverse of the probe:
+   *  heal, then rest, and the heal's slower GET lands last carrying pre-rest
+   *  hit points — "I long rested and my HP didn't come back."
+   *
+   *  Safe at mount: the page renders a skeleton until `state === 'ok'`, so no
+   *  panel exists to write before the first load resolves. */
+  const applySheet = useCallback((next: CharacterSheet) => {
+    loadGenRef.current += 1;
+    setSheet(next);
+  }, []);
+
   const load = useCallback(
-    async (signal: AbortSignal) => {
+    async (signal?: AbortSignal, opts?: { background?: boolean }) => {
       if (!username || !id) return;
+      const gen = ++loadGenRef.current;
       try {
         const data = await getCharacterSheet(id, username, signal);
-        if (!signal.aborted) {
-          setSheet(data);
-          setState('ok');
-        }
-      } catch {
-        if (!signal.aborted) setState('error');
+        if (signal?.aborted || gen !== loadGenRef.current) return;
+        setSheet(data);
+        setState('ok');
+      } catch (err) {
+        if (signal?.aborted || gen !== loadGenRef.current) return;
+        // BACKGROUND (a post-rest reconcile): rethrow so the caller can say
+        // the true thing. Blanking the whole sheet with `setState('error')`
+        // after a rest that SUCCEEDED would read as though the rest had
+        // failed, and the player would take another — and a rest is
+        // irreversible. The initial mount keeps the error card.
+        if (opts?.background) throw err;
+        setState('error');
       }
     },
     [username, id],
   );
+
+  /** TAV-REST-UI. A rest moved state in two places and the response carries
+   *  neither, so both refreshes are driven from here.
+   *
+   *  ORDER IS LOAD-BEARING: the epoch bump happens BEFORE the await, so a
+   *  sheet reconcile that fails still leaves ResourcePanel refetching off a
+   *  fresh token. Swap these two lines and a failed reconcile silently
+   *  strands the class resources as well as the sheet. */
+  const handleRested = useCallback(async () => {
+    setRestEpoch((n) => n + 1);
+    await load(undefined, { background: true });
+  }, [load]);
 
   useEffect(() => {
     if (!username) return;
@@ -249,7 +309,7 @@ export default function CharacterPage() {
                 username={username ?? ''}
                 isOwner={isOwner}
                 hp={sheet.hp}
-                onChanged={setSheet}
+                onChanged={applySheet}
               />
               {sheet.conditions.length > 0 && (
                 <div className={styles.conditions}>
@@ -287,7 +347,7 @@ export default function CharacterPage() {
                 characterId={id}
                 username={username}
                 sheet={sheet}
-                onLeveledUp={setSheet}
+                onLeveledUp={applySheet}
                 // LEVELUP-UX: the dialog's "Resolve your choices" CTA lands
                 // the user on the pending-choices Card below — scroll +
                 // focus (tabIndex={-1} wrapper) so keyboard/SR users arrive
@@ -317,7 +377,7 @@ export default function CharacterPage() {
                 username={username}
                 sheet={sheet}
                 onRebuilt={(updated) => {
-                  setSheet(updated);
+                  applySheet(updated);
                   setSpellbookRefreshKey((k) => k + 1);
                 }}
               />
@@ -350,7 +410,7 @@ export default function CharacterPage() {
                 username={username}
                 sheet={sheet}
                 onResolved={(updated) => {
-                  setSheet(updated);
+                  applySheet(updated);
                   // TAV-SPELLBOOK-STALE-AFTER-PICKER: see the state
                   // declaration above — nudges SpellbookPanel to re-pull.
                   setSpellbookRefreshKey((k) => k + 1);
@@ -460,7 +520,7 @@ export default function CharacterPage() {
               isOwner={isOwner}
               inventory={sheet.inventory}
               inventoryWeight={sheet.inventory_weight}
-              onChanged={setSheet}
+              onChanged={applySheet}
             />
           </Card>
 
@@ -473,7 +533,7 @@ export default function CharacterPage() {
               username={username ?? ''}
               isOwner={isOwner}
               currencyGp={sheet.currency_gp ?? 0}
-              onChanged={setSheet}
+              onChanged={applySheet}
             />
             {/* Class-declared resources (Ki, Rage, Channel Divinity, a
                 subclass's Natural Recovery, ...). Shares the economy card:
@@ -486,7 +546,21 @@ export default function CharacterPage() {
               characterId={id}
               username={username ?? ''}
               isOwner={isOwner}
-              refreshToken={sheet.level}
+              // COMPOSITE, not a sum. Both a level-up and a rest change the
+              // resources, and `level + restEpoch` collides: level 5 after one
+              // rest and level 6 after none both read 6, so the post-level-up
+              // refetch would silently not fire. See ResourcePanel's prop doc.
+              refreshToken={`${sheet.level}:${restEpoch}`}
+            />
+            {/* Rest is a SIBLING of the resource panel, not part of it: it
+                restores hit points, hit dice and spell slots too, and the
+                panel above renders nothing at all for a class that declares
+                no resources — those characters still need to rest. */}
+            <RestControl
+              characterId={id}
+              username={username ?? ''}
+              isOwner={isOwner}
+              onRested={handleRested}
             />
           </Card>
         </div>
@@ -524,7 +598,7 @@ export default function CharacterPage() {
                 isCaster={sheet.is_spellcaster}
                 spellcasting={sheet.spellcasting}
                 spellSlots={sheet.spell_slots}
-                onChanged={setSheet}
+                onChanged={applySheet}
               />
             </Card>
           )}

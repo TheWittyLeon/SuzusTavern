@@ -50,6 +50,8 @@ import type {
   RemoveConditionRequest,
   ResolveCheckRequest,
   ResolveCheckResult,
+  RestResult,
+  RestType,
   RollRequest,
   RollResult,
   SceneCheck,
@@ -1524,6 +1526,37 @@ export const spendResource = (
     `/api/dnd/characters/${encodeURIComponent(characterId)}/resources/` +
       `${encodeURIComponent(resourceKey)}/spend`,
     { method: 'POST', json: { username, amount }, signal },
+  );
+
+/**
+ * Take a short or long rest.
+ * POST /api/dnd/characters/{id}/rest  body {username, rest_type}
+ *
+ * NOT under /resources/ — a rest restores far more than class resources (HP,
+ * hit dice, spell slots, and every declared resource). This client is a 1:1
+ * mirror of the public path; the TRANSLATION happens one hop later, in
+ * NekoNova's `character_rest`, which forwards to the engine's
+ * `/spells/{id}/{long,short}rest` — a historical accident of where the rest
+ * hooks were first written, which the public contract deliberately does not
+ * inherit.
+ *
+ * `restType` is a CHOICE, not a rules input — it selects which server-side
+ * procedure runs and carries no numbers. What recovers, and by how much, stays
+ * entirely server-derived.
+ *
+ * The response carries only a message (see `RestResult`), so a caller MUST
+ * refetch the sheet and the resource panel afterwards rather than patching
+ * state from the return value.
+ */
+export const characterRest = (
+  characterId: string,
+  username: string,
+  restType: RestType,
+  signal?: AbortSignal,
+) =>
+  apiCall<RestResult>(
+    `/api/dnd/characters/${encodeURIComponent(characterId)}/rest`,
+    { method: 'POST', json: { username, rest_type: restType }, signal },
   );
 
 /**

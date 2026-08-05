@@ -119,8 +119,15 @@ export interface ResourcePanelProps {
    *  A non-owner still sees the read-only state. */
   isOwner: boolean;
   /** Bumped by the parent after anything that can change resources (a rest, a
-   *  level-up) so the panel refetches without owning that knowledge itself. */
-  refreshToken?: number;
+   *  level-up) so the panel refetches without owning that knowledge itself.
+   *
+   *  `string` as well as `number` because the parent now has TWO independent
+   *  triggers and a single number cannot carry both without colliding: with
+   *  `level + restCount`, a level-5 character who rests once produces 6 — the
+   *  same token as level 6 having rested none, so the refetch after a level-up
+   *  would silently not happen. A composite string (`"5:1"`) is unambiguous,
+   *  and the effect below only ever compares tokens for equality. */
+  refreshToken?: number | string;
 }
 
 export default function ResourcePanel({

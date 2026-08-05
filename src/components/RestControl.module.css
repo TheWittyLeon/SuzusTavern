@@ -1,0 +1,41 @@
+/* RestControl — short/long rest on the character sheet.
+ * Token-driven; no hardcoded colors (project rule). Geometry mirrors
+ * ResourcePanel's .wrap/.head/.muted so the sheet's panels stack
+ * consistently — this sits directly beside it in the same Card. */
+
+.wrap {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 0;
+}
+
+.muted {
+  font-size: 13px;
+  color: var(--ink-3);
+  margin: 8px 0 0;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  /* Wraps rather than shrinking the buttons: at 320px the two labels do not
+   * fit side by side, and squeezing them would drive the touch targets under
+   * the 44px minimum the a11y pass holds this sheet to. */
+  flex-wrap: wrap;
+}
