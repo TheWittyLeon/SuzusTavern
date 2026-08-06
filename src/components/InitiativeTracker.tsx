@@ -162,13 +162,39 @@ function StructuredTracker({
                   combatantName={p.name}
                 />
               </span>
+              {/* TAV-INITIATIVE-PANEL-UNLABELLED-NUMBERS (2026-08-06): these
+                  rendered as two bare numbers 6px apart ("Goblin #1  15 21"),
+                  which reads as a fraction. `initiative` also had no
+                  accessible label of any kind.
+
+                  The visible key is real text, and the screen-reader word is a
+                  visually-hidden sibling — NOT `aria-label` on these spans.
+                  ARIA 1.2 prohibits aria-label on role=generic (a bare span),
+                  so support is inconsistent; where it is ignored the
+                  aria-hidden key is still stripped and the accessible name
+                  collapses back to "15"/"21" — the exact bug this ticket is
+                  about, in exactly the AT it targets. Same pattern, and the
+                  same reason, as EnvBanner.tsx. (Kage-CR #5, 2026-08-06.) */}
               <div className={styles.rightCol}>
                 {p.ac > 0 && (
-                  <span className={styles.ac} aria-label={`AC ${p.ac}`}>
+                  <span className={styles.ac}>
+                    <span className={styles.statKey} aria-hidden>
+                      AC
+                    </span>
+                    {/* Spelled out for AT; "armor" per the 5e SRD, this
+                        project's content source (the repo has no prior
+                        armour/armor usage to match). */}
+                    <span className={styles.srOnly}>armor class </span>
                     {p.ac}
                   </span>
                 )}
-                <span className={styles.init}>{p.initiative}</span>
+                <span className={styles.init}>
+                  <span className={styles.statKey} aria-hidden>
+                    INIT
+                  </span>
+                  <span className={styles.srOnly}>initiative </span>
+                  {p.initiative}
+                </span>
               </div>
             </li>
           );
@@ -233,7 +259,26 @@ function LegacyTracker({
                 </span>
               </span>
               <div className={styles.rightCol}>
-                <span className={styles.init}>{e.initiative ?? '—'}</span>
+                <span className={styles.init}>
+                  <span className={styles.statKey} aria-hidden>
+                    INIT
+                  </span>
+                  {/* Same srOnly pattern as the structured renderer above. The
+                      em-dash placeholder is aria-hidden because "—" is read as
+                      punctuation or skipped entirely; "not rolled" is the
+                      information. */}
+                  {e.initiative == null ? (
+                    <>
+                      <span className={styles.srOnly}>initiative not rolled</span>
+                      <span aria-hidden>—</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className={styles.srOnly}>initiative </span>
+                      {e.initiative}
+                    </>
+                  )}
+                </span>
               </div>
             </li>
           );

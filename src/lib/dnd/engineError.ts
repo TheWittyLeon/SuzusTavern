@@ -24,8 +24,17 @@
 // error" / stack-adjacent text — the engine's own 500 branches use exactly
 // that generic string, never anything more specific) or for a network/abort
 // error (status 0 — `apiFetch` synthesizes `code: 'network'|'abort'` with no
-// body at all, see src/lib/api/client.ts). Both always fall through to
-// `fallback`, regardless of `reasonMap`.
+// body at all, see src/lib/api/client.ts).
+//
+// PRECISION (2026-08-06, Kage-CR #7): that restriction is about the BODY
+// MESSAGE only. This comment used to end "Both always fall through to
+// `fallback`, regardless of `reasonMap`", which is not how the code works and
+// never was — step 1 runs before the status check, so a 5xx or 503 whose
+// reason IS curated gets that copy. `msm_disabled` (503) has always relied on
+// this, and COMBAT_REFUSAL_REASON_MAP now deliberately curates the two 5xx
+// codes (`db_unavailable`, `error`) so a server fault says so plainly instead
+// of falling to a generic string. Curated copy is authored by us and safe at
+// any status; the engine's own body text is what must never escape on a 5xx.
 import type { ApiError } from '@/lib/api/types';
 
 /** HTTP statuses whose `_err()` message text is written to be player-facing.

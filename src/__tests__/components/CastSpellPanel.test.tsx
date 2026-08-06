@@ -18,6 +18,7 @@ jest.mock('../../lib/api/dnd', () => ({
 }));
 
 import * as dnd from '../../lib/api/dnd';
+import { makeApiError } from '../../lib/api/client';
 import { ToastProvider } from '../../components/Toast';
 import CastSpellPanel from '../../components/CastSpellPanel';
 import type {
@@ -907,6 +908,54 @@ describe('CastSpellPanel — cast wiring', () => {
     expect(mockGetSheet).not.toHaveBeenCalled();
   });
 
+  it('TAV-COMBAT-NO-ACTION-REMAINING-UNMAPPED: no_action_remaining, REAL proxy shape (message ABSENT), surfaces curated action-economy copy', async () => {
+    // api/routes/dnd_combat.py::_handle_dnd_error's actual output: `message`
+    // is renamed to `error` and dropped from the top level; `data` is
+    // forwarded whole. engine/spells.py's `_err()` never sets `data.state`
+    // (unlike combat's), so this body deliberately carries no state either.
+    // Building this via makeApiError (not a hand-rolled object) so the shape
+    // matches src/lib/api/client.ts's own non-2xx construction exactly.
+    const body = {
+      success: false,
+      error: '[Spell] No action remaining to cast Fire Bolt this turn.',
+      data: { reason: 'no_action_remaining' },
+    };
+    const err = makeApiError(400, body.error, body);
+    expect(err.body).not.toHaveProperty('message');
+    mockCastSpell.mockRejectedValue(err);
+    renderPanel();
+    await flush();
+
+    fireEvent.click(screen.getByRole('button', { name: /^Cast /i }));
+    await flush();
+
+    expect(
+      await screen.findByText("You've already used your action this turn — end your turn."),
+    ).toBeInTheDocument();
+    // The old silent-fallthrough failure mode this ticket fixes.
+    expect(screen.queryByText(/did not land/i)).not.toBeInTheDocument();
+  });
+
+  it('TAV-401-ACTOR-REQUIRED-UNMAPPED: actor_required 401, REAL proxy shape (no `state`, message ABSENT), surfaces the curated identity copy', async () => {
+    // Byte-for-byte core/dnd_actor.py::require_actor_or_401's dict literal.
+    const body = {
+      success: false,
+      error: 'Actor identity required.',
+      data: { reason: 'actor_required' },
+    };
+    const err = makeApiError(401, body.error, body);
+    mockCastSpell.mockRejectedValue(err);
+    renderPanel();
+    await flush();
+
+    fireEvent.click(screen.getByRole('button', { name: /^Cast /i }));
+    await flush();
+
+    expect(
+      await screen.findByText("Couldn't verify who you are. Try reloading — if it keeps happening, the sign-in service may be down."),
+    ).toBeInTheDocument();
+  });
+
   it('F1/CAST-FAIL-SILENT (D1): an UNMAPPED 4xx reason surfaces the engine\'s own body.message verbatim — supersedes the old conservative stance', async () => {
     // WF-TAV-AUDIT-BATCH-2026-07-22 Pass P, D1 (Riku-resolved): this test
     // used to assert the OPPOSITE — that an unmapped reason "never surfaces
@@ -916,6 +965,18 @@ describe('CastSpellPanel — cast wiring', () => {
     // real `err.body.message` now surfaces that message — it's the engine's
     // own ready-to-show text, not a leaked internal trace. 5xx/network still
     // never surface `body.message` (see the two adjacent tests below).
+    //
+    // Miko-QA note (TAV-REASON-CODES gate, 2026-08-06): this scenario's
+    // premise — a D&D route response body carrying a `message` key — cannot
+    // actually happen against the real proxy. api/routes/dnd_combat.py::
+    // _handle_dnd_error renames `message` to `error` and never forwards the
+    // original key (confirmed by source read; see engineReasons.ts's own
+    // header comment, filed as NEKONOVA-PROXY-DROPS-MESSAGE). This test is
+    // still a legitimate, non-vacuous unit test of engineErrorMessage's
+    // tier-2 precedence logic in isolation — just not a reachable production
+    // path for THIS component. `CAST_REFUSAL_REASON_MAP` is now complete
+    // over the engine's cast vocabulary specifically because this branch is
+    // dead in practice on D&D routes.
     const err = new Error('API error 400: concentration_conflict') as Error & {
       status: number;
       code: string;

@@ -58,6 +58,43 @@ describe('useSuzuNote', () => {
     expect(placeholderNote(makeSheet())).toMatch(/halfling rogue with a charlatan past/i);
   });
 
+  // TAV-SUZU-NOTE-ARTICLE-AGREEMENT (2026-08-06): the fixture above is
+  // consonant-led on BOTH race ("halfling") and background ("charlatan"), so
+  // it would have passed identically against the pre-fix hardcoded "A ... a
+  // ..." template — it never exercised the bug. These cases specifically
+  // target vowel-initial words, including the LEADING article (the reported
+  // bug was the second one only — "a acolyte" — but the first hardcoded "A"
+  // had the exact same defect, just masked by "human"/"halfling" in every
+  // example anyone happened to try).
+  it('uses "An" (capitalised) for a vowel-initial LEADING race, and "a" for a consonant-initial trailing background', () => {
+    const note = placeholderNote(makeSheet({ race: 'Elf', background: 'Charlatan' }));
+    expect(note.startsWith('An elf')).toBe(true);
+    expect(note).toContain('with a charlatan past');
+    expect(note).not.toContain('A elf');
+  });
+
+  it('uses "an" (lowercase, mid-sentence) for a vowel-initial trailing background', () => {
+    const note = placeholderNote(makeSheet({ race: 'Human', background: 'Acolyte' }));
+    expect(note.startsWith('A human')).toBe(true);
+    expect(note).toContain('with an acolyte past');
+    expect(note).not.toContain('with a acolyte');
+  });
+
+  it('gets both articles right when BOTH race and background are vowel-initial', () => {
+    const note = placeholderNote(makeSheet({ race: 'Elf', background: 'Acolyte' }));
+    expect(note.startsWith('An elf')).toBe(true);
+    expect(note).toContain('with an acolyte past');
+  });
+
+  it('falls back to the default race/class/background copy when the sheet omits them, and still agrees', () => {
+    // race defaults to 'wanderer' (consonant) -- pin the default's article too,
+    // so a future change to the default word doesn't silently reintroduce "A
+    // acolyte"-style breakage without a test noticing.
+    const note = placeholderNote(makeSheet({ race: '', background: '' }));
+    expect(note.startsWith('A wanderer')).toBe(true);
+    expect(note).toContain('with a mysterious past');
+  });
+
   it('shows the deterministic placeholder and makes NO narration call when ai is off', async () => {
     const { result } = renderHook(() => useSuzuNote(sheet, 'off'));
     expect(result.current.note).toMatch(/halfling rogue/i);

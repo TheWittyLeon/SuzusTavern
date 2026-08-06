@@ -1279,8 +1279,16 @@ export interface CombatFromSceneResult {
 export interface SceneTransition {
   to: string;
   label?: string;
-  /** When present: this transition is locked until the named encounter is resolved. */
+  /** When present: this transition is locked until the named encounter is
+   *  resolved. Gated CLIENT-side (see the play page's `availableTransitions`)
+   *  because the engine has no equivalent — unlike flag gating, below. */
   requires_encounter_resolved?: string;
+  /** Flag gate. Evaluated SERVER-side by `engine/beats.py::transition_available`;
+   *  `routes/sessions.py` strips gated exits from grounding before they reach
+   *  the wire, so a transition carrying an unmet `requires` never arrives here.
+   *  Declared for shape-fidelity only — do NOT re-filter on it client-side, or
+   *  the UI diverges from what the narrator was given. */
+  requires?: string[];
 }
 
 /** P1-READALOUD: one authored read-aloud NPC dialogue line for the opening beat.

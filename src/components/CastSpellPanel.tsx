@@ -38,6 +38,7 @@ import Icon from '@/components/Icon';
 import { useToast } from '@/components/Toast';
 import { castSpell, getCharacterSheet, getKnownSpells } from '@/lib/api/dnd';
 import { engineErrorMessage } from '@/lib/dnd/engineError';
+import { CAST_REFUSAL_REASON_MAP } from '@/lib/dnd/engineReasons';
 import { isCastableCombatTarget } from '@/lib/dnd/combatTargets';
 import type {
   CharacterSheet,
@@ -50,29 +51,14 @@ import styles from './CastSpellPanel.module.css';
 
 type FetchState = 'idle' | 'loading' | 'ok' | 'error';
 
-// F1/CAST-FAIL-SILENT: curated cast refusals, sourced from
-// engine.spells.SPELL_REASON_STATUS + cast_spell_in_combat's own
-// CombatResult reasons (NekoNova-DnDEngine engine/spells.py,
-// engine/commands/spell_commands.py::cmd_cast). A reason NOT in this map now
-// falls through to engineErrorMessage's own 4xx-business-message branch
-// (surfacing the engine's own ready-to-show `err.body.message` verbatim,
-// never a raw reason CODE) rather than the old blanket generic fallback —
-// see D1 (WF-TAV-AUDIT-BATCH-2026-07-22 Pass P handoff).
-const CAST_REFUSAL_COPY: Record<string, string> = {
-  no_combat: 'No active combat.',
-  not_your_turn: "It's not your turn.",
-  no_active_turn: 'No one has the active turn right now.',
-  unknown_spell: "That spell couldn't be found.",
-  invalid_slot: 'That slot level is too low for this spell.',
-  no_slots: "You're out of slots at that level.",
-  not_prepared: "That spell isn't known or prepared.",
-  target_not_found: 'That target could not be found or is already down.',
-};
-
 function castErrorMessage(err: unknown, name: string): string {
   return engineErrorMessage(err, {
+    // Unchanged wording: unlike the combat fallback, this never used
+    // miss-language, and now that CAST_REFUSAL_REASON_MAP covers the action
+    // economy the spent-action case no longer reaches it at all. The residual
+    // cases really are transient (network / 5xx), so "try again" is honest.
     fallback: `Could not cast ${name}. Try again in a moment.`,
-    reasonMap: CAST_REFUSAL_COPY,
+    reasonMap: CAST_REFUSAL_REASON_MAP,
   });
 }
 

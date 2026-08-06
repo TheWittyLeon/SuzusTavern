@@ -10,7 +10,7 @@
  *   - Legacy InitEntry prop shape still renders (backward compat).
  */
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import InitiativeTracker from '@/components/InitiativeTracker';
 import type { CombatParticipantState } from '@/lib/api/types';
@@ -148,7 +148,16 @@ describe('InitiativeTracker — structured (engine-driven) props', () => {
 
   it('shows AC for participants', () => {
     render(<InitiativeTracker participants={[VELKA]} round={1} />);
-    expect(screen.getByLabelText(/AC 14/i)).toBeInTheDocument();
+    // TAV-INITIATIVE-PANEL-UNLABELLED-NUMBERS (2026-08-06): AC used to be
+    // labelled with `aria-label="AC 14"` on a bare <span>. ARIA 1.2 prohibits
+    // aria-label on role=generic, so it is now a visible aria-hidden "AC" key
+    // plus a visually-hidden "armor class" word (the EnvBanner pattern). The
+    // AC is still shown and still announced — only the mechanism changed.
+    // Full labelling coverage lives in InitiativeTracker.test.tsx.
+    const row = screen.getByText(VELKA.name).closest('li') as HTMLElement;
+    expect(row).toHaveTextContent('AC');
+    expect(row).toHaveTextContent('14');
+    expect(within(row).getByText('armor class')).toBeInTheDocument();
   });
 });
 

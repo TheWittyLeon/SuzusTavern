@@ -129,6 +129,7 @@ import {
   type AbilityKey,
   type AbilityScores,
 } from '@/lib/dnd/helpers';
+import { indefiniteArticle } from '@/lib/text/indefiniteArticle';
 import type { WizardRace, WizardClass, WizardBackground } from '@/lib/dnd/catalog';
 import type {
   ApiError,
@@ -1179,12 +1180,6 @@ export default function CharacterNewPage(): ReactNode {
 // Half-Elf's floating "+1 to two other abilities" checkbox group (the +2 CHA
 // is automatic/engine-applied, so Charisma isn't offered here). Both gate the
 // step's Continue via canContinue in the parent.
-/** "a" / "an" for a following word, by its leading vowel letter. Good enough for
- *  the SRD race names we surface (Elf → "an", Dwarf → "a", Aarakocra → "an"). */
-function indefiniteArticle(word: string): 'a' | 'an' {
-  return /^[aeiou]/i.test(word.trim()) ? 'an' : 'a';
-}
-
 function RaceStep({
   races,
   value,

@@ -86,6 +86,7 @@ import {
   type PendingTurnEntry,
 } from '@/lib/dnd/reconcileEvents';
 import { engineErrorMessage, extractReason, isApiError } from '@/lib/dnd/engineError';
+import { COMBAT_REFUSAL_REASON_MAP } from '@/lib/dnd/engineReasons';
 import { isLivingTargetableFoe } from '@/lib/dnd/combatTargets';
 import type {
   CharacterSheet,
@@ -361,31 +362,6 @@ function stableKey(v: unknown): string {
   }
   return JSON.stringify(v);
 }
-
-/**
- * F1/CAST-FAIL-SILENT: curated reason -> plain-English copy for a combat
- * action refusal, passed as `engineErrorMessage`'s `reasonMap` (see
- * onCombatAction below). A reason NOT in this map falls through to
- * engineErrorMessage's own 4xx-business-message branch (surfacing the
- * engine's own ready-to-show text, e.g. "Combat or session not found.") —
- * never a raw machine code like the old `Action refused: ${code}` fallback
- * used to leak.
- */
-const COMBAT_REFUSAL_REASON_MAP: Record<string, string> = {
-  not_your_turn: "It's not your turn.",
-  no_target: 'You need to pick a target.',
-  target_not_found: 'That target was not found.',
-  target_down: 'That target is already down.',
-  target_is_self: "You can't target yourself.",
-  no_character_bound: 'No character is bound to this session.',
-  actor_incapacitated: 'Your character is incapacitated.',
-  combat_over: 'Combat has ended.',
-  no_active_turn: 'No one has the active turn right now.',
-  no_combat: 'No combat is active.',
-  invalid_outcome: 'That outcome is not valid right now.',
-  victory_refused: "Can't claim victory — no enemies are down.",
-  msm_disabled: 'Multi-system content is not available for this session.',
-};
 
 /**
  * F5/LEVELUP-NO-MOMENT: build the end-session toast's level-up clause from
@@ -3587,12 +3563,18 @@ export default function PlayPage() {
           }); // byte-unchanged legacy path
         }
       } catch (err) {
-        // F1/CAST-FAIL-SILENT: curated map wins for the three known reasons;
-        // an unmapped 4xx business refusal (e.g. 404 "Session not found.",
-        // or 400 "Unknown skill 'x'."/"Current scene could not be resolved."
-        // from resolve_scene_check — see routes/sessions.py) now surfaces
-        // the engine's own ready-to-show message instead of the old blanket
-        // "Could not resolve that check." for every non-400/503 status.
+        // F1/CAST-FAIL-SILENT: curated map wins for the known reasons.
+        //
+        // CORRECTION (2026-08-06, Kage-CR #3): this comment used to claim that
+        // an unmapped 4xx refusal "now surfaces the engine's own ready-to-show
+        // message". It does not, and has not since the proxy was written —
+        // `api/routes/dnd_sessions.py::_handle_dnd_error` renames the engine's
+        // `message` to `error`, and `engineErrorMessage`'s tier-2 branch probes
+        // `body.message`. So refusals like 404 "Session not found." or 400
+        // "Unknown skill 'x'." fall to the bare fallback below. Left as-is
+        // rather than papered over with more curated copy: the real fix is
+        // NEKONOVA-PROXY-DROPS-MESSAGE, filed for Leon. See engineReasons.ts
+        // for the per-module breakdown.
         const fallback = 'Could not resolve that check.';
         const message = engineErrorMessage(err, {
           fallback,
@@ -3701,20 +3683,26 @@ export default function PlayPage() {
         ); // byte-unchanged legacy path
       }
     } catch (err) {
-      // F1/CAST-FAIL-SILENT: no curated reason map here — combat_from_scene's
-      // 400/409 refusals (NekoNova-DnDEngine routes/combat.py) never set
-      // data.reason, only a ready-to-show `message` ("No encounter available
-      // for the current scene.", "A combat is already active for this
-      // session.", "Encounter 'x' not found in the current scene…") — the
-      // 4xx-business branch below is what actually surfaces it; msm_disabled
-      // (503) is the one case that DOES carry a reason and gets curated copy.
+      // combat_from_scene's 400/409 refusals (NekoNova-DnDEngine
+      // routes/combat.py) set no data.reason, only a ready-to-show `message`
+      // ("No encounter available for the current scene.", "A combat is already
+      // active for this session.", …).
+      //
+      // CORRECTION (2026-08-06, Kage-CR #3): this comment used to say "the
+      // 4xx-business branch below is what actually surfaces it". It doesn't —
+      // `api/routes/dnd_combat.py::_handle_dnd_error` renames `message` to
+      // `error` and tier-2 probes `body.message`, so every one of those
+      // refusals currently shows the bare fallback. Real fix is
+      // NEKONOVA-PROXY-DROPS-MESSAGE (filed); not patched over with curated
+      // copy here because the engine's text is already the right words.
       toast({
         tone: 'error',
         message: engineErrorMessage(err, {
           fallback: 'Could not start combat.',
-          reasonMap: {
-            msm_disabled: 'Multi-system content is not available for this session.',
-          },
+          // Kage-CR #4: reuse, don't re-type. A second literal of this string
+          // in a batch whose whole point is one home for reason copy would
+          // drift the moment either is reworded.
+          reasonMap: { msm_disabled: COMBAT_REFUSAL_REASON_MAP.msm_disabled },
         }),
       });
     } finally {
@@ -3760,7 +3748,12 @@ export default function PlayPage() {
             // silently clearing the banner with nothing shown at all.
             setRefusedReason(
               engineErrorMessage(err, {
-                fallback: 'That combat action did not land. Try again.',
+                // NOT "did not land" — that is the language of a MISSED attack
+                // roll and was read as one. NOT "try again" either: the most
+                // common refusal here (a spent action) cannot succeed until the
+                // turn ends. This fires only for network/abort or a refusal
+                // carrying no reason code at all.
+                fallback: "That combat action didn't go through.",
                 reasonMap: COMBAT_REFUSAL_REASON_MAP,
               }),
             );
@@ -3863,7 +3856,12 @@ export default function PlayPage() {
         // split with nothing shown for the in-between case.
         setRefusedReason(
           engineErrorMessage(err, {
-            fallback: 'That combat action did not land. Try again.',
+            // NOT "did not land" — that is the language of a MISSED attack
+            // roll and was read as one. NOT "try again" either: the most
+            // common refusal here (a spent action) cannot succeed until the
+            // turn ends. This fires only for network/abort or a refusal
+            // carrying no reason code at all.
+            fallback: "That combat action didn't go through.",
             reasonMap: COMBAT_REFUSAL_REASON_MAP,
           }),
         );
@@ -4445,6 +4443,17 @@ export default function PlayPage() {
     () =>
       (combatState?.state !== 'active' && grounding?.transitions)
         ? grounding.transitions.filter((t) => {
+            // NOTE (TAV-SCENE-TRANSITION-LEAKS-FLAG-SLUG, 2026-08-06): flag
+            // gating is deliberately NOT done here. The engine owns it —
+            // `engine/beats.py::available_transitions` evaluates a transition's
+            // `requires: [flag, ...]` list and `routes/sessions.py` replaces
+            // `current_scene["transitions"]` with that filtered subset before
+            // grounding reaches the wire, so a flag-gated exit never arrives
+            // here at all. A client-side copy would be dead code AND would
+            // diverge from what the narrator sees (Suzu reads the same
+            // server-filtered list). Seed adventures must spell the gate
+            // `requires`, never the dead `requires_flag` key —
+            // tests/test_seed_adventure_authoring.py enforces both.
             if (!t.requires_encounter_resolved) return true;
             // If the encounter that gates this transition is resolved, allow it.
             const enc = grounding.encounter_state as Record<string, { status?: string }> | null;

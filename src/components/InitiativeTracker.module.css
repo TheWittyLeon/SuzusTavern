@@ -154,6 +154,34 @@
   color: var(--ink-3);
 }
 
+/* TAV-INITIATIVE-PANEL-UNLABELLED-NUMBERS (2026-08-06): tiny key in front of
+   the AC / initiative numbers so they stop reading as one fraction. Colour is
+   deliberately INHERITED from .ac / .init rather than set here, so the key
+   tracks its own number — including `.current .init`'s crit-ink highlight —
+   and no new contrast pair is introduced. No opacity, per the Iro BLOCKER-1
+   note above (opacity pulls ink-3 below 4.5:1). */
+.statKey {
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  margin-right: 3px;
+}
+
+/* Screen-reader-only word paired with each aria-hidden .statKey — the visible
+ * key is an abbreviation, this is what gets announced. Matches EnvBanner's
+ * .srOnly and the .sr-only utility in globals.css. See the comment in
+ * InitiativeTracker.tsx for why this is NOT done with aria-label. */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .current .init {
   color: var(--crit-ink); /* text-safe on candlelit (A11Y S3.1) */
 }

@@ -14,6 +14,7 @@
  */
 import { useEffect, useState } from 'react';
 import { streamNarration } from '@/lib/stream';
+import { indefiniteArticle } from '@/lib/text/indefiniteArticle';
 import type { CharacterSheet } from '@/lib/api/types';
 
 export type SuzuNoteSource = 'placeholder' | 'persisted' | 'ai';
@@ -39,10 +40,21 @@ function safeSet(key: string, value: string): void {
 
 /** Deterministic, zero-LLM placeholder derived from the sheet. */
 export function placeholderNote(sheet: Pick<CharacterSheet, 'race' | 'char_class' | 'background'>): string {
-  const race = (sheet.race || 'wanderer').toLowerCase();
-  const cls = (sheet.char_class || 'adventurer').toLowerCase();
-  const bg = (sheet.background || 'mysterious').toLowerCase();
-  return `A ${race} ${cls} with a ${bg} past. I’ve seen how this story tends to go — bring a coat.`;
+  // `.trim()` BEFORE the `||` (Kage-CR #11): a whitespace-only field is truthy,
+  // so "  " used to slip past the default and render "A    with a  past."
+  const race = (sheet.race?.trim() || 'wanderer').toLowerCase();
+  const cls = (sheet.char_class?.trim() || 'adventurer').toLowerCase();
+  const bg = (sheet.background?.trim() || 'mysterious').toLowerCase();
+  // TAV-SUZU-NOTE-ARTICLE-AGREEMENT: both articles were hardcoded. The second
+  // produced the reported "a acolyte"; the FIRST had the same bug and was only
+  // masked by "human" in the report ("An elf rogue…" was equally broken).
+  // Capitalised via slice because the note opens the sentence.
+  const leading = indefiniteArticle(race);
+  return (
+    `${leading.charAt(0).toUpperCase()}${leading.slice(1)} ${race} ${cls} ` +
+    `with ${indefiniteArticle(bg)} ${bg} past. ` +
+    `I’ve seen how this story tends to go — bring a coat.`
+  );
 }
 
 export function useSuzuNote(
