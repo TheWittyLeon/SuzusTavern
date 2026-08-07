@@ -115,3 +115,75 @@ describe('engineErrorMessage', () => {
     expect(isApiError(null)).toBe(false);
   });
 });
+
+// ── Tier 2 after NEKONOVA-PROXY-DROPS-MESSAGE (2026-08-06) ──────────────────
+//
+// Tier 2 ("surface the engine's own 4xx text") had never fired on 4 of the 5
+// D&D proxy modules: they renamed the engine's `message` key to `error` while
+// this module probes `message`. The proxy now forwards `message` again, so
+// these lock the two halves of that repair — the key it reads, and the log
+// prefix it must strip before a player sees the string.
+describe('engineErrorMessage — engine message tier (post proxy fix)', () => {
+  const withMessage = (text: string, status = 400) =>
+    makeApiError(status, 'x', {
+      success: false,
+      error: text,
+      message: text,
+      data: { reason: 'some_unmapped_reason' },
+    });
+
+  it('strips a leading [Combat] tag — 86 engine strings carry one', () => {
+    const err = withMessage('[Combat] No action remaining for Seth this turn.');
+    expect(engineErrorMessage(err, { fallback: 'fb' })).toBe(
+      'No action remaining for Seth this turn.',
+    );
+  });
+
+  it('strips [Spell] / [DnD] / [Session] too, not just [Combat]', () => {
+    for (const tag of ['Spell', 'DnD', 'Session']) {
+      const err = withMessage(`[${tag}] Something the player should read.`);
+      expect(engineErrorMessage(err, { fallback: 'fb' })).toBe(
+        'Something the player should read.',
+      );
+    }
+  });
+
+  it('leaves a message with no tag untouched', () => {
+    const err = withMessage('Combat or session not found.');
+    expect(engineErrorMessage(err, { fallback: 'fb' })).toBe('Combat or session not found.');
+  });
+
+  it('does NOT strip brackets that are not a leading subsystem tag', () => {
+    for (const text of ['[3] of 5 uses spent.', 'You rolled [nat 20]!', '[Combat missing brace']) {
+      expect(engineErrorMessage(withMessage(text), { fallback: 'fb' })).toBe(text);
+    }
+  });
+
+  it('a tag-only message falls back rather than showing an empty string', () => {
+    expect(engineErrorMessage(withMessage('[Combat] '), { fallback: 'fb' })).toBe('fb');
+  });
+
+  it('curated copy still WINS over the engine message (tier 1 precedence)', () => {
+    const err = withMessage('[Combat] raw engine wording.');
+    expect(
+      engineErrorMessage(err, { fallback: 'fb', reasonMap: { some_unmapped_reason: 'Curated.' } }),
+    ).toBe('Curated.');
+  });
+
+  it('NEVER reads `error` as player copy — the Tavern BFF puts machine slugs there', () => {
+    // /api/auth/* responses carry `error: "no_refresh_token"` etc. Surfacing
+    // one verbatim is the raw-machine-code leak this module exists to prevent,
+    // so tier 2 must stay keyed on `message` alone.
+    const slugOnly = makeApiError(400, 'x', {
+      success: false,
+      error: 'no_refresh_token',
+      data: { reason: 'unmapped' },
+    });
+    expect(engineErrorMessage(slugOnly, { fallback: 'fb' })).toBe('fb');
+  });
+
+  it('still refuses to surface a 5xx body message', () => {
+    const err = withMessage('[Combat] Internal server error', 500);
+    expect(engineErrorMessage(err, { fallback: 'fb' })).toBe('fb');
+  });
+});

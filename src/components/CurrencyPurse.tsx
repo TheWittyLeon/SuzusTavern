@@ -26,6 +26,7 @@ import { useRef, useState } from 'react';
 import Button from '@/components/Button';
 import { useToast } from '@/components/Toast';
 import { spendCurrency, getCharacterSheet } from '@/lib/api/dnd';
+import { engineErrorMessage } from '@/lib/dnd/engineError';
 import type { ApiError, CharacterSheet, SpendCurrencyResult } from '@/lib/api/types';
 import styles from './CurrencyPurse.module.css';
 
@@ -49,10 +50,18 @@ function spendErrorMessage(err: unknown): string {
   const fallback = 'Could not spend gold. Try again in a moment.';
   if (!isApiError(err)) return fallback;
   const reason = refusalReason(err);
-  const body = err.body as { message?: string } | null | undefined;
-  if (reason === 'insufficient_funds' && body?.message) return body.message;
   if (reason === 'invalid_amount') return 'Spend amount must be a positive integer.';
-  return fallback;
+  // `insufficient_funds` deliberately shows the ENGINE's own text — it carries
+  // the numbers ("Insufficient funds: has 12 gp, needs 30 gp.") that no curated
+  // string can reproduce. Routed through engineErrorMessage rather than reading
+  // `err.body.message` directly (Kage-CR S2, 2026-08-07): this was the only
+  // place in src/ returning a raw engine message as player copy, so it was the
+  // one door the `[Subsystem] ` prefix strip did not cover — and the proxy fix
+  // in this same batch just widened how many routes carry `message` at all.
+  return engineErrorMessage(err, {
+    fallback,
+    reasonMap: { invalid_amount: 'Spend amount must be a positive integer.' },
+  });
 }
 
 export interface CurrencyPurseProps {

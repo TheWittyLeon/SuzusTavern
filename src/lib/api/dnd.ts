@@ -1245,13 +1245,57 @@ const normalizeGrounding = (raw: unknown): GroundingData | null => {
     string,
     unknown
   >;
+  // `...r` used to re-spread the RAW nested blobs alongside the flat fields,
+  // which defeated the transition projection below entirely: the include list
+  // built a NEW top-level `transitions`, while `r.current_scene.transitions`
+  // sailed through untouched with `note` and `requires` still on it. Caught by
+  // Kage-CR (C1, 2026-08-07) — I had asserted only on `g.transitions`, so my
+  // own test read as proof while `JSON.stringify(g)` still contained the GM
+  // prose. `campaign` is dropped for the same reason: `campaign.progress`
+  // carries `encounter_state[…].participant_meta[…].tactics`.
+  //
+  // SCOPE — do not overstate this the way the first version did. This runs in
+  // the BROWSER, after the response has already landed in the network tab, so
+  // it CANNOT stop the leak; the BFF (`src/app/api/dnd/[...path]/route.ts`) is
+  // a byte pass-through. It only stops the DM-only payload spreading into
+  // client state, devtools, and error reports. The real fix is server-side in
+  // `routes/sessions.py` — filed as TACTICS-WIRE-SIBLINGS.
+  const { current_scene: _rawScene, campaign: _rawCampaign, ...rest } = r;
+  void _rawScene;
+  void _rawCampaign;
   return {
-    ...r,
+    ...rest,
     scene_id: scene.id as string | undefined,
     scene_name: scene.title as string | undefined,
     boxed_text: scene.boxed_text as string | undefined,
     objective: scene.objective as string | undefined,
-    transitions: Array.isArray(scene.transitions) ? (scene.transitions as SceneTransition[]) : [],
+    // Projected field-by-field for the SAME reason as `checks` below — never
+    // spread the raw authored transition. An authored transition carries
+    // GM-facing prose the player must not receive: `note` on hollow-tide-cave's
+    // back_chamber exit reads "Also auto-fires if krell_bargained flag is set
+    // without combat." `requires` is dropped too — the engine has ALREADY
+    // applied it (engine/beats.py, stripped by routes/sessions.py), so shipping
+    // it would only invite a client-side re-filter that diverges from what the
+    // narrator was given. An INCLUDE list, so a newly authored field defaults
+    // to omitted rather than leaking.
+    //
+    // CORRECTED 2026-08-07 (Kage-CR C1): the first version of this comment
+    // claimed the note "reached the network tab verbatim until 2026-08-06".
+    // That was false in two ways — it still reaches the network tab (this code
+    // runs client-side, after the response arrives), and back then this
+    // projection did not even remove it from the client object, because the
+    // raw `current_scene` was re-spread above. See the note on `...rest`.
+    transitions: Array.isArray(scene.transitions)
+      ? (scene.transitions as Record<string, unknown>[]).map(
+          (t): SceneTransition => ({
+            to: t.to as string,
+            ...(t.label ? { label: t.label as string } : {}),
+            ...(t.requires_encounter_resolved
+              ? { requires_encounter_resolved: t.requires_encounter_resolved as string }
+              : {}),
+          }),
+        )
+      : [],
     // P1-PLAYFIX §3.4: surface only {skill, dc, note} — the authored scene may
     // (and does) carry on_success/on_failure flag names on the wire, but the
     // client type/shape never exposes them. Never spread the raw check object.

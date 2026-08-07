@@ -62,10 +62,44 @@ export function extractReason(err: ApiError): string | undefined {
   return body?.data?.reason ?? body?.reason ?? err.code;
 }
 
+/**
+ * The engine tags most player-facing refusals with a log-style subsystem
+ * prefix — "[Combat] No action remaining for Seth this turn.", "[Spell] …",
+ * "[DnD] …", "[Session] …" — HUNDREDS of them: ~86 [Combat], ~275 [DnD],
+ * ~52 [Spell], ~38 [Session], plus smaller families ([ATTACK], [Rest], [NPC],
+ * [STABILIZE], …). An earlier version of this comment said "86", which was the
+ * [Combat] count alone — a precise-looking wrong number is worse than none
+ * (Kage-CR S4, 2026-08-07). The regex is deliberately generic rather than a
+ * four-way alternation so those smaller families are covered too.
+ * That prefix is for the
+ * Twitch chat/log surface; in the Tavern it reads as leaked internals, and it
+ * is the single reason tier 2 was not simply switched on when
+ * NEKONOVA-PROXY-DROPS-MESSAGE was found (2026-08-06).
+ *
+ * Stripped HERE rather than in the engine or the proxy because this is the one
+ * place the Tavern turns an engine string into player copy — the bot and the
+ * mobile clients keep the prefix they already expect, and no shared service
+ * changes behaviour for anyone else.
+ *
+ * Deliberately narrow: a single leading `[Word] ` only. It will not touch
+ * "[3] of 5", "[Combat" (unterminated), or a bracket anywhere but the start.
+ */
+const LEADING_SUBSYSTEM_TAG = /^\[[A-Za-z][A-Za-z0-9 _-]*\]\s*/;
+
 function extractBodyMessage(err: ApiError): string | undefined {
+  // ONLY `message`, never `error` — deliberate. `message` is always
+  // engine-authored player copy. `error` is not: the Tavern's own BFF puts
+  // MACHINE SLUGS there on other routes (`no_refresh_token`, `rate_limited`,
+  // `unauthorized`, `not_found`), and surfacing one verbatim is precisely the
+  // "raw machine code leaked to the player" failure this module was written to
+  // prevent. NEKONOVA-PROXY-DROPS-MESSAGE is fixed at the proxy, which now
+  // sends `message` again; reading `error` as a fallback would trade that
+  // clean fix for the older bug.
   const body = err.body as { message?: unknown } | null | undefined;
-  const message = body?.message;
-  return typeof message === 'string' && message.trim().length > 0 ? message : undefined;
+  const raw = body?.message;
+  if (typeof raw !== 'string') return undefined;
+  const cleaned = raw.replace(LEADING_SUBSYSTEM_TAG, '').trim();
+  return cleaned.length > 0 ? cleaned : undefined;
 }
 
 export interface EngineErrorOptions {

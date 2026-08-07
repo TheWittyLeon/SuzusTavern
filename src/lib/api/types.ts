@@ -1283,12 +1283,19 @@ export interface SceneTransition {
    *  resolved. Gated CLIENT-side (see the play page's `availableTransitions`)
    *  because the engine has no equivalent — unlike flag gating, below. */
   requires_encounter_resolved?: string;
-  /** Flag gate. Evaluated SERVER-side by `engine/beats.py::transition_available`;
-   *  `routes/sessions.py` strips gated exits from grounding before they reach
-   *  the wire, so a transition carrying an unmet `requires` never arrives here.
-   *  Declared for shape-fidelity only — do NOT re-filter on it client-side, or
-   *  the UI diverges from what the narrator was given. */
-  requires?: string[];
+  // NOTE: the authored transition also carries `requires` (the flag gate) and
+  // `note` (GM-facing prose). Neither is declared here, because neither
+  // survives `normalizeGrounding` in `src/lib/api/dnd.ts`. That is a CLIENT
+  // normalizer, NOT the BFF — an earlier version of this comment called it the
+  // BFF, which is wrong (Kage-CR C1, 2026-08-07): the BFF is
+  // `src/app/api/dnd/[...path]/route.ts` and it is a byte pass-through, so
+  // both fields DO still reach the network tab. Stripping them here keeps them
+  // out of client state, not off the wire; the wire fix is server-side and is
+  // filed as TACTICS-WIRE-SIBLINGS.
+  //
+  // This type is the POST-normalizer shape. If you find yourself wanting
+  // `requires` back to filter on, that is the bug — the engine already applied
+  // it, and re-filtering diverges from the list the narrator was given.
 }
 
 /** P1-READALOUD: one authored read-aloud NPC dialogue line for the opening beat.

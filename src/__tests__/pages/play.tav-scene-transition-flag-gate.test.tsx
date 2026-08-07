@@ -138,10 +138,14 @@ function groundingFromServer(
   };
 }
 
-/** What the server sends once `lookout_spotted` is set: the gated exit is
- *  included, and it still carries its `requires` array for shape fidelity. */
+/** What reaches the page once `lookout_spotted` is set: the gated exit is
+ *  included, and `requires` is NOT present — the BFF projection in
+ *  `src/lib/api/dnd.ts` drops it (2026-08-06), because the engine has already
+ *  applied it and shipping it would only invite a client re-filter. The
+ *  projection itself is tested in `src/__tests__/lib/api-dnd-transitions.test.ts`;
+ *  these cases prove the page renders what it is handed either way. */
 const SERVED_WITH_GATED: GroundingData['transitions'] = [
-  { to: 'cave_mouth', label: 'Ambush the lookout first', requires: ['lookout_spotted'] },
+  { to: 'cave_mouth', label: 'Ambush the lookout first' },
   { to: 'exit', label: 'Just walk away' },
 ];
 
