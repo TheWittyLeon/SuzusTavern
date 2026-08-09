@@ -29,6 +29,12 @@
 //     now always falls through to narrate(); Suzu invites the check
 //     in-fiction and the server's `offered_check` signal surfaces the
 //     "Attempt" button — the player still has to click/roll it themselves.
+//
+// `matchCombatIntent` (TAV-COMBAT-VERB-NO-MECHANICS, 2026-08-09) is the one
+// non-movement matcher here and it does NOT weaken the rule above: it never
+// executes anything. It only lets the caller WITHHOLD a narration turn and
+// offer the real mechanical affordance instead — the opposite direction of
+// the check hijack that rule was written against. See its own doc block.
 import type { SceneTransition } from '@/lib/api/types';
 
 export type ClientIntent = { type: 'transition'; to: string };
@@ -193,4 +199,221 @@ export function matchKeywordIntent(
   }
 
   return null;
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// TAV-COMBAT-VERB-NO-MECHANICS (filed 2026-08-01, built 2026-08-09)
+//
+// THE BUG: on a scene with an authored-but-unstarted combat encounter,
+// "I stand my ground and attack the nearest timberwolf with Eldritch Blast"
+// produced a well-written paragraph in which the blast glanced off and the
+// wolf got annoyed — with NO attack roll, NO damage, NO combat row, and the
+// session still `EXPLORING`. Suzu invented both a hit and a deflection.
+//
+// WHY A CLIENT MATCHER IS THE FIX: a server-side guard already existed and
+// LOST. `core/dm_narrator.py::build_scene_prompt` injects a "COMBAT-VERB
+// GUARD" instruction whenever `combat_encounter_unstarted()` is true, telling
+// the model not to resolve combat mechanically. It is advisory prose, and the
+// 27B narrator overrode it. Prompt text cannot be the enforcement layer for a
+// mechanical invariant. This matcher runs BEFORE the turn is sent, so the
+// fabricated narration is never generated at all — which is also the only
+// place the fabrication can be stopped, since DM-STREAM reveals tokens as
+// they arrive and any server-side verdict lands after the prose is on screen.
+//
+// SCOPE (Leon's ruling, 2026-08-09):
+//   - refuse-and-prompt, NEVER auto-start. A false positive must cost one
+//     ignorable line, not a spawned encounter with rolled initiative — and
+//     `POST /combat/from-scene` is `guard_dm` under `DND_REQUIRE_ACTOR`
+//     (live on .226 AND prod), so a non-DM player at a multiplayer table
+//     could not auto-start one anyway. Prompting is the only behaviour that
+//     works for every actor.
+//   - scenes with NO authored encounter keep today's free narration. The
+//     filed grievance is specifically about a scene that HAS a mechanical
+//     path the player couldn't reach; "Suzu invents outcomes in general" is a
+//     separate, larger item and is deliberately not in this change.
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * True when `phrase` occurs in `text` as a word AND at least one occurrence is
+ * not immediately preceded by one of `blockedPreceding`.
+ *
+ * Same disambiguation trick as matchesHeadMovement() above (a determiner turns
+ * a verb into a noun), generalized — and unlike that function this one scans
+ * EVERY occurrence rather than only the first, so a blocked early occurrence
+ * cannot mask a clean later one ("I brace for the attack, then I attack").
+ * matchesHeadMovement is deliberately left as-is: re-pointing it here would
+ * change movement fast-path behaviour, which this change is not scoped to.
+ */
+function hasCleanOccurrence(
+  text: string,
+  phrase: string,
+  blockedPreceding: ReadonlySet<string>,
+): boolean {
+  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`\\b${escaped}\\b`, 'gi');
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const before = text.slice(0, m.index).trimEnd();
+    const lastWord = before.split(/\s+/).pop() ?? '';
+    if (!blockedPreceding.has(lastWord)) return true;
+  }
+  return false;
+}
+
+/**
+ * Determiners that turn "attack" into the NOUN ("brace for the attack", "her
+ * attack goes wide") rather than the player's own declared verb ("I attack").
+ * Same shape and reasoning as HEAD_NOUN_DETERMINERS above.
+ */
+const ATTACK_NOUN_DETERMINERS: ReadonlySet<string> = new Set([
+  'my', 'your', 'his', 'her', 'its', 'our', 'their', 'the', 'a', 'an',
+  'that', 'this', 'first', 'next', 'last', 'another', 'any', 'no',
+]);
+
+/**
+ * TIER 1 — declarations that are combat and essentially nothing else, so they
+ * fire with no target requirement. Every entry is either multi-word or a verb
+ * with no common non-combat sense in a first-person tabletop composer.
+ *
+ * "attack"/"attacking" are handled separately through the determiner guard
+ * (they are the only single tokens here with a live NOUN sense) — do not move
+ * them into this list.
+ *
+ * DISCIPLINE, same as MOVE_ON_PHRASES: when a candidate phrase has ANY
+ * plausible non-combat reading, it belongs in TIER 2 (creature-name-gated),
+ * not here. A tier-1 false positive refuses a legitimate roleplay turn, which
+ * is the only real cost this feature can impose on a player.
+ */
+const COMBAT_PHRASES_UNAMBIGUOUS: readonly string[] = [
+  'stand and fight',
+  'stand my ground and fight',
+  'open fire',
+  'throw a punch',
+  'swing at',
+  'swing my',
+  'lunge at',
+  'strike at',
+  'slash at',
+  'stab at',
+  'hack at',
+  'shoot at',
+  'fire at',
+  'charge at',
+  'loose an arrow',
+  'let fly',
+];
+
+/**
+ * TIER 2 — verbs that are combat ONLY in context. Each has a common innocent
+ * sense that would otherwise refuse an ordinary turn: "I strike a match",
+ * "I hit the road", "I shoot him a look", "I cut the rope", "I charge my
+ * staff", "I cast light", "I'd fight you if I had to", "they'll kill us".
+ *
+ * These fire only when the text ALSO names one of the scene's own authored
+ * creatures (see creatureKeywords) — i.e. the player said what they are
+ * attacking, and it is a thing the encounter actually contains. That target
+ * requirement is what makes a long list safe here.
+ */
+const COMBAT_VERBS_TARGETED: readonly string[] = [
+  'fight', 'fights', 'fighting',
+  'kill', 'kills', 'killing',
+  'slay', 'slays', 'slaying',
+  // "attacks" only — the noun-plural sense ("her attacks go wide") is what
+  // makes it ambiguous. Bare "attack"/"attacking" are NOT repeated here:
+  // tier 1a already returns on them, so listing them would be dead weight.
+  'attacks',
+  'strike', 'strikes', 'striking',
+  'hit', 'hits', 'hitting',
+  'shoot', 'shoots', 'shooting',
+  'stab', 'stabs', 'stabbing',
+  'slash', 'slashes', 'slashing',
+  'swing', 'swings', 'swinging',
+  'charge', 'charges', 'charging',
+  'blast', 'blasts', 'blasting',
+  'cast', 'casts', 'casting',
+  'smash', 'smashes', 'smashing',
+  'bash', 'bashes', 'bashing',
+  'punch', 'punches', 'punching',
+  'tackle', 'tackles', 'tackling',
+  'grapple', 'grapples', 'grappling',
+  'shove', 'shoves', 'shoving',
+  'cut', 'cuts', 'cutting',
+  'fire', 'fires', 'firing',
+  'throw', 'throws', 'throwing',
+];
+
+/** Generic words inside an authored creature name that identify nothing on
+ *  their own — dropped so "the young" or "of the" can't stand in for the
+ *  creature. Mirrors LABEL_STOPWORDS' role for transition labels. */
+const CREATURE_NAME_STOPWORDS = new Set([
+  'the', 'and', 'of', 'a', 'an', 'creature', 'monster', 'beast', 'enemy',
+]);
+
+/**
+ * Turn the scene's authored creature names into match keywords.
+ *
+ * Takes `grounding.encounter.monsters_resolved[].name` — populated by the
+ * engine on EVERY grounding fetch from the scene's authored `monsters` refs
+ * (routes/sessions.py ~1431), independent of whether combat ever started, so
+ * these names are available in exactly the pre-combat window this guard runs
+ * in. Emits the full lowercased name (so multi-word names like "dire wolf"
+ * match as a phrase) plus each significant word (len >= 4, non-stopword), so
+ * "Timberwolf (juvenile)" is reachable as both "timberwolf" and "juvenile".
+ *
+ * NPCs are deliberately NOT a source: they are usually the scene's friendly
+ * faces, and folding them in makes "I hit it off with Zecora" a combat verb
+ * plus a name — a false refusal on pure dialogue.
+ */
+export function creatureKeywords(names: readonly (string | undefined)[]): string[] {
+  const out = new Set<string>();
+  for (const raw of names) {
+    if (typeof raw !== 'string') continue;
+    const cleaned = raw.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').trim();
+    if (!cleaned) continue;
+    const collapsed = cleaned.replace(/\s+/g, ' ');
+    if (collapsed.length >= 3) out.add(collapsed);
+    for (const w of collapsed.split(' ')) {
+      if (w.length >= 4 && !CREATURE_NAME_STOPWORDS.has(w)) out.add(w);
+    }
+  }
+  return [...out];
+}
+
+/**
+ * True when free text reads as the player declaring a combat action.
+ *
+ * PURE and side-effect free — it decides nothing about state. The CALLER owns
+ * the gate ("is there an authored combat encounter here that has never been
+ * started?"), exactly as matchKeywordIntent's caller owns `transitions`; this
+ * function is only ever asked about the words.
+ *
+ * `creatureNames` are the scene's authored creature names (pass
+ * `monsters_resolved.map(m => m.name)`); an empty list simply means tier 2
+ * cannot fire, never that tier 1 is skipped.
+ */
+export function matchCombatIntent(
+  text: string,
+  creatureNames: readonly (string | undefined)[] = [],
+): boolean {
+  const norm = normalize(text);
+  if (!norm) return false;
+
+  // Tier 1a — "attack"/"attacking" as the player's verb, not as a noun.
+  if (
+    hasCleanOccurrence(norm, 'attack', ATTACK_NOUN_DETERMINERS) ||
+    hasCleanOccurrence(norm, 'attacking', ATTACK_NOUN_DETERMINERS)
+  ) {
+    return true;
+  }
+
+  // Tier 1b — unambiguous multi-word declarations.
+  if (matchesAnyPhrase(norm, COMBAT_PHRASES_UNAMBIGUOUS)) return true;
+
+  // Tier 2 — an ambiguous combat verb AND one of THIS scene's creatures named.
+  const creatures = creatureKeywords(creatureNames);
+  if (creatures.length && matchesAnyPhrase(norm, creatures)) {
+    if (matchesAnyPhrase(norm, COMBAT_VERBS_TARGETED)) return true;
+  }
+
+  return false;
 }

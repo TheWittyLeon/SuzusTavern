@@ -75,7 +75,7 @@ import {
 } from '@/lib/api/dnd';
 import { streamDmNarration, postDmTurn, subscribeDmJob } from '@/lib/stream';
 import { eventToLogRow, formatEventTimestamp as formatOpeningTimestamp } from '@/lib/rehydration';
-import { matchKeywordIntent } from '@/lib/dnd/intentFastPath';
+import { matchCombatIntent, matchKeywordIntent } from '@/lib/dnd/intentFastPath';
 import { DURABLE_GENERATION_ENABLED } from '@/lib/config';
 import { mintTurnKey, saveTurnKey, clearTurnKey } from '@/lib/turnKey';
 import { shouldClearAbortedStreamRow } from '@/lib/streamRowOwnership';
@@ -311,6 +311,22 @@ function titleCaseSkill(skill: string): string {
   return skill
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/**
+ * TAV-COMBAT-VERB-NO-MECHANICS — render the scene's creature names into the
+ * refusal line ("The Timberwolf", "A goblin and a wolf"). Deduped and capped
+ * at three so a crowded encounter doesn't produce a sentence-long subject;
+ * the overflow reads "and 2 others" rather than being silently dropped.
+ * Names are the engine's authored display names, used verbatim.
+ */
+function listCreatureNames(names: readonly string[]): string {
+  const uniq = [...new Set(names)];
+  const shown = uniq.slice(0, 3);
+  const rest = uniq.length - shown.length;
+  const parts = rest > 0 ? [...shown, `${rest} other${rest === 1 ? '' : 's'}`] : shown;
+  if (parts.length === 1) return parts[0];
+  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
 }
 
 /**
@@ -743,6 +759,13 @@ export default function PlayPage() {
   // "Attempt {skill}" affordance (see `freeformOfferedCheck` below), mirrors
   // `checkWrapRef`'s identical role for the authored checks group.
   const freeformCheckRef = useRef<HTMLDivElement>(null);
+  // TAV-COMBAT-VERB-NO-MECHANICS — the "Stand and fight" button itself. The
+  // guard's whole contract is refuse-AND-PROMPT: withholding the turn is only
+  // half of it, so on a refusal we move focus onto the control the refusal
+  // names. Legitimate change-of-context (it follows the player's own Send
+  // activation, not a focus event), and it is the only thing that makes the
+  // prompt reachable for a keyboard/screen-reader player without hunting.
+  const beginCombatRef = useRef<HTMLButtonElement>(null);
 
   // Tora MAJOR-2: same stranded-focus problem as above, but at a combat
   // turn boundary — a rail button (player Attack/Dodge/Dash/End-turn, or DM
@@ -4393,6 +4416,42 @@ export default function PlayPage() {
   // needed below: the effect only reads `sceneHasEncounter`/`combatId`
   // state, never the DOM, so it fires identically whether the button's
   // presence is driven by a text swap or a real mount.
+  // TAV-COMBAT-VERB-NO-MECHANICS — the precise gate for the combat-verb
+  // guard, deliberately NOT `sceneHasEncounter`. That flag is only "this
+  // scene authors an encounter block", which stays true after the fight is
+  // over; refusing "I attack" over a resolved encounter and pointing at
+  // "Stand and fight" would be actively wrong. This mirrors NekoNova's
+  // `core/dm_narrator.py::combat_encounter_unstarted` exactly — kind must be
+  // `combat`, and the encounter must have NO `encounter_state` entry at all
+  // (an entry is stamped `unresolved` the moment combat starts and becomes
+  // `resolved_*` after, so PRESENCE either way means "not our case").
+  // `grounding.encounter_state` is the flattened
+  // `campaign.progress.encounter_state` (see dnd.ts normalizeGrounding),
+  // i.e. the same dict the engine hands the narrator.
+  const combatEncounterUnstarted = useMemo(() => {
+    const enc = grounding?.encounter;
+    if (!enc || typeof enc !== 'object') return false;
+    if (enc.kind !== 'combat') return false;
+    const encId = typeof enc.id === 'string' ? enc.id : '';
+    if (!encId) return false;
+    const encState = grounding?.encounter_state;
+    if (!encState || typeof encState !== 'object') return true;
+    return !(encId in encState);
+  }, [grounding]);
+
+  // The scene's authored creature names, for the guard's tier-2 (targeted)
+  // matcher. `monsters_resolved` is projected flavor-only by the engine
+  // (project_monster_for_wire) and is present pre-combat — see
+  // creatureKeywords' doc block. Defensive: any non-array/odd shape yields [].
+  const sceneCreatureNames = useMemo<string[]>(() => {
+    const raw = (grounding?.encounter as { monsters_resolved?: unknown } | null | undefined)
+      ?.monsters_resolved;
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((m) => (m && typeof m === 'object' ? (m as { name?: unknown }).name : undefined))
+      .filter((n): n is string => typeof n === 'string' && n.length > 0);
+  }, [grounding]);
+
   const prevSceneHasEncounterRef = useRef(sceneHasEncounter);
   useEffect(() => {
     if (sceneHasEncounter && !prevSceneHasEncounterRef.current && !combatId) {
@@ -4546,6 +4605,58 @@ export default function PlayPage() {
       appendLog({ who: username ?? 'You', kind: 'system', text: `(ooc) ${text}` });
       return;
     }
+    // TAV-COMBAT-VERB-NO-MECHANICS — runs BEFORE matchKeywordIntent, and the
+    // order is load-bearing in both directions:
+    //
+    //   1. A combat declaration must never be read as movement. "I press
+    //      forward and attack the goblin" contains a MOVE_ON_PHRASE, so with
+    //      the old ordering a single-exit scene would ADVANCE past a live
+    //      threat on an attack declaration — strictly worse than the bug this
+    //      fixes.
+    //   2. It must precede both flag branches, so neither narrateDurable nor
+    //      narrate is ever reached: the fabricated prose is stopped by not
+    //      being generated, which (with DM-STREAM revealing tokens as they
+    //      arrive) is the only point where it CAN be stopped.
+    //
+    // Refuse-and-prompt only — this branch starts nothing. It withholds the
+    // turn, says plainly why nothing landed, and hands the player the real
+    // mechanical affordance. See matchCombatIntent's doc block for why a
+    // client matcher rather than the (already-present, already-overridden)
+    // server prompt guard, and for Leon's scope ruling.
+    if (
+      combatEncounterUnstarted &&
+      !combatId &&
+      matchCombatIntent(text, sceneCreatureNames)
+    ) {
+      appendLog({ who: username ?? 'You', kind: 'player', text, color: 'var(--accent)' });
+      // Agreement is taken from the DEDUPED count listCreatureNames itself
+      // renders — two refs to the same monster row read as one subject.
+      const distinctCreatures = new Set(sceneCreatureNames).size;
+      const named = distinctCreatures
+        ? `${listCreatureNames(sceneCreatureNames)} ${distinctCreatures === 1 ? 'is' : 'are'} right there, but nothing`
+        : 'Nothing';
+      appendLog({
+        who: 'Suzu',
+        kind: 'system',
+        text:
+          `Combat hasn't started — ${named} you do lands until initiative is rolled. ` +
+          `Use "Stand and fight" to begin the encounter, or take one of the exits.`,
+      });
+      toast({
+        tone: 'warn',
+        message: 'Combat hasn’t started yet — use "Stand and fight" to roll initiative.',
+      });
+      // Prompt half of refuse-and-prompt: land focus on the named control.
+      // rAF so the log rows have committed first; guarded on the button
+      // actually being rendered and enabled (a background grounding refresh
+      // could have unmounted it between the keystroke and here).
+      requestAnimationFrame(() => {
+        const btn = beginCombatRef.current;
+        if (btn && !btn.disabled) btn.focus();
+      });
+      return;
+    }
+
     // DDX-20 Pass 2 — the intent fast-path (onMoveOn) is unaffected by the
     // flag either way; only the "falls through to a normal beat" branch
     // differs (durable job vs legacy SSE). Computed once, ahead of the
@@ -4586,6 +4697,11 @@ export default function PlayPage() {
     onSendDmNarration,
     availableTransitions,
     onMoveOn,
+    // TAV-COMBAT-VERB-NO-MECHANICS — the guard's gate + its copy inputs.
+    combatEncounterUnstarted,
+    combatId,
+    sceneCreatureNames,
+    toast,
   ]);
 
   // NOTE (TAV-PLAY-INPUT-LOCK-NO-FEEDBACK review, 2026-08-01): the composer
@@ -5775,6 +5891,7 @@ export default function PlayPage() {
           // this control); aria-disabled mirrors `disabled` byte-for-byte,
           // same pairing as checkBtn/moveOnBtn/the freeform check button.
           <button
+            ref={beginCombatRef}
             type="button"
             className={styles.beginCombat}
             onClick={beginEncounter}
