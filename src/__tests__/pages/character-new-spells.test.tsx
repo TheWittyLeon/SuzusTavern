@@ -319,6 +319,18 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     await screen.findByText('Fire Bolt');
   }
 
+  /** TAV-SPELLSTEP-CAP-MSG: Continue off Spells now requires the full
+   *  min(cap, catalog) pick load. Idempotent — clicks only unchecked boxes,
+   *  so tests keep their own meaningful picks and this tops the rest up. */
+  function pickFullSpellLoad(names: RegExp[]) {
+    for (const n of names) {
+      const box = screen.getByRole('checkbox', { name: n }) as HTMLInputElement;
+      if (!box.checked) fireEvent.click(box);
+    }
+  }
+  const WIZARD_FULL_LOAD = [/Fire Bolt/i, /Mage Hand/i, /Minor Illusion/i, /Magic Missile/i, /^Shield/i, /Burning Hands/i];
+  const CLERIC_FULL_LOAD = [/Sacred Flame/i, /Cure Wounds/i, /Bless/i];
+
   it('disables further cantrip checkboxes once the budget (3) is reached', async () => {
     await advanceToSpells();
     const fireBolt = screen.getByRole('checkbox', { name: /Fire Bolt/i });
@@ -358,6 +370,7 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     await advanceToSpells();
     fireEvent.click(screen.getByRole('checkbox', { name: /Fire Bolt/i }));
     fireEvent.click(screen.getByRole('checkbox', { name: /Magic Missile/i }));
+    pickFullSpellLoad(WIZARD_FULL_LOAD);
     fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Review
 
     await act(async () => {
@@ -402,6 +415,7 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
 
     fireEvent.click(screen.getByRole('checkbox', { name: /Sacred Flame/i }));
     fireEvent.click(screen.getByRole('checkbox', { name: /Cure Wounds/i }));
+    pickFullSpellLoad(CLERIC_FULL_LOAD);
     fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Review
 
     await act(async () => {
@@ -509,6 +523,7 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     mockLearnSpell.mockRejectedValueOnce(Object.assign(new Error('over_cantrip_limit'), { status: 400 }));
     await advanceToSpells();
     fireEvent.click(screen.getByRole('checkbox', { name: /Fire Bolt/i }));
+    pickFullSpellLoad(WIZARD_FULL_LOAD);
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 
     await act(async () => {
@@ -768,20 +783,30 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
     expect(screen.getByLabelText('2 of 2 first level spells chosen')).toBeInTheDocument();
   });
 
-  it('allows proceeding with ZERO spell picks (Spells step is optional) and calls no learn/prepare hop', async () => {
+  it('TAV-SPELLSTEP-CAP-MSG repin: ZERO spell picks BLOCKS Continue with a truthful hint; the full load unblocks it', async () => {
+    // Supersedes the old "Spells step is optional" contract (Leon-approved
+    // gate, 2026-08-09): the 2026-08-01 walk shipped a Warlock with zero
+    // cantrips and zero spells into the timberwolf scene while the sr-only
+    // hint claimed everything was already picked.
     await advanceToSpells();
     const continueBtn = screen.getByRole('button', { name: 'Continue' });
-    expect(continueBtn).toBeEnabled(); // no picks required to advance
-    fireEvent.click(continueBtn); // -> Review, zero picks
+    expect(continueBtn).toBeDisabled(); // zero picks no longer advance
+    // The footer hint says exactly what's owed…
+    expect(
+      screen.getByText(/Pick your 3 cantrips and 3 first-level spells to continue\./i),
+    ).toBeInTheDocument();
+    // …and the sr-only cap hints tell the truth at 0/N instead of "all chosen".
+    expect(screen.getByText(/0 of 3 cantrips chosen — pick 3 more\./i)).toBeInTheDocument();
+
+    pickFullSpellLoad(WIZARD_FULL_LOAD);
+    expect(continueBtn).toBeEnabled();
+    fireEvent.click(continueBtn); // -> Review, full load
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
     });
-
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/character/char-1'));
-    expect(mockCreateCharacter).toHaveBeenCalledTimes(1); // no second create either
-    expect(mockLearnSpell).not.toHaveBeenCalled();
-    expect(mockPrepareSpell).not.toHaveBeenCalled();
+    expect(mockCreateCharacter).toHaveBeenCalledTimes(1); // still no second create
   });
 
   it('does NOT re-create the character when re-entering Background -> Spells a second time (create-then-learn fires exactly once)', async () => {
@@ -903,6 +928,7 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
 
     fireEvent.click(screen.getByRole('checkbox', { name: /Sacred Flame/i }));
     fireEvent.click(screen.getByRole('checkbox', { name: /Cure Wounds/i }));
+    pickFullSpellLoad(CLERIC_FULL_LOAD);
     fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
@@ -926,6 +952,7 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
   // ── FINDINGS from the adversarial pass ─────────────────────────────────────────
   it('FIXED: the Review-step name field is LOCKED once a caster character is created — no silent edit-after-create loss', async () => {
     await advanceToSpells(); // silently creates char-1 named "Velka"
+    pickFullSpellLoad(WIZARD_FULL_LOAD);
     fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
 
     // The name was already persisted by the silent create, so the Review field
@@ -1034,6 +1061,7 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
       await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
       fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Spells (characterId already set, no recreate here)
       await screen.findByText('Fire Bolt');
+      pickFullSpellLoad(WIZARD_FULL_LOAD);
       fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
 
       await act(async () => {
@@ -1078,6 +1106,7 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
       await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
       fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Spells (no recreate at Continue-time)
       await screen.findByText('Fire Bolt');
+      pickFullSpellLoad(WIZARD_FULL_LOAD);
       fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
 
       await act(async () => {
@@ -1123,6 +1152,7 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
       await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
       fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Spells
       await screen.findByText('Fire Bolt');
+      pickFullSpellLoad(WIZARD_FULL_LOAD);
       fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
 
       await act(async () => {
@@ -1154,6 +1184,7 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
       );
       await advanceToSpells();
       fireEvent.click(screen.getByRole('checkbox', { name: /Fire Bolt/i }));
+      pickFullSpellLoad(WIZARD_FULL_LOAD);
       fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
 
       await act(async () => {
@@ -1174,6 +1205,7 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
       );
       await advanceToSpells();
       fireEvent.click(screen.getByRole('checkbox', { name: /Fire Bolt/i }));
+      pickFullSpellLoad(WIZARD_FULL_LOAD);
       fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 
       await act(async () => {
@@ -1194,6 +1226,7 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
       );
       await advanceToSpells();
       fireEvent.click(screen.getByRole('checkbox', { name: /Fire Bolt/i }));
+      pickFullSpellLoad(WIZARD_FULL_LOAD);
       fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 
       await act(async () => {
@@ -1209,23 +1242,33 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
   it('CONFIRMED SAFE: rapid double-click on "Begin your campaign" does not double up create/learn calls', async () => {
     await advanceToSpells();
     fireEvent.click(screen.getByRole('checkbox', { name: /Fire Bolt/i }));
+    pickFullSpellLoad(WIZARD_FULL_LOAD);
     fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
 
-    let resolveLearn!: (v: unknown) => void;
-    mockLearnSpell.mockImplementation(() => new Promise((res) => { resolveLearn = res; }));
+    // TAV-SPELLSTEP-CAP-MSG repin: the full 6-pick load means six learn
+    // calls; collect EVERY resolver (the flow may issue them sequentially)
+    // and drain until quiet, instead of latching only the last one.
+    const resolvers: Array<(v: unknown) => void> = [];
+    mockLearnSpell.mockImplementation(
+      () => new Promise((res) => { resolvers.push(res); }),
+    );
 
     const begin = screen.getByRole('button', { name: /Begin your campaign/i });
     fireEvent.click(begin);
     fireEvent.click(begin); // immediate 2nd click, no await in between
 
     await act(async () => {
-      resolveLearn({ learned: true });
-      await Promise.resolve();
+      while (resolvers.length) {
+        resolvers.shift()!({ learned: true });
+        await Promise.resolve();
+        await Promise.resolve();
+      }
     });
 
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/character/char-1'));
     expect(mockCreateCharacter).toHaveBeenCalledTimes(1);
-    expect(mockLearnSpell).toHaveBeenCalledTimes(1);
+    // Exactly one learn per pick — a double-submit would have queued twelve.
+    expect(mockLearnSpell).toHaveBeenCalledTimes(WIZARD_FULL_LOAD.length);
   });
 
   // ── TAV-CREATE-DEADEND-DIAGNOSABLE ────────────────────────────────────────────

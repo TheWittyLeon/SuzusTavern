@@ -367,6 +367,12 @@ export default function CharacterNewPage(): ReactNode {
   const [createdSnapshot, setCreatedSnapshot] = useState<CreatedSnapshot | null>(null);
   const [spellCantrips, setSpellCantrips] = useState<Set<string>>(new Set());
   const [spellLeveled, setSpellLeveled] = useState<Set<string>>(new Set());
+  // TAV-SPELLSTEP-CAP-MSG: the required pick counts SpellsStep reports after
+  // its catalog fetch — null until reported (or on fetch error) = fail-open.
+  const [spellReq, setSpellReq] = useState<{
+    cantripsNeeded: number;
+    leveledNeeded: number;
+  } | null>(null);
 
   // 2026-07-24 Starting Equipment design — {choiceId: optionId}, one entry per
   // EquipChoice group across both the class and background packages. Defaults
@@ -531,9 +537,22 @@ export default function CharacterNewPage(): ReactNode {
           (equipmentLoadState === 'error' ||
             equipmentChoiceIds.every((id) => !!equipmentSelections[id]))
         );
-      // 'spells' and 'review' — the Spells step is optional (pick as few or
-      // as many as you like up to budget); Review's Continue is the submit
-      // button, gated separately by canSubmit below.
+      case 'spells':
+        // TAV-SPELLSTEP-CAP-MSG (2026-08-01 walk): a caster shipping with
+        // zero cantrips and zero spells is exactly the "new player picks a
+        // caster and gets punished" persona this wizard exists to protect.
+        // Gate Continue on the requirement SpellsStep reports after its
+        // fetch (min(cap, catalog size) — a thin dev catalog can't wedge).
+        // null (still loading, or fetch failed) stays fail-open, matching
+        // the equipment-step precedent and the "pick from the sheet later"
+        // copy the error state already shows.
+        return (
+          !spellReq ||
+          (spellCantrips.size >= spellReq.cantripsNeeded &&
+            spellLeveled.size >= spellReq.leveledNeeded)
+        );
+      // 'review' — Review's Continue is the submit button, gated separately
+      // by canSubmit below.
       default:
         return true;
     }
@@ -551,6 +570,9 @@ export default function CharacterNewPage(): ReactNode {
     equipmentLoadState,
     equipmentChoiceIds,
     equipmentSelections,
+    spellReq,
+    spellCantrips,
+    spellLeveled,
   ]);
 
   // 2026-07-24 Starting Equipment design — same defensive backstop rationale
@@ -884,7 +906,9 @@ export default function CharacterNewPage(): ReactNode {
           ? 'Enter a name and choose a background to continue.'
           : stepKey === 'equipment' && equipmentLoadState === 'loading'
             ? 'Loading your starting equipment…'
-            : '';
+            : stepKey === 'spells' && spellReq
+              ? `Pick your ${spellReq.cantripsNeeded} cantrip${spellReq.cantripsNeeded === 1 ? '' : 's'} and ${spellReq.leveledNeeded} first-level spell${spellReq.leveledNeeded === 1 ? '' : 's'} to continue.`
+              : '';
 
   const totalSpellPicks = spellCantrips.size + spellLeveled.size;
   const railSub = (key: StepKey): string => {
@@ -1078,6 +1102,7 @@ export default function CharacterNewPage(): ReactNode {
                 onCantrips={setSpellCantrips}
                 leveled={spellLeveled}
                 onLeveled={setSpellLeveled}
+                onRequirement={setSpellReq}
               />
             )}
             {stepKey === 'review' && (
@@ -1930,6 +1955,7 @@ function SpellsStep({
   onCantrips,
   leveled,
   onLeveled,
+  onRequirement,
 }: {
   characterId: string | null;
   username: string;
@@ -1938,6 +1964,11 @@ function SpellsStep({
   onCantrips: (next: Set<string>) => void;
   leveled: Set<string>;
   onLeveled: (next: Set<string>) => void;
+  // TAV-SPELLSTEP-CAP-MSG: reports the REQUIRED pick counts up to the wizard
+  // once the catalog fetch lands (null on fetch error = wizard fails open).
+  onRequirement: (
+    req: { cantripsNeeded: number; leveledNeeded: number } | null,
+  ) => void;
 }) {
   const [available, setAvailable] = useState<AvailableSpellsResult | null>(null);
   const [fetchState, setFetchState] = useState<SpellFetchState>('loading');
@@ -1960,14 +1991,30 @@ function SpellsStep({
         if (cancelled) return;
         setAvailable(data);
         setFetchState('ok');
+        // TAV-SPELLSTEP-CAP-MSG: min(cap, catalog size) — a thin dev catalog
+        // must never wedge Continue behind picks that don't exist.
+        const kind = clsObj?.casterKind ?? 'known';
+        const lvlCap =
+          kind === 'known'
+            ? (data.budget.spells_max ?? 0)
+            : kind === 'prepared'
+              ? (data.budget.prepared_max ?? 0)
+              : WIZARD_LEVEL1_SPELLBOOK_SIZE;
+        onRequirement({
+          cantripsNeeded: Math.min(data.budget.cantrips_max, data.cantrips.length),
+          leveledNeeded: Math.min(lvlCap, (data.by_level['1'] ?? []).length),
+        });
       })
       .catch(() => {
-        if (!cancelled) setFetchState('error');
+        if (!cancelled) {
+          setFetchState('error');
+          onRequirement(null);
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [characterId, username]);
+  }, [characterId, username, clsObj, onRequirement]);
 
   function toggle(picked: Set<string>, onChange: (n: Set<string>) => void, slug: string, cap: number) {
     const next = new Set(picked);
@@ -2118,7 +2165,17 @@ function SpellsStep({
           </span>
         </div>
         <p id="cantrip-cap-hint" className={styles.srOnly}>
-          You&rsquo;ve chosen all {cantripCap} cantrips — deselect one to pick another.
+          {cantrips.size >= cantripCap ? (
+            <>You&rsquo;ve chosen all {cantripCap} cantrips — deselect one to pick another.</>
+          ) : (
+            // TAV-SPELLSTEP-CAP-MSG: the at-cap line used to render
+            // unconditionally — an SR user at 0/2 was told they'd already
+            // picked everything. Say what's actually true.
+            <>
+              {cantrips.size} of {cantripCap} cantrips chosen — pick{' '}
+              {cantripCap - cantrips.size} more.
+            </>
+          )}
         </p>
         <ul className={styles.spellList}>
           {sortedCantrips.length === 0 && (
@@ -2151,7 +2208,17 @@ function SpellsStep({
           </span>
         </div>
         <p id="leveled-cap-hint" className={styles.srOnly}>
-          You&rsquo;ve chosen all {leveledCap} first-level spells — deselect one to pick another.
+          {leveled.size >= leveledCap ? (
+            <>
+              You&rsquo;ve chosen all {leveledCap} first-level spells — deselect one to pick
+              another.
+            </>
+          ) : (
+            <>
+              {leveled.size} of {leveledCap} first-level spells chosen — pick{' '}
+              {leveledCap - leveled.size} more.
+            </>
+          )}
         </p>
         <ul className={styles.spellList}>
           {level1.length === 0 && (
