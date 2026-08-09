@@ -2400,6 +2400,63 @@ export default function PlayPage() {
   }, [sessionId, diffAndExplainResolvedChecks]);
 
   /**
+   * DM-ARRIVAL-NARRATION — the last scene an arrival line was played for.
+   *
+   * Two independent code paths refresh grounding after an advance (onMoveOn,
+   * and narrate()'s `sceneAdvancedSignal`), and the durable events poll can
+   * refetch on the same transition, so the naive version double-plays the
+   * line. Keyed on the SCENE rather than latched once per mount on purpose:
+   * a genuine re-entry into a scene later in the session is a real arrival and
+   * should play again — only the same seam replayed back-to-back is suppressed.
+   */
+  const lastArrivalSceneRef = useRef<string | null>(null);
+
+  /**
+   * DM-ARRIVAL-NARRATION — play the destination scene's authored arrival line,
+   * deterministically. Returns true when it actually rendered one.
+   *
+   * WHY THIS EXISTS: the beat that CAUSES a scene advance is grounded on the
+   * scene being LEFT. On the server-INTENT path the narration is generated
+   * before the advance decision even exists, so the 2026-07-29 feel-check's
+   * "I keep running towards the light" narrated the chase — correctly — while
+   * the scene card had already flipped to The Keeper of the Wood. The journey
+   * prose was never the bug; the ARRIVAL was missing, and no prompt tuning can
+   * add it after the fact. So the arrival is authored content played verbatim,
+   * with no model call: it cannot be displaced, cannot hallucinate, and costs
+   * nothing at a seam where the session is already paying 65-156s a turn.
+   *
+   * Rendered as Suzu narration rather than `read_aloud`: that label is the
+   * session-OPENING scene-set register (the full boxed_text block). An arrival
+   * line is a narration beat that happens to be authored, and the player has
+   * no reason to be shown the difference.
+   *
+   * Takes the grounding EXPLICITLY (never the `grounding` closure) — every
+   * caller has just awaited refreshGrounding(), and setGrounding() is async,
+   * so the closure value is still the scene we just left.
+   *
+   * KNOWN GAP, deliberate: the durable events poll is NOT a caller. It
+   * refetches grounding for several reasons that are not advances (a
+   * classifier-opened beat gate on the SAME scene, most of all), so calling
+   * this from there would fire an arrival line mid-scene the first time any of
+   * them happened. `DURABLE_GENERATION_ENABLED` is false, so narrate()'s SSE
+   * signal and onMoveOn are the live advance paths and this is currently
+   * complete; whoever flips that flag must add an advance-specific call there
+   * (keyed on the scene_advance event, not on `invalidatesGrounding`).
+   */
+  const playArrivalLine = useCallback(
+    (g: GroundingData | null): boolean => {
+      const line = g?.arrival_line;
+      const sceneId = g?.scene_id;
+      if (typeof line !== 'string' || !line.trim()) return false;
+      if (sceneId && lastArrivalSceneRef.current === sceneId) return false;
+      lastArrivalSceneRef.current = sceneId ?? null;
+      appendLog({ who: 'Suzu', kind: 'narration', text: line });
+      return true;
+    },
+    [appendLog],
+  );
+
+  /**
    * Iro Ship 2 CRITICAL-1 — refocus the scene heading if a `refreshGrounding()`
    * refresh unmounted the button the user was just on, stranding focus on
    * <body>. `hadFocusInGroup` MUST be captured synchronously by the caller
@@ -2721,6 +2778,15 @@ export default function PlayPage() {
         // Iro Ship 2 CRITICAL-1: mirror onMoveOn/onAttemptCheck — refocus the
         // scene heading if the refresh above stranded focus on <body>.
         refocusSceneHeadIfStranded(hadFocusInCheckWrap || hadFocusInTransitionWrap);
+        // DM-ARRIVAL-NARRATION — on THIS path the arrival line FOLLOWS the
+        // beat rather than replacing it, and that is not a compromise: the
+        // narration above was generated from the scene being LEFT, so it
+        // legitimately narrates the player's journey ("I keep running towards
+        // the light" -> the chase). What went missing on 2026-07-29 was the
+        // landing, while the scene card had already flipped. Playing the
+        // authored arrival here is what lets the prose catch up to the card.
+        // Replacing it is not even available: the prose has already streamed.
+        playArrivalLine(freshGrounding);
       }
 
       // P1-PLAYFIX-2 §A.5/§A.6 — surface an offered check. Per §A.3 this NEVER
@@ -2751,6 +2817,7 @@ export default function PlayPage() {
       refocusSceneHeadIfStranded,
       grounding,
       applyOfferedCheckSignal,
+      playArrivalLine,
     ],
   );
 
@@ -3430,9 +3497,19 @@ export default function PlayPage() {
           kind: 'system',
           text: `The scene shifts: ${result.from_scene} → ${result.to_scene}`,
         });
-        await refreshGrounding();
+        const advancedGrounding = await refreshGrounding();
         refocusSceneHeadIfStranded(hadFocusInTransitionWrap);
-        // Kage #1 / Miko DEFECT-2: advanceScene() above already moved the
+        // DM-ARRIVAL-NARRATION (Leon's ruling 2026-08-09: REPLACE the beat).
+        // When the destination authors an arrival line, it IS the transition
+        // narration and the synthetic beat below is skipped entirely — that
+        // beat's player message is the literal string "We move on.", which no
+        // player said, so there is nothing here for a model to react to that
+        // authored prose does not do better, instantly, at a seam that
+        // otherwise costs a full 65-156s turn. Scenes with no arrival line
+        // fall through to exactly today's behaviour, so nothing authored
+        // before this change moves.
+        if (playArrivalLine(advancedGrounding)) return;
+        // Kage #1 / Miko DEFECT-2: advanceScene() already moved the
         // scene server-side — suppress the INTENT classifier from advancing
         // it a second time off this confirmation beat.
         if (DURABLE_GENERATION_ENABLED) {
@@ -3475,6 +3552,7 @@ export default function PlayPage() {
       narrate,
       narrateDurableBeat,
       toast,
+      playArrivalLine,
     ],
   );
 

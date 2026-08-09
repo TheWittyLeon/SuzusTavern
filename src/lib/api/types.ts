@@ -1376,6 +1376,14 @@ export interface GroundingData {
   scene_name?: string;
   /** Boxed text / description for the current scene. */
   boxed_text?: string;
+  /** DM-ARRIVAL-NARRATION — the authored beat played verbatim when a scene
+   *  advance LANDS on this scene. Distinct register from `boxed_text`: that is
+   *  the full scene-setting block shown when a session OPENS here, this is the
+   *  short landing that connects the previous moment to this one. Absent on
+   *  every scene authored before 2026-08-09 and on any pre-feature engine — the
+   *  play screen keeps its existing transition behaviour when it is missing, so
+   *  absence is the normal case, not a degraded one. */
+  arrival_line?: string;
   /** Current scene objective (A1 — surfaces on the scene card). */
   objective?: string;
   /** Available transitions from the current scene. */

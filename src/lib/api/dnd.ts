@@ -1268,6 +1268,13 @@ const normalizeGrounding = (raw: unknown): GroundingData | null => {
     scene_id: scene.id as string | undefined,
     scene_name: scene.title as string | undefined,
     boxed_text: scene.boxed_text as string | undefined,
+    // DM-ARRIVAL-NARRATION — mapped explicitly because `current_scene` is
+    // destructured OUT above (`_rawScene`), so an authored scene field reaches
+    // GroundingData only if it is listed here. That include-list discipline is
+    // the point; this field is player-facing read-aloud by design, which is
+    // why it is safe to list. Non-string (or absent) degrades to undefined,
+    // which the play screen reads as "no authored arrival".
+    arrival_line: typeof scene.arrival_line === 'string' ? scene.arrival_line : undefined,
     objective: scene.objective as string | undefined,
     // Projected field-by-field for the SAME reason as `checks` below — never
     // spread the raw authored transition. An authored transition carries
