@@ -25,7 +25,7 @@
  * seated members; a member row with no bound character shows nothing here
  * and is skipped server-side too.
  */
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import Button from '@/components/Button';
 import Icon from '@/components/Icon';
 import ConfirmDialog from '@/components/ConfirmDialog';
@@ -127,20 +127,22 @@ export default function CampaignFloorPanel({
 
   // Kage m9: if the panel is disabled while the editor is open (session
   // ended / another session action started), close the editor — Save must
-  // not stay live against an ended table. Render-time adjustment per
-  // React's "adjusting state when a prop changes" pattern
-  // (GrantCurrencyPanel's own prevParticipants convention).
-  const [prevDisabled, setPrevDisabled] = useState(disabled);
-  if (disabled !== prevDisabled) {
-    setPrevDisabled(disabled);
-    if (disabled && editing) {
+  // not stay live against an ended table. The react-hooks lint forbids both
+  // shapes this used to take (refs read during render; sync setState in an
+  // effect body), so the close + g2 focus rescue run inside the rAF
+  // callback — an async platform callback, the sanctioned home for both.
+  // The one pre-rAF frame is inert: saveEdit's own `disabled` guard refuses.
+  useEffect(() => {
+    if (!(disabled && editing)) return;
+    const raf = requestAnimationFrame(() => {
       setEditing(false);
       // Kage re-review g2: the focused input is about to unmount and the
       // pencil is disabled too — rescue focus to the panel container so a
       // keyboard/SR user isn't dropped at <body>.
-      requestAnimationFrame(() => panelRef.current?.focus());
-    }
-  }
+      panelRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [disabled, editing]);
 
   async function saveEdit() {
     if (!draftValid || busy || disabled || mutationBusyRef.current) return;

@@ -314,7 +314,12 @@ describe('LVL (Kage m9/m10): disabled propagation into edit mode + live-region r
         />
       </ToastProvider>,
     );
-    expect(screen.queryByLabelText(/^starting level$/i)).not.toBeInTheDocument();
+    // The m9 auto-close now runs in a rAF callback (react-hooks lint: no
+    // sync setState in an effect body), so the editor unmounts a frame
+    // later. Save stays unclickable throughout — the next test pins that.
+    await waitFor(() => {
+      expect(screen.queryByLabelText(/^starting level$/i)).not.toBeInTheDocument();
+    });
     expect(screen.queryByRole('button', { name: /^save$/i })).not.toBeInTheDocument();
   });
 
