@@ -5,12 +5,13 @@ name: CI
 # the full jest suite. Both are verified green on hardening/tavern-ui-2026-07-17.
 # `next build` is intentionally NOT run here (it needs runtime env/secrets the
 # self-hosted homelab supplies at deploy time, not in CI).
+#
+# Owner policy (2026-08-08): never auto-run CI on GitHub-hosted runners — the
+# same lint + jest gate runs locally / on the homelab before deploys. Manual
+# dispatch kept for the rare case it's explicitly wanted.
 
 on:
-  push:
-    branches: [main, "hardening/**"]
-  pull_request:
-    branches: [main, "hardening/**"]
+  workflow_dispatch:
 
 # Cancel superseded runs on the same ref to save minutes.
 concurrency:
