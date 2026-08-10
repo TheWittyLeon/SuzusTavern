@@ -88,6 +88,26 @@ export default function ConfirmDialog({
     };
   }, [open]);
 
+  // TAV-CONFIRMDIALOG-NO-SCROLL-LOCK (1.7 audit): the backdrop is
+  // position:fixed/inset:0 so it blocks CLICKS through to the page, but a
+  // wheel/trackpad scroll over it still bubbles to <body> and moves the content
+  // behind the modal. Lock the body while open and restore the caller's own
+  // previous value on close (not a hardcoded ''), so nesting or a page that
+  // already had its own overflow set is not clobbered. Fixed here in the SHARED
+  // component rather than at the ~14 call sites, none of which had their own.
+  useEffect(() => {
+    if (!open) return;
+    const body = document.body;
+    const prevOverflow = body.style.overflow;
+    const prevOverscroll = body.style.overscrollBehavior;
+    body.style.overflow = 'hidden';
+    body.style.overscrollBehavior = 'contain';
+    return () => {
+      body.style.overflow = prevOverflow;
+      body.style.overscrollBehavior = prevOverscroll;
+    };
+  }, [open]);
+
   // LEVELUP-UX-A11Y-TAIL (Kage m5): when `busy` flips true, a REAL browser
   // blurs the now-disabled focused button to <body> — after which the
   // onKeyDown busy-Tab park below never fires (keydown lands on body, not

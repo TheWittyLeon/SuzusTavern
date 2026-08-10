@@ -218,6 +218,8 @@
 }
 .skillName {
   flex: 1;
+  display: flex;
+  align-items: baseline;
   font-size: 13px;
   color: var(--ink);
   min-width: 0;

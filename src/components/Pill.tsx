@@ -27,7 +27,13 @@ export type PillProps = {
 const TONE_MAP: Record<PillTone, { bg: string; fg: string; bd: string }> = {
   accent: {
     bg: 'color-mix(in oklab, var(--accent) 14%, transparent)',
-    fg: 'var(--accent)',
+    // --accent-ink: text-safe on the candlelit light parchment, same treatment
+    // every other tone already had. This is the DEFAULT tone, so it was the one
+    // failing in public: measured in-browser (real oklab compositing, not an
+    // sRGB approximation) at 3.42:1 for --accent #b5462a on its own 14% tint
+    // over #f5eee2, at 11px/600 = WCAG small text needing 4.5:1. The landing
+    // hero's two pills were the visible case. --accent-ink (#8a3820) clears it.
+    fg: 'var(--accent-ink)',
     bd: 'color-mix(in oklab, var(--accent) 30%, transparent)',
   },
   good: {

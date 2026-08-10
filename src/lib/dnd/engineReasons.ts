@@ -179,3 +179,41 @@ export const CAST_REFUSAL_REASON_MAP: Record<string, string> = {
   // Spell-path meaning of `not_found` — deliberately different from combat's.
   not_found: 'No active character found.',
 };
+
+/**
+ * Join refusals for the lobby's "Join table" control.
+ *
+ * TAV-LOBBY-JOIN-ERROR-GENERIC (1.7 audit, 2026-08-10): the lobby had NO map at
+ * all — a bare `catch {}` rendered one string, "Could not join that table. Try
+ * again.", for every failure. The 1.7 browser pass hit that with a real 409
+ * `character_in_use`, which is the worst case for that copy: the join can NEVER
+ * succeed on a retry, so the only advice the player got was advice that cannot
+ * work, with the actual cause (their character is seated at another table)
+ * hidden. Same disease as the two tickets at the top of this file, third site.
+ *
+ * SOURCED, NOT GUESSED, like the maps above:
+ *   - `routes/sessions.py::SESSION_REASON_STATUS` — the join route resolves
+ *     every `cmd_joinsession` refusal through it via
+ *     `SESSION_REASON_STATUS.get(reason, 400)`.
+ *   - `engine/commands/session_commands.py::cmd_joinsession` returns exactly
+ *     three of those: `not_found`, `error`, and `character_in_use`.
+ *   - `actor_required` / the 5xx pair arrive via SHARED_REASON_COPY below.
+ *
+ * `character_in_use` copy names the CAUSE and the FIX, because the underlying
+ * rule surprises people: a character is bound to one campaign at a time, and
+ * (as of the 1.7 audit) ENDING a campaign does not release it — see
+ * TAV-CHAR-STUCK-AFTER-CAMPAIGN-END. Until that ships, this string is the only
+ * thing standing between a player and a silently unusable character.
+ */
+export const JOIN_REFUSAL_REASON_MAP: Record<string, string> = {
+  ...SHARED_REASON_COPY,
+
+  character_in_use:
+    'That character is already at another table. Pick a different one, or leave the other campaign first.',
+  not_found: 'That table is no longer available.',
+  not_active: 'That table is not active right now.',
+  start_failed: "That table couldn't be started.",
+  msm_disabled: 'Multi-system content is not available for this session.',
+  error: 'Something went wrong joining that table.',
+  db_unavailable: 'The game database is unavailable right now — try again in a moment.',
+};

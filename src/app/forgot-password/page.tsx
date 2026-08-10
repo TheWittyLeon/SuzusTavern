@@ -56,7 +56,7 @@ export default function ForgotPasswordPage() {
 
   if (sent) {
     return (
-      <main className={styles.wrap}>
+      <main id="main-content" className={styles.wrap} tabIndex={-1}>
         <div className={`glass ${styles.card}`}>
           <h1 className={styles.title}>Check your email</h1>
           <p className={styles.sub} role="status">
@@ -72,7 +72,7 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <main className={styles.wrap}>
+    <main id="main-content" className={styles.wrap} tabIndex={-1}>
       <div className={`glass ${styles.card}`}>
         <h1 className={styles.title}>Forgotten passphrase</h1>
         <p className={styles.sub}>

@@ -144,7 +144,7 @@ function ResetPasswordForm() {
 export default function ResetPasswordPage() {
   // `useSearchParams` requires a Suspense boundary in the App Router.
   return (
-    <main className={styles.wrap}>
+    <main id="main-content" className={styles.wrap} tabIndex={-1}>
       <Suspense fallback={<div className={`glass ${styles.card}`}>Loading…</div>}>
         <ResetPasswordForm />
       </Suspense>

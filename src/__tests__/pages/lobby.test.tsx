@@ -28,6 +28,7 @@ jest.mock('../../lib/api/dnd', () => ({
 }));
 
 import * as dnd from '../../lib/api/dnd';
+import { makeApiError } from '../../lib/api/client';
 import { AuthProvider } from '../../lib/auth/AuthProvider';
 import { ThemeProvider } from '../../lib/theme/ThemeProvider';
 import { ToastProvider } from '../../components/Toast';
@@ -278,4 +279,44 @@ it('LVL: a null floor_applied keeps the plain joined toast (no level-up copy)', 
   });
   expect(await screen.findByText(/joined hollow tide\./i)).toBeInTheDocument();
   expect(screen.queryByText(/leveled up!/i)).not.toBeInTheDocument();
+});
+
+// ── TAV-LOBBY-JOIN-ERROR-GENERIC (1.7 audit, 2026-08-10) ─────────────────────
+// The join path used to be a bare `catch {}` that rendered ONE string for every
+// failure: "Could not join that table. Try again." The 1.7 browser pass hit
+// that with a real 409 `character_in_use`, where the retry advice can never
+// work and the actual cause is hidden. These pin the curated map.
+
+it('JOIN-REASONS: a 409 character_in_use names the cause, and never says "try again"', async () => {
+  mockListSessions.mockResolvedValue([suzuTable]);
+  mockJoin.mockRejectedValue(
+    makeApiError(409, 'conflict', {
+      data: { reason: 'character_in_use' },
+      error: '[Session] Could not join: That character is already in another campaign.',
+    }),
+  );
+  renderLobby();
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: /join table: hollow tide/i })).toBeInTheDocument(),
+  );
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /join table: hollow tide/i }));
+  });
+  expect(await screen.findByText(/already at another table/i)).toBeInTheDocument();
+  // The whole point of the ticket: this refusal is permanent, so the copy must
+  // not invite a retry that cannot succeed.
+  expect(screen.queryByText(/try again/i)).not.toBeInTheDocument();
+});
+
+it('JOIN-REASONS: an unmapped/opaque failure still gets honest fallback copy', async () => {
+  mockListSessions.mockResolvedValue([suzuTable]);
+  mockJoin.mockRejectedValue(new Error('network down'));
+  renderLobby();
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: /join table: hollow tide/i })).toBeInTheDocument(),
+  );
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /join table: hollow tide/i }));
+  });
+  expect(await screen.findByText(/couldn't join that table/i)).toBeInTheDocument();
 });

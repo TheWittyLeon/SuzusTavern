@@ -19,10 +19,20 @@ describe('Pill', () => {
   });
 
   describe('tone styling', () => {
-    it('accent (default) uses --accent color', () => {
+    it('accent (default) uses --accent-ink text color (a11y: candlelit-safe)', () => {
+      // TAV-PILL-ACCENT-CONTRAST-CANDLELIT (1.7 audit): this test used to pin
+      // `var(--accent)`, i.e. it pinned the defect — accent is the DEFAULT tone
+      // and measured 3.42:1 in-browser on candlelit (11px/600 = small text,
+      // 4.5:1 required), which is why the landing hero's pills failed in public
+      // while every deliberately-fixed tone below passed. --accent-ink is the
+      // same per-palette treatment warn/bad/cool/warm/crit already had.
+      //
+      // NOTE the assertion is exact-equality, not toContain: 'var(--accent-ink)'
+      // CONTAINS 'var(--accent' as a substring, so a toContain check would still
+      // pass if this ever regressed to the unsafe token.
       const { container } = render(<Pill>x</Pill>);
       const el = container.querySelector('[data-component="Pill"]') as HTMLElement;
-      expect(el.style.color).toContain('var(--accent)');
+      expect(el.style.color).toBe('var(--accent-ink)');
     });
 
     it('good tone uses --good color', () => {

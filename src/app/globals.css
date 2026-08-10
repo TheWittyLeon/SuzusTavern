@@ -489,7 +489,11 @@ a { color: inherit; text-decoration: none; }
   border-radius: var(--radius-pill);
   font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
   background: color-mix(in oklab, var(--accent) 14%, transparent);
-  color: var(--accent);
+  /* --accent-ink, not --accent: this utility is the non-React twin of Pill's
+     default `accent` tone, which measured 3.42:1 on candlelit. Keep the two in
+     step — a caller that uses the class directly must not be less readable than
+     one that uses the component. */
+  color: var(--accent-ink);
   border: 1px solid color-mix(in oklab, var(--accent) 30%, transparent);
 }
 .pill .dot {

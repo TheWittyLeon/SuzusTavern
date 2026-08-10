@@ -31,6 +31,8 @@ import Pill from '@/components/Pill';
 import Icon from '@/components/Icon';
 import SuzuDM from '@/components/SuzuDM';
 import { sessionTitle } from '@/lib/format';
+import { engineErrorMessage } from '@/lib/dnd/engineError';
+import { JOIN_REFUSAL_REASON_MAP } from '@/lib/dnd/engineReasons';
 import styles from './Lobby.module.css';
 
 type Filter = 'all' | 'suzu' | 'human';
@@ -244,8 +246,19 @@ export default function LobbyPage() {
           toast({ tone: 'success', message: `Joined ${sessionTitle(s)}.` });
         }
         void load();
-      } catch {
-        toast({ tone: 'error', message: 'Could not join that table. Try again.' });
+      } catch (err) {
+        // TAV-LOBBY-JOIN-ERROR-GENERIC: this used to be a bare `catch {}` with
+        // one string for every failure — including a 409 `character_in_use`,
+        // where "Try again." is advice that can never work. The fallback below
+        // is now only for a network/abort or a refusal carrying no reason code,
+        // and it deliberately does NOT say "try again" either.
+        toast({
+          tone: 'error',
+          message: engineErrorMessage(err, {
+            fallback: "Couldn't join that table.",
+            reasonMap: JOIN_REFUSAL_REASON_MAP,
+          }),
+        });
       } finally {
         setJoiningId(null);
       }

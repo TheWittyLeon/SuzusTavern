@@ -127,6 +127,34 @@ describe('Character sheet', () => {
     expect(screen.getAllByRole('img', { name: 'not proficient' }).length).toBeGreaterThan(0);
   });
 
+  // ── TAV-SKILLROW-CONCAT-A11Y (1.7 audit, 2026-08-10) ──────────────────────
+  // Every skill row exposed a concatenated accessible name — a screen reader
+  // announced "AcrobaticsDEX +2". The name and the ability abbr were two text
+  // sources inside ONE inline span, so the accessible-name computation joined
+  // them with no separator; the sibling Saving Throws row read correctly only
+  // because its parts are separate blockified children. jsdom does not run the
+  // accname algorithm, so this asserts the STRUCTURE the fix depends on: the
+  // two parts must be distinct element children, never raw text + <small>.
+  it('A11Y: skill name and ability abbr are separate elements, not concatenated text', async () => {
+    mockGet.mockResolvedValue(ROGUE);
+    const { container } = renderPage();
+    await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
+
+    const nameCells = container.querySelectorAll('[class*="skillName"]');
+    expect(nameCells.length).toBeGreaterThan(0);
+
+    nameCells.forEach((cell) => {
+      // No direct text node under the wrapper — if the skill name sits there as
+      // raw text next to the <small>, the two concatenate again.
+      const directText = Array.from(cell.childNodes)
+        .filter((n) => n.nodeType === Node.TEXT_NODE)
+        .map((n) => (n.textContent ?? '').trim())
+        .join('');
+      expect(directText).toBe('');
+      expect(cell.children.length).toBe(2);
+    });
+  });
+
   it('shows the spells panel for a caster', async () => {
     mockGet.mockResolvedValue({
       ...ROGUE,

@@ -81,3 +81,41 @@ test('busy flip parks focus on the dialog itself (Kage m5 focus park)', async ()
   // convention every overlay here uses.
   expect(dialog).toHaveAttribute('tabindex', '-1');
 });
+
+// ── TAV-CONFIRMDIALOG-NO-SCROLL-LOCK (1.7 audit, 2026-08-10) ─────────────────
+// The backdrop is position:fixed/inset:0, so it blocked CLICKS through to the
+// page — but a wheel/trackpad scroll over it still bubbled to <body> and moved
+// the content behind the modal (verified live on the Long-rest dialog). Fixed
+// in the shared component because none of its ~14 consumers had their own lock.
+
+test('SCROLL-LOCK: locks body scroll while open and releases it on close', () => {
+  const { rerender } = render(
+    <ConfirmDialog open={false} title="X" onConfirm={() => {}} onCancel={() => {}} />,
+  );
+  expect(document.body.style.overflow).toBe('');
+
+  rerender(<ConfirmDialog open title="X" onConfirm={() => {}} onCancel={() => {}} />);
+  expect(document.body.style.overflow).toBe('hidden');
+  expect(document.body.style.overscrollBehavior).toBe('contain');
+
+  rerender(
+    <ConfirmDialog open={false} title="X" onConfirm={() => {}} onCancel={() => {}} />,
+  );
+  expect(document.body.style.overflow).toBe('');
+});
+
+test("SCROLL-LOCK: restores the page's OWN previous overflow, not a hardcoded ''", () => {
+  // A page that had already set body overflow itself (or a nested dialog) must
+  // get its value back — clobbering it to '' would silently re-enable scrolling
+  // somewhere that had deliberately disabled it.
+  document.body.style.overflow = 'clip';
+  const { rerender } = render(
+    <ConfirmDialog open title="X" onConfirm={() => {}} onCancel={() => {}} />,
+  );
+  expect(document.body.style.overflow).toBe('hidden');
+  rerender(
+    <ConfirmDialog open={false} title="X" onConfirm={() => {}} onCancel={() => {}} />,
+  );
+  expect(document.body.style.overflow).toBe('clip');
+  document.body.style.overflow = '';
+});

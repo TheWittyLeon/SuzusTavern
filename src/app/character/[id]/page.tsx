@@ -501,8 +501,15 @@ export default function CharacterPage() {
                       className={`${styles.profDot} ${proficient ? styles.profOn : ''}`}
                       aria-label={proficient ? 'proficient' : 'not proficient'}
                     />
+                    {/* The name and the ability abbr must be SEPARATE
+                        blockified children, not two text sources inside one
+                        inline span — otherwise the accessible name computation
+                        concatenates them and a screen reader announces
+                        "AcrobaticsDEX". `.skillName` is a flex row for exactly
+                        this reason, which is also why the sibling Saving Throws
+                        row above has always read correctly. */}
                     <span className={styles.skillName}>
-                      {s.name}
+                      <span>{s.name}</span>
                       <small className={styles.skillAbbr}>{s.abbr}</small>
                     </span>
                     <span className={`mono ${styles.skillMod}`}>{signed(total)}</span>
