@@ -222,6 +222,9 @@ export default function SpellbookPanel({
   // unmounts entirely (Browse Learn -> Prepare swap), so the <li> itself,
   // not the button, is the reliable thing to refocus. Keyed by slug; only
   // one of Known/Browse is ever mounted at a time so key collisions are moot.
+  /** TAV-BUSY-DISABLED-FOCUS-PARK: the always-mounted fallback the Forget
+   *  handler's comment used to CLAIM existed. See handleForget. */
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const rowRefs = useRef<Map<string, HTMLLIElement | null>>(new Map());
   function setRowRef(slug: string) {
     return (el: HTMLLIElement | null) => {
@@ -429,11 +432,36 @@ export default function SpellbookPanel({
       mutationBusyRef.current = false;
       setBusy(false);
       setBusyKey(null);
-      // A11Y (Iro MAJOR-3 convention): the row this came from may have just
-      // unmounted (the spell is gone from Known) — the stable row ref is the
-      // best-effort target, the panel heading catches the unmount case via
-      // the rowRefs map simply missing the slug.
-      rowRefs.current.get(slug)?.focus();
+      // A11Y (Iro MAJOR-3 convention) — CORRECTED by the 1.7 audit. This
+      // comment used to say "the panel heading catches the unmount case via
+      // the rowRefs map simply missing the slug", which described behaviour
+      // that was never written: when the map lookup misses, `?.focus()` is a
+      // SILENT NO-OP and focus stays stranded at <body>. Forget is precisely
+      // the handler where the row DOES unmount (the spell leaves Known), so
+      // that was the one case the fallback existed for and the one case it
+      // never handled. handleLearn/handlePrepare are unaffected — their rows
+      // persist with a flag swap, so their identical-looking lookup really
+      // does find the node.
+      //
+      // Now explicit: try the row, and fall back to the always-mounted heading
+      // when it is gone. Deferred a frame so it runs after React has removed
+      // the row — focusing before the unmount would simply be undone by it.
+      // Ordering matters here and cost a red test to find. Closing the confirm
+      // dialog makes ConfirmDialog run its own restore-on-close, which focuses
+      // the element that opened it — the Forget button, which by then has
+      // unmounted. Focusing a detached node silently does nothing, so focus
+      // ends up at <body> AFTER any rescue that ran too early. So: yield a
+      // frame AND a task so the dialog's restore has definitely had its turn,
+      // then rescue only if focus is genuinely stranded. The stranding check
+      // also means this can never steal focus from a successful restore.
+      const row = rowRefs.current.get(slug);
+      if (row?.isConnected) row.focus();
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          if (document.activeElement !== document.body) return;
+          headingRef.current?.focus();
+        }, 0);
+      });
     }
   }
 
@@ -481,7 +509,7 @@ export default function SpellbookPanel({
       <div className={styles.cardHead}>
         {/* TAV-SHEET-HEADING-ORDER: h2 — only rendered as a top-level sibling
             section on the character sheet (see InventoryPanel's comment). */}
-        <h2 className="label" style={{ margin: 0 }}>
+        <h2 ref={headingRef} tabIndex={-1} className="label" style={{ margin: 0 }}>
           Spellbook
         </h2>
       </div>

@@ -1113,3 +1113,40 @@ describe('SpellbookPanel — over-capacity hint (CALC-AC S4 rider)', () => {
     ).toBeInTheDocument();
   });
 });
+
+// ── TAV-BUSY-DISABLED-FOCUS-PARK (1.7 audit, 2026-08-10) ─────────────────────
+// Forget is the ONE handler in this file where the row genuinely unmounts (the
+// spell leaves Known), and it was the one case the fallback never handled: the
+// code did `rowRefs.current.get(slug)?.focus()`, and on a missing key that is a
+// SILENT no-op, so focus stayed at <body>. The in-code comment claimed the
+// panel heading caught exactly this case — it described behaviour that was
+// never written. handleLearn/handlePrepare are unaffected: their rows persist
+// with a flag swap, so their identical-looking lookup really does find a node.
+describe('focus is never stranded after forgetting a spell', () => {
+  it('parks focus on the Spellbook heading once the row unmounts', async () => {
+    mockGetKnown.mockResolvedValue(KNOWN_WIZARD);
+    mockForget.mockResolvedValue({ forgotten: 'magic-missile' });
+    renderPanel();
+    await flush();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Forget Magic Missile' }));
+    mockGetKnown.mockResolvedValue({
+      ...KNOWN_WIZARD,
+      spells: KNOWN_WIZARD.spells.filter((s) => s.slug !== 'magic-missile'),
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Forget it' }));
+
+    // The row really is gone — that is the precondition for the bug.
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: 'Forget Magic Missile' }),
+      ).not.toBeInTheDocument(),
+    );
+    await waitFor(() => {
+      expect(document.activeElement).not.toBe(document.body);
+      expect(document.activeElement).toBe(
+        screen.getByRole('heading', { name: /spellbook/i }),
+      );
+    });
+  });
+});

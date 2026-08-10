@@ -22,7 +22,7 @@
  * "has X gp, needs Y gp" message (already clean, human-readable, and more
  * useful than a static string here), everything else gets a static copy.
  */
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Button from '@/components/Button';
 import { useToast } from '@/components/Toast';
 import { spendCurrency, getCharacterSheet } from '@/lib/api/dnd';
@@ -90,6 +90,26 @@ export default function CurrencyPurse({
   /** Synchronous double-submit latch — see HpControl's header comment;
    *  React state can't close the same-tick double-click gap. */
   const mutationBusyRef = useRef(false);
+  /** TAV-BUSY-DISABLED-FOCUS-PARK. A real browser blurs a focused button the
+   *  instant it becomes `disabled`, so clicking Spend strands focus at <body>
+   *  (RestControl documents the same rule; jsdom does NOT reproduce the blur,
+   *  so this can only be pinned by asserting the OUTCOME).
+   *
+   *  RestControl refocuses its own trigger, but that is wrong HERE: a
+   *  successful spend clears the amount, which makes `amountValid` false and
+   *  leaves Spend legitimately disabled — a disabled button cannot take focus,
+   *  so refocusing it would silently land back on <body>. The amount input is
+   *  the honest target: it is enabled, and it is where the player continues. */
+  const amountRef = useRef<HTMLInputElement>(null);
+  const spendHadFocusRef = useRef(false);
+  const prevBusyRef = useRef(false);
+  useEffect(() => {
+    if (prevBusyRef.current && !busy && spendHadFocusRef.current) {
+      spendHadFocusRef.current = false;
+      amountRef.current?.focus();
+    }
+    prevBusyRef.current = busy;
+  }, [busy]);
 
   // Re-sync from the parent's sheet whenever it changes (our own refetch
   // landing, a DM grant landing on a later reload, an initial mount, etc.).
@@ -110,6 +130,12 @@ export default function CurrencyPurse({
 
   async function handleSpend() {
     if (mutationBusyRef.current || !amountValid) return;
+    // Read BEFORE setBusy: it disables the button and the browser blurs it
+    // immediately, so afterwards "was the user standing here?" is unanswerable.
+    // Gated so a mouse user who moved on does not get focus yanked back.
+    spendHadFocusRef.current =
+      document.activeElement instanceof HTMLElement &&
+      document.activeElement.getAttribute('aria-label') === 'Spend gold';
     mutationBusyRef.current = true;
     setBusy(true);
     const amt = parsedAmount;
@@ -165,6 +191,7 @@ export default function CurrencyPurse({
             max={GOLD_AMOUNT_MAX}
             step={1}
             placeholder="Amount"
+            ref={amountRef}
             aria-label="Gold amount"
             aria-describedby="gold-amount-hint"
             aria-invalid={amount.length > 0 && !amountValid}

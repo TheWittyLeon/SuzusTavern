@@ -29,7 +29,7 @@
  * well under a second and the alternative (per-item latches) buys nothing but
  * complexity for a same-character sheet.
  */
-import { useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import Button from '@/components/Button';
 import Icon, { type IconName } from '@/components/Icon';
 import Pill from '@/components/Pill';
@@ -77,6 +77,31 @@ export default function InventoryPanel({
    *  (`busy`) can't close the same-tick double-click gap because both
    *  dispatches read it before either re-render commits. */
   const mutationBusyRef = useRef(false);
+  /** TAV-BUSY-DISABLED-FOCUS-PARK. `disabled={busy}` blurs the focused button
+   *  in a real browser, and nothing here recovered it — so equipping an item
+   *  dropped a keyboard user at <body> mid-inventory. Unlike CurrencyPurse and
+   *  HpControl, the equip button DOES come back enabled (its only gate is
+   *  `busy`), so the RestControl template applies literally: refocus the same
+   *  control on the falling edge. It is keyed by item because the row's label
+   *  flips Equip<->Unequip across the mutation, so the node cannot be found by
+   *  name afterwards. `busyItem` already carries which row acted.
+   *
+   *  Give-item is the CurrencyPurse case instead: a successful add clears the
+   *  field, leaving the submit button legitimately disabled, so focus returns
+   *  to the input the player will type in next. */
+  const equipRefs = useRef(new Map<string, HTMLElement | null>());
+  const giveItemRef = useRef<HTMLInputElement>(null);
+  const focusTargetRef = useRef<{ kind: 'equip' | 'give'; key: string } | null>(null);
+  const prevBusyRef = useRef(false);
+  useEffect(() => {
+    if (prevBusyRef.current && !busy) {
+      const target = focusTargetRef.current;
+      focusTargetRef.current = null;
+      if (target?.kind === 'equip') equipRefs.current.get(target.key)?.focus();
+      else if (target?.kind === 'give') giveItemRef.current?.focus();
+    }
+    prevBusyRef.current = busy;
+  }, [busy]);
 
   /**
    * Shared mutate → refetch-after-mutate runner for equip/unequip/give-item.
@@ -194,9 +219,17 @@ export default function InventoryPanel({
                     variant="ghost"
                     size="default"
                     className={styles.equipBtn}
+                    ref={(el) => {
+                      equipRefs.current.set(it.name, el);
+                    }}
                     disabled={busy}
                     aria-label={`${it.equipped ? 'Unequip' : 'Equip'} ${it.name}`}
-                    onClick={() => void toggleEquip(it)}
+                    onClick={() => {
+                      // Recorded BEFORE the mutation: setBusy disables this
+                      // button and the browser blurs it immediately.
+                      focusTargetRef.current = { kind: 'equip', key: it.name };
+                      void toggleEquip(it);
+                    }}
                   >
                     {rowBusy
                       ? it.equipped
@@ -214,11 +247,18 @@ export default function InventoryPanel({
       )}
 
       {isOwner && (
-        <form className={styles.giveItemForm} onSubmit={(e) => void handleGiveItem(e)}>
+        <form
+          className={styles.giveItemForm}
+          onSubmit={(e) => {
+            focusTargetRef.current = { kind: 'give', key: '' };
+            void handleGiveItem(e);
+          }}
+        >
           <input
             className={`input ${styles.giveItemInput}`}
             type="text"
             placeholder="Add an item…"
+            ref={giveItemRef}
             aria-label="Add an item"
             maxLength={60}
             value={newItemName}

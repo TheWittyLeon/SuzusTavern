@@ -537,3 +537,30 @@ describe('Miko adversarial — amount validation gaps', () => {
     ).toBeInTheDocument();
   });
 });
+
+// ── TAV-BUSY-DISABLED-FOCUS-PARK (1.7 audit, 2026-08-10) ─────────────────────
+// Same rule and same reasoning as CurrencyPurse: a real browser blurs a focused
+// button the moment it goes `disabled`, and a successful apply clears the
+// amount so BOTH Damage and Heal are legitimately disabled afterwards and
+// neither can take focus back. jsdom does not blur, so the tests simulate it
+// and assert where focus LANDED.
+describe('focus is never stranded after damage/heal', () => {
+  it.each([
+    ['Apply damage', 'damage'],
+    ['Apply healing', 'heal'],
+  ])('%s returns focus to the amount input', async (label) => {
+    mockAdjustHp.mockResolvedValue({ current_hp: 21, max_hp: 24, temp_hp: 0, is_down: false });
+    mockGetSheet.mockResolvedValue({ ...BASE_SHEET, hp: { current: 21, max: 24, temp: 0 } });
+    renderControl();
+
+    fireEvent.change(screen.getByLabelText('HP amount'), { target: { value: '3' } });
+    const btn = screen.getByRole('button', { name: label });
+    btn.focus();
+    fireEvent.click(btn);
+    (document.activeElement as HTMLElement)?.blur();
+    await flush();
+
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toBe(screen.getByLabelText('HP amount'));
+  });
+});

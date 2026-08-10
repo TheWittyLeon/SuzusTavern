@@ -514,3 +514,40 @@ describe('InventoryPanel — item with no dedicated equip-slot type (graceful, n
     expect(mockEquip).toHaveBeenCalledWith('cid-1', 'leon', 'Strange Trinket');
   });
 });
+
+// ── TAV-BUSY-DISABLED-FOCUS-PARK (1.7 audit, 2026-08-10) ─────────────────────
+// `disabled={busy}` blurs the focused control in a real browser and nothing
+// recovered it, so an inventory mutation dropped a keyboard user at <body>.
+//
+// HONEST LIMIT, and it is worth knowing before writing more tests in this
+// family: the EQUIP case cannot be pinned in jsdom. Equip refocuses the SAME
+// control, and jsdom (a) refuses `.blur()` on an element that has just become
+// `disabled`, leaving activeElement pointing at the stale node, and (b) puts
+// focus back on that button by itself once it re-enables — so the assertion
+// passes with the fix mutated OUT. Both were measured, not assumed. A test
+// that green-lights a broken page is worse than no test, so equip is verified
+// in a real browser instead (done on .226) and deliberately not asserted here.
+//
+// Give-item IS pinnable, because it moves focus to a DIFFERENT element (the
+// field clears, leaving submit legitimately disabled), so a missing fix leaves
+// focus somewhere else entirely. Mutation-verified.
+describe('focus is never stranded after an inventory mutation', () => {
+  it('adding an item returns focus to the add field, not the disabled submit', async () => {
+    mockGiveItem.mockResolvedValue({ message: '[DnD] Gave Rope.' });
+    mockGetSheet.mockResolvedValue({
+      ...BASE_SHEET,
+      inventory: [{ ...CHAIN_MAIL, name: 'Rope', equipped: false }],
+    });
+    renderPanel([]);
+
+    const field = screen.getByLabelText('Add an item');
+    fireEvent.change(field, { target: { value: 'Rope' } });
+    const submit = screen.getByRole('button', { name: 'Add item' });
+    submit.focus();
+    fireEvent.click(submit);
+    await flush();
+
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toBe(screen.getByLabelText('Add an item'));
+  });
+});

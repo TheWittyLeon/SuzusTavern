@@ -29,7 +29,7 @@
  * between an external HP change (not through this control) and the next
  * sheet refetch, which is an acceptable, self-healing window.
  */
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Button from '@/components/Button';
 import Pill from '@/components/Pill';
 import { useToast } from '@/components/Toast';
@@ -65,6 +65,21 @@ export default function HpControl({ characterId, username, isOwner, hp, onChange
   /** Synchronous double-submit latch — see InventoryPanel's header comment;
    *  React state can't close the same-tick double-click gap. */
   const mutationBusyRef = useRef(false);
+  /** TAV-BUSY-DISABLED-FOCUS-PARK — same rule and same reasoning as
+   *  CurrencyPurse: a real browser blurs a focused button the instant it goes
+   *  `disabled`, and a successful apply clears the amount, so BOTH Damage and
+   *  Heal are legitimately disabled afterwards and neither can take focus back.
+   *  The amount input is the honest target for either op. */
+  const amountRef = useRef<HTMLInputElement>(null);
+  const opHadFocusRef = useRef(false);
+  const prevBusyRef = useRef(false);
+  useEffect(() => {
+    if (prevBusyRef.current && !busy && opHadFocusRef.current) {
+      opHadFocusRef.current = false;
+      amountRef.current?.focus();
+    }
+    prevBusyRef.current = busy;
+  }, [busy]);
 
   // Re-sync from the parent's sheet whenever it changes (our own refetch
   // landing, a LevelUp changing max HP, an initial mount, etc.). Adjusted
@@ -89,6 +104,14 @@ export default function HpControl({ characterId, username, isOwner, hp, onChange
 
   async function applyHp(op: 'damage' | 'heal') {
     if (mutationBusyRef.current || !amountValid) return;
+    // Read BEFORE setBusy — it disables the button and the browser blurs it
+    // immediately, so afterwards the question can no longer be answered.
+    // Either op counts; both land on the same input.
+    opHadFocusRef.current =
+      document.activeElement instanceof HTMLElement &&
+      ['Apply damage', 'Apply healing'].includes(
+        document.activeElement.getAttribute('aria-label') ?? '',
+      );
     mutationBusyRef.current = true;
     setBusy(true);
     setBusyOp(op);
@@ -179,6 +202,7 @@ export default function HpControl({ characterId, username, isOwner, hp, onChange
             max={HP_AMOUNT_MAX}
             step={1}
             placeholder="Amount"
+            ref={amountRef}
             aria-label="HP amount"
             aria-describedby="hp-amount-hint"
             aria-invalid={amount.length > 0 && !amountValid}

@@ -363,3 +363,54 @@ describe('CurrencyPurse — external currencyGp prop change re-syncs local state
     expect(screen.getByText('100 gp')).toBeInTheDocument();
   });
 });
+
+// ── TAV-BUSY-DISABLED-FOCUS-PARK (1.7 audit, 2026-08-10) ─────────────────────
+// A real browser blurs a focused button the instant it becomes `disabled`, so
+// clicking Spend stranded keyboard focus at <body>. jsdom does NOT reproduce
+// that blur, so these tests assert the OUTCOME (where focus ended up) rather
+// than the blur itself — the same discipline RestControl's comment prescribes.
+//
+// Spend cannot simply be refocused: a successful spend clears the amount, which
+// makes `amountValid` false and leaves Spend legitimately disabled, and a
+// disabled button cannot take focus. The amount input is the honest target.
+describe('focus is never stranded after a spend', () => {
+  it('returns focus to the amount input, not the now-disabled Spend button', async () => {
+    mockSpend.mockResolvedValue({ currency_gp: 75, spent: 25 });
+    mockGetSheet.mockResolvedValue({ ...BASE_SHEET, currency_gp: 75 });
+    renderPurse(100);
+
+    fireEvent.change(screen.getByLabelText('Gold amount'), { target: { value: '25' } });
+    const btn = screen.getByRole('button', { name: 'Spend gold' });
+    btn.focus();
+    fireEvent.click(btn);
+    // Simulate what a real browser does the moment `disabled` lands, which is
+    // the entire defect and the one thing jsdom will not do for us.
+    (document.activeElement as HTMLElement)?.blur();
+    await flush();
+
+    expect(screen.getByRole('button', { name: 'Spend gold' })).toBeDisabled();
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toBe(screen.getByLabelText('Gold amount'));
+  });
+
+  it('does NOT steal focus when the spend was not started from the button', async () => {
+    mockSpend.mockResolvedValue({ currency_gp: 75, spent: 25 });
+    mockGetSheet.mockResolvedValue({ ...BASE_SHEET, currency_gp: 75 });
+    renderPurse(100);
+
+    const input = screen.getByLabelText('Gold amount');
+    fireEvent.change(input, { target: { value: '25' } });
+    // Focus deliberately parked somewhere else entirely.
+    document.body.setAttribute('tabindex', '-1');
+    const elsewhere = document.createElement('button');
+    elsewhere.textContent = 'elsewhere';
+    document.body.appendChild(elsewhere);
+    elsewhere.focus();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Spend gold' }));
+    await flush();
+
+    expect(document.activeElement).toBe(elsewhere);
+    elsewhere.remove();
+  });
+});

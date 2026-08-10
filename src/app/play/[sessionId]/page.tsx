@@ -4433,6 +4433,32 @@ export default function PlayPage() {
       : null;
   const isMyPcDead = myDeathSaveParticipant?.death_saves?.is_dead === true;
 
+  // TAV-BUSY-DISABLED-FOCUS-PARK (1.7 audit): the "Roll death save" row —
+  // button AND pips — is gated purely on `isDying`, so the roll that SAVES you
+  // unmounts the control you just pressed and drops focus to <body>. Verified
+  // live on .226: a natural 20 revived at 1 HP and focus was stranded.
+  //
+  // The sibling effect above cannot cover this. It is keyed on
+  // `active_participant_id` CHANGING, and a stabilize does not change it —
+  // `make_death_save`'s 20-crit / 3rd-success branch sets current_hp = 1 and
+  // clears the counters WITHOUT advancing the turn. So this is a genuinely
+  // different transition: same participant, `isDying` true -> false.
+  //
+  // Gated on the stranding check alone, deliberately: it can only ever fire
+  // when focus is ALREADY lost, so unlike the turn-change effect it needs no
+  // provenance flag and can never steal focus from anywhere. The rail anchor
+  // survives — only the deathSaveRow child unmounts.
+  const prevIsDyingRef = useRef(false);
+  useEffect(() => {
+    const was = prevIsDyingRef.current;
+    prevIsDyingRef.current = isDying;
+    if (!was || isDying) return;
+    requestAnimationFrame(() => {
+      if (document.activeElement !== document.body) return;
+      composerRailAnchorRef.current?.focus({ preventScroll: true });
+    });
+  }, [isDying]);
+
   // Iro MEDIUM-2: derive the turn-status label during render so the single
   // persistent live region (rendered below) updates its text in place. null =
   // hidden. Derived (not effect+state) to avoid a set-state-in-effect cascade.
