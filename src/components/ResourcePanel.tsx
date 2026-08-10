@@ -142,6 +142,9 @@ export default function ResourcePanel({
   const [loadError, setLoadError] = useState(false);
   const [busy, setBusy] = useState(false);
   const mutationBusyRef = useRef(false);
+  // Stable focus anchor for TAV-BUSY-DISABLED-FOCUS-PARK's Undo case — see
+  // handleUndo. Always mounted whenever the panel renders at all.
+  const headingRef = useRef<HTMLHeadingElement>(null);
 
   /** Monotonic load generation (Kage-CR C1). The post-mutation reconciles are
    *  signal-less, and the busy latch releases in `finally` BEFORE they
@@ -210,6 +213,13 @@ export default function ResourcePanel({
 
   async function handleSpend(res: ClassResource) {
     if (mutationBusyRef.current) return;
+    // Read BEFORE the await: `setBusy(true)` disables the button, and a real
+    // browser blurs it at that moment, so by the time the request resolves
+    // `document.activeElement` is already <body> and the "was the user here?"
+    // question can no longer be answered.
+    const spendFocused =
+      document.activeElement instanceof HTMLElement &&
+      document.activeElement.getAttribute('aria-label')?.startsWith(`Use one ${res.label}`) === true;
     mutationBusyRef.current = true;
     setBusy(true);
     try {
@@ -243,6 +253,20 @@ export default function ResourcePanel({
         message: `${after.label ?? res.label}: ${after.current}/${after.maximum}`,
         tone: 'success',
       });
+      // TAV-BUSY-DISABLED-FOCUS-PARK, second half. Keeping the button MOUNTED
+      // (rather than unmounting it at 0) is necessary but NOT sufficient: a real
+      // browser blurs a focused button the moment it becomes `disabled`, so
+      // focus still fell to <body> — confirmed live on .226 after the mount fix
+      // alone. jsdom does NOT reproduce that blur (it lets disabled buttons keep
+      // focus), which is exactly why the unit test passed while the real page
+      // was still broken, and why ConfirmDialog's own busy-blur comment already
+      // says to assert the OUTCOME rather than the blur.
+      //
+      // So park focus deliberately, and ONLY when the user was actually standing
+      // on this control — never steal focus from someone typing elsewhere.
+      if (after.current <= 0 && spendFocused) {
+        requestAnimationFrame(() => headingRef.current?.focus());
+      }
     } finally {
       mutationBusyRef.current = false;
       setBusy(false);
@@ -281,6 +305,15 @@ export default function ResourcePanel({
       );
       setUndoable(null);
       toast({ message: 'Last spend undone.', tone: 'success' });
+      // TAV-BUSY-DISABLED-FOCUS-PARK: unlike "Use 1" above, Undo SHOULD vanish
+      // — there is nothing left to undo, and a permanently-disabled Undo on
+      // every sheet is clutter. So it needs the other half of the fix: park
+      // focus on a stable anchor that survives the unmount, or the user who
+      // just pressed it is dumped at <body> (verified live on .226). The panel
+      // heading is the nearest thing that is always mounted and meaningful to
+      // land on. Deferred to the next paint so it runs after React has removed
+      // the button — focusing before the unmount would simply be undone by it.
+      requestAnimationFrame(() => headingRef.current?.focus());
     } finally {
       mutationBusyRef.current = false;
       setBusy(false);
@@ -307,7 +340,9 @@ export default function ResourcePanel({
   return (
     <div className={styles.wrap} aria-busy={busy}>
       <div className={styles.head}>
-        <h2 className={styles.title}>Class resources</h2>
+        <h2 ref={headingRef} tabIndex={-1} className={styles.title}>
+          Class resources
+        </h2>
         {isOwner && undoable && (
           <Button
             variant="ghost"
@@ -340,7 +375,17 @@ export default function ResourcePanel({
           // (2026-08-04), a guard that did not exist for spend at all: this
           // `!isTrack` was the ONLY thing preventing a track from being
           // drained. It is now the first of two, and no longer the last.
-          const canSpend = isOwner && !locked && !isTrack && res.current > 0;
+          //
+          // TAV-BUSY-DISABLED-FOCUS-PARK (1.7 audit): the "can this control
+          // EXIST" question is now split from "is it usable RIGHT NOW". It used
+          // to be one predicate that included `res.current > 0`, so spending
+          // your last charge UNMOUNTED the button you had just activated and
+          // dropped keyboard focus to <body> — verified live on .226 for both
+          // Second Wind and Action Surge. Disabling instead of unmounting keeps
+          // the focus ring where the user left it, and is the pattern
+          // SpellSlotsPanel already uses for the identical "pool is empty" case.
+          const showSpend = isOwner && !locked && !isTrack;
+          const spendDisabled = busy || res.current <= 0;
 
           return (
             <li key={res.key} className={styles.row}>
@@ -386,12 +431,16 @@ export default function ResourcePanel({
                       : 'Risk track'
                     : (REFRESH_COPY[res.refresh] ?? res.refresh)}
                 </span>
-                {canSpend && (
+                {showSpend && (
                   <Button
                     variant="ghost"
                     onClick={() => handleSpend(res)}
-                    disabled={busy}
-                    aria-label={`Use one ${res.label}`}
+                    disabled={spendDisabled}
+                    aria-label={
+                      res.current <= 0
+                        ? `Use one ${res.label} — none left`
+                        : `Use one ${res.label}`
+                    }
                   >
                     Use 1
                   </Button>

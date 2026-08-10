@@ -537,3 +537,90 @@ describe('Kage-CR I7 — the two highest-value coverage gaps', () => {
     expect((meter.firstElementChild as HTMLElement)).toHaveStyle({ width: '100%' });
   });
 });
+
+// ── TAV-BUSY-DISABLED-FOCUS-PARK (1.7 audit, 2026-08-10) ─────────────────────
+// Verified live on .226: spending the LAST charge unmounted the "Use 1" button
+// the user had just activated, and keyboard focus fell to <body>. Same for
+// Undo. The two halves of the fix are deliberately different, so they are
+// tested differently:
+//   • "Use 1" should still EXIST at 0 charges, just disabled (it comes back on
+//     a rest, and keeping it mounted keeps the focus ring in place).
+//   • "Undo" genuinely should vanish (nothing left to undo), so it instead
+//     parks focus on the panel heading.
+
+describe('focus is never stranded on <body>', () => {
+  it('an empty pool keeps the Use control MOUNTED and disabled, not unmounted', async () => {
+    mockList.mockResolvedValue({ resources: [pool({ current: 0 })], undoable: null });
+    renderPanel();
+    const btn = await screen.findByRole('button', { name: /use one ki/i });
+    expect(btn).toBeInTheDocument();
+    expect(btn).toBeDisabled();
+    // The label must say WHY it is dead, not just be inert.
+    expect(btn).toHaveAccessibleName(/none left/i);
+  });
+
+  it('spending the last charge leaves focus on the (now disabled) button', async () => {
+    mockList.mockResolvedValueOnce({ resources: [pool({ current: 1 })], undoable: null });
+    // The post-mutation reconcile must not answer with the PRE-spend state, or
+    // it overwrites the authoritative response and the button re-enables.
+    mockList.mockReturnValue(new Promise(() => {}));
+    mockSpend.mockResolvedValue({
+      key: 'ki', label: 'Ki', current: 0, maximum: 5, spent: 1, undoable: { key: 'ki', seq: 3 },
+    });
+    renderPanel();
+    const btn = await screen.findByRole('button', { name: /use one ki/i });
+    btn.focus();
+    expect(btn).toHaveFocus();
+    await act(async () => {
+      fireEvent.click(btn);
+    });
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /use one ki/i })).toBeDisabled(),
+    );
+    // The control must SURVIVE (so the page does not reflow under the user)...
+    expect(screen.getByRole('button', { name: /use one ki/i })).toBeInTheDocument();
+    // ...but staying mounted is not enough on its own: a REAL browser blurs a
+    // focused button the instant it becomes disabled, so focus must be parked
+    // somewhere deliberate. jsdom does NOT reproduce that blur, so asserting
+    // "the button still has focus" here would pass while the real page dumped
+    // the user at <body> — which is exactly what happened on .226 before this.
+    // Assert the OUTCOME the browser can't undo: the heading holds focus.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole('heading', { name: /class resources/i }),
+      ),
+    );
+  });
+
+  it('undo parks focus on the panel heading when its own button unmounts', async () => {
+    mockList.mockResolvedValueOnce({
+      resources: [pool({ current: 2 })],
+      undoable: { key: 'ki', seq: 7 },
+    });
+    // Same trap as above: the background reconcile would otherwise hand back an
+    // `undoable` and re-mount the very button whose unmount this test is about.
+    mockList.mockReturnValue(new Promise(() => {}));
+    mockUndo.mockResolvedValue({
+      key: 'ki', label: 'Ki', current: 3, maximum: 5, spent: 0, undoable: null,
+    });
+    renderPanel();
+    const undoBtn = await screen.findByRole('button', { name: /undo the last resource spend/i });
+    undoBtn.focus();
+    await act(async () => {
+      fireEvent.click(undoBtn);
+    });
+    // Undo correctly disappears...
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: /undo the last resource spend/i }),
+      ).not.toBeInTheDocument(),
+    );
+    // ...and focus must have gone somewhere real, not to <body>.
+    await waitFor(() => {
+      expect(document.activeElement).not.toBe(document.body);
+      expect(document.activeElement).toBe(
+        screen.getByRole('heading', { name: /class resources/i }),
+      );
+    });
+  });
+});
