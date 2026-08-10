@@ -327,3 +327,49 @@ describe('Proxy catch block', () => {
     expect(result).toBeDefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// TAV-AUDIT-401-DEADEND — ?reauth=1 escape hatch
+// ---------------------------------------------------------------------------
+
+describe('/login — ?reauth=1 (TAV-AUDIT-401-DEADEND)', () => {
+  it('does NOT bounce a paper-valid access token away from /login when reauth=1', () => {
+    // THE LOOP THIS CLOSES: `accessValid` is decoded from the token's own `exp`
+    // claim without ever asking the auth server, so a revoked / invalidated /
+    // key-rotated token is "valid" here and universally rejected everywhere
+    // else. SessionExpired's "sign in again" CTA links to /login?next=<path>,
+    // this branch saw a paper-valid token, and sent the user straight back to
+    // the page that had just 401'd. The prompt's own button did nothing.
+    const req = makeReq(
+      '/login',
+      { st_access: validAccessToken() },
+      '?reauth=1&next=%2Fcharacter%2Fnew',
+    );
+    const res = middleware(req);
+    expect(res.headers.get('location')).toBeNull();
+    expect(res.status).toBe(200);
+  });
+
+  it('still bounces a paper-valid token when reauth is absent (shortcut preserved)', () => {
+    // The convenience redirect is not being removed — only made overridable by
+    // a client that has confirmed the session is dead.
+    const req = makeReq('/login', { st_access: validAccessToken() }, '?next=%2Flobby');
+    const res = middleware(req);
+    expect(res.headers.get('location')).toContain('/lobby');
+  });
+
+  it('ignores a non-"1" reauth value', () => {
+    const req = makeReq('/login', { st_access: validAccessToken() }, '?reauth=yes');
+    const res = middleware(req);
+    expect(res.headers.get('location')).toContain('/dashboard');
+  });
+
+  it('reauth=1 does NOT weaken protected-path gating', () => {
+    // The param can only ever forgo a convenience redirect on a PUBLIC page.
+    // Protected paths are gated on the refresh cookie and must be untouched by
+    // it — otherwise a hand-typed query string would be an auth bypass.
+    const req = makeReq('/lobby', {}, '?reauth=1');
+    const res = middleware(req);
+    expect(res.headers.get('location')).toContain('/login');
+  });
+});

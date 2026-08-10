@@ -92,9 +92,13 @@ describe('useAuthGate — authError="expired"', () => {
       retryAuth: jest.fn(),
     });
     render(<Harness />);
+    // TAV-AUDIT-401-DEADEND: the `reauth=1` prefix rides every link out of
+    // SessionExpired. Without it the edge decodes a revoked-but-unexpired
+    // access token as "already signed in" and bounces this link back to
+    // /character/42 — the page whose 401 raised the prompt in the first place.
     expect(screen.getByRole('link', { name: /sign in again/i })).toHaveAttribute(
       'href',
-      '/login?next=%2Fcharacter%2F42',
+      '/login?reauth=1&next=%2Fcharacter%2F42',
     );
   });
 });

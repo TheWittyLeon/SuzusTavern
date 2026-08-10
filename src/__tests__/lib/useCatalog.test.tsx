@@ -88,3 +88,46 @@ describe('useCatalog — TAV-RETIRE-MLP-HUMAN', () => {
     expect(result.current.data.races.map((r) => r.id)).toEqual(['human', 'elf']);
   });
 });
+
+describe('useCatalog — TAV-AUDIT-401-DEADEND: a dead session is not a dead network', () => {
+  it('reports a 401 as status "unauthorized", not "error"', async () => {
+    // client.ts has already spent its one silent /api/auth/refresh + retry by
+    // the time a 401 surfaces here, so this is a CONFIRMED dead session. The
+    // old single `catch` threw the distinction away, which is why an expired
+    // token rendered "check your connection" behind a Try again button that
+    // could only ever 401 again.
+    const err = Object.assign(new Error('API error 401: unauthorized'), {
+      status: 401,
+      code: 'unauthorized',
+    });
+    mockGetCatalog.mockRejectedValue(err);
+
+    const { result } = renderHook(() => useCatalog());
+
+    await waitFor(() => expect(result.current.status).toBe('unauthorized'));
+    expect(result.current.data.races).toEqual([]);
+  });
+
+  it.each([0, 500, 502, 404, 422])(
+    'still reports status %s as plain "error"',
+    async (status) => {
+      // The remedies are opposite — re-auth vs retry-the-network — so anything
+      // that is not a confirmed session rejection must keep its old meaning.
+      mockGetCatalog.mockRejectedValue(
+        Object.assign(new Error(`API error ${status}`), { status }),
+      );
+
+      const { result } = renderHook(() => useCatalog());
+
+      await waitFor(() => expect(result.current.status).toBe('error'));
+    },
+  );
+
+  it('reports a thrown non-ApiError as plain "error" without crashing', async () => {
+    mockGetCatalog.mockRejectedValue(new TypeError('boom'));
+
+    const { result } = renderHook(() => useCatalog());
+
+    await waitFor(() => expect(result.current.status).toBe('error'));
+  });
+});

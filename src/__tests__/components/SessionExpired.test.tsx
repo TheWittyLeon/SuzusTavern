@@ -3,7 +3,7 @@
  *
  * Covers:
  *   - both variants render as a <main> landmark labelled by their own heading
- *   - 'expired': "Sign in again" links to /login, carrying ?next=<pathname>
+ *   - 'expired': "Sign in again" links to /login?reauth=1, carrying &next=<pathname>
  *     when a pathname is supplied, and bare /login when it isn't
  *   - 'rate_limited': "Try again" calls onRetry; a secondary link still
  *     offers a direct path to /login
@@ -32,13 +32,17 @@ describe('SessionExpired — variant="expired" (default)', () => {
   it('"Sign in again" links to /login carrying ?next=<pathname>', () => {
     render(<SessionExpired pathname="/dashboard" />);
     const link = screen.getByRole('link', { name: /sign in again/i });
-    expect(link).toHaveAttribute('href', '/login?next=%2Fdashboard');
+    // TAV-AUDIT-401-DEADEND: `reauth=1` is not decoration. Without it the
+    // edge (src/proxy.ts) sees a revoked-but-unexpired access token, reads it
+    // as "already signed in", and bounces this link straight back to the page
+    // that just 401'd — making this CTA a no-op loop.
+    expect(link).toHaveAttribute('href', '/login?reauth=1&next=%2Fdashboard');
   });
 
   it('links to bare /login when no pathname is supplied', () => {
     render(<SessionExpired />);
     const link = screen.getByRole('link', { name: /sign in again/i });
-    expect(link).toHaveAttribute('href', '/login');
+    expect(link).toHaveAttribute('href', '/login?reauth=1');
   });
 
   it('focuses the primary CTA on mount', () => {
@@ -71,7 +75,7 @@ describe('SessionExpired — variant="rate_limited"', () => {
   it('offers a secondary link straight to /login', () => {
     render(<SessionExpired variant="rate_limited" />);
     const links = screen.getAllByRole('link');
-    expect(links.some((l) => l.getAttribute('href') === '/login')).toBe(true);
+    expect(links.some((l) => l.getAttribute('href') === '/login?reauth=1')).toBe(true);
   });
 
   it('focuses the primary CTA (Try again) on mount', () => {
@@ -135,7 +139,7 @@ describe('SessionExpired — variant="offline" (TAV3-OFFLINE-VARIANT)', () => {
   it('still offers a secondary link straight to /login', () => {
     render(<SessionExpired variant="offline" />);
     const links = screen.getAllByRole('link');
-    expect(links.some((l) => l.getAttribute('href') === '/login')).toBe(true);
+    expect(links.some((l) => l.getAttribute('href') === '/login?reauth=1')).toBe(true);
   });
 
   it('focuses the primary CTA (Try again) on mount', () => {

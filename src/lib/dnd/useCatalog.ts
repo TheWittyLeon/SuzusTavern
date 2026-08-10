@@ -3,9 +3,17 @@
 // React hook — fetches races, classes, and backgrounds from the engine catalog
 // in parallel on mount. Returns typed arrays for the wizard to render.
 //
-// Graceful degradation: on any fetch failure the hook returns status='error'
-// with empty arrays. The wizard surfaces an error/retry UI instead of crashing.
+// Graceful degradation: on a fetch failure the hook returns empty arrays and an
+// error status. The wizard surfaces an error/retry UI instead of crashing.
 // There is NO hardcoded-SRD fallback — the engine is the source of truth.
+//
+// TAV-AUDIT-401-DEADEND (2026-08-09): a dead SESSION is reported separately
+// from a dead NETWORK. It used to be one `catch` that threw both away, so an
+// expired token rendered "Suzu can't reach the catalog right now — check your
+// connection" behind a Try again button that re-fetched, 401'd, and rendered
+// the same card forever. The user is told to check a connection that is fine,
+// and the one control offered cannot possibly help. Distinguishing the two is
+// the whole fix; see `status: 'unauthorized'` below.
 
 'use client';
 
@@ -26,7 +34,14 @@ export interface CatalogData {
   backgrounds: WizardBackground[];
 }
 
-export type CatalogStatus = 'loading' | 'ok' | 'error';
+/**
+ * `'unauthorized'` = the request reached the server and the SESSION was
+ * rejected (401 after `client.ts` already spent its one silent refresh
+ * attempt). `'error'` keeps its original meaning: anything else — offline,
+ * DNS, 5xx, a malformed payload. They need opposite remedies, so a consumer
+ * that collapses them back into one branch has re-created the bug.
+ */
+export type CatalogStatus = 'loading' | 'ok' | 'error' | 'unauthorized';
 
 export interface UseCatalogResult {
   status: CatalogStatus;
@@ -72,10 +87,15 @@ export function useCatalog(): UseCatalogResult {
         });
         setStatus('ok');
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         if (ac.signal.aborted) return;
         setData(EMPTY);
-        setStatus('error');
+        // client.ts has already spent its one silent `/api/auth/refresh` +
+        // retry by the time a 401 surfaces here, so this is a CONFIRMED dead
+        // session, not a transient token expiry the client can fix itself.
+        setStatus(
+          (err as { status?: number } | null)?.status === 401 ? 'unauthorized' : 'error',
+        );
       });
 
     return () => ac.abort();

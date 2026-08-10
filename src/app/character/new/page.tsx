@@ -335,7 +335,7 @@ function abilitiesComment(scores: AbilityScores): string {
 }
 
 export default function CharacterNewPage(): ReactNode {
-  const { user } = useAuth();
+  const { user, retryAuth } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
 
@@ -404,17 +404,54 @@ export default function CharacterNewPage(): ReactNode {
     headingRef.current?.focus();
   }, [step]);
 
+  // TAV-AUDIT-401-DEADEND — a CONFIRMED dead session is an auth problem, so
+  // hand it to the component that already knows how to present one. Asking
+  // AuthProvider to re-verify makes it set `authError`, and `useAuthGate`
+  // (which runs BEFORE the catalog branches below) then renders the real
+  // SessionExpired prompt instead of a connection error the user cannot act on.
+  //
+  // Why re-verify rather than assert "expired" from here: this page saw ONE
+  // endpoint 401. AuthProvider asking `/auth/me` is what distinguishes "the
+  // session is dead" from "that endpoint refused me" — and if the session
+  // turns out to be fine, nothing changes and the page keeps its own error
+  // state. Not a login attempt, so it cannot trip the IP-global login limiter.
+  //
+  // Fires at most once per unauthorized episode: the ref latches, and only a
+  // successful catalog load clears it. Without that, `retryAuth` failing would
+  // re-render, re-run this effect, and hammer /auth/me.
+  const reverifiedForUnauthorizedRef = useRef(false);
+  // Set only from retryAuth's own completion callback (never synchronously in
+  // an effect — React 19's lint forbids that, and it cost a fix in
+  // CampaignFloorPanel). True means: the re-verify finished and did NOT set an
+  // authError, i.e. the session is fine and the catalog endpoint alone refused
+  // us. Without this the "session was actually valid" case would sit on a
+  // skeleton forever, which is worse than the card it replaced.
+  const [sessionReverified, setSessionReverified] = useState(false);
+  useEffect(() => {
+    if (catalog.status !== 'unauthorized') return;
+    if (reverifiedForUnauthorizedRef.current) return;
+    reverifiedForUnauthorizedRef.current = true;
+    // retryAuth never rejects — it classifies internally — so this always runs.
+    void retryAuth().then(() => setSessionReverified(true));
+  }, [catalog.status, retryAuth]);
+
   // Manage focus across catalog state transitions (Iro a11y MAJOR-1): on error
   // (initial or after a failed retry) move focus to the "Try again" button so the
   // alert is reachable and re-announced; once the catalog resolves after a retry,
   // move focus to the wizard step heading instead of dropping it at document top.
   useEffect(() => {
-    if (catalog.status === 'error') {
+    // TAV-AUDIT-401-DEADEND: `unauthorized` reaches the same card once the
+    // session has re-verified clean, so it needs the same focus move — without
+    // this, that card mounts with focus stranded at document top.
+    if (
+      catalog.status === 'error' ||
+      (catalog.status === 'unauthorized' && sessionReverified)
+    ) {
       errorRetryRef.current?.focus();
     } else if (catalog.status === 'ok' && mountedRef.current) {
       headingRef.current?.focus();
     }
-  }, [catalog.status]);
+  }, [catalog.status, sessionReverified]);
 
   const raceObj = catalog.data.races.find((r) => r.id === race);
   const clsObj = catalog.data.classes.find((c) => c.id === cls);
@@ -945,8 +982,21 @@ export default function CharacterNewPage(): ReactNode {
   });
   if (gate) return gate;
 
+  // TAV-AUDIT-401-DEADEND — a confirmed-dead session is still being verified.
+  // `useAuthGate` above pre-empts this branch the moment AuthProvider sets an
+  // authError, so this skeleton is the short handover window, not a state the
+  // user gets stuck in: if the re-verify comes back clean, `sessionReverified`
+  // flips and the error branch below renders instead.
+  if (catalog.status === 'unauthorized' && !sessionReverified) {
+    return (
+      <TavernShell active="dashboard" title="New character" actions={<Button variant="ghost" href="/dashboard">Cancel</Button>}>
+        <PageSkeleton variant="card" lines={4} />
+      </TavernShell>
+    );
+  }
+
   // ── Catalog error state — surface a retry UI, not a crash ─────────────────────
-  if (catalog.status === 'error') {
+  if (catalog.status === 'error' || catalog.status === 'unauthorized') {
     return (
       <TavernShell active="dashboard" title="New character" actions={<Button variant="ghost" href="/dashboard">Cancel</Button>}>
         {/* role="alert" announces on mount; aria-labelledby surfaces the title in
@@ -959,9 +1009,15 @@ export default function CharacterNewPage(): ReactNode {
           aria-labelledby="catalog-error-title"
         >
           <p id="catalog-error-title" className={styles.catalogErrorTitle}>Suzu can&rsquo;t reach the catalog right now.</p>
+          {/* TAV-AUDIT-401-DEADEND: never tell someone to check a connection
+              that is demonstrably fine. Reaching this branch with
+              'unauthorized' means the request DID reach the server, the
+              session re-verified as still valid, and the catalog endpoint
+              alone refused it — a different problem with a different remedy. */}
           <p id="catalog-error-body" className={styles.catalogErrorBody}>
-            The race, class, and background lists couldn&rsquo;t be loaded. Check your connection
-            or try again in a moment.
+            {catalog.status === 'unauthorized'
+              ? 'Your session is fine, but the catalog refused this request. Try again — if it keeps happening, sign out and back in.'
+              : 'The race, class, and background lists couldn’t be loaded. Check your connection or try again in a moment.'}
           </p>
           <Button
             ref={errorRetryRef}

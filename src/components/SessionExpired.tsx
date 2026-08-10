@@ -77,7 +77,16 @@ export default function SessionExpired({
     ctaRef.current?.focus();
   }, [variant]);
 
-  const loginHref = `/login${pathname ? `?next=${encodeURIComponent(pathname)}` : ''}`;
+  // TAV-AUDIT-401-DEADEND — `reauth=1` is load-bearing on EVERY link out of
+  // this component, not decoration. Reaching any variant means the client has
+  // confirmed against the auth server that this session will not work; the
+  // edge (src/proxy.ts) can only decode the access token's `exp` claim, so a
+  // revoked-but-unexpired token reads as "already signed in" there and it
+  // bounced these links straight back to the page that just 401'd — this
+  // component's own CTA was a no-op loop. The param is how the client tells
+  // the edge what only the client can know. Strip it and the loop returns.
+  const loginHref = `/login?reauth=1${pathname ? `&next=${encodeURIComponent(pathname)}` : ''}`;
+  const plainLoginHref = '/login?reauth=1';
 
   return (
     <main
@@ -108,7 +117,7 @@ export default function SessionExpired({
             >
               {busy ? 'Retrying…' : 'Try again'}
             </Button>
-            <Link href="/login" className={styles.secondaryLink}>
+            <Link href={plainLoginHref} className={styles.secondaryLink}>
               Sign in instead
             </Link>
           </>
@@ -135,7 +144,7 @@ export default function SessionExpired({
             >
               {busy ? 'Retrying…' : 'Try again'}
             </Button>
-            <Link href="/login" className={styles.secondaryLink}>
+            <Link href={plainLoginHref} className={styles.secondaryLink}>
               Sign in instead
             </Link>
           </>

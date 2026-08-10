@@ -80,7 +80,25 @@ export function proxy(req: NextRequest): NextResponse {
 
     // ── Auth pages (/login) ────────────────────────────────────────────────
     if (AUTH_PAGES.some((re) => re.test(pathname))) {
-      if (accessValid) {
+      // TAV-AUDIT-401-DEADEND — `accessValid` below is decoded from the token's
+      // own `exp` claim WITHOUT verifying it against the auth server, so it
+      // answers "has this token expired on paper", not "will the server accept
+      // it". A revoked session, a server-side invalidation, or a signing-key
+      // rotation all leave a token that is unexpired and universally rejected.
+      //
+      // That gap closed a LOOP, and it disabled the one control built for it:
+      // SessionExpired's "sign in again" CTA links to /login?next=<path>, this
+      // branch saw a paper-valid token and bounced it straight back to <path> —
+      // the page that had just 401'd. The user could not reach the login form
+      // by any in-app route.
+      //
+      // `?reauth=1` is the client saying "I have CONFIRMED this session is
+      // dead" — knowledge the edge cannot have. Honouring it costs nothing:
+      // this redirect is a convenience, never an authorization control (/login
+      // is public, and every protected path is gated on the refresh cookie
+      // above), so a hand-typed param can only ever forgo a shortcut.
+      const reauth = req.nextUrl.searchParams.get('reauth') === '1';
+      if (accessValid && !reauth) {
         // Already authenticated — redirect to ?next or /dashboard.
         // Shared open-redirect guard with the login page (src/lib/auth/redirect.ts)
         // so the two can never drift on what counts as a safe same-origin target.
