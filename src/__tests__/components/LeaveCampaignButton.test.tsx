@@ -156,6 +156,42 @@ describe('confirm flow', () => {
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
   });
 
+  // F5 (1.7 audit): the dialog body used to render "Trackwalkerwill be
+  // freed" — JSX trims the leading whitespace off the text node that starts
+  // right after `{characterName}`, so the literal space in the source was
+  // silently dropped at build time. Assert on `textContent` (a raw DOM
+  // string), NOT `innerText` — jsdom's `innerText` support is unreliable and
+  // this project's CSS applies `text-transform` in places, which would
+  // uppercase the rendered text without touching the underlying DOM value or
+  // the spacing bug this test exists to catch.
+  it('F5: renders a space between the character name and "will be freed" — no run-on concatenation', () => {
+    renderButton({}, jest.fn());
+    // Default characterName from renderButton is 'Aria'; also cover a
+    // different name/length so this can't regress for one specific value.
+    fireEvent.click(screen.getByRole('button', { name: /leave campaign/i }));
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog.textContent).toContain('Aria will be freed');
+    expect(dialog.textContent).not.toContain('Ariawill');
+  });
+
+  it('F5: spacing holds for a longer/different character name too', () => {
+    render(
+      <ToastProvider>
+        <LeaveCampaignButton
+          characterId="cid-2"
+          characterName="Trackwalker"
+          username="leon"
+          sheet={BASE}
+          onLeft={jest.fn()}
+        />
+      </ToastProvider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /leave campaign/i }));
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog.textContent).toContain('Trackwalker will be freed');
+    expect(dialog.textContent).not.toContain('Trackwalkerwill');
+  });
+
   it('Escape dismisses the dialog without calling the API', async () => {
     renderButton();
     fireEvent.click(screen.getByRole('button', { name: /leave campaign/i }));

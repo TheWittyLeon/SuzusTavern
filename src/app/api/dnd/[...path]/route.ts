@@ -258,8 +258,27 @@ async function proxyRequest(
     });
   }
 
-  // Regular JSON response — parse and re-serialize to normalise content-type
-  const responseData: unknown = await upstream.json();
+  // Regular JSON response — parse and re-serialize to normalise content-type.
+  // F2 (1.7 audit): upstream.json() throws on a non-JSON body (e.g. an nginx
+  // error page, a plaintext 502 from an intermediate proxy). Unguarded, that
+  // throw was uncaught here and Next.js collapsed it into a blind, empty 500
+  // — destroying the real upstream status and giving the player/DM nothing
+  // to act on. Forward upstream.status (the single most useful diagnostic;
+  // never replace it with 500) and synthesize a `reason` the existing
+  // engineReasons.ts fallback chain can turn into readable copy.
+  let responseData: unknown;
+  try {
+    responseData = await upstream.json();
+  } catch {
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Upstream returned a non-JSON response',
+        data: { reason: 'upstream_non_json' },
+      },
+      { status: upstream.status },
+    );
+  }
   return NextResponse.json(responseData, { status: upstream.status });
 }
 

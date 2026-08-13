@@ -161,8 +161,25 @@ describe('POST dm/turn — JSON response branch preserves upstream.status', () =
     const req = makePostRequest(['dm', 'turn'], { body: '{}', cookie: 'st_access=tok' });
     const res = await POST(req, makeCtx(['dm', 'turn']));
     expect(res.status).toBe(502);
-    const body = (await res.json()) as { success: boolean };
+    const body = (await res.json()) as { success: boolean; data: { reason: string } };
     expect(body.success).toBe(false);
+    // F2 (1.7 audit): synthesized reason so engineReasons.ts can render
+    // readable copy instead of a blank/generic failure.
+    expect(body.data.reason).toBe('upstream_non_json');
+  });
+
+  // F2: the upstream status is what's forwarded here, not always 502 — this
+  // route already caught the parse failure pre-F2, but did not carry a
+  // machine-readable reason. Confirm a non-502 status also survives intact.
+  it('a non-JSON upstream body with a 400 status forwards 400, not 502', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response('not json', { status: 400, headers: { 'content-type': 'application/json' } }),
+    );
+    const req = makePostRequest(['dm', 'turn'], { body: '{}', cookie: 'st_access=tok' });
+    const res = await POST(req, makeCtx(['dm', 'turn']));
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { data: { reason: string } };
+    expect(body.data.reason).toBe('upstream_non_json');
   });
 
   it('fetch throw -> 502 Upstream unavailable (unchanged convention)', async () => {
@@ -292,5 +309,22 @@ describe('GET dm/stream — job-resume/subscribe tail', () => {
     const req = makeGetRequest(['dm', 'stream'], { job_id: 'job-1' }, { cookie: 'st_access=tok' });
     const res = await GET(req, makeCtx(['dm', 'stream']));
     expect(res.status).toBe(502);
+  });
+
+  // F2 (1.7 audit): GET's own JSON branch has the same upstream.json() parse
+  // guard as POST's — confirm it also carries the upstream_non_json reason.
+  it('non-JSON upstream body on the JSON branch: status forwarded, reason upstream_non_json', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response('<html>gateway error</html>', {
+        status: 502,
+        headers: { 'content-type': 'text/html' },
+      }),
+    );
+    const req = makeGetRequest(['dm', 'stream'], { job_id: 'job-1' }, { cookie: 'st_access=tok' });
+    const res = await GET(req, makeCtx(['dm', 'stream']));
+    expect(res.status).toBe(502);
+    const body = (await res.json()) as { success: boolean; data: { reason: string } };
+    expect(body.success).toBe(false);
+    expect(body.data.reason).toBe('upstream_non_json');
   });
 });

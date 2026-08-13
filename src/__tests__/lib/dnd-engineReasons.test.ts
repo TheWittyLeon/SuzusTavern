@@ -139,13 +139,25 @@ describe('engineReasons — contract: map keys against the engine vocabulary', (
       // live emitter. Deliberately kept, deliberately listed here so its
       // presence reads as verified rather than accidental.
       'no_character_bound',
+      // F2 (1.7 audit, 2026-08-11/12): NOT an engine emitter — synthesized by
+      // the Tavern's OWN BFF proxy routes (api/dnd/[...path],
+      // api/dnd/sessions/[id]/bind, api/narration/[...path] x2) when
+      // `upstream.json()` throws on a non-JSON upstream body. Same class of
+      // exception as `actor_required` above: a real refusal that can land on
+      // ANY proxied route, just never from the engine itself.
+      'upstream_non_json',
     ]);
     const unjustified = Object.keys(COMBAT_REFUSAL_REASON_MAP).filter((k) => !justified.has(k));
     expect(unjustified).toEqual([]);
   });
 
   it('CAST_REFUSAL_REASON_MAP contains NO key that is not a real, traced emitter', () => {
-    const justified = new Set<string>([...ENGINE_SPELL_REASON_STATUS_KEYS, 'actor_required']);
+    const justified = new Set<string>([
+      ...ENGINE_SPELL_REASON_STATUS_KEYS,
+      'actor_required',
+      // F2 — see COMBAT_REFUSAL_REASON_MAP's identical justification above.
+      'upstream_non_json',
+    ]);
     const unjustified = Object.keys(CAST_REFUSAL_REASON_MAP).filter((k) => !justified.has(k));
     expect(unjustified).toEqual([]);
   });

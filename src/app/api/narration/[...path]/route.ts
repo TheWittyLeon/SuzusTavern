@@ -108,12 +108,20 @@ export async function POST(req: NextRequest, context: RouteContext): Promise<Nex
     });
   }
 
+  // F2 (1.7 audit): synthesize `reason: 'upstream_non_json'` so the
+  // engineReasons.ts fallback chain renders readable copy instead of the
+  // caller's generic fallback string. `upstream.status` was already being
+  // forwarded here (never replaced with 500) — this only adds the reason.
   let responseData: unknown;
   try {
     responseData = await upstream.json();
   } catch {
     return NextResponse.json(
-      { success: false, error: 'Upstream returned a non-JSON, non-SSE response' },
+      {
+        success: false,
+        error: 'Upstream returned a non-JSON, non-SSE response',
+        data: { reason: 'upstream_non_json' },
+      },
       { status: upstream.status || 502 },
     );
   }
@@ -174,12 +182,17 @@ export async function GET(req: NextRequest, context: RouteContext): Promise<Next
   // job_id/401 from upstream may come back as JSON, not an opened SSE body).
   const upstreamContentType = upstream.headers.get('content-type') ?? '';
   if (!upstreamContentType.includes('text/event-stream')) {
+    // F2 (1.7 audit): same reason-synthesis as the POST branch above.
     let responseData: unknown;
     try {
       responseData = await upstream.json();
     } catch {
       return NextResponse.json(
-        { success: false, error: 'Upstream returned a non-JSON, non-SSE response' },
+        {
+          success: false,
+          error: 'Upstream returned a non-JSON, non-SSE response',
+          data: { reason: 'upstream_non_json' },
+        },
         { status: upstream.status || 502 },
       );
     }

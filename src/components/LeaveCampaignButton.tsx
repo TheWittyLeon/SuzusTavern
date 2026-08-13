@@ -204,10 +204,19 @@ export default function LeaveCampaignButton({
         tone="danger"
         title="Leave this campaign?"
         body={
+          // F5 (1.7 audit): JSX trims LEADING whitespace off every text line
+          // independently, including the first line of a text node that
+          // starts right after an expression container on the same source
+          // line — so the literal space before "will" here was being
+          // stripped at build time, rendering "{characterName}will be
+          // freed…" with no space. `{' '}` is an explicit string-literal
+          // child; JSX never trims those, so the space survives regardless
+          // of `characterName`'s value or where the line wraps.
           <>
-            {characterName} will be freed from their table and can be seated
-            at a different campaign afterward from the lobby. This works even
-            if the current table has ended or can&rsquo;t be reached.
+            {characterName}{' '}
+            will be freed from their table and can be seated at a different
+            campaign afterward from the lobby. This works even if the
+            current table has ended or can&rsquo;t be reached.
           </>
         }
         confirmLabel="Leave now"

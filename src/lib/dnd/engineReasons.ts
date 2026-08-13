@@ -63,6 +63,24 @@
 export const SHARED_REASON_COPY: Record<string, string> = {
   actor_required:
     "Couldn't verify who you are. Try reloading — if it keeps happening, the sign-in service may be down.",
+
+  // F2 (1.7 audit, 2026-08-11/12): synthesized by the Tavern's OWN BFF proxy
+  // routes — `api/dnd/[...path]`, `api/dnd/sessions/[id]/bind`, and both
+  // branches of `api/narration/[...path]` — when `upstream.json()` throws
+  // because the upstream body isn't JSON (an intermediate proxy's HTML error
+  // page, a plaintext 502, a truncated body). Before this fix that throw was
+  // either uncaught (dnd routes: a blind, empty 500 with the real upstream
+  // status thrown away) or caught but silently generic (narration routes:
+  // status was forwarded correctly, but nothing distinguished this case from
+  // any other failure once it reached the player). This is the ONE reason
+  // code in this file that never comes from the engine or the NekoNova
+  // proxy — it never has a `message` to fall through to via tier 2, so
+  // without this curated entry every caller's generic `fallback` string is
+  // literally the only thing standing between this failure and total
+  // silence about the cause. Curated here so it degrades to something
+  // readable instead.
+  upstream_non_json:
+    'The game server sent back something unexpected. Try again in a moment — if it keeps happening, the server may be down.',
 };
 
 /**

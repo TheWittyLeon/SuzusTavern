@@ -266,6 +266,45 @@ describe('Error handling', () => {
     expect(body.success).toBe(false);
     expect(body.error).toBe('Upstream unavailable');
   });
+
+  // F2 (1.7 audit): a non-JSON upstream body used to throw uncaught on
+  // `upstream.json()` and collapse into a blind, empty Next.js 500 —
+  // destroying the real upstream status. Assert the status survives and a
+  // machine-readable reason is synthesized instead.
+  it('non-JSON upstream body: status forwarded, reason upstream_non_json, no blind 500', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response('<html>502 Bad Gateway</html>', {
+        status: 502,
+        headers: { 'content-type': 'text/html' },
+      }),
+    );
+
+    const req = makeRequest('POST', 'http://localhost:3000/api/dnd/sessions', { body: '{}' });
+    const res = await POST(req, makeContext(['sessions']));
+
+    // The upstream's real status (502) is preserved — not silently replaced
+    // with a blind 500.
+    expect(res.status).toBe(502);
+    const body = await res.json() as { success: boolean; data: { reason: string } };
+    expect(body.success).toBe(false);
+    expect(body.data.reason).toBe('upstream_non_json');
+  });
+
+  it('non-JSON upstream body with a 200 status: that status is still forwarded verbatim', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response('not json at all', {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    const req = makeRequest('GET', 'http://localhost:3000/api/dnd/characters/x?username=p');
+    const res = await GET(req, makeContext(['characters', 'x']));
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as { data: { reason: string } };
+    expect(body.data.reason).toBe('upstream_non_json');
+  });
 });
 
 // ---------------------------------------------------------------------------

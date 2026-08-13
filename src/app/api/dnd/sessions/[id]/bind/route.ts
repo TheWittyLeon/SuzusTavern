@@ -197,6 +197,23 @@ export async function POST(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
   }
 
   // Tunnel the response (including engine error reasons) back unchanged.
-  const responseData: unknown = await upstream.json();
+  // F2 (1.7 audit): guard upstream.json() the same way as the catch-all proxy
+  // ([...path]/route.ts) — a non-JSON upstream body used to throw here
+  // uncaught and collapse into a blind empty 500, discarding upstream.status
+  // (the real diagnostic). Forward the status and synthesize a `reason` the
+  // engineReasons.ts fallback chain can render as readable copy.
+  let responseData: unknown;
+  try {
+    responseData = await upstream.json();
+  } catch {
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Upstream returned a non-JSON response',
+        data: { reason: 'upstream_non_json' },
+      },
+      { status: upstream.status },
+    );
+  }
   return NextResponse.json(responseData, { status: upstream.status });
 }
