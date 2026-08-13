@@ -20,7 +20,7 @@
 /* Sticky site header. Padding lives here (not inline) so it can shrink on
    phones — see the ≤420px breakpoint below. */
 .siteHeader {
-  padding: 16px 40px;
+  padding: var(--density-pad) 40px;
 }
 
 .heroPortrait {
@@ -31,7 +31,7 @@
 .whatGrid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
+  gap: var(--density-gap);
 }
 
 .navLinks {

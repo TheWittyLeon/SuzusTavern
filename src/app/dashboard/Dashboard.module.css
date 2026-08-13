@@ -2,16 +2,16 @@
 .empty {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--density-gap);
   max-width: 1000px;
   margin: 0 auto;
 }
 .welcome {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 22px;
+  gap: var(--density-gap);
   align-items: center;
-  padding: 26px 28px;
+  padding: var(--density-pad);
 }
 .welcomeQuote {
   font-family: var(--font-display);
@@ -30,13 +30,13 @@
 .doors {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
+  gap: var(--density-gap);
 }
 .door {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 22px;
+  gap: var(--density-gap);
+  padding: var(--density-pad);
   border-radius: var(--radius-lg);
   /* A11Y-BUTTON-BORDER-CONTRAST: whole-card nav link — --line-strong clears
      WCAG 1.4.11's 3:1 non-text contrast. */
@@ -90,9 +90,9 @@
 .hero {
   display: grid;
   grid-template-columns: auto 1fr auto;
-  gap: 22px;
+  gap: var(--density-gap);
   align-items: center;
-  padding: 24px 28px;
+  padding: var(--density-pad);
   margin-bottom: 20px;
   background: linear-gradient(
     135deg,
@@ -131,13 +131,13 @@
 .cols {
   display: grid;
   grid-template-columns: 1.5fr 1fr;
-  gap: 18px;
+  gap: var(--density-gap);
 }
 .colMain,
 .colSide {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--density-gap);
   min-width: 0;
 }
 
@@ -238,14 +238,14 @@
   /* minmax(0,1fr) so a long character name can't blow the track past the cell
      and add horizontal page scroll at 320px (S3.2). */
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: var(--density-gap);
 }
 .charCard {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  padding: 16px 12px;
+  padding: var(--density-pad);
   border-radius: var(--radius);
   /* A11Y-BUTTON-BORDER-CONTRAST: whole-card nav link — see .door above. */
   border: 1px solid var(--line-strong);

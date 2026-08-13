@@ -28,6 +28,7 @@ jest.mock('../../lib/api/dnd', () => ({
   equipItem: jest.fn(),
   unequipItem: jest.fn(),
   giveItem: jest.fn(),
+  leaveCampaign: jest.fn(),
 }));
 
 import * as dnd from '../../lib/api/dnd';
@@ -38,6 +39,7 @@ import CharacterPage from '../../app/character/[id]/page';
 import type { CharacterSheet, User } from '../../lib/api/types';
 
 const mockGet = dnd.getCharacterSheet as jest.MockedFunction<typeof dnd.getCharacterSheet>;
+const mockLeaveCampaign = dnd.leaveCampaign as jest.MockedFunction<typeof dnd.leaveCampaign>;
 const ALICE: User = { id: 1, username: 'alice', email: null };
 
 function ability(score: number, modifier: number) {
@@ -94,6 +96,7 @@ function renderPage() {
 
 beforeEach(() => {
   mockGet.mockReset();
+  mockLeaveCampaign.mockReset();
 });
 
 describe('Character sheet', () => {
@@ -572,5 +575,135 @@ describe('Character sheet — INVOC chosen feature choices (Kage I2/m8)', () => 
     renderPage();
     await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
     expect(screen.queryByRole('heading', { level: 3, name: /invocations/i })).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B1 (TAV-CHAR-STUCK-AFTER-CAMPAIGN-END) — LeaveCampaignButton wired into the
+// REAL page, not the isolated component-under-test in
+// LeaveCampaignButton.test.tsx. That file proves the component's own render
+// gate in isolation off a hand-built `sheet` prop; it can never prove the
+// PAGE actually passes that prop through, or that the "works when the
+// campaign is unreachable" property survives here — a page-level regression
+// (an accidental `isOwner &&` wrap, a stale/second sheet object, a fetch of
+// some other campaign-status endpoint added to `load`) would pass every test
+// in that file untouched. This block closes that gap: it renders the REAL
+// page and asserts on `mockGet` (the only network call this page makes,
+// same as the module-level jest.mock above — no `getCampaign`/`getSession`
+// export exists in that mock, so if the page ever grew a second fetch to
+// gate this control on campaign reachability, that call would resolve to
+// `undefined()` and blow up the render instead of silently passing).
+// ---------------------------------------------------------------------------
+describe('Character sheet — B1 LeaveCampaignButton (real page wiring)', () => {
+  it('bound (xp mode): renders in the page actions, wired to the real sheet + id', async () => {
+    mockGet.mockResolvedValue({
+      ...ROGUE,
+      levelup_policy: {
+        outcome: 'allowed_xp',
+        mode: 'xp',
+        can_level: true,
+        xp_short: null,
+        floor: null,
+        next_level: 2,
+      },
+    });
+    renderPage();
+    await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
+    expect(screen.getByRole('button', { name: /leave campaign/i })).toBeInTheDocument();
+  });
+
+  it('unbound (workshop mode): the control is not rendered at all on the real page', async () => {
+    mockGet.mockResolvedValue({
+      ...ROGUE,
+      levelup_policy: {
+        outcome: 'allowed_workshop',
+        mode: 'workshop',
+        can_level: true,
+        xp_short: null,
+        floor: null,
+        next_level: 2,
+      },
+    });
+    renderPage();
+    await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
+    expect(screen.queryByRole('button', { name: /leave campaign/i })).not.toBeInTheDocument();
+  });
+
+  it('no levelup_policy on the wire at all (pre-upgrade backend): fail-closed on the real page, not just the isolated component', async () => {
+    // ROGUE (this file's base fixture) carries no levelup_policy field —
+    // exactly today's pre-upgrade shape.
+    mockGet.mockResolvedValue({ ...ROGUE });
+    renderPage();
+    await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
+    expect(screen.queryByRole('button', { name: /leave campaign/i })).not.toBeInTheDocument();
+  });
+
+  it('confirm-and-leave through the real page: calls leaveCampaign(id, username) — the SAME id/username the page already has — then background-refetches getCharacterSheet (the SAME sheet endpoint, never a second campaign-status call)', async () => {
+    mockGet.mockResolvedValue({
+      ...ROGUE,
+      levelup_policy: {
+        outcome: 'allowed_xp',
+        mode: 'xp',
+        can_level: true,
+        xp_short: null,
+        floor: null,
+        next_level: 2,
+      },
+    });
+    mockLeaveCampaign.mockResolvedValue({ freed_campaign_id: 'camp-1' });
+    renderPage();
+    await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
+
+    const callsBeforeLeave = mockGet.mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: /leave campaign/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /leave now/i }));
+
+    await waitFor(() =>
+      expect(mockLeaveCampaign).toHaveBeenCalledWith('abc-123', 'alice'),
+    );
+    // The background refetch this page wires `onLeft` to (`handleLeftCampaign`
+    // → `load(undefined, { background: true })`) is the SAME getCharacterSheet
+    // call the page already makes on mount — proving there is no separate
+    // campaign-reachability call anywhere in this flow.
+    await waitFor(() => expect(mockGet.mock.calls.length).toBeGreaterThan(callsBeforeLeave));
+    expect(mockGet.mock.calls.at(-1)).toEqual(['abc-123', 'alice', undefined]);
+  });
+
+  // Tora MAJOR-1 / Iro MAJOR-1 (converged, 2026-08-12): on this success path,
+  // `LeaveCampaignButton` unmounts (trigger + its ConfirmDialog) in the SAME
+  // commit as `left`/`confirming` flipping, so ConfirmDialog's own
+  // focus-restore targets an already-detached node and focus was stranded on
+  // <body>. `handleLeftCampaign` now moves focus to the page's own
+  // `abilityHeadingRef` (Iro CRITICAL-4b's survivor) as part of that
+  // callback.
+  it('A11Y (Tora MAJOR-1 / Iro MAJOR-1): leaving successfully moves focus to the "Ability scores" heading, never stranding it at <body>', async () => {
+    mockGet.mockResolvedValue({
+      ...ROGUE,
+      levelup_policy: {
+        outcome: 'allowed_xp',
+        mode: 'xp',
+        can_level: true,
+        xp_short: null,
+        floor: null,
+        next_level: 2,
+      },
+    });
+    mockLeaveCampaign.mockResolvedValue({ freed_campaign_id: 'camp-1' });
+    renderPage();
+    await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
+
+    fireEvent.click(screen.getByRole('button', { name: /leave campaign/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /leave now/i }));
+
+    await waitFor(() => expect(mockLeaveCampaign).toHaveBeenCalled());
+    // The control (trigger + dialog) is gone…
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /leave now/i })).not.toBeInTheDocument(),
+    );
+    // …and focus landed on the surviving heading, never left on <body>.
+    expect(document.body).not.toHaveFocus();
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { level: 2, name: 'Ability scores' })).toHaveFocus(),
+    );
   });
 });

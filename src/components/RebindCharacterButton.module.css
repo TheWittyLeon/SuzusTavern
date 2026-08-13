@@ -42,23 +42,24 @@
   position: fixed;
   inset: 0;
   z-index: 200;
-  background: rgba(0, 0, 0, 0.55);
+  /* Blocking modal — this backdrop gates a focus-trapped picker dialog. */
+  background: var(--scrim);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
+  padding: var(--density-pad);
 }
 
 /* Popover dialog */
 .popover {
-  background: var(--card-solid, var(--bg-2));
+  background: var(--card-solid);
   border: 1px solid var(--line);
   border-radius: 12px;
-  padding: 20px;
+  padding: var(--density-pad);
   width: min(400px, 100%);
   max-height: 80vh;
   overflow-y: auto;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-raise);
   outline: none;
 }
 
@@ -79,7 +80,7 @@
 .list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--density-gap);
   margin-bottom: 16px;
 }
 
@@ -95,7 +96,7 @@
   /* A11Y-BUTTON-BORDER-CONTRAST: clickable radio-styled option — --line-strong
      clears WCAG 1.4.11's 3:1 non-text contrast. */
   border: 1.5px solid var(--line-strong);
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   cursor: pointer;
   text-align: left;
   transition: border-color 0.12s ease, background 0.12s ease;
@@ -146,7 +147,7 @@
 .btn {
   min-height: 44px;
   padding: 0 18px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;

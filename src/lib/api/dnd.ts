@@ -532,6 +532,36 @@ export const listTrashedCharacters = (username: string, signal?: AbortSignal) =>
     { method: 'GET', signal },
   ).then((d) => d.characters ?? []);
 
+/**
+ * B1 (TAV-CHAR-STUCK-AFTER-CAMPAIGN-END) — the character page's escape
+ * hatch: frees the character's `campaign_members` binding regardless of the
+ * bound campaign's status (active, ended, or unreachable). This is Leon's
+ * load-bearing fix for a character seated at a table that has ended and can
+ * no longer be reached any other way — callers must NOT gate on a
+ * successful campaign fetch or on campaign reachability; ownership is
+ * enforced server-side (RLS-scoped) from `username`, same as
+ * deleteCharacter above.
+ * POST /api/dnd/characters/{id}/leave-campaign
+ *
+ * Contract C1 (pinned 2026-08-11 — the engine half is being built in
+ * parallel and may 404/501 on dev until it ships; that is expected, not a
+ * client bug):
+ *   200 -> { freed_campaign_id }
+ *   400 not_in_campaign -> character already unbound. Callers should treat
+ *     this as effectively-success (the character ends up free either way),
+ *     not a scary error — see LeaveCampaignButton.
+ *   404 -> unknown or unowned character.
+ */
+export const leaveCampaign = (
+  characterId: string,
+  username: string,
+  signal?: AbortSignal,
+) =>
+  apiCall<{ freed_campaign_id: string }>(
+    `/api/dnd/characters/${encodeURIComponent(characterId)}/leave-campaign`,
+    { method: 'POST', json: { username }, signal },
+  );
+
 // ── Sessions ────────────────────────────────────────────────────────────────
 
 /**
@@ -900,6 +930,44 @@ export const restoreSession = (
   );
 
 /**
+ * DORMANT / PROVISIONAL (2026-08-11): The campaign-trash *listing* route does
+ * not exist on the engine yet. DEL-2 shipped `restoreSession` (the
+ * `POST /sessions/{id}/restore` above) with no listing route to pair it
+ * with — "the engine never grew a `list_deleted_sessions` listing" (see the
+ * /trash page's header comment) — and a coordinator ruling has since frozen
+ * the engine lane's scope, deferring the real route to follow-up row
+ * ENGINE-SESSIONS-TRASH-LISTING (P2). This constant pins the *assumed* path
+ * so today's 404s read as "not deployed yet," not "broken." Single point of
+ * correction, mirroring `C3_GROUNDING_FIELD` above: this constant is the
+ * ONLY place the literal path appears anywhere in the codebase — both
+ * `listTrashedSessions` below and its test import this constant rather than
+ * a hardcoded copy of the string, so landing the real engine route is a
+ * ONE-LINE change here. Until then, `/trash`'s `loadCampaigns` (in
+ * `src/app/trash/page.tsx`) HIDES the Campaigns section on any failure here
+ * rather than rendering "No trashed campaigns." — do not "fix" that by
+ * making this function swallow the error and return `[]`; the whole point
+ * is that an unknown state must never be presented as a known-empty one.
+ */
+export const SESSIONS_TRASH_PATH = '/api/dnd/sessions/trash';
+
+/**
+ * A user's trashed campaigns (the restore view — TAV-CAMPAIGN-TRASH-NO-RESTORE-UI).
+ * Mirrors `listTrashedCharacters`'s URL shape exactly, hitting the
+ * provisional `SESSIONS_TRASH_PATH` above — see that constant's doc comment
+ * for why this route doesn't exist yet and how the UI degrades. NOT
+ * independently verified against the engine (out of this UI-only pass's
+ * scope). This function does NOT catch failures itself — a rejection here
+ * (404 today, or any other error) propagates to the caller unchanged; only
+ * the `sessions` field on a *successful* response is defaulted to `[]` if
+ * absent.
+ */
+export const listTrashedSessions = (username: string, signal?: AbortSignal) =>
+  apiCall<{ sessions: Session[] }>(
+    `${SESSIONS_TRASH_PATH}?username=${encodeURIComponent(username)}`,
+    { method: 'GET', signal },
+  ).then((d) => d.sessions ?? []);
+
+/**
  * LVL-1 (FR-1/FR-8) — DM sets the campaign's starting-level floor.
  * POST /api/dnd/sessions/{sessionId}/starting-level
  *
@@ -1225,6 +1293,21 @@ export const postRoll = (
   );
 
 /**
+ * CONFIRMED (2026-08-12): Contract C3's rescue-transition-line field name,
+ * per WF-A's engine lane (real value replacing the 2026-08-11 provisional
+ * pin — see git history for the placeholder). It is a top-level `scene`
+ * key, sibling of `arrival_line` (NOT nested under `encounter`) — same
+ * validator semantics as `arrival_line`: explicit null == absent, <=400
+ * chars. It rides both rescue routes' `scene_advance` payload (finalize and
+ * death-save). Single point of correction: this constant is the ONLY place
+ * that literal appears anywhere in the codebase — both `normalizeGrounding`'s
+ * include list below and the play screen's render path read it through this
+ * constant, never a hardcoded copy of the string. Tests must import this
+ * constant too, for the same reason.
+ */
+export const C3_GROUNDING_FIELD = 'rescue_outcome_line';
+
+/**
  * Normalize the engine's nested grounding payload into the flat GroundingData
  * the play screen consumes. The engine returns `current_scene.{id,title,
  * boxed_text,objective,transitions,checks}`, `adventure.{title,hook}`, and
@@ -1235,6 +1318,12 @@ export const postRoll = (
  *     card have them without a second round-trip.
  * P1-PLAYFIX §3.4: exposes `checks` (current_scene.checks) stripped down to
  *     {skill, dc, note} — see the `checks:` mapping below.
+ * C3 (2026-08-11): also exposes the provisional rescue-transition line under
+ *     `C3_GROUNDING_FIELD` — see that constant's own doc comment. This is a
+ *     FAIL-CLOSED include list: a `current_scene` field not listed here (this
+ *     one included) is silently dropped, never spread through by accident —
+ *     see the `...rest` note below for why `current_scene` itself is
+ *     destructured out rather than spread.
  */
 const normalizeGrounding = (raw: unknown): GroundingData | null => {
   if (!raw || typeof raw !== 'object') return null;
@@ -1275,6 +1364,32 @@ const normalizeGrounding = (raw: unknown): GroundingData | null => {
     // why it is safe to list. Non-string (or absent) degrades to undefined,
     // which the play screen reads as "no authored arrival".
     arrival_line: typeof scene.arrival_line === 'string' ? scene.arrival_line : undefined,
+    // C3 (2026-08-11, field name confirmed 2026-08-12) — same
+    // explicit-inclusion, same degrade-to-undefined convention as
+    // `arrival_line` just above (a non-string, including an engine-sent
+    // explicit `null`, degrades to absent — never an empty-line render or a
+    // thrown error). Length/emptiness are NOT re-validated here; that lives
+    // at the render path (the "consumer" tier), mirroring how `arrival_line`
+    // itself only degrades on TYPE here, not on content.
+    //
+    // TOP-LEVEL-PLACEMENT GUARD (Kage IMP-4, 2026-08-12): this computed key
+    // is spread AFTER `...rest` above, so an unguarded `scene[...]` read
+    // would silently OVERWRITE an inherited top-level field of the same name
+    // with `undefined` whenever `current_scene` doesn't itself carry it.
+    // WF-A confirmed this field IS a top-level `scene` key (sibling of
+    // `arrival_line`, not nested under `encounter`), so the `scene[FIELD]`
+    // primary read below is correct — the `rest[C3_GROUNDING_FIELD]`
+    // fallback stays anyway as a harmless guard against a future engine
+    // payload shape change. Falling back to it (same string type-guard)
+    // preserves a legitimately top-level value instead of clobbering it —
+    // without introducing a second occurrence of the literal anywhere in
+    // this file; both reads go through the one constant.
+    [C3_GROUNDING_FIELD]:
+      typeof scene[C3_GROUNDING_FIELD] === 'string'
+        ? scene[C3_GROUNDING_FIELD]
+        : typeof (rest as Record<string, unknown>)[C3_GROUNDING_FIELD] === 'string'
+          ? ((rest as Record<string, unknown>)[C3_GROUNDING_FIELD] as string)
+          : undefined,
     objective: scene.objective as string | undefined,
     // Projected field-by-field for the SAME reason as `checks` below — never
     // spread the raw authored transition. An authored transition carries

@@ -4,10 +4,10 @@
 
 .panel {
   border-top: 1px solid var(--line);
-  padding-top: 12px;
+  padding-top: var(--density-pad);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--density-gap);
 }
 
 .panelLabel {
@@ -22,11 +22,11 @@
 .monsterCard {
   border: 1px solid var(--line);
   border-radius: 10px;
-  padding: 10px;
+  padding: var(--density-pad);
   background: color-mix(in oklab, var(--ink) 2%, transparent);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--density-gap);
   position: relative;
 }
 
@@ -132,7 +132,7 @@
 .npcActions {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--density-gap);
   margin-top: 4px;
 }
 
@@ -146,7 +146,7 @@
   gap: 5px;
   min-height: 44px;
   padding: 0 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   /* A11Y-BUTTON-BORDER-CONTRAST: clickable NPC action button — --line-strong
      clears WCAG 1.4.11's 3:1 non-text contrast. */
   border: 1px solid var(--line-strong);
@@ -194,7 +194,7 @@
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 4px;
-  box-shadow: 0 10px 28px -10px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-raise);
 }
 
 .npcTargetItem {
@@ -249,7 +249,7 @@
   /* Min 44px touch target (Tora). Visual size is smaller but margin extends hit area. */
   min-height: 36px;
   padding: 6px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   /* A11Y-BUTTON-BORDER-CONTRAST: clickable toggle button — --line-strong
      clears WCAG 1.4.11's 3:1 non-text contrast. */
   border: 1px dashed var(--line-strong);
@@ -287,7 +287,7 @@
   width: 100%;
   resize: none;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   background: color-mix(in oklab, var(--ink) 3%, transparent);
   /* A11Y-BUTTON-BORDER-CONTRAST: textarea control — --line-strong clears
      WCAG 1.4.11's 3:1 non-text contrast. */
@@ -318,14 +318,14 @@
 
 .speakActions {
   display: flex;
-  gap: 6px;
+  gap: var(--density-gap);
   justify-content: flex-end;
 }
 
 .speakSend {
   min-height: 36px;
   padding: 6px 14px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   border: none;
   background: var(--accent-2);
   color: var(--on-accent);
@@ -343,7 +343,7 @@
 .speakCancel {
   min-height: 36px;
   padding: 6px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   /* A11Y-BUTTON-BORDER-CONTRAST: clickable cancel button — --line-strong
      clears WCAG 1.4.11's 3:1 non-text contrast. */
   border: 1px solid var(--line-strong);
@@ -376,10 +376,10 @@
   gap: 5px;
   min-height: 36px;
   padding: 6px 12px;
-  border-radius: 8px;
-  border: 1px solid color-mix(in oklab, var(--warn, #d97706) 35%, transparent);
-  background: color-mix(in oklab, var(--warn, #d97706) 8%, transparent);
-  color: var(--warn-ink, var(--ink-2));
+  border-radius: var(--radius-xs);
+  border: 1px solid color-mix(in oklab, var(--warn) 35%, transparent);
+  background: color-mix(in oklab, var(--warn) 8%, transparent);
+  color: var(--warn-ink);
   font-size: 12px;
   cursor: pointer;
   /* Touch target extension */
@@ -388,8 +388,8 @@
 }
 
 .overrideBtn:hover:not(:disabled) {
-  background: color-mix(in oklab, var(--warn, #d97706) 16%, transparent);
-  border-color: color-mix(in oklab, var(--warn, #d97706) 55%, transparent);
+  background: color-mix(in oklab, var(--warn) 16%, transparent);
+  border-color: color-mix(in oklab, var(--warn) 55%, transparent);
   color: var(--ink);
 }
 

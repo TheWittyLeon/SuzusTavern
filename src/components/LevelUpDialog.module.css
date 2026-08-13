@@ -9,8 +9,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
-  background: rgba(10, 7, 18, 0.62);
+  padding: var(--density-pad);
+  background: var(--scrim);
   -webkit-backdrop-filter: blur(2px);
   backdrop-filter: blur(2px);
   animation: backdrop-in var(--dur-fast) var(--ease);
@@ -23,7 +23,7 @@
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow-pop);
-  padding: 22px 22px 18px;
+  padding: var(--density-pad) var(--density-pad) 18px;
   animation: dialog-in var(--dur) var(--ease);
 }
 
@@ -51,9 +51,9 @@
 .hpGroup {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--density-gap);
   margin: 0 0 18px;
-  padding: 12px;
+  padding: var(--density-pad);
   border: 1px solid var(--line);
   border-radius: 10px;
 }
@@ -115,7 +115,7 @@
 .actions {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
+  gap: var(--density-gap);
 }
 
 @keyframes backdrop-in {

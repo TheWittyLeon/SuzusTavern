@@ -37,6 +37,7 @@ jest.mock('../../lib/api/dnd', () => ({
 }));
 
 import * as dnd from '../../lib/api/dnd';
+import { makeApiError } from '../../lib/api/client';
 import { AuthProvider } from '../../lib/auth/AuthProvider';
 import { ThemeProvider } from '../../lib/theme/ThemeProvider';
 import { ToastProvider } from '../../components/Toast';
@@ -762,6 +763,61 @@ describe('Miko F3: local state reconciliation after release-succeeded/create-fai
     // since the release actually succeeded server-side before create failed.
     await waitFor(() => expect(screen.getAllByText(/^free$/i).length).toBeGreaterThan(0));
     expect(screen.queryByText(/in the shadowfell keep/i)).not.toBeInTheDocument();
+  });
+});
+
+// ── WF-A reconciliation (2026-08-12): SESSION_START_REASON_MAP curated copy ──
+// Before this, handleBegin's `catch` never inspected the caught error at all
+// — a plain `Error` and a real `ApiError` with `data.reason` both rendered
+// the exact same generic toast. These two prove the reason-aware branch
+// actually fires for the two codes WF-A's engine lane approved, using a real
+// `makeApiError` shape (not a hand-rolled object) same as engineReasons'
+// own wire-shape tests.
+
+describe('WF-A reconciliation: session-start reason codes get curated copy', () => {
+  it('msm_disabled (503) shows the curated multi-system-content copy, not the generic fallback', async () => {
+    mockCreate.mockRejectedValue(
+      makeApiError(503, 'msm disabled', { success: false, data: { reason: 'msm_disabled' } }),
+    );
+    await openForm();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
+    });
+    expect(
+      await screen.findByText(/multi-system content is not available for this session/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/could not start the table/i)).not.toBeInTheDocument();
+  });
+
+  it('unknown_adventure (400) shows curated copy naming the actual cause, not the generic fallback', async () => {
+    mockCreate.mockRejectedValue(
+      makeApiError(400, 'unknown adventure', {
+        success: false,
+        data: { reason: 'unknown_adventure' },
+      }),
+    );
+    await openForm();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
+    });
+    expect(
+      await screen.findByText(/that adventure couldn't be found — pick another one from the list/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/could not start the table/i)).not.toBeInTheDocument();
+  });
+
+  it('an unrecognized reason code still falls through to the generic fallback (no crash, no blank toast)', async () => {
+    mockCreate.mockRejectedValue(
+      makeApiError(400, 'some future refusal', {
+        success: false,
+        data: { reason: 'some_future_reason_nobody_mapped_yet' },
+      }),
+    );
+    await openForm();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^begin$/i }));
+    });
+    expect(await screen.findByText(/could not start the table/i)).toBeInTheDocument();
   });
 });
 

@@ -46,6 +46,7 @@ import { useReducedMotion } from '@/lib/useReducedMotion';
 import { sessionTitle } from '@/lib/format';
 import {
   advanceScene,
+  C3_GROUNDING_FIELD,
   combatFromScene,
   endCombat,
   getCombatState,
@@ -2457,6 +2458,57 @@ export default function PlayPage() {
   );
 
   /**
+   * Contract C3 (COMBAT-UX-FOLLOW-UP-1: rescue narration jarring, pinned
+   * 2026-08-11) — the deterministic scripted rescue-transition line, built
+   * on the SAME "authored content played verbatim" pattern as
+   * `playArrivalLine` just above (the Backlog names it explicitly: "the
+   * arrival-line pattern"). WF-A owns the engine mechanism that will
+   * populate `C3_GROUNDING_FIELD` on `current_scene` (see that constant's
+   * doc comment in `src/lib/api/dnd.ts` for the provisional-field-name
+   * containment strategy) and has not shipped it yet — zero commits on
+   * their side as of this pass — so this is currently INERT by construction,
+   * the same bootstrapping state `playArrivalLine` itself started in.
+   *
+   * Bridges the gap `COMBAT-UX-FOLLOW-UP-1` describes: the DM's prose
+   * currently continues the fight straight into the destination scene with
+   * no acknowledgement of HOW the party got there (a rescue, not a walk),
+   * which is a different narrative beat than "arriving" and is therefore
+   * played as its OWN log row — it does not replace or gate
+   * `playArrivalLine`; both may render for the same transition.
+   *
+   * Validator/consumer contract (client side of it): non-empty, ≤400 chars
+   * (mirrors `opening_lines`'/`arrival_line`'s own engine-side ceiling — this
+   * component re-checks it because C3 has no shipped engine validator yet to
+   * rely on), and an explicit `null` degrades to absent exactly like
+   * `arrival_line` (handled upstream in `normalizeGrounding`'s `typeof
+   * === 'string'` guard, not re-checked here).
+   */
+  const lastRescueLineSceneRef = useRef<string | null>(null);
+  const playRescueTransitionLine = useCallback(
+    (g: GroundingData | null): boolean => {
+      const line = g?.[C3_GROUNDING_FIELD];
+      const sceneId = g?.scene_id;
+      if (typeof line !== 'string' || !line.trim()) return false;
+      // Kage SUGG-3 (2026-08-12): an over-ceiling authored line is dropped
+      // SILENTLY below — from the author's seat "the feature just doesn't
+      // appear", with nothing in the console pointing at why. Warn, scoped to
+      // the actual length-drop branch only (not the absent/blank cases above,
+      // which are the ordinary "no rescue line authored" path, not a defect).
+      if (line.length > 400) {
+        console.warn(
+          `[C3] rescue-transition line for scene "${sceneId ?? 'unknown'}" is ${line.length} chars (ceiling 400) — dropped, not rendered.`,
+        );
+        return false;
+      }
+      if (sceneId && lastRescueLineSceneRef.current === sceneId) return false;
+      lastRescueLineSceneRef.current = sceneId ?? null;
+      appendLog({ who: 'Suzu', kind: 'narration', text: line });
+      return true;
+    },
+    [appendLog],
+  );
+
+  /**
    * Iro Ship 2 CRITICAL-1 — refocus the scene heading if a `refreshGrounding()`
    * refresh unmounted the button the user was just on, stranding focus on
    * <body>. `hadFocusInGroup` MUST be captured synchronously by the caller
@@ -2786,6 +2838,10 @@ export default function PlayPage() {
         // landing, while the scene card had already flipped. Playing the
         // authored arrival here is what lets the prose catch up to the card.
         // Replacing it is not even available: the prose has already streamed.
+        // C3 — the rescue-transition line (if any) plays FIRST: it narrates
+        // how the party got here, `playArrivalLine` narrates arriving. Both
+        // are independent authored beats for the same landing.
+        playRescueTransitionLine(freshGrounding);
         playArrivalLine(freshGrounding);
       }
 
@@ -2818,6 +2874,7 @@ export default function PlayPage() {
       grounding,
       applyOfferedCheckSignal,
       playArrivalLine,
+      playRescueTransitionLine,
     ],
   );
 
@@ -3508,6 +3565,11 @@ export default function PlayPage() {
         // otherwise costs a full 65-156s turn. Scenes with no arrival line
         // fall through to exactly today's behaviour, so nothing authored
         // before this change moves.
+        // C3 — plays first, same as the server-INTENT path above; does NOT
+        // participate in the "replace the synthetic beat" ruling below (that
+        // is scoped to `arrival_line` specifically), so it never gates the
+        // `return`.
+        playRescueTransitionLine(advancedGrounding);
         if (playArrivalLine(advancedGrounding)) return;
         // Kage #1 / Miko DEFECT-2: advanceScene() already moved the
         // scene server-side — suppress the INTENT classifier from advancing
@@ -3553,6 +3615,7 @@ export default function PlayPage() {
       narrateDurableBeat,
       toast,
       playArrivalLine,
+      playRescueTransitionLine,
     ],
   );
 

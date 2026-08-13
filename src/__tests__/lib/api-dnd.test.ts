@@ -61,11 +61,14 @@ import {
   listTrashedCharacters,
   deleteSession,
   restoreSession,
+  listTrashedSessions,
+  SESSIONS_TRASH_PATH,
   getGrounding,
   getCombatState,
   resolveCheck,
   learnSpell,
   getStartingEquipment,
+  C3_GROUNDING_FIELD,
 } from '../../lib/api/dnd';
 
 // ---------------------------------------------------------------------------
@@ -867,6 +870,24 @@ describe('Delete / restore / trash (DEL-6)', () => {
     expect(method).toBe('POST');
     expect(body).toMatchObject({ username: 'leon' });
   });
+
+  it('listTrashedSessions — GET SESSIONS_TRASH_PATH?username=, unwraps .sessions (TAV-CAMPAIGN-TRASH-NO-RESTORE-UI)', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ success: true, data: { sessions: [{ session_id: 't1' }] } }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    const out = await listTrashedSessions('leon');
+    const { url, method } = lastCall();
+    expect(url).toBe(`${SESSIONS_TRASH_PATH}?username=leon`);
+    expect(method).toBe('GET');
+    expect(out).toEqual([{ session_id: 't1' }]);
+  });
+
+  it('listTrashedSessions returns [] when sessions is absent', async () => {
+    expect(await listTrashedSessions('leon')).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1083,6 +1104,91 @@ describe('getGrounding — nested→flat normalization', () => {
     );
     const g = await getGrounding('sess1');
     expect(g!.checks).toEqual([]);
+  });
+
+  // Contract C3 (2026-08-11, provisional pin) — the rescue-transition line.
+  // Imports C3_GROUNDING_FIELD rather than hardcoding the literal, per the
+  // single-point-of-correction requirement; a WF-A rename only touches the
+  // constant's own definition, never this file.
+  describe(`current_scene.[C3_GROUNDING_FIELD] normalization`, () => {
+    function groundingWith(currentScene: Record<string, unknown>) {
+      mockFetch.mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            success: true,
+            data: { current_scene: currentScene, campaign: { progress: {} } },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      );
+      return getGrounding('sess1');
+    }
+
+    it('present: a valid authored string survives to GroundingData under the same key', async () => {
+      const g = await groundingWith({
+        id: 'rescue_scene',
+        [C3_GROUNDING_FIELD]: 'Zecora is already gone by the time you catch your breath.',
+      });
+      expect(g![C3_GROUNDING_FIELD]).toBe(
+        'Zecora is already gone by the time you catch your breath.',
+      );
+    });
+
+    it('absent: no key on the wire degrades to undefined, not a thrown error', async () => {
+      const g = await groundingWith({ id: 'rescue_scene' });
+      expect(g![C3_GROUNDING_FIELD]).toBeUndefined();
+    });
+
+    it('explicit null: treated identically to absent, never an empty-string render', async () => {
+      const g = await groundingWith({ id: 'rescue_scene', [C3_GROUNDING_FIELD]: null });
+      expect(g![C3_GROUNDING_FIELD]).toBeUndefined();
+    });
+
+    it('>400 chars: normalizeGrounding does NOT truncate — the length ceiling is enforced at the render/consumer tier, not here (mirrors arrival_line, which also only type-guards at this layer)', async () => {
+      const long = 'x'.repeat(401);
+      const g = await groundingWith({ id: 'rescue_scene', [C3_GROUNDING_FIELD]: long });
+      expect(g![C3_GROUNDING_FIELD]).toBe(long);
+    });
+
+    // Kage IMP-4 (2026-08-12): the computed key is assigned AFTER `...rest`
+    // in normalizeGrounding's return object — an unguarded `scene[...]` read
+    // would overwrite an inherited top-level field of the same name with
+    // `undefined` whenever `current_scene` doesn't itself carry it.
+    it('top-level placement: a same-named TOP-LEVEL field survives when current_scene omits it, instead of being clobbered with undefined', async () => {
+      mockFetch.mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            success: true,
+            data: {
+              current_scene: { id: 'rescue_scene' }, // no C3_GROUNDING_FIELD here
+              campaign: { progress: {} },
+              [C3_GROUNDING_FIELD]: 'A top-level rescue line, not nested.',
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      );
+      const g = await getGrounding('sess1');
+      expect(g![C3_GROUNDING_FIELD]).toBe('A top-level rescue line, not nested.');
+    });
+
+    it('top-level placement: current_scene\'s own value still wins when BOTH a nested and a top-level value are present', async () => {
+      mockFetch.mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            success: true,
+            data: {
+              current_scene: { id: 'rescue_scene', [C3_GROUNDING_FIELD]: 'Nested wins.' },
+              campaign: { progress: {} },
+              [C3_GROUNDING_FIELD]: 'Top-level loses.',
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      );
+      const g = await getGrounding('sess1');
+      expect(g![C3_GROUNDING_FIELD]).toBe('Nested wins.');
+    });
   });
 });
 

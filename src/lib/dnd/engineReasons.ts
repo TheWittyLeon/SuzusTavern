@@ -93,19 +93,21 @@ export const ACTION_ECONOMY_REASON_COPY: Record<string, string> = {
  * is therefore the ONLY tier that can produce an honest string here; anything
  * missing falls straight to the generic fallback.
  *
- * Scope of that proxy defect, verified file-by-file (Kage-CR #3, 2026-08-06 —
- * an earlier draft of this comment overstated it as "every D&D route"):
+ * Scope of that proxy defect, AS IT STOOD when first traced (Kage-CR #3,
+ * 2026-08-06 — an earlier draft of this comment overstated it as "every D&D
+ * route"):
  *   dnd_combat.py    message DROPPED (renamed to `error`)   ← this map's route
  *   dnd_sessions.py  message DROPPED                        ← check/advance/grounding
  *   dnd_vessel.py    message DROPPED (its docstring claims otherwise)
  *   dnd_catalog.py   message DROPPED **and `data` dropped entirely**, so
  *                    data.reason never reaches the Tavern on catalog routes
  *   dnd_characters.py  message PRESERVED (`{"success": False, **upstream}`)
- * 4 of 5 — the proxy is internally INCONSISTENT, which is a stronger reason to
- * fix it than uniform breakage would be. Filed as NEKONOVA-PROXY-DROPS-MESSAGE
- * for Leon's ruling (the safe fix touches a shared proxy and would start
- * surfacing "[Combat] …"-prefixed engine text to players). Until then, keep
- * this map complete.
+ * STALE AS OF ProjectNekoNova commit `ebdc5b2` (2026-08-07, Kage IMP-5): that
+ * commit fixed the four modules still dropping `message` — all FIVE proxy
+ * modules now forward the engine's `message` intact, closing
+ * NEKONOVA-PROXY-DROPS-MESSAGE. This map stays complete anyway as defense in
+ * depth (curated copy reads better than raw engine text regardless), not
+ * because the tier-2 raw-message fallthrough is broken — it isn't, anymore.
  */
 export const COMBAT_REFUSAL_REASON_MAP: Record<string, string> = {
   ...SHARED_REASON_COPY,
@@ -124,7 +126,37 @@ export const COMBAT_REFUSAL_REASON_MAP: Record<string, string> = {
   target_dead: 'That target is already dead.',
   target_already_stable: 'That target is already stable.',
   target_not_downed: "That target isn't down, so it can't be stabilised.",
-  not_your_character: "That's not your character.",
+  // Contract C2 (pinned 2026-08-11): replaces a previously misleading
+  // `target_not_downed` message for this exact caller — the engine used to
+  // (wrongly) report "that target isn't down" when the real problem may
+  // instead be that the CALLER has no character bound in this encounter at
+  // all.
+  //
+  // IMP-3 RESOLVED (WF-A reconciliation, 2026-08-12) — deliberately
+  // UNCURATED, tier 2 owns this one. `not_your_character` is emitted at TWO
+  // branches of `engine/commands/combat_commands.py`, with two genuinely
+  // different causes:
+  //   :897 — "You can only roll a death save for your own character."
+  //          (named someone else's downed PC)
+  //   :919 — "You don't have a downed character of your own in this
+  //          encounter to make a death save for." (the C2 fix, above)
+  // Two causes, one code: no single curated string can be honest for both,
+  // so a curated entry here would flatten two distinct situations into one
+  // message that reads wrong half the time — actively worse than no entry.
+  // Letting the engine's own branch-specific text land via tier 2 instead:
+  //   - the proxies forward `message` verbatim now (`ebdc5b2`, 2026-08-07),
+  //     so tier 2 genuinely works on this route;
+  //   - WF-A cleaned the `[Combat]` prefix from both messages, so they
+  //     render cleanly to the player;
+  //   - the generic fallback still covers any engine predating that fix;
+  //   - the engine's own text is strictly more helpful than any neutral
+  //     string we could write to cover both branches at once.
+  // Supersedes F2's neutral placeholder ("That character isn't available to
+  // you for this.") — removed along with its pending-citation comment now
+  // that both branch locations are confirmed. Do NOT re-add an entry here;
+  // `RebindCharacterButton`'s own inline map curates the SAME code for the
+  // bind route's different (ownership) meaning and is unaffected — different
+  // route, stays as-is (Kage SUGG-12's consolidation can revisit later).
   actor_incapacitated: 'Your character is incapacitated.',
   combat_over: 'Combat has ended.',
   unknown_monster: "That monster isn't recognised.",
@@ -216,4 +248,122 @@ export const JOIN_REFUSAL_REASON_MAP: Record<string, string> = {
   msm_disabled: 'Multi-system content is not available for this session.',
   error: 'Something went wrong joining that table.',
   db_unavailable: 'The game database is unavailable right now — try again in a moment.',
+};
+
+/**
+ * Leave-campaign refusals for `LeaveCampaignButton` (B1, folded in here per
+ * that pass's own TODO — mirrors `JOIN_REFUSAL_REASON_MAP`'s shape).
+ * POST /api/dnd/characters/{id}/leave-campaign, proxied by
+ * `api/routes/dnd_characters.py`, which forwards `message` correctly
+ * (`{"success": False, **upstream}`, never renamed to `error`) — so an
+ * unmapped code here still reaches the player as the engine's own text via
+ * `engineErrorMessage`'s tier-2 branch before ever touching the caller's
+ * generic `fallback` string. CORRECTED (Kage IMP-5, 2026-08-12): this used to
+ * describe itself as "the one module of the five" with correct forwarding,
+ * implying the other four still dropped `message` — that stopped being true
+ * at ProjectNekoNova commit `ebdc5b2` (2026-08-07), which fixed the
+ * remaining four; see `COMBAT_REFUSAL_REASON_MAP`'s doc comment above for the
+ * corrected, full accounting.
+ *
+ * Contract C1 (pinned 2026-08-11):
+ *   - `400 not_in_campaign` is handled as a SUCCESS path by the caller
+ *     (`LeaveCampaignButton`'s `alreadyFree` check runs and returns BEFORE
+ *     this map is ever consulted — the character is already unbound, which
+ *     is the player's actual goal). The entry below is NOT the live copy
+ *     path for that code; it exists so the code is explicitly accounted for
+ *     here too, rather than being unmapped-by-omission, which would read as
+ *     "handled as success" and "simply forgotten" identically from outside
+ *     this file. If that early-return is ever refactored away, this is safe,
+ *     benign copy rather than a scary error string.
+ *   - `404` unknown-or-unowned character: WF-A confirmed `not_found` as the
+ *     PINNED code (2026-08-12) — byte-identical message for both the
+ *     unknown-slug and not-yours cases, per their DDX-AUTHZ-404-ORACLE
+ *     convention (closes Kuro's S5 oracle concern: distinguishing the two
+ *     in our own copy would leak which characters exist to a caller probing
+ *     IDs they don't own). `not_found` was already covered below by the
+ *     pre-confirmation defensive guess and maps to the same generic string
+ *     as its sibling entries (`unknown_character`, `character_not_found`),
+ *     so no copy change was needed — those two extra slugs are kept as
+ *     harmless no-ops in case an older engine ever used them. Whatever the
+ *     engine actually sends, an UNlisted code still lands on the generic
+ *     `error`/`db_unavailable` entries (if it's one of those two) or the
+ *     tier-2 engine message / tier-3 fallback chain above — never a blank
+ *     string.
+ */
+export const LEAVE_CAMPAIGN_REASON_MAP: Record<string, string> = {
+  ...SHARED_REASON_COPY,
+
+  not_in_campaign: "Already left — this character isn't seated at a table.",
+  not_found: "That character couldn't be found.",
+  unknown_character: "That character couldn't be found.",
+  character_not_found: "That character couldn't be found.",
+  error: 'Something went wrong leaving that campaign.',
+  db_unavailable: 'The game database is unavailable right now — try again in a moment.',
+};
+
+/**
+ * Restore-campaign refusals for the /trash page's campaign section
+ * (TAV-CAMPAIGN-TRASH-NO-RESTORE-UI, 2026-08-11).
+ * POST /api/dnd/sessions/{id}/restore, proxied through the same
+ * `api/routes/dnd_sessions.py` module the big comment on
+ * COMBAT_REFUSAL_REASON_MAP above traces. CORRECTED (Kage IMP-5, 2026-08-12):
+ * that module was one of the four dropping `message` when this comment was
+ * first written, which is STALE as of ProjectNekoNova commit `ebdc5b2`
+ * (2026-08-07) — `dnd_sessions.py` now forwards `message` intact along with
+ * the other three formerly-lagging modules, so the tier-2 raw-message
+ * fallthrough in `engineErrorMessage` is live on this route too. This map
+ * stays COMPLETE anyway, same rationale as the combat map: curated copy over
+ * raw engine text, not a workaround for a drop that no longer happens.
+ *
+ * UNVERIFIED AGAINST THE ENGINE — this pass was explicitly UI-only (a
+ * sibling lane owns the engine repo and this pass was told not to read it).
+ * `restoreCharacter`, the character-trash sibling of this endpoint, has NO
+ * reason map at all today (its caller just does a bare catch → generic
+ * toast) so there is no established vocabulary to mirror here either. The
+ * three entries below are the shared trio every other map in this file
+ * carries (`not_found` / `error` / `db_unavailable`) plus one defensive
+ * guess (`not_deleted`, for "nothing to restore") — anything the engine
+ * actually sends that isn't listed still lands on `error`/`db_unavailable`
+ * (if it's one of those two) or this caller's own `fallback` string, never a
+ * blank one. Tighten once the sibling lane's contract for this route is
+ * pinned.
+ */
+export const RESTORE_CAMPAIGN_REASON_MAP: Record<string, string> = {
+  ...SHARED_REASON_COPY,
+
+  not_found: "That campaign couldn't be found — it may already be gone for good.",
+  not_deleted: 'That campaign is already active — nothing to restore.',
+  error: 'Something went wrong restoring that campaign.',
+  db_unavailable: 'The game database is unavailable right now — try again in a moment.',
+};
+
+/**
+ * Session-start refusals for the "Set the table" flow (`modules/page.tsx`'s
+ * `handleBegin` -> `createSessionFull`, POST /api/dnd/sessions).
+ *
+ * Before this map existed, that call site's `catch` didn't inspect the
+ * caught error at all — every refusal, a 503 `msm_disabled` or a 400
+ * `unknown_adventure` alike, rendered the exact same generic toast. Wired
+ * through `engineErrorMessage` now (WF-A reconciliation, 2026-08-12) per the
+ * two entries WF-A's engine lane approved:
+ *   - `msm_disabled` (503) never reaches `engineErrorMessage`'s tier-2
+ *     raw-message branch (5xx bodies are never surfaced verbatim — see
+ *     engineError.ts's header comment), so without a curated entry it fell
+ *     straight to the generic fallback. Same copy as the other maps in this
+ *     file for consistency.
+ *   - `unknown_adventure` (400, fired when the selected adventure's
+ *     `public_id` doesn't resolve on the engine side) previously had no
+ *     curated copy either; the generic fallback covers it today, but a
+ *     player who picked a real adventure from the catalog and got a
+ *     content-agnostic "try again" deserves to be told the actual cause.
+ *
+ * Anything else — including any 4xx whose engine `message` text comes
+ * through on the BFF's forwarded body — still falls through to tier 2/3;
+ * only these two codes are curated here.
+ */
+export const SESSION_START_REASON_MAP: Record<string, string> = {
+  ...SHARED_REASON_COPY,
+
+  msm_disabled: 'Multi-system content is not available for this session.',
+  unknown_adventure: "That adventure couldn't be found — pick another one from the list.",
 };

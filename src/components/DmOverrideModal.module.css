@@ -8,11 +8,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
-  background: rgba(10, 7, 18, 0.62);
+  padding: var(--density-pad);
+  background: var(--scrim);
   -webkit-backdrop-filter: blur(2px);
   backdrop-filter: blur(2px);
-  animation: backdrop-in var(--dur-fast, 120ms) var(--ease, ease);
+  animation: backdrop-in var(--dur-fast) var(--ease);
 }
 
 .dialog {
@@ -20,15 +20,15 @@
   max-width: 480px;
   background: var(--bg-2);
   border: 1px solid var(--line);
-  border-radius: var(--radius, 12px);
-  box-shadow: var(--shadow-pop, 0 20px 60px -15px rgba(0,0,0,0.7));
-  padding: 20px 20px 16px;
-  animation: dialog-in var(--dur, 200ms) var(--ease, ease);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-pop);
+  padding: var(--density-pad) var(--density-pad) 16px;
+  animation: dialog-in var(--dur) var(--ease);
   max-height: calc(100dvh - 32px);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--density-gap);
   /* overscroll containment */
   overscroll-behavior: contain;
 }
@@ -74,7 +74,7 @@
 /* ── Fieldset reset ── */
 .fieldset {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   padding: 10px 12px 12px;
   margin: 0;
 }
@@ -155,13 +155,13 @@
 }
 
 .required {
-  color: var(--bad-ink, #e85c5c);
+  color: var(--bad-ink);
 }
 
 .select {
   height: 38px;
   padding: 0 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   /* A11Y-BUTTON-BORDER-CONTRAST: <select> control — --line-strong clears
      WCAG 1.4.11's 3:1 non-text contrast. */
   border: 1px solid var(--line-strong);
@@ -187,7 +187,7 @@
   width: 90px;
   height: 38px;
   padding: 0 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   /* A11Y-BUTTON-BORDER-CONTRAST: number input control — --line-strong clears
      WCAG 1.4.11's 3:1 non-text contrast. */
   border: 1px solid var(--line-strong);
@@ -239,7 +239,7 @@
   width: 100%;
   resize: vertical;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   background: color-mix(in oklab, var(--ink) 3%, transparent);
   /* A11Y-BUTTON-BORDER-CONTRAST: textarea control — --line-strong clears
      WCAG 1.4.11's 3:1 non-text contrast. */
@@ -271,24 +271,24 @@
 /* ── Inline error ── */
 .error {
   font-size: 12px;
-  color: var(--bad-ink, #e85c5c);
+  color: var(--bad-ink);
   padding: 8px 10px;
-  border-radius: 8px;
-  background: color-mix(in oklab, var(--bad, #e85c5c) 8%, transparent);
-  border: 1px solid color-mix(in oklab, var(--bad, #e85c5c) 22%, transparent);
+  border-radius: var(--radius-xs);
+  background: color-mix(in oklab, var(--bad) 8%, transparent);
+  border: 1px solid color-mix(in oklab, var(--bad) 22%, transparent);
 }
 
 /* ── Actions row ── */
 .actions {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
+  gap: var(--density-gap);
 }
 
 .cancelBtn {
   min-height: 44px;
   padding: 0 16px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   /* A11Y-BUTTON-BORDER-CONTRAST: clickable cancel button — --line-strong
      clears WCAG 1.4.11's 3:1 non-text contrast. */
   border: 1px solid var(--line-strong);
@@ -311,10 +311,10 @@
 .submitBtn {
   min-height: 44px;
   padding: 0 20px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   border: none;
   background: var(--accent-2);
-  color: var(--on-accent, #fff);
+  color: var(--on-accent);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -338,7 +338,7 @@
 
   .dialog {
     max-width: 100%;
-    border-radius: var(--radius, 12px) var(--radius, 12px) 0 0;
+    border-radius: var(--radius) var(--radius) 0 0;
     max-height: 90dvh;
     padding: 16px 16px 24px;
   }

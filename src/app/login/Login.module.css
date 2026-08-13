@@ -14,7 +14,7 @@
   min-height: 100svh;
   display: grid;
   place-items: center;
-  padding: 24px;
+  padding: var(--density-pad);
 }
 
 /* ── Two-pane card ─────────────────────────────────────────────────────────── */
@@ -29,7 +29,7 @@
 
 /* ── Left pane ─────────────────────────────────────────────────────────────── */
 .leftPane {
-  padding: 44px;
+  padding: var(--density-pad);
   background: color-mix(in oklab, var(--accent-2) 8%, transparent);
   border-right: 1px solid var(--line);
   position: relative;
@@ -94,10 +94,10 @@
 
 /* ── Right pane (form) ─────────────────────────────────────────────────────── */
 .rightPane {
-  padding: 44px;
+  padding: var(--density-pad);
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--density-gap);
 }
 
 /* ── Heading block ─────────────────────────────────────────────────────────── */
@@ -191,9 +191,9 @@
   border-radius: var(--radius-sm);
   background: color-mix(in oklab, var(--bad) 12%, transparent);
   border: 1px solid color-mix(in oklab, var(--bad) 28%, transparent);
-  /* --bad-ink is a contrast-safe red for text on the error surface (≥4.5:1 AA);
-     falls back to --bad for any palette that doesn't define it. */
-  color: var(--bad-ink, var(--bad));
+  /* --bad-ink is the contrast-safe red for text on the error surface (≥4.5:1
+     AA); every palette defines it (see globals.css), so no fallback needed. */
+  color: var(--bad-ink);
   font-size: 13px;
   line-height: 1.4;
 }

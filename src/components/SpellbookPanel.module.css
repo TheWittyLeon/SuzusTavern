@@ -9,7 +9,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--density-gap);
   margin-bottom: 12px;
 }
 .emptyRow {
@@ -32,7 +32,7 @@
   padding: 5px 12px;
   border: none;
   background: transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   font-size: 12px;
   /* Iro MAJOR-1: --ink-3 failed AA (dusk 4.23, aetheric 4.25) against the
    * tinted .tabs background — --ink-2 clears it. */

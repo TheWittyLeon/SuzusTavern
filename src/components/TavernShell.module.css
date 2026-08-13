@@ -12,9 +12,11 @@
   z-index: 40; /* owns a stacking context so the menu can't be trapped behind body */
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: var(--density-gap);
   height: 60px;
-  padding: 0 20px;
+  /* Vertical stays 0 — the bar's height is fixed at 60px; only the horizontal
+     breathing room should track density. */
+  padding: 0 var(--density-pad);
   border-bottom: 1px solid var(--line);
   background: color-mix(in oklab, var(--card) 86%, transparent);
   backdrop-filter: blur(20px);
@@ -223,9 +225,9 @@
 .workspaceHeader {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--density-gap);
   flex-wrap: wrap;
-  padding: 20px 28px;
+  padding: var(--density-pad);
   border-bottom: 1px solid var(--line-2);
 }
 .title {
@@ -244,7 +246,7 @@
 }
 .body {
   flex: 1;
-  padding: 24px 28px 48px;
+  padding: var(--density-pad);
 }
 
 /* ≤1024px — hide the disabled "soon" preview tabs (Codex/Memory). They're the

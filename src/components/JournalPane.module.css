@@ -1,7 +1,7 @@
 .root {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--density-gap);
   height: 100%;
 }
 
@@ -30,7 +30,7 @@
   place-items: center;
   width: 32px;
   height: 32px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   /* A11Y-BUTTON-BORDER-CONTRAST: clickable close button — --line-strong
      clears WCAG 1.4.11's 3:1 non-text contrast. */
   border: 1px solid var(--line-strong);
@@ -80,7 +80,7 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--density-gap);
 }
 
 .list li {
