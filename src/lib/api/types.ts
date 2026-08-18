@@ -1065,6 +1065,21 @@ export interface CombatMessageResult {
   state?: CombatState;
   /** Set when finalize_combat auto-advanced the scene (ADV-8). */
   scene_advance?: CombatSceneAdvance | null;
+  /**
+   * WF-O-OUTCOMELINE (2026-08-16, engine): authored narration for the
+   * SPECIFIC outcome that just resolved (rescue/victory/flee/...), resolved
+   * server-side in `apply_encounter_outcome` before the advance_to fork —
+   * present whenever an outcome resolves, independent of whether
+   * `scene_advance` is also set. Top-level sibling of `scene_advance`, NOT
+   * nested inside it (engine `routes/combat.py` echoes both from the same
+   * `finalize_combat` return dict). Replaces the retired C3-era
+   * `rescue_outcome_line` grounding key (see `C3_GROUNDING_FIELD` below —
+   * that mechanism is now permanently dead on the engine side, kept only so
+   * a stray authored key degrades to a no-op rather than a crash). Same
+   * contract as `arrival_line`: non-empty string when present, <=400 chars,
+   * explicit `null` == absent.
+   */
+  outcome_line?: string | null;
   /** Error: machine-readable refusal reason (e.g. 'not_your_turn'). */
   reason?: string;
   [k: string]: unknown;
@@ -1546,6 +1561,9 @@ export interface EndCombatResult {
   xp_earned?: number;
   defeated?: string[];
   scene_advance?: CombatSceneAdvance | null;
+  /** WF-O-OUTCOMELINE — see `CombatMessageResult.outcome_line`'s doc comment;
+   *  identical contract, same top-level-sibling-of-scene_advance shape. */
+  outcome_line?: string | null;
 }
 
 // ── DnD: re-bind (B2) ─────────────────────────────────────────────────────────

@@ -3490,16 +3490,47 @@ export default function PlayPage() {
   /**
    * Handle an ADV-8 auto-advance (scene_advance != null on a combat response).
    * Surfaced as a system log beat + grounding refresh + DM narration.
+   *
+   * `outcomeLine` (WF-O-OUTCOMELINE, 2026-08-16 engine / 2026-08-18 Tavern) —
+   * the authored line for the SPECIFIC outcome that just resolved (rescue,
+   * victory, flee, ...), delivered as a top-level sibling of `scene_advance`
+   * on the combat-mutation response. Mirrors `onMoveOn`'s DM-ARRIVAL-
+   * NARRATION "REPLACE the beat" ruling (Leon 2026-08-09): when present, it
+   * IS the transition narration for this beat and the synthetic "Scene
+   * advance: X → Y. Narrate the transition." call below is skipped entirely
+   * — there is nothing here for a model to react to that authored prose
+   * doesn't do better, instantly, at a seam that otherwise costs a full
+   * turn. Falls through to the destination's `arrival_line` next
+   * (TAV-ARRIVAL-ON-AUTO-ADVANCE — previously `playArrivalLine` was wired
+   * ONLY into `onMoveOn`, so a combat/auto-driven advance — the 2026-08-18
+   * flight → hut rescue, most of all — played no arrival line at all even
+   * when the destination authored one), then finally the generic beat.
+   * Exactly one of the three ever fires per advance — never stacked.
    */
   const handleSceneAdvance = useCallback(
-    async (fromScene: string, toScene: string, outcome?: string) => {
+    async (fromScene: string, toScene: string, outcome?: string, outcomeLine?: string | null) => {
       const label = outcome ? ` (${outcome})` : '';
       appendLog({
         who: 'Suzu',
         kind: 'system',
         text: `The scene shifts: ${fromScene} → ${toScene}${label}`,
       });
-      await refreshGrounding();
+      const freshGrounding = await refreshGrounding();
+      if (typeof outcomeLine === 'string' && outcomeLine.trim()) {
+        // Defense-in-depth ceiling mirrors playRescueTransitionLine's — same
+        // <=400-char authoring contract, checked client-side too since a
+        // malformed/over-length line should degrade to the generic beat
+        // rather than dumping raw content into the transcript.
+        if (outcomeLine.length > 400) {
+          console.warn(
+            `[outcome_line] transition line for scene "${toScene}" is ${outcomeLine.length} chars (ceiling 400) — dropped, not rendered.`,
+          );
+        } else {
+          appendLog({ who: 'Suzu', kind: 'narration', text: outcomeLine });
+          return;
+        }
+      }
+      if (playArrivalLine(freshGrounding)) return;
       // Kage #1 / Miko DEFECT-2: this beat only narrates a transition the
       // caller's own scene_advance already performed server-side — suppress
       // the server's INTENT classifier from advancing the scene AGAIN.
@@ -3519,7 +3550,7 @@ export default function PlayPage() {
         ); // byte-unchanged legacy path
       }
     },
-    [appendLog, refreshGrounding, narrate, narrateDurableBeat],
+    [appendLog, refreshGrounding, playArrivalLine, narrate, narrateDurableBeat],
   );
 
   /** Manual "Move on" button handler (ADV-7T). */
@@ -3888,7 +3919,12 @@ export default function PlayPage() {
         let message = '';
         let playerLine = '';
         let newState: CombatState | null | undefined;
-        let sceneAdvance: { fromScene: string; toScene: string; outcome?: string } | null = null;
+        let sceneAdvance: {
+          fromScene: string;
+          toScene: string;
+          outcome?: string;
+          outcomeLine?: string | null;
+        } | null = null;
 
         if (action === 'attack' && payload) {
           // payload is the participant_id (from the target menu item's id).
@@ -3935,6 +3971,7 @@ export default function PlayPage() {
               fromScene: res.scene_advance.from_scene,
               toScene: res.scene_advance.to_scene,
               outcome: res.scene_advance.outcome,
+              outcomeLine: res.outcome_line,
             };
           }
           // Surface what happened from last_action.
@@ -3960,6 +3997,22 @@ export default function PlayPage() {
           // character first.
           const res = await combatDeathSave({ username, combat_id: combatId });
           newState = res.state ?? null;
+          // TAV-DEATHSAVE-SCENE-ADVANCE (2026-08-18): a death save can
+          // trigger the engine's anti-TPK rescue (`maybe_trigger_anti_tpk_
+          // rescue` -> `finalize_combat`), which — exactly like the attack
+          // and endturn branches above/below — may carry a `scene_advance`.
+          // This branch used to drop it on the floor entirely: no scene-shift
+          // log line, no grounding refresh, no transition narration — just
+          // dead air until the next scene's narration appeared with no
+          // lead-in. Structurally parallel to its two siblings now.
+          if (res.scene_advance) {
+            sceneAdvance = {
+              fromScene: res.scene_advance.from_scene,
+              toScene: res.scene_advance.to_scene,
+              outcome: res.scene_advance.outcome,
+              outcomeLine: res.outcome_line,
+            };
+          }
           message = res.message ?? 'You roll a death save.';
           playerLine = 'I roll a death save.';
         } else if (action === 'endturn') {
@@ -3970,6 +4023,7 @@ export default function PlayPage() {
               fromScene: res.scene_advance.from_scene,
               toScene: res.scene_advance.to_scene,
               outcome: res.scene_advance.outcome,
+              outcomeLine: res.outcome_line,
             };
           }
           message = res.message ?? 'You end your turn.';
@@ -4005,7 +4059,12 @@ export default function PlayPage() {
 
         // ADV-8 auto-advance: scene_advance != null means combat resolved + scene moved.
         if (sceneAdvance) {
-          await handleSceneAdvance(sceneAdvance.fromScene, sceneAdvance.toScene, sceneAdvance.outcome);
+          await handleSceneAdvance(
+            sceneAdvance.fromScene,
+            sceneAdvance.toScene,
+            sceneAdvance.outcome,
+            sceneAdvance.outcomeLine,
+          );
         }
 
         // If combat ended, refresh grounding for the "Move on" affordance.
@@ -4086,6 +4145,7 @@ export default function PlayPage() {
           result.scene_advance.from_scene,
           result.scene_advance.to_scene,
           result.scene_advance.outcome,
+          result.outcome_line,
         );
       } else {
         void refreshGrounding();
@@ -4361,6 +4421,7 @@ export default function PlayPage() {
               mres.scene_advance.from_scene,
               mres.scene_advance.to_scene,
               mres.scene_advance.outcome,
+              mres.outcome_line,
             );
             break;
           }
