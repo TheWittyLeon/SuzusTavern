@@ -497,3 +497,67 @@ describe('TAV-ARRIVAL-ON-AUTO-ADVANCE — playArrivalLine reachable from combat-
     expect(mStream.mock.calls[1][0].message).toBe('The scene changes.');
   });
 });
+
+describe('Miko QA (2026-08-18 batch validation) — outcome_line boundary + no-scene-advance gap', () => {
+  it('outcome_line at exactly 400 chars renders (boundary passes; only 401+ was pinned by name)', async () => {
+    const line400 = 'x'.repeat(400);
+    mGetCombatState.mockResolvedValue(COMBAT_STATE_DYING);
+    mGetGrounding.mockResolvedValueOnce(SCENE_FROM).mockResolvedValue(SCENE_TO_PLAIN);
+    mRollDeathSave.mockResolvedValue({
+      message: 'You stabilize — someone drags you clear.',
+      state: COMBAT_STATE_ENDED,
+      scene_advance: { from_scene: 'everfree_flight', to_scene: 'everfree_zecoras_hut', outcome: 'rescue' },
+      outcome_line: line400,
+    });
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+
+    await clickDeathSave();
+
+    expect(await screen.findByText(line400)).toBeInTheDocument();
+    await waitFor(() => expect(mStream).toHaveBeenCalledTimes(1));
+  });
+
+  it(
+    'DOCUMENTED LIMITATION: outcome_line with scene_advance=null (a same-scene ' +
+      'victory/flee resolution — the engine supports this per WF-O-OUTCOMELINE, ' +
+      "advance_to can be null while outcome_line is still populated) is silently " +
+      'dropped — handleSceneAdvance is never invoked because every call site gates ' +
+      'on `if (res.scene_advance)` first. Pinned so this stays a visible, ' +
+      'deliberate product decision rather than a silent gap — if this starts ' +
+      "failing, either the gating changed (update this test) or it changed back " +
+      'to a real regression worth re-litigating.',
+    async () => {
+      mGetCombatState.mockResolvedValue(COMBAT_STATE_ACTIVE);
+      mGetGrounding.mockResolvedValue(SCENE_FROM);
+      mAttack.mockResolvedValue({
+        message: 'You attack Timberwolf. (victory)',
+        state: COMBAT_STATE_ENDED,
+        scene_advance: null,
+        outcome_line: OUTCOME_LINE,
+      });
+      render(<PlayPage />);
+      await screen.findByText('The Hollow Tide');
+
+      await waitFor(() =>
+        expect(screen.getAllByRole('button', { name: /Attack/i }).length).toBeGreaterThan(0),
+      );
+      await act(async () => {
+        fireEvent.click(screen.getAllByRole('button', { name: /Attack/i })[0]);
+      });
+      await waitFor(() => screen.getByRole('menu'));
+      await act(async () => {
+        fireEvent.click(screen.getByRole('menuitem', { name: /Timberwolf/i }));
+      });
+
+      // The authored victory line never reaches the transcript...
+      await waitFor(() => expect(mGetGrounding).toHaveBeenCalled());
+      expect(screen.queryByText(OUTCOME_LINE)).not.toBeInTheDocument();
+      // ...and no synthetic transition beat fires either (handleSceneAdvance,
+      // the only caller of that beat, was never invoked at all) -- only the
+      // attack's own reaction beat streams.
+      await waitFor(() => expect(mStream).toHaveBeenCalledTimes(1));
+      expect(mStream.mock.calls[0][0].message).toBe('I attack Timberwolf.');
+    },
+  );
+});
