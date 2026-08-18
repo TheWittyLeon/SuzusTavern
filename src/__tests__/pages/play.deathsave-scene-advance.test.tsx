@@ -117,6 +117,7 @@ const mGetCombatState = dnd.getCombatState as jest.MockedFunction<typeof dnd.get
 const mRollDeathSave = dnd.rollDeathSave as jest.MockedFunction<typeof dnd.rollDeathSave>;
 const mAttack = dnd.attack as jest.MockedFunction<typeof dnd.attack>;
 const mEndTurn = dnd.endTurn as jest.MockedFunction<typeof dnd.endTurn>;
+const mEndCombat = dnd.endCombat as jest.MockedFunction<typeof dnd.endCombat>;
 const mStream = stream.streamDmNarration as jest.MockedFunction<typeof stream.streamDmNarration>;
 
 const SESSION_WITH_COMBAT: Session = {
@@ -637,5 +638,41 @@ describe('Miko QA (2026-08-18 batch validation, revised) — outcome_line bounda
     // own reaction beat streams.
     await waitFor(() => expect(mStream).toHaveBeenCalledTimes(1));
     expect(mStream.mock.calls[0][0].message).toBe('I attack Timberwolf.');
+  });
+});
+
+describe('T1 LIVE PATH (Kage-CR re-review 2026-08-18) — onEndCombat, not just the mAttack forward-contract pin', () => {
+  // POST /combat/{id}/end emits outcome_line unconditionally today (engine
+  // routes/combat.py, the DM-gated finalize route) — onEndCombat -> endCombat()
+  // is exactly how a victory/flee resolution reaches the client, unlike the
+  // mAttack/mEndTurn tests above (forward-contract pins on a route that
+  // doesn't emit outcome_line yet). This is the one call site where deleting
+  // `playOutcomeLine(result.outcome_line)` from the else-branch would be a
+  // LIVE regression, not a speculative one — verified to catch that mutation
+  // (commented the call out locally, confirmed this test reds, restored).
+  it('outcome_line with scene_advance: null renders verbatim, with no "The scene shifts:" row', async () => {
+    mGetCombatState.mockResolvedValue(COMBAT_STATE_ACTIVE);
+    mGetGrounding.mockResolvedValue(SCENE_FROM);
+    mEndCombat.mockResolvedValue({
+      state: COMBAT_STATE_ENDED,
+      outcome: 'flee',
+      scene_advance: null,
+      outcome_line: OUTCOME_LINE,
+    });
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+
+    const endBtn = await screen.findByRole('button', { name: /End combat — choose outcome/i });
+    await act(async () => {
+      fireEvent.click(endBtn);
+    });
+    await screen.findByRole('group', { name: /Choose combat outcome/i });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Flee\b/i }));
+    });
+
+    expect(await screen.findByText(OUTCOME_LINE)).toBeInTheDocument();
+    // No scene_advance -> handleSceneAdvance never ran -> no scene-shift log.
+    expect(screen.queryByText(/The scene shifts:/)).not.toBeInTheDocument();
   });
 });
