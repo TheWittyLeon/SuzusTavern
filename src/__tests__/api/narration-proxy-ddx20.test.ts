@@ -267,16 +267,29 @@ describe('GET dm/stream — job-resume/subscribe tail', () => {
     expect((opts.headers as Headers).get('authorization')).toBe('Bearer my-tok');
   });
 
-  it('uses explicit Authorization header over the cookie when both present', async () => {
+  it('uses the cookie-derived token when a client Authorization header is ALSO present (cookie wins)', async () => {
+    // TAV-DND-PROXY-CLIENT-BEARER-OVERRIDE (Leon's ruling 2026-08-19): cookie
+    // wins — a browser-supplied Authorization header is never trusted.
     mockFetch.mockResolvedValueOnce(sseUpstream());
     const req = makeGetRequest(
       ['dm', 'stream'],
       { job_id: 'job-1' },
-      { headers: { authorization: 'Bearer explicit' }, cookie: 'st_access=cookie-tok' },
+      { headers: { authorization: 'Bearer bogus-client-supplied-token' }, cookie: 'st_access=cookie-tok' },
     );
     await GET(req, makeCtx(['dm', 'stream']));
     const [, opts] = mockFetch.mock.calls[0] as [string, RequestInit & { headers: Headers }];
-    expect((opts.headers as Headers).get('authorization')).toBe('Bearer explicit');
+    expect((opts.headers as Headers).get('authorization')).toBe('Bearer cookie-tok');
+  });
+
+  it('401 when a client bearer is present but the st_access cookie is absent (no passthrough)', async () => {
+    const req = makeGetRequest(
+      ['dm', 'stream'],
+      { job_id: 'job-1' },
+      { headers: { authorization: 'Bearer client-only-token' } },
+    );
+    const res = await GET(req, makeCtx(['dm', 'stream']));
+    expect(res.status).toBe(401);
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it('401 when neither cookie nor Authorization header present — never calls upstream', async () => {

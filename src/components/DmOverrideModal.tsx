@@ -16,7 +16,11 @@
  * On network error: surfaces a generic message inline; keeps modal open.
  *
  * Security: this component is only rendered when isDm && dm_mode==='human'.
- * The engine enforces the DM-seat check server-side (reason='not_dm').
+ * The engine enforces the DM-seat check server-side as an existence oracle
+ * (WF-I, 2026-08-14): a combat that doesn't exist and a combat that exists
+ * but isn't yours both refuse identically — 404 reason='combat_not_found'.
+ * Pre-WF-I engines/proxies could still emit 400 reason='not_dm'; that branch
+ * is kept below as a harmless legacy fallback.
  * Do NOT add client-side filtering of override events — the server filters via
  * dm_override_player_visible. The client renders whatever events the BFF returns.
  *
@@ -53,6 +57,27 @@ const DEGREE_OPTIONS: Array<{ value: OverrideCheckOutcome['degree']; label: stri
   { value: 'success', label: 'Success' },
   { value: 'crit_success', label: 'Critical Success' },
 ];
+
+/**
+ * Engine refusal codes → readable copy (WF-B reason-map convention — mirrors
+ * DmNarrationPanel's refusalCopy / GrantCurrencyPanel's GRANT_REFUSAL_COPY).
+ * Codes not listed here fall back to the engine's own message, or a generic
+ * string if none is present (see handleSubmit's catch block).
+ *
+ * combat_not_found (WF-I, 2026-08-14): the engine's DM-seat check is now an
+ * existence oracle — a combat that doesn't exist and a combat that exists
+ * but isn't yours return the SAME 404/combat_not_found response, so this
+ * copy must not imply either state specifically.
+ * not_dm (400) is a legacy fallback for pre-WF-I engines/proxies; harmless
+ * now that combat_not_found is the primary code.
+ */
+const OVERRIDE_REFUSAL_COPY: Record<string, string> = {
+  combat_not_found: "That combat can't be overridden — it may have ended, or you may not be its DM.",
+  not_dm: 'Only the DM can submit overrides.',
+  combat_not_active: 'Combat is not active.',
+  actor_not_found: 'Selected actor not found in combat.',
+  target_not_found: 'Selected target not found in combat.',
+};
 
 export interface DmOverrideModalProps {
   open: boolean;
@@ -243,16 +268,12 @@ export default function DmOverrideModal({
 
       if (engineReason === 'override_malformed') {
         setSubmitError(`Override refused: ${engineMessage ?? 'shape invalid'}`);
-      } else if (engineReason === 'not_dm') {
-        setSubmitError('Only the DM can submit overrides.');
-      } else if (engineReason === 'combat_not_active') {
-        setSubmitError('Combat is not active.');
-      } else if (engineReason === 'actor_not_found') {
-        setSubmitError('Selected actor not found in combat.');
-      } else if (engineReason === 'target_not_found') {
-        setSubmitError('Selected target not found in combat.');
       } else {
-        setSubmitError(engineMessage ?? 'Override failed. Check the values and try again.');
+        setSubmitError(
+          OVERRIDE_REFUSAL_COPY[engineReason ?? '']
+          ?? engineMessage
+          ?? 'Override failed. Check the values and try again.',
+        );
       }
     } finally {
       setSubmitting(false);

@@ -110,27 +110,6 @@ describe('POST — JSON proxy', () => {
     expect(body.error).toBe('bad input');
   });
 
-  it('forwards Authorization header to upstream', async () => {
-    mockFetch.mockResolvedValueOnce(
-      new Response(JSON.stringify({ success: true, data: {} }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
-    );
-
-    const req = makeRequest('POST', 'http://localhost:3000/api/dnd/sessions', {
-      body: '{}',
-      headers: { authorization: 'Bearer test-token' },
-    });
-    const ctx = makeContext(['sessions']);
-
-    await POST(req, ctx);
-
-    const [, fetchOptions] = mockFetch.mock.calls[0] as [string, RequestInit & { headers: Headers }];
-    const headers = fetchOptions.headers as Headers;
-    expect(headers.get('authorization')).toBe('Bearer test-token');
-  });
-
   it('reconstructs URL path from [...path] segments', async () => {
     mockFetch.mockResolvedValueOnce(
       new Response(JSON.stringify({ success: true, data: {} }), {
@@ -390,10 +369,144 @@ describe('Upstream response with no Content-Type header', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Cookie fallback (§3.1 additive — Pass 2)
+// SECURITY-4 — path-traversal guard
+// ---------------------------------------------------------------------------
+//
+// Regression for the encoded-slash traversal: Next.js decodes %2F inside a
+// single catch-all segment, so params.path can contain decoded '../' sequences
+// (or a raw '/') that, once joined and passed to new URL(), escape the
+// /api/dnd/ prefix and reach ANY route/method on the NekoNova backend. The
+// proxy must refuse these with 400 and never call fetch().
+
+describe('SECURITY-4 — path traversal', () => {
+  it('rejects a decoded ../ traversal segment with 400 and does not forward', async () => {
+    // What Next.js produces for /api/dnd/a/b/..%2f..%2f..%2f..%2fadmin
+    const req = makeRequest('GET', 'http://localhost:3000/api/dnd/a/b/x');
+    const ctx = makeContext(['a', 'b', '../../../../admin']);
+
+    const res = await GET(req, ctx);
+    expect(res.status).toBe(400);
+    expect(mockFetch).not.toHaveBeenCalled();
+    const body = await res.json() as { success: boolean; data: { reason: string } };
+    expect(body.success).toBe(false);
+    expect(body.data.reason).toBe('invalid_path');
+  });
+
+  it('rejects a POST traversal that would reach /api/alerts/test, without forwarding', async () => {
+    const req = makeRequest('POST', 'http://localhost:3000/api/dnd/a/b/x', {
+      body: JSON.stringify({ message: 'pwned' }),
+    });
+    const ctx = makeContext(['a', 'b', '../../..', 'api', 'alerts', 'test']);
+
+    const res = await POST(req, ctx);
+    expect(res.status).toBe(400);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('rejects a bare ".." segment (admin-gate bypass vector)', async () => {
+    const req = makeRequest('GET', 'http://localhost:3000/api/dnd/x');
+    const ctx = makeContext(['..', 'admin', 'content']);
+
+    const res = await GET(req, ctx);
+    expect(res.status).toBe(400);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('rejects a segment containing a raw slash', async () => {
+    const req = makeRequest('GET', 'http://localhost:3000/api/dnd/x');
+    const ctx = makeContext(['sessions', 'sess-1/../../admin']);
+
+    const res = await GET(req, ctx);
+    expect(res.status).toBe(400);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('still forwards a legitimate nested path (no false positive)', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ success: true, data: {} }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    const req = makeRequest('GET', 'http://localhost:3000/api/dnd/sessions/sess-1/grounding');
+    const ctx = makeContext(['sessions', 'sess-1', 'grounding']);
+
+    const res = await GET(req, ctx);
+    expect(res.status).toBe(200);
+    const [upstreamUrl] = mockFetch.mock.calls[0] as [string];
+    expect(upstreamUrl).toContain('/api/dnd/sessions/sess-1/grounding');
+  });
+
+  it('does not reject a legitimate segment that merely contains dots', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ success: true, data: {} }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    const req = makeRequest('GET', 'http://localhost:3000/api/dnd/catalog/v1.2');
+    const ctx = makeContext(['catalog', 'v1.2']);
+
+    const res = await GET(req, ctx);
+    expect(res.status).toBe(200);
+  });
+
+  // Regression lock (colon boundary): isUnsafePathSegment()'s blocklist is
+  // slash/backslash/NUL + '.'/'..' + encoded %2f/%5c/%00 — it does NOT
+  // include ':'. That's load-bearing, not incidental: engine's
+  // POST /{character_id}/level-choices/{choice_id} route (routes/
+  // characters.py) is fed choice_id values built by
+  // engine/commands/character_msm.py as f"asi:{level}", f"subclass:{level}",
+  // and f"spell:{level}" (resolve_level_choice's own choice-id shape) —
+  // real production level-up traffic reaches this proxy with a colon in the
+  // LAST path segment on every single one of those choice kinds. A future
+  // "harden the traversal guard further" pass that reflexively blocklists
+  // ':' (a reserved URI character, an easy target for a well-meaning but
+  // untested tightening) would silently 400 every ASI/subclass/spell
+  // level-up choice a player makes. Pinned here, not just left to the
+  // absence of a rejecting test, so that regression fails LOUDLY (a red
+  // assertion naming the exact production shape) instead of shipping quiet.
+  describe('colon-containing segments — real level-choice ids must pass through', () => {
+    it.each([
+      ['asi:5', 'ASI level-choice id (character_msm.py resolve_level_choice)'],
+      ['subclass:3', 'subclass level-choice id'],
+      ['spell:2', 'spell level-choice id'],
+    ])('%s (%s) is not rejected by isUnsafePathSegment and reaches upstream', async (choiceId) => {
+      mockFetch.mockResolvedValueOnce(
+        new Response(JSON.stringify({ success: true, data: {} }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+
+      const req = makeRequest(
+        'POST',
+        `http://localhost:3000/api/dnd/characters/char-1/level-choices/${choiceId}`,
+        { body: JSON.stringify({ option_id: 'fighter' }) },
+      );
+      const ctx = makeContext(['characters', 'char-1', 'level-choices', choiceId]);
+
+      const res = await POST(req, ctx);
+
+      expect(res.status).toBe(200);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const [upstreamUrl] = mockFetch.mock.calls[0] as [string];
+      expect(upstreamUrl).toBe(
+        `http://localhost:8080/api/dnd/characters/char-1/level-choices/${choiceId}`,
+      );
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cookie-only auth forwarding (TAV-DND-PROXY-CLIENT-BEARER-OVERRIDE,
+// Leon's ruling 2026-08-19: cookie wins — the client-supplied Authorization
+// header is never trusted for the forwarded request).
 // ---------------------------------------------------------------------------
 
-describe('Cookie fallback — st_access injection', () => {
+describe('Cookie-only auth forwarding — st_access is the sole source', () => {
   it('injects Bearer from st_access cookie when no Authorization header is present', async () => {
     mockFetch.mockResolvedValueOnce(
       new Response(JSON.stringify({ success: true, data: {} }), {
@@ -414,5 +527,58 @@ describe('Cookie fallback — st_access injection', () => {
     const [, fetchOptions] = mockFetch.mock.calls[0] as [string, RequestInit & { headers: Headers }];
     const headers = fetchOptions.headers as Headers;
     expect(headers.get('authorization')).toBe('Bearer cookie-bearer-token');
+  });
+
+  it('uses the cookie-derived token when a client Authorization header is ALSO present (cookie wins)', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ success: true, data: {} }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    // Bogus client bearer AND a valid cookie — the cookie-derived token must
+    // be what reaches upstream, never the client-supplied header.
+    const req = makeRequest('POST', 'http://localhost:3000/api/dnd/sessions', {
+      body: '{}',
+      headers: {
+        authorization: 'Bearer bogus-client-supplied-token',
+        cookie: 'st_access=cookie-bearer-token',
+      },
+    });
+    const ctx = makeContext(['sessions']);
+
+    await POST(req, ctx);
+
+    const [, fetchOptions] = mockFetch.mock.calls[0] as [string, RequestInit & { headers: Headers }];
+    const headers = fetchOptions.headers as Headers;
+    expect(headers.get('authorization')).toBe('Bearer cookie-bearer-token');
+    expect(headers.get('authorization')).not.toBe('Bearer bogus-client-supplied-token');
+  });
+
+  it('does not forward a client bearer when no st_access cookie is present (no passthrough)', async () => {
+    mockFetch.mockResolvedValueOnce(
+      // Upstream's own unauthenticated shape — the proxy itself does not
+      // gate non-admin paths on auth presence; it relies on the engine to
+      // reject. What we assert here is that the client-supplied bearer is
+      // NOT what's forwarded.
+      new Response(JSON.stringify({ success: false, error: 'unauthorized' }), {
+        status: 401,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    const req = makeRequest('POST', 'http://localhost:3000/api/dnd/sessions', {
+      body: '{}',
+      headers: { authorization: 'Bearer client-only-token' },
+    });
+    const ctx = makeContext(['sessions']);
+
+    const res = await POST(req, ctx);
+
+    const [, fetchOptions] = mockFetch.mock.calls[0] as [string, RequestInit & { headers: Headers }];
+    const headers = fetchOptions.headers as Headers;
+    expect(headers.get('authorization')).toBeNull();
+    expect(res.status).toBe(401);
   });
 });
