@@ -37,7 +37,11 @@
 // the check hijack that rule was written against. See its own doc block.
 import type { SceneTransition } from '@/lib/api/types';
 
-export type ClientIntent = { type: 'transition'; to: string };
+// `to` mirrors SceneTransition.to (string | null) -- an authored terminal
+// exit (`to: null`) is a real member of `transitions` (engine does not
+// filter it out) and can be the sole/matched edge below just like a named
+// one. TEST-NULL-TOSCENE-TAVERN-TYPE-MISMATCH (2026-08-19).
+export type ClientIntent = { type: 'transition'; to: string | null };
 
 /**
  * Escape a literal phrase for use inside a RegExp, then wrap it in `\b`

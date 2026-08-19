@@ -1410,7 +1410,13 @@ const normalizeGrounding = (raw: unknown): GroundingData | null => {
     transitions: Array.isArray(scene.transitions)
       ? (scene.transitions as Record<string, unknown>[]).map(
           (t): SceneTransition => ({
-            to: t.to as string,
+            // TEST-NULL-TOSCENE-TAVERN-TYPE-MISMATCH (2026-08-19): the old
+            // `t.to as string` cast silently coerced a genuine terminal
+            // transition's `to: null` to the TYPE `string` without changing
+            // the VALUE — every downstream reader inherited a lie. Narrow
+            // for real: string passes through, anything else (null,
+            // undefined) normalizes to null.
+            to: typeof t.to === 'string' ? t.to : null,
             ...(t.label ? { label: t.label as string } : {}),
             ...(t.requires_encounter_resolved
               ? { requires_encounter_resolved: t.requires_encounter_resolved as string }

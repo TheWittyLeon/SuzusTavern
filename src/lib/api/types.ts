@@ -966,7 +966,14 @@ export interface CombatLastAction {
   vs_ac?: number | null;
 }
 
-/** Populated on mutating responses when ADV-8 auto-advanced the scene. */
+/** Populated on mutating responses when ADV-8 auto-advanced the scene.
+ *  `to_scene` stays non-nullable here (unlike `AdvanceSceneResult.to_scene`,
+ *  TEST-NULL-TOSCENE-TAVERN-TYPE-MISMATCH, 2026-08-19) — checked against the
+ *  engine: `engine/adventure_helpers.py::apply_scene_advance`, the only
+ *  producer of this shape, is documented as "never called at all when
+ *  advance_to is null" (victory/flee auto-advance always name a destination
+ *  scene); the null-terminal path is `apply_adventure_completion`, a
+ *  different function this type does not describe. */
 export interface CombatSceneAdvance {
   from_scene: string;
   to_scene: string;
@@ -1277,7 +1284,13 @@ export interface CombatFromSceneResult {
 
 /** A valid transition from the current scene to another. */
 export interface SceneTransition {
-  to: string;
+  /** Null on an authored terminal exit (`to: null` in the adventure source —
+   *  "end the adventure here", no destination scene). `engine/beats.py::
+   *  available_transitions` does NOT filter these out, so a terminal
+   *  transition reaches `grounding.transitions` like any other and can be
+   *  rendered/matched exactly like a named one (TEST-NULL-TOSCENE-TAVERN-
+   *  TYPE-MISMATCH, 2026-08-19). */
+  to: string | null;
   label?: string;
   /** When present: this transition is locked until the named encounter is
    *  resolved. Gated CLIENT-side (see the play page's `availableTransitions`)
@@ -1416,17 +1429,32 @@ export interface GroundingData {
 
 /** Request body for POST /api/dnd/sessions/{id}/advance (ADV-7). */
 export interface AdvanceSceneRequest {
-  to_scene: string;
+  /** TAV-SLICE-END-ADVANCE-NULL (engine `d41351f`, Leon decision (b),
+   *  2026-08-09): null is the legal shape for "take the current scene's
+   *  authored end-of-slice exit" — legal only when the CURRENT scene offers
+   *  an AVAILABLE `to: null` transition; the engine 400s `to_scene_required`
+   *  otherwise. See `AdvanceSceneResult.completed`. */
+  to_scene: string | null;
   flags?: Record<string, unknown>;
 }
 
 /** Response from POST /api/dnd/sessions/{id}/advance. */
 export interface AdvanceSceneResult {
   from_scene: string;
-  to_scene: string;
+  /** Null on the terminal transition (see `AdvanceSceneRequest.to_scene`) —
+   *  the adventure ended AT `from_scene`; there is no destination scene.
+   *  TEST-NULL-TOSCENE-TAVERN-TYPE-MISMATCH (2026-08-19): this field was
+   *  wrongly typed non-nullable even though the engine has sent null here
+   *  since `d41351f` (2026-08-09) — every reader must null-check. */
+  to_scene: string | null;
   flags_set?: string[];
   visited_scenes_count?: number;
   ends_adventure?: boolean;
+  /** True only on the terminal (`to_scene: null`) transition, and only when
+   *  the write actually landed (mirrors the engine's
+   *  `apply_adventure_completion` `persisted` gate) — absent, not false, on
+   *  every ordinary named-scene advance. */
+  completed?: boolean;
 }
 
 /** Request body for POST /api/dnd/sessions/{id}/flag. */

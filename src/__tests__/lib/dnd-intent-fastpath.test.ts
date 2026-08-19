@@ -78,6 +78,29 @@ describe('matchKeywordIntent — single non-fork "push on" phrases', () => {
   });
 });
 
+// TEST-NULL-TOSCENE-TAVERN-TYPE-MISMATCH (2026-08-19): a scene whose ONLY
+// authored transition is the terminal exit (`to: null`) is a real, unfiltered
+// member of `transitions` — `engine/beats.py::available_transitions` does not
+// drop it. The fast-path's "single non-fork edge" branch must route to it
+// exactly like a named transition, carrying the null through rather than
+// crashing or coercing it to a string.
+const TERMINAL_TRANSITION: SceneTransition = { to: null, label: 'End the adventure here' };
+
+describe('matchKeywordIntent — the terminal (to: null) transition', () => {
+  it('a sole terminal exit routes like any other single transition, to stays null', () => {
+    expect(matchKeywordIntent('I push on', [TERMINAL_TRANSITION])).toEqual({
+      type: 'transition',
+      to: null,
+    });
+  });
+
+  it('the terminal exit is a valid, matchable fork branch too', () => {
+    expect(
+      matchKeywordIntent('follow the smoke', [FORK_SMOKE, TERMINAL_TRANSITION]),
+    ).toEqual({ type: 'transition', to: 'slice_everfree_zecora' });
+  });
+});
+
 describe('matchKeywordIntent — fork disambiguation (§A.3 "fork = deliberate branch")', () => {
   it('"I follow the smoke" routes to the smoke branch only', () => {
     expect(matchKeywordIntent('I follow the smoke', [FORK_SMOKE, FORK_PATH])).toEqual({

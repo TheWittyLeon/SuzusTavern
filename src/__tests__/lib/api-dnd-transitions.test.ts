@@ -148,4 +148,27 @@ describe('getGrounding — transition projection', () => {
     const g = await getGrounding('s1');
     expect(Object.keys(g!.transitions![1]).sort()).toEqual(['label', 'to']);
   });
+
+  // ── TEST-NULL-TOSCENE-TAVERN-TYPE-MISMATCH (2026-08-19) ─────────────────
+  // A terminal exit is authored `to: null` and `engine/beats.py::
+  // available_transitions` does NOT filter it out, so it reaches this
+  // projection like any named transition. The old `t.to as string` cast
+  // silently coerced the null VALUE to the string TYPE without changing it —
+  // this pins that the projection now narrows for real (string passes
+  // through, anything else normalizes to null) rather than lying about it.
+  it('passes an authored terminal exit (to: null) through as null, not the cast lie', async () => {
+    const payload = groundingPayload();
+    payload.data.current_scene.transitions = [
+      { to: null, label: 'End the adventure here' },
+    ] as unknown as typeof payload.data.current_scene.transitions;
+    respond(payload);
+
+    const g = await getGrounding('s1');
+    expect(g?.transitions).toHaveLength(1);
+    expect(g?.transitions?.[0].to).toBeNull();
+    expect(g?.transitions?.[0].label).toBe('End the adventure here');
+    // Never the STRING "null" -- that would be the cast-lie shape resurfacing
+    // one layer up (JSON round-trip through String(null) et al.).
+    expect(JSON.stringify(g?.transitions)).not.toMatch(/"to"\s*:\s*"null"/);
+  });
 });

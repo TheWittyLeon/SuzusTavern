@@ -158,6 +158,30 @@ const STRUCTURAL_EVENT_KINDS = new Set([
 const POLL_INTERVAL_MS = 4000;
 
 /**
+ * TAV-DANGLING-COMBAT-404-POLL (P2 user-visible, 2026-08-19): consecutive
+ * `GET /combat/{id}/state` 404s the combat-state poll tolerates before
+ * concluding the combat_id is genuinely gone (not a one-tick blip) and
+ * giving up. `session.active_combat_id` was found NOT cleared engine-side
+ * when a combat disappears (see the engine half of this fix), so before this
+ * the poll below retried every `POLL_INTERVAL_MS` forever, surviving hard
+ * reloads and fresh tabs (mount always re-derives `combatId` from the
+ * session's stale field).
+ */
+const COMBAT_POLL_MAX_404S = 3;
+
+/**
+ * combat_ids this JS module instance has already confirmed dead (repeated
+ * 404) — module-level, not component state/ref, so it survives a component
+ * REMOUNT within the same tab (React strict-mode's mount->cleanup->mount, or
+ * leaving/returning to this route via client-side navigation) without
+ * re-hammering an id already given up on. Does NOT survive a hard reload /
+ * fresh tab — that half is the engine's job (clearing
+ * session.active_combat_id itself so a fresh mount never re-derives the dead
+ * id at all).
+ */
+const deadCombatIds = new Set<string>();
+
+/**
  * DDX-20 §4d (Miko-QA finding c) — the poll-only failure-detection grace
  * window: consecutive poll ticks a client's OWN in-flight turn_key may go
  * unreflected in `pending_generation` (with no narration seq > trigger_seq
@@ -704,6 +728,13 @@ export default function PlayPage() {
   // interval on every state-string transition).
   const combatStateRef = useRef<CombatState | null>(null);
 
+  // TAV-DANGLING-COMBAT-404-POLL: consecutive-404 counter for the combat-state
+  // poll below. Reset to 0 whenever the effect (re)starts for a combatId (a
+  // fresh combat_id must not inherit a stale count from a prior one) and on
+  // any successful poll (a blip must not accumulate toward the give-up
+  // threshold across unrelated failures).
+  const combat404CountRef = useRef(0);
+
   const idRef = useRef(0);
   const chatLogRef = useRef<ChatLogHandle>(null);
   const revealRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -1162,7 +1193,15 @@ export default function PlayPage() {
           return;
         }
         setSession(s);
-        const initialCombatId = s.active_combat_id ?? null;
+        const rawInitialCombatId = s.active_combat_id ?? null;
+        // TAV-DANGLING-COMBAT-404-POLL: a remount within this same page load
+        // (client-side nav away/back, strict-mode double-mount) must not
+        // re-derive an id this module already confirmed dead — never let it
+        // reach combatId state at all, so the poll effect below never runs
+        // for it.
+        const initialCombatIsKnownDead =
+          rawInitialCombatId !== null && deadCombatIds.has(rawInitialCombatId);
+        const initialCombatId = initialCombatIsKnownDead ? null : rawInitialCombatId;
         setCombatId(initialCombatId);
         setState('ok');
 
@@ -1399,7 +1438,23 @@ export default function PlayPage() {
 
         // If there's an active combat, fetch its state immediately.
         if (initialCombatId && !ctrl.signal.aborted) {
-          const cs = await getCombatState(initialCombatId, ctrl.signal).catch(() => null);
+          const cs = await getCombatState(initialCombatId, ctrl.signal).catch(
+            (err: unknown) => {
+              // TAV-DANGLING-COMBAT-404-POLL: confirmed dead on the very
+              // FIRST read — give up immediately rather than waiting out
+              // COMBAT_POLL_MAX_404S more failing poll ticks. This is what
+              // makes a fresh tab / hard reload converge fast: without it
+              // the poll effect below still spins up on `initialCombatId`
+              // and re-discovers the same dead id the slow way, every 4s,
+              // for every fresh mount, forever (the originally-reported bug).
+              const status = (err as { status?: number } | null)?.status;
+              if (status === 404) {
+                deadCombatIds.add(initialCombatId);
+                if (!ctrl.signal.aborted) setCombatId(null);
+              }
+              return null;
+            },
+          );
           if (!ctrl.signal.aborted && cs) {
             stateSeqRef.current += 1;
             setCombatState(cs);
@@ -1446,7 +1501,15 @@ export default function PlayPage() {
   // NOT reset the interval. The ended short-circuit is checked inside poll() via
   // combatStateRef so the effect never needs to observe combatState?.state.
   useEffect(() => {
-    if (!combatId) return;
+    // TAV-DANGLING-COMBAT-404-POLL: never (re)start the interval for an id
+    // this module already confirmed dead — covers a remount whose mount-time
+    // fetch above hasn't run yet (or was skipped) but a PRIOR effect
+    // instance already gave up on this exact id.
+    if (!combatId || deadCombatIds.has(combatId)) return;
+
+    // A fresh combat_id must start its own count from zero — do not inherit
+    // a stale tally from whatever combat_id this effect polled before.
+    combat404CountRef.current = 0;
 
     const poll = async () => {
       if (document.hidden) return;
@@ -1455,12 +1518,27 @@ export default function PlayPage() {
       const mySeq = stateSeqRef.current;
       try {
         const cs = await getCombatState(combatId);
+        combat404CountRef.current = 0; // any success resets the tally
         // Only apply if no mutation has happened since we sent this request.
         if (stateSeqRef.current === mySeq) {
           setCombatState(cs);
         }
-      } catch {
-        // Poll errors are non-fatal — the next tick will retry.
+      } catch (err) {
+        const status = (err as { status?: number } | null)?.status;
+        if (status === 404) {
+          combat404CountRef.current += 1;
+          if (combat404CountRef.current >= COMBAT_POLL_MAX_404S) {
+            // Bounded retries exhausted — not a blip, the combat is
+            // genuinely gone. Give up: clearing combatId unmounts this
+            // interval via the cleanup below, and recording the id stops a
+            // remount (within this page load) from restarting the same
+            // doomed loop the instant it re-derives the same stale id.
+            deadCombatIds.add(combatId);
+            setCombatId(null);
+          }
+          return;
+        }
+        // Any other error (network blip, 5xx, ...) — non-fatal, next tick retries.
       }
     };
 
@@ -3528,7 +3606,12 @@ export default function PlayPage() {
   const sceneAdvanceBusyRef = useRef(false);
 
   const onMoveOn = useCallback(
-    async (toScene: string) => {
+    // TEST-NULL-TOSCENE-TAVERN-TYPE-MISMATCH (2026-08-19): toScene is now
+    // string | null -- a scene's authored terminal exit (`to: null`) is a
+    // real, unfiltered member of `availableTransitions` (see that memo's own
+    // comment) and reaches here from both the button's onClick and the
+    // keyword/combat intent fast-path below.
+    async (toScene: string | null) => {
       if (!session || !username || sceneAdvanceBusyRef.current) return;
       // FIX-2: guard against clicking Move on while an opening stream is in flight.
       // Without this, a race between the opening narration and a scene transition
@@ -3549,10 +3632,19 @@ export default function PlayPage() {
         sceneAdvanceBusyRef.current = true;
         setSceneAdvanceBusy(true);
         const result = await advanceScene(session.session_id, { to_scene: toScene });
+        // TEST-NULL-TOSCENE-TAVERN-TYPE-MISMATCH (2026-08-19): result.to_scene
+        // is null on the terminal transition (`completed: true`) — the
+        // adventure ended AT from_scene, there is no destination to name.
+        // This is the last click of a finished adventure, so it gets its own
+        // honest copy rather than interpolating "→ null" into the log and
+        // the narration prompt below.
+        const isTerminalCompletion = result.to_scene === null;
         appendLog({
           who: 'Suzu',
           kind: 'system',
-          text: `The scene shifts: ${result.from_scene} → ${result.to_scene}`,
+          text: isTerminalCompletion
+            ? `The adventure reaches its end at ${result.from_scene}.`
+            : `The scene shifts: ${result.from_scene} → ${result.to_scene}`,
         });
         const advancedGrounding = await refreshGrounding();
         refocusSceneHeadIfStranded(hadFocusInTransitionWrap);
@@ -3577,14 +3669,18 @@ export default function PlayPage() {
         if (DURABLE_GENERATION_ENABLED) {
           void narrateDurableBeat(
             'We move on.',
-            `Scene advance: ${result.from_scene} → ${result.to_scene}. Narrate the transition.`,
+            isTerminalCompletion
+              ? `Adventure complete: the story ends at ${result.from_scene}. Narrate a closing beat.`
+              : `Scene advance: ${result.from_scene} → ${result.to_scene}. Narrate the transition.`,
             'act',
             { suppressIntent: true, beat: 'scene_advance' },
           );
         } else {
           void narrate(
             'We move on.',
-            `Scene advance: ${result.from_scene} → ${result.to_scene}. Narrate the transition.`,
+            isTerminalCompletion
+              ? `Adventure complete: the story ends at ${result.from_scene}. Narrate a closing beat.`
+              : `Scene advance: ${result.from_scene} → ${result.to_scene}. Narrate the transition.`,
             'act',
             { suppressIntent: true },
           ); // byte-unchanged legacy path
@@ -6248,7 +6344,10 @@ export default function PlayPage() {
                 aria-disabled={sceneAdvanceBusy || talking || sessionLocked}
               >
                 <Icon name="Compass" size={13} aria-hidden />
-                {t.label ?? `Move on → ${t.to}`}
+                {/* TEST-NULL-TOSCENE-TAVERN-TYPE-MISMATCH: t.to is null on an
+                    unlabelled terminal exit -- `Move on → null` is not a
+                    string a player should ever see. */}
+                {t.label ?? (t.to === null ? 'End the adventure' : `Move on → ${t.to}`)}
               </button>
             ))}
           </div>
