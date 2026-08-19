@@ -226,13 +226,13 @@ async function proxyRequest(
   const forwardHeaders = new Headers();
   const contentType = req.headers.get('content-type');
   if (contentType) forwardHeaders.set('content-type', contentType);
-  // Inject Bearer from st_access cookie when no Authorization header present.
+  // Inject Bearer from the st_access cookie ONLY (TAV-DND-PROXY-CLIENT-BEARER-OVERRIDE,
+  // Leon's ruling 2026-08-19: cookie wins, the client-supplied Authorization header
+  // is never trusted for the forwarded request — a browser-supplied header
+  // overriding the httpOnly cookie contradicted the cookie-BFF trust model).
   // Feature-detect req.cookies?.get per §8 risk mitigation — test-constructed
   // requests may not have cookie support; if absent, no auth header forwarded.
-  const auth = req.headers.get('authorization');
-  if (auth) {
-    forwardHeaders.set('authorization', auth);
-  } else if (typeof req.cookies?.get === 'function') {
+  if (typeof req.cookies?.get === 'function') {
     const cookieAccess = req.cookies.get('st_access')?.value;
     if (cookieAccess) forwardHeaders.set('authorization', `Bearer ${cookieAccess}`);
   }

@@ -110,27 +110,6 @@ describe('POST — JSON proxy', () => {
     expect(body.error).toBe('bad input');
   });
 
-  it('forwards Authorization header to upstream', async () => {
-    mockFetch.mockResolvedValueOnce(
-      new Response(JSON.stringify({ success: true, data: {} }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
-    );
-
-    const req = makeRequest('POST', 'http://localhost:3000/api/dnd/sessions', {
-      body: '{}',
-      headers: { authorization: 'Bearer test-token' },
-    });
-    const ctx = makeContext(['sessions']);
-
-    await POST(req, ctx);
-
-    const [, fetchOptions] = mockFetch.mock.calls[0] as [string, RequestInit & { headers: Headers }];
-    const headers = fetchOptions.headers as Headers;
-    expect(headers.get('authorization')).toBe('Bearer test-token');
-  });
-
   it('reconstructs URL path from [...path] segments', async () => {
     mockFetch.mockResolvedValueOnce(
       new Response(JSON.stringify({ success: true, data: {} }), {
@@ -476,10 +455,12 @@ describe('SECURITY-4 — path traversal', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Cookie fallback (§3.1 additive — Pass 2)
+// Cookie-only auth forwarding (TAV-DND-PROXY-CLIENT-BEARER-OVERRIDE,
+// Leon's ruling 2026-08-19: cookie wins — the client-supplied Authorization
+// header is never trusted for the forwarded request).
 // ---------------------------------------------------------------------------
 
-describe('Cookie fallback — st_access injection', () => {
+describe('Cookie-only auth forwarding — st_access is the sole source', () => {
   it('injects Bearer from st_access cookie when no Authorization header is present', async () => {
     mockFetch.mockResolvedValueOnce(
       new Response(JSON.stringify({ success: true, data: {} }), {
@@ -500,5 +481,58 @@ describe('Cookie fallback — st_access injection', () => {
     const [, fetchOptions] = mockFetch.mock.calls[0] as [string, RequestInit & { headers: Headers }];
     const headers = fetchOptions.headers as Headers;
     expect(headers.get('authorization')).toBe('Bearer cookie-bearer-token');
+  });
+
+  it('uses the cookie-derived token when a client Authorization header is ALSO present (cookie wins)', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ success: true, data: {} }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    // Bogus client bearer AND a valid cookie — the cookie-derived token must
+    // be what reaches upstream, never the client-supplied header.
+    const req = makeRequest('POST', 'http://localhost:3000/api/dnd/sessions', {
+      body: '{}',
+      headers: {
+        authorization: 'Bearer bogus-client-supplied-token',
+        cookie: 'st_access=cookie-bearer-token',
+      },
+    });
+    const ctx = makeContext(['sessions']);
+
+    await POST(req, ctx);
+
+    const [, fetchOptions] = mockFetch.mock.calls[0] as [string, RequestInit & { headers: Headers }];
+    const headers = fetchOptions.headers as Headers;
+    expect(headers.get('authorization')).toBe('Bearer cookie-bearer-token');
+    expect(headers.get('authorization')).not.toBe('Bearer bogus-client-supplied-token');
+  });
+
+  it('does not forward a client bearer when no st_access cookie is present (no passthrough)', async () => {
+    mockFetch.mockResolvedValueOnce(
+      // Upstream's own unauthenticated shape — the proxy itself does not
+      // gate non-admin paths on auth presence; it relies on the engine to
+      // reject. What we assert here is that the client-supplied bearer is
+      // NOT what's forwarded.
+      new Response(JSON.stringify({ success: false, error: 'unauthorized' }), {
+        status: 401,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    const req = makeRequest('POST', 'http://localhost:3000/api/dnd/sessions', {
+      body: '{}',
+      headers: { authorization: 'Bearer client-only-token' },
+    });
+    const ctx = makeContext(['sessions']);
+
+    const res = await POST(req, ctx);
+
+    const [, fetchOptions] = mockFetch.mock.calls[0] as [string, RequestInit & { headers: Headers }];
+    const headers = fetchOptions.headers as Headers;
+    expect(headers.get('authorization')).toBeNull();
+    expect(res.status).toBe(401);
   });
 });
