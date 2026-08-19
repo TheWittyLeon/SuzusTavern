@@ -170,10 +170,25 @@ describe('apiFetch — 401 refresh-then-retry', () => {
     expect(result).toEqual({ data: 'success' });
   });
 
-  it('throws 401 ApiError if refresh fails', async () => {
+  it('throws 401 ApiError if refresh fails — the real, CONFIRMED-dead-session path (unweakened)', async () => {
+    // TAV-AUTH-DEADBACKEND-AS-DEADSESSION: the auth backend DID answer here
+    // (401 refresh_failed, same shape handleRefresh forwards for a rejected
+    // refresh token) — this is a genuine dead session and must still surface
+    // as ApiError{401, 'unauthorized'} exactly as before this fix.
     mockFetch
       .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401))
       .mockResolvedValueOnce(jsonResponse({ error: 'refresh_failed' }, 401)); // refresh fails
+
+    await expect(apiFetch('/api/test')).rejects.toMatchObject<Partial<ApiError>>({
+      status: 401,
+      code: 'unauthorized',
+    });
+  });
+
+  it('throws 403 ApiError as a confirmed dead session too (not the network/5xx bucket)', async () => {
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401))
+      .mockResolvedValueOnce(jsonResponse({ error: 'forbidden' }, 403)); // refresh 403s
 
     await expect(apiFetch('/api/test')).rejects.toMatchObject<Partial<ApiError>>({
       status: 401,
@@ -203,15 +218,79 @@ describe('apiFetch — 401 refresh-then-retry', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
-  it('throws 401 ApiError when refresh network call itself throws', async () => {
-    // Original request → 401; then refresh fetch() itself throws a network error
-    mockFetch
-      .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401))
-      .mockRejectedValueOnce(new Error('ECONNREFUSED')); // refresh network failure
+  // TAV-AUTH-DEADBACKEND-AS-DEADSESSION (P1, 2026-08-19). Before this fix,
+  // ANY refresh failure — network throw, the BFF's own 502
+  // upstream_unavailable, a real 401 — collapsed into a hardcoded
+  // ApiError{401, 'unauthorized'}, so a dead Authentication-Python backend
+  // read to the player as "your session expired". These pin the corrected
+  // classification: "the refresh call never got a real answer" (network
+  // throw or a 5xx from the BFF) must NOT surface as 401.
+  describe('TAV-AUTH-DEADBACKEND-AS-DEADSESSION — dead backend vs dead session', () => {
+    it('refresh fetch() itself throwing (network/DNS/offline) is NOT reported as 401', async () => {
+      // Original request → 401; then refresh fetch() itself throws a network error
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401))
+        .mockRejectedValueOnce(new Error('ECONNREFUSED')); // refresh network failure
 
-    await expect(apiFetch('/api/test')).rejects.toMatchObject<Partial<ApiError>>({
-      status: 401,
-      code: 'unauthorized',
+      const err = (await apiFetch('/api/test').catch((e: unknown) => e)) as ApiError;
+      // Same {status: 0, code: 'network'} shape this file already uses for a
+      // top-level fetch throw — honest about what actually happened, not a
+      // fabricated session rejection.
+      expect(err.status).toBe(0);
+      expect(err.code).toBe('network');
+      expect(err.status).not.toBe(401);
+    });
+
+    it("the BFF's own 502 upstream_unavailable on refresh is NOT reported as 401", async () => {
+      // This IS the exact defect shape named in the ticket: handleRefresh
+      // (src/app/api/auth/[...path]/route.ts) returns 502
+      // {error:'upstream_unavailable'} when Authentication-Python is
+      // unreachable — it never asked whether THIS session is valid.
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401))
+        .mockResolvedValueOnce(jsonResponse({ error: 'upstream_unavailable' }, 502));
+
+      const err = (await apiFetch('/api/test').catch((e: unknown) => e)) as ApiError;
+      expect(err.status).toBe(502);
+      expect(err.code).toBe('upstream_unavailable');
+      expect(err.status).not.toBe(401);
+      expect(err.code).not.toBe('unauthorized');
+    });
+
+    it('a generic 500 from refresh (no parseable body) falls back to the honest default code, still not 401', async () => {
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401))
+        .mockResolvedValueOnce(
+          new Response('internal server error', {
+            status: 500,
+            headers: { 'content-type': 'text/plain' },
+          }),
+        );
+
+      const err = (await apiFetch('/api/test').catch((e: unknown) => e)) as ApiError;
+      expect(err.status).toBe(500);
+      expect(err.code).toBe('upstream_unavailable');
+      expect(err.status).not.toBe(401);
+    });
+
+    it('a 429 (rate-limited) refresh call is reported as 429/rate_limited, not 401', async () => {
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401))
+        .mockResolvedValueOnce(jsonResponse({ error: 'rate_limited' }, 429));
+
+      await expect(apiFetch('/api/test')).rejects.toMatchObject<Partial<ApiError>>({
+        status: 429,
+        code: 'rate_limited',
+      });
+    });
+
+    it('does NOT retry the original request when the backend is unreachable (no third fetch call)', async () => {
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401))
+        .mockResolvedValueOnce(jsonResponse({ error: 'upstream_unavailable' }, 502));
+
+      await expect(apiFetch('/api/test')).rejects.toBeTruthy();
+      expect(mockFetch).toHaveBeenCalledTimes(2); // original + refresh, no retry
     });
   });
 
