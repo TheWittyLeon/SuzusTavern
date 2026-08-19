@@ -53,9 +53,25 @@ export interface DmNarrationPanelProps {
   localTurnActionRef?: RefObject<boolean>;
 }
 
-/** Engine refusal codes → readable copy. */
+/**
+ * Engine refusal codes → readable copy (WF-B reason-map convention — mirrors
+ * DmOverrideModal's OVERRIDE_REFUSAL_COPY / GrantCurrencyPanel's
+ * GRANT_REFUSAL_COPY).
+ *
+ * combat_not_found (ENGINE-NPC-ACTION-NOT-DM-RULING-NEEDED, 2026-08-19): the
+ * engine's DM-seat check on npc-action is now an existence oracle, matching
+ * override_combat's WF-I (2026-08-14) shape — a combat that doesn't exist
+ * and a combat that exists but isn't yours return the SAME 404/
+ * combat_not_found response, so this copy must not imply either state
+ * specifically. `not_dm` (400) is kept as a harmless legacy fallback for
+ * pre-conversion engines/proxies AND stays genuinely live for OTHER
+ * refusals this same component surfaces via a different call (setSessionPolicy
+ * / POST .../policy still refuses `reason='not_dm'` on its own
+ * enforcement-off path) — do not remove it.
+ */
 function refusalCopy(code: string): string {
   const map: Record<string, string> = {
+    combat_not_found: "That monster's turn can't be driven right now — the combat may have ended, or you may not be its DM.",
     not_dm: 'Only the DM can drive monster turns.',
     not_npc_turn: "It's not this monster's turn.",
     npc_incapacitated: 'That monster is incapacitated.',

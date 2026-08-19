@@ -1550,7 +1550,16 @@ export const setSessionPolicy = (
  * POST /api/dnd/combat/{combatId}/npc-action
  * The proxy injects dm_username from the cookie — callers must NOT include it.
  * Returns {success, message, data:{applied, state, turn_advanced}}.
- * Throws ApiError on 400 (not_dm, not_npc_turn, npc_incapacitated, target_required).
+ * Throws ApiError on:
+ *   400 reason='combat_not_active' | 'not_npc_turn' | 'npc_incapacitated' |
+ *       'npc_not_a_monster' | 'target_required'
+ *   404 reason='combat_not_found'     — combat missing OR caller isn't its DM
+ *                                        (ENGINE-NPC-ACTION-NOT-DM-RULING-
+ *                                        NEEDED, 2026-08-19, matches
+ *                                        submitOverride's existence-oracle
+ *                                        shape above; was 400
+ *                                        reason='not_dm' pre-conversion)
+ *   404 reason='npc_not_found' | 'target_not_found'
  */
 export const npcAction = (
   combatId: string,

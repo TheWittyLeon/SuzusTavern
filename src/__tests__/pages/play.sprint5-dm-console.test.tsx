@@ -513,6 +513,32 @@ describe('S5.3 — DM monster control panel', () => {
       expect(screen.getByRole('alert')).toHaveTextContent(/not.*turn/i),
     );
   });
+
+  it('S5.3-AC9 (ENGINE-NPC-ACTION-NOT-DM-RULING-NEEDED, 2026-08-19): combat_not_found refusal surfaced with existence-oracle-safe copy, not a raw code', async () => {
+    // The engine's DM-seat check on npc-action is now a 404/combat_not_found
+    // existence oracle (matches override_combat's WF-I shape) — was 400/
+    // not_dm pre-conversion. This pins that DmNarrationPanel's refusalCopy
+    // maps the NEW code to real copy rather than falling through to its
+    // `Action refused: ${code}` generic default.
+    setupWithCombat();
+    const err = Object.assign(new Error('Combat not found.'), {
+      status: 404,
+      body: { success: false, data: { reason: 'combat_not_found' } },
+    });
+    mockNpcAction.mockRejectedValue(err);
+
+    render(<PlayPage />);
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /Skip monster turn/i })).toBeInTheDocument(),
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Skip monster turn/i }));
+    });
+    const alert = await screen.findByRole('alert');
+    expect(alert).not.toHaveTextContent('combat_not_found');
+    expect(alert).not.toHaveTextContent('Action refused:');
+    expect(alert).toHaveTextContent(/combat/i);
+  });
 });
 
 // ── S5.2: ChatLog dm_narration kind ─────────────────────────────────────────
