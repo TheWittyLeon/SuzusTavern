@@ -31,14 +31,16 @@ type RouteContext = {
 };
 
 /**
- * Cookie→Bearer resolution shared by POST and GET. Prefers an explicit
- * Authorization header, then falls back to the `st_access` cookie. Returns
- * null when neither is present — callers must reject with 401 rather than
- * calling upstream anonymously.
+ * Cookie→Bearer resolution shared by POST and GET. Builds the upstream
+ * Authorization header from the `st_access` cookie ONLY — a client-supplied
+ * Authorization header is never trusted (TAV-DND-PROXY-CLIENT-BEARER-OVERRIDE,
+ * Leon's ruling 2026-08-19: cookie wins, drop the client bearer override
+ * entirely; a browser-supplied header overriding the httpOnly cookie
+ * contradicted the cookie-BFF trust model). Returns null when the cookie is
+ * absent — callers must reject with 401 rather than calling upstream
+ * anonymously (or, worse, on a forged client-supplied identity).
  */
 function resolveAuthHeader(req: NextRequest): string | null {
-  const auth = req.headers.get('authorization');
-  if (auth) return auth;
   if (typeof req.cookies?.get === 'function') {
     const cookieAccess = req.cookies.get('st_access')?.value;
     if (cookieAccess) return `Bearer ${cookieAccess}`;
