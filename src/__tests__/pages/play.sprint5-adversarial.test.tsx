@@ -26,6 +26,8 @@
  *   ADV-S5.2B  DM narration: empty submit is blocked (no postSessionEvent call, no narration call)
  *   ADV-S5.5G  S5.3-AC2 gap: non-DM player cannot access monster panel controls (component-level gate)
  *   ADV-S5.4G  Override: attack with no target_id blocked client-side — submit is disabled
+ *   ADV-S5.4H  Override modal: combat_not_found (404, WF-I existence oracle) → honest,
+ *              non-leaking message shown; modal stays open (gap: reason-pairing break fix)
  */
 
 import React from 'react';
@@ -522,6 +524,73 @@ describe('ADV-S5.4B — override modal: not_dm engine error keeps modal open', (
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(within(dialog).getByRole('alert').textContent).toMatch(/DM|only the/i);
     expect(panelBase.onOverrideMessage).not.toHaveBeenCalled();
+  });
+});
+
+// ── ADV-S5.4H — Override: combat_not_found (WF-I existence oracle) ───────────
+// The engine's DM-seat check no longer distinguishes "combat doesn't exist"
+// from "caller isn't its DM" — both refuse identically with 404
+// reason='combat_not_found'. The modal's copy must stay honest about that
+// (not claim the combat exists, not claim it doesn't) rather than leak which
+// case actually happened.
+
+describe('ADV-S5.4H — override modal: combat_not_found engine error (WF-I) keeps modal open', () => {
+  const panelBase = {
+    combatId: 'c1',
+    combatState: ACTIVE_COMBAT,
+    sessionId: 's1',
+    dmUsername: 'dm_alice',
+    onMessage: jest.fn(),
+    onOverrideMessage: jest.fn(),
+    onStateUpdate: jest.fn(),
+    onStateRefresh: jest.fn(),
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    const combatNotFoundErr = Object.assign(new Error('combat_not_found'), {
+      status: 404,
+      body: {
+        success: false,
+        message: 'Session not found.',
+        data: { reason: 'combat_not_found' },
+      },
+    });
+    mockSubmitOverride.mockRejectedValue(combatNotFoundErr);
+    mockSetSessionPolicy.mockResolvedValue({ session: {} });
+  });
+
+  it('combat_not_found: modal stays open, honest non-leaking message shown, onOverrideMessage not called', async () => {
+    render(<DmNarrationPanel {...panelBase} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /DM Override/i }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeInTheDocument());
+
+    const dialog = screen.getByRole('dialog');
+    const targetSelect = within(dialog).getByLabelText(/Target/i);
+    fireEvent.change(targetSelect, { target: { value: 'pc-1' } });
+    const reasonInput = within(dialog).getByLabelText(/Reason/i);
+    fireEvent.change(reasonInput, { target: { value: 'Retry after combat ended' } });
+
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole('button', { name: /Apply override/i }));
+    });
+
+    await waitFor(() =>
+      expect(within(dialog).getByRole('alert')).toBeInTheDocument(),
+    );
+
+    // Modal stays open — no silent success, no navigation away.
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    const alertText = within(dialog).getByRole('alert').textContent ?? '';
+    // Message must be useful (mentions the override/combat can't proceed)...
+    expect(alertText).toMatch(/overridden|ended|not.*(its )?DM/i);
+    // ...but must NOT leak the engine's raw "Session not found" existence
+    // phrasing — that's exactly the oracle WF-I closed server-side; the
+    // client copy must not reopen it.
+    expect(alertText).not.toMatch(/session not found/i);
+    expect(panelBase.onOverrideMessage).not.toHaveBeenCalled();
+    expect(mockStreamDmNarration).not.toHaveBeenCalled();
   });
 });
 

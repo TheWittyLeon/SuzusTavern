@@ -1503,7 +1503,9 @@ export const getGrounding = (sessionId: string, signal?: AbortSignal) =>
  * Throws ApiError on:
  *   400 reason='override_malformed'   — shape invalid or invariant fail
  *   400 reason='combat_not_active'    — combat.state !== ACTIVE
- *   400 reason='not_dm'               — caller is not the session DM
+ *   404 reason='combat_not_found'     — combat missing OR caller isn't its DM
+ *                                        (WF-I existence oracle, 2026-08-14;
+ *                                        was 400 reason='not_dm' pre-WF-I)
  *   404 reason='actor_not_found' | 'target_not_found'
  *
  * On {success:false}, the engine returns data.reason + message; do NOT apply
