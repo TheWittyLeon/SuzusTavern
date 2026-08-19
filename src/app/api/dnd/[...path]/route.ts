@@ -52,6 +52,33 @@ type RouteContext = {
 };
 
 /**
+ * Security — path-traversal guard (SECURITY-4):
+ *   Next.js splits the request pathname on literal '/' only, so an encoded
+ *   slash (%2F) survives into a single catch-all segment and is then
+ *   percent-decoded — turning `..%2f..%2f..` into `../../..` inside one
+ *   `params.path` entry. Joined and handed to `new URL()`, that collapses out
+ *   of the `/api/dnd/` prefix, letting a caller pick ANY path and method on the
+ *   NekoNova backend (which hosts unauthenticated surfaces the Tavern must
+ *   never expose). It also defeated the admin gate, which inspects the raw
+ *   pre-normalisation string.
+ *
+ *   A legitimate segment is a single, already-decoded path component: it never
+ *   contains a slash/backslash, and is never a traversal token. Anything else
+ *   is refused here — BEFORE the admin gate and BEFORE the upstream URL is
+ *   built. The post-normalisation assertion in proxyRequest() is the
+ *   load-bearing second layer.
+ */
+function isUnsafePathSegment(segment: string): boolean {
+  if (segment.includes('/') || segment.includes('\\') || segment.includes('\0')) return true;
+  if (segment === '.' || segment === '..') return true;
+  // Belt-and-suspenders: refuse a still-encoded slash/backslash in case a
+  // runtime ever hands us an undecoded segment.
+  const lower = segment.toLowerCase();
+  if (lower.includes('%2f') || lower.includes('%5c') || lower.includes('%00')) return true;
+  return false;
+}
+
+/**
  * Result of admin session verification.
  * Returns the username on success so we can stamp it into forwarded requests.
  * Returns null when the session is invalid or not admin (fails CLOSED).
@@ -116,7 +143,18 @@ async function proxyRequest(
   context: RouteContext,
 ): Promise<NextResponse> {
   const { path } = await context.params;
-  const pathStr = path.join('/');
+  const segments = path ?? [];
+
+  // SECURITY-4: reject path traversal BEFORE the admin gate reads pathStr and
+  // before the upstream URL is built. See isUnsafePathSegment() above.
+  if (segments.some(isUnsafePathSegment)) {
+    return NextResponse.json(
+      { success: false, error: 'Bad Request', data: { reason: 'invalid_path' } },
+      { status: 400 },
+    );
+  }
+
+  const pathStr = segments.join('/');
 
   // ── S8.3 admin gate ──────────────────────────────────────────────────────
   // Admin paths: anything starting with "admin/" requires role=admin.
@@ -137,6 +175,18 @@ async function proxyRequest(
 
   const upstreamPath = `/api/dnd/${pathStr}`;
   const upstreamUrl = new URL(upstreamPath, NEKANOVA_URL);
+
+  // SECURITY-4 (load-bearing): after new URL() has normalised the path, the
+  // resolved pathname MUST still live under /api/dnd/. If any traversal slipped
+  // past the segment check, new URL() will have collapsed it elsewhere — refuse
+  // rather than forward. This is the guarantee; the segment check is the fast
+  // reject.
+  if (!upstreamUrl.pathname.startsWith('/api/dnd/')) {
+    return NextResponse.json(
+      { success: false, error: 'Bad Request', data: { reason: 'invalid_path' } },
+      { status: 400 },
+    );
+  }
 
   // Forward query parameters
   req.nextUrl.searchParams.forEach((value: string, key: string) => {
