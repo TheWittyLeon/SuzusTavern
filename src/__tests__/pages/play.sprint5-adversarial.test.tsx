@@ -28,6 +28,9 @@
  *   ADV-S5.4G  Override: attack with no target_id blocked client-side — submit is disabled
  *   ADV-S5.4H  Override modal: combat_not_found (404, WF-I existence oracle) → honest,
  *              non-leaking message shown; modal stays open (gap: reason-pairing break fix)
+ *   ADV-S5.4I  Override modal: combat_not_active (400) → OVERRIDE_REFUSAL_COPY shown verbatim
+ *   ADV-S5.4J  Override modal: actor_not_found (404) → OVERRIDE_REFUSAL_COPY shown verbatim
+ *   ADV-S5.4K  Override modal: target_not_found (404) → OVERRIDE_REFUSAL_COPY shown verbatim
  */
 
 import React from 'react';
@@ -589,6 +592,181 @@ describe('ADV-S5.4H — override modal: combat_not_found engine error (WF-I) kee
     // phrasing — that's exactly the oracle WF-I closed server-side; the
     // client copy must not reopen it.
     expect(alertText).not.toMatch(/session not found/i);
+    expect(panelBase.onOverrideMessage).not.toHaveBeenCalled();
+    expect(mockStreamDmNarration).not.toHaveBeenCalled();
+  });
+});
+
+// ── ADV-S5.4I/J/K — Override modal: the 3 remaining OVERRIDE_REFUSAL_COPY map
+// entries the existing A/B/H trio never exercised. Reason/status pairs match
+// the live engine contract (routes/combat.py::override_combat,
+// NekoNova-DnDEngine) exactly — combat_not_active is a 400 (transient, the
+// combat still exists, just isn't ACTIVE), actor_not_found/target_not_found
+// are 404s (an existence lookup against that combat's own participant map),
+// same status-per-reason split the engine actually returns. Unlike A/B/H's
+// `.toMatch(...)` regex checks, these assert full string equality against
+// OVERRIDE_REFUSAL_COPY's literal value — a future edit to the map's copy
+// for these three keys must fail these tests, not silently pass a looser
+// pattern.
+
+describe('ADV-S5.4I — override modal: combat_not_active engine error keeps modal open', () => {
+  const panelBase = {
+    combatId: 'c1',
+    combatState: ACTIVE_COMBAT,
+    sessionId: 's1',
+    dmUsername: 'dm_alice',
+    onMessage: jest.fn(),
+    onOverrideMessage: jest.fn(),
+    onStateUpdate: jest.fn(),
+    onStateRefresh: jest.fn(),
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    const combatNotActiveErr = Object.assign(new Error('combat_not_active'), {
+      status: 400,
+      body: {
+        success: false,
+        message: 'Combat is not active.',
+        data: { reason: 'combat_not_active' },
+      },
+    });
+    mockSubmitOverride.mockRejectedValue(combatNotActiveErr);
+    mockSetSessionPolicy.mockResolvedValue({ session: {} });
+  });
+
+  it('combat_not_active: modal stays open, map copy shown verbatim, onOverrideMessage not called', async () => {
+    render(<DmNarrationPanel {...panelBase} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /DM Override/i }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeInTheDocument());
+
+    const dialog = screen.getByRole('dialog');
+    const targetSelect = within(dialog).getByLabelText(/Target/i);
+    fireEvent.change(targetSelect, { target: { value: 'pc-1' } });
+    const reasonInput = within(dialog).getByLabelText(/Reason/i);
+    fireEvent.change(reasonInput, { target: { value: 'Combat already ended' } });
+
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole('button', { name: /Apply override/i }));
+    });
+
+    await waitFor(() =>
+      expect(within(dialog).getByRole('alert')).toBeInTheDocument(),
+    );
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(within(dialog).getByRole('alert').textContent).toBe('Combat is not active.');
+    expect(panelBase.onOverrideMessage).not.toHaveBeenCalled();
+    expect(mockStreamDmNarration).not.toHaveBeenCalled();
+  });
+});
+
+describe('ADV-S5.4J — override modal: actor_not_found engine error keeps modal open', () => {
+  const panelBase = {
+    combatId: 'c1',
+    combatState: ACTIVE_COMBAT,
+    sessionId: 's1',
+    dmUsername: 'dm_alice',
+    onMessage: jest.fn(),
+    onOverrideMessage: jest.fn(),
+    onStateUpdate: jest.fn(),
+    onStateRefresh: jest.fn(),
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    const actorNotFoundErr = Object.assign(new Error('actor_not_found'), {
+      status: 404,
+      body: {
+        success: false,
+        message: "Actor 'goblin-1' not found.",
+        data: { reason: 'actor_not_found' },
+      },
+    });
+    mockSubmitOverride.mockRejectedValue(actorNotFoundErr);
+    mockSetSessionPolicy.mockResolvedValue({ session: {} });
+  });
+
+  it('actor_not_found: modal stays open, map copy shown verbatim, onOverrideMessage not called', async () => {
+    render(<DmNarrationPanel {...panelBase} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /DM Override/i }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeInTheDocument());
+
+    const dialog = screen.getByRole('dialog');
+    const targetSelect = within(dialog).getByLabelText(/Target/i);
+    fireEvent.change(targetSelect, { target: { value: 'pc-1' } });
+    const reasonInput = within(dialog).getByLabelText(/Reason/i);
+    fireEvent.change(reasonInput, { target: { value: 'Actor dropped from combat' } });
+
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole('button', { name: /Apply override/i }));
+    });
+
+    await waitFor(() =>
+      expect(within(dialog).getByRole('alert')).toBeInTheDocument(),
+    );
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(within(dialog).getByRole('alert').textContent).toBe(
+      'Selected actor not found in combat.',
+    );
+    expect(panelBase.onOverrideMessage).not.toHaveBeenCalled();
+    expect(mockStreamDmNarration).not.toHaveBeenCalled();
+  });
+});
+
+describe('ADV-S5.4K — override modal: target_not_found engine error keeps modal open', () => {
+  const panelBase = {
+    combatId: 'c1',
+    combatState: ACTIVE_COMBAT,
+    sessionId: 's1',
+    dmUsername: 'dm_alice',
+    onMessage: jest.fn(),
+    onOverrideMessage: jest.fn(),
+    onStateUpdate: jest.fn(),
+    onStateRefresh: jest.fn(),
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    const targetNotFoundErr = Object.assign(new Error('target_not_found'), {
+      status: 404,
+      body: {
+        success: false,
+        message: "Target 'pc-1' not found.",
+        data: { reason: 'target_not_found' },
+      },
+    });
+    mockSubmitOverride.mockRejectedValue(targetNotFoundErr);
+    mockSetSessionPolicy.mockResolvedValue({ session: {} });
+  });
+
+  it('target_not_found: modal stays open, map copy shown verbatim, onOverrideMessage not called', async () => {
+    render(<DmNarrationPanel {...panelBase} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /DM Override/i }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeInTheDocument());
+
+    const dialog = screen.getByRole('dialog');
+    const targetSelect = within(dialog).getByLabelText(/Target/i);
+    fireEvent.change(targetSelect, { target: { value: 'pc-1' } });
+    const reasonInput = within(dialog).getByLabelText(/Reason/i);
+    fireEvent.change(reasonInput, { target: { value: 'Target dropped from combat' } });
+
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole('button', { name: /Apply override/i }));
+    });
+
+    await waitFor(() =>
+      expect(within(dialog).getByRole('alert')).toBeInTheDocument(),
+    );
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(within(dialog).getByRole('alert').textContent).toBe(
+      'Selected target not found in combat.',
+    );
     expect(panelBase.onOverrideMessage).not.toHaveBeenCalled();
     expect(mockStreamDmNarration).not.toHaveBeenCalled();
   });
