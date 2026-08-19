@@ -390,6 +390,92 @@ describe('Upstream response with no Content-Type header', () => {
 });
 
 // ---------------------------------------------------------------------------
+// SECURITY-4 — path-traversal guard
+// ---------------------------------------------------------------------------
+//
+// Regression for the encoded-slash traversal: Next.js decodes %2F inside a
+// single catch-all segment, so params.path can contain decoded '../' sequences
+// (or a raw '/') that, once joined and passed to new URL(), escape the
+// /api/dnd/ prefix and reach ANY route/method on the NekoNova backend. The
+// proxy must refuse these with 400 and never call fetch().
+
+describe('SECURITY-4 — path traversal', () => {
+  it('rejects a decoded ../ traversal segment with 400 and does not forward', async () => {
+    // What Next.js produces for /api/dnd/a/b/..%2f..%2f..%2f..%2fadmin
+    const req = makeRequest('GET', 'http://localhost:3000/api/dnd/a/b/x');
+    const ctx = makeContext(['a', 'b', '../../../../admin']);
+
+    const res = await GET(req, ctx);
+    expect(res.status).toBe(400);
+    expect(mockFetch).not.toHaveBeenCalled();
+    const body = await res.json() as { success: boolean; data: { reason: string } };
+    expect(body.success).toBe(false);
+    expect(body.data.reason).toBe('invalid_path');
+  });
+
+  it('rejects a POST traversal that would reach /api/alerts/test, without forwarding', async () => {
+    const req = makeRequest('POST', 'http://localhost:3000/api/dnd/a/b/x', {
+      body: JSON.stringify({ message: 'pwned' }),
+    });
+    const ctx = makeContext(['a', 'b', '../../..', 'api', 'alerts', 'test']);
+
+    const res = await POST(req, ctx);
+    expect(res.status).toBe(400);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('rejects a bare ".." segment (admin-gate bypass vector)', async () => {
+    const req = makeRequest('GET', 'http://localhost:3000/api/dnd/x');
+    const ctx = makeContext(['..', 'admin', 'content']);
+
+    const res = await GET(req, ctx);
+    expect(res.status).toBe(400);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('rejects a segment containing a raw slash', async () => {
+    const req = makeRequest('GET', 'http://localhost:3000/api/dnd/x');
+    const ctx = makeContext(['sessions', 'sess-1/../../admin']);
+
+    const res = await GET(req, ctx);
+    expect(res.status).toBe(400);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('still forwards a legitimate nested path (no false positive)', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ success: true, data: {} }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    const req = makeRequest('GET', 'http://localhost:3000/api/dnd/sessions/sess-1/grounding');
+    const ctx = makeContext(['sessions', 'sess-1', 'grounding']);
+
+    const res = await GET(req, ctx);
+    expect(res.status).toBe(200);
+    const [upstreamUrl] = mockFetch.mock.calls[0] as [string];
+    expect(upstreamUrl).toContain('/api/dnd/sessions/sess-1/grounding');
+  });
+
+  it('does not reject a legitimate segment that merely contains dots', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ success: true, data: {} }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    const req = makeRequest('GET', 'http://localhost:3000/api/dnd/catalog/v1.2');
+    const ctx = makeContext(['catalog', 'v1.2']);
+
+    const res = await GET(req, ctx);
+    expect(res.status).toBe(200);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Cookie fallback (§3.1 additive — Pass 2)
 // ---------------------------------------------------------------------------
 
