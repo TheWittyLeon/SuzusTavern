@@ -452,6 +452,52 @@ describe('SECURITY-4 — path traversal', () => {
     const res = await GET(req, ctx);
     expect(res.status).toBe(200);
   });
+
+  // Regression lock (colon boundary): isUnsafePathSegment()'s blocklist is
+  // slash/backslash/NUL + '.'/'..' + encoded %2f/%5c/%00 — it does NOT
+  // include ':'. That's load-bearing, not incidental: engine's
+  // POST /{character_id}/level-choices/{choice_id} route (routes/
+  // characters.py) is fed choice_id values built by
+  // engine/commands/character_msm.py as f"asi:{level}", f"subclass:{level}",
+  // and f"spell:{level}" (resolve_level_choice's own choice-id shape) —
+  // real production level-up traffic reaches this proxy with a colon in the
+  // LAST path segment on every single one of those choice kinds. A future
+  // "harden the traversal guard further" pass that reflexively blocklists
+  // ':' (a reserved URI character, an easy target for a well-meaning but
+  // untested tightening) would silently 400 every ASI/subclass/spell
+  // level-up choice a player makes. Pinned here, not just left to the
+  // absence of a rejecting test, so that regression fails LOUDLY (a red
+  // assertion naming the exact production shape) instead of shipping quiet.
+  describe('colon-containing segments — real level-choice ids must pass through', () => {
+    it.each([
+      ['asi:5', 'ASI level-choice id (character_msm.py resolve_level_choice)'],
+      ['subclass:3', 'subclass level-choice id'],
+      ['spell:2', 'spell level-choice id'],
+    ])('%s (%s) is not rejected by isUnsafePathSegment and reaches upstream', async (choiceId) => {
+      mockFetch.mockResolvedValueOnce(
+        new Response(JSON.stringify({ success: true, data: {} }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+
+      const req = makeRequest(
+        'POST',
+        `http://localhost:3000/api/dnd/characters/char-1/level-choices/${choiceId}`,
+        { body: JSON.stringify({ option_id: 'fighter' }) },
+      );
+      const ctx = makeContext(['characters', 'char-1', 'level-choices', choiceId]);
+
+      const res = await POST(req, ctx);
+
+      expect(res.status).toBe(200);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const [upstreamUrl] = mockFetch.mock.calls[0] as [string];
+      expect(upstreamUrl).toBe(
+        `http://localhost:8080/api/dnd/characters/char-1/level-choices/${choiceId}`,
+      );
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
