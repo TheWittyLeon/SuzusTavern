@@ -809,6 +809,47 @@ describe('LevelChoicePicker — subclass: catalog failure, case-insensitive filt
   });
 });
 
+describe('LevelChoicePicker — subclass-scoped menus (ENGINE-SUBCLASS-SCOPED-MENUS)', () => {
+  const FEATURE_CHOICE: PendingLevelChoice = {
+    id: 'feature_choice:1',
+    type: 'feature_choice',
+    level: 1,
+    class: 'Ki Warrior',
+    menu_label: 'School Technique',
+    count: 1,
+    label: 'Choose 1 School Technique (level 1)',
+    options: [],
+  } as PendingLevelChoice;
+
+  const SUBCLASS_PENDING: PendingLevelChoice = {
+    id: 'subclass:1',
+    type: 'subclass',
+    level: 1,
+    class: 'Ki Warrior',
+    label: 'Choose your Ki Warrior archetype',
+  };
+
+  it('says "choose your archetype first" when the menu is empty AND an archetype is still owed', async () => {
+    /* A fully subclass-scoped menu is legitimately EMPTY until a School is
+     * chosen. The generic empty-state copy is "reload the sheet to try again"
+     * — which never helps here, so the player loops forever. */
+    renderPicker([SUBCLASS_PENDING, FEATURE_CHOICE]);
+
+    expect(await screen.findByText(/choose your archetype first/i)).toBeInTheDocument();
+    expect(screen.queryByText(/reload the sheet to try again/i)).not.toBeInTheDocument();
+  });
+
+  it('still shows the generic dead-end copy when the menu is empty and NO archetype is owed', () => {
+    /* NEGATIVE CONTROL. Without this, "always say choose-your-archetype" would
+     * pass the test above while hiding a genuinely broken menu on every class
+     * that has no subclasses at all. */
+    renderPicker([FEATURE_CHOICE]);
+
+    expect(screen.getByText(/isn.t available right now/i)).toBeInTheDocument();
+    expect(screen.queryByText(/choose your archetype first/i)).not.toBeInTheDocument();
+  });
+});
+
 describe('LevelChoicePicker — multiple pending choices: no cross-contamination', () => {
   it('renders one card per pending choice and resolving one leaves the other independently usable', async () => {
     const afterSubclassResolved: CharacterSheet = {

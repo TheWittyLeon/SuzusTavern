@@ -137,6 +137,14 @@ const RESOLVE_REFUSAL_COPY: Record<string, string> = {
   duplicate_option: 'One of those picks is already known.',
   invalid_swap: "That swap isn't valid — drop something known, add something new.",
   over_menu_cap: 'That would exceed the number of picks this class can know.',
+  // ENGINE-SUBCLASS-SCOPED-MENUS. Paired with the engine in the SAME change on
+  // purpose: an unmapped reason falls back to "try again in a moment", which
+  // is not just unhelpful but actively wrong here — retrying never works. This
+  // repo has already shipped that exact drift once (the WF-I DM-override
+  // refusal moved to a new reason and the modal kept branching on the retired
+  // one, live-broken from prod night until it was caught days later).
+  subclass_required: 'Choose your archetype first — this menu depends on it.',
+  wrong_subclass: 'That option belongs to a different archetype.',
 };
 
 function resolveErrorMessage(err: unknown): string {
@@ -1179,6 +1187,13 @@ function FeatureChoiceCard({ characterId, username, sheet, choice, onResolved }:
   const cap = choice.count ?? 0;
   const options = choice.options ?? [];
   const menuLabel = choice.menu_label ?? 'options';
+  /* True while the character still OWES an archetype pick. Distinguishes "this
+     menu is empty because you haven't chosen a School yet" from "this menu is
+     genuinely broken" — the two need opposite advice, and the second one's
+     copy ("reload the sheet") is an infinite loop if shown for the first. */
+  const awaitingArchetype = (sheet.pending_choices ?? []).some(
+    (c) => c.type === 'subclass',
+  );
   const known =
     sheet.feature_choices?.find((g) => g.label === choice.menu_label)?.picks ?? [];
   const knownSlugs = new Set(known.map((p) => p.slug));
@@ -1318,7 +1333,16 @@ function FeatureChoiceCard({ characterId, username, sheet, choice, onResolved }:
       <h3 id={headingId} className={styles.cardLabel}>
         {choice.label}
       </h3>
-      {options.length === 0 || cap < 1 ? (
+      {options.length === 0 && awaitingArchetype ? (
+        /* ENGINE-SUBCLASS-SCOPED-MENUS: a menu whose every option is scoped to
+           an archetype is legitimately EMPTY until one is chosen — the engine
+           refuses this pick with `subclass_required` for the same reason. The
+           generic "reload the sheet" copy below would be a lie here: reloading
+           never helps, so the player loops. Name the actual next step. */
+        <p className={styles.emptyRow} aria-live="polite" aria-atomic="true">
+          Choose your archetype first — the {menuLabel} menu depends on it.
+        </p>
+      ) : options.length === 0 || cap < 1 ? (
         // Enrichment missing OR a malformed/legacy entry with no count
         // (Kage m6: cap 0 used to make Confirm enable at zero picks and
         // silently consume the choice). Honest dead-end either way.
