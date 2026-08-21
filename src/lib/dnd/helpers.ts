@@ -313,6 +313,26 @@ export const CLASS_CASTER_KIND: Record<string, CasterKind> = {
  *  on learn (over_spellbook_limit), this is only a client-side UX hint. */
 export const WIZARD_LEVEL1_SPELLBOOK_SIZE = 6;
 
+/** Normalise a display name to a catalog slug — the EXACT mirror of the
+ *  engine's `rules_catalog._slugify` (`name.lower().strip().replace(" ", "-")`).
+ *
+ *  Use this on BOTH SIDES of any name↔slug comparison. Comparing a raw display
+ *  name to a slug is a live bug class in this codebase, not a hypothetical:
+ *  `LevelChoicePicker`'s archetype filter compared `char_class` ("Ki Warrior")
+ *  to a subclass row's `data.class` ("ki-warrior") and silently produced ZERO
+ *  options, so the panel told the player "No archetypes are seeded" for a class
+ *  with six. It passed for every SRD class only because each is a single word
+ *  with no separator; the first multi-word class broke it. The engine hit the
+ *  same shape at `validate_race` (Leon, 2026-08-20: "Unknown race 'Saiyan
+ *  (Dragon Ball)'").
+ *
+ *  This normalises SHAPE only (case, spaces→hyphens). It cannot bridge a slug
+ *  that carries a prefix the name does not ("Human (MLP)" → `mlp-human`); that
+ *  needs a catalog lookup, which is the engine's `_resolve` job. */
+export function slugifyName(name: string): string {
+  return name.toLowerCase().trim().replaceAll(' ', '-');
+}
+
 // Keyed by the catalog slug the engine actually emits for a background — SRD
 // display names are slugified as name.replace(" ", "-") (see
 // NekoNova-DnDEngine scripts/import_srd.py::build_backgrounds and

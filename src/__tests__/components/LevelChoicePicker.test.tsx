@@ -763,6 +763,43 @@ describe('LevelChoicePicker — subclass: catalog failure, case-insensitive filt
     expect(await screen.findByRole('radio', { name: 'Champion' })).toBeInTheDocument();
   });
 
+  it('REGRESSION (TAV-SUBCLASS-CLASSKEY-MISMATCH): a MULTI-WORD class name matches slug-keyed subclass rows', async () => {
+    /* The live bug: `char_class` is a display name ("Ki Warrior"), a subclass
+     * row's `data.class` is a slug ("ki-warrior"). The old filter lowercased
+     * both and compared raw, so the space never met the hyphen, the filtered
+     * set came back EMPTY, and the card told the player "No archetypes are
+     * seeded for Ki Warrior yet" — for a class with six seeded schools.
+     *
+     * Every SRD class is a single word, which is the ONLY reason the old code
+     * held; this is the first multi-word class. Reproduced in the browser on
+     * dev as tav-test-1, 2026-08-21. */
+    const KI_CHOICE: PendingLevelChoice = {
+      id: 'subclass:1',
+      type: 'subclass',
+      level: 1,
+      class: 'Ki Warrior',
+      label: 'Choose your Ki Warrior archetype',
+    };
+    mockGetCatalog.mockImplementationOnce((_s: string, opts: { type?: string }) => {
+      if (opts?.type !== 'subclass') return Promise.resolve(catalogResponse([]));
+      return Promise.resolve(
+        catalogResponse([
+          catalogItem('turtle-school', 'Turtle School', { class: 'ki-warrior' }),
+          catalogItem('crane-school', 'Crane School', { class: 'ki-warrior' }),
+          // A different class's row must still be excluded — without this the
+          // test would also pass if the filter were simply removed.
+          catalogItem('champion', 'Champion', { class: 'fighter' }),
+        ]),
+      );
+    });
+    renderPicker([KI_CHOICE]);
+
+    expect(await screen.findByRole('radio', { name: 'Turtle School' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Crane School' })).toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: 'Champion' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/no archetypes are seeded/i)).not.toBeInTheDocument();
+  });
+
   it('shows "no archetypes seeded" and renders no confirm button when the filtered set is empty', async () => {
     mockGetCatalog.mockImplementationOnce(() => Promise.resolve(catalogResponse([])));
     renderPicker([SUBCLASS_CHOICE]);

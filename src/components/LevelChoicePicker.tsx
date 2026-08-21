@@ -92,7 +92,7 @@ import {
   learnSpell,
   resolveLevelChoice,
 } from '@/lib/api/dnd';
-import { ABILITIES, type AbilityKey } from '@/lib/dnd/helpers';
+import { ABILITIES, slugifyName, type AbilityKey } from '@/lib/dnd/helpers';
 import type {
   ApiError,
   AvailableSpellEntry,
@@ -370,9 +370,16 @@ function SubclassChoiceCard({
     setLoadState('loading');
     getCatalog(SYSTEM, { type: 'subclass' }, ac.signal)
       .then((res) => {
-        const wanted = charClass.trim().toLowerCase();
+        // TAV-SUBCLASS-CLASSKEY-MISMATCH: `charClass` is a DISPLAY name
+        // ("Ki Warrior") while a subclass row's `data.class` is a SLUG
+        // ("ki-warrior"), so a bare lowercase compare matched nothing and the
+        // card claimed "No archetypes are seeded" for a class with six. Every
+        // SRD class is one word, which is the only reason this held until the
+        // first multi-word class arrived. Slugify BOTH sides — see
+        // `slugifyName`'s note; it mirrors the engine's `_slugify` exactly.
+        const wanted = slugifyName(charClass);
         const filtered = res.items.filter(
-          (item) => String((item.data as { class?: string }).class ?? '').trim().toLowerCase() === wanted,
+          (item) => slugifyName(String((item.data as { class?: string }).class ?? '')) === wanted,
         );
         setOptions(filtered);
         setSelectedSlug((prev) => prev || filtered[0]?.slug || '');

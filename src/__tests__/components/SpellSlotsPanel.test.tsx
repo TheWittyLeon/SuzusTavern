@@ -71,7 +71,12 @@ const BASE_SHEET: CharacterSheet = {
 function renderPanel(
   slots: Record<string, SheetSpellSlot> = SLOTS,
   onChanged = jest.fn(),
-  overrides?: { isOwner?: boolean; isCaster?: boolean; spellcasting?: CharacterSheet['spellcasting'] },
+  overrides?: {
+    isOwner?: boolean;
+    isCaster?: boolean;
+    spellcasting?: CharacterSheet['spellcasting'];
+    spellPoints?: CharacterSheet['spell_points'];
+  },
 ) {
   render(
     <ToastProvider>
@@ -82,12 +87,24 @@ function renderPanel(
         isCaster={overrides?.isCaster ?? true}
         spellcasting={overrides?.spellcasting ?? BASE_SHEET.spellcasting}
         spellSlots={slots}
+        spellPoints={overrides?.spellPoints}
         onChanged={onChanged}
       />
     </ToastProvider>,
   );
   return { onChanged };
 }
+
+/** A level-1 Ki Warrior exactly as dev character 24051 comes off the wire:
+ *  pool 4/4, NO slot rows at all, and the class's own name for its pool. */
+const KI_POINTS: NonNullable<CharacterSheet['spell_points']> = {
+  casting_model: 'points',
+  label: 'Ki',
+  points: { current: 4, maximum: 4 },
+  high_level_casts: {},
+  max_slot_level: 2,
+  costs: { '1': 2, '2': 3, '3': 5, '4': 6, '5': 7, '6': 9, '7': 10, '8': 11, '9': 13 },
+};
 
 async function flush() {
   await act(async () => {
@@ -365,5 +382,82 @@ describe('Miko adversarial — busy-latch releases on error for BOTH spend and r
     fireEvent.click(restoreBtn);
     await flush();
     expect(mockAdjustSlot).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('SpellSlotsPanel — HB-P2 spell points (TAV-SPELLPOINTS-NO-UI)', () => {
+  /* The live bug, found in the browser as tav-test-1 on 2026-08-21: a points
+   * caster carries NO `spell_slot_*` rows, so `spell_slots` is legitimately
+   * `{}`. The panel read that as "nothing to show" and rendered "No spell
+   * slots at this level yet." — leaving the pool the entire Dragon Ball
+   * campaign runs on invisible and unspendable. The pool was on the wire and
+   * arithmetically correct the whole time (24051: 4/4 at level 1). */
+
+  it('renders the pool instead of the empty row when slots are empty but points exist', async () => {
+    renderPanel({}, jest.fn(), { spellPoints: KI_POINTS });
+
+    expect(screen.queryByText(/no spell slots at this level yet/i)).not.toBeInTheDocument();
+    expect(screen.getByText('4/4')).toBeInTheDocument();
+  });
+
+  it('titles the panel with the CLASS’s name for its pool, not "Spells"', () => {
+    renderPanel({}, jest.fn(), { spellPoints: KI_POINTS });
+
+    // "Ki" comes from the class row's `spellcasting.points_label`. Hardcoding
+    // "Spells" here is what made a ki class read as a wizard.
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(/^Ki/);
+  });
+
+  it('offers one row per castable rank, priced from the ENGINE-supplied ladder', () => {
+    renderPanel({}, jest.fn(), { spellPoints: KI_POINTS });
+
+    expect(screen.getByText('Rank 1')).toBeInTheDocument();
+    expect(screen.getByText('Rank 2')).toBeInTheDocument();
+    // max_slot_level is 2 — rank 3 is beyond this character and must not render.
+    expect(screen.queryByText('Rank 3')).not.toBeInTheDocument();
+  });
+
+  it('disables Spend on a rank the pool cannot afford', () => {
+    renderPanel({}, jest.fn(), {
+      spellPoints: { ...KI_POINTS, points: { current: 2, maximum: 4 } },
+    });
+
+    // Rank 1 costs 2 — affordable at exactly 2. Rank 2 costs 3 — not.
+    expect(screen.getByRole('button', { name: /spend 2 ki on a rank 1/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /spend 3 ki on a rank 2/i })).toBeDisabled();
+  });
+
+  it('disables Spend on a 6+ rank whose once-per-long-rest gate is already spent', () => {
+    /* Affordability is NOT the whole answer above rank 5: the DMG allows one
+     * cast of EACH level 6-9 per long rest. A pool with plenty of points left
+     * must still refuse the second 6th-rank cast. */
+    renderPanel({}, jest.fn(), {
+      spellPoints: {
+        ...KI_POINTS,
+        points: { current: 90, maximum: 133 },
+        max_slot_level: 6,
+        high_level_casts: { '6': 0 },
+      },
+    });
+
+    expect(screen.getByRole('button', { name: /spend 9 ki on a rank 6/i })).toBeDisabled();
+    expect(screen.getByText(/rank 6 · used this rest/i)).toBeInTheDocument();
+  });
+
+  it('a normal SLOTS caster is completely unaffected', () => {
+    /* NEGATIVE CONTROL. The points branch must be invisible to every existing
+     * character — without this, "make points render" could pass by rendering
+     * points for everybody. */
+    renderPanel(SLOTS, jest.fn(), { spellPoints: null });
+
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(/^Spells/);
+    expect(screen.getByText('Level 1')).toBeInTheDocument();
+    expect(screen.queryByText(/^Rank /)).not.toBeInTheDocument();
+  });
+
+  it('an engine that does not send the field at all still renders slots', () => {
+    // Back-compat: `spell_points` is optional; an older engine omits it.
+    renderPanel(SLOTS, jest.fn(), {});
+    expect(screen.getByText('Level 1')).toBeInTheDocument();
   });
 });

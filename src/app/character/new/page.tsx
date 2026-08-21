@@ -460,6 +460,13 @@ export default function CharacterNewPage(): ReactNode {
 
   // TAV-CREATE-SUBRACE-ASI-PICKER — gates the Race step's pickers/Continue.
   const raceHasSubraces = (raceObj?.subraces.length ?? 0) > 0;
+  /* Whether the wizard BLOCKS on the subrace step. Not the same question as
+   * "does this race have subraces": Dragon Ball's Saiyan has exactly one
+   * (Half-Saiyan) and a full-blooded Saiyan is the campaign's default lineage,
+   * so gating unconditionally made it uncreatable in the browser even though
+   * the engine accepts `subrace=None`. Content decides via
+   * `data.subrace_required`; absent means required, so SRD is unchanged. */
+  const subraceRequired = raceHasSubraces && (raceObj?.subraceRequired ?? true);
   const raceNeedsAsi = !!raceObj?.needsAsiChoice;
   const selectedSubrace = raceObj?.subraces.find((sr) => sr.name === subrace);
 
@@ -553,7 +560,7 @@ export default function CharacterNewPage(): ReactNode {
         // TAV-CREATE-SUBRACE-ASI-PICKER: a race with named subraces requires
         // one to be chosen; Half-Elf requires its two floating +1s.
         if (!race) return false;
-        if (raceHasSubraces && !subrace) return false;
+        if (subraceRequired && !subrace) return false;
         if (raceNeedsAsi && halfElfAsi.length !== 2) return false;
         return true;
       case 'class':
@@ -596,7 +603,7 @@ export default function CharacterNewPage(): ReactNode {
   }, [
     stepKey,
     race,
-    raceHasSubraces,
+    subraceRequired,
     subrace,
     raceNeedsAsi,
     halfElfAsi,
@@ -630,7 +637,7 @@ export default function CharacterNewPage(): ReactNode {
     !!bgObj &&
     name.trim().length > 0 &&
     remaining >= 0 &&
-    (!raceHasSubraces || !!subrace) &&
+    (!subraceRequired || !!subrace) &&
     (!raceNeedsAsi || halfElfAsi.length === 2) &&
     equipmentReady;
 
@@ -643,7 +650,7 @@ export default function CharacterNewPage(): ReactNode {
   const missingPrereqsReason = useMemo((): string | null => {
     if (!username) return 'You need to be signed in to create a character.';
     if (!raceObj) return 'Pick a race before continuing.';
-    if (raceHasSubraces && !subrace) return 'Choose a subrace before continuing.';
+    if (subraceRequired && !subrace) return 'Choose a subrace before continuing.';
     if (raceNeedsAsi && halfElfAsi.length !== 2) {
       return 'Choose your two ability increases before continuing.';
     }
@@ -656,7 +663,7 @@ export default function CharacterNewPage(): ReactNode {
   }, [
     username,
     raceObj,
-    raceHasSubraces,
+    subraceRequired,
     subrace,
     raceNeedsAsi,
     halfElfAsi,
@@ -932,7 +939,7 @@ export default function CharacterNewPage(): ReactNode {
     stepKey === 'race'
       ? !race
         ? 'Select a race to continue.'
-        : raceHasSubraces && !subrace
+        : subraceRequired && !subrace
           ? 'Select a subrace to continue.'
           : raceNeedsAsi && halfElfAsi.length !== 2
             ? 'Choose two ability scores to increase to continue.'

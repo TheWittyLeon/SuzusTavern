@@ -442,6 +442,31 @@ export interface SheetSkill {
   proficient: boolean;
 }
 
+/** HB-P2 spell points — the DMG p.288 variant pool, mirrored from the engine's
+ *  `casting_points.get_spell_points`. Present on the sheet only for a
+ *  points-initialized character.
+ *
+ *  `label` is what the CLASS calls its pool, declared as data on the class row
+ *  (`spellcasting.points_label`): "Ki" for Dragon Ball's Ki Warrior, "Magic
+ *  Power" for a Fairy Tail mage, the generic "Spell points" when a class
+ *  declares nothing. Render this, never a hardcoded string — the whole point
+ *  is that the tenth homebrew class needs no UI change. */
+export interface SheetSpellPoints {
+  casting_model: 'points';
+  label: string;
+  points: { current: number; maximum: number };
+  /** Keyed "6".."9" — the DMG allows ONE cast of each level 6+ per long rest,
+   *  not one 6+ cast total. `1` = still available, `0` = already used. Empty
+   *  below level 11, where no 6+ slot exists to gate. */
+  high_level_casts: Record<string, number>;
+  /** Highest rank this character can currently create with points. */
+  max_slot_level: number;
+  /** Rank ("1".."9") → point cost. Sent by the engine rather than hardcoded
+   *  here on purpose: a second copy of the DMG ladder in the frontend is how
+   *  the two halves drift apart. */
+  costs: Record<string, number>;
+}
+
 export interface CharacterSheet {
   character_id: string;
   owner_username: string;
@@ -481,8 +506,23 @@ export interface CharacterSheet {
   class_features: string[];
   conditions: string[];
   spellcasting: SheetSpellcasting | null;
-  /** Keyed by slot level "1".."9"; only non-zero levels present. */
+  /** Keyed by slot level "1".."9"; only non-zero levels present.
+   *
+   *  LEGITIMATELY EMPTY for a points caster — see `spell_points`. A client
+   *  that treats `{}` as "this caster has no resources yet" renders the pool
+   *  as absent; that was the TAV-SPELLPOINTS-NO-UI bug. */
   spell_slots: Record<string, SheetSpellSlot>;
+  /** HB-P2 spell-point pool, or `null` for the (overwhelmingly common) slots
+   *  caster. Verified on the wire against dev character 24051 before being
+   *  declared here, per this file's standing rule — a Ki Warrior returns
+   *  `{casting_model:"points", label:"Spell points", points:{current:4,
+   *  maximum:4}, high_level_casts:{}, max_slot_level:5}` while `spell_slots`
+   *  is `{}`.
+   *
+   *  Optional because the field only exists on engines carrying the
+   *  TAV-SPELLPOINTS-NO-UI change; an older engine omits it entirely and the
+   *  panel must degrade to its slots behaviour rather than crash. */
+  spell_points?: SheetSpellPoints | null;
   is_spellcaster: boolean;
   inventory: SheetInventoryItem[];
   inventory_weight: number;
@@ -1082,11 +1122,20 @@ export interface CatalogRaceData {
   proficiencies?: string[];
   skill_proficiencies?: string[];
   subraces?: Record<string, unknown>;
+  /** Whether picking a subrace is MANDATORY. Absent/true = mandatory, which
+   *  is correct for every SRD race carrying subraces. Set false where the
+   *  base race is playable on its own and the subrace is a variant — Dragon
+   *  Ball's Saiyan, whose sole subrace is Half-Saiyan. */
+  subrace_required?: boolean;
 }
 
 /** Mechanical data shape for a class catalog item. */
 export interface CatalogClassData {
   hit_die: number;
+  /** One-line tagline shown under the class name in the creation picker.
+   *  SRD classes get theirs from the local CLASS_DECORATION table; a homebrew
+   *  class has no entry there and must supply its own or render blank. */
+  description?: string;
   primary_ability?: string[];
   saving_throws?: string[];
   armor_proficiencies?: string;

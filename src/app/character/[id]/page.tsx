@@ -617,6 +617,7 @@ export default function CharacterPage() {
                 isCaster={sheet.is_spellcaster}
                 spellcasting={sheet.spellcasting}
                 spellSlots={sheet.spell_slots}
+                spellPoints={sheet.spell_points}
                 onChanged={applySheet}
               />
             </Card>
