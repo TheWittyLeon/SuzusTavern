@@ -1,8 +1,8 @@
 .card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 16px 18px;
+  gap: var(--density-gap);
+  padding: var(--density-pad);
   border-radius: var(--radius);
   border: 1px solid var(--line);
   background: color-mix(in oklab, var(--accent-2) 7%, var(--card));

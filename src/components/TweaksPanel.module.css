@@ -37,10 +37,10 @@
   right: 0;
   z-index: 60; /* above the sticky topnav (which owns its own stacking context) */
   width: min(300px, calc(100vw - 24px));
-  padding: 16px;
+  padding: var(--density-pad);
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--density-gap);
   border-radius: var(--radius);
   border: 1px solid var(--line);
   background: var(--card-solid);
@@ -75,7 +75,7 @@
 .options {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--density-gap);
 }
 
 .option,
@@ -127,7 +127,7 @@
   width: 28px;
   height: 28px;
   flex: 0 0 auto;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   border: 1px solid var(--line);
 }
 /* Palette preview swatches — these MUST carry each palette's literal signature

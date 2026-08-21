@@ -5,8 +5,12 @@
  *
  * Covers:
  *   - only 'stream' sub-path accepted (others → 404)
- *   - Bearer injected from st_access cookie when no Authorization header
- *   - 401 when neither cookie nor Authorization header is present
+ *   - Bearer injected from st_access cookie ONLY — a client-supplied
+ *     Authorization header is never trusted, even when a (possibly forged)
+ *     cookie-less/cookie-conflicting Authorization header is also present
+ *     (TAV-DND-PROXY-CLIENT-BEARER-OVERRIDE, Leon's ruling 2026-08-19)
+ *   - 401 when the st_access cookie is absent, regardless of a client
+ *     Authorization header
  *   - SSE passthrough headers (Content-Type, Cache-Control, X-Accel-Buffering)
  *   - 502 on fetch throw
  */
@@ -139,18 +143,34 @@ describe('auth injection', () => {
     expect((opts.headers as Headers).get('authorization')).toBe('Bearer my-access-token');
   });
 
-  it('uses explicit Authorization header when provided (ignores cookie)', async () => {
+  it('uses the cookie-derived token when a client Authorization header is ALSO present (cookie wins)', async () => {
+    // TAV-DND-PROXY-CLIENT-BEARER-OVERRIDE (Leon's ruling 2026-08-19): the
+    // cookie is the sole source of truth. A browser-supplied Authorization
+    // header — bogus or not — must never reach upstream.
     mockFetch.mockResolvedValueOnce(sseUpstream());
 
     const req = makeRequest(['stream'], {
       body: '{}',
-      headers: { authorization: 'Bearer explicit-token' },
+      headers: { authorization: 'Bearer bogus-client-supplied-token' },
       cookie: 'st_access=cookie-token',
     });
     await POST(req, makeCtx(['stream']));
 
     const [, opts] = mockFetch.mock.calls[0] as [string, RequestInit & { headers: Headers }];
-    expect((opts.headers as Headers).get('authorization')).toBe('Bearer explicit-token');
+    expect((opts.headers as Headers).get('authorization')).toBe('Bearer cookie-token');
+  });
+
+  it('returns 401 when a client bearer is present but the st_access cookie is absent (no passthrough)', async () => {
+    // Regression for TAV-DND-PROXY-CLIENT-BEARER-OVERRIDE: a client bearer
+    // with no cookie must never reach upstream — it must 401 exactly like
+    // the "neither present" case below.
+    const req = makeRequest(['stream'], {
+      body: '{}',
+      headers: { authorization: 'Bearer client-only-token' },
+    });
+    const res = await POST(req, makeCtx(['stream']));
+    expect(res.status).toBe(401);
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it('returns 401 when neither cookie nor Authorization header is present', async () => {

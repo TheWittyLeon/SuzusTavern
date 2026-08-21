@@ -7,7 +7,7 @@
   z-index: 9000;
   display: flex;
   flex-direction: column-reverse;
-  gap: 8px;
+  gap: var(--density-gap);
   /* Prevent viewport from catching pointer events when empty */
   pointer-events: none;
   max-width: min(400px, calc(100vw - 48px));
@@ -20,8 +20,8 @@
   pointer-events: auto;
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 12px 14px;
+  gap: var(--density-gap);
+  padding: var(--density-pad);
   border-radius: var(--radius);
   background: var(--card);
   backdrop-filter: blur(20px) saturate(140%);

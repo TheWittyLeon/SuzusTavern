@@ -90,13 +90,29 @@ const ENGINE_SPELL_REASON_STATUS_KEYS = [
 // status dict, so the route's `.get(reason, 400)` supplies the default.
 const ENGINE_COMBAT_ROUTE_LEVEL_KEYS = ['target_is_self', 'not_found', 'invalid_outcome', 'victory_refused', 'msm_disabled'] as const;
 
+// IMP-3 RESOLVED (WF-A reconciliation, 2026-08-12): `not_your_character` is a
+// real, live engine key (still in COMBAT_REASON_STATUS) but is DELIBERATELY
+// absent from COMBAT_REFUSAL_REASON_MAP — see the map's own inline comment.
+// The engine emits it at two branches of combat_commands.py with two
+// genuinely different causes (:897 named someone else's downed PC, :919 no
+// downed character of your own), so no single curated string can be honest
+// for both; tier 2 (the engine's own branch-specific `message`, forwarded
+// verbatim since `ebdc5b2`) owns this code instead. This is the one
+// deliberate exception to "the map is complete over the engine vocabulary".
+const DELIBERATELY_UNCURATED_COMBAT_KEYS = new Set(['not_your_character']);
+
 describe('engineReasons — contract: map keys against the engine vocabulary', () => {
-  it('COMBAT_REFUSAL_REASON_MAP covers every key in engine.combat.COMBAT_REASON_STATUS', () => {
+  it('COMBAT_REFUSAL_REASON_MAP covers every key in engine.combat.COMBAT_REASON_STATUS except the deliberate tier-2 exception', () => {
     for (const key of ENGINE_COMBAT_REASON_STATUS_KEYS) {
+      if (DELIBERATELY_UNCURATED_COMBAT_KEYS.has(key)) continue;
       expect(COMBAT_REFUSAL_REASON_MAP).toHaveProperty(key);
       expect(typeof COMBAT_REFUSAL_REASON_MAP[key]).toBe('string');
       expect(COMBAT_REFUSAL_REASON_MAP[key].trim().length).toBeGreaterThan(0);
     }
+  });
+
+  it('not_your_character is DELIBERATELY absent from COMBAT_REFUSAL_REASON_MAP (IMP-3) so tier 2 owns the branch-specific message', () => {
+    expect(COMBAT_REFUSAL_REASON_MAP).not.toHaveProperty('not_your_character');
   });
 
   it('COMBAT_REFUSAL_REASON_MAP covers the route-level / positional-tuple codes reachable from onCombatAction', () => {
@@ -123,13 +139,25 @@ describe('engineReasons — contract: map keys against the engine vocabulary', (
       // live emitter. Deliberately kept, deliberately listed here so its
       // presence reads as verified rather than accidental.
       'no_character_bound',
+      // F2 (1.7 audit, 2026-08-11/12): NOT an engine emitter — synthesized by
+      // the Tavern's OWN BFF proxy routes (api/dnd/[...path],
+      // api/dnd/sessions/[id]/bind, api/narration/[...path] x2) when
+      // `upstream.json()` throws on a non-JSON upstream body. Same class of
+      // exception as `actor_required` above: a real refusal that can land on
+      // ANY proxied route, just never from the engine itself.
+      'upstream_non_json',
     ]);
     const unjustified = Object.keys(COMBAT_REFUSAL_REASON_MAP).filter((k) => !justified.has(k));
     expect(unjustified).toEqual([]);
   });
 
   it('CAST_REFUSAL_REASON_MAP contains NO key that is not a real, traced emitter', () => {
-    const justified = new Set<string>([...ENGINE_SPELL_REASON_STATUS_KEYS, 'actor_required']);
+    const justified = new Set<string>([
+      ...ENGINE_SPELL_REASON_STATUS_KEYS,
+      'actor_required',
+      // F2 — see COMBAT_REFUSAL_REASON_MAP's identical justification above.
+      'upstream_non_json',
+    ]);
     const unjustified = Object.keys(CAST_REFUSAL_REASON_MAP).filter((k) => !justified.has(k));
     expect(unjustified).toEqual([]);
   });
@@ -242,6 +270,50 @@ describe('engineReasons — wire shape: no_action_remaining through the REAL pro
       reasonMap: CAST_REFUSAL_REASON_MAP,
     });
     expect(message).toBe("You've already used your action this turn — end your turn.");
+  });
+});
+
+// ── IMP-3 (WF-A reconciliation, 2026-08-12): not_your_character is
+// deliberately UNCURATED — see COMBAT_REFUSAL_REASON_MAP's own comment and
+// the `DELIBERATELY_UNCURATED_COMBAT_KEYS` note above. Unlike
+// `proxyCombatError` above (which mirrors the STALE pre-`ebdc5b2` shape,
+// `message` always absent), these two bodies mirror the CURRENT shape —
+// `message` present, forwarded verbatim by dnd_combat.py since `ebdc5b2`
+// (2026-08-07) — because the whole point of removing the curated entry is
+// that tier 2 now genuinely carries the engine's own text through.
+describe('engineReasons — wire shape: not_your_character (IMP-3, tier 2 owns this code)', () => {
+  it('combat_commands.py:897 branch ("named someone else\'s downed PC") surfaces its own message', () => {
+    const body = {
+      success: false,
+      message: 'You can only roll a death save for your own character.',
+      data: { reason: 'not_your_character' },
+    };
+    const err = makeApiError(400, body.message, body);
+    const message = engineErrorMessage(err, {
+      fallback: "That combat action didn't go through.",
+      reasonMap: COMBAT_REFUSAL_REASON_MAP,
+    });
+    expect(message).toBe('You can only roll a death save for your own character.');
+  });
+
+  it('combat_commands.py:919 branch (the C2 fix, "no downed character of your own") surfaces a DIFFERENT message for the SAME reason code', () => {
+    const body = {
+      success: false,
+      message:
+        "You don't have a downed character of your own in this encounter to make a death save for.",
+      data: { reason: 'not_your_character' },
+    };
+    const err = makeApiError(400, body.message, body);
+    const message = engineErrorMessage(err, {
+      fallback: "That combat action didn't go through.",
+      reasonMap: COMBAT_REFUSAL_REASON_MAP,
+    });
+    expect(message).toBe(
+      "You don't have a downed character of your own in this encounter to make a death save for.",
+    );
+    // The two branches genuinely disagree -- proof that a single curated
+    // string could not have been honest for both, which is the whole IMP-3
+    // ruling.
   });
 });
 

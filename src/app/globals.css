@@ -268,10 +268,15 @@
  * ============================================================ */
 
 :root {
+  --radius-xs: 8px;
   --radius-sm: 12px;
   --radius:    18px;
   --radius-lg: 28px;
   --radius-pill: 999px;
+
+  --scrim:        rgba(10, 7, 18, 0.62);
+  --scrim-soft:   rgba(10, 7, 18, 0.45);
+  --shadow-raise: 0 10px 28px -10px rgba(0, 0, 0, 0.50);
 
   --shadow-soft:
     0 1px 0 rgba(255,255,255,0.06) inset,
@@ -299,6 +304,10 @@
 
 /* light-palette shadow tweak */
 [data-vibe="candlelit"] {
+  --scrim:        rgba(42, 30, 22, 0.48);
+  --scrim-soft:   rgba(42, 30, 22, 0.32);
+  --shadow-raise: 0 10px 28px -10px rgba(42, 30, 22, 0.22);
+
   --shadow-soft:
     0 1px 0 rgba(255,255,255,0.7) inset,
     0 8px 24px -12px rgba(42,30,22,0.18),
@@ -322,7 +331,7 @@ html, body { margin: 0; padding: 0; }
 
 body {
   font-family: var(--font-ui);
-  font-size: 14px;
+  font-size: 0.875rem;
   line-height: 1.5;
   color: var(--ink);
   background: var(--bg);
@@ -340,10 +349,10 @@ body {
   margin: 0;
 }
 
-h1 { font-size: clamp(40px, 5.5vw, 64px); letter-spacing: -0.03em; line-height: 1.05; }
-h2 { font-size: clamp(26px, 3vw, 32px); line-height: 1.15; }
-h3 { font-size: 20px; line-height: 1.25; }
-h4 { font-size: 16px; line-height: 1.3; }
+h1 { font-size: clamp(2.5rem, 5.5vw, 4rem); letter-spacing: -0.03em; line-height: 1.05; }
+h2 { font-size: clamp(1.625rem, 3vw, 2rem); line-height: 1.15; }
+h3 { font-size: 1.25rem; line-height: 1.25; }
+h4 { font-size: 1rem; line-height: 1.3; }
 
 p { margin: 0; }
 a { color: inherit; text-decoration: none; }
@@ -355,7 +364,7 @@ a { color: inherit; text-decoration: none; }
 }
 
 .label {
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 600;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -367,12 +376,12 @@ a { color: inherit; text-decoration: none; }
   font-family: var(--font-display);
   font-style: italic;
   font-weight: 400;
-  font-size: 15px;
+  font-size: 0.9375rem;
   line-height: 1.55;
   color: var(--ink-2);
 }
 
-.body-lg { font-size: 17px; line-height: 1.6; color: var(--ink-2); }
+.body-lg { font-size: 1.0625rem; line-height: 1.6; color: var(--ink-2); }
 
 /* ============================================================
  *  Workhorse primitives
@@ -431,7 +440,7 @@ a { color: inherit; text-decoration: none; }
   background: transparent;
   color: var(--ink);
   font-family: var(--font-ui);
-  font-size: 14px; font-weight: 500;
+  font-size: 0.875rem; font-weight: 500;
   cursor: pointer; white-space: nowrap;
   transition: transform var(--dur-fast) var(--ease),
               box-shadow var(--dur) var(--ease),
@@ -455,7 +464,7 @@ a { color: inherit; text-decoration: none; }
 }
 .btn-primary:hover { box-shadow: 0 12px 30px -8px color-mix(in oklab, var(--accent) 70%, transparent); }
 .btn-ghost:hover   { background: color-mix(in oklab, var(--ink) 6%, transparent); }
-.btn-lg { height: 46px; padding: 0 22px; font-size: 15px; }
+.btn-lg { height: 46px; padding: 0 22px; font-size: 0.9375rem; }
 .btn-icon { width: 38px; padding: 0; justify-content: center; }
 .btn-danger {
   background: color-mix(in oklab, var(--bad) 16%, transparent);
@@ -487,7 +496,7 @@ a { color: inherit; text-decoration: none; }
   display: inline-flex; align-items: center; gap: 6px;
   padding: 4px 10px;
   border-radius: var(--radius-pill);
-  font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+  font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
   background: color-mix(in oklab, var(--accent) 14%, transparent);
   /* --accent-ink, not --accent: this utility is the non-React twin of Pill's
      default `accent` tone, which measured 3.42:1 on candlelit. Keep the two in
@@ -515,7 +524,7 @@ a { color: inherit; text-decoration: none; }
   border: 1px solid var(--line-strong);
   background: color-mix(in oklab, var(--ink) 3%, transparent);
   color: var(--ink);
-  font: inherit; font-size: 14px;
+  font: inherit; font-size: 0.875rem;
   transition: border-color var(--dur) var(--ease),
               background var(--dur) var(--ease),
               box-shadow var(--dur) var(--ease);

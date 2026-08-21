@@ -38,12 +38,22 @@ Set `data-vibe` on `<html>` to switch palettes. Density variants: `data-density=
 
 **Never use Tailwind.** All styling uses CSS custom properties from globals.css and component-scoped CSS Modules.
 
+Structural tokens worth knowing (defined once under `:root` in `globals.css`, some re-tuned per `data-vibe` — check the palette block before assuming a fixed value):
+
+| Token | Purpose |
+|-------|---------|
+| `--radius-xs` | Smallest corner radius (8px) — small chips/badges/inputs one step below `--radius-sm` |
+| `--scrim` | Full-strength modal/dialog backdrop background (e.g. `ConfirmDialog`, `DmOverrideModal`) |
+| `--scrim-soft` | Lighter backdrop for secondary/nested overlays (e.g. the play screen's inline overlays) — not a substitute for `--scrim` on a primary modal |
+| `--shadow-raise` | Elevation shadow for a floating/raised element that sits above the page but isn't a full modal (popovers, raised panels) — distinct from `--shadow-soft` (card resting elevation) and `--shadow-pop` (accent-tinted "pop" elevation) |
+
 ## Styling Conventions
 
 - Global utility classes (`.glass`, `.btn`, `.pill`, `.input`, etc.) are defined in `globals.css` — use them directly via `className`
 - Component-specific styles go in `ComponentName.module.css` co-located with the component
 - Never hardcode color values — always use `var(--token-name)`
 - Never import `colors_and_type.css` from the design system folder — the tokens are already in `globals.css`
+- **Density wiring rule:** a component's outer CONTAINER (Card padding, section gaps, list-row spacing — anything that should visibly tighten under `data-density="compact"` and loosen under `"airy"`) wires its padding/gap to `var(--density-pad)` / `var(--density-gap)`. Small INLINE controls (icon-button padding, pill/badge spacing, a chip's internal gap) stay literal px values — they're sized to their glyph/label, not to the page's breathing room, and wiring them to density tokens makes them visually inconsistent at the `compact`/`airy` extremes instead of more consistent.
 
 ## Components
 

@@ -2,10 +2,10 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 8px 4px;
+  padding: var(--density-pad) 4px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--density-gap);
   scroll-behavior: smooth;
 }
 
@@ -99,12 +99,12 @@
    Server filters these per dm_override_player_visible before they reach us;
    the client NEVER filters these client-side. */
 .dm_override .who {
-  color: var(--warn-ink, var(--warn, #d97706));
+  color: var(--warn-ink);
 }
 .dm_override .what {
   color: var(--ink);
   padding-left: 10px;
-  border-left: 2px solid color-mix(in oklab, var(--warn, #d97706) 40%, transparent);
+  border-left: 2px solid color-mix(in oklab, var(--warn) 40%, transparent);
   font-style: italic;
 }
 
@@ -166,7 +166,7 @@
    Scoped to `.composing` only — the finalized `.narration` row has no tinted
    background, so its own `.who` colour is untouched. */
 .composing .who {
-  color: var(--accent-ink, var(--accent));
+  color: var(--accent-ink);
 }
 
 .composing .thinkingLabel {

@@ -52,6 +52,33 @@ type RouteContext = {
 };
 
 /**
+ * Security — path-traversal guard (SECURITY-4):
+ *   Next.js splits the request pathname on literal '/' only, so an encoded
+ *   slash (%2F) survives into a single catch-all segment and is then
+ *   percent-decoded — turning `..%2f..%2f..` into `../../..` inside one
+ *   `params.path` entry. Joined and handed to `new URL()`, that collapses out
+ *   of the `/api/dnd/` prefix, letting a caller pick ANY path and method on the
+ *   NekoNova backend (which hosts unauthenticated surfaces the Tavern must
+ *   never expose). It also defeated the admin gate, which inspects the raw
+ *   pre-normalisation string.
+ *
+ *   A legitimate segment is a single, already-decoded path component: it never
+ *   contains a slash/backslash, and is never a traversal token. Anything else
+ *   is refused here — BEFORE the admin gate and BEFORE the upstream URL is
+ *   built. The post-normalisation assertion in proxyRequest() is the
+ *   load-bearing second layer.
+ */
+function isUnsafePathSegment(segment: string): boolean {
+  if (segment.includes('/') || segment.includes('\\') || segment.includes('\0')) return true;
+  if (segment === '.' || segment === '..') return true;
+  // Belt-and-suspenders: refuse a still-encoded slash/backslash in case a
+  // runtime ever hands us an undecoded segment.
+  const lower = segment.toLowerCase();
+  if (lower.includes('%2f') || lower.includes('%5c') || lower.includes('%00')) return true;
+  return false;
+}
+
+/**
  * Result of admin session verification.
  * Returns the username on success so we can stamp it into forwarded requests.
  * Returns null when the session is invalid or not admin (fails CLOSED).
@@ -116,7 +143,18 @@ async function proxyRequest(
   context: RouteContext,
 ): Promise<NextResponse> {
   const { path } = await context.params;
-  const pathStr = path.join('/');
+  const segments = path ?? [];
+
+  // SECURITY-4: reject path traversal BEFORE the admin gate reads pathStr and
+  // before the upstream URL is built. See isUnsafePathSegment() above.
+  if (segments.some(isUnsafePathSegment)) {
+    return NextResponse.json(
+      { success: false, error: 'Bad Request', data: { reason: 'invalid_path' } },
+      { status: 400 },
+    );
+  }
+
+  const pathStr = segments.join('/');
 
   // ── S8.3 admin gate ──────────────────────────────────────────────────────
   // Admin paths: anything starting with "admin/" requires role=admin.
@@ -137,6 +175,18 @@ async function proxyRequest(
 
   const upstreamPath = `/api/dnd/${pathStr}`;
   const upstreamUrl = new URL(upstreamPath, NEKANOVA_URL);
+
+  // SECURITY-4 (load-bearing): after new URL() has normalised the path, the
+  // resolved pathname MUST still live under /api/dnd/. If any traversal slipped
+  // past the segment check, new URL() will have collapsed it elsewhere — refuse
+  // rather than forward. This is the guarantee; the segment check is the fast
+  // reject.
+  if (!upstreamUrl.pathname.startsWith('/api/dnd/')) {
+    return NextResponse.json(
+      { success: false, error: 'Bad Request', data: { reason: 'invalid_path' } },
+      { status: 400 },
+    );
+  }
 
   // Forward query parameters
   req.nextUrl.searchParams.forEach((value: string, key: string) => {
@@ -176,13 +226,13 @@ async function proxyRequest(
   const forwardHeaders = new Headers();
   const contentType = req.headers.get('content-type');
   if (contentType) forwardHeaders.set('content-type', contentType);
-  // Inject Bearer from st_access cookie when no Authorization header present.
+  // Inject Bearer from the st_access cookie ONLY (TAV-DND-PROXY-CLIENT-BEARER-OVERRIDE,
+  // Leon's ruling 2026-08-19: cookie wins, the client-supplied Authorization header
+  // is never trusted for the forwarded request — a browser-supplied header
+  // overriding the httpOnly cookie contradicted the cookie-BFF trust model).
   // Feature-detect req.cookies?.get per §8 risk mitigation — test-constructed
   // requests may not have cookie support; if absent, no auth header forwarded.
-  const auth = req.headers.get('authorization');
-  if (auth) {
-    forwardHeaders.set('authorization', auth);
-  } else if (typeof req.cookies?.get === 'function') {
+  if (typeof req.cookies?.get === 'function') {
     const cookieAccess = req.cookies.get('st_access')?.value;
     if (cookieAccess) forwardHeaders.set('authorization', `Bearer ${cookieAccess}`);
   }
@@ -258,8 +308,27 @@ async function proxyRequest(
     });
   }
 
-  // Regular JSON response — parse and re-serialize to normalise content-type
-  const responseData: unknown = await upstream.json();
+  // Regular JSON response — parse and re-serialize to normalise content-type.
+  // F2 (1.7 audit): upstream.json() throws on a non-JSON body (e.g. an nginx
+  // error page, a plaintext 502 from an intermediate proxy). Unguarded, that
+  // throw was uncaught here and Next.js collapsed it into a blind, empty 500
+  // — destroying the real upstream status and giving the player/DM nothing
+  // to act on. Forward upstream.status (the single most useful diagnostic;
+  // never replace it with 500) and synthesize a `reason` the existing
+  // engineReasons.ts fallback chain can turn into readable copy.
+  let responseData: unknown;
+  try {
+    responseData = await upstream.json();
+  } catch {
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Upstream returned a non-JSON response',
+        data: { reason: 'upstream_non_json' },
+      },
+      { status: upstream.status },
+    );
+  }
   return NextResponse.json(responseData, { status: upstream.status });
 }
 

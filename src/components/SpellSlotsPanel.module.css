@@ -10,7 +10,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--density-gap);
   margin-bottom: 12px;
 }
 .emptyRow {
@@ -45,7 +45,7 @@
   width: 26px;
   height: 26px;
   flex-shrink: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   background: color-mix(in oklab, var(--accent-2) 12%, transparent);
   color: var(--accent-2);
   font-family: var(--font-mono);

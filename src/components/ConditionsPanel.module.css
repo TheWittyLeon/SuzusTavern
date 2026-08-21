@@ -4,7 +4,7 @@
 
 .panel {
   border-top: 1px solid var(--line);
-  padding-top: 12px;
+  padding-top: var(--density-pad);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -24,7 +24,7 @@
 .row {
   display: flex;
   align-items: flex-end;
-  gap: 10px;
+  gap: var(--density-gap);
   flex-wrap: wrap;
 }
 
@@ -46,7 +46,7 @@
 .input {
   height: 38px;
   padding: 0 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   /* A11Y-BUTTON-BORDER-CONTRAST: form control — --line-strong clears WCAG
      1.4.11's 3:1 non-text contrast. */
   border: 1px solid var(--line-strong);
@@ -91,7 +91,7 @@
 
 .hint {
   font-size: 12px;
-  color: var(--bad-ink, var(--bad));
+  color: var(--bad-ink);
   margin: 0;
 }
 
@@ -105,7 +105,7 @@
 .affectedList {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--density-gap);
 }
 
 .affectedRow {

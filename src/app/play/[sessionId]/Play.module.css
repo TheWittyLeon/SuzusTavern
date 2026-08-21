@@ -34,7 +34,7 @@
 
 .pane {
   height: 100%;
-  padding: 16px;
+  padding: var(--density-pad);
   overflow-x: clip;
 }
 
@@ -59,18 +59,19 @@
   grid-area: center;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--density-gap);
   min-height: 0;
   overflow: hidden;
 }
 
 /* Kage: the "DM controls" role="group" wrapper around DmNarrationPanel +
-   ConditionsPanel is a single flex child of .center, so .center's own 12px
-   gap no longer applies between the two panels it wraps — restore it here. */
+   ConditionsPanel is a single flex child of .center, so .center's own
+   density-gap no longer applies between the two panels it wraps — restore
+   it here. */
 .dmControlsGroup {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--density-gap);
 }
 
 /* ── left header ── */
@@ -86,7 +87,7 @@
   place-items: center;
   width: 36px;
   height: 36px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   /* A11Y-BUTTON-BORDER-CONTRAST: clickable back button — --line-strong clears
      WCAG 1.4.11's 3:1 non-text contrast. */
   border: 1px solid var(--line-strong);
@@ -117,7 +118,7 @@
   place-items: center;
   width: 36px;
   height: 36px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   /* A11Y-BUTTON-BORDER-CONTRAST: clickable toggle button — --line-strong
      clears WCAG 1.4.11's 3:1 non-text contrast. */
   border: 1px solid var(--line-strong);
@@ -157,7 +158,7 @@
   align-items: center;
   gap: 8px;
   text-align: center;
-  padding: 22px 14px;
+  padding: var(--density-pad);
   border-radius: 12px;
   background: color-mix(in oklab, var(--ink) 3%, transparent);
   border: 1px dashed var(--line);
@@ -249,7 +250,7 @@
   min-height: 44px;
   padding: 0 12px;
   font-size: 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   /* A11Y-BUTTON-BORDER-CONTRAST (P3): --line is a decorative hairline
      (~1.2:1), fails WCAG 1.4.11's 3:1 non-text contrast for an interactive
      control's border. --line-strong is the same hue at a verified ≥3:1
@@ -270,7 +271,7 @@
 .endCombatBtn {
   margin-left: auto;
   padding: 4px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   border: 1px solid color-mix(in oklab, var(--bad) 30%, transparent);
   background: color-mix(in oklab, var(--bad) 10%, transparent);
   color: var(--bad-ink);
@@ -314,7 +315,7 @@
 .autoResolvePromptBtn {
   margin-left: auto;
   padding: 4px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   border: 1px solid color-mix(in oklab, var(--good) 40%, transparent);
   background: color-mix(in oklab, var(--good) 16%, transparent);
   color: var(--ink);
@@ -528,7 +529,7 @@
 
 .safety {
   margin-top: auto;
-  padding: 12px;
+  padding: var(--density-pad);
   border-radius: 12px;
   background: color-mix(in oklab, var(--bad) 8%, transparent);
   border: 1px solid color-mix(in oklab, var(--bad) 24%, transparent);
@@ -574,7 +575,7 @@
   font-size: 12px;
   color: var(--ink-3);
   padding: 6px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   background: color-mix(in oklab, var(--ink) 5%, transparent);
   text-align: center;
   flex-shrink: 0;
@@ -586,7 +587,7 @@
      Use var(--ink) instead — passes ≥4.5:1 on all four palettes. */
   color: var(--ink);
   padding: 6px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   background: color-mix(in oklab, var(--accent) 10%, transparent);
   text-align: center;
   font-weight: 600;
@@ -630,7 +631,7 @@
 .outcomeChooser {
   margin-top: -8px;
   margin-bottom: 16px;
-  padding: 12px;
+  padding: var(--density-pad);
   border-radius: 12px;
   border: 1px solid var(--line);
   background: var(--card-solid, var(--bg-2));
@@ -654,7 +655,7 @@
   width: 100%;
   min-height: 44px;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   /* A11Y-BUTTON-BORDER-CONTRAST: clickable outcome option — --line-strong
      clears WCAG 1.4.11's 3:1 non-text contrast. */
   border: 1px solid var(--line-strong);
@@ -697,7 +698,7 @@
      get the content-box to 44px while keeping the visual appearance compact. */
   padding: 11px 14px;
   min-height: 44px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   /* A11Y-BUTTON-BORDER-CONTRAST: clickable cancel button — see .outcomeOption above. */
   border: 1px solid var(--line-strong);
   background: transparent;
@@ -754,7 +755,7 @@
 /* ── DDX-25: DM-only session lifecycle controls (left pane) ── */
 .sessionControls {
   margin-bottom: 16px;
-  padding: 10px;
+  padding: var(--density-pad);
   border-radius: 12px;
   border: 1px solid var(--line);
   background: color-mix(in oklab, var(--ink) 3%, transparent);
@@ -782,7 +783,7 @@
   width: 100%;
   min-height: 44px;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   /* A11Y-BUTTON-BORDER-CONTRAST: clickable session control — --line-strong
      clears WCAG 1.4.11's 3:1 non-text contrast. */
   border: 1px solid var(--line-strong);
@@ -824,7 +825,7 @@
    pane) but its own class so the two popovers never visually merge. */
 .xpForm {
   margin-top: 8px;
-  padding: 10px;
+  padding: var(--density-pad);
   border-radius: 10px;
   border: 1px solid var(--line);
   background: var(--card-solid, var(--bg-2));
@@ -859,7 +860,7 @@
   font-weight: 600;
   color: var(--warn-ink);
   padding: 8px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   background: color-mix(in oklab, var(--warn) 12%, transparent);
   border: 1px solid color-mix(in oklab, var(--warn) 30%, transparent);
   text-align: center;
@@ -871,7 +872,7 @@
   font-weight: 600;
   color: var(--bad-ink);
   padding: 8px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   background: color-mix(in oklab, var(--bad) 12%, transparent);
   border: 1px solid color-mix(in oklab, var(--bad) 30%, transparent);
   text-align: center;
@@ -886,7 +887,7 @@
   font-weight: 600;
   color: var(--bad-ink);
   padding: 8px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   background: color-mix(in oklab, var(--bad) 12%, transparent);
   border: 1px solid color-mix(in oklab, var(--bad) 30%, transparent);
   text-align: center;
@@ -909,7 +910,7 @@
   font-weight: 600;
   color: var(--bad-ink);
   padding: 8px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   background: color-mix(in oklab, var(--bad) 12%, transparent);
   border: 1px solid color-mix(in oklab, var(--bad) 30%, transparent);
   flex-shrink: 0;
@@ -942,7 +943,7 @@
     z-index: 900;
     height: calc(100dvh - var(--env-banner-h, 0px));
     width: min(380px, 90vw);
-    padding: 16px;
+    padding: var(--density-pad);
     overflow-y: auto;
     background: var(--bg-2);
     border-left: 1px solid var(--line);
@@ -959,7 +960,7 @@
     position: fixed;
     inset: 0;
     z-index: 899;
-    background: rgba(10, 7, 18, 0.45);
+    background: var(--scrim-soft);
   }
 }
 
@@ -984,7 +985,7 @@
   z-index: 900;
   height: calc(100dvh - var(--env-banner-h, 0px));
   width: min(380px, 90vw);
-  padding: 16px;
+  padding: var(--density-pad);
   overflow-y: auto;
   background: var(--bg-2);
   border-left: 1px solid var(--line);
@@ -1001,7 +1002,7 @@
   position: fixed;
   inset: 0;
   z-index: 899;
-  background: rgba(10, 7, 18, 0.45);
+  background: var(--scrim-soft);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1100,7 +1101,7 @@
   .showJournal .journalPane {
     display: flex;
     flex-direction: column;
-    padding: 16px;
+    padding: var(--density-pad);
     overflow-y: auto;
   }
 }

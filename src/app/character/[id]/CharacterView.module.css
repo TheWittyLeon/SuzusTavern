@@ -4,7 +4,7 @@
 .sheet {
   display: grid;
   grid-template-columns: 1.5fr 1fr;
-  gap: 18px;
+  gap: var(--density-gap);
   align-items: start;
 }
 @media (max-width: 920px) {
@@ -16,7 +16,7 @@
 .colSide {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: var(--density-gap);
   min-width: 0;
 }
 
@@ -24,7 +24,7 @@
 .identity {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 18px;
+  gap: var(--density-gap);
   align-items: center;
 }
 @media (max-width: 560px) {
@@ -119,7 +119,7 @@
 .abilityRow {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
-  gap: 10px;
+  gap: var(--density-gap);
 }
 @media (max-width: 560px) {
   .abilityRow {
@@ -184,7 +184,7 @@
   align-items: center;
   gap: 6px;
   padding: 6px 8px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   background: color-mix(in oklab, var(--ink) 4%, transparent);
 }
 .saveName {

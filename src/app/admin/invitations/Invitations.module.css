@@ -9,7 +9,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--density-gap);
   margin-bottom: 20px;
   flex-wrap: wrap;
 }
@@ -20,11 +20,11 @@
 }
 
 .stateCard {
-  padding: 32px 24px;
+  padding: var(--density-pad);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: var(--density-gap);
   text-align: center;
   max-width: 480px;
   margin: 24px auto;
@@ -115,18 +115,18 @@
 .overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+  background: var(--scrim);
   z-index: 200;
   display: grid;
   place-items: center;
-  padding: 20px;
+  padding: var(--density-pad);
   backdrop-filter: blur(4px);
 }
 
 .modal {
   width: 100%;
   max-width: 440px;
-  padding: 32px 28px;
+  padding: var(--density-pad);
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -163,13 +163,13 @@
 /* ── One-time reveal ─────────────────────────────────────────────────────── */
 .revealBox {
   margin-top: 16px;
-  padding: 16px;
+  padding: var(--density-pad);
   border-radius: var(--radius-sm);
   border: 1px solid color-mix(in oklab, var(--good) 30%, transparent);
   background: color-mix(in oklab, var(--good) 8%, transparent);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--density-gap);
 }
 
 .revealLabel {
@@ -251,20 +251,20 @@
 .cardList {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--density-gap);
   list-style: none;
   padding: 0;
   margin: 0;
 }
 
 .card {
-  padding: 14px;
+  padding: var(--density-pad);
   border-radius: var(--radius);
   border: 1px solid var(--line);
   background: var(--card, var(--bg-2));
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--density-gap);
 }
 
 .cardTopRow {

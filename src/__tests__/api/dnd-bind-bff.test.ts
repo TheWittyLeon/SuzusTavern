@@ -358,4 +358,25 @@ describe('POST /api/dnd/sessions/[id]/bind — BFF identity gate', () => {
     const body = await res.json() as { success: boolean };
     expect(body.success).toBe(false);
   });
+
+  // F2 (1.7 audit): the bind-forwarding `upstream.json()` call had NO guard
+  // at all — a non-JSON upstream body threw uncaught and Next.js collapsed
+  // it into a blind, empty 500, discarding the real upstream status.
+  it('F2: non-JSON upstream bind response → status forwarded, reason upstream_non_json, no blind 500', async () => {
+    stubAuthMe('alice');
+    mockFetch.mockImplementationOnce(async () =>
+      new Response('<html>Bad Gateway</html>', {
+        status: 502,
+        headers: { 'content-type': 'text/html' },
+      }),
+    );
+
+    const req = makeRequest({ username: 'alice', character_id: 5 }, 'st_access=tok');
+    const res = await POST(req, makeCtx('sess1'));
+
+    expect(res.status).toBe(502);
+    const body = await res.json() as { success: boolean; data: { reason: string } };
+    expect(body.success).toBe(false);
+    expect(body.data.reason).toBe('upstream_non_json');
+  });
 });

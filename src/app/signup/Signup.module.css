@@ -9,14 +9,14 @@
   min-height: 100svh;
   display: grid;
   place-items: center;
-  padding: 24px;
+  padding: var(--density-pad);
 }
 
 /* ── Card ──────────────────────────────────────────────────────────────────── */
 .card {
   width: 100%;
   max-width: 440px;
-  padding: 40px 36px;
+  padding: var(--density-pad);
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -129,12 +129,12 @@
 
 /* ── Success / pending states ──────────────────────────────────────────────── */
 .stateCard {
-  padding: 32px 24px;
+  padding: var(--density-pad);
   text-align: center;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
+  gap: var(--density-gap);
 }
 
 .stateIcon {
@@ -161,12 +161,12 @@
 
 /* ── Closed mode ───────────────────────────────────────────────────────────── */
 .closedCard {
-  padding: 40px 24px;
+  padding: var(--density-pad);
   text-align: center;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: var(--density-gap);
 }
 
 /* ── Footer ────────────────────────────────────────────────────────────────── */

@@ -3,7 +3,7 @@
   background: color-mix(in oklab, var(--ink) 3%, transparent);
   border: 1px solid var(--line);
   border-radius: 12px;
-  padding: 10px;
+  padding: var(--density-pad);
 }
 
 .head {

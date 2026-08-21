@@ -18,6 +18,7 @@ import { useAuthGate } from '@/lib/auth/useAuthGate';
 import { useReducedMotion } from '@/lib/useReducedMotion';
 import { getCharacterSheet } from '@/lib/api/dnd';
 import DeleteCharacterButton from '@/components/DeleteCharacterButton';
+import LeaveCampaignButton from '@/components/LeaveCampaignButton';
 import LevelUpButton from '@/components/LevelUpButton';
 import WorkshopBuildControls from '@/components/WorkshopBuildControls';
 import LevelChoicePicker from '@/components/LevelChoicePicker';
@@ -145,6 +146,31 @@ export default function CharacterPage() {
     await load(undefined, { background: true });
   }, [load]);
 
+  /** B1 — LeaveCampaignButton's own local `left` latch already hides the
+   *  control instantly, so this refetch exists purely to unstick everything
+   *  ELSE on the sheet that gates on `levelup_policy.mode` (WorkshopBuildControls,
+   *  LevelUpButton's floor/xp copy) — same background-refetch shape as
+   *  `handleRested` above, and for the same reason: a full reload would work
+   *  too, but every other post-mutation control on this page avoids one.
+   *
+   *  A11Y (Tora MAJOR-1 / Iro MAJOR-1, converged): on this success path,
+   *  `LeaveCampaignButton` sets its own `left` latch and closes its
+   *  `ConfirmDialog` in the SAME commit — the trigger button and the dialog
+   *  unmount together, so `ConfirmDialog`'s own focus-restore
+   *  (`previouslyFocused.current?.focus()`) targets an already-detached
+   *  node and is a silent no-op. Left alone, a keyboard/screen-reader user
+   *  loses their place at <body> at the exact moment the escape hatch
+   *  succeeds. Same fix shape as `abilityHeadingRef` below (Iro
+   *  CRITICAL-4b) and the trash page's `nextBtn ?? backRef`: move focus onto
+   *  a stable, always-mounted heading that survives the unmount. Fires
+   *  before the await (not after) so it lands regardless of how long the
+   *  background refetch takes — the control is already gone by the time
+   *  this callback runs either way. */
+  const handleLeftCampaign = useCallback(async () => {
+    abilityHeadingRef.current?.focus();
+    await load(undefined, { background: true });
+  }, [load]);
+
   useEffect(() => {
     if (!username) return;
     const ac = new AbortController();
@@ -232,9 +258,14 @@ export default function CharacterPage() {
   // Precomputed to avoid JSX inter-expression whitespace pitfalls.
   // DDX-10: client-side UX gate only (mirrors every other owner/DM-only
   // affordance in this repo — the engine's real ownership check is the Track A
-  // DND_REQUIRE_ACTOR kill-switch, default off). GET .../sheet has no ownership
-  // enforcement while that flag is off, so a non-owner really can view this
-  // page today; this only decides whether the Level-Up button renders at all.
+  // DND_REQUIRE_ACTOR kill-switch). CORRECTED (Kuro-Sec S4, 2026-08-12): this
+  // used to claim the flag defaults OFF — it does not. DND_REQUIRE_ACTOR is
+  // live TRUE in both dev and prod (has been since ~2026-07-09), so GET
+  // .../sheet DOES enforce actor identity server-side today. A security
+  // comment that misstates the live posture is worse than none, so: this
+  // client-side `isOwner` gate is UX-only either way — it decides whether the
+  // Level-Up button renders, nothing more — but never treat this line, or its
+  // absence, as evidence of what the server actually enforces.
   const isOwner = !!username && sheet.owner_username.toLowerCase() === username.toLowerCase();
 
   return (
@@ -243,6 +274,19 @@ export default function CharacterPage() {
       title={sheet.name}
       actions={
         <>
+          {/* B1 (TAV-CHAR-STUCK-AFTER-CAMPAIGN-END): renders nothing unless
+              `sheet.levelup_policy` says bound — see the component's own
+              header comment. Placed before Delete: freeing a stuck character
+              is the lower-stakes, more-likely-needed action of the two. */}
+          {username && (
+            <LeaveCampaignButton
+              characterId={id}
+              characterName={sheet.name}
+              username={username}
+              sheet={sheet}
+              onLeft={handleLeftCampaign}
+            />
+          )}
           {username && (
             <DeleteCharacterButton
               variant="button"

@@ -13,14 +13,14 @@
 
 .composer {
   border-top: 1px solid var(--line);
-  padding-top: 12px;
+  padding-top: var(--density-pad);
   position: relative;
 }
 
 .row {
   display: flex;
   align-items: flex-end;
-  gap: 8px;
+  gap: var(--density-gap);
 }
 
 .modes {
@@ -206,7 +206,7 @@
 
 .railBtns {
   display: flex;
-  gap: 6px;
+  gap: var(--density-gap);
   flex-wrap: wrap;
 }
 
@@ -322,7 +322,7 @@
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 6px;
-  box-shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-raise);
 }
 
 .popRow {
@@ -336,7 +336,7 @@
   padding: 0 10px;
   border: none;
   background: transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   color: var(--ink);
   font-size: 13px;
   cursor: pointer;

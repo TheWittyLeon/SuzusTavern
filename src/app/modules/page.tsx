@@ -21,6 +21,8 @@ import { useAuthGate } from '@/lib/auth/useAuthGate';
 import { useToast } from '@/components/Toast';
 import { bindCharacter, createSessionFull, getCatalog, listMyCharacters } from '@/lib/api/dnd';
 import type { AdventureCatalogItem, Character, ContentRating, DmMode, Visibility } from '@/lib/api/types';
+import { engineErrorMessage } from '@/lib/dnd/engineError';
+import { SESSION_START_REASON_MAP } from '@/lib/dnd/engineReasons';
 
 type AiAssistLevel = 'full' | 'assist' | 'off';
 import {
@@ -495,7 +497,7 @@ function StarterForm({
       } else {
         router.push('/dashboard');
       }
-    } catch {
+    } catch (err) {
       // Miko F3: release succeeded but createSessionFull failed — the character
       // is now free server-side, but the local list still shows "In {old
       // campaign}". Clear it optimistically so a retry doesn't read as
@@ -520,7 +522,13 @@ function StarterForm({
       }
       toast({
         tone: 'error',
-        message: 'Could not start the table. Try again in a moment.',
+        // WF-A reconciliation (2026-08-12): curated per-reason copy for
+        // msm_disabled / unknown_adventure, generic fallback for everything
+        // else — see SESSION_START_REASON_MAP's own doc comment.
+        message: engineErrorMessage(err, {
+          fallback: 'Could not start the table. Try again in a moment.',
+          reasonMap: SESSION_START_REASON_MAP,
+        }),
       });
     } finally {
       setSubmitting(false);

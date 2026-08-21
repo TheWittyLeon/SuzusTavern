@@ -30,11 +30,11 @@
 }
 
 .stateCard {
-  padding: 32px 24px;
+  padding: var(--density-pad);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: var(--density-gap);
   text-align: center;
   max-width: 480px;
   margin: 24px auto;
@@ -255,20 +255,20 @@
 .cardList {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--density-gap);
   list-style: none;
   padding: 0;
   margin: 0;
 }
 
 .card {
-  padding: 14px;
+  padding: var(--density-pad);
   border-radius: var(--radius);
   border: 1px solid var(--line);
   background: var(--card, var(--bg-2));
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--density-gap);
 }
 
 .cardHighRisk {
