@@ -352,6 +352,46 @@ export interface PrepareSpellResult {
   prepared_max: number;
 }
 
+// ── DnD: freeform feature-pick learn/forget (Leon's ruling 2026-08-23) ──────
+// Shapes of GET /characters/:id/feature-picks, POST .../feature-picks/learn,
+// POST .../feature-picks/forget — NekoNova-DnDEngine's engine/feature_picks.py
+// (get_feature_picks / learn_feature_pick / forget_feature_pick) is the
+// source of truth. A class opts in via `feature_choices[0].freeform` on its
+// catalog row (the Ki Warrior); a menu that doesn't declare it (every menu
+// shipped before this, including the SRD warlock's Eldritch Invocations)
+// reports `freeform: false` here and refuses every mutating verb with
+// `not_freeform` — the swap-at-level-up path (LevelChoicePicker's
+// `feature_choice` resolver) is a SEPARATE, unaffected mechanism.
+
+/** GET /api/dnd/characters/:id/feature-picks response data. `known`/
+ *  `eligible` reuse `FeatureChoiceOption`'s shape — the same one the sheet's
+ *  pending-choice enrichment already carries. `budget.cap` is the menu's
+ *  `known_count` at the character's CURRENT level (1 at L1 … 5 at L18 for
+ *  the Ki Warrior) — forgetting frees a slot, learning fills one up to this
+ *  cap; the archetype scoping and each option's own level gate still apply
+ *  to `eligible`. */
+export interface FeaturePicksResult {
+  menu_label: string;
+  freeform: boolean;
+  budget: { known: number; cap: number };
+  known: FeatureChoiceOption[];
+  eligible: FeatureChoiceOption[];
+}
+
+/** POST /api/dnd/characters/:id/feature-picks/learn response data. */
+export interface LearnFeaturePickResult {
+  learned: string;
+  menu_label: string;
+  known: string[];
+}
+
+/** POST /api/dnd/characters/:id/feature-picks/forget response data. */
+export interface ForgetFeaturePickResult {
+  forgotten: string;
+  menu_label: string;
+  known: string[];
+}
+
 export interface SheetInventoryItem {
   name: string;
   item_type: string;

@@ -15,6 +15,9 @@ jest.mock('../../lib/api/dnd', () => ({
   learnSpell: jest.fn(),
   prepareSpell: jest.fn(),
   forgetSpell: jest.fn(),
+  getFeaturePicks: jest.fn(),
+  learnFeaturePick: jest.fn(),
+  forgetFeaturePick: jest.fn(),
 }));
 
 import * as dnd from '../../lib/api/dnd';
@@ -23,6 +26,7 @@ import SpellbookPanel from '../../components/SpellbookPanel';
 import type {
   AvailableSpellsResult,
   CharacterSheet,
+  FeaturePicksResult,
   SpellBudget,
   SpellListResult,
 } from '../../lib/api/types';
@@ -32,6 +36,9 @@ const mockGetAvailable = dnd.getAvailableSpells as jest.Mock;
 const mockLearn = dnd.learnSpell as jest.Mock;
 const mockPrepare = dnd.prepareSpell as jest.Mock;
 const mockForget = dnd.forgetSpell as jest.Mock;
+const mockGetFeaturePicks = dnd.getFeaturePicks as jest.Mock;
+const mockLearnFeaturePick = dnd.learnFeaturePick as jest.Mock;
+const mockForgetFeaturePick = dnd.forgetFeaturePick as jest.Mock;
 
 const BUDGET: SpellBudget = {
   cantrips_known: 2,
@@ -150,6 +157,63 @@ const KI_POINTS: NonNullable<CharacterSheet['spell_points']> = {
   costs: { '1': 2, '2': 3, '3': 5, '4': 6, '5': 7, '6': 9, '7': 10, '8': 11, '9': 13 },
 };
 
+/** TAV-TECHNIQUES-FREEFORM (Leon's ruling 2026-08-23) — the DEFAULT
+ *  `getFeaturePicks` resolution for every test in this file (wired in
+ *  `beforeEach`, below), matching a menu that has NOT opted into freeform.
+ *  Any test exercising the interactive path overrides this explicitly with
+ *  `FEATURE_PICKS_TURTLE_FREEFORM`. */
+const FEATURE_PICKS_NOT_FREEFORM: FeaturePicksResult = {
+  menu_label: 'School Technique',
+  freeform: false,
+  budget: { known: 1, cap: 1 },
+  known: [],
+  eligible: [],
+};
+
+/** A Turtle-School Ki Warrior's freeform feature-picks menu — mirrors the
+ *  real seeded shape (NekoNova-DnDEngine's `26-freeform-techniques.sql` on
+ *  suzu_dnd_test; engine/feature_picks.py's `get_feature_picks`). One
+ *  technique already known (Jan-Ken Combo — matches KNOWN_KI_WARRIOR's own
+ *  fixture spell), one eligible and not yet known, at cap 1/1. */
+const FEATURE_PICKS_TURTLE_FREEFORM: FeaturePicksResult = {
+  menu_label: 'School Technique',
+  freeform: true,
+  budget: { known: 1, cap: 1 },
+  known: [
+    {
+      slug: 'jan-ken-combo',
+      name: 'Jan-Ken Combo',
+      level: 1,
+      description: "Goku's rock-paper-scissors technique.",
+    },
+  ],
+  eligible: [],
+};
+
+/** Same menu, but with room left (cap 2, one known) and one learnable
+ *  option — used by the Learn-section tests. */
+const FEATURE_PICKS_TURTLE_FREEFORM_WITH_ROOM: FeaturePicksResult = {
+  menu_label: 'School Technique',
+  freeform: true,
+  budget: { known: 1, cap: 2 },
+  known: [
+    {
+      slug: 'jan-ken-combo',
+      name: 'Jan-Ken Combo',
+      level: 1,
+      description: "Goku's rock-paper-scissors technique.",
+    },
+  ],
+  eligible: [
+    {
+      slug: 'renzoku-volley',
+      name: 'Renzoku Volley',
+      level: 1,
+      description: 'Three ki bolts.',
+    },
+  ],
+};
+
 const AVAILABLE_WIZARD: AvailableSpellsResult = {
   cantrips: [
     {
@@ -243,6 +307,16 @@ beforeEach(() => {
   mockLearn.mockReset();
   mockPrepare.mockReset();
   mockForget.mockReset();
+  mockGetFeaturePicks.mockReset();
+  mockLearnFeaturePick.mockReset();
+  mockForgetFeaturePick.mockReset();
+  // TAV-TECHNIQUES-FREEFORM: default every test to "menu exists, not
+  // freeform" — the pre-existing read-only techniques tests below depend
+  // on this NOT resolving `freeform:true` unless they explicitly override
+  // it. A non-caster/non-techniques-only fixture never calls this at all
+  // (isTechniquesOnly gates the fetch), so the default is harmless noise
+  // for the wizard suites above.
+  mockGetFeaturePicks.mockResolvedValue(FEATURE_PICKS_NOT_FREEFORM);
 });
 
 describe('SpellbookPanel — non-caster renders nothing', () => {
@@ -1288,5 +1362,149 @@ describe('SpellbookPanel — TAV-TECHNIQUES-READONLY: caster_kind "none" (Ki War
     await flush();
     expect(mockGetAvailable).toHaveBeenCalledWith('cid-2', 'leon');
     expect(screen.getAllByRole('button', { name: /^learn/i }).length).toBeGreaterThan(0);
+
+    // TAV-TECHNIQUES-FREEFORM: the feature-picks fetch is gated strictly on
+    // isTechniquesOnly (always false for a real spellcasting class) — an
+    // SRD caster must never issue this request at all.
+    expect(mockGetFeaturePicks).not.toHaveBeenCalled();
+  });
+});
+
+describe('SpellbookPanel — TAV-TECHNIQUES-FREEFORM: interactive learn/forget (Ki Warrior)', () => {
+  it('read-only when the menu has not opted into freeform (default mock) — same assertions as TAV-TECHNIQUES-READONLY, now driven by the wire rather than assumed', async () => {
+    mockGetKnown.mockResolvedValue(KNOWN_KI_WARRIOR);
+    // mockGetFeaturePicks defaults to FEATURE_PICKS_NOT_FREEFORM (beforeEach).
+    renderPanel({ spellPoints: KI_POINTS });
+    await flush();
+
+    expect(screen.getByText('Jan-Ken Combo')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^forget/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/learn a technique/i)).not.toBeInTheDocument();
+    expect(mockGetFeaturePicks).toHaveBeenCalledWith('cid-2', 'leon', expect.anything());
+  });
+
+  it('shows a Forget button per known technique and a Learn section when freeform is true', async () => {
+    mockGetKnown.mockResolvedValue(KNOWN_KI_WARRIOR);
+    mockGetFeaturePicks.mockResolvedValue(FEATURE_PICKS_TURTLE_FREEFORM_WITH_ROOM);
+    renderPanel({ spellPoints: KI_POINTS });
+    await flush();
+
+    expect(
+      screen.getByRole('button', { name: 'Forget Jan-Ken Combo' }),
+    ).toBeInTheDocument();
+
+    // Budget line + eligible entry with room to learn.
+    expect(screen.getByText(/1 of 2 known/)).toBeInTheDocument();
+    expect(screen.queryByText(/forget one to learn another/)).not.toBeInTheDocument();
+    expect(screen.getByText('Renzoku Volley')).toBeInTheDocument();
+    const learnBtn = screen.getByRole('button', { name: 'Learn Renzoku Volley' });
+    expect(learnBtn).toBeInTheDocument();
+    expect(learnBtn).not.toBeDisabled();
+  });
+
+  it('shows the at-cap hint and disables Learn when known === cap', async () => {
+    mockGetKnown.mockResolvedValue(KNOWN_KI_WARRIOR);
+    mockGetFeaturePicks.mockResolvedValue({
+      ...FEATURE_PICKS_TURTLE_FREEFORM_WITH_ROOM,
+      budget: { known: 2, cap: 2 },
+    });
+    renderPanel({ spellPoints: KI_POINTS });
+    await flush();
+
+    expect(screen.getByText(/2 of 2 known/)).toBeInTheDocument();
+    expect(screen.getByText(/forget one to learn another/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Learn Renzoku Volley' })).toBeDisabled();
+  });
+
+  it('non-owner gets neither Forget nor Learn, even when freeform is true', async () => {
+    mockGetKnown.mockResolvedValue(KNOWN_KI_WARRIOR);
+    mockGetFeaturePicks.mockResolvedValue(FEATURE_PICKS_TURTLE_FREEFORM_WITH_ROOM);
+    renderPanel({ spellPoints: KI_POINTS, isOwner: false });
+    await flush();
+
+    expect(screen.getByText('Jan-Ken Combo')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^forget/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/learn a technique/i)).not.toBeInTheDocument();
+  });
+
+  it('Learn calls learnFeaturePick, refetches known + feature-picks, and toasts success', async () => {
+    mockGetKnown.mockResolvedValue(KNOWN_KI_WARRIOR);
+    mockGetFeaturePicks.mockResolvedValue(FEATURE_PICKS_TURTLE_FREEFORM_WITH_ROOM);
+    mockLearnFeaturePick.mockResolvedValue({
+      learned: 'renzoku-volley',
+      menu_label: 'School Technique',
+      known: ['jan-ken-combo', 'renzoku-volley'],
+    });
+    renderPanel({ spellPoints: KI_POINTS });
+    await flush();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Learn Renzoku Volley' }));
+    await flush();
+
+    expect(mockLearnFeaturePick).toHaveBeenCalledWith('cid-2', 'leon', 'renzoku-volley');
+    // refetchTechniques: known + feature-picks both re-pulled (mount call +
+    // refetch call = 2 apiece).
+    expect(mockGetKnown).toHaveBeenCalledTimes(2);
+    expect(mockGetFeaturePicks).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('Learned Renzoku Volley.')).toBeInTheDocument();
+  });
+
+  it('Forget confirms, then calls forgetFeaturePick and refetches', async () => {
+    mockGetKnown.mockResolvedValue(KNOWN_KI_WARRIOR);
+    mockGetFeaturePicks.mockResolvedValue(FEATURE_PICKS_TURTLE_FREEFORM);
+    mockForgetFeaturePick.mockResolvedValue({
+      forgotten: 'jan-ken-combo',
+      menu_label: 'School Technique',
+      known: [],
+    });
+    renderPanel({ spellPoints: KI_POINTS });
+    await flush();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Forget Jan-Ken Combo' }));
+    await flush();
+    // Confirm dialog — same always-confirm convention as LVLDN spell-forget.
+    fireEvent.click(screen.getByRole('button', { name: 'Forget it' }));
+    await flush();
+
+    expect(mockForgetFeaturePick).toHaveBeenCalledWith('cid-2', 'leon', 'jan-ken-combo');
+    expect(
+      screen.getByText('Forgot Jan-Ken Combo — the slot is free for a new pick.'),
+    ).toBeInTheDocument();
+  });
+
+  it('a not_freeform refusal (stale render racing a flag flip) maps to specific copy, not the generic fallback', async () => {
+    mockGetKnown.mockResolvedValue(KNOWN_KI_WARRIOR);
+    mockGetFeaturePicks.mockResolvedValue(FEATURE_PICKS_TURTLE_FREEFORM_WITH_ROOM);
+    mockLearnFeaturePick.mockRejectedValue(refusalError('not_freeform'));
+    renderPanel({ spellPoints: KI_POINTS });
+    await flush();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Learn Renzoku Volley' }));
+    await flush();
+
+    expect(
+      screen.getByText("This class's techniques can only be swapped at level-up."),
+    ).toBeInTheDocument();
+  });
+
+  it('an over_menu_cap refusal maps to the shared copy', async () => {
+    mockGetKnown.mockResolvedValue(KNOWN_KI_WARRIOR);
+    mockGetFeaturePicks.mockResolvedValue({
+      ...FEATURE_PICKS_TURTLE_FREEFORM_WITH_ROOM,
+      // aria-disabled would normally block the click; drive the handler
+      // directly via a still-enabled render (known < cap) to prove the
+      // MAPPING, independent of the disabled-button UI affordance above.
+      budget: { known: 1, cap: 2 },
+    });
+    mockLearnFeaturePick.mockRejectedValue(refusalError('over_menu_cap'));
+    renderPanel({ spellPoints: KI_POINTS });
+    await flush();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Learn Renzoku Volley' }));
+    await flush();
+
+    expect(
+      screen.getByText('That would exceed the number of techniques this class can know.'),
+    ).toBeInTheDocument();
   });
 });

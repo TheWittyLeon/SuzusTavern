@@ -31,12 +31,15 @@ import type {
   EndSessionResult,
   EngineSessionEvent,
   EventsPage,
+  FeaturePicksResult,
   FloorApplied,
+  ForgetFeaturePickResult,
   GameSystem,
   GrantCurrencyResult,
   GroundingData,
   HpAdjustResult,
   Inventory,
+  LearnFeaturePickResult,
   LearnSpellResult,
   LevelUpStep,
   ListResourcesResult,
@@ -441,6 +444,63 @@ export const forgetSpell = (
 ) =>
   apiCall<{ forgotten: string }>(
     `/api/dnd/spells/${encodeURIComponent(characterId)}/forget`,
+    { method: 'POST', json: { username, slug }, signal },
+  );
+
+/**
+ * Freeform technique learn/forget (Leon's ruling 2026-08-23) — a SEPARATE
+ * mechanism from the level-up feature-choice picker (LevelChoicePicker /
+ * resolve_level_choice's `swap`), gated by the class's own
+ * `feature_choices[0].freeform` flag. GET /api/dnd/characters/{id}/
+ * feature-picks?username=... — `known`/`eligible` reuse `FeatureChoiceOption`
+ * (types.ts); a non-freeform menu (every SRD menu today) still returns
+ * `freeform:false` here rather than a 4xx, so the caller can gate the UI
+ * on the wire, not on a separate whitelist. Verified against
+ * NekoNova-DnDEngine's routes/feature_picks.py + engine/feature_picks.py.
+ */
+export const getFeaturePicks = (
+  characterId: string,
+  username: string,
+  signal?: AbortSignal,
+) =>
+  apiCall<FeaturePicksResult>(
+    `/api/dnd/characters/${encodeURIComponent(characterId)}/feature-picks?username=${encodeURIComponent(username)}`,
+    { method: 'GET', signal },
+  );
+
+/**
+ * Learn one eligible option from the menu `getFeaturePicks` returned.
+ * POST /api/dnd/characters/{id}/feature-picks/learn. Count-enforced against
+ * the SAME budget a level-up pick uses server-side. Throws ApiError with
+ * body.data.reason: not_freeform / wrong_subclass / unknown_option /
+ * option_level_unmet / duplicate_option / over_menu_cap -> 400;
+ * not_found -> 404; save_failed -> 500.
+ */
+export const learnFeaturePick = (
+  characterId: string,
+  username: string,
+  slug: string,
+  signal?: AbortSignal,
+) =>
+  apiCall<LearnFeaturePickResult>(
+    `/api/dnd/characters/${encodeURIComponent(characterId)}/feature-picks/learn`,
+    { method: 'POST', json: { username, slug }, signal },
+  );
+
+/**
+ * Forget a known menu option, freeing its slot — the inverse of
+ * learnFeaturePick. POST /api/dnd/characters/{id}/feature-picks/forget.
+ * Throws ApiError with body.data.reason: not_freeform / unknown_option ->
+ * 400; not_found -> 404; save_failed -> 500.
+ */
+export const forgetFeaturePick = (
+  characterId: string,
+  username: string,
+  slug: string,
+  signal?: AbortSignal,
+) =>
+  apiCall<ForgetFeaturePickResult>(
+    `/api/dnd/characters/${encodeURIComponent(characterId)}/feature-picks/forget`,
     { method: 'POST', json: { username, slug }, signal },
   );
 
