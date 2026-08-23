@@ -57,6 +57,7 @@ jest.mock('../../lib/api/auth', () => ({
 jest.mock('../../lib/api/dnd', () => ({
   getCharacterSheet: jest.fn(),
   levelUpCharacter: jest.fn(),
+  getCatalog: jest.fn(),
 }));
 
 import * as dnd from '../../lib/api/dnd';
@@ -67,6 +68,7 @@ import CharacterPage from '../../app/character/[id]/page';
 import type { CharacterSheet, User } from '../../lib/api/types';
 
 const mockGet = dnd.getCharacterSheet as jest.MockedFunction<typeof dnd.getCharacterSheet>;
+const mockGetCatalog = dnd.getCatalog as jest.MockedFunction<typeof dnd.getCatalog>;
 
 function ability(score: number, modifier: number) {
   return { score, modifier };
@@ -122,6 +124,15 @@ function renderPageAs(user: User) {
 
 beforeEach(() => {
   mockGet.mockReset();
+  mockGetCatalog.mockReset();
+  mockGetCatalog.mockResolvedValue({
+    system: 'dnd5e',
+    content_type: 'class',
+    items: [],
+    total: 0,
+    limit: 100,
+    offset: 0,
+  });
 });
 
 describe('Character sheet — DDX-10 isOwner case-folding edge', () => {

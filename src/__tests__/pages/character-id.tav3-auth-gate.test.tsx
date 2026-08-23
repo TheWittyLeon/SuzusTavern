@@ -35,6 +35,7 @@ jest.mock('../../lib/api/dnd', () => ({
   equipItem: jest.fn(),
   unequipItem: jest.fn(),
   giveItem: jest.fn(),
+  getCatalog: jest.fn(),
 }));
 
 import * as authApi from '../../lib/api/auth';
@@ -47,6 +48,7 @@ import CharacterPage from '../../app/character/[id]/page';
 const mockRefresh = authApi.refresh as jest.MockedFunction<typeof authApi.refresh>;
 const mockMe = authApi.me as jest.MockedFunction<typeof authApi.me>;
 const mockGetSheet = dnd.getCharacterSheet as jest.MockedFunction<typeof dnd.getCharacterSheet>;
+const mockGetCatalog = dnd.getCatalog as jest.MockedFunction<typeof dnd.getCatalog>;
 
 /** Shapes an Error the way client.ts's makeApiError does — {status, code}. */
 function apiError(status: number, message = 'api error') {
@@ -70,6 +72,15 @@ beforeEach(() => {
   mockRefresh.mockReset();
   mockMe.mockReset();
   mockGetSheet.mockReset();
+  mockGetCatalog.mockReset();
+  mockGetCatalog.mockResolvedValue({
+    system: 'dnd5e',
+    content_type: 'class',
+    items: [],
+    total: 0,
+    limit: 100,
+    offset: 0,
+  });
 });
 
 describe('CharacterPage — the ORIGINAL infinite-skeleton bug site, real refresh failure', () => {

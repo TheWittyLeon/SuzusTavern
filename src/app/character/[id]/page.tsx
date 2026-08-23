@@ -11,7 +11,7 @@
  * The engine is the source of mechanical truth — every number here comes from the
  * payload; the page only formats. Numbers use the mono font + tabular figures.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import { useAuthGate } from '@/lib/auth/useAuthGate';
@@ -41,6 +41,8 @@ import SpellbookPanel from '@/components/SpellbookPanel';
 import { ABILITIES, SKILLS } from '@/lib/dnd/helpers';
 import { raceSpeedLabel } from '@/lib/dnd/codex';
 import { useSuzuNote } from '@/lib/dnd/useSuzuNote';
+import { groupClassFeatures } from '@/lib/dnd/classFeatureText';
+import { useClassFeatureDescriptions } from '@/lib/dnd/useClassFeatureDescriptions';
 import styles from './CharacterView.module.css';
 
 function signed(n: number): string {
@@ -77,6 +79,17 @@ export default function CharacterPage() {
   // (FLAGGED), so it defaults to the deterministic placeholder with ZERO LLM
   // calls; a persisted note (once generated) is read back verbatim.
   const { note: suzuNote } = useSuzuNote(sheet);
+
+  // Features list: scaffolding menu labels hidden, repeats (Ability Score
+  // Improvement x N) collapsed to one row with a count, rules text resolved
+  // by name from the class catalog (classFeatureText.ts / TAV-CLASS-FEATURE-TEXT).
+  const { descriptions: classFeatureDescriptions } = useClassFeatureDescriptions(
+    sheet?.char_class ?? null,
+  );
+  const groupedClassFeatures = useMemo(
+    () => (sheet ? groupClassFeatures(sheet.class_features) : []),
+    [sheet],
+  );
 
   /** Monotonic load generation. Several panels on this sheet (HpControl,
    *  SpellSlotsPanel, CurrencyPurse, InventoryPanel) each refetch and
@@ -691,13 +704,20 @@ export default function CharacterPage() {
             <h2 className="label" style={{ margin: '0 0 10px' }}>
               Features
             </h2>
-            {sheet.class_features.length === 0 ? (
+            {groupedClassFeatures.length === 0 ? (
               <p className={styles.emptyRow}>No class features recorded.</p>
             ) : (
               <ul className={styles.featureList}>
-                {sheet.class_features.map((f, i) => (
-                  <li key={`${f}-${i}`} className={styles.featureRow}>
-                    {f}
+                {groupedClassFeatures.map((f) => (
+                  <li key={f.name} className={styles.featureRow}>
+                    <SpellInfoPopover
+                      spell={{ name: f.name, description: classFeatureDescriptions[f.name] }}
+                      detailsLabel="Feature details"
+                      emptyLabel="No details available yet."
+                    >
+                      {f.name}
+                      {f.count > 1 && <span className="mono"> ×{f.count}</span>}
+                    </SpellInfoPopover>
                   </li>
                 ))}
               </ul>
