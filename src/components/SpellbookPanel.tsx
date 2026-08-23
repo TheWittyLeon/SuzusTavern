@@ -48,6 +48,23 @@
  * `in_repertoire` effectively always true) — but a click that still slips
  * through to an ineligible spell is a legal user action that gets a clean,
  * specific refusal toast, not a silent client-side block.
+ *
+ * TAV-TECHNIQUES-READONLY (Leon's ruling, 2026-08-23): a class whose
+ * repertoire model is genuinely `caster_kind: 'none'` (the Ki Warrior — it
+ * acquires techniques through its School level-up menu, not the Spellbook;
+ * `cantrips_known`/`spells_known` were both removed from the class) can
+ * neither learn nor prepare. `is_spellcaster` stays true (this panel still
+ * mounts), but every mutating control is dead — the class's engine profile
+ * exists (so `is_spellcaster` is true) but sets none of the traditional
+ * casting flags, so `spellbook.caster_kind()` falls through to `'none'`
+ * (NekoNova-DnDEngine engine/spellbook.py). `isTechniquesOnlyKind` below
+ * reads that straight off the Known wire this panel already fetches on
+ * mount — see its own comment for why that's provably identical to
+ * `available.can_learn === false && available.can_prepare === false`
+ * without needing an eager fetch of the (lazily-loaded) Browse pool. In this
+ * mode the panel renders a flat, read-only list of what the character
+ * knows, with full rules text via the same SpellInfoPopover detail pattern
+ * — no tabs, no Learn/Forget/Prepare.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Button from '@/components/Button';
@@ -67,6 +84,7 @@ import type {
   AvailableSpellEntry,
   AvailableSpellsResult,
   SheetSpellEntry,
+  SheetSpellPoints,
   SpellListResult,
 } from '@/lib/api/types';
 import styles from './SpellbookPanel.module.css';
@@ -154,6 +172,13 @@ export interface SpellbookPanelProps {
    *  re-runs the fetch-on-mount effect below, pulling the fresh repertoire
    *  without a full page reload. */
   refreshKey?: number;
+  /** TAV-TECHNIQUES-READONLY: the sheet's points pool (HB-P2), when this
+   *  character casts on points rather than slots — same prop SpellSlotsPanel
+   *  already accepts. Used ONLY to name the read-only heading honestly
+   *  ("Ki techniques you know" rather than a generic label); undefined/null
+   *  falls back to a generic "Techniques you know". Never used for gating —
+   *  see `isTechniquesOnlyKind`. */
+  spellPoints?: SheetSpellPoints | null;
 }
 
 function groupByLevel(spells: SheetSpellEntry[]): [number, SheetSpellEntry[]][] {
@@ -166,12 +191,37 @@ function groupByLevel(spells: SheetSpellEntry[]): [number, SheetSpellEntry[]][] 
   return Array.from(byLevel.entries()).sort((a, b) => a[0] - b[0]);
 }
 
+/** TAV-TECHNIQUES-READONLY: true when this character's repertoire model is
+ *  genuinely `'none'` — neither learn nor prepare applies. Both engine-side
+ *  capability flags on the (lazily-loaded) Browse wire derive from the exact
+ *  same value this checks (NekoNova-DnDEngine engine/spells_msm.py's
+ *  `available_spells`: `"can_learn": kind != "none"`, `"can_prepare": kind
+ *  in ("prepared", "spellbook")`) — so `caster_kind === 'none'` is
+ *  algebraically identical to `can_learn === false && can_prepare ===
+ *  false`, readable straight off the Known wire this panel already fetches
+ *  on mount, with no need to eagerly load Browse just to learn the answer.
+ *  The zero/absent cantrip+spell budget check is the belt-and-suspenders
+ *  half of the same signal — both wires share the engine's `_budget()`,
+ *  which also derives from `caster_kind`, so this can never disagree with
+ *  the primary check; it's here so a future engine change that decouples
+ *  the two fails safely (back to the tabbed Spellbook, not a silently wrong
+ *  read-only view). NOT the class name — a second homebrew class with no
+ *  repertoire model gets this behavior for free. */
+function isTechniquesOnlyKind(list: SpellListResult): boolean {
+  return (
+    list.caster_kind === 'none' &&
+    list.budget.cantrips_max === 0 &&
+    !list.budget.spells_max
+  );
+}
+
 export default function SpellbookPanel({
   characterId,
   username,
   isOwner,
   isCaster,
   refreshKey,
+  spellPoints,
 }: SpellbookPanelProps) {
   const { toast } = useToast();
   const [tab, setTab] = useState<Tab>('known');
@@ -504,16 +554,88 @@ export default function SpellbookPanel({
   const canPrepareKnown =
     known?.caster_kind === 'prepared' || known?.caster_kind === 'spellbook';
 
+  // TAV-TECHNIQUES-READONLY: `known` is null until the mount effect's
+  // getKnownSpells resolves, so this is false on first paint even for a
+  // 'none'-kind caster — the full tabbed markup below renders once (with its
+  // own "Loading spellbook…" state), then this flips true on the next
+  // render once the wire confirms it. See isTechniquesOnlyKind's comment for
+  // why that fetched-once check is sufficient and doesn't need Browse.
+  const isTechniquesOnly = known != null && isTechniquesOnlyKind(known);
+  const heading = isTechniquesOnly
+    ? spellPoints?.label
+      ? `${spellPoints.label} techniques you know`
+      : 'Techniques you know'
+    : 'Spellbook';
+
   return (
     <>
       <div className={styles.cardHead}>
         {/* TAV-SHEET-HEADING-ORDER: h2 — only rendered as a top-level sibling
             section on the character sheet (see InventoryPanel's comment). */}
         <h2 ref={headingRef} tabIndex={-1} className="label" style={{ margin: 0 }}>
-          Spellbook
+          {heading}
         </h2>
       </div>
 
+      {isTechniquesOnly && (
+        // TAV-TECHNIQUES-READONLY: flat, read-only list — no tabs (nothing
+        // to browse/switch to), no Learn/Forget/Prepare. Reuses the exact
+        // Known-tab row markup/classes and the SpellInfoPopover detail
+        // pattern, just without any button.
+        <div>
+          {known.cantrips.length === 0 && known.spells.length === 0 ? (
+            <p className={styles.emptyRow}>No techniques known yet.</p>
+          ) : (
+            <>
+              {known.cantrips.length > 0 && (
+                <>
+                  <p className={styles.levelHead}>Cantrips</p>
+                  <ul className={styles.spellList}>
+                    {known.cantrips.map((s) => (
+                      <li key={s.slug} className={styles.spellRow}>
+                        <span className={styles.spellName}>
+                          <SpellInfoPopover
+                            spell={s}
+                            detailsLabel="Technique details"
+                            emptyLabel="No details available for this technique yet."
+                          >
+                            {s.name}
+                          </SpellInfoPopover>
+                        </span>
+                        <span className={`mono ${styles.spellSchool}`}>{s.school}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {groupByLevel(known.spells).map(([level, spells]) => (
+                <div key={level}>
+                  <p className={styles.levelHead}>Level {level}</p>
+                  <ul className={styles.spellList}>
+                    {spells.map((s) => (
+                      <li key={s.slug} className={styles.spellRow}>
+                        <span className={styles.spellName}>
+                          <SpellInfoPopover
+                            spell={s}
+                            detailsLabel="Technique details"
+                            emptyLabel="No details available for this technique yet."
+                          >
+                            {s.name}
+                          </SpellInfoPopover>
+                        </span>
+                        <span className={`mono ${styles.spellSchool}`}>{s.school}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+
+      {!isTechniquesOnly && (
+      <>
       <div
         className={styles.tabs}
         role="tablist"
@@ -800,6 +922,8 @@ export default function SpellbookPanel({
         }}
         onCancel={() => setForgetTarget(null)}
       />
+      </>
+      )}
     </>
   );
 }

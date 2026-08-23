@@ -694,6 +694,7 @@ export default function CharacterPage() {
                 isOwner={isOwner}
                 isCaster={sheet.is_spellcaster}
                 refreshKey={spellbookRefreshKey}
+                spellPoints={sheet.spell_points}
               />
             </Card>
           )}
