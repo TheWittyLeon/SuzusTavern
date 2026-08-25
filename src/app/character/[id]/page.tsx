@@ -159,6 +159,20 @@ export default function CharacterPage() {
     await load(undefined, { background: true });
   }, [load]);
 
+  /** TAV-SPELLBOOK-FEATUREPICKS-STALE: SpellbookPanel's freeform technique
+   *  Learn/Forget (the Ki Warrior's School menu) refetches ITS OWN
+   *  known-spells + feature-picks state on success, but the character's
+   *  `feature_choices` group — the Features card below reads it straight
+   *  off `sheet` — lives on CharacterSheet and nowhere SpellbookPanel
+   *  writes to. Same background-reload shape as `handleRested` above:
+   *  success-only (SpellbookPanel never calls this after a refused learn/
+   *  forget — nothing changed to reconcile), awaited so a failure surfaces
+   *  through SpellbookPanel's own warn toast rather than a silently stale
+   *  Features card. */
+  const handleFeaturePicksChanged = useCallback(async () => {
+    await load(undefined, { background: true });
+  }, [load]);
+
   /** B1 — LeaveCampaignButton's own local `left` latch already hides the
    *  control instantly, so this refetch exists purely to unstick everything
    *  ELSE on the sheet that gates on `levelup_policy.mode` (WorkshopBuildControls,
@@ -695,6 +709,7 @@ export default function CharacterPage() {
                 isCaster={sheet.is_spellcaster}
                 refreshKey={spellbookRefreshKey}
                 spellPoints={sheet.spell_points}
+                onFeaturePicksChanged={handleFeaturePicksChanged}
               />
             </Card>
           )}

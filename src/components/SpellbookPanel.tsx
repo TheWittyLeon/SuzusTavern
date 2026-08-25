@@ -215,8 +215,27 @@ export interface SpellbookPanelProps {
    *  fetched independently of the sheet (see the header comment above) so a
    *  level-up spell pick never otherwise reaches it — bumping this number
    *  re-runs the fetch-on-mount effect below, pulling the fresh repertoire
-   *  without a full page reload. */
+   *  without a full page reload. TAV-SPELLBOOK-FEATUREPICKS-STALE: also
+   *  re-runs the feature-picks effect (below) when `isTechniquesOnly` — a
+   *  level-up `feature_choice` resolve (e.g. a School-menu swap) shifts the
+   *  same budget/eligible pool this panel's own freeform Learn section
+   *  reads, and that fetch used to be wired to `isTechniquesOnly` alone, so
+   *  a resolve elsewhere on the sheet never reached it. */
   refreshKey?: number;
+  /** TAV-SPELLBOOK-FEATUREPICKS-STALE: called after a SUCCESSFUL freeform
+   *  technique learn/forget (handleLearnTechnique / handleForgetTechnique),
+   *  once this panel's own known/featurePicks refetch has resolved. The
+   *  character's `feature_choices` group — which feeds the page's Features
+   *  card — lives on CharacterSheet, not in anything this panel owns, so
+   *  there is nothing here to patch locally; the parent must refetch the
+   *  sheet. Same success-only, awaited reconcile contract as RestControl's
+   *  `onRested`: a refusal (e.g. `duplicate_option`/`over_menu_cap`)
+   *  changed nothing, so there is nothing to reconcile and this is never
+   *  called; a rejection here is folded into the SAME "Couldn't refresh
+   *  your techniques — reload to see the result." warn toast the internal
+   *  refetch already uses, rather than leaving a silently stale Features
+   *  card. */
+  onFeaturePicksChanged?: () => void | Promise<void>;
   /** TAV-TECHNIQUES-READONLY: the sheet's points pool (HB-P2), when this
    *  character casts on points rather than slots — same prop SpellSlotsPanel
    *  already accepts. Used ONLY to name the read-only heading honestly
@@ -267,6 +286,7 @@ export default function SpellbookPanel({
   isCaster,
   refreshKey,
   spellPoints,
+  onFeaturePicksChanged,
 }: SpellbookPanelProps) {
   const { toast } = useToast();
   const [tab, setTab] = useState<Tab>('known');
@@ -488,13 +508,19 @@ export default function SpellbookPanel({
   // requirement. Re-fires if the character/user changes underneath a
   // mounted panel (same dependency shape as the mount/refreshKey effect
   // above), aborting any in-flight request on cleanup.
+  //
+  // TAV-SPELLBOOK-FEATUREPICKS-STALE: `refreshKey` is ALSO a dependency —
+  // this fetch used to fire once and never again, so a LevelChoicePicker
+  // resolve elsewhere on the sheet (bumping refreshKey via the parent's
+  // onResolved) refreshed known/available but left this menu's budget/
+  // eligible pool showing pre-resolve numbers until a manual reload.
   useEffect(() => {
     if (!isTechniquesOnly) return;
     const ac = new AbortController();
-     
+
     void loadFeaturePicks({ signal: ac.signal });
     return () => ac.abort();
-  }, [isTechniquesOnly, loadFeaturePicks]);
+  }, [isTechniquesOnly, loadFeaturePicks, refreshKey]);
 
   function openTab(next: Tab) {
     setTab(next);
@@ -678,6 +704,14 @@ export default function SpellbookPanel({
       }
       try {
         await refetchTechniques();
+        // TAV-SPELLBOOK-FEATUREPICKS-STALE: ONLY on success, and awaited —
+        // see the prop's own doc for why the Features card needs this at
+        // all. A rejection here lands in the SAME catch as a failed
+        // refetchTechniques, so it gets the identical warn copy rather than
+        // a distinct (and easy to drift) message for what is, from the
+        // player's point of view, the same outcome: the learn worked, the
+        // screen might not show it yet.
+        await onFeaturePicksChanged?.();
         toast({ message: `Learned ${name}.`, tone: 'success' });
       } catch {
         toast({
@@ -710,6 +744,9 @@ export default function SpellbookPanel({
       setTechniqueForgetTarget(null);
       try {
         await refetchTechniques();
+        // TAV-SPELLBOOK-FEATUREPICKS-STALE — see handleLearnTechnique's
+        // matching comment.
+        await onFeaturePicksChanged?.();
         toast({
           message: `Forgot ${name} — the slot is free for a new pick.`,
           tone: 'success',
