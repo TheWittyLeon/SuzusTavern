@@ -19,7 +19,13 @@ export interface ApiFetchOptions extends Omit<RequestInit, 'body'> {
 // Module-level single-flight guard — prevents React-19 strict-mode double-
 // refresh storm. If two concurrent 401s both trigger a refresh, the second
 // awaits the same promise rather than firing a duplicate request.
-let refreshInFlight: Promise<boolean> | null = null;
+//
+// TAV-AUTH-DEADBACKEND-AS-DEADSESSION: resolves the refresh attempt's REAL
+// HTTP status alongside `ok`, not just a bare boolean — the caller needs the
+// status to tell "the refresh endpoint rejected this session" (401/403) apart
+// from "the refresh endpoint (or the network) is unavailable right now"
+// (0/5xx/429/...). A bare boolean threw that distinction away.
+let refreshInFlight: Promise<{ ok: boolean; status: number }> | null = null;
 
 /** Construct an ApiError without leaking raw text. */
 export function makeApiError(
@@ -44,7 +50,15 @@ export function makeApiError(
  *   4. On 401 (and not already retried and path != '/api/auth/refresh'):
  *        - POST '/api/auth/refresh' once, same-origin (BFF rotates cookies).
  *        - If refresh succeeds, retry the original request with `_retried = true`.
- *        - If refresh fails, throw ApiError {status: 401, code: 'unauthorized'}.
+ *        - If refresh itself answers 401/403, throw ApiError {status: 401|403,
+ *          code: 'unauthorized'} — the SESSION is confirmed dead.
+ *        - If refresh fails any other way (network throw → status 0, a 5xx, a
+ *          429, ...), throw ApiError {status: <that status>, code:
+ *          'refresh_unavailable'} — the AUTH BACKEND is unreachable/unhealthy,
+ *          which is not the same claim as "this session is dead"
+ *          (TAV-AUTH-DEADBACKEND-AS-DEADSESSION). Collapsing every refresh
+ *          failure into a hardcoded 401 used to hard-navigate a player off a
+ *          perfectly valid session the moment the auth backend blipped.
  *   5. On non-2xx: parse JSON if possible, throw ApiError {status, code, body}.
  *   6. On network/abort: throw ApiError {status: 0, code: 'network'|'abort'}.
  *   7. Returns the parsed JSON body, unwrapped.
@@ -83,23 +97,51 @@ export async function apiFetch<T = unknown>(
 
   // 401 → attempt refresh once, then retry
   if (res.status === 401 && !_retried && path !== '/api/auth/refresh') {
+    let refreshResult: { ok: boolean; status: number };
     try {
       if (!refreshInFlight) {
         refreshInFlight = fetch('/api/auth/refresh', {
           method: 'POST',
           credentials: 'same-origin',
-        }).then((r) => r.ok).finally(() => {
-          refreshInFlight = null;
-        });
+        })
+          .then((r) => ({ ok: r.ok, status: r.status }))
+          .finally(() => {
+            refreshInFlight = null;
+          });
       }
-      const refreshOk = await refreshInFlight;
-      if (refreshOk) {
-        return apiFetch<T>(path, { ...options, _retried: true });
-      }
+      refreshResult = await refreshInFlight;
     } catch {
-      // refresh network error — fall through to throw 401
+      // The refresh fetch() itself threw (network down, DNS, aborted, ...).
+      // status 0 is client.ts's own network/abort sentinel elsewhere in this
+      // file (see the outer fetch() catch above) — reuse it here so
+      // AuthProvider's classifyAuthError (status 0 or >=500 → 'offline', not
+      // 'expired') can classify this the same way it classifies every other
+      // network failure.
+      refreshResult = { ok: false, status: 0 };
     }
-    throw makeApiError(401, 'unauthorized');
+
+    if (refreshResult.ok) {
+      return apiFetch<T>(path, { ...options, _retried: true });
+    }
+
+    // TAV-AUTH-DEADBACKEND-AS-DEADSESSION: only a true 401/403 from the
+    // refresh attempt itself confirms the SESSION is dead. Any other status
+    // (0 network, 5xx, 429 rate-limited, ...) means the AUTH BACKEND is
+    // unreachable or unhealthy right now — a claim this function has no
+    // business collapsing into "you're logged out". The old code inspected
+    // only `r.ok` and always threw a hardcoded 401, so an auth-backend
+    // restart mid-table hard-navigated the player off a perfectly valid
+    // session. Carrying the real status through lets every existing
+    // consumer that already narrows on `err.status` (useCatalog's
+    // 401-vs-error branch, the play page's dm-narration 401/403-vs-5xx
+    // branch, AuthProvider's classifyAuthError) do the right thing without
+    // any change on their end.
+    throw makeApiError(
+      refreshResult.status,
+      refreshResult.status === 401 || refreshResult.status === 403
+        ? 'unauthorized'
+        : 'refresh_unavailable',
+    );
   }
 
   if (!res.ok) {

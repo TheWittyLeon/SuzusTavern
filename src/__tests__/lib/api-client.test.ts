@@ -237,15 +237,71 @@ describe('apiFetch — 401 refresh-then-retry', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
-  it('throws 401 ApiError when refresh network call itself throws', async () => {
-    // Original request → 401; then refresh fetch() itself throws a network error
-    mockFetch
-      .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401))
-      .mockRejectedValueOnce(new Error('ECONNREFUSED')); // refresh network failure
+  // TAV-AUTH-DEADBACKEND-AS-DEADSESSION: a refresh failure that is NOT a true
+  // 401/403 rejection of the session must not be reported as a dead session.
+  describe('TAV-AUTH-DEADBACKEND-AS-DEADSESSION — refresh failure classification', () => {
+    it('refresh 401 → dead session (status 401, code unauthorized)', async () => {
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401)) // original
+        .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401)); // refresh
 
-    await expect(apiFetch('/api/test')).rejects.toMatchObject<Partial<ApiError>>({
-      status: 401,
-      code: 'unauthorized',
+      await expect(apiFetch('/api/test')).rejects.toMatchObject<Partial<ApiError>>({
+        status: 401,
+        code: 'unauthorized',
+      });
+    });
+
+    it('refresh 403 → dead session (status 403, code unauthorized)', async () => {
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401)) // original
+        .mockResolvedValueOnce(jsonResponse({ error: 'forbidden' }, 403)); // refresh
+
+      await expect(apiFetch('/api/test')).rejects.toMatchObject<Partial<ApiError>>({
+        status: 403,
+        code: 'unauthorized',
+      });
+    });
+
+    it('refresh 502 → error carries status 502, classification is NOT expired', async () => {
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401)) // original
+        .mockResolvedValueOnce(jsonResponse({ error: 'upstream_unavailable' }, 502)); // refresh
+
+      const err = (await apiFetch('/api/test').catch((e: unknown) => e)) as ApiError;
+      expect(err.status).toBe(502);
+      expect(err.code).not.toBe('unauthorized');
+      expect(err.code).toBe('refresh_unavailable');
+    });
+
+    it('refresh 429 (rate-limited) → status 429, not collapsed into unauthorized', async () => {
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401)) // original
+        .mockResolvedValueOnce(jsonResponse({ error: 'rate_limited' }, 429)); // refresh
+
+      const err = (await apiFetch('/api/test').catch((e: unknown) => e)) as ApiError;
+      expect(err.status).toBe(429);
+      expect(err.code).toBe('refresh_unavailable');
+    });
+
+    it('refresh fetch() throws (network down) → status 0, not expired', async () => {
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401)) // original
+        .mockRejectedValueOnce(new Error('ECONNREFUSED')); // refresh network failure
+
+      const err = (await apiFetch('/api/test').catch((e: unknown) => e)) as ApiError;
+      expect(err.status).toBe(0);
+      expect(err.code).toBe('refresh_unavailable');
+    });
+
+    it('refresh ok → original request retried and its result returned', async () => {
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401)) // original
+        .mockResolvedValueOnce(jsonResponse({ ok: true })) // refresh
+        .mockResolvedValueOnce(jsonResponse({ data: 'success' })); // retry
+
+      const result = await apiFetch<{ data: string }>('/api/test');
+      expect(result).toEqual({ data: 'success' });
+      expect(mockFetch).toHaveBeenCalledTimes(3);
     });
   });
 
