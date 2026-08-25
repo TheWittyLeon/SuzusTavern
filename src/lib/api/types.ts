@@ -1537,6 +1537,13 @@ export interface GroundingData {
  * transition (`to: null`, same anti-skip eligibility as a named advance).
  * The engine 400s `to_scene_required` if no such exit is open; it never
  * infers completion from an absent field.
+ *
+ * DEPENDENCY (Kage-CR review, 2026-08-25): this type fix is currently
+ * end-to-end INERT. The NekoNova Flask proxy (`api/routes/dnd_sessions.py:919`
+ * — `if not body.get("to_scene"): 400`) rejects `{"to_scene": null}` before
+ * the engine ever sees it, on every ref. Landing this shape live at the
+ * network boundary requires the api-hop fix on
+ * `fix/ddx-proxy-nondict-2026-08-25` (NekoNova lane, deployed).
  */
 export interface AdvanceSceneRequest {
   to_scene: string | null;

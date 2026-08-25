@@ -455,6 +455,13 @@ export default function PlayPage() {
   // Grounding for the "Move on" affordance (ADV-7T).
   const [grounding, setGrounding] = useState<GroundingData | null>(null);
   const [sceneAdvanceBusy, setSceneAdvanceBusy] = useState(false);
+  // TAV-SLICE-END-ADVANCE-NULL / Kage-CR item 4: a terminal advance
+  // (to_scene: null / completed: true) has no further "Move on" affordance —
+  // latch this so a second click can't post another /advance (and narrate
+  // another "adventure concludes" beat) indefinitely. Session-lifetime only;
+  // a reload naturally resets it (the engine's own `progress.completed` is
+  // the durable source of truth — this is just a UI repeat-guard).
+  const [adventureComplete, setAdventureComplete] = useState(false);
 
   // P1-PLAYFIX (S2.4) — busy flag for the check-affordance row (Attempt: Survival, etc.).
   const [checkBusy, setCheckBusy] = useState(false);
@@ -3549,18 +3556,22 @@ export default function PlayPage() {
         sceneAdvanceBusyRef.current = true;
         setSceneAdvanceBusy(true);
         const result = await advanceScene(session.session_id, { to_scene: toScene });
-        // TAV-SLICE-END-ADVANCE-NULL (engine d41351f): a null `to_scene`
-        // (always paired with `completed: true`) is the terminal-transition
-        // shape — there is no destination scene because the adventure just
-        // ended. Render sane completion copy instead of the literal
-        // "→ null" the raw template would otherwise produce. ⚖ the exact
-        // wording is a product call the backlog row deferred — this is the
-        // neutral placeholder it explicitly asked for.
-        const isAdventureComplete = result.to_scene === null;
+        // TAV-SLICE-END-ADVANCE-NULL (engine d41351f): the terminal-transition
+        // shape is `completed: true` (always paired with `to_scene: null`) —
+        // there is no destination scene because the adventure just ended.
+        // Check `completed` directly rather than inferring it solely from
+        // `to_scene === null`; OR both so a future engine revision that sent
+        // one without the other (neither observed today) still degrades to
+        // the completion branch rather than silently rendering the literal
+        // "→ null" it exists to prevent.
+        const isAdventureComplete = result.completed === true || result.to_scene === null;
+        if (isAdventureComplete) setAdventureComplete(true);
         appendLog({
           who: 'Suzu',
           kind: 'system',
           text: isAdventureComplete
+            // ⚖ neutral placeholder pending a product call on the real
+            // completion copy — chosen here, not litigated by the backlog row.
             ? 'The adventure is complete.'
             : `The scene shifts: ${result.from_scene} → ${result.to_scene}`,
         });
@@ -6236,8 +6247,12 @@ export default function PlayPage() {
         {/* ADV-7T: "Move on" affordance — shown only when transitions are available
             and no combat is active.
             Iro Ship 2 MINOR-2: role="group" + aria-label mirrors the existing
-            .outcomeChooser group pattern above. */}
-        {availableTransitions.length > 0 && (
+            .outcomeChooser group pattern above.
+            TAV-SLICE-END-ADVANCE-NULL / Kage-CR item 4: once a terminal
+            advance has landed (adventureComplete), this affordance is gone
+            entirely — there is nothing left to move on TO, and re-rendering
+            it would let a second click post another /advance indefinitely. */}
+        {availableTransitions.length > 0 && !adventureComplete && (
           <div
             ref={transitionWrapRef}
             className={styles.moveOnWrap}

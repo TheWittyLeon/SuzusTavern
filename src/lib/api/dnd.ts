@@ -1472,7 +1472,12 @@ const normalizeGrounding = (raw: unknown): GroundingData | null => {
           (t): SceneTransition => ({
             // TAV-SLICE-END-ADVANCE-NULL: `to: null` is a real authored
             // shape (an end-of-slice exit) — never coerce it to a string.
-            to: t.to as string | null,
+            // Kage-CR item 6: an authored transition that OMITS `to`
+            // entirely (engine treats absent `to` as terminal too) must
+            // still normalise to `null`, not `undefined` — `t.to as string
+            // | null` alone would let `undefined` through and render the
+            // literal "Move on → undefined" this whole fix exists to avoid.
+            to: (t.to ?? null) as string | null,
             ...(t.label ? { label: t.label as string } : {}),
             ...(t.requires_encounter_resolved
               ? { requires_encounter_resolved: t.requires_encounter_resolved as string }

@@ -363,6 +363,34 @@ describe('TEST-NULL-TOSCENE — terminal transition renders sane completion copy
       expect(screen.queryByText(/null/i)).not.toBeInTheDocument();
     },
   );
+
+  it('Kage-CR item 4: after a successful conclude, the affordance is gone — a second submit cannot fire another /advance', async () => {
+    mGetGrounding.mockResolvedValue(GROUNDING_TERMINAL);
+    mAdvanceScene.mockResolvedValue({
+      from_scene: 'slice_everfree_finale',
+      to_scene: null,
+      ends_adventure: true,
+      completed: true,
+    });
+    render(<PlayPage />);
+
+    const btn = await screen.findByRole('button', { name: /Conclude the adventure/i });
+    await act(async () => {
+      fireEvent.click(btn);
+    });
+
+    await waitFor(() => expect(mAdvanceScene).toHaveBeenCalledTimes(1));
+    // The `adventureComplete` latch hides the whole "Scene transition"
+    // affordance once a terminal advance lands — nothing is left to click,
+    // so a second /advance cannot be posted from this control (previously:
+    // it stayed mounted and a repeat click posted another advance +
+    // another completion narration, indefinitely).
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /Conclude the adventure/i })).not.toBeInTheDocument(),
+    );
+    expect(screen.queryByRole('group', { name: /Scene transition/i })).not.toBeInTheDocument();
+    expect(mAdvanceScene).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ── C11: check affordance calls resolveCheck + narrates + refreshes grounding ─
@@ -662,7 +690,10 @@ describe('P1-PLAYFIX Ship 2 — stranded focus recovery (CRITICAL-1)', () => {
       expect(screen.queryByRole('button', { name: /Follow the smoke/i })).not.toBeInTheDocument();
     });
     const sceneHead = container.querySelector('[aria-label^="Scene:"]');
-    await waitFor(() => expect(document.activeElement).toBe(sceneHead));
+    // Kage-CR item 5: pre-existing test, destabilized by this file's new
+    // TEST-NULL-TOSCENE renders (measured 3/45 red on this branch vs 0/36 on
+    // main) — an explicit, generous timeout rather than the default.
+    await waitFor(() => expect(document.activeElement).toBe(sceneHead), { timeout: 3000 });
   });
 });
 
