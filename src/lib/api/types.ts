@@ -1379,9 +1379,19 @@ export interface CombatFromSceneResult {
 
 // ── DnD: scene advancement (ADV-7T) ──────────────────────────────────────────
 
-/** A valid transition from the current scene to another. */
+/**
+ * A valid transition from the current scene to another.
+ *
+ * TAV-SLICE-END-ADVANCE-NULL (engine d41351f, engine/beats.py
+ * `available_transitions`): `to: null` is a real, authored shape — an
+ * end-of-slice exit with no destination scene. It is what makes a terminal
+ * transition ELIGIBLE for `AdvanceSceneRequest.to_scene: null` (the engine
+ * checks this same list). Consumers must not assume `to` is always a scene
+ * id — see intentFastPath's `ClientIntent.to` and the play page's transition
+ * button rendering.
+ */
 export interface SceneTransition {
-  to: string;
+  to: string | null;
   label?: string;
   /** When present: this transition is locked until the named encounter is
    *  resolved. Gated CLIENT-side (see the play page's `availableTransitions`)
@@ -1518,19 +1528,39 @@ export interface GroundingData {
   [k: string]: unknown;
 }
 
-/** Request body for POST /api/dnd/sessions/{id}/advance (ADV-7). */
+/**
+ * Request body for POST /api/dnd/sessions/{id}/advance (ADV-7).
+ *
+ * TAV-SLICE-END-ADVANCE-NULL (engine d41351f, Leon decision (b) 2026-08-09):
+ * `to_scene: null` is the Tavern's own shape for "take the end-of-slice
+ * exit" — legal only when the current scene offers an AVAILABLE terminal
+ * transition (`to: null`, same anti-skip eligibility as a named advance).
+ * The engine 400s `to_scene_required` if no such exit is open; it never
+ * infers completion from an absent field.
+ */
 export interface AdvanceSceneRequest {
-  to_scene: string;
+  to_scene: string | null;
   flags?: Record<string, unknown>;
 }
 
-/** Response from POST /api/dnd/sessions/{id}/advance. */
+/**
+ * Response from POST /api/dnd/sessions/{id}/advance.
+ *
+ * TAV-SLICE-END-ADVANCE-NULL (engine d41351f): a null `to_scene` is the
+ * terminal-transition shape — `from_scene` still names where the party was,
+ * but there is no destination scene because the adventure just ended.
+ * `completed: true` always accompanies `to_scene: null` (and never appears
+ * otherwise); `ends_adventure` is also `true` on this shape but predates
+ * `completed` and is kept for existing named-transition consumers.
+ */
 export interface AdvanceSceneResult {
   from_scene: string;
-  to_scene: string;
+  to_scene: string | null;
   flags_set?: string[];
   visited_scenes_count?: number;
   ends_adventure?: boolean;
+  /** True only on the terminal (`to_scene: null`) shape — see above. */
+  completed?: boolean;
 }
 
 /** Request body for POST /api/dnd/sessions/{id}/flag. */

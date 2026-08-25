@@ -3528,7 +3528,7 @@ export default function PlayPage() {
   const sceneAdvanceBusyRef = useRef(false);
 
   const onMoveOn = useCallback(
-    async (toScene: string) => {
+    async (toScene: string | null) => {
       if (!session || !username || sceneAdvanceBusyRef.current) return;
       // FIX-2: guard against clicking Move on while an opening stream is in flight.
       // Without this, a race between the opening narration and a scene transition
@@ -3549,10 +3549,20 @@ export default function PlayPage() {
         sceneAdvanceBusyRef.current = true;
         setSceneAdvanceBusy(true);
         const result = await advanceScene(session.session_id, { to_scene: toScene });
+        // TAV-SLICE-END-ADVANCE-NULL (engine d41351f): a null `to_scene`
+        // (always paired with `completed: true`) is the terminal-transition
+        // shape — there is no destination scene because the adventure just
+        // ended. Render sane completion copy instead of the literal
+        // "→ null" the raw template would otherwise produce. ⚖ the exact
+        // wording is a product call the backlog row deferred — this is the
+        // neutral placeholder it explicitly asked for.
+        const isAdventureComplete = result.to_scene === null;
         appendLog({
           who: 'Suzu',
           kind: 'system',
-          text: `The scene shifts: ${result.from_scene} → ${result.to_scene}`,
+          text: isAdventureComplete
+            ? 'The adventure is complete.'
+            : `The scene shifts: ${result.from_scene} → ${result.to_scene}`,
         });
         const advancedGrounding = await refreshGrounding();
         refocusSceneHeadIfStranded(hadFocusInTransitionWrap);
@@ -3574,17 +3584,20 @@ export default function PlayPage() {
         // Kage #1 / Miko DEFECT-2: advanceScene() already moved the
         // scene server-side — suppress the INTENT classifier from advancing
         // it a second time off this confirmation beat.
+        const transitionContext = isAdventureComplete
+          ? `Scene advance: ${result.from_scene} → the adventure concludes. Narrate the ending.`
+          : `Scene advance: ${result.from_scene} → ${result.to_scene}. Narrate the transition.`;
         if (DURABLE_GENERATION_ENABLED) {
           void narrateDurableBeat(
             'We move on.',
-            `Scene advance: ${result.from_scene} → ${result.to_scene}. Narrate the transition.`,
+            transitionContext,
             'act',
             { suppressIntent: true, beat: 'scene_advance' },
           );
         } else {
           void narrate(
             'We move on.',
-            `Scene advance: ${result.from_scene} → ${result.to_scene}. Narrate the transition.`,
+            transitionContext,
             'act',
             { suppressIntent: true },
           ); // byte-unchanged legacy path
@@ -6248,7 +6261,11 @@ export default function PlayPage() {
                 aria-disabled={sceneAdvanceBusy || talking || sessionLocked}
               >
                 <Icon name="Compass" size={13} aria-hidden />
-                {t.label ?? `Move on → ${t.to}`}
+                {/* TAV-SLICE-END-ADVANCE-NULL: an unlabelled terminal
+                    (`to: null`) exit must never render the literal string
+                    "Move on → null" — fall back to neutral completion copy
+                    instead. An authored `label` always wins either way. */}
+                {t.label ?? (t.to === null ? 'Conclude the adventure' : `Move on → ${t.to}`)}
               </button>
             ))}
           </div>

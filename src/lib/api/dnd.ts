@@ -1470,7 +1470,9 @@ const normalizeGrounding = (raw: unknown): GroundingData | null => {
     transitions: Array.isArray(scene.transitions)
       ? (scene.transitions as Record<string, unknown>[]).map(
           (t): SceneTransition => ({
-            to: t.to as string,
+            // TAV-SLICE-END-ADVANCE-NULL: `to: null` is a real authored
+            // shape (an end-of-slice exit) — never coerce it to a string.
+            to: t.to as string | null,
             ...(t.label ? { label: t.label as string } : {}),
             ...(t.requires_encounter_resolved
               ? { requires_encounter_resolved: t.requires_encounter_resolved as string }
