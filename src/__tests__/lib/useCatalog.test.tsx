@@ -108,6 +108,35 @@ describe('useCatalog — TAV-AUDIT-401-DEADEND: a dead session is not a dead net
     expect(result.current.data.races).toEqual([]);
   });
 
+  it('reports a 403 as status "unauthorized", not "error" (Kage-CR item 1: Auth-Python /auth/refresh returns 403, not 401, for a deactivated account or a token-binding mismatch — both confirmed dead sessions)', async () => {
+    const err = Object.assign(new Error('API error 403: unauthorized'), {
+      status: 403,
+      code: 'unauthorized',
+    });
+    mockGetCatalog.mockRejectedValue(err);
+
+    const { result } = renderHook(() => useCatalog());
+
+    await waitFor(() => expect(result.current.status).toBe('unauthorized'));
+    expect(result.current.data.races).toEqual([]);
+  });
+
+  it('a refresh-unavailable 502 (auth backend flaky mid-session) does NOT show the sign-in state — TAV-AUTH-DEADBACKEND-AS-DEADSESSION consumer pin', async () => {
+    // client.ts now carries the REAL refresh status through instead of a
+    // hardcoded 401 — a 502 from an unhealthy auth backend must render the
+    // generic retry state, never "your session is dead, sign in again".
+    const err = Object.assign(new Error('API error 502: refresh_unavailable'), {
+      status: 502,
+      code: 'refresh_unavailable',
+    });
+    mockGetCatalog.mockRejectedValue(err);
+
+    const { result } = renderHook(() => useCatalog());
+
+    await waitFor(() => expect(result.current.status).toBe('error'));
+    expect(result.current.status).not.toBe('unauthorized');
+  });
+
   it.each([0, 500, 502, 404, 422])(
     'still reports status %s as plain "error"',
     async (status) => {

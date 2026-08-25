@@ -36,10 +36,11 @@ export interface CatalogData {
 
 /**
  * `'unauthorized'` = the request reached the server and the SESSION was
- * rejected (401 after `client.ts` already spent its one silent refresh
- * attempt). `'error'` keeps its original meaning: anything else — offline,
- * DNS, 5xx, a malformed payload. They need opposite remedies, so a consumer
- * that collapses them back into one branch has re-created the bug.
+ * rejected (401 or 403 — see below — after `client.ts` already spent its one
+ * silent refresh attempt). `'error'` keeps its original meaning: anything
+ * else — offline, DNS, 5xx, a malformed payload. They need opposite
+ * remedies, so a consumer that collapses them back into one branch has
+ * re-created the bug.
  */
 export type CatalogStatus = 'loading' | 'ok' | 'error' | 'unauthorized';
 
@@ -93,9 +94,13 @@ export function useCatalog(): UseCatalogResult {
         // client.ts has already spent its one silent `/api/auth/refresh` +
         // retry by the time a 401 surfaces here, so this is a CONFIRMED dead
         // session, not a transient token expiry the client can fix itself.
-        setStatus(
-          (err as { status?: number } | null)?.status === 401 ? 'unauthorized' : 'error',
-        );
+        // Kage-CR item 1: 403 is ALSO a confirmed dead session, not a generic
+        // error — Authentication-Python's /auth/refresh returns 403 (not 401)
+        // for a deactivated account (app/auth.py:830) and a token-binding
+        // mismatch (app/auth.py:848), both real rejections client.ts's own
+        // 401-retry already surfaces as `err.status`.
+        const status = (err as { status?: number } | null)?.status;
+        setStatus(status === 401 || status === 403 ? 'unauthorized' : 'error');
       });
 
     return () => ac.abort();
