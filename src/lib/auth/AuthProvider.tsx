@@ -49,9 +49,18 @@ export type AuthError = null | 'expired' | 'rate_limited' | 'offline';
  * session is actually still valid, so both get the retry-oriented 'offline'
  * copy rather than 'expired's sign-out assertion. Everything else (401, 403,
  * any other 4xx) is a real rejection of the session — 'expired'.
+ *
+ * Kage-CR item 9: `code === 'invalid_response'` (client.ts's own guard for a
+ * non-JSON/empty 2xx body — TAV-DND-PROXY-JSON-PARSE-500) is checked FIRST
+ * and always classifies as 'offline', regardless of its status. That guard
+ * always carries a 2xx status (the request itself succeeded; only the body
+ * failed to parse), which the status-only rule below would otherwise map to
+ * 'expired' — falsely asserting "you've been signed out" for what is really
+ * a malformed/empty response body.
  */
 function classifyAuthError(e: unknown): AuthError {
-  const status = (e as { status?: number })?.status;
+  const { status, code } = (e as { status?: number; code?: string }) ?? {};
+  if (code === 'invalid_response') return 'offline';
   if (status === 429) return 'rate_limited';
   if (status === 0 || (typeof status === 'number' && status >= 500)) return 'offline';
   return 'expired';
