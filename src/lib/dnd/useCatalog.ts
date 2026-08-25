@@ -99,8 +99,22 @@ export function useCatalog(): UseCatalogResult {
         // for a deactivated account (app/auth.py:830) and a token-binding
         // mismatch (app/auth.py:848), both real rejections client.ts's own
         // 401-retry already surfaces as `err.status`.
-        const status = (err as { status?: number } | null)?.status;
-        setStatus(status === 401 || status === 403 ? 'unauthorized' : 'error');
+        // Kage-CR final round: also recognise `code === 'unauthorized'` —
+        // that's the classification client.ts's UNIFIED rule (items 2/3)
+        // actually computes (0/>=500/429 -> 'refresh_unavailable', else ->
+        // 'unauthorized', e.g. a refresh 422 from flask-jwt-extended's
+        // default invalid-signature handler). A hand-copied 401/403 status
+        // list drifts from that rule the moment client.ts's classification
+        // changes again; the `code` is the single source of truth for "the
+        // refresh attempt said this session is dead". The status checks stay
+        // for a DIRECT (non-retry) 401/403 throw, which never goes through
+        // client.ts's refresh-classification branch at all.
+        const e = err as { status?: number; code?: string } | null;
+        setStatus(
+          e?.status === 401 || e?.status === 403 || e?.code === 'unauthorized'
+            ? 'unauthorized'
+            : 'error',
+        );
       });
 
     return () => ac.abort();

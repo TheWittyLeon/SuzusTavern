@@ -3255,13 +3255,21 @@ export default function PlayPage() {
       }
       setMsg(''); // clear only on success
     } catch (err) {
-      const status = (err as { status?: number } | null)?.status;
-      if (status === 401 || status === 403) {
+      // Kage-CR final round: recognise `code === 'unauthorized'` alongside a
+      // direct 401/403, not a hand-copied status list — that code is
+      // client.ts's UNIFIED refresh-failure classification (items 2/3:
+      // 0/>=500/429 -> 'refresh_unavailable', everything else ->
+      // 'unauthorized', including a refresh 422 from flask-jwt-extended's
+      // default invalid-signature handler). Checking only status here would
+      // let a 422-classified dead session fall through to the generic inline
+      // error below instead of the sign-in redirect.
+      const e = err as { status?: number; code?: string } | null;
+      if (e?.status === 401 || e?.status === 403 || e?.code === 'unauthorized') {
         // Cookie expired — redirect to login per existing pattern.
         window.location.href = '/login';
         return;
       }
-      // 5xx / network: preserve text in textarea, show inline error.
+      // 5xx / network / refresh_unavailable: preserve text, show inline error.
       setDmNarrationError('Could not send narration. Try again.');
     } finally {
       setDmNarrationPending(false);

@@ -121,6 +121,26 @@ describe('useCatalog — TAV-AUDIT-401-DEADEND: a dead session is not a dead net
     expect(result.current.data.races).toEqual([]);
   });
 
+  it('reports a refresh-422 dead session (code "unauthorized", flask-jwt-extended\'s default invalid-signature status) as "unauthorized", not "error" — Kage-CR final round', async () => {
+    // client.ts's UNIFIED refresh-failure classification (Kage-CR items 2/3)
+    // sets code:'unauthorized' for any refresh failure that is NOT
+    // 0/>=500/429 — including a 422, which flask-jwt-extended's default
+    // error handler answers for an invalid-signature/decode failure
+    // (Authentication-Python registers no custom invalid_token_loader). A
+    // hand-copied 401/403 status list would miss this; `code` is the single
+    // source of truth for "the refresh attempt said this session is dead".
+    const err = Object.assign(new Error('API error 422: unauthorized'), {
+      status: 422,
+      code: 'unauthorized',
+    });
+    mockGetCatalog.mockRejectedValue(err);
+
+    const { result } = renderHook(() => useCatalog());
+
+    await waitFor(() => expect(result.current.status).toBe('unauthorized'));
+    expect(result.current.data.races).toEqual([]);
+  });
+
   it('a refresh-unavailable 502 (auth backend flaky mid-session) does NOT show the sign-in state — TAV-AUTH-DEADBACKEND-AS-DEADSESSION consumer pin', async () => {
     // client.ts now carries the REAL refresh status through instead of a
     // hardcoded 401 — a 502 from an unhealthy auth backend must render the
