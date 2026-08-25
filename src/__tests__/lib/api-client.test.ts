@@ -148,6 +148,40 @@ describe('apiFetch — ApiError shape', () => {
 });
 
 // ---------------------------------------------------------------------------
+// apiFetch — non-JSON 2xx body (TAV-DND-PROXY-JSON-PARSE-500 sibling sweep)
+// ---------------------------------------------------------------------------
+
+describe('apiFetch — non-JSON success body', () => {
+  it('throws ApiError (not a raw SyntaxError) when a 2xx body is not valid JSON', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response('<html>not json</html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      }),
+    );
+
+    const err = (await apiFetch('/api/test').catch((e: unknown) => e)) as ApiError;
+    expect(err.status).toBe(200);
+    expect(err.code).toBe('invalid_response');
+  });
+
+  it('throws ApiError on an empty 204 success body', async () => {
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    const err = (await apiFetch('/api/test').catch((e: unknown) => e)) as ApiError;
+    expect(err.status).toBe(204);
+    expect(err.code).toBe('invalid_response');
+  });
+
+  it('valid-JSON control still parses and returns normally', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ ok: true, value: 42 }));
+
+    const result = await apiFetch<{ ok: boolean; value: number }>('/api/test');
+    expect(result).toEqual({ ok: true, value: 42 });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // apiFetch — 401 retry logic
 // ---------------------------------------------------------------------------
 

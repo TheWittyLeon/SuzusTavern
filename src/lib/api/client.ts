@@ -118,7 +118,19 @@ export async function apiFetch<T = unknown>(
     throw makeApiError(res.status, code, errBody);
   }
 
-  return res.json() as Promise<T>;
+  // TAV-DND-PROXY-JSON-PARSE-500 sibling sweep: the success path was the one
+  // remaining unguarded `await res.json()` in the BFF-consuming layer — every
+  // BFF route itself now always answers with `NextResponse.json(...)` even on
+  // upstream failure, but a non-JSON 2xx (or an empty body) would still throw
+  // a raw SyntaxError out of here uncaught, surfacing as an unhandled
+  // exception in whatever UI code called `apiFetch`. Guard it the same way as
+  // the error branch just above: never let a parse failure escape as a raw
+  // throw, always shape it into ApiError.
+  try {
+    return (await res.json()) as T;
+  } catch {
+    throw makeApiError(res.status, 'invalid_response');
+  }
 }
 
 /**
