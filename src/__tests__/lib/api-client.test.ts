@@ -283,6 +283,61 @@ describe('apiFetch — 401 refresh-then-retry', () => {
       expect(err.code).toBe('refresh_unavailable');
     });
 
+    it('refresh 422 (flask-jwt-extended default invalid-signature/decode-failure status) → dead session, NOT "unavailable" (Kage-CR item 2)', async () => {
+      // Authentication-Python registers no custom invalid_token_loader
+      // (app/extensions.py), so flask-jwt-extended's DEFAULT error handler
+      // answers 422 for a bad-signature/malformed token — a real rejection
+      // (e.g. mass-emitted by a JWT_SECRET rotation), not a flaky backend.
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401)) // original
+        .mockResolvedValueOnce(jsonResponse({ msg: 'Signature verification failed' }, 422)); // refresh
+
+      const err = (await apiFetch('/api/test').catch((e: unknown) => e)) as ApiError;
+      expect(err.status).toBe(422);
+      expect(err.code).toBe('unauthorized');
+      expect(err.code).not.toBe('refresh_unavailable');
+    });
+
+    it('refresh 400/404/409 (INVERTED from the old allow-list) → dead session, matching classifyAuthError\'s rule', async () => {
+      for (const status of [400, 404, 409]) {
+        mockFetch.mockReset();
+        mockFetch
+          .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401)) // original
+          .mockResolvedValueOnce(jsonResponse({ error: 'refused' }, status)); // refresh
+
+        const err = (await apiFetch('/api/test').catch((e: unknown) => e)) as ApiError;
+        expect(err.status).toBe(status);
+        expect(err.code).toBe('unauthorized');
+      }
+    });
+
+    it('refresh 429 carries its rate-limit body (retry_after) through the throw — Kage-CR item 3', async () => {
+      // login/page.tsx reads ApiError.body.retry_after for its countdown
+      // (app/api/auth/[...path]/route.ts's rateLimited() sets this shape) —
+      // it must survive even when the 429 arrives via THIS internal retry
+      // path, not just a direct /api/auth/login 429.
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401)) // original
+        .mockResolvedValueOnce(jsonResponse({ error: 'rate_limited', retry_after: 42 }, 429)); // refresh
+
+      const err = (await apiFetch('/api/test').catch((e: unknown) => e)) as ApiError;
+      expect(err.status).toBe(429);
+      expect(err.code).toBe('refresh_unavailable');
+      expect(err.body).toEqual({ error: 'rate_limited', retry_after: 42 });
+    });
+
+    it('a non-JSON refresh error body does not crash — err.body is simply undefined', async () => {
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401)) // original
+        .mockResolvedValueOnce(
+          new Response('Bad Gateway', { status: 502, headers: { 'content-type': 'text/plain' } }),
+        ); // refresh
+
+      const err = (await apiFetch('/api/test').catch((e: unknown) => e)) as ApiError;
+      expect(err.status).toBe(502);
+      expect(err.body).toBeUndefined();
+    });
+
     it('refresh fetch() throws (network down) → status 0, not expired', async () => {
       mockFetch
         .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401)) // original

@@ -270,6 +270,35 @@ describe('S5.2 — DM narration composer mode swap', () => {
     expect(textarea).toHaveValue('A dark figure emerges.');
   });
 
+  it('Kage-CR item 8: a 502 refresh_unavailable error takes the inline-error branch, NEVER the /login-redirect branch', async () => {
+    // client.ts's inverted refresh-failure classification (Kage-CR item 2 /
+    // TAV-AUTH-DEADBACKEND-AS-DEADSESSION) throws {status:502,
+    // code:'refresh_unavailable'} for an unhealthy auth backend.
+    // onSendDmNarration's window.location.href='/login' branch only fires
+    // on status 401/403 (a CONFIRMED dead session) and never calls
+    // setDmNarrationError — so the inline alert appearing here (same
+    // assertion shape as the 503 case above) is proof the redirect branch
+    // was NOT taken for a merely-unavailable backend.
+    mockPostSessionEvent.mockRejectedValue(
+      Object.assign(new Error('refresh unavailable'), { status: 502, code: 'refresh_unavailable' }),
+    );
+
+    render(<PlayPage />);
+    await waitFor(() =>
+      expect(screen.queryByRole('tab', { name: /DM Narration/i })).toBeInTheDocument(),
+    );
+
+    const textarea = screen.getByRole('textbox', { name: /Compose/i });
+    fireEvent.change(textarea, { target: { value: 'A dark figure emerges.' } });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Send$/i }));
+    });
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(textarea).toHaveValue('A dark figure emerges.');
+  });
+
   it('S5.2-AC5: textarea disabled while pending, send button shows aria-busy', async () => {
     let resolveSend!: () => void;
     mockPostSessionEvent.mockReturnValue(
