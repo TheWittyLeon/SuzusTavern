@@ -141,6 +141,21 @@ describe('AuthProvider — silentRefresh failure sets authError', () => {
     expect(screen.getByTestId('username')).toHaveTextContent('none');
   });
 
+  // Kage-CR item 9: client.ts's TAV-DND-PROXY-JSON-PARSE-500 success-path
+  // guard throws {status: <2xx>, code: 'invalid_response'} for a non-JSON/
+  // empty 2xx body — the request itself succeeded, only the body failed to
+  // parse. The status-only rule would map any 2xx to 'expired' ("you've
+  // been signed out"), which is false here; `code` must be checked first.
+  it('code "invalid_response" (non-JSON 2xx body) → authError="offline", NOT "expired"', async () => {
+    mockRefresh.mockRejectedValueOnce(
+      Object.assign(new Error('invalid response'), { status: 200, code: 'invalid_response' }),
+    );
+    wrap(null, true);
+
+    await waitFor(() => expect(screen.getByTestId('loading')).toHaveTextContent('false'));
+    expect(screen.getByTestId('authError')).toHaveTextContent('offline');
+  });
+
   it('a 500 from the server → authError="offline"', async () => {
     mockRefresh.mockRejectedValueOnce(apiError(500));
     wrap(null, true);

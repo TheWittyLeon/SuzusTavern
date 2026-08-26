@@ -39,6 +39,7 @@ import { ABILITIES } from '@/lib/dnd/helpers';
 import type {
   CharacterSheet,
   SheetSpellcasting,
+  SheetSpellPoints,
   SheetSpellSlot,
   SpellSlotsResult,
 } from '@/lib/api/types';
@@ -59,6 +60,10 @@ export interface SpellSlotsPanelProps {
   isCaster: boolean;
   spellcasting: SheetSpellcasting | null;
   spellSlots: Record<string, SheetSpellSlot>;
+  /** HB-P2: the points pool, when this character casts on points instead of
+   *  slots. Undefined on an engine predating the field; null for a normal
+   *  slots caster. Either falls through to the slot rendering unchanged. */
+  spellPoints?: SheetSpellPoints | null;
   /** Fired with the freshly-refetched sheet after a successful mutation, so
    *  the parent page re-renders off the new state. */
   onChanged: (updated: CharacterSheet) => void;
@@ -71,6 +76,7 @@ export default function SpellSlotsPanel({
   isCaster,
   spellcasting,
   spellSlots,
+  spellPoints,
   onChanged,
 }: SpellSlotsPanelProps) {
   const { toast } = useToast();
@@ -93,6 +99,20 @@ export default function SpellSlotsPanel({
   if (!isCaster) return null;
 
   const levels = Object.entries(slots).sort((a, b) => Number(a[0]) - Number(b[0]));
+
+  /* TAV-SPELLPOINTS-NO-UI. A points caster carries NO `spell_slot_*` rows, so
+   * `spellSlots` is legitimately `{}` and the old code fell straight into the
+   * "No spell slots at this level yet." empty row — leaving the pool the whole
+   * class runs on invisible AND unspendable in the browser. The pool was on
+   * the wire and correct the entire time (dev character 24051: 4/4 at level 1);
+   * nothing rendered it.
+   *
+   * Spending goes through the SAME `adjustSpellSlot` call as a slot: the
+   * engine's `spells_dispatch.use_spell_slot` has branched to points since
+   * HB-P2 shipped, and `restore_one_slot` now branches with it. So this is a
+   * rendering fix, not a second casting path. */
+  const points = spellPoints ?? null;
+  const isPointsCaster = points !== null && points.casting_model === 'points';
 
   async function adjust(level: number, op: 'spend' | 'restore') {
     const key = `${level}-${op}`;
@@ -127,8 +147,14 @@ export default function SpellSlotsPanel({
         // Announce success programmatically (a11y): the pip re-render is
         // visual-only, so screen-reader users need the toast's live-region.
         toast({
-          message:
-            op === 'spend'
+          // Points casters spend a POOL at a rank, not a slot — announcing
+          // "spent a level 1 spell slot" to a Ki Warrior describes a resource
+          // they do not have. Same mutation, different vocabulary.
+          message: isPointsCaster
+            ? op === 'spend'
+              ? `Spent a rank ${level} technique.`
+              : `Refunded a rank ${level} technique.`
+            : op === 'spend'
               ? `Spent a level ${level} spell slot.`
               : `Restored a level ${level} spell slot.`,
           tone: 'success',
@@ -152,7 +178,9 @@ export default function SpellSlotsPanel({
         {/* TAV-SHEET-HEADING-ORDER: h2 — only rendered as a top-level sibling
             section on the character sheet (see InventoryPanel's comment). */}
         <h2 className="label" style={{ margin: 0 }}>
-          Spells
+          {/* A points class names its own pool — "Ki", "Magic Power" — from
+              the class row. Never hardcode "Spells" over the top of it. */}
+          {isPointsCaster && points ? points.label : 'Spells'}
           {spellcasting
             ? ` · ${ABILITIES.find((a) => a.key === spellcasting.ability)?.abbr.toLowerCase() ?? ''} (DC ${spellcasting.save_dc})`
             : ''}
@@ -161,7 +189,69 @@ export default function SpellSlotsPanel({
           <span className={`mono ${styles.castAtk}`}>atk {signed(spellcasting.attack_bonus)}</span>
         )}
       </div>
-      {levels.length === 0 ? (
+      {isPointsCaster && points ? (
+        <>
+          <p className={styles.slotCount} aria-live="polite" aria-atomic="true">
+            <span className="mono">
+              {points.points.current}/{points.points.maximum}
+            </span>{' '}
+            {points.label.toLowerCase()} remaining
+          </p>
+          <ul className={styles.slotList}>
+            {Array.from({ length: Math.max(0, points.max_slot_level) }, (_, i) => i + 1).map(
+              (rank) => {
+                const cost = points.costs[String(rank)] ?? 0;
+                const gate = points.high_level_casts[String(rank)];
+                // A rank 6+ is gated to ONE cast per long rest on top of its
+                // cost, so "can I afford it" is not the whole answer.
+                const gateSpent = rank >= 6 && gate !== undefined && gate < 1;
+                const affordable = points.points.current >= cost;
+                const spendBusy = busy && busyKey === `${rank}-spend`;
+                const restoreBusy = busy && busyKey === `${rank}-restore`;
+                const rowBusy = busy && busyKey?.startsWith(`${rank}-`);
+                return (
+                  <li key={rank} className={styles.slotRow} aria-busy={!!rowBusy}>
+                    <span className={styles.slotLvl} aria-hidden>
+                      {rank}
+                    </span>
+                    <span className={styles.slotLabel}>
+                      Rank {rank}
+                      {gateSpent ? ' · used this rest' : ''}
+                    </span>
+                    <span className={`mono ${styles.slotCount}`}>{cost}</span>
+                    {isOwner && (
+                      <div className={styles.slotBtns}>
+                        <Button
+                          variant="ghost"
+                          size="default"
+                          className={styles.slotBtn}
+                          aria-label={`Spend ${cost} ${points.label.toLowerCase()} on a rank ${rank} technique`}
+                          aria-busy={!!spendBusy}
+                          disabled={busy || !affordable || gateSpent}
+                          onClick={() => void adjust(rank, 'spend')}
+                        >
+                          {spendBusy ? '…' : 'Spend'}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="default"
+                          className={styles.slotBtn}
+                          aria-label={`Refund a rank ${rank} technique, returning ${cost} ${points.label.toLowerCase()}`}
+                          aria-busy={!!restoreBusy}
+                          disabled={busy || points.points.current >= points.points.maximum}
+                          onClick={() => void adjust(rank, 'restore')}
+                        >
+                          {restoreBusy ? '…' : 'Restore'}
+                        </Button>
+                      </div>
+                    )}
+                  </li>
+                );
+              },
+            )}
+          </ul>
+        </>
+      ) : levels.length === 0 ? (
         <p className={styles.emptyRow}>No spell slots at this level yet.</p>
       ) : (
         <ul className={styles.slotList}>

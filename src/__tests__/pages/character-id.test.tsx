@@ -29,6 +29,7 @@ jest.mock('../../lib/api/dnd', () => ({
   unequipItem: jest.fn(),
   giveItem: jest.fn(),
   leaveCampaign: jest.fn(),
+  getCatalog: jest.fn(),
 }));
 
 import * as dnd from '../../lib/api/dnd';
@@ -40,6 +41,7 @@ import type { CharacterSheet, User } from '../../lib/api/types';
 
 const mockGet = dnd.getCharacterSheet as jest.MockedFunction<typeof dnd.getCharacterSheet>;
 const mockLeaveCampaign = dnd.leaveCampaign as jest.MockedFunction<typeof dnd.leaveCampaign>;
+const mockGetCatalog = dnd.getCatalog as jest.MockedFunction<typeof dnd.getCatalog>;
 const ALICE: User = { id: 1, username: 'alice', email: null };
 
 function ability(score: number, modifier: number) {
@@ -97,6 +99,15 @@ function renderPage() {
 beforeEach(() => {
   mockGet.mockReset();
   mockLeaveCampaign.mockReset();
+  mockGetCatalog.mockReset();
+  mockGetCatalog.mockResolvedValue({
+    system: 'dnd5e',
+    content_type: 'class',
+    items: [],
+    total: 0,
+    limit: 100,
+    offset: 0,
+  });
 });
 
 describe('Character sheet', () => {
@@ -575,6 +586,69 @@ describe('Character sheet — INVOC chosen feature choices (Kage I2/m8)', () => 
     renderPage();
     await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
     expect(screen.queryByRole('heading', { level: 3, name: /invocations/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('Character sheet — TAV-CLASS-FEATURE-TEXT (scaffolding filter, ASI dedupe, rules text)', () => {
+  it('hides scaffolding menu labels, collapses repeated ASI into one row with a count, and resolves rules text by name from the class catalog', async () => {
+    mockGet.mockResolvedValue({
+      ...ROGUE,
+      char_class: 'Ki Warrior',
+      class_features: [
+        'Ki Blast',
+        'Ki Stat',
+        'School',
+        'Signature',
+        'Rung I',
+        'Ability Score Improvement',
+        'Ability Score Improvement',
+        'Capstone',
+      ],
+    });
+    mockGetCatalog.mockResolvedValue({
+      system: 'dnd5e',
+      content_type: 'class',
+      items: [
+        {
+          slug: 'ki-warrior',
+          name: 'Ki Warrior',
+          content_type: 'class',
+          source_type: 'pack',
+          data: {
+            features: [
+              { level: 1, name: 'Ki Blast', description: 'A free, at-will ranged ki attack.' },
+              {
+                level: 4,
+                name: 'Ability Score Improvement',
+                description: 'Increase one ability score by 2, or two ability scores by 1 each.',
+              },
+            ],
+          },
+        },
+      ],
+      total: 1,
+      limit: 100,
+      offset: 0,
+    });
+    renderPage();
+
+    await screen.findByRole('heading', { level: 1, name: 'Velka Nightquill' });
+
+    // Scaffolding menu labels never render as feature rows.
+    for (const scaffold of ['Ki Stat', 'School', 'Signature', 'Rung I', 'Capstone']) {
+      expect(screen.queryByText(scaffold)).not.toBeInTheDocument();
+    }
+
+    // Real granted features render.
+    expect(screen.getByText('Ki Blast')).toBeInTheDocument();
+
+    // Five... well, two ASI stamps here collapse to ONE row with a x2 count.
+    expect(screen.getAllByText('Ability Score Improvement')).toHaveLength(1);
+    expect(screen.getByText('×2')).toBeInTheDocument();
+
+    // Rules text resolves via the same popover pattern feature_choices uses.
+    fireEvent.click(screen.getByRole('button', { name: 'Feature details: Ki Blast' }));
+    expect(screen.getByText('A free, at-will ranged ki attack.')).toBeInTheDocument();
   });
 });
 

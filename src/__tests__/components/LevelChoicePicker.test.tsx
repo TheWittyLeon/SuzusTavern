@@ -763,12 +763,90 @@ describe('LevelChoicePicker — subclass: catalog failure, case-insensitive filt
     expect(await screen.findByRole('radio', { name: 'Champion' })).toBeInTheDocument();
   });
 
+  it('REGRESSION (TAV-SUBCLASS-CLASSKEY-MISMATCH): a MULTI-WORD class name matches slug-keyed subclass rows', async () => {
+    /* The live bug: `char_class` is a display name ("Ki Warrior"), a subclass
+     * row's `data.class` is a slug ("ki-warrior"). The old filter lowercased
+     * both and compared raw, so the space never met the hyphen, the filtered
+     * set came back EMPTY, and the card told the player "No archetypes are
+     * seeded for Ki Warrior yet" — for a class with six seeded schools.
+     *
+     * Every SRD class is a single word, which is the ONLY reason the old code
+     * held; this is the first multi-word class. Reproduced in the browser on
+     * dev as tav-test-1, 2026-08-21. */
+    const KI_CHOICE: PendingLevelChoice = {
+      id: 'subclass:1',
+      type: 'subclass',
+      level: 1,
+      class: 'Ki Warrior',
+      label: 'Choose your Ki Warrior archetype',
+    };
+    mockGetCatalog.mockImplementationOnce((_s: string, opts: { type?: string }) => {
+      if (opts?.type !== 'subclass') return Promise.resolve(catalogResponse([]));
+      return Promise.resolve(
+        catalogResponse([
+          catalogItem('turtle-school', 'Turtle School', { class: 'ki-warrior' }),
+          catalogItem('crane-school', 'Crane School', { class: 'ki-warrior' }),
+          // A different class's row must still be excluded — without this the
+          // test would also pass if the filter were simply removed.
+          catalogItem('champion', 'Champion', { class: 'fighter' }),
+        ]),
+      );
+    });
+    renderPicker([KI_CHOICE]);
+
+    expect(await screen.findByRole('radio', { name: 'Turtle School' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Crane School' })).toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: 'Champion' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/no archetypes are seeded/i)).not.toBeInTheDocument();
+  });
+
   it('shows "no archetypes seeded" and renders no confirm button when the filtered set is empty', async () => {
     mockGetCatalog.mockImplementationOnce(() => Promise.resolve(catalogResponse([])));
     renderPicker([SUBCLASS_CHOICE]);
 
     expect(await screen.findByText(/no archetypes are seeded for fighter yet/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /confirm/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('LevelChoicePicker — subclass-scoped menus (ENGINE-SUBCLASS-SCOPED-MENUS)', () => {
+  const FEATURE_CHOICE: PendingLevelChoice = {
+    id: 'feature_choice:1',
+    type: 'feature_choice',
+    level: 1,
+    class: 'Ki Warrior',
+    menu_label: 'School Technique',
+    count: 1,
+    label: 'Choose 1 School Technique (level 1)',
+    options: [],
+  } as PendingLevelChoice;
+
+  const SUBCLASS_PENDING: PendingLevelChoice = {
+    id: 'subclass:1',
+    type: 'subclass',
+    level: 1,
+    class: 'Ki Warrior',
+    label: 'Choose your Ki Warrior archetype',
+  };
+
+  it('says "choose your archetype first" when the menu is empty AND an archetype is still owed', async () => {
+    /* A fully subclass-scoped menu is legitimately EMPTY until a School is
+     * chosen. The generic empty-state copy is "reload the sheet to try again"
+     * — which never helps here, so the player loops forever. */
+    renderPicker([SUBCLASS_PENDING, FEATURE_CHOICE]);
+
+    expect(await screen.findByText(/choose your archetype first/i)).toBeInTheDocument();
+    expect(screen.queryByText(/reload the sheet to try again/i)).not.toBeInTheDocument();
+  });
+
+  it('still shows the generic dead-end copy when the menu is empty and NO archetype is owed', () => {
+    /* NEGATIVE CONTROL. Without this, "always say choose-your-archetype" would
+     * pass the test above while hiding a genuinely broken menu on every class
+     * that has no subclasses at all. */
+    renderPicker([FEATURE_CHOICE]);
+
+    expect(screen.getByText(/isn.t available right now/i)).toBeInTheDocument();
+    expect(screen.queryByText(/choose your archetype first/i)).not.toBeInTheDocument();
   });
 });
 

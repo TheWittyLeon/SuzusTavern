@@ -37,7 +37,9 @@
 // the check hijack that rule was written against. See its own doc block.
 import type { SceneTransition } from '@/lib/api/types';
 
-export type ClientIntent = { type: 'transition'; to: string };
+// TAV-SLICE-END-ADVANCE-NULL: `to` mirrors SceneTransition.to — a lone
+// terminal (`to: null`) exit is a legitimate single-transition match too.
+export type ClientIntent = { type: 'transition'; to: string | null };
 
 /**
  * Escape a literal phrase for use inside a RegExp, then wrap it in `\b`

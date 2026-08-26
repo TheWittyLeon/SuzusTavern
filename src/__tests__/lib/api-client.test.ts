@@ -148,6 +148,40 @@ describe('apiFetch — ApiError shape', () => {
 });
 
 // ---------------------------------------------------------------------------
+// apiFetch — non-JSON 2xx body (TAV-DND-PROXY-JSON-PARSE-500 sibling sweep)
+// ---------------------------------------------------------------------------
+
+describe('apiFetch — non-JSON success body', () => {
+  it('throws ApiError (not a raw SyntaxError) when a 2xx body is not valid JSON', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response('<html>not json</html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      }),
+    );
+
+    const err = (await apiFetch('/api/test').catch((e: unknown) => e)) as ApiError;
+    expect(err.status).toBe(200);
+    expect(err.code).toBe('invalid_response');
+  });
+
+  it('throws ApiError on an empty 204 success body', async () => {
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    const err = (await apiFetch('/api/test').catch((e: unknown) => e)) as ApiError;
+    expect(err.status).toBe(204);
+    expect(err.code).toBe('invalid_response');
+  });
+
+  it('valid-JSON control still parses and returns normally', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ ok: true, value: 42 }));
+
+    const result = await apiFetch<{ ok: boolean; value: number }>('/api/test');
+    expect(result).toEqual({ ok: true, value: 42 });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // apiFetch — 401 retry logic
 // ---------------------------------------------------------------------------
 
@@ -203,15 +237,126 @@ describe('apiFetch — 401 refresh-then-retry', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
-  it('throws 401 ApiError when refresh network call itself throws', async () => {
-    // Original request → 401; then refresh fetch() itself throws a network error
-    mockFetch
-      .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401))
-      .mockRejectedValueOnce(new Error('ECONNREFUSED')); // refresh network failure
+  // TAV-AUTH-DEADBACKEND-AS-DEADSESSION: a refresh failure that is NOT a true
+  // 401/403 rejection of the session must not be reported as a dead session.
+  describe('TAV-AUTH-DEADBACKEND-AS-DEADSESSION — refresh failure classification', () => {
+    it('refresh 401 → dead session (status 401, code unauthorized)', async () => {
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401)) // original
+        .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401)); // refresh
 
-    await expect(apiFetch('/api/test')).rejects.toMatchObject<Partial<ApiError>>({
-      status: 401,
-      code: 'unauthorized',
+      await expect(apiFetch('/api/test')).rejects.toMatchObject<Partial<ApiError>>({
+        status: 401,
+        code: 'unauthorized',
+      });
+    });
+
+    it('refresh 403 → dead session (status 403, code unauthorized)', async () => {
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401)) // original
+        .mockResolvedValueOnce(jsonResponse({ error: 'forbidden' }, 403)); // refresh
+
+      await expect(apiFetch('/api/test')).rejects.toMatchObject<Partial<ApiError>>({
+        status: 403,
+        code: 'unauthorized',
+      });
+    });
+
+    it('refresh 502 → error carries status 502, classification is NOT expired', async () => {
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401)) // original
+        .mockResolvedValueOnce(jsonResponse({ error: 'upstream_unavailable' }, 502)); // refresh
+
+      const err = (await apiFetch('/api/test').catch((e: unknown) => e)) as ApiError;
+      expect(err.status).toBe(502);
+      expect(err.code).not.toBe('unauthorized');
+      expect(err.code).toBe('refresh_unavailable');
+    });
+
+    it('refresh 429 (rate-limited) → status 429, not collapsed into unauthorized', async () => {
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401)) // original
+        .mockResolvedValueOnce(jsonResponse({ error: 'rate_limited' }, 429)); // refresh
+
+      const err = (await apiFetch('/api/test').catch((e: unknown) => e)) as ApiError;
+      expect(err.status).toBe(429);
+      expect(err.code).toBe('refresh_unavailable');
+    });
+
+    it('refresh 422 (flask-jwt-extended default invalid-signature/decode-failure status) → dead session, NOT "unavailable" (Kage-CR item 2)', async () => {
+      // Authentication-Python registers no custom invalid_token_loader
+      // (app/extensions.py), so flask-jwt-extended's DEFAULT error handler
+      // answers 422 for a bad-signature/malformed token — a real rejection
+      // (e.g. mass-emitted by a JWT_SECRET rotation), not a flaky backend.
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401)) // original
+        .mockResolvedValueOnce(jsonResponse({ msg: 'Signature verification failed' }, 422)); // refresh
+
+      const err = (await apiFetch('/api/test').catch((e: unknown) => e)) as ApiError;
+      expect(err.status).toBe(422);
+      expect(err.code).toBe('unauthorized');
+      expect(err.code).not.toBe('refresh_unavailable');
+    });
+
+    it('refresh 400/404/409 (INVERTED from the old allow-list) → dead session, matching classifyAuthError\'s rule', async () => {
+      for (const status of [400, 404, 409]) {
+        mockFetch.mockReset();
+        mockFetch
+          .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401)) // original
+          .mockResolvedValueOnce(jsonResponse({ error: 'refused' }, status)); // refresh
+
+        const err = (await apiFetch('/api/test').catch((e: unknown) => e)) as ApiError;
+        expect(err.status).toBe(status);
+        expect(err.code).toBe('unauthorized');
+      }
+    });
+
+    it('refresh 429 carries its rate-limit body (retry_after) through the throw — Kage-CR item 3', async () => {
+      // login/page.tsx reads ApiError.body.retry_after for its countdown
+      // (app/api/auth/[...path]/route.ts's rateLimited() sets this shape) —
+      // it must survive even when the 429 arrives via THIS internal retry
+      // path, not just a direct /api/auth/login 429.
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401)) // original
+        .mockResolvedValueOnce(jsonResponse({ error: 'rate_limited', retry_after: 42 }, 429)); // refresh
+
+      const err = (await apiFetch('/api/test').catch((e: unknown) => e)) as ApiError;
+      expect(err.status).toBe(429);
+      expect(err.code).toBe('refresh_unavailable');
+      expect(err.body).toEqual({ error: 'rate_limited', retry_after: 42 });
+    });
+
+    it('a non-JSON refresh error body does not crash — err.body is simply undefined', async () => {
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401)) // original
+        .mockResolvedValueOnce(
+          new Response('Bad Gateway', { status: 502, headers: { 'content-type': 'text/plain' } }),
+        ); // refresh
+
+      const err = (await apiFetch('/api/test').catch((e: unknown) => e)) as ApiError;
+      expect(err.status).toBe(502);
+      expect(err.body).toBeUndefined();
+    });
+
+    it('refresh fetch() throws (network down) → status 0, not expired', async () => {
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401)) // original
+        .mockRejectedValueOnce(new Error('ECONNREFUSED')); // refresh network failure
+
+      const err = (await apiFetch('/api/test').catch((e: unknown) => e)) as ApiError;
+      expect(err.status).toBe(0);
+      expect(err.code).toBe('refresh_unavailable');
+    });
+
+    it('refresh ok → original request retried and its result returned', async () => {
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse({ error: 'unauthorized' }, 401)) // original
+        .mockResolvedValueOnce(jsonResponse({ ok: true })) // refresh
+        .mockResolvedValueOnce(jsonResponse({ data: 'success' })); // retry
+
+      const result = await apiFetch<{ data: string }>('/api/test');
+      expect(result).toEqual({ data: 'success' });
+      expect(mockFetch).toHaveBeenCalledTimes(3);
     });
   });
 

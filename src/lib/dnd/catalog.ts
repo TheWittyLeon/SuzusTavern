@@ -62,6 +62,20 @@ export interface WizardRace {
    * hardcoded gate (NekoNova-DnDEngine races.py).
    */
   needsAsiChoice: boolean;
+  /**
+   * Whether the player MUST pick a subrace before continuing.
+   *
+   * Defaults to true, which is right for every SRD race that declares
+   * subraces (Elf, Dwarf, Halfling, Gnome all require one). It is WRONG
+   * wherever the base race is itself playable and the subrace is a variant:
+   * Dragon Ball's Saiyan declares exactly one subrace (Half-Saiyan), so the
+   * unconditional gate made a full-blooded Saiyan — the campaign's signature
+   * lineage — impossible to create in the browser, while the engine accepted
+   * `subrace=None` perfectly well.
+   *
+   * Content decides, via `data.subrace_required: false` on the race row.
+   */
+  subraceRequired?: boolean;
 }
 
 export interface WizardClass {
@@ -127,7 +141,12 @@ function isAbilityKey(s: unknown): s is AbilityKey {
 function buildBonusLabel(bonus: Partial<Record<string, number>>): string {
   const parts = Object.entries(bonus)
     .filter(([, v]) => v && v !== 0)
-    .map(([k, v]) => `+${v ?? 0} ${ABILITY_ABBR[k] ?? k.toUpperCase()}`);
+    // The sign comes from the NUMBER, not from a hardcoded '+'. Every SRD
+    // racial bonus is positive, so the old unconditional prefix held until a
+    // homebrew subrace carried a penalty — Dragon Ball's Half-Saiyan (-1 STR,
+    // +1 WIS, the price of the human half) rendered as "+-1 STR" in the live
+    // creation wizard.
+    .map(([k, v]) => `${(v ?? 0) > 0 ? '+' : ''}${v ?? 0} ${ABILITY_ABBR[k] ?? k.toUpperCase()}`);
   return parts.length ? parts.join(' · ') : 'none';
 }
 
@@ -160,6 +179,8 @@ export function catalogItemToRace(item: CatalogItem): WizardRace {
     // race with a floating "+1 to two other abilities" rather than fixed
     // subrace bonuses (Half-Elf's own `data.subraces` is empty on the wire).
     needsAsiChoice: item.slug === 'half-elf',
+    // Absent → true, so every existing race keeps the SRD behaviour exactly.
+    subraceRequired: d.subrace_required !== false,
   };
 }
 
@@ -196,7 +217,13 @@ export function catalogItemToClass(item: CatalogItem): WizardClass {
     icon: deco.icon,
     accent: deco.accent,
     accentInk: deco.accentInk,
-    flavor: deco.flavor,
+    // A homebrew class has no entry in the local CLASS_DECORATION table, so
+    // it fell back to '' and rendered with NO tagline at all where every SRD
+    // class has one — Ki Warrior and Vessel looked unfinished next to the
+    // twelve SRD classes in the picker. Let the class row supply its own
+    // (`data.description`); the decoration table still wins for SRD, so
+    // nothing existing changes.
+    flavor: deco.flavor || (typeof d.description === 'string' ? d.description : ''),
     isCaster: casterKind !== undefined,
     casterKind,
     primary,

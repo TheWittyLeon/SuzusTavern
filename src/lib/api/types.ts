@@ -352,6 +352,46 @@ export interface PrepareSpellResult {
   prepared_max: number;
 }
 
+// ── DnD: freeform feature-pick learn/forget (Leon's ruling 2026-08-23) ──────
+// Shapes of GET /characters/:id/feature-picks, POST .../feature-picks/learn,
+// POST .../feature-picks/forget — NekoNova-DnDEngine's engine/feature_picks.py
+// (get_feature_picks / learn_feature_pick / forget_feature_pick) is the
+// source of truth. A class opts in via `feature_choices[0].freeform` on its
+// catalog row (the Ki Warrior); a menu that doesn't declare it (every menu
+// shipped before this, including the SRD warlock's Eldritch Invocations)
+// reports `freeform: false` here and refuses every mutating verb with
+// `not_freeform` — the swap-at-level-up path (LevelChoicePicker's
+// `feature_choice` resolver) is a SEPARATE, unaffected mechanism.
+
+/** GET /api/dnd/characters/:id/feature-picks response data. `known`/
+ *  `eligible` reuse `FeatureChoiceOption`'s shape — the same one the sheet's
+ *  pending-choice enrichment already carries. `budget.cap` is the menu's
+ *  `known_count` at the character's CURRENT level (1 at L1 … 5 at L18 for
+ *  the Ki Warrior) — forgetting frees a slot, learning fills one up to this
+ *  cap; the archetype scoping and each option's own level gate still apply
+ *  to `eligible`. */
+export interface FeaturePicksResult {
+  menu_label: string;
+  freeform: boolean;
+  budget: { known: number; cap: number };
+  known: FeatureChoiceOption[];
+  eligible: FeatureChoiceOption[];
+}
+
+/** POST /api/dnd/characters/:id/feature-picks/learn response data. */
+export interface LearnFeaturePickResult {
+  learned: string;
+  menu_label: string;
+  known: string[];
+}
+
+/** POST /api/dnd/characters/:id/feature-picks/forget response data. */
+export interface ForgetFeaturePickResult {
+  forgotten: string;
+  menu_label: string;
+  known: string[];
+}
+
 export interface SheetInventoryItem {
   name: string;
   item_type: string;
@@ -442,6 +482,31 @@ export interface SheetSkill {
   proficient: boolean;
 }
 
+/** HB-P2 spell points — the DMG p.288 variant pool, mirrored from the engine's
+ *  `casting_points.get_spell_points`. Present on the sheet only for a
+ *  points-initialized character.
+ *
+ *  `label` is what the CLASS calls its pool, declared as data on the class row
+ *  (`spellcasting.points_label`): "Ki" for Dragon Ball's Ki Warrior, "Magic
+ *  Power" for a Fairy Tail mage, the generic "Spell points" when a class
+ *  declares nothing. Render this, never a hardcoded string — the whole point
+ *  is that the tenth homebrew class needs no UI change. */
+export interface SheetSpellPoints {
+  casting_model: 'points';
+  label: string;
+  points: { current: number; maximum: number };
+  /** Keyed "6".."9" — the DMG allows ONE cast of each level 6+ per long rest,
+   *  not one 6+ cast total. `1` = still available, `0` = already used. Empty
+   *  below level 11, where no 6+ slot exists to gate. */
+  high_level_casts: Record<string, number>;
+  /** Highest rank this character can currently create with points. */
+  max_slot_level: number;
+  /** Rank ("1".."9") → point cost. Sent by the engine rather than hardcoded
+   *  here on purpose: a second copy of the DMG ladder in the frontend is how
+   *  the two halves drift apart. */
+  costs: Record<string, number>;
+}
+
 export interface CharacterSheet {
   character_id: string;
   owner_username: string;
@@ -481,8 +546,23 @@ export interface CharacterSheet {
   class_features: string[];
   conditions: string[];
   spellcasting: SheetSpellcasting | null;
-  /** Keyed by slot level "1".."9"; only non-zero levels present. */
+  /** Keyed by slot level "1".."9"; only non-zero levels present.
+   *
+   *  LEGITIMATELY EMPTY for a points caster — see `spell_points`. A client
+   *  that treats `{}` as "this caster has no resources yet" renders the pool
+   *  as absent; that was the TAV-SPELLPOINTS-NO-UI bug. */
   spell_slots: Record<string, SheetSpellSlot>;
+  /** HB-P2 spell-point pool, or `null` for the (overwhelmingly common) slots
+   *  caster. Verified on the wire against dev character 24051 before being
+   *  declared here, per this file's standing rule — a Ki Warrior returns
+   *  `{casting_model:"points", label:"Spell points", points:{current:4,
+   *  maximum:4}, high_level_casts:{}, max_slot_level:5}` while `spell_slots`
+   *  is `{}`.
+   *
+   *  Optional because the field only exists on engines carrying the
+   *  TAV-SPELLPOINTS-NO-UI change; an older engine omits it entirely and the
+   *  panel must degrade to its slots behaviour rather than crash. */
+  spell_points?: SheetSpellPoints | null;
   is_spellcaster: boolean;
   inventory: SheetInventoryItem[];
   inventory_weight: number;
@@ -1097,11 +1177,20 @@ export interface CatalogRaceData {
   proficiencies?: string[];
   skill_proficiencies?: string[];
   subraces?: Record<string, unknown>;
+  /** Whether picking a subrace is MANDATORY. Absent/true = mandatory, which
+   *  is correct for every SRD race carrying subraces. Set false where the
+   *  base race is playable on its own and the subrace is a variant — Dragon
+   *  Ball's Saiyan, whose sole subrace is Half-Saiyan. */
+  subrace_required?: boolean;
 }
 
 /** Mechanical data shape for a class catalog item. */
 export interface CatalogClassData {
   hit_die: number;
+  /** One-line tagline shown under the class name in the creation picker.
+   *  SRD classes get theirs from the local CLASS_DECORATION table; a homebrew
+   *  class has no entry there and must supply its own or render blank. */
+  description?: string;
   primary_ability?: string[];
   saving_throws?: string[];
   armor_proficiencies?: string;
@@ -1290,9 +1379,19 @@ export interface CombatFromSceneResult {
 
 // ── DnD: scene advancement (ADV-7T) ──────────────────────────────────────────
 
-/** A valid transition from the current scene to another. */
+/**
+ * A valid transition from the current scene to another.
+ *
+ * TAV-SLICE-END-ADVANCE-NULL (engine d41351f, engine/beats.py
+ * `available_transitions`): `to: null` is a real, authored shape — an
+ * end-of-slice exit with no destination scene. It is what makes a terminal
+ * transition ELIGIBLE for `AdvanceSceneRequest.to_scene: null` (the engine
+ * checks this same list). Consumers must not assume `to` is always a scene
+ * id — see intentFastPath's `ClientIntent.to` and the play page's transition
+ * button rendering.
+ */
 export interface SceneTransition {
-  to: string;
+  to: string | null;
   label?: string;
   /** When present: this transition is locked until the named encounter is
    *  resolved. Gated CLIENT-side (see the play page's `availableTransitions`)
@@ -1429,19 +1528,46 @@ export interface GroundingData {
   [k: string]: unknown;
 }
 
-/** Request body for POST /api/dnd/sessions/{id}/advance (ADV-7). */
+/**
+ * Request body for POST /api/dnd/sessions/{id}/advance (ADV-7).
+ *
+ * TAV-SLICE-END-ADVANCE-NULL (engine d41351f, Leon decision (b) 2026-08-09):
+ * `to_scene: null` is the Tavern's own shape for "take the end-of-slice
+ * exit" — legal only when the current scene offers an AVAILABLE terminal
+ * transition (`to: null`, same anti-skip eligibility as a named advance).
+ * The engine 400s `to_scene_required` if no such exit is open; it never
+ * infers completion from an absent field.
+ *
+ * DEPENDENCY (Kage-CR review, 2026-08-25): this type fix is currently
+ * end-to-end INERT. The NekoNova Flask proxy (`api/routes/dnd_sessions.py:919`
+ * — `if not body.get("to_scene"): 400`) rejects `{"to_scene": null}` before
+ * the engine ever sees it, on every ref. Landing this shape live at the
+ * network boundary requires the api-hop fix on
+ * `fix/ddx-proxy-nondict-2026-08-25` (NekoNova lane, deployed).
+ */
 export interface AdvanceSceneRequest {
-  to_scene: string;
+  to_scene: string | null;
   flags?: Record<string, unknown>;
 }
 
-/** Response from POST /api/dnd/sessions/{id}/advance. */
+/**
+ * Response from POST /api/dnd/sessions/{id}/advance.
+ *
+ * TAV-SLICE-END-ADVANCE-NULL (engine d41351f): a null `to_scene` is the
+ * terminal-transition shape — `from_scene` still names where the party was,
+ * but there is no destination scene because the adventure just ended.
+ * `completed: true` always accompanies `to_scene: null` (and never appears
+ * otherwise); `ends_adventure` is also `true` on this shape but predates
+ * `completed` and is kept for existing named-transition consumers.
+ */
 export interface AdvanceSceneResult {
   from_scene: string;
-  to_scene: string;
+  to_scene: string | null;
   flags_set?: string[];
   visited_scenes_count?: number;
   ends_adventure?: boolean;
+  /** True only on the terminal (`to_scene: null`) shape — see above. */
+  completed?: boolean;
 }
 
 /** Request body for POST /api/dnd/sessions/{id}/flag. */

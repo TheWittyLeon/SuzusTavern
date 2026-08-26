@@ -270,6 +270,67 @@ describe('S5.2 — DM narration composer mode swap', () => {
     expect(textarea).toHaveValue('A dark figure emerges.');
   });
 
+  it('Kage-CR item 8: a 502 refresh_unavailable error takes the inline-error branch, NEVER the /login-redirect branch', async () => {
+    // client.ts's inverted refresh-failure classification (Kage-CR item 2 /
+    // TAV-AUTH-DEADBACKEND-AS-DEADSESSION) throws {status:502,
+    // code:'refresh_unavailable'} for an unhealthy auth backend.
+    // onSendDmNarration's window.location.href='/login' branch only fires
+    // on status 401/403 (a CONFIRMED dead session) and never calls
+    // setDmNarrationError — so the inline alert appearing here (same
+    // assertion shape as the 503 case above) is proof the redirect branch
+    // was NOT taken for a merely-unavailable backend.
+    mockPostSessionEvent.mockRejectedValue(
+      Object.assign(new Error('refresh unavailable'), { status: 502, code: 'refresh_unavailable' }),
+    );
+
+    render(<PlayPage />);
+    await waitFor(() =>
+      expect(screen.queryByRole('tab', { name: /DM Narration/i })).toBeInTheDocument(),
+    );
+
+    const textarea = screen.getByRole('textbox', { name: /Compose/i });
+    fireEvent.change(textarea, { target: { value: 'A dark figure emerges.' } });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Send$/i }));
+    });
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(textarea).toHaveValue('A dark figure emerges.');
+  });
+
+  it('Kage-CR final round: a 422 refresh error (client.ts unified classification: code "unauthorized") takes the /login-redirect branch, unlike the 502 above', async () => {
+    // flask-jwt-extended's default invalid-signature handler answers 422 —
+    // client.ts's unified rule (items 2/3) classifies that as a confirmed
+    // dead session: {status: 422, code: 'unauthorized'}. A hand-copied
+    // 401/403 status check would miss it and fall through to the inline
+    // error instead of redirecting.
+    mockPostSessionEvent.mockRejectedValue(
+      Object.assign(new Error('unauthorized'), { status: 422, code: 'unauthorized' }),
+    );
+
+    render(<PlayPage />);
+    await waitFor(() =>
+      expect(screen.queryByRole('tab', { name: /DM Narration/i })).toBeInTheDocument(),
+    );
+
+    const textarea = screen.getByRole('textbox', { name: /Compose/i });
+    fireEvent.change(textarea, { target: { value: 'A dark figure emerges.' } });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Send$/i }));
+    });
+
+    // The redirect branch's `finally` still runs (setDmNarrationPending(false)
+    // is unconditional), so the textarea re-enabling is the settle signal —
+    // but it NEVER calls setDmNarrationError, so no inline alert appears.
+    // Contrast the 502 test above, which asserts the alert's PRESENCE for
+    // the identical click sequence.
+    await waitFor(() => expect(textarea).not.toBeDisabled());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(mockPostSessionEvent).toHaveBeenCalledTimes(1);
+  });
+
   it('S5.2-AC5: textarea disabled while pending, send button shows aria-busy', async () => {
     let resolveSend!: () => void;
     mockPostSessionEvent.mockReturnValue(

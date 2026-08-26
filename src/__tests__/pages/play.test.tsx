@@ -66,6 +66,12 @@ jest.mock('../../lib/api/dnd', () => ({
   // ever opened. Default to "no note yet" so this suite stays hermetic.
   getSessionNotes: jest.fn(() => Promise.resolve(null)),
   putSessionNotes: jest.fn(() => Promise.resolve({ body: '', updated_at: '2026-01-01T00:00:00Z' })),
+  // TAV-CLASS-FEATURE-TEXT: MemberSheetPanel resolves its Features list's
+  // rules text from the class catalog whenever the drawer opens on a sheet
+  // with a char_class set — resolve empty so this suite stays hermetic.
+  getCatalog: jest.fn(() =>
+    Promise.resolve({ system: 'dnd5e', content_type: 'class', items: [], total: 0, limit: 100, offset: 0 }),
+  ),
 }));
 
 jest.mock('../../lib/stream', () => ({

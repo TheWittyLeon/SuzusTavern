@@ -192,6 +192,23 @@ const GROUNDING_FORK: GroundingData = {
   encounter_state: {},
 };
 
+/**
+ * TEST-NULL-TOSCENE: the terminal scene — a single authored end-of-slice
+ * exit with no destination (engine/beats.py `available_transitions`, ADV-8
+ * shape unaffected: `to: null` is what makes `AdvanceSceneRequest.to_scene:
+ * null` ELIGIBLE per engine d41351f).
+ */
+const GROUNDING_TERMINAL: GroundingData = {
+  scene_id: 'slice_everfree_finale',
+  scene_name: 'The Finale',
+  boxed_text: 'The glade falls quiet.',
+  objective: 'Bring the tale to its close.',
+  transitions: [{ to: null }],
+  checks: [],
+  flags: {},
+  encounter_state: {},
+};
+
 function streamOnce(events: NarrationEvent[]) {
   mStream.mockImplementation(async function* () {
     for (const e of events) yield e;
@@ -289,6 +306,90 @@ describe('P1-PLAYFIX — fork scene choice buttons (C10)', () => {
     });
     await waitFor(() => expect(mAdvanceScene).toHaveBeenCalledTimes(1));
     expect(mAdvanceScene.mock.calls[0][1]).toMatchObject({ to_scene: 'slice_everfree_ponyville' });
+  });
+});
+
+// ── TEST-NULL-TOSCENE: terminal transition (to_scene: null, completed: true) ──
+
+describe('TEST-NULL-TOSCENE — terminal transition renders sane completion copy, never "null"', () => {
+  it('an unlabelled terminal exit renders "Conclude the adventure", never "Move on → null"', async () => {
+    mGetGrounding.mockResolvedValue(GROUNDING_TERMINAL);
+    render(<PlayPage />);
+
+    const btn = await screen.findByRole('button', { name: /Conclude the adventure/i });
+    expect(btn.textContent).not.toMatch(/null/i);
+    expect(screen.queryByRole('button', { name: /Move on/i })).not.toBeInTheDocument();
+  });
+
+  it('an authored label on a terminal exit still wins over the fallback copy', async () => {
+    mGetGrounding.mockResolvedValue({
+      ...GROUNDING_TERMINAL,
+      transitions: [{ to: null, label: 'End the tale' }],
+    });
+    render(<PlayPage />);
+
+    expect(await screen.findByRole('button', { name: /End the tale/i })).toBeInTheDocument();
+  });
+
+  it(
+    'clicking the terminal exit posts to_scene: null and renders "The adventure is complete.", ' +
+      'never the literal string "null" — fixture matches the real engine payload (d41351f): ' +
+      'to_scene: null, completed: true, ends_adventure: true',
+    async () => {
+      mGetGrounding.mockResolvedValue(GROUNDING_TERMINAL);
+      mAdvanceScene.mockResolvedValue({
+        from_scene: 'slice_everfree_finale',
+        to_scene: null,
+        ends_adventure: true,
+        completed: true,
+      });
+      render(<PlayPage />);
+
+      const btn = await screen.findByRole('button', { name: /Conclude the adventure/i });
+      await act(async () => {
+        fireEvent.click(btn);
+      });
+
+      await waitFor(() => expect(mAdvanceScene).toHaveBeenCalledTimes(1));
+      expect(mAdvanceScene.mock.calls[0][0]).toBe('s1');
+      expect(mAdvanceScene.mock.calls[0][1]).toMatchObject({ to_scene: null });
+
+      await waitFor(() =>
+        expect(screen.getByText('The adventure is complete.')).toBeInTheDocument(),
+      );
+      // The exact bug this fixes: the raw template literal used to render
+      // the literal string "null" (e.g. "The scene shifts: ... → null")
+      // into the chat log.
+      expect(screen.queryByText(/null/i)).not.toBeInTheDocument();
+    },
+  );
+
+  it('Kage-CR item 4: after a successful conclude, the affordance is gone — a second submit cannot fire another /advance', async () => {
+    mGetGrounding.mockResolvedValue(GROUNDING_TERMINAL);
+    mAdvanceScene.mockResolvedValue({
+      from_scene: 'slice_everfree_finale',
+      to_scene: null,
+      ends_adventure: true,
+      completed: true,
+    });
+    render(<PlayPage />);
+
+    const btn = await screen.findByRole('button', { name: /Conclude the adventure/i });
+    await act(async () => {
+      fireEvent.click(btn);
+    });
+
+    await waitFor(() => expect(mAdvanceScene).toHaveBeenCalledTimes(1));
+    // The `adventureComplete` latch hides the whole "Scene transition"
+    // affordance once a terminal advance lands — nothing is left to click,
+    // so a second /advance cannot be posted from this control (previously:
+    // it stayed mounted and a repeat click posted another advance +
+    // another completion narration, indefinitely).
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /Conclude the adventure/i })).not.toBeInTheDocument(),
+    );
+    expect(screen.queryByRole('group', { name: /Scene transition/i })).not.toBeInTheDocument();
+    expect(mAdvanceScene).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -589,7 +690,10 @@ describe('P1-PLAYFIX Ship 2 — stranded focus recovery (CRITICAL-1)', () => {
       expect(screen.queryByRole('button', { name: /Follow the smoke/i })).not.toBeInTheDocument();
     });
     const sceneHead = container.querySelector('[aria-label^="Scene:"]');
-    await waitFor(() => expect(document.activeElement).toBe(sceneHead));
+    // Kage-CR item 5: pre-existing test, destabilized by this file's new
+    // TEST-NULL-TOSCENE renders (measured 3/45 red on this branch vs 0/36 on
+    // main) — an explicit, generous timeout rather than the default.
+    await waitFor(() => expect(document.activeElement).toBe(sceneHead), { timeout: 3000 });
   });
 });
 

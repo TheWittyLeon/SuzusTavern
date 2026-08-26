@@ -5,11 +5,25 @@
  * badge that opened it. Never rendered for a teammate's sheet.
  */
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
+jest.mock('../../lib/api/dnd', () => ({
+  getCatalog: jest.fn().mockResolvedValue({
+    system: 'dnd5e',
+    content_type: 'class',
+    items: [],
+    total: 0,
+    limit: 100,
+    offset: 0,
+  }),
+}));
+
+import * as dnd from '../../lib/api/dnd';
 import MemberSheetPanel from '../../components/MemberSheetPanel';
 import type { CharacterSheet, PendingLevelChoice } from '../../lib/api/types';
+
+const mockGetCatalog = dnd.getCatalog as jest.MockedFunction<typeof dnd.getCatalog>;
 
 function ability(score: number, modifier: number) {
   return { score, modifier };
@@ -94,4 +108,53 @@ it('self view with nothing pending gets no callout', () => {
 it('singular copy for exactly one pending choice', () => {
   renderPanel({ isSelf: true, sheet: { ...SHEET, pending_choices: [PENDING[0]] } });
   expect(screen.getByRole('note')).toHaveTextContent(/1 level choice waiting/i);
+});
+
+// TAV-CLASS-FEATURE-TEXT — this drawer renders the same Features treatment
+// as the full /character/[id] sheet (scaffolding filter, ASI dedupe, rules
+// text via the class catalog). Covered separately from the sheet-page test
+// because this is a distinct component/hook wiring, not the same code path.
+it('TAV-CLASS-FEATURE-TEXT: party drawer hides scaffolding, dedupes ASI with a count, and resolves rules text', async () => {
+  mockGetCatalog.mockResolvedValueOnce({
+    system: 'dnd5e',
+    content_type: 'class',
+    items: [
+      {
+        slug: 'fighter',
+        name: 'Fighter',
+        content_type: 'class',
+        source_type: 'srd',
+        data: {
+          features: [
+            { level: 1, name: 'Fighting Style', description: 'Adopt a particular style of fighting.' },
+          ],
+        },
+      },
+    ],
+    total: 1,
+    limit: 100,
+    offset: 0,
+  });
+  renderPanel({
+    sheet: {
+      ...SHEET,
+      class_features: [
+        'Fighting Style',
+        'Ki Stat',
+        'School',
+        'Ability Score Improvement',
+        'Ability Score Improvement',
+      ],
+    },
+  });
+
+  expect(screen.queryByText('Ki Stat')).not.toBeInTheDocument();
+  expect(screen.queryByText('School')).not.toBeInTheDocument();
+  expect(screen.getAllByText('Ability Score Improvement')).toHaveLength(1);
+  expect(screen.getByText('×2')).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Feature details: Fighting Style' }));
+  await waitFor(() =>
+    expect(screen.getByText('Adopt a particular style of fighting.')).toBeInTheDocument(),
+  );
 });

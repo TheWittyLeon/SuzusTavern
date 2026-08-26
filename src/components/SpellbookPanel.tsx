@@ -48,6 +48,38 @@
  * `in_repertoire` effectively always true) — but a click that still slips
  * through to an ineligible spell is a legal user action that gets a clean,
  * specific refusal toast, not a silent client-side block.
+ *
+ * TAV-TECHNIQUES-READONLY (Leon's ruling, 2026-08-23): a class whose
+ * repertoire model is genuinely `caster_kind: 'none'` (the Ki Warrior — it
+ * acquires techniques through its School level-up menu, not the Spellbook;
+ * `cantrips_known`/`spells_known` were both removed from the class) can
+ * neither learn nor prepare through the SPELLBOOK verbs. `is_spellcaster`
+ * stays true (this panel still mounts), but every SPELL-repertoire
+ * mutating control is dead — the class's engine profile exists (so
+ * `is_spellcaster` is true) but sets none of the traditional casting
+ * flags, so `spellbook.caster_kind()` falls through to `'none'`
+ * (NekoNova-DnDEngine engine/spellbook.py). `isTechniquesOnlyKind` below
+ * reads that straight off the Known wire this panel already fetches on
+ * mount — see its own comment for why that's provably identical to
+ * `available.can_learn === false && available.can_prepare === false`
+ * without needing an eager fetch of the (lazily-loaded) Browse pool. In this
+ * mode the panel renders a flat list of what the character knows, with
+ * full rules text via the same SpellInfoPopover detail pattern — no tabs,
+ * no Spellbook Learn/Forget/Prepare.
+ *
+ * TAV-TECHNIQUES-FREEFORM (Leon's ruling, 2026-08-23, same day): the
+ * techniques-only view above is READ-ONLY only for a class whose menu
+ * hasn't opted into freeform learn/forget (`GET .../feature-picks`'s
+ * `freeform` flag, off engine/rules_catalog.py's `feature_choices[0].
+ * freeform`) — this is a SEPARATE mechanism from the level-up feature-
+ * choice picker's `swap` (LevelChoicePicker), which stays exactly as it
+ * was. When `freeform` is true (the Ki Warrior), each known technique gets
+ * a Forget button and a "Learn a technique" section lists the class's own
+ * `eligible` pool — server-computed, archetype-scoped, level-gated, and
+ * budget-capped, exactly as the level-up picker's menu is. `featurePicks`
+ * is fetched lazily, ONLY once `isTechniquesOnly` is known true (never for
+ * an ordinary spellcasting class), so an SRD caster's render path and
+ * network calls are completely unchanged.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Button from '@/components/Button';
@@ -56,9 +88,12 @@ import Pill from '@/components/Pill';
 import SpellInfoPopover from '@/components/SpellInfoPopover';
 import { useToast } from '@/components/Toast';
 import {
+  forgetFeaturePick,
   forgetSpell,
   getAvailableSpells,
+  getFeaturePicks,
   getKnownSpells,
+  learnFeaturePick,
   learnSpell,
   prepareSpell,
 } from '@/lib/api/dnd';
@@ -66,7 +101,9 @@ import type {
   ApiError,
   AvailableSpellEntry,
   AvailableSpellsResult,
+  FeaturePicksResult,
   SheetSpellEntry,
+  SheetSpellPoints,
   SpellListResult,
 } from '@/lib/api/types';
 import styles from './SpellbookPanel.module.css';
@@ -137,6 +174,32 @@ function forgetErrorMessage(err: unknown, name: string): string {
   return FORGET_REFUSAL_COPY[reason ?? ''] ?? fallback;
 }
 
+// TAV-TECHNIQUES-FREEFORM — feature-picks learn/forget refusals, same
+// convention as the three maps above. `wrong_subclass`/`unknown_option`/
+// `option_level_unmet`/`duplicate_option`/`over_menu_cap` reuse the SAME
+// copy LevelChoicePicker.tsx's RESOLVE_REFUSAL_COPY already shows for the
+// identical engine reason codes on the swap-at-level-up path — one engine
+// refusal, one message, regardless of which UI surface triggered it.
+// `not_freeform` is new here: the class's menu hasn't opted in, so the
+// button that produced this refusal should not even be visible (see
+// `featurePicks?.freeform` gating below) — this copy is the belt-and-
+// suspenders case for a stale render.
+const FEATURE_PICK_REFUSAL_COPY: Record<string, string> = {
+  not_freeform: "This class's techniques can only be swapped at level-up.",
+  wrong_subclass: 'That option belongs to a different archetype.',
+  unknown_option: "That option isn't on this class's menu.",
+  option_level_unmet: 'That pick needs a higher character level.',
+  duplicate_option: 'Already known.',
+  over_menu_cap: 'That would exceed the number of techniques this class can know.',
+};
+
+function featurePickErrorMessage(err: unknown, name: string, verb: 'learn' | 'forget'): string {
+  const fallback = `Could not ${verb} ${name}. Try again in a moment.`;
+  if (!isApiError(err)) return fallback;
+  const reason = refusalReason(err);
+  return FEATURE_PICK_REFUSAL_COPY[reason ?? ''] ?? fallback;
+}
+
 export interface SpellbookPanelProps {
   characterId: string;
   username: string;
@@ -152,8 +215,34 @@ export interface SpellbookPanelProps {
    *  fetched independently of the sheet (see the header comment above) so a
    *  level-up spell pick never otherwise reaches it — bumping this number
    *  re-runs the fetch-on-mount effect below, pulling the fresh repertoire
-   *  without a full page reload. */
+   *  without a full page reload. TAV-SPELLBOOK-FEATUREPICKS-STALE: also
+   *  re-runs the feature-picks effect (below) when `isTechniquesOnly` — a
+   *  level-up `feature_choice` resolve (e.g. a School-menu swap) shifts the
+   *  same budget/eligible pool this panel's own freeform Learn section
+   *  reads, and that fetch used to be wired to `isTechniquesOnly` alone, so
+   *  a resolve elsewhere on the sheet never reached it. */
   refreshKey?: number;
+  /** TAV-SPELLBOOK-FEATUREPICKS-STALE: called after a SUCCESSFUL freeform
+   *  technique learn/forget (handleLearnTechnique / handleForgetTechnique),
+   *  once this panel's own known/featurePicks refetch has resolved. The
+   *  character's `feature_choices` group — which feeds the page's Features
+   *  card — lives on CharacterSheet, not in anything this panel owns, so
+   *  there is nothing here to patch locally; the parent must refetch the
+   *  sheet. Same success-only, awaited reconcile contract as RestControl's
+   *  `onRested`: a refusal (e.g. `duplicate_option`/`over_menu_cap`)
+   *  changed nothing, so there is nothing to reconcile and this is never
+   *  called; a rejection here is folded into the SAME "Couldn't refresh
+   *  your techniques — reload to see the result." warn toast the internal
+   *  refetch already uses, rather than leaving a silently stale Features
+   *  card. */
+  onFeaturePicksChanged?: () => void | Promise<void>;
+  /** TAV-TECHNIQUES-READONLY: the sheet's points pool (HB-P2), when this
+   *  character casts on points rather than slots — same prop SpellSlotsPanel
+   *  already accepts. Used ONLY to name the read-only heading honestly
+   *  ("Ki techniques you know" rather than a generic label); undefined/null
+   *  falls back to a generic "Techniques you know". Never used for gating —
+   *  see `isTechniquesOnlyKind`. */
+  spellPoints?: SheetSpellPoints | null;
 }
 
 function groupByLevel(spells: SheetSpellEntry[]): [number, SheetSpellEntry[]][] {
@@ -166,12 +255,38 @@ function groupByLevel(spells: SheetSpellEntry[]): [number, SheetSpellEntry[]][] 
   return Array.from(byLevel.entries()).sort((a, b) => a[0] - b[0]);
 }
 
+/** TAV-TECHNIQUES-READONLY: true when this character's repertoire model is
+ *  genuinely `'none'` — neither learn nor prepare applies. Both engine-side
+ *  capability flags on the (lazily-loaded) Browse wire derive from the exact
+ *  same value this checks (NekoNova-DnDEngine engine/spells_msm.py's
+ *  `available_spells`: `"can_learn": kind != "none"`, `"can_prepare": kind
+ *  in ("prepared", "spellbook")`) — so `caster_kind === 'none'` is
+ *  algebraically identical to `can_learn === false && can_prepare ===
+ *  false`, readable straight off the Known wire this panel already fetches
+ *  on mount, with no need to eagerly load Browse just to learn the answer.
+ *  The zero/absent cantrip+spell budget check is the belt-and-suspenders
+ *  half of the same signal — both wires share the engine's `_budget()`,
+ *  which also derives from `caster_kind`, so this can never disagree with
+ *  the primary check; it's here so a future engine change that decouples
+ *  the two fails safely (back to the tabbed Spellbook, not a silently wrong
+ *  read-only view). NOT the class name — a second homebrew class with no
+ *  repertoire model gets this behavior for free. */
+function isTechniquesOnlyKind(list: SpellListResult): boolean {
+  return (
+    list.caster_kind === 'none' &&
+    list.budget.cantrips_max === 0 &&
+    !list.budget.spells_max
+  );
+}
+
 export default function SpellbookPanel({
   characterId,
   username,
   isOwner,
   isCaster,
   refreshKey,
+  spellPoints,
+  onFeaturePicksChanged,
 }: SpellbookPanelProps) {
   const { toast } = useToast();
   const [tab, setTab] = useState<Tab>('known');
@@ -196,6 +311,22 @@ export default function SpellbookPanel({
   const [forgetTarget, setForgetTarget] = useState<{ slug: string; name: string } | null>(
     null,
   );
+
+  // TAV-TECHNIQUES-FREEFORM: the class's feature-picks menu (freeform flag +
+  // budget + eligible pool). Fetched lazily — see the effect below — only
+  // once `isTechniquesOnly` (computed further down, off `known`) is true, so
+  // an ordinary spellcasting class never issues this request at all.
+  const [featurePicks, setFeaturePicks] = useState<FeaturePicksResult | null>(null);
+  const [featurePicksState, setFeaturePicksState] = useState<FetchState>('idle');
+  /** The technique a FREEFORM Forget confirm dialog is open for. Separate
+   *  from `forgetTarget` (the LVLDN spellbook-forget dialog above) — a
+   *  technique goes through forgetFeaturePick, not forgetSpell (the latter
+   *  refuses `innate_spell` for a source:'subclass' row, which every
+   *  technique is). */
+  const [techniqueForgetTarget, setTechniqueForgetTarget] = useState<{
+    slug: string;
+    name: string;
+  } | null>(null);
 
   // A11Y (Iro CRITICAL-1/MAJOR-2): roving-tabindex refs for the tab buttons
   // (indexed by tabOrder position, mirrors Composer.tsx's mode tablist) and
@@ -321,7 +452,7 @@ export default function SpellbookPanel({
     const ac = new AbortController();
     // Canonical fetch-on-mount pattern (React docs "Fetching data" example).
     // There's no external store to subscribe to here.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+     
     void loadKnown({ signal: ac.signal });
     // TAV-SPELLBOOK-STALE-AFTER-PICKER (Kage defect A): Browse only reloads
     // LAZILY on tab-open — but if Browse is the CURRENTLY active tab when
@@ -341,6 +472,55 @@ export default function SpellbookPanel({
     }
     return () => ac.abort();
   }, [isCaster, loadKnown, loadAvailable, refreshKey]);
+
+  // TAV-TECHNIQUES-READONLY: computed here (not just at render time near the
+  // bottom) so the feature-picks effect right below can depend on it. `known`
+  // is null until the effect above's getKnownSpells resolves, so this is
+  // false on first paint even for a 'none'-kind caster — see
+  // isTechniquesOnlyKind's own comment.
+  const isTechniquesOnly = known != null && isTechniquesOnlyKind(known);
+
+  const loadFeaturePicks = useCallback(
+    async (opts?: { silent?: boolean; signal?: AbortSignal }) => {
+      if (!opts?.silent) setFeaturePicksState('loading');
+      try {
+        const data = opts?.signal
+          ? await getFeaturePicks(characterId, username, opts.signal)
+          : await getFeaturePicks(characterId, username);
+        if (opts?.signal?.aborted) return;
+        setFeaturePicks(data);
+        setFeaturePicksState('ok');
+      } catch (err) {
+        if (opts?.signal?.aborted) return;
+        if (!opts?.silent) {
+          setFeaturePicksState('error');
+          return;
+        }
+        throw err;
+      }
+    },
+    [characterId, username],
+  );
+
+  // TAV-TECHNIQUES-FREEFORM: fetched ONLY once isTechniquesOnly is known
+  // true — an ordinary spellcasting class (isTechniquesOnly always false)
+  // never issues this request, matching the "SRD casters see zero change"
+  // requirement. Re-fires if the character/user changes underneath a
+  // mounted panel (same dependency shape as the mount/refreshKey effect
+  // above), aborting any in-flight request on cleanup.
+  //
+  // TAV-SPELLBOOK-FEATUREPICKS-STALE: `refreshKey` is ALSO a dependency —
+  // this fetch used to fire once and never again, so a LevelChoicePicker
+  // resolve elsewhere on the sheet (bumping refreshKey via the parent's
+  // onResolved) refreshed known/available but left this menu's budget/
+  // eligible pool showing pre-resolve numbers until a manual reload.
+  useEffect(() => {
+    if (!isTechniquesOnly) return;
+    const ac = new AbortController();
+
+    void loadFeaturePicks({ signal: ac.signal });
+    return () => ac.abort();
+  }, [isTechniquesOnly, loadFeaturePicks, refreshKey]);
 
   function openTab(next: Tab) {
     setTab(next);
@@ -499,10 +679,121 @@ export default function SpellbookPanel({
     }
   }
 
+  /** TAV-TECHNIQUES-FREEFORM — refetch after a learn/forget technique
+   *  mutate: Known (the technique now shows/is gone) AND featurePicks
+   *  (budget + eligible both shift). Unlike refetchAfterMutate, there is no
+   *  Browse pool to conditionally re-pull — a techniques-only class never
+   *  loads one (isTechniquesOnly hides the tablist entirely). */
+  async function refetchTechniques() {
+    await loadKnown({ silent: true });
+    await loadFeaturePicks({ silent: true });
+  }
+
+  async function handleLearnTechnique(slug: string, name: string) {
+    const key = `learn-technique:${slug}`;
+    if (mutationBusyRef.current) return;
+    mutationBusyRef.current = true;
+    setBusy(true);
+    setBusyKey(key);
+    try {
+      try {
+        await learnFeaturePick(characterId, username, slug);
+      } catch (err) {
+        toast({ message: featurePickErrorMessage(err, name, 'learn'), tone: 'error' });
+        return;
+      }
+      try {
+        await refetchTechniques();
+        // TAV-SPELLBOOK-FEATUREPICKS-STALE: ONLY on success, and awaited —
+        // see the prop's own doc for why the Features card needs this at
+        // all. A rejection here lands in the SAME catch as a failed
+        // refetchTechniques, so it gets the identical warn copy rather than
+        // a distinct (and easy to drift) message for what is, from the
+        // player's point of view, the same outcome: the learn worked, the
+        // screen might not show it yet.
+        await onFeaturePicksChanged?.();
+        toast({ message: `Learned ${name}.`, tone: 'success' });
+      } catch {
+        toast({
+          message: "Couldn't refresh your techniques — reload to see the result.",
+          tone: 'warn',
+        });
+      }
+    } finally {
+      mutationBusyRef.current = false;
+      setBusy(false);
+      setBusyKey(null);
+      // A11Y (Iro MAJOR-3): see handleLearn's matching comment.
+      rowRefs.current.get(slug)?.focus();
+    }
+  }
+
+  async function handleForgetTechnique(slug: string, name: string) {
+    const key = `forget-technique:${slug}`;
+    if (mutationBusyRef.current) return;
+    mutationBusyRef.current = true;
+    setBusy(true);
+    setBusyKey(key);
+    try {
+      try {
+        await forgetFeaturePick(characterId, username, slug);
+      } catch (err) {
+        toast({ message: featurePickErrorMessage(err, name, 'forget'), tone: 'error' });
+        return;
+      }
+      setTechniqueForgetTarget(null);
+      try {
+        await refetchTechniques();
+        // TAV-SPELLBOOK-FEATUREPICKS-STALE — see handleLearnTechnique's
+        // matching comment.
+        await onFeaturePicksChanged?.();
+        toast({
+          message: `Forgot ${name} — the slot is free for a new pick.`,
+          tone: 'success',
+        });
+      } catch {
+        toast({
+          message: "Couldn't refresh your techniques — reload to see the result.",
+          tone: 'warn',
+        });
+      }
+    } finally {
+      mutationBusyRef.current = false;
+      setBusy(false);
+      setBusyKey(null);
+      // A11Y (Iro MAJOR-3 convention, corrected 1.7 audit) — see handleForget's
+      // matching comment for the full rationale: the row unmounts (the
+      // technique leaves Known), so it may already be gone by the time this
+      // runs. Try the row first, then fall back to the always-mounted
+      // heading, deferred a frame/task so ConfirmDialog's own restore-on-
+      // close has had its turn first.
+      const row = rowRefs.current.get(slug);
+      if (row?.isConnected) row.focus();
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          if (document.activeElement !== document.body) return;
+          headingRef.current?.focus();
+        }, 0);
+      });
+    }
+  }
+
   if (!isCaster) return null;
 
   const canPrepareKnown =
     known?.caster_kind === 'prepared' || known?.caster_kind === 'spellbook';
+
+  // TAV-TECHNIQUES-FREEFORM: whether this class's menu opted into freeform
+  // learn/forget. `featurePicks` is null until its own effect (gated on
+  // isTechniquesOnly, computed above) resolves — false/hidden until proven
+  // true, same fail-closed-to-read-only posture isTechniquesOnly itself
+  // uses against `known`.
+  const isFreeform = featurePicks?.freeform === true;
+  const heading = isTechniquesOnly
+    ? spellPoints?.label
+      ? `${spellPoints.label} techniques you know`
+      : 'Techniques you know'
+    : 'Spellbook';
 
   return (
     <>
@@ -510,10 +801,158 @@ export default function SpellbookPanel({
         {/* TAV-SHEET-HEADING-ORDER: h2 — only rendered as a top-level sibling
             section on the character sheet (see InventoryPanel's comment). */}
         <h2 ref={headingRef} tabIndex={-1} className="label" style={{ margin: 0 }}>
-          Spellbook
+          {heading}
         </h2>
       </div>
 
+      {isTechniquesOnly && (
+        // TAV-TECHNIQUES-READONLY / TAV-TECHNIQUES-FREEFORM: no tabs
+        // (nothing to browse/switch to in the spellbook sense) — Forget
+        // buttons and the Learn section below only render once `isFreeform`
+        // is confirmed true. Reuses the exact Known-tab row markup/classes
+        // and the SpellInfoPopover detail pattern.
+        <div>
+          {known.cantrips.length === 0 && known.spells.length === 0 ? (
+            <p className={styles.emptyRow}>No techniques known yet.</p>
+          ) : (
+            <>
+              {known.cantrips.length > 0 && (
+                <>
+                  <p className={styles.levelHead}>Cantrips</p>
+                  <ul className={styles.spellList}>
+                    {known.cantrips.map((s) => (
+                      <li
+                        key={s.slug}
+                        ref={setRowRef(s.slug)}
+                        className={styles.spellRow}
+                        tabIndex={-1}
+                      >
+                        <span className={styles.spellName}>
+                          <SpellInfoPopover
+                            spell={s}
+                            detailsLabel="Technique details"
+                            emptyLabel="No details available for this technique yet."
+                          >
+                            {s.name}
+                          </SpellInfoPopover>
+                        </span>
+                        <span className={`mono ${styles.spellSchool}`}>{s.school}</span>
+                        {isOwner && isFreeform && (
+                          <Button
+                            variant="ghost"
+                            size="default"
+                            className={styles.spellBtn}
+                            aria-label={`Forget ${s.name}`}
+                            disabled={busy}
+                            onClick={() =>
+                              setTechniqueForgetTarget({ slug: s.slug, name: s.name })
+                            }
+                          >
+                            Forget
+                          </Button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {groupByLevel(known.spells).map(([level, spells]) => (
+                <div key={level}>
+                  <p className={styles.levelHead}>Level {level}</p>
+                  <ul className={styles.spellList}>
+                    {spells.map((s) => (
+                      <li
+                        key={s.slug}
+                        ref={setRowRef(s.slug)}
+                        className={styles.spellRow}
+                        tabIndex={-1}
+                      >
+                        <span className={styles.spellName}>
+                          <SpellInfoPopover
+                            spell={s}
+                            detailsLabel="Technique details"
+                            emptyLabel="No details available for this technique yet."
+                          >
+                            {s.name}
+                          </SpellInfoPopover>
+                        </span>
+                        <span className={`mono ${styles.spellSchool}`}>{s.school}</span>
+                        {isOwner && isFreeform && (
+                          <Button
+                            variant="ghost"
+                            size="default"
+                            className={styles.spellBtn}
+                            aria-label={`Forget ${s.name}`}
+                            disabled={busy}
+                            onClick={() =>
+                              setTechniqueForgetTarget({ slug: s.slug, name: s.name })
+                            }
+                          >
+                            Forget
+                          </Button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </>
+          )}
+
+          {isOwner && isFreeform && featurePicks && (
+            <div>
+              <p className={styles.levelHead}>
+                Learn a technique — {featurePicks.budget.known} of {featurePicks.budget.cap}{' '}
+                known
+                {featurePicks.budget.known >= featurePicks.budget.cap
+                  ? ' — forget one to learn another'
+                  : ''}
+              </p>
+              {featurePicksState === 'loading' && (
+                <p className={styles.emptyRow} aria-busy="true">
+                  Loading eligible techniques…
+                </p>
+              )}
+              {featurePicks.eligible.length === 0 ? (
+                <p className={styles.emptyRow}>Nothing eligible to learn right now.</p>
+              ) : (
+                <ul className={styles.spellList}>
+                  {featurePicks.eligible.map((opt) => {
+                    const learnKey = `learn-technique:${opt.slug}`;
+                    const rowBusy = busy && busyKey === learnKey;
+                    const atCap = featurePicks.budget.known >= featurePicks.budget.cap;
+                    return (
+                      <li
+                        key={opt.slug}
+                        ref={setRowRef(opt.slug)}
+                        className={styles.spellRow}
+                        aria-busy={rowBusy}
+                        tabIndex={-1}
+                      >
+                        <span className={styles.spellName}>{opt.name}</span>
+                        <Button
+                          variant="ghost"
+                          size="default"
+                          className={styles.spellBtn}
+                          aria-label={`Learn ${opt.name}`}
+                          aria-busy={rowBusy}
+                          disabled={busy || atCap}
+                          onClick={() => void handleLearnTechnique(opt.slug, opt.name)}
+                        >
+                          {rowBusy ? '…' : 'Learn'}
+                        </Button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {!isTechniquesOnly && (
+      <>
       <div
         className={styles.tabs}
         role="tablist"
@@ -799,6 +1238,33 @@ export default function SpellbookPanel({
           if (forgetTarget) void handleForget(forgetTarget.slug, forgetTarget.name);
         }}
         onCancel={() => setForgetTarget(null)}
+      />
+      </>
+      )}
+
+      {/* TAV-TECHNIQUES-FREEFORM — same always-confirm convention as the
+          LVLDN spell-forget dialog above, for the freeform technique path.
+          Only one of forgetTarget/techniqueForgetTarget can ever be open at
+          once (isTechniquesOnly's two branches are mutually exclusive). */}
+      <ConfirmDialog
+        open={techniqueForgetTarget != null}
+        title={`Forget ${techniqueForgetTarget?.name ?? ''}?`}
+        body={
+          <>
+            {techniqueForgetTarget?.name} leaves your known techniques and its
+            slot frees up for a new pick. You can re-learn it later — it costs
+            the slot back.
+          </>
+        }
+        confirmLabel="Forget it"
+        cancelLabel="Keep it"
+        busy={busy}
+        onConfirm={() => {
+          if (techniqueForgetTarget) {
+            void handleForgetTechnique(techniqueForgetTarget.slug, techniqueForgetTarget.name);
+          }
+        }}
+        onCancel={() => setTechniqueForgetTarget(null)}
       />
     </>
   );

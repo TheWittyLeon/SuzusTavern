@@ -25,12 +25,15 @@
  * (mirrors JournalPane/ConfirmDialog's "focus the least-destructive control
  * on open").
  */
-import type { RefObject } from 'react';
+import { useMemo, type RefObject } from 'react';
 import Link from 'next/link';
 import Icon from '@/components/Icon';
 import Pill from '@/components/Pill';
+import SpellInfoPopover from '@/components/SpellInfoPopover';
 import { ABILITIES, SKILLS } from '@/lib/dnd/helpers';
 import { raceSpeedLabel } from '@/lib/dnd/codex';
+import { groupClassFeatures } from '@/lib/dnd/classFeatureText';
+import { useClassFeatureDescriptions } from '@/lib/dnd/useClassFeatureDescriptions';
 import type { CharacterSheet } from '@/lib/api/types';
 import styles from './MemberSheetPanel.module.css';
 
@@ -79,6 +82,17 @@ export default function MemberSheetPanel({
   // (e.g. GrantCurrencyPanel's own "Character" <select>) while this drawer
   // sits closed-but-mounted with no member ever selected yet.
   const heading = sheet?.name ?? memberName ?? 'Character sheet';
+
+  // Features list: same scaffolding-filter/dedupe/rules-text treatment as
+  // the full /character/[id] sheet (classFeatureText.ts / TAV-CLASS-FEATURE-TEXT)
+  // — this drawer renders the same underlying fields, see the header comment.
+  const { descriptions: classFeatureDescriptions } = useClassFeatureDescriptions(
+    sheet?.char_class ?? null,
+  );
+  const groupedClassFeatures = useMemo(
+    () => (sheet ? groupClassFeatures(sheet.class_features) : []),
+    [sheet],
+  );
 
   return (
     <div className={styles.root}>
@@ -248,12 +262,21 @@ export default function MemberSheetPanel({
             <h3 id="member-sheet-features-heading" className={styles.sectionHeading}>
               Features
             </h3>
-            {sheet.class_features.length === 0 ? (
+            {groupedClassFeatures.length === 0 ? (
               <p className={styles.empty}>No class features recorded.</p>
             ) : (
               <ul className={styles.list}>
-                {sheet.class_features.map((f, i) => (
-                  <li key={`${f}-${i}`}>{f}</li>
+                {groupedClassFeatures.map((f) => (
+                  <li key={f.name}>
+                    <SpellInfoPopover
+                      spell={{ name: f.name, description: classFeatureDescriptions[f.name] }}
+                      detailsLabel="Feature details"
+                      emptyLabel="No details available yet."
+                    >
+                      {f.name}
+                      {f.count > 1 && <span className="mono"> ×{f.count}</span>}
+                    </SpellInfoPopover>
+                  </li>
                 ))}
               </ul>
             )}

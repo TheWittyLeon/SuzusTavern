@@ -49,6 +49,7 @@ jest.mock('../../lib/api/dnd', () => ({
   listResources: jest.fn(),
   characterRest: jest.fn(),
   adjustHp: jest.fn(),
+  getCatalog: jest.fn(),
 }));
 
 import * as dnd from '../../lib/api/dnd';
@@ -62,6 +63,7 @@ const mockGet = dnd.getCharacterSheet as jest.MockedFunction<typeof dnd.getChara
 const mockAdjustHp = dnd.adjustHp as jest.Mock;
 const mockListResources = dnd.listResources as jest.MockedFunction<typeof dnd.listResources>;
 const mockRest = dnd.characterRest as jest.MockedFunction<typeof dnd.characterRest>;
+const mockGetCatalog = dnd.getCatalog as jest.MockedFunction<typeof dnd.getCatalog>;
 
 const ALICE: User = { id: 1, username: 'alice', email: null };
 
@@ -141,6 +143,14 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockListResources.mockResolvedValue({ resources: [KI], undoable: null });
   mockRest.mockResolvedValue({ message: 'You feel rested.' });
+  mockGetCatalog.mockResolvedValue({
+    system: 'dnd5e',
+    content_type: 'class',
+    items: [],
+    total: 0,
+    limit: 100,
+    offset: 0,
+  });
 });
 
 describe('TAV-REST-UI — page wiring: handleRested drives both refetches', () => {
