@@ -101,6 +101,8 @@ import type {
   PendingGeneration,
   SceneCheck,
   Session,
+  SeriesCompletionPointer,
+  SeriesNextAdventure,
 } from '@/lib/api/types';
 import RebindCharacterButton from '@/components/RebindCharacterButton';
 import type { QuickCheck, RollTrigger } from '@/components/DiceTray';
@@ -126,6 +128,7 @@ import DmNarrationPanel from '@/components/DmNarrationPanel';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import JournalPane, { JOURNAL_HEADING_ID } from '@/components/JournalPane';
 import MemberSheetPanel, { MEMBER_SHEET_HEADING_ID } from '@/components/MemberSheetPanel';
+import NextPartOffer from '@/components/NextPartOffer';
 import styles from './Play.module.css';
 
 /**
@@ -462,6 +465,17 @@ export default function PlayPage() {
   // a reload naturally resets it (the engine's own `progress.completed` is
   // the durable source of truth — this is just a UI repeat-guard).
   const [adventureComplete, setAdventureComplete] = useState(false);
+  // T4p2: the /advance completion payload's series next-pointer (design doc
+  // §6.4) — RENDER-ONLY addition, not a new interaction. Populated (never
+  // required) alongside adventureComplete above; NextPartOffer degrades to
+  // rendering nothing when this stays null (not in a series, or the field
+  // is absent on an older engine/SUZU_DND_SERIES off). One series entry is
+  // rendered — the first, matching `next_adventure`'s own single-series
+  // flatten rule (design doc §6.4's "why next_adventure also exists").
+  const [completionSeries, setCompletionSeries] = useState<{
+    series: SeriesCompletionPointer;
+    next: SeriesNextAdventure | null;
+  } | null>(null);
 
   // P1-PLAYFIX (S2.4) — busy flag for the check-affordance row (Attempt: Survival, etc.).
   const [checkBusy, setCheckBusy] = useState(false);
@@ -3573,7 +3587,22 @@ export default function PlayPage() {
         // the completion branch rather than silently rendering the literal
         // "→ null" it exists to prevent.
         const isAdventureComplete = result.completed === true || result.to_scene === null;
-        if (isAdventureComplete) setAdventureComplete(true);
+        if (isAdventureComplete) {
+          setAdventureComplete(true);
+          // T4p2: render-only — capture the completion payload's series
+          // pointer (design doc §6.4) if the engine sent one. Never gates
+          // or alters any existing branch above/below; a response without
+          // `series` (older engine, SUZU_DND_SERIES off, or genuinely not
+          // in a series) just leaves this null and NextPartOffer renders
+          // nothing.
+          const firstSeries = result.series?.[0];
+          if (firstSeries) {
+            setCompletionSeries({
+              series: firstSeries,
+              next: result.next_adventure ?? null,
+            });
+          }
+        }
         appendLog({
           who: 'Suzu',
           kind: 'system',
@@ -6292,6 +6321,20 @@ export default function PlayPage() {
               </button>
             ))}
           </div>
+        )}
+
+        {/* T4p2: completion next-part offer (design doc §6.4) — mounts in the
+            gap the "Move on" affordance above leaves once adventureComplete
+            latches. RENDER addition only: no new interaction, no altered
+            flow — its CTA is the same working /modules?adventure=<ref> deep
+            link built in Phase 1 (see NextPartOffer.tsx's own doc comment
+            for why, given /next-act is broken tonight and unproxied). */}
+        {adventureComplete && completionSeries && (
+          <NextPartOffer
+            series={completionSeries.series}
+            next={completionSeries.next}
+            className={styles.moveOnWrap}
+          />
         )}
 
         <div className={styles.diceWrap}>
