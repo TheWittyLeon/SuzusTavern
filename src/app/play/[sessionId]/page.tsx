@@ -2483,12 +2483,20 @@ export default function PlayPage() {
    * 2026-08-11) — the deterministic scripted rescue-transition line, built
    * on the SAME "authored content played verbatim" pattern as
    * `playArrivalLine` just above (the Backlog names it explicitly: "the
-   * arrival-line pattern"). WF-A owns the engine mechanism that will
-   * populate `C3_GROUNDING_FIELD` on `current_scene` (see that constant's
-   * doc comment in `src/lib/api/dnd.ts` for the provisional-field-name
-   * containment strategy) and has not shipped it yet — zero commits on
-   * their side as of this pass — so this is currently INERT by construction,
-   * the same bootstrapping state `playArrivalLine` itself started in.
+   * arrival-line pattern").
+   *
+   * STATUS CORRECTION (2026-08-18, Kage-CR review): this used to say WF-A's
+   * engine mechanism "has not shipped yet ... currently INERT by
+   * construction". That was true as of the 2026-08-12 pass; it is stale now.
+   * WF-O-OUTCOMELINE (engine, 2026-08-16) retired the scene-level
+   * `C3_GROUNDING_FIELD` authoring key entirely — the validator no longer
+   * accepts it, and no content authors it — in favour of a per-outcome
+   * `outcome_line` delivered directly on the combat-mutation response (see
+   * `playOutcomeLine` below and `CombatMessageResult.outcome_line`'s doc
+   * comment in `src/lib/api/types.ts`). So this function is now
+   * PERMANENTLY inert on the engine side, not temporarily inert pending a
+   * ship — kept only so a stray/legacy authored key degrades to a silent
+   * no-op instead of a crash. `playOutcomeLine` is the live equivalent.
    *
    * Bridges the gap `COMBAT-UX-FOLLOW-UP-1` describes: the DM's prose
    * currently continues the fight straight into the destination scene with
@@ -2524,6 +2532,43 @@ export default function PlayPage() {
       if (sceneId && lastRescueLineSceneRef.current === sceneId) return false;
       lastRescueLineSceneRef.current = sceneId ?? null;
       appendLog({ who: 'Suzu', kind: 'narration', text: line });
+      return true;
+    },
+    [appendLog],
+  );
+
+  /**
+   * WF-O-OUTCOMELINE (engine, 2026-08-16) — play the engine's authored
+   * `outcome_line` verbatim, as Suzu narration, when the combat mutation
+   * response carries one. `apply_encounter_outcome` resolves this line
+   * server-side BEFORE the advance_to fork, so it can be present even when
+   * the outcome has NO scene shift at all (T1, Kage-CR review 2026-08-18):
+   * on the shipping `everfree_flight` encounter, `flee` and `victory` both
+   * author an `outcome_line` but have `advance_to: None` — gating this
+   * behind `scene_advance` truthiness silently dropped 2 of that
+   * encounter's 3 authored lines. Callers therefore invoke this
+   * independently of whether a scene actually advanced (see `onCombatAction`
+   * / `onEndCombat` / the monster-turn effect for the no-advance path, and
+   * `handleSceneAdvance` for the advance path).
+   *
+   * Same ≤400-char defense-in-depth ceiling as `playArrivalLine`/
+   * `playRescueTransitionLine` (the engine's own validator enforces it too —
+   * this is belt-and-braces, matching the sibling functions' rationale).
+   * Deliberately does NOT dedupe by scene id the way `playArrivalLine` does:
+   * an `outcome_line` describes a specific EVENT (this roll's resolution),
+   * not a place, so there is no "re-entering the same scene" case to
+   * suppress the way there is for an arrival line.
+   */
+  const playOutcomeLine = useCallback(
+    (outcomeLine: string | null | undefined, sceneLabel?: string): boolean => {
+      if (typeof outcomeLine !== 'string' || !outcomeLine.trim()) return false;
+      if (outcomeLine.length > 400) {
+        console.warn(
+          `[outcome_line] transition line${sceneLabel ? ` for scene "${sceneLabel}"` : ''} is ${outcomeLine.length} chars (ceiling 400) — dropped, not rendered.`,
+        );
+        return false;
+      }
+      appendLog({ who: 'Suzu', kind: 'narration', text: outcomeLine });
       return true;
     },
     [appendLog],
@@ -3519,16 +3564,37 @@ export default function PlayPage() {
   /**
    * Handle an ADV-8 auto-advance (scene_advance != null on a combat response).
    * Surfaced as a system log beat + grounding refresh + DM narration.
+   *
+   * `outcomeLine` (WF-O-OUTCOMELINE, 2026-08-16 engine / 2026-08-18 Tavern) —
+   * the authored line for the SPECIFIC outcome that just resolved (rescue,
+   * victory, flee, ...), delivered as a top-level sibling of `scene_advance`
+   * on the combat-mutation response — see `playOutcomeLine` above.
+   *
+   * T2 (Kage-CR ruling 2026-08-18): `outcomeLine` and the destination's
+   * `arrival_line` STACK, in that order — outcome_line narrates leaving the
+   * old scene (this resolution's authored beat), arrival_line narrates
+   * entering the new one, exactly mirroring `onMoveOn`'s established
+   * `playRescueTransitionLine(g); if (playArrivalLine(g)) return;` pair.
+   * Only `playArrivalLine` gates the synthetic "Scene advance: X → Y.
+   * Narrate the transition." beat below — an EARLIER pass here wrongly made
+   * outcome_line gate the return too, which suppressed the hut's authored
+   * arrival_line on exactly the flight → hut rescue this whole batch exists
+   * to fix. The 2026-08-09 REPLACE ruling was scoped to
+   * arrival-line-vs-SYNTHETIC-beat, never outcome-line-vs-arrival-line. An
+   * over-ceiling/absent outcome_line falls through to `playArrivalLine`
+   * next, not straight to the generic beat.
    */
   const handleSceneAdvance = useCallback(
-    async (fromScene: string, toScene: string, outcome?: string) => {
+    async (fromScene: string, toScene: string, outcome?: string, outcomeLine?: string | null) => {
       const label = outcome ? ` (${outcome})` : '';
       appendLog({
         who: 'Suzu',
         kind: 'system',
         text: `The scene shifts: ${fromScene} → ${toScene}${label}`,
       });
-      await refreshGrounding();
+      const freshGrounding = await refreshGrounding();
+      playOutcomeLine(outcomeLine, toScene);
+      if (playArrivalLine(freshGrounding)) return;
       // Kage #1 / Miko DEFECT-2: this beat only narrates a transition the
       // caller's own scene_advance already performed server-side — suppress
       // the server's INTENT classifier from advancing the scene AGAIN.
@@ -3548,7 +3614,7 @@ export default function PlayPage() {
         ); // byte-unchanged legacy path
       }
     },
-    [appendLog, refreshGrounding, narrate, narrateDurableBeat],
+    [appendLog, refreshGrounding, playOutcomeLine, playArrivalLine, narrate, narrateDurableBeat],
   );
 
   /** Manual "Move on" button handler (ADV-7T). */
@@ -3950,6 +4016,13 @@ export default function PlayPage() {
         let playerLine = '';
         let newState: CombatState | null | undefined;
         let sceneAdvance: { fromScene: string; toScene: string; outcome?: string } | null = null;
+        // T1 (Kage-CR ruling 2026-08-18): hoisted OUT of `sceneAdvance` —
+        // outcome_line resolves independently of scene_advance (see
+        // `playOutcomeLine`'s doc comment), so it's captured on every
+        // branch's own `res`, not folded into the scene-advance-only shape.
+        // Harmless on the branches whose routes don't emit it today (dodge/
+        // dash/attack/endturn — only death-save and /combat/{id}/end do).
+        let outcomeLine: string | null | undefined;
 
         if (action === 'attack' && payload) {
           // payload is the participant_id (from the target menu item's id).
@@ -3991,6 +4064,7 @@ export default function PlayPage() {
             return;
           }
           newState = res.state ?? null;
+          outcomeLine = res.outcome_line;
           if (res.scene_advance) {
             sceneAdvance = {
               fromScene: res.scene_advance.from_scene,
@@ -4008,11 +4082,13 @@ export default function PlayPage() {
         } else if (action === 'dodge') {
           const res = await combatDodge({ username, combat_id: combatId });
           newState = res.state ?? null;
+          outcomeLine = res.outcome_line;
           message = res.message ?? 'You take the Dodge action.';
           playerLine = 'I dodge.';
         } else if (action === 'dash') {
           const res = await combatDash({ username, combat_id: combatId });
           newState = res.state ?? null;
+          outcomeLine = res.outcome_line;
           message = res.message ?? 'You take the Dash action.';
           playerLine = 'I dash.';
         } else if (action === 'deathsave') {
@@ -4021,11 +4097,28 @@ export default function PlayPage() {
           // character first.
           const res = await combatDeathSave({ username, combat_id: combatId });
           newState = res.state ?? null;
+          outcomeLine = res.outcome_line;
+          // TAV-DEATHSAVE-SCENE-ADVANCE (2026-08-18): a death save can
+          // trigger the engine's anti-TPK rescue (`maybe_trigger_anti_tpk_
+          // rescue` -> `finalize_combat`), which — exactly like the attack
+          // and endturn branches above/below — may carry a `scene_advance`.
+          // This branch used to drop it on the floor entirely: no scene-shift
+          // log line, no grounding refresh, no transition narration — just
+          // dead air until the next scene's narration appeared with no
+          // lead-in. Structurally parallel to its two siblings now.
+          if (res.scene_advance) {
+            sceneAdvance = {
+              fromScene: res.scene_advance.from_scene,
+              toScene: res.scene_advance.to_scene,
+              outcome: res.scene_advance.outcome,
+            };
+          }
           message = res.message ?? 'You roll a death save.';
           playerLine = 'I roll a death save.';
         } else if (action === 'endturn') {
           const res = await combatEndTurn({ username, combat_id: combatId });
           newState = res.state ?? null;
+          outcomeLine = res.outcome_line;
           if (res.scene_advance) {
             sceneAdvance = {
               fromScene: res.scene_advance.from_scene,
@@ -4066,7 +4159,18 @@ export default function PlayPage() {
 
         // ADV-8 auto-advance: scene_advance != null means combat resolved + scene moved.
         if (sceneAdvance) {
-          await handleSceneAdvance(sceneAdvance.fromScene, sceneAdvance.toScene, sceneAdvance.outcome);
+          await handleSceneAdvance(
+            sceneAdvance.fromScene,
+            sceneAdvance.toScene,
+            sceneAdvance.outcome,
+            outcomeLine,
+          );
+        } else {
+          // T1 (Kage-CR ruling 2026-08-18): an outcome_line can resolve with
+          // NO scene_advance at all (flee/victory on everfree_flight, whose
+          // advance_to is null for both) — play it directly rather than
+          // gating it behind a scene shift that never happens.
+          playOutcomeLine(outcomeLine);
         }
 
         // If combat ended, refresh grounding for the "Move on" affordance.
@@ -4111,6 +4215,7 @@ export default function PlayPage() {
       narrateDurableBeat,
       handleSceneAdvance,
       refreshGrounding,
+      playOutcomeLine,
     ],
   );
 
@@ -4147,8 +4252,12 @@ export default function PlayPage() {
           result.scene_advance.from_scene,
           result.scene_advance.to_scene,
           result.scene_advance.outcome,
+          result.outcome_line,
         );
       } else {
+        // T1 (Kage-CR ruling 2026-08-18): outcome_line can resolve without a
+        // scene_advance here too — see the identical hoist in onCombatAction.
+        playOutcomeLine(result.outcome_line);
         void refreshGrounding();
       }
     } catch (err) {
@@ -4165,7 +4274,7 @@ export default function PlayPage() {
       combatBusyRef.current = false;
       setCombatBusy(false);
     }
-  }, [combatId, username, appendLog, handleSceneAdvance, refreshGrounding, toast]);
+  }, [combatId, username, appendLog, handleSceneAdvance, refreshGrounding, playOutcomeLine, toast]);
 
   /**
    * DDX-25: refetch the session after any lifecycle mutation (pause/resume/
@@ -4422,9 +4531,16 @@ export default function PlayPage() {
               mres.scene_advance.from_scene,
               mres.scene_advance.to_scene,
               mres.scene_advance.outcome,
+              mres.outcome_line,
             );
             break;
           }
+          // T1 (Kage-CR ruling 2026-08-18): outcome_line can resolve without
+          // a scene_advance — same hoist as onCombatAction/onEndCombat.
+          // FORWARD-CONTRACT NOTE: `/monster-turn` does not emit outcome_line
+          // on the engine today (only death-save + /combat/{id}/end do) —
+          // this is inert-but-harmless until/unless the engine adds it here.
+          playOutcomeLine(mres.outcome_line);
           const st = mres.state;
           if (!st || st.state !== 'active') break;
           const next = st.participants.find((p) => p.participant_id === st.active_participant_id);
@@ -4437,7 +4553,7 @@ export default function PlayPage() {
     return () => {
       cancelled = true;
     };
-  }, [combatState, combatId, username, session, appendLog, handleSceneAdvance]);
+  }, [combatState, combatId, username, session, appendLog, handleSceneAdvance, playOutcomeLine]);
 
   // Tora MAJOR-2: refocus the newly-enabled rail's container when a combat
   // action flips the active turn and disabling the just-clicked button
