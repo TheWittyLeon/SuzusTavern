@@ -22,16 +22,20 @@ import { useToast } from '@/components/Toast';
 import { bindCharacter, createSessionFull, getCatalog, listMyCharacters } from '@/lib/api/dnd';
 import type {
   AdventureCatalogItem,
-  AdventureSeriesStamp,
   Character,
   ContentRating,
   DmMode,
   SeriesCatalogItem,
-  SeriesCover,
-  SeriesMemberRef,
   Visibility,
 } from '@/lib/api/types';
 import { engineErrorMessage } from '@/lib/dnd/engineError';
+import {
+  toCatalogItem,
+  toSeriesCatalogItem,
+  formatLevelRange,
+  formatLength,
+  formatMemberCount,
+} from '@/lib/dnd/adventureCatalog';
 import SeriesCoverArt from '@/components/SeriesCoverArt';
 import { SESSION_START_REASON_MAP } from '@/lib/dnd/engineReasons';
 
@@ -214,93 +218,6 @@ function CharacterPicker({
 // ── Adventure catalog fetch (ADV-9) ──────────────────────────────────────────
 
 type AdventureStatus = 'loading' | 'ok' | 'error';
-
-/**
- * Map a raw catalog item for content_type='adventure' onto the typed
- * AdventureCatalogItem shape. The engine returns adventures with a `summary`
- * projection in the item body (a JSONB slice of data, not the full data blob).
- * We cast via unknown because CatalogItem's `data` field predates this type.
- */
-function toCatalogItem(raw: unknown): AdventureCatalogItem {
-  const item = raw as Record<string, unknown>;
-  const summary = (item['summary'] as Record<string, unknown> | undefined) ?? {};
-  return {
-    public_id: String(item['public_id'] ?? item['slug'] ?? ''),
-    name: String(item['name'] ?? ''),
-    summary: {
-      subtitle: summary['subtitle'] as string | undefined,
-      level_range: summary['level_range'] as { min: number; max: number } | undefined,
-      length: summary['length'] as string | undefined,
-      content_rating: summary['content_rating'] as string | undefined,
-      tags: summary['tags'] as string[] | undefined,
-      // T4p1: previously stripped by this whitelist (design doc §8.3 point 2)
-      // — the engine's catalog projection already carries these when
-      // SUZU_DND_SERIES is on; the mapper just needs to stop dropping them.
-      series: summary['series'] as AdventureSeriesStamp | undefined,
-      also_in: summary['also_in'] as number | undefined,
-      editorial_role: summary['editorial_role'] as string | undefined,
-    },
-  };
-}
-
-/**
- * Map a raw catalog item for content_type='series' onto SeriesCatalogItem.
- * Returns null (never a broken card) when `cover`/`members` — the two fields
- * a series card cannot render without — are absent: an older engine build,
- * a foreign/malformed payload, or SUZU_DND_SERIES still resolving. Member
- * NAMES are deliberately not resolved in list mode (design doc §8.1/§18 D1)
- * — only `ref`/`act_handle`/an author-supplied `label` travel on the wire.
- */
-function toSeriesCatalogItem(raw: unknown): SeriesCatalogItem | null {
-  const item = raw as Record<string, unknown>;
-  const summary = (item['summary'] as Record<string, unknown> | undefined) ?? {};
-  const rawCover = summary['cover'];
-  const rawMembers = summary['members'];
-  if (
-    !rawCover ||
-    typeof rawCover !== 'object' ||
-    !Array.isArray(rawMembers) ||
-    rawMembers.length === 0
-  ) {
-    return null;
-  }
-  const cover = rawCover as Record<string, unknown>;
-  return {
-    public_id: String(item['public_id'] ?? ''),
-    slug: String(item['slug'] ?? ''),
-    name: String(item['name'] ?? ''),
-    summary: {
-      subtitle: summary['subtitle'] as string | undefined,
-      level_range: summary['level_range'] as { min: number; max: number } | undefined,
-      length: summary['length'] as string | undefined,
-      content_rating: summary['content_rating'] as string | undefined,
-      tags: summary['tags'] as string[] | undefined,
-      cover: {
-        color: String(cover['color'] ?? '#5a4a7a'),
-        pattern: (cover['pattern'] as SeriesCover['pattern']) ?? 'none',
-        glyph: String(cover['glyph'] ?? 'scroll'),
-        image_ref: (cover['image_ref'] as string | null | undefined) ?? null,
-      },
-      member_count: Number(summary['member_count'] ?? rawMembers.length),
-      members: rawMembers as SeriesMemberRef[],
-    },
-  };
-}
-
-function formatLevelRange(lr?: { min: number; max: number }): string {
-  if (!lr) return '';
-  if (lr.min === lr.max) return `level ${lr.min}`;
-  return `levels ${lr.min}–${lr.max}`;
-}
-
-function formatLength(len?: string): string {
-  if (!len) return '';
-  return len.replace(/_/g, ' ');
-}
-
-function formatMemberCount(n: number): string {
-  return `${n} ${n === 1 ? 'part' : 'parts'}`;
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 
