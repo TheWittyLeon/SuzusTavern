@@ -157,7 +157,11 @@ export default function LandingPage() {
 
           {/* Right — portrait card (decorative product preview) */}
           <div className={styles.heroPortrait} aria-hidden="true">
-            <Card pop style={{ padding: 26 }}>
+            {/* T4p2 (hearthlight): --accent-brass's named use case per
+                DIRECTION.md — "dividers, corner ticks, icon strokes on hero
+                cards." First real consumer of the token beyond its Phase-1
+                definition; purely decorative border, no layout impact. */}
+            <Card pop style={{ padding: 26, borderTop: '2px solid var(--accent-brass)' }}>
               {/* Card header row */}
               <div
                 style={{
