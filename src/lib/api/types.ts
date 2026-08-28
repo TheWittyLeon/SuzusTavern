@@ -1550,6 +1550,37 @@ export interface AdvanceSceneRequest {
   flags?: Record<string, unknown>;
 }
 
+/** `next_status` on a SeriesCompletionPointer (design doc §6.4). `unresolved`
+ *  is a HOLE, not an ending — a retired/invisible member, never silently
+ *  read as end-of-series (design doc §5.4). */
+export type SeriesNextStatus = 'ok' | 'end_of_series' | 'unresolved';
+
+/** The next adventure in a series, resolved (design doc §6.4). Absent
+ *  fields (`name`/`label`/`act_handle`/`level_range`) mean the field simply
+ *  wasn't authored on that member — never a signal to fall back to a guess. */
+export interface SeriesNextAdventure {
+  ref: string;
+  name?: string;
+  label?: string;
+  act_handle?: string;
+  level_range?: { min: number; max: number };
+}
+
+/** One entry of the `series` array on an /advance completion response
+ *  (design doc §6.4). Always a list — an adventure can legitimately sit in
+ *  more than one series (Dragon Ball's era-vs-full-run case, design doc
+ *  §10.2); `[]` means "not in a series". */
+export interface SeriesCompletionPointer {
+  ref: string;
+  title: string;
+  /** 1-based index of the member that was just completed. */
+  position: number;
+  total: number;
+  next_status: SeriesNextStatus;
+  /** Present only when next_status === 'ok'. */
+  next?: SeriesNextAdventure;
+}
+
 /**
  * Response from POST /api/dnd/sessions/{id}/advance.
  *
@@ -1559,6 +1590,13 @@ export interface AdvanceSceneRequest {
  * `completed: true` always accompanies `to_scene: null` (and never appears
  * otherwise); `ends_adventure` is also `true` on this shape but predates
  * `completed` and is kept for existing named-transition consumers.
+ *
+ * T4p1: `series`/`next_adventure` are the SUZU_DND_SERIES-gated completion
+ * fields from the 2026-08-25 Campaign Series design doc §6.4 — optional so
+ * a flag-off or pre-series engine response still types cleanly.
+ * `already_completed`/`persisted` are the idempotency fix from the same
+ * design (§6.1), shipped UNFLAGGED. None of these are wired into play
+ * chrome yet (out of scope this phase) — see NextPartOffer.tsx.
  */
 export interface AdvanceSceneResult {
   from_scene: string;
@@ -1568,6 +1606,17 @@ export interface AdvanceSceneResult {
   ends_adventure?: boolean;
   /** True only on the terminal (`to_scene: null`) shape — see above. */
   completed?: boolean;
+  /** Whether this call's completion needed to persist anything (false on a
+   *  repeat/idempotent call — see `already_completed`). */
+  persisted?: boolean;
+  /** True when this call found the adventure already completed and returned
+   *  the terminal payload as a no-op (design doc §6.1) — HTTP 200, not 409. */
+  already_completed?: boolean;
+  /** Always a list when present. [] = not in any series. */
+  series?: SeriesCompletionPointer[];
+  /** Flattened convenience — `engine.series.flatten_next`'s output. Present
+   *  (non-null) only when exactly one series entry has next_status 'ok'. */
+  next_adventure?: SeriesNextAdventure | null;
 }
 
 /** Request body for POST /api/dnd/sessions/{id}/flag. */
