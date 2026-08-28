@@ -3,7 +3,7 @@
  *
  * Covers the parts modules.test.tsx / adv9-modules-edge.test.tsx don't:
  *   - series cards render from a type=series catalog response
- *   - a malformed series item (no cover/members) never renders a broken card
+ *   - a malformed series item (no cover/member_refs) never renders a broken card
  *   - editorial_role='spine_chunk' adventures are excluded from the one-shot grid
  *   - the series membership stamp renders as a pill on a one-shot card
  *   - the "One-shots" section label only appears once series ALSO exist
@@ -92,20 +92,21 @@ const WELLFORMED_SERIES = {
     content_rating: 'mature',
     cover: { color: '#6b4fa8', pattern: 'hatch', glyph: 'crown', image_ref: null },
     member_count: 1,
-    members: [
-      { ref: 'dnd5e:adventure:mlp-act1-spine', act_handle: 'act1', label: 'Act I — The Stranger in Ponyville' },
-    ],
+    // B1 (T5 live sweep, engine D1 ruling): member_refs is a plain string
+    // array on the real wire — was incorrectly modeled as
+    // {ref,act_handle,label}[] objects.
+    member_refs: ['dnd5e:adventure:mlp-act1-spine'],
   },
 };
 
-/** A series item missing cover/members — the shape a foreign or stale
+/** A series item missing cover/member_refs — the shape a foreign or stale
  *  response would have. Must never render a broken card. */
 const MALFORMED_SERIES = {
   public_id: 'dnd5e:series:incomplete',
   slug: 'incomplete',
   name: 'Incomplete Series',
   content_type: 'series',
-  summary: { subtitle: 'no cover or members here' },
+  summary: { subtitle: 'no cover or member_refs here' },
 };
 
 function catalogResponse(items: unknown[], contentType: string | null): CatalogResponse {
@@ -165,7 +166,7 @@ describe('T4p1: series cover cards', () => {
     expect(link).toHaveAttribute('href', '/modules/series/mlp-toto-campaign');
   });
 
-  it('never renders a broken card for a series item missing cover/members', async () => {
+  it('never renders a broken card for a series item missing cover/member_refs', async () => {
     mockCatalog({ adventures: [ONE_SHOT], seriesItems: [MALFORMED_SERIES] });
     renderModules();
 

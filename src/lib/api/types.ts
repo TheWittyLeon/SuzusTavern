@@ -1810,21 +1810,16 @@ export interface AdventureCatalogItem {
 // ── DnD: catalog — series items (T4p1 / TAV-SERIES-GROUPING) ─────────────────
 // See MainVault/architecture/2026-08-25 Campaign Series — Content Model &
 // Runtime Design.md §8.1. Member NAMES are deliberately NOT resolved in list
-// mode (design doc §8.1/§18 D1) — only `ref`/`act_handle`/`label` (an author-
-// supplied display override) travel on the wire; a bare ref with no `label`
-// has no resolved title until the Thread D detail endpoint ships.
-
-/** One ordered entry in a series' play order (design doc §4.1). */
-export interface SeriesMemberRef {
-  /** public_id of the member adventure, e.g. "dnd5e:adventure:mlp-act1-spine". */
-  ref: string;
-  /** Feeds meta_progression.current_act on rebind; live convention is bare
-   *  digits like "act1", not "act_i" (2026-08-26 post-review addendum). */
-  act_handle?: string;
-  /** Author-supplied display override — the only title text list mode has
-   *  for a member (see the module doc comment above). */
-  label?: string;
-}
+// mode (design doc §8.1/§18 D1).
+//
+// B1 CORRECTION (T5 live sweep, 2026-08-28, engine D1 ruling verified against
+// .226): `summary.member_refs` is a PLAIN STRING ARRAY of adventure public_ids
+// — NOT the `{ref, act_handle, label}[]` object shape an earlier design draft
+// assumed (that shape never shipped; the original `members`-keyed mapper read
+// a key that never existed on the wire, so every real series mapped to null).
+// The engine owns this contract. Titles are resolved client-side by joining
+// member_refs against the type=adventure catalog list's own public_id/name —
+// see adventureCatalog.ts's `resolveSeriesMembers`.
 
 /** Procedural cover spec (design doc §4.1/§4.2) — franchise artwork is off
  *  the table on the vault's IP posture; `image_ref` is reserved (must be
@@ -1838,7 +1833,7 @@ export interface SeriesCover {
 }
 
 /** Summary block projected from the series data JSONB for catalog list mode
- *  (design doc §8.1). */
+ *  (design doc §8.1, corrected per the B1 note above). */
 export interface SeriesSummary {
   subtitle?: string;
   level_range?: { min: number; max: number };
@@ -1847,7 +1842,10 @@ export interface SeriesSummary {
   tags?: string[];
   cover: SeriesCover;
   member_count: number;
-  members: SeriesMemberRef[];
+  /** Ordered adventure public_ids — play order IS array order. Bare strings
+   *  on the wire (see the B1 correction note above); titles/levels are
+   *  resolved client-side, not carried here. */
+  member_refs: string[];
 }
 
 /** A catalog item for content_type='series'. */

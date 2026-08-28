@@ -11,7 +11,6 @@ import type {
   AdventureSeriesStamp,
   SeriesCatalogItem,
   SeriesCover,
-  SeriesMemberRef,
 } from '@/lib/api/types';
 
 /** Map a raw catalog item for content_type='adventure' onto the typed
@@ -43,22 +42,26 @@ export function toCatalogItem(raw: unknown): AdventureCatalogItem {
 
 /**
  * Map a raw catalog item for content_type='series' onto SeriesCatalogItem.
- * Returns null (never a broken card) when `cover`/`members` — the two fields
- * a series card cannot render without — are absent: an older engine build,
- * a foreign/malformed payload, or SUZU_DND_SERIES still resolving. Member
- * NAMES are deliberately not resolved in list mode (design doc §8.1/§18 D1)
- * — only `ref`/`act_handle`/an author-supplied `label` travel on the wire.
+ * Returns null (never a broken card) when `cover`/`member_refs` — the two
+ * fields a series card cannot render without — are absent: an older engine
+ * build, a foreign/malformed payload, or SUZU_DND_SERIES still resolving.
+ *
+ * `member_refs` is a plain array of adventure public_id STRINGS (engine D1
+ * ruling, verified live 2026-08-28 against .226 — see the B1 correction note
+ * on SeriesSummary in types.ts). Member NAMES are not resolved here; use
+ * `resolveSeriesMembers` below against a fetched type=adventure list.
  */
 export function toSeriesCatalogItem(raw: unknown): SeriesCatalogItem | null {
   const item = raw as Record<string, unknown>;
   const summary = (item['summary'] as Record<string, unknown> | undefined) ?? {};
   const rawCover = summary['cover'];
-  const rawMembers = summary['members'];
+  const rawMemberRefs = summary['member_refs'];
   if (
     !rawCover ||
     typeof rawCover !== 'object' ||
-    !Array.isArray(rawMembers) ||
-    rawMembers.length === 0
+    !Array.isArray(rawMemberRefs) ||
+    rawMemberRefs.length === 0 ||
+    !rawMemberRefs.every((r) => typeof r === 'string')
   ) {
     return null;
   }
@@ -79,10 +82,49 @@ export function toSeriesCatalogItem(raw: unknown): SeriesCatalogItem | null {
         glyph: String(cover['glyph'] ?? 'scroll'),
         image_ref: (cover['image_ref'] as string | null | undefined) ?? null,
       },
-      member_count: Number(summary['member_count'] ?? rawMembers.length),
-      members: rawMembers as SeriesMemberRef[],
+      member_count: Number(summary['member_count'] ?? rawMemberRefs.length),
+      member_refs: rawMemberRefs as string[],
     },
   };
+}
+
+/** A series member ref joined against the type=adventure catalog list —
+ *  purely a client-side derived shape, never a wire type. */
+export interface ResolvedSeriesMember {
+  ref: string;
+  /** 1-based — array order (member_refs order) IS play order. */
+  position: number;
+  /** The adventure's own catalog name, when the ref resolved. */
+  name?: string;
+  level_range?: { min: number; max: number };
+  /** False when `ref` has no match in the fetched adventure list — retired,
+   *  unentitled, or simply outside that page. A "hole, not an ending"
+   *  (design doc §5.4's posture for the runtime next-pointer, applied here
+   *  too): the caller renders a graceful placeholder, never a broken link. */
+  resolved: boolean;
+}
+
+/**
+ * Joins a series' `member_refs` (bare adventure public_id strings) against a
+ * fetched `type=adventure` catalog list to resolve display titles/levels.
+ * Order comes from `member_refs` order — never re-sorted by any
+ * adventure-side stamp.
+ */
+export function resolveSeriesMembers(
+  memberRefs: string[],
+  adventures: AdventureCatalogItem[],
+): ResolvedSeriesMember[] {
+  const byId = new Map(adventures.map((a) => [a.public_id, a] as const));
+  return memberRefs.map((ref, i) => {
+    const adv = byId.get(ref);
+    return {
+      ref,
+      position: i + 1,
+      name: adv?.name,
+      level_range: adv?.summary.level_range,
+      resolved: adv !== undefined,
+    };
+  });
 }
 
 export function formatLevelRange(lr?: { min: number; max: number }): string {
@@ -100,10 +142,9 @@ export function formatMemberCount(n: number): string {
   return `${n} ${n === 1 ? 'part' : 'parts'}`;
 }
 
-/** Display label for one series member row — an author-supplied `label`
- *  when present, else a positional "Part N" fallback. Member NAMES are not
- *  resolved in list mode (see this module's header comment / design doc
- *  §8.1 D1), so this is the only title text available client-side today. */
-export function memberLabel(member: SeriesMemberRef, position: number): string {
-  return member.label && member.label.trim().length > 0 ? member.label : `Part ${position}`;
+/** Display name for one resolved series member row — the joined adventure's
+ *  own catalog name when `resolved`, else a positional "Part N" fallback
+ *  (an unresolved ref, not a fabricated title). */
+export function memberDisplayName(member: ResolvedSeriesMember): string {
+  return member.name ?? `Part ${member.position}`;
 }

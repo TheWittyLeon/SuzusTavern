@@ -141,12 +141,24 @@
   color: var(--ink);
 }
 
+/* B1: a member ref that didn't resolve against the fetched adventure list
+   (retired/unentitled/paginated) — a "hole, not an ending" (design doc
+   §5.4), never a dead link. Muted, non-interactive text in the same slot
+   the "Run this" button would occupy. */
+.partUnresolved {
+  font-size: 12px;
+  color: var(--ink-3);
+  font-style: italic;
+  white-space: nowrap;
+}
+
 @media (max-width: 560px) {
   .partRow {
     grid-template-columns: 28px 1fr;
   }
   .partRow > :global(a),
-  .partRow > :global(button) {
+  .partRow > :global(button),
+  .partRow > .partUnresolved {
     grid-column: 1 / -1;
     justify-self: start;
   }

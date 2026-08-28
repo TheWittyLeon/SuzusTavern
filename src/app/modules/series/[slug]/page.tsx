@@ -5,11 +5,17 @@
  * Cover + modules in play order, per the 2026-08-25 Campaign Series design
  * doc and the hearthlight-refined series.html artboard. No detail endpoint
  * exists yet (GET /catalog/{public_id} is Thread D's decided-but-unbuilt
- * scope — design doc §18 D1), so this page refetches the SAME
- * `type=series` list the catalog page uses and filters by slug client-side.
- * That also means member NAMES are not resolved here either (D1) — only
- * `ref`/`act_handle`/an author-supplied `label` travel on the wire; a
- * member with no `label` falls back to "Part N".
+ * scope — design doc §18 D1), so this page refetches the SAME `type=series`
+ * list the catalog page uses and filters by slug client-side.
+ *
+ * B1 (T5 live sweep, 2026-08-28): a series' `member_refs` is a plain array
+ * of bare adventure public_id strings (engine D1 ruling) — member NAMES are
+ * not resolved in list mode at all. This page ALSO fetches `type=adventure`
+ * and joins member_refs against it (by public_id) to resolve real titles/
+ * levels — see `resolveSeriesMembers` in lib/dnd/adventureCatalog.ts. The
+ * adventure fetch is best-effort: if it fails, every member just renders
+ * unresolved ("Part N", no dead link) rather than failing the whole page —
+ * same graceful-degrade posture as /modules' own series-fetch.
  *
  * Deliberately NOT rendered here (no data source, "thin real data" — see
  * dashboard/page.tsx's header comment): per-part played/locked/next-up
@@ -24,12 +30,15 @@ import Link from 'next/link';
 import { useAuthGate } from '@/lib/auth/useAuthGate';
 import { getCatalog } from '@/lib/api/dnd';
 import {
+  toCatalogItem,
   toSeriesCatalogItem,
+  resolveSeriesMembers,
+  memberDisplayName,
   formatLevelRange,
   formatMemberCount,
-  memberLabel,
+  type ResolvedSeriesMember,
 } from '@/lib/dnd/adventureCatalog';
-import type { SeriesCatalogItem } from '@/lib/api/types';
+import type { AdventureCatalogItem, SeriesCatalogItem } from '@/lib/api/types';
 import TavernShell from '@/components/TavernShell';
 import PageSkeleton from '@/components/PageSkeleton';
 import Card from '@/components/Card';
@@ -45,6 +54,7 @@ export default function SeriesDetailPage() {
   const params = useParams<{ slug: string }>();
   const slug = params.slug;
   const [series, setSeries] = useState<SeriesCatalogItem | null>(null);
+  const [members, setMembers] = useState<ResolvedSeriesMember[]>([]);
   const [status, setStatus] = useState<DetailStatus>('loading');
   const [attempt, setAttempt] = useState(0);
 
@@ -53,24 +63,36 @@ export default function SeriesDetailPage() {
     // Canonical fetch-on-mount pattern (mirrors modules/page.tsx's own effect).
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setStatus('loading');
-    getCatalog('dnd5e', { type: 'series' }, ac.signal)
-      .then((res) => {
+
+    const seriesReq = getCatalog('dnd5e', { type: 'series' }, ac.signal);
+    // Best-effort: only used to resolve member titles/levels — a failure
+    // here degrades every member to "unresolved" (see the module doc
+    // comment above), never the whole page to an error state.
+    const adventuresReq = getCatalog('dnd5e', { type: 'adventure' }, ac.signal)
+      .then((res) => res.items.map(toCatalogItem))
+      .catch(() => [] as AdventureCatalogItem[]);
+
+    Promise.all([seriesReq, adventuresReq])
+      .then(([seriesRes, adventures]) => {
         if (ac.signal.aborted) return;
-        const items = res.items
+        const items = seriesRes.items
           .map(toSeriesCatalogItem)
           .filter((s): s is SeriesCatalogItem => s !== null);
         const match = items.find((s) => s.slug === slug || s.public_id === slug);
         if (match) {
           setSeries(match);
+          setMembers(resolveSeriesMembers(match.summary.member_refs, adventures));
           setStatus('ok');
         } else {
           setSeries(null);
+          setMembers([]);
           setStatus('not-found');
         }
       })
       .catch(() => {
         if (ac.signal.aborted) return;
         setSeries(null);
+        setMembers([]);
         setStatus('error');
       });
     return () => ac.abort();
@@ -135,15 +157,15 @@ export default function SeriesDetailPage() {
                 {series.name}
               </h2>
               {series.summary.subtitle && <p className={styles.heroBlurb}>{series.summary.subtitle}</p>}
-              {series.summary.members.length > 0 && (
+              {members.length > 0 && members[0].resolved && (
                 <div className={styles.heroActions}>
                   <Button
                     variant="primary"
                     size="lg"
-                    href={`/modules?adventure=${encodeURIComponent(series.summary.members[0].ref)}`}
+                    href={`/modules?adventure=${encodeURIComponent(members[0].ref)}`}
                     leadingIcon={<Icon name="D20" size={14} aria-hidden />}
                   >
-                    Begin with {memberLabel(series.summary.members[0], 1)}
+                    Begin with {memberDisplayName(members[0])}
                   </Button>
                 </div>
               )}
@@ -155,27 +177,33 @@ export default function SeriesDetailPage() {
           </div>
 
           <ol className={styles.partList} aria-label={`${series.name} — play order`}>
-            {series.summary.members.map((member, i) => {
-              const position = i + 1;
-              return (
-                <li key={`${member.ref}-${position}`} className={styles.partRow}>
-                  <span className={styles.partNum} aria-hidden>
-                    {position}
-                  </span>
-                  <div className={styles.partMeta}>
-                    {member.act_handle && <span className={styles.partAct}>{member.act_handle}</span>}
-                    <span className={styles.partTitle}>{memberLabel(member, position)}</span>
-                  </div>
+            {members.map((member) => (
+              <li key={`${member.ref}-${member.position}`} className={styles.partRow}>
+                <span className={styles.partNum} aria-hidden>
+                  {member.position}
+                </span>
+                <div className={styles.partMeta}>
+                  {member.level_range && (
+                    <span className={styles.partAct}>{formatLevelRange(member.level_range)}</span>
+                  )}
+                  <span className={styles.partTitle}>{memberDisplayName(member)}</span>
+                </div>
+                {member.resolved ? (
                   <Button
                     variant="primary"
                     href={`/modules?adventure=${encodeURIComponent(member.ref)}`}
-                    aria-label={`Run this — ${memberLabel(member, position)}`}
+                    aria-label={`Run this — ${memberDisplayName(member)}`}
                   >
                     Run this
                   </Button>
-                </li>
-              );
-            })}
+                ) : (
+                  // A "hole, not an ending" (design doc §5.4) — the ref
+                  // didn't resolve against the fetched adventure list
+                  // (retired/unentitled/paginated). No dead link.
+                  <span className={styles.partUnresolved}>Not available</span>
+                )}
+              </li>
+            ))}
           </ol>
         </>
       )}
