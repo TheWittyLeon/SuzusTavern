@@ -402,7 +402,14 @@ function DashActive({
             />
           )}
 
-          <Card padding={false} className={styles.campaignList}>
+          {/* T4p1: campaign row -> card (design doc migration-cost note:
+              "the campaign row is currently a plain list row, not a card").
+              Same interactive elements/labels as before (Open link,
+              DM-only checkbox + delete) — value/layout upgrade only, no
+              functional change. Party avatars + started-at are the only
+              new content, both from fields the engine already returns
+              (participant_usernames/started_at) — no fabricated data. */}
+          <ul className={styles.campaignGrid} aria-label="My campaigns">
             {sessions.map((s) => {
               const suzu = (s.dm_username ?? '').toLowerCase() === 'suzu';
               // Only the campaign's DM (owner) sees the delete control (single
@@ -410,64 +417,88 @@ function DashActive({
               // non-owner delete call 404s).
               const isDM = isDmOf(s);
               const campaignName = sessionTitle(s);
+              const players = s.participant_usernames ?? [];
+              const playerCount = s.player_count ?? players.length;
               return (
-                <div
+                <Card
+                  as="li"
                   key={s.session_id}
+                  pop
                   className={
                     campaignBulk.selectMode
-                      ? `${styles.campaignRow} ${styles.campaignRowSelect}`
-                      : styles.campaignRow
+                      ? `${styles.campaignCard} ${styles.campaignCardSelect}`
+                      : styles.campaignCard
                   }
                 >
-                  {campaignBulk.selectMode && (
-                    <span className={styles.campaignCheckCol}>
-                      {isDM && (
-                        <label className={styles.campaignCheckWrap}>
-                          <input
-                            type="checkbox"
-                            checked={campaignBulk.selected.has(s.session_id)}
-                            onChange={() => campaignBulk.toggle(s.session_id)}
-                            aria-label={`Select campaign ${campaignName}`}
-                          />
-                        </label>
-                      )}
-                    </span>
+                  {campaignBulk.selectMode && isDM && (
+                    <label className={styles.campaignCheckWrap}>
+                      <input
+                        type="checkbox"
+                        checked={campaignBulk.selected.has(s.session_id)}
+                        onChange={() => campaignBulk.toggle(s.session_id)}
+                        aria-label={`Select campaign ${campaignName}`}
+                      />
+                    </label>
                   )}
-                  <span className={styles.campaignIcon} aria-hidden>
-                    <Icon name="Scroll" size={18} />
-                  </span>
-                  <div className={styles.campaignMeta}>
-                    <div className={styles.campaignName}>{campaignName}</div>
-                    <div className={styles.campaignSub}>
-                      {suzu ? 'Suzu' : (s.dm_username ?? 'human DM')} ·{' '}
-                      {s.player_count ?? s.participant_usernames?.length ?? 0} players
+                  <div className={styles.ccTop}>
+                    <span className={styles.campaignIcon} aria-hidden>
+                      <Icon name="Scroll" size={24} />
+                    </span>
+                    <div className={styles.ccHead}>
+                      <div className={styles.campaignName}>{campaignName}</div>
+                      <div className={styles.campaignPills}>
+                        <Pill tone="lav">{suzu ? 'Suzu DMs' : `${s.dm_username ?? 'human DM'} DMs`}</Pill>
+                        <Pill tone={s.status === 'paused' ? 'warn' : 'good'} dot={s.status === 'active'}>
+                          {s.status ?? 'active'}
+                        </Pill>
+                      </div>
                     </div>
                   </div>
-                  <Pill tone={s.status === 'paused' ? 'warn' : 'good'} dot={s.status === 'active'}>
-                    {s.status ?? 'active'}
-                  </Pill>
-                  <div className={styles.campaignActions}>
-                    <Button
-                      variant="ghost"
-                      href={`/play/${encodeURIComponent(s.session_id)}`}
-                    >
-                      Open
-                    </Button>
-                    {isDM && !campaignBulk.selectMode && (
-                      <DeleteCampaignButton
-                        sessionId={s.session_id}
-                        campaignName={campaignName}
-                        username={username}
-                        onChanged={onChanged}
-                        focusFallbackRef={campaignsSectionRef}
-                        className={styles.campaignDelete}
-                      />
+
+                  {players.length > 0 && (
+                    <div className={styles.ccParty}>
+                      <div className={styles.ccAvatars} aria-hidden>
+                        {players.slice(0, 4).map((p, i) => (
+                          <span key={`${p}-${i}`} className={styles.ccAvatar}>
+                            {p.charAt(0).toUpperCase()}
+                          </span>
+                        ))}
+                      </div>
+                      <span className={styles.ccPartyNote}>
+                        {players.join(', ')} &middot; {playerCount} {playerCount === 1 ? 'player' : 'players'}
+                      </span>
+                    </div>
+                  )}
+
+                  <div className={styles.ccFoot}>
+                    {s.started_at ? (
+                      <span className={styles.ccStarted}>started {formatStarted(s.started_at)}</span>
+                    ) : (
+                      <span />
                     )}
+                    <div className={styles.campaignActions}>
+                      <Button
+                        variant="ghost"
+                        href={`/play/${encodeURIComponent(s.session_id)}`}
+                      >
+                        Open
+                      </Button>
+                      {isDM && !campaignBulk.selectMode && (
+                        <DeleteCampaignButton
+                          sessionId={s.session_id}
+                          campaignName={campaignName}
+                          username={username}
+                          onChanged={onChanged}
+                          focusFallbackRef={campaignsSectionRef}
+                          className={styles.campaignDelete}
+                        />
+                      )}
+                    </div>
                   </div>
-                </div>
+                </Card>
               );
             })}
-          </Card>
+          </ul>
 
           <ConfirmDialog
             open={campaignBulk.confirmOpen}

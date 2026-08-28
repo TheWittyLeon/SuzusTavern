@@ -141,22 +141,42 @@
   min-width: 0;
 }
 
-.campaignList {
+/* T4p1: campaign row -> card (design doc migration-cost note: "the campaign
+   row is currently a plain list row, not a card"). Own grid (not a shared
+   grid with anything else) — same IA-fix reasoning as the catalog's series
+   grid: an isolated grid never has an auto-placement seam to break. */
+.campaignGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--density-gap);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.campaignCard {
+  position: relative; /* positioning context for the corner select checkbox */
   display: flex;
   flex-direction: column;
+  gap: 12px;
 }
-.campaignRow {
-  display: grid;
-  grid-template-columns: auto 1fr auto auto;
-  gap: 14px;
-  align-items: center;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--line-2);
+.ccTop {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
 }
-.campaignRow:last-child {
-  border-bottom: none;
+.ccHead {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
-/* Trailing actions (Open + the DM-only delete) share the row's last grid cell. */
+.campaignPills {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+/* Trailing actions (Open + the DM-only delete) share the card's footer row. */
 .campaignActions {
   display: flex;
   align-items: center;
@@ -182,18 +202,15 @@
   align-items: center;
   gap: 8px;
 }
-/* Extra leading column for the per-row checkbox, only applied in select mode
-   so non-select-mode rows keep their original 4-column layout untouched. */
-.campaignRowSelect {
-  grid-template-columns: auto auto 1fr auto auto;
-}
-.campaignCheckCol {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
+/* select-mode-only visual: a touch of breathing room so the corner checkbox
+   never overlaps the title. Matches .charCardWrap's corner-control pattern. */
+.campaignCardSelect {
+  padding-right: calc(var(--density-pad) + 24px);
 }
 .campaignCheckWrap {
+  position: absolute;
+  top: 10px;
+  right: 10px;
   display: inline-flex;
   cursor: pointer;
   /* ≥44px touch target without shifting layout (content-box padding trick,
@@ -208,25 +225,65 @@
   accent-color: var(--accent-2);
 }
 .campaignIcon {
-  width: 40px;
-  height: 40px;
+  width: 52px;
+  height: 52px;
   border-radius: var(--radius);
+  flex-shrink: 0;
   display: grid;
   place-items: center;
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
   color: var(--on-accent);
 }
-.campaignMeta {
-  min-width: 0;
-}
 .campaignName {
-  font-size: 14px;
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-size: 17px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.campaignSub {
+
+/* ── Party avatars (real data: participant_usernames) ────────────────────── */
+.ccParty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-2);
+}
+.ccAvatars {
+  display: flex;
+}
+.ccAvatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-display);
+  font-size: 11px;
+  background: linear-gradient(135deg, var(--cool), var(--accent-2));
+  color: var(--on-fill);
+  border: 2px solid var(--card-solid);
+  margin-left: -8px;
+}
+.ccAvatar:first-child {
+  margin-left: 0;
+}
+.ccPartyNote {
+  font-size: 11px;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ccFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ccStarted {
   font-size: 11px;
   color: var(--ink-3);
   font-family: var(--font-mono);
@@ -382,26 +439,17 @@
   .hero {
     padding: 20px 16px;
   }
-  /* Reclaim width: drop the decorative campaign icon, tighten the row so the
-     name + status + Open button fit without horizontal overflow. Collapse the
-     icon's grid track too (else display:none leaves a 0px track + 10px gap dead
-     space at the left — Iro S3.2 MINOR-3). */
-  .campaignRow {
-    grid-template-columns: 1fr auto auto;
-    gap: 10px;
-    padding: 12px;
-  }
+  /* Reclaim width: drop the decorative campaign icon on phone widths so the
+     name has the full card width to itself (T4p1: campaign card replaces
+     the old cramped row — the icon no longer shares a horizontal track
+     with the name/pills, so there's no dead-space track to collapse). */
   .campaignIcon {
     display: none;
   }
-  /* UIR2-TAV-15: the base .campaignName rule forces a single-line ellipsis
-     at every width. At 390px the row's `1fr` name track (squeezed further
-     by the Open + delete buttons) only fits ~14 characters before that
-     ellipsis kicks in, so two campaigns that share a long prefix ("The
-     Sunken..." / "The Sunken...") render identically and are impossible to
-     tell apart. Relax to a 2-line clamp on phone widths only — desktop/
-     tablet rows keep the single-line truncation (the wider `1fr` track
-     there rarely needs it). */
+  /* UIR2-TAV-15: relax to a 2-line clamp on phone widths so two campaigns
+     sharing a long prefix ("The Sunken..." / "The Sunken...") stay
+     distinguishable — desktop/tablet cards keep the single-line truncation
+     (T4p1: carried over from the old row's fix, same reasoning). */
   .campaignName {
     white-space: normal;
     overflow: hidden;
