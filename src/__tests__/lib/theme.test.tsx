@@ -33,6 +33,7 @@ describe('theme constants', () => {
     expect(NO_FLASH_SCRIPT).toContain(VIBE_KEY);
     expect(NO_FLASH_SCRIPT).toContain(DENSITY_KEY);
     // Guards every vibe so a tampered localStorage can't inject an attribute.
+    expect(NO_FLASH_SCRIPT).toContain('hearthlight');
     expect(NO_FLASH_SCRIPT).toContain('dusk-tavern');
     expect(NO_FLASH_SCRIPT).toContain('candlelit');
     expect(NO_FLASH_SCRIPT).toContain('aetheric');
@@ -250,7 +251,7 @@ describe('ThemeProvider — honors OS prefers-color-scheme (UIR2-TAV-4)', () => 
     expect(screen.getByTestId('probe')).toHaveTextContent('candlelit/');
   });
 
-  it('resolves the system default to dusk-tavern when the OS prefers dark', async () => {
+  it('resolves the system default to hearthlight when the OS prefers dark', async () => {
     installMatchMedia(false);
     render(
       <ThemeProvider>
@@ -258,7 +259,7 @@ describe('ThemeProvider — honors OS prefers-color-scheme (UIR2-TAV-4)', () => 
       </ThemeProvider>,
     );
     await act(async () => {});
-    expect(screen.getByTestId('probe')).toHaveTextContent('dusk-tavern/');
+    expect(screen.getByTestId('probe')).toHaveTextContent('hearthlight/');
   });
 
   it('follows a live OS light→dark change while in system mode', async () => {
@@ -273,8 +274,8 @@ describe('ThemeProvider — honors OS prefers-color-scheme (UIR2-TAV-4)', () => 
     await act(async () => {
       mm.setLight(false);
     });
-    expect(screen.getByTestId('probe')).toHaveTextContent('dusk-tavern/');
-    expect(document.documentElement.dataset.vibe).toBe('dusk-tavern');
+    expect(screen.getByTestId('probe')).toHaveTextContent('hearthlight/');
+    expect(document.documentElement.dataset.vibe).toBe('hearthlight');
   });
 
   it('does NOT override an explicit palette when the OS changes', async () => {
@@ -326,7 +327,7 @@ describe('TweaksPanel — System palette option (UIR2-TAV-4)', () => {
     });
     expect(window.localStorage.getItem(VIBE_KEY)).toBeNull();
     // OS is dark in this test → resolves to the dark default.
-    expect(document.documentElement.dataset.vibe).toBe('dusk-tavern');
+    expect(document.documentElement.dataset.vibe).toBe('hearthlight');
   });
 });
 
@@ -339,7 +340,7 @@ describe('theme.ts pure functions — resolveVibe / isVibePref / prefersLight (U
 
   it('resolveVibe: system resolves per the OS flag; concrete vibes ignore the OS flag entirely', () => {
     expect(resolveVibe('system', true)).toBe('candlelit');
-    expect(resolveVibe('system', false)).toBe('dusk-tavern');
+    expect(resolveVibe('system', false)).toBe('hearthlight');
     expect(resolveVibe('aetheric', true)).toBe('aetheric');
     expect(resolveVibe('aetheric', false)).toBe('aetheric');
     expect(resolveVibe('moonlit-grove', true)).toBe('moonlit-grove');
@@ -418,17 +419,17 @@ describe('NO_FLASH_SCRIPT — actually executed, not just inspected as text (UIR
     expect(document.documentElement.dataset.vibe).toBe('candlelit');
   });
 
-  it('resolves to dusk-tavern when nothing is stored and the OS prefers dark', () => {
+  it('resolves to hearthlight when nothing is stored and the OS prefers dark', () => {
     installMatchMedia(false);
     runNoFlashScript();
-    expect(document.documentElement.dataset.vibe).toBe('dusk-tavern');
+    expect(document.documentElement.dataset.vibe).toBe('hearthlight');
   });
 
   it('resolves to the dark default when matchMedia does not exist at all (old browser)', () => {
     uninstallMatchMedia();
     expect(window.matchMedia).toBeUndefined();
     runNoFlashScript();
-    expect(document.documentElement.dataset.vibe).toBe('dusk-tavern');
+    expect(document.documentElement.dataset.vibe).toBe('hearthlight');
   });
 
   it('discards a tampered/garbage VIBE_KEY value instead of writing it to the attribute verbatim', () => {
@@ -439,13 +440,13 @@ describe('NO_FLASH_SCRIPT — actually executed, not just inspected as text (UIR
     // Not a script-injection vector (setAttribute never parses its value as
     // HTML) — the real risk is a garbage value becoming the literal data-vibe,
     // which no globals.css block selects on, leaving the page unstyled.
-    expect(document.documentElement.dataset.vibe).toBe('dusk-tavern');
+    expect(document.documentElement.dataset.vibe).toBe('hearthlight');
     expect(document.documentElement.dataset.vibe).not.toBe(payload);
     expect(document.documentElement.getAttribute('data-vibe')).not.toContain('<img');
   });
 
   it('never throws, and leaves the attribute untouched, when localStorage.getItem itself throws', () => {
-    document.documentElement.setAttribute('data-vibe', 'dusk-tavern'); // the build-time default baked into layout.tsx
+    document.documentElement.setAttribute('data-vibe', 'hearthlight'); // the build-time default baked into layout.tsx
     const throwingStorage: MinimalStorage = {
       getItem() {
         throw new Error('SecurityError: storage disabled');
@@ -455,7 +456,7 @@ describe('NO_FLASH_SCRIPT — actually executed, not just inspected as text (UIR
     // The `var d=…, v=localStorage.getItem(…), n=…` statement aborts entirely
     // on the first getItem() throw, so setAttribute never runs at all — the
     // attribute is left exactly as it was pre-script.
-    expect(document.documentElement.dataset.vibe).toBe('dusk-tavern');
+    expect(document.documentElement.dataset.vibe).toBe('hearthlight');
   });
 
   it('applies a valid density independently of the vibe fallback branch', () => {
@@ -463,7 +464,7 @@ describe('NO_FLASH_SCRIPT — actually executed, not just inspected as text (UIR
     window.localStorage.setItem(VIBE_KEY, 'not-a-real-vibe'); // forces the vibe fallback branch
     window.localStorage.setItem(DENSITY_KEY, 'airy');
     runNoFlashScript();
-    expect(document.documentElement.dataset.vibe).toBe('dusk-tavern');
+    expect(document.documentElement.dataset.vibe).toBe('hearthlight');
     expect(document.documentElement.dataset.density).toBe('airy');
   });
 
@@ -488,7 +489,8 @@ describe('globals.css — color-scheme tracks data-vibe (UIR2-TAV-4)', () => {
     expect(ruleBlockContaining('[data-vibe="candlelit"]')).toMatch(/color-scheme:\s*light/);
   });
 
-  it('declares color-scheme: dark on every dark palette (dusk-tavern, aetheric, moonlit-grove)', () => {
+  it('declares color-scheme: dark on every dark palette (hearthlight, dusk-tavern, aetheric, moonlit-grove)', () => {
+    expect(ruleBlockContaining('[data-vibe="hearthlight"]')).toMatch(/color-scheme:\s*dark/);
     expect(ruleBlockContaining('[data-vibe="dusk-tavern"]')).toMatch(/color-scheme:\s*dark/);
     expect(ruleBlockContaining('[data-vibe="aetheric"]')).toMatch(/color-scheme:\s*dark/);
     expect(ruleBlockContaining('[data-vibe="moonlit-grove"]')).toMatch(/color-scheme:\s*dark/);
@@ -590,7 +592,7 @@ describe('ThemeProvider — storage disabled / private mode (UIR2-TAV-4)', () =>
       });
     }).not.toThrow();
     // Resolves live even though the key removal itself silently failed.
-    expect(screen.getByTestId('probe')).toHaveTextContent('dusk-tavern');
+    expect(screen.getByTestId('probe')).toHaveTextContent('hearthlight');
   });
 });
 
@@ -618,7 +620,7 @@ describe('ThemeProvider — OS-listener lifecycle, no leak (UIR2-TAV-4)', () => 
     });
     expect(document.documentElement.dataset.vibe).toBe('candlelit');
     unmount();
-    // If the listener had leaked, this would flip data-vibe back to dusk-tavern.
+    // If the listener had leaked, this would flip data-vibe back to hearthlight.
     act(() => {
       mm.setLight(false);
     });
@@ -628,7 +630,7 @@ describe('ThemeProvider — OS-listener lifecycle, no leak (UIR2-TAV-4)', () => 
   it('CHARACTERIZATION: an already-present data-vibe attribute wins on mount over BOTH the stored preference and the live OS setting — not a crash, but the fallback-resolve branch never fires if the DOM already looks "valid"', async () => {
     // Mirrors production if the no-flash inline script fails to execute for any
     // reason (e.g. an extension that blocks inline scripts but not the main JS
-    // bundle) — layout.tsx's <html data-vibe="dusk-tavern"> hardcoded default
+    // bundle) — layout.tsx's <html data-vibe="hearthlight"> hardcoded default
     // is itself a syntactically valid Vibe string, so the mount effect's
     // `isVibe(domVibe)` check can't distinguish "the script already resolved
     // this correctly" from "the script never ran, this is just the static
@@ -638,7 +640,7 @@ describe('ThemeProvider — OS-listener lifecycle, no leak (UIR2-TAV-4)', () => 
     // diff — the old code had the same "trust domVibe, never re-derive"
     // mount-effect shape), it's just that a stale value used to always be
     // 'dusk-tavern', which used to always be the right answer regardless.
-    document.documentElement.dataset.vibe = 'dusk-tavern'; // stands in for the un-rewritten SSR default
+    document.documentElement.dataset.vibe = 'hearthlight'; // stands in for the un-rewritten SSR default
     installMatchMedia(true); // OS light — a fresh resolve would say candlelit
     window.localStorage.setItem(VIBE_KEY, 'moonlit-grove'); // user's actual pin, also ignored
     render(
@@ -649,7 +651,7 @@ describe('ThemeProvider — OS-listener lifecycle, no leak (UIR2-TAV-4)', () => 
     await act(async () => {});
     // vibePref correctly reads the real stored pin (moonlit-grove) — only the
     // PAINTED vibe stays stuck at the stale DOM value, a picker/paint mismatch.
-    expect(screen.getByTestId('probe')).toHaveTextContent('moonlit-grove:dusk-tavern');
+    expect(screen.getByTestId('probe')).toHaveTextContent('moonlit-grove:hearthlight');
   });
 
   it('stops reacting to OS changes once the user pins away from system mid-session', async () => {
@@ -669,7 +671,7 @@ describe('ThemeProvider — OS-listener lifecycle, no leak (UIR2-TAV-4)', () => 
       </ThemeProvider>,
     );
     await act(async () => {});
-    expect(screen.getByTestId('probe')).toHaveTextContent('dusk-tavern'); // system + OS dark
+    expect(screen.getByTestId('probe')).toHaveTextContent('hearthlight'); // system + OS dark
     act(() => {
       fireEvent.click(screen.getByText('pin'));
     });
@@ -701,14 +703,14 @@ describe('ThemeProvider — OS-listener lifecycle, no leak (UIR2-TAV-4)', () => 
       </ThemeProvider>,
     );
     await act(async () => {});
-    expect(screen.getByTestId('probe')).toHaveTextContent('dusk-tavern');
+    expect(screen.getByTestId('probe')).toHaveTextContent('hearthlight');
     act(() => {
       fireEvent.click(screen.getByText('pin'));
     });
     act(() => {
       fireEvent.click(screen.getByText('system'));
     });
-    expect(screen.getByTestId('probe')).toHaveTextContent('dusk-tavern'); // system + OS still dark
+    expect(screen.getByTestId('probe')).toHaveTextContent('hearthlight'); // system + OS still dark
     act(() => {
       mm.setLight(true);
     });
@@ -731,7 +733,7 @@ describe('ThemeProvider / TweaksPanel — matchMedia genuinely absent (UIR2-TAV-
       </ThemeProvider>,
     );
     await act(async () => {});
-    expect(screen.getByTestId('probe')).toHaveTextContent('system:dusk-tavern');
+    expect(screen.getByTestId('probe')).toHaveTextContent('system:hearthlight');
   });
 
   it('TweaksPanel still opens and shows System checked with no matchMedia present', () => {
@@ -777,7 +779,7 @@ describe('ThemeProvider — density interplay with a live system-vibe change (UI
     await act(async () => {
       mm.setLight(false);
     });
-    expect(screen.getByTestId('probe')).toHaveTextContent('dusk-tavern/airy');
+    expect(screen.getByTestId('probe')).toHaveTextContent('hearthlight/airy');
     expect(document.documentElement.dataset.density).toBe('airy');
   });
 });
@@ -812,7 +814,7 @@ describe('TweaksPanel — rapid palette switching via the real UI (UIR2-TAV-4)',
     expect(screen.getByRole('radio', { name: /system/i })).toBeChecked();
     expect(screen.getByRole('radio', { name: /aetheric/i })).not.toBeChecked();
     expect(window.localStorage.getItem(VIBE_KEY)).toBeNull();
-    expect(document.documentElement.dataset.vibe).toBe('dusk-tavern'); // OS dark
+    expect(document.documentElement.dataset.vibe).toBe('hearthlight'); // OS dark
 
     act(() => {
       fireEvent.click(screen.getByRole('radio', { name: /candlelit/i }));
@@ -825,7 +827,7 @@ describe('TweaksPanel — rapid palette switching via the real UI (UIR2-TAV-4)',
     act(() => {
       fireEvent.click(screen.getByRole('radio', { name: /system/i }));
     });
-    expect(document.documentElement.dataset.vibe).toBe('dusk-tavern');
+    expect(document.documentElement.dataset.vibe).toBe('hearthlight');
     act(() => {
       // Back in system mode — the live OS listener must be re-engaged.
       mm.setLight(true);

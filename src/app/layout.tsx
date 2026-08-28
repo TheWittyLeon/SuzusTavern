@@ -42,7 +42,9 @@ export default async function RootLayout({
     // warn about the attribute mismatch on any non-default resolved palette.
     <html
       lang="en"
-      data-vibe="dusk-tavern"
+      // T4p1: hearthlight-refined is now the app default (dusk-tavern stays
+      // fully selectable via the TweaksPanel).
+      data-vibe="hearthlight"
       data-density="cozy"
       suppressHydrationWarning
       style={{ '--env-banner-h': envBannerHeightVar } as React.CSSProperties}

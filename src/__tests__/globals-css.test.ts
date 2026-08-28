@@ -11,6 +11,10 @@ describe('globals.css token verification', () => {
     )
   })
 
+  it('contains the hearthlight palette', () => {
+    expect(cssContent).toContain('data-vibe="hearthlight"')
+  })
+
   it('contains the dusk-tavern palette', () => {
     expect(cssContent).toContain('data-vibe="dusk-tavern"')
   })
@@ -147,6 +151,7 @@ describe('A11Y-BUTTON-BORDER-CONTRAST: --line-strong meets WCAG 1.4.11 (3:1 non-
   }
 
   const VIBES: { name: string; selector: RegExp }[] = [
+    { name: 'hearthlight', selector: /\[data-vibe="hearthlight"\]/ },
     { name: 'dusk-tavern', selector: /:root,\s*\[data-vibe="dusk-tavern"\]/ },
     { name: 'candlelit', selector: /\[data-vibe="candlelit"\]/ },
     { name: 'aetheric', selector: /\[data-vibe="aetheric"\]/ },
