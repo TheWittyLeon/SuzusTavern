@@ -270,6 +270,76 @@
     radial-gradient(60% 60% at 50% 100%, rgba(226,218,192,0.16) 0%, rgba(226,218,192,0) 60%);
 }
 
+[data-vibe="hearthlight"] {
+  /* ----- Hearthlight — evolutionary refinement of Dusk Tavern -----
+     Same aubergine-and-firelight DNA as dusk-tavern; the hue balance shifts
+     from cool lavender/rose to warm ember-rose + deep amethyst, ink warms
+     toward parchment-white, and shadow-pop retints to match. Values ported
+     verbatim from the T4 canvas panel's hearthlight-refined DIRECTION.md
+     (token-value table) — a value swap on a sibling vibe, no structural
+     change. Becomes the app default (see lib/theme/theme.ts); dusk-tavern
+     stays fully selectable. */
+  color-scheme: dark;
+  --bg:         #170f1c;
+  --bg-2:       #1e1428;
+  --bg-3:       #251a33;
+  --card:       rgba(255,255,255,0.045);
+  --card-solid: #1e1428;
+  --ink:        #f7eef1;
+  --ink-2:      #cdc0d4;
+  --ink-3:      #9f93ac;
+  --line:       rgba(255,255,255,0.09);
+  --line-2:     rgba(255,255,255,0.04);
+  /* A11Y-BUTTON-BORDER-CONTRAST: see the dusk-tavern --line-strong comment —
+     same rationale, hearthlight-tuned alpha (verified ≥3:1 vs --bg and
+     --card-solid). */
+  --line-strong: rgba(255,255,255,0.40);
+
+  --accent:     #f2769f;   /* deepened dusk-rose — more ember, less pastel */
+  --accent-2:   #9d7ff0;   /* deepened lavender counterpoint */
+  --accent-3:   #f6c9d9;
+  --accent-ink: #f2769f;   /* dark palette — already AA as text, alias the decorative token */
+  /* HEARTHLIGHT-NEW: decorative-only tertiary for hardware details —
+     dividers, corner ticks, icon strokes on hero cards. NEVER used for text
+     or any fill that needs a contrast guarantee (see DIRECTION.md). */
+  --accent-brass: #c9974a;
+
+  --warm:       #f0b57e;   /* true ember gold, was peach */
+  --warm-ink:   var(--warm);
+  --cool:       #93b8ea;
+  --cool-ink:   var(--cool);
+
+  --good:       #63b17f;
+  --bad:        #d6635f;
+  --bad-ink:    #f0938f;
+  --warn:       #dcae55;
+  --warn-ink:   var(--warn);
+  --crit:       #ffd76a;
+  --crit-ink:   var(--crit);
+  --fumble:     #d6635f;
+  --fumble-ink: #ffffff;
+
+  /* HEARTHLIGHT-AA-FIX: at this accent's deeper saturation, white button text
+     drops to 2.67:1 (FAIL) — --on-accent must resolve through --on-fill
+     (#170f1c dark ink), which measures 7.01:1. Not a refinement-only change;
+     see DIRECTION.md §AA notes. */
+  --on-fill:    #170f1c;
+  --on-accent:  var(--on-fill);
+
+  --grad-aurora:
+    radial-gradient(62% 82% at 18% 8%,  rgba(242,118,159,0.26) 0%, rgba(242,118,159,0) 60%),
+    radial-gradient(52% 72% at 82% 18%, rgba(157,127,240,0.24) 0%, rgba(157,127,240,0) 60%),
+    radial-gradient(60% 60% at 50% 100%, rgba(240,181,126,0.20) 0%, rgba(240,181,126,0) 60%);
+
+  /* Retint only — same shadow-pop FORMULA as the shared default (structural
+     tokens are unchanged per DIRECTION.md), ember-forward primary bloom
+     instead of lavender to match the accent hue shift. */
+  --shadow-pop:
+    0 1px 0 rgba(255,255,255,0.09) inset,
+    0 24px 60px -24px rgba(242,118,159,0.40),
+    0 8px 20px -8px rgba(240,181,126,0.26);
+}
+
 /* ============================================================
  *  Shared structural tokens — same across all palettes
  * ============================================================ */
@@ -298,6 +368,22 @@
   --font-display: 'Fraunces', ui-serif, Georgia, 'Times New Roman', serif;
   --font-ui:      'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono:    'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* HEARTHLIGHT-NEW (T4 canvas panel): narration copy's font slot — a no-op
+     scaffold today (aliases --font-display everywhere, incl. hearthlight),
+     added so a future vibe/surface can retune narration typography without
+     a font-stack rewrite. No consumer wired yet (play chrome is out of
+     scope this phase). */
+  --font-narration: var(--font-display);
+
+  /* HEARTHLIGHT-NEW: decouples headline weight from the font stack so a
+     future vibe can go heavier/lighter without swapping fonts. Shared
+     default here (not per-vibe) — hearthlight itself doesn't need a
+     non-default value; every vibe gets the same safe default. */
+  --display-weight: 500;
+  /* HEARTHLIGHT-NEW: decorative-only tertiary accent, defined once here so
+     every vibe has a safe default (only hearthlight's cards currently use
+     it) — see the hearthlight block above for the "never for text" rule. */
+  --accent-brass: #c9974a;
 
   --density-pad: 22px;
   --density-gap: 16px;
@@ -350,7 +436,9 @@ body {
 
 .display, h1, h2, h3, h4 {
   font-family: var(--font-display);
-  font-weight: 500;
+  /* HEARTHLIGHT-NEW: was a literal 500 — now the --display-weight slot so a
+     vibe can retune headline weight without touching the font stack. */
+  font-weight: var(--display-weight);
   letter-spacing: -0.02em;
   color: var(--ink);
   margin: 0;
