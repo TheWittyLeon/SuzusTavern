@@ -36,10 +36,11 @@ export interface CatalogData {
 
 /**
  * `'unauthorized'` = the request reached the server and the SESSION was
- * rejected (401 after `client.ts` already spent its one silent refresh
- * attempt). `'error'` keeps its original meaning: anything else — offline,
- * DNS, 5xx, a malformed payload. They need opposite remedies, so a consumer
- * that collapses them back into one branch has re-created the bug.
+ * rejected (401 or 403 — see below — after `client.ts` already spent its one
+ * silent refresh attempt). `'error'` keeps its original meaning: anything
+ * else — offline, DNS, 5xx, a malformed payload. They need opposite
+ * remedies, so a consumer that collapses them back into one branch has
+ * re-created the bug.
  */
 export type CatalogStatus = 'loading' | 'ok' | 'error' | 'unauthorized';
 
@@ -93,8 +94,26 @@ export function useCatalog(): UseCatalogResult {
         // client.ts has already spent its one silent `/api/auth/refresh` +
         // retry by the time a 401 surfaces here, so this is a CONFIRMED dead
         // session, not a transient token expiry the client can fix itself.
+        // Kage-CR item 1: 403 is ALSO a confirmed dead session, not a generic
+        // error — Authentication-Python's /auth/refresh returns 403 (not 401)
+        // for a deactivated account (app/auth.py:830) and a token-binding
+        // mismatch (app/auth.py:848), both real rejections client.ts's own
+        // 401-retry already surfaces as `err.status`.
+        // Kage-CR final round: also recognise `code === 'unauthorized'` —
+        // that's the classification client.ts's UNIFIED rule (items 2/3)
+        // actually computes (0/>=500/429 -> 'refresh_unavailable', else ->
+        // 'unauthorized', e.g. a refresh 422 from flask-jwt-extended's
+        // default invalid-signature handler). A hand-copied 401/403 status
+        // list drifts from that rule the moment client.ts's classification
+        // changes again; the `code` is the single source of truth for "the
+        // refresh attempt said this session is dead". The status checks stay
+        // for a DIRECT (non-retry) 401/403 throw, which never goes through
+        // client.ts's refresh-classification branch at all.
+        const e = err as { status?: number; code?: string } | null;
         setStatus(
-          (err as { status?: number } | null)?.status === 401 ? 'unauthorized' : 'error',
+          e?.status === 401 || e?.status === 403 || e?.code === 'unauthorized'
+            ? 'unauthorized'
+            : 'error',
         );
       });
 

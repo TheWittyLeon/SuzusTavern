@@ -455,6 +455,13 @@ export default function PlayPage() {
   // Grounding for the "Move on" affordance (ADV-7T).
   const [grounding, setGrounding] = useState<GroundingData | null>(null);
   const [sceneAdvanceBusy, setSceneAdvanceBusy] = useState(false);
+  // TAV-SLICE-END-ADVANCE-NULL / Kage-CR item 4: a terminal advance
+  // (to_scene: null / completed: true) has no further "Move on" affordance —
+  // latch this so a second click can't post another /advance (and narrate
+  // another "adventure concludes" beat) indefinitely. Session-lifetime only;
+  // a reload naturally resets it (the engine's own `progress.completed` is
+  // the durable source of truth — this is just a UI repeat-guard).
+  const [adventureComplete, setAdventureComplete] = useState(false);
 
   // P1-PLAYFIX (S2.4) — busy flag for the check-affordance row (Attempt: Survival, etc.).
   const [checkBusy, setCheckBusy] = useState(false);
@@ -3248,13 +3255,21 @@ export default function PlayPage() {
       }
       setMsg(''); // clear only on success
     } catch (err) {
-      const status = (err as { status?: number } | null)?.status;
-      if (status === 401 || status === 403) {
+      // Kage-CR final round: recognise `code === 'unauthorized'` alongside a
+      // direct 401/403, not a hand-copied status list — that code is
+      // client.ts's UNIFIED refresh-failure classification (items 2/3:
+      // 0/>=500/429 -> 'refresh_unavailable', everything else ->
+      // 'unauthorized', including a refresh 422 from flask-jwt-extended's
+      // default invalid-signature handler). Checking only status here would
+      // let a 422-classified dead session fall through to the generic inline
+      // error below instead of the sign-in redirect.
+      const e = err as { status?: number; code?: string } | null;
+      if (e?.status === 401 || e?.status === 403 || e?.code === 'unauthorized') {
         // Cookie expired — redirect to login per existing pattern.
         window.location.href = '/login';
         return;
       }
-      // 5xx / network: preserve text in textarea, show inline error.
+      // 5xx / network / refresh_unavailable: preserve text, show inline error.
       setDmNarrationError('Could not send narration. Try again.');
     } finally {
       setDmNarrationPending(false);
@@ -3528,7 +3543,7 @@ export default function PlayPage() {
   const sceneAdvanceBusyRef = useRef(false);
 
   const onMoveOn = useCallback(
-    async (toScene: string) => {
+    async (toScene: string | null) => {
       if (!session || !username || sceneAdvanceBusyRef.current) return;
       // FIX-2: guard against clicking Move on while an opening stream is in flight.
       // Without this, a race between the opening narration and a scene transition
@@ -3549,10 +3564,24 @@ export default function PlayPage() {
         sceneAdvanceBusyRef.current = true;
         setSceneAdvanceBusy(true);
         const result = await advanceScene(session.session_id, { to_scene: toScene });
+        // TAV-SLICE-END-ADVANCE-NULL (engine d41351f): the terminal-transition
+        // shape is `completed: true` (always paired with `to_scene: null`) —
+        // there is no destination scene because the adventure just ended.
+        // Check `completed` directly rather than inferring it solely from
+        // `to_scene === null`; OR both so a future engine revision that sent
+        // one without the other (neither observed today) still degrades to
+        // the completion branch rather than silently rendering the literal
+        // "→ null" it exists to prevent.
+        const isAdventureComplete = result.completed === true || result.to_scene === null;
+        if (isAdventureComplete) setAdventureComplete(true);
         appendLog({
           who: 'Suzu',
           kind: 'system',
-          text: `The scene shifts: ${result.from_scene} → ${result.to_scene}`,
+          text: isAdventureComplete
+            // ⚖ neutral placeholder pending a product call on the real
+            // completion copy — chosen here, not litigated by the backlog row.
+            ? 'The adventure is complete.'
+            : `The scene shifts: ${result.from_scene} → ${result.to_scene}`,
         });
         const advancedGrounding = await refreshGrounding();
         refocusSceneHeadIfStranded(hadFocusInTransitionWrap);
@@ -3574,17 +3603,20 @@ export default function PlayPage() {
         // Kage #1 / Miko DEFECT-2: advanceScene() already moved the
         // scene server-side — suppress the INTENT classifier from advancing
         // it a second time off this confirmation beat.
+        const transitionContext = isAdventureComplete
+          ? `Scene advance: ${result.from_scene} → the adventure concludes. Narrate the ending.`
+          : `Scene advance: ${result.from_scene} → ${result.to_scene}. Narrate the transition.`;
         if (DURABLE_GENERATION_ENABLED) {
           void narrateDurableBeat(
             'We move on.',
-            `Scene advance: ${result.from_scene} → ${result.to_scene}. Narrate the transition.`,
+            transitionContext,
             'act',
             { suppressIntent: true, beat: 'scene_advance' },
           );
         } else {
           void narrate(
             'We move on.',
-            `Scene advance: ${result.from_scene} → ${result.to_scene}. Narrate the transition.`,
+            transitionContext,
             'act',
             { suppressIntent: true },
           ); // byte-unchanged legacy path
@@ -6223,8 +6255,12 @@ export default function PlayPage() {
         {/* ADV-7T: "Move on" affordance — shown only when transitions are available
             and no combat is active.
             Iro Ship 2 MINOR-2: role="group" + aria-label mirrors the existing
-            .outcomeChooser group pattern above. */}
-        {availableTransitions.length > 0 && (
+            .outcomeChooser group pattern above.
+            TAV-SLICE-END-ADVANCE-NULL / Kage-CR item 4: once a terminal
+            advance has landed (adventureComplete), this affordance is gone
+            entirely — there is nothing left to move on TO, and re-rendering
+            it would let a second click post another /advance indefinitely. */}
+        {availableTransitions.length > 0 && !adventureComplete && (
           <div
             ref={transitionWrapRef}
             className={styles.moveOnWrap}
@@ -6248,7 +6284,11 @@ export default function PlayPage() {
                 aria-disabled={sceneAdvanceBusy || talking || sessionLocked}
               >
                 <Icon name="Compass" size={13} aria-hidden />
-                {t.label ?? `Move on → ${t.to}`}
+                {/* TAV-SLICE-END-ADVANCE-NULL: an unlabelled terminal
+                    (`to: null`) exit must never render the literal string
+                    "Move on → null" — fall back to neutral completion copy
+                    instead. An authored `label` always wins either way. */}
+                {t.label ?? (t.to === null ? 'Conclude the adventure' : `Move on → ${t.to}`)}
               </button>
             ))}
           </div>
