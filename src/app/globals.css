@@ -79,8 +79,11 @@
   --crit:       #ffd76a;   /* nat-20 gold */
   --fumble:     #c25353;   /* nat-1 red */
 
-  /* A11Y-1: text/icon color on accent gradient surfaces — dark text on light pastels */
-  --on-accent:  #15101e;
+  /* A11Y-1: ink for ANY filled semantic surface (accent, good, cool, crit…) —
+     dark text on light pastels. --on-accent is the historical alias; prefer
+     --on-fill on non-accent fills so the intent reads correctly. */
+  --on-fill:    #15101e;
+  --on-accent:  var(--on-fill);
   /* A11Y-3: fumble text color — dark bg so white text passes */
   --fumble-ink: #ffffff;
 
@@ -148,8 +151,10 @@
   --crit:       #c9882a;
   --fumble:     #a83a3a;
 
-  /* A11Y-1: accent gradient is dark ember, so white text passes */
-  --on-accent:  #ffffff;
+  /* A11Y-1: candlelit's semantic fills are all dark (ember/umber/moss/olive),
+     so white ink passes on every one of them. */
+  --on-fill:    #ffffff;
+  --on-accent:  var(--on-fill);
   /* A11Y-3: fumble bg is --fumble (dark red), white text passes */
   --fumble-ink: #ffffff;
 
@@ -200,8 +205,9 @@
   --crit:       #ffe27a;
   --fumble:     #ff7a8a;
 
-  /* A11Y-1: accent gradient is light teal/amethyst pastels — dark text required */
-  --on-accent:  #0c0f1e;
+  /* A11Y-1: every semantic fill here is a light pastel — dark ink required */
+  --on-fill:    #0c0f1e;
+  --on-accent:  var(--on-fill);
   /* A11Y-3: fumble bg is light salmon (#ff7a8a) — dark text required */
   --fumble-ink: #0c0f1e;
 
@@ -252,8 +258,9 @@
   --crit:       #f0d896;
   --fumble:     #d07a7a;
 
-  /* A11Y-1: accent gradient is light moss/lavender pastels — dark text required */
-  --on-accent:  #0f1614;
+  /* A11Y-1: every semantic fill here is a light pastel — dark ink required */
+  --on-fill:    #0f1614;
+  --on-accent:  var(--on-fill);
   /* A11Y-3: fumble bg is light rose (#d07a7a) — dark text required */
   --fumble-ink: #0f1614;
 

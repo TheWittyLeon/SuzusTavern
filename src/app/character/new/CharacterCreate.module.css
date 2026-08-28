@@ -99,7 +99,11 @@
 .railStep[data-state='done'] .railDot {
   border-color: var(--good);
   background: var(--good);
-  color: #fff;
+  /* A11Y: was #fff — 2.46:1 on dusk-tavern's --good (#6db48a), 1.96:1 on
+     moonlit-grove, both far under 3:1. --on-fill is the palette-correct ink
+     (7.6:1 dusk / 9.7:1 moonlit / 10.6:1 aetheric; candlelit's --good is dark
+     so --on-fill is white there and still passes at 7.5:1). */
+  color: var(--on-fill);
 }
 
 .railText {
@@ -285,7 +289,10 @@
 }
 .optCard[data-selected='true'] .optIcon {
   background: var(--opt-accent, var(--accent));
-  color: #fff;
+  /* A11Y: --opt-accent is always a palette semantic fill (cool/crit/good/warm/
+     bad/warn/accent*), never an arbitrary hex — so the palette's --on-fill is
+     correct for every option. #fff was failing on the light-pastel palettes. */
+  color: var(--on-fill);
 }
 .optName {
   font-family: var(--font-display);
@@ -794,7 +801,8 @@
     var(--opt-accent, var(--accent)),
     color-mix(in oklab, var(--opt-accent, var(--accent)) 45%, var(--accent-2))
   );
-  color: #fff;
+  /* A11Y: was #fff — the gradient is built from light pastels on 3 of 4 palettes. */
+  color: var(--on-fill);
   font-family: var(--font-display);
   font-size: 38px;
   box-shadow: 0 14px 30px -10px color-mix(in oklab, var(--accent) 50%, transparent);

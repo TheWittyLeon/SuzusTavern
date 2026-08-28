@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
+    "lint": "eslint && npm run lint:tokens",
+    "lint:tokens": "node scripts/check-color-tokens.mjs",
     "test": "jest",
     "test:watch": "jest --watch"
   },
