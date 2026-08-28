@@ -14,14 +14,25 @@
  *
  * Suzu's PDF library + your homebrew tabs are post-MVP (disabled).
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import { useAuthGate } from '@/lib/auth/useAuthGate';
 import { useToast } from '@/components/Toast';
 import { bindCharacter, createSessionFull, getCatalog, listMyCharacters } from '@/lib/api/dnd';
-import type { AdventureCatalogItem, Character, ContentRating, DmMode, Visibility } from '@/lib/api/types';
+import type {
+  AdventureCatalogItem,
+  AdventureSeriesStamp,
+  Character,
+  ContentRating,
+  DmMode,
+  SeriesCatalogItem,
+  SeriesCover,
+  SeriesMemberRef,
+  Visibility,
+} from '@/lib/api/types';
 import { engineErrorMessage } from '@/lib/dnd/engineError';
+import SeriesCoverArt from '@/components/SeriesCoverArt';
 import { SESSION_START_REASON_MAP } from '@/lib/dnd/engineReasons';
 
 type AiAssistLevel = 'full' | 'assist' | 'off';
@@ -222,6 +233,56 @@ function toCatalogItem(raw: unknown): AdventureCatalogItem {
       length: summary['length'] as string | undefined,
       content_rating: summary['content_rating'] as string | undefined,
       tags: summary['tags'] as string[] | undefined,
+      // T4p1: previously stripped by this whitelist (design doc §8.3 point 2)
+      // — the engine's catalog projection already carries these when
+      // SUZU_DND_SERIES is on; the mapper just needs to stop dropping them.
+      series: summary['series'] as AdventureSeriesStamp | undefined,
+      also_in: summary['also_in'] as number | undefined,
+      editorial_role: summary['editorial_role'] as string | undefined,
+    },
+  };
+}
+
+/**
+ * Map a raw catalog item for content_type='series' onto SeriesCatalogItem.
+ * Returns null (never a broken card) when `cover`/`members` — the two fields
+ * a series card cannot render without — are absent: an older engine build,
+ * a foreign/malformed payload, or SUZU_DND_SERIES still resolving. Member
+ * NAMES are deliberately not resolved in list mode (design doc §8.1/§18 D1)
+ * — only `ref`/`act_handle`/an author-supplied `label` travel on the wire.
+ */
+function toSeriesCatalogItem(raw: unknown): SeriesCatalogItem | null {
+  const item = raw as Record<string, unknown>;
+  const summary = (item['summary'] as Record<string, unknown> | undefined) ?? {};
+  const rawCover = summary['cover'];
+  const rawMembers = summary['members'];
+  if (
+    !rawCover ||
+    typeof rawCover !== 'object' ||
+    !Array.isArray(rawMembers) ||
+    rawMembers.length === 0
+  ) {
+    return null;
+  }
+  const cover = rawCover as Record<string, unknown>;
+  return {
+    public_id: String(item['public_id'] ?? ''),
+    slug: String(item['slug'] ?? ''),
+    name: String(item['name'] ?? ''),
+    summary: {
+      subtitle: summary['subtitle'] as string | undefined,
+      level_range: summary['level_range'] as { min: number; max: number } | undefined,
+      length: summary['length'] as string | undefined,
+      content_rating: summary['content_rating'] as string | undefined,
+      tags: summary['tags'] as string[] | undefined,
+      cover: {
+        color: String(cover['color'] ?? '#5a4a7a'),
+        pattern: (cover['pattern'] as SeriesCover['pattern']) ?? 'none',
+        glyph: String(cover['glyph'] ?? 'scroll'),
+        image_ref: (cover['image_ref'] as string | null | undefined) ?? null,
+      },
+      member_count: Number(summary['member_count'] ?? rawMembers.length),
+      members: rawMembers as SeriesMemberRef[],
     },
   };
 }
@@ -235,6 +296,10 @@ function formatLevelRange(lr?: { min: number; max: number }): string {
 function formatLength(len?: string): string {
   if (!len) return '';
   return len.replace(/_/g, ' ');
+}
+
+function formatMemberCount(n: number): string {
+  return `${n} ${n === 1 ? 'part' : 'parts'}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -775,12 +840,21 @@ function StarterForm({
   );
 }
 
-export default function ModulesPage() {
+function ModulesPageInner() {
   const [selected, setSelected] = useState<AdventureCatalogItem | null>(null);
   const [adventures, setAdventures] = useState<AdventureCatalogItem[]>([]);
+  const [series, setSeries] = useState<SeriesCatalogItem[]>([]);
   const [status, setStatus] = useState<AdventureStatus>('loading');
   const [attempt, setAttempt] = useState(0);
   const retryRef = useRef<HTMLButtonElement>(null);
+  // T4p1: a series-detail part row deep-links here as
+  // /modules?adventure=<public_id> so "run this part" reuses the exact same
+  // StarterForm/createSessionFull flow every other catalog card uses — no
+  // second session-start implementation. Only fires the FIRST time it can
+  // match (guarded below) so clearing the selection (Back) doesn't re-select.
+  const searchParams = useSearchParams();
+  const deepLinkAdventureRef = searchParams.get('adventure');
+  const [deepLinkConsumed, setDeepLinkConsumed] = useState(false);
 
   // Iro MAJOR-1: retry guard — ignore taps when not in error state to prevent
   // two concurrent fetches from rapid double-tap before the 'loading' re-render commits.
@@ -788,6 +862,19 @@ export default function ModulesPage() {
     if (status !== 'error') return;
     setAttempt((n) => n + 1);
   }, [status]);
+
+  useEffect(() => {
+    if (!deepLinkAdventureRef || deepLinkConsumed || status !== 'ok') return;
+    const match = adventures.find((a) => a.public_id === deepLinkAdventureRef);
+    if (match) {
+      // Deriving selection from async-loaded catalog data (adventures/status
+      // come from the separate fetch effect above) — there's no render-time
+      // equivalent, matching the fetch-on-mount pattern's own justification.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSelected(match);
+      setDeepLinkConsumed(true);
+    }
+  }, [deepLinkAdventureRef, deepLinkConsumed, status, adventures]);
 
   useEffect(() => {
     const ac = new AbortController();
@@ -798,13 +885,38 @@ export default function ModulesPage() {
     getCatalog('dnd5e', { type: 'adventure' }, ac.signal)
       .then((res) => {
         if (ac.signal.aborted) return;
-        setAdventures(res.items.map(toCatalogItem));
+        setAdventures(
+          res.items
+            .map(toCatalogItem)
+            // D2 (design doc): editorial-chunk rows (spine-splice inputs, e.g.
+            // Act-I chunks) are peers in the catalog but not standalone-
+            // playable modules — keep them out of the browsable grid without
+            // retiring them (they still need to exist for playtesting).
+            .filter((a) => a.summary.editorial_role !== 'spine_chunk'),
+        );
         setStatus('ok');
       })
       .catch(() => {
         if (ac.signal.aborted) return;
         setAdventures([]);
         setStatus('error');
+      });
+    // Series is a browse ENHANCEMENT, not the page's core data — an older
+    // engine build, SUZU_DND_SERIES off, or a network hiccup here degrades to
+    // "no series shown" rather than failing the whole page (ADV-9's existing
+    // graceful-degrade posture, extended to the new content_type).
+    getCatalog('dnd5e', { type: 'series' }, ac.signal)
+      .then((res) => {
+        if (ac.signal.aborted) return;
+        setSeries(
+          res.items
+            .map(toSeriesCatalogItem)
+            .filter((s): s is SeriesCatalogItem => s !== null),
+        );
+      })
+      .catch(() => {
+        if (ac.signal.aborted) return;
+        setSeries([]);
       });
     return () => ac.abort();
   }, [attempt]);
@@ -901,8 +1013,8 @@ export default function ModulesPage() {
             </Card>
           )}
 
-          {/* Empty state (loaded but no adventures in catalog) */}
-          {status === 'ok' && adventures.length === 0 && (
+          {/* Empty state (loaded but no adventures OR series in catalog) */}
+          {status === 'ok' && adventures.length === 0 && series.length === 0 && (
             <Card className={styles.catalogError} role="status" aria-labelledby="modules-empty-title">
               <p id="modules-empty-title" className={styles.catalogErrorTitle}>
                 No modules available yet.
@@ -913,47 +1025,116 @@ export default function ModulesPage() {
             </Card>
           )}
 
-          {/* Adventure grid */}
-          {status === 'ok' && adventures.length > 0 && (
-            <div className={styles.grid}>
-              {adventures.map((adv) => (
-                <Card key={adv.public_id} className={styles.module}>
-                  <span className={styles.moduleIcon} aria-hidden>
-                    <Icon name="Map" size={26} />
-                  </span>
-                  <div className={styles.moduleHead}>
-                    <div className={styles.modulePills}>
-                      {adv.summary.level_range && (
-                        <Pill tone="lav">{formatLevelRange(adv.summary.level_range)}</Pill>
+          {/* T4p1 IA fix: series and one-shots are TWO SEPARATE grids, not one
+              mixed grid with a `span 2` series card wedged among span-1
+              cards. A single grid's auto-placement can't guarantee a
+              one-shot card never lands in a series row — it only happened
+              to look right at exactly 2 series cards. Splitting the section
+              entirely removes the mechanism that could break, at any N. */}
+          {status === 'ok' && series.length > 0 && (
+            <section aria-labelledby="series-section-heading" className={styles.section}>
+              <h2 id="series-section-heading" className={styles.sectionHeading}>
+                Series
+              </h2>
+              <ul className={styles.seriesGrid} aria-label="Campaign series">
+                {series.map((s) => (
+                  <Card key={s.public_id} as="li" pop className={styles.seriesCard}>
+                    <SeriesCoverArt cover={s.summary.cover} size={96} className={styles.seriesCoverArt} />
+                    <div className={styles.seriesBody}>
+                      <div className={styles.seriesLabel}>
+                        <Pill tone="lav">
+                          Series &middot; {formatMemberCount(s.summary.member_count)}
+                        </Pill>
+                        {s.summary.level_range && (
+                          <Pill tone="muted">{formatLevelRange(s.summary.level_range)}</Pill>
+                        )}
+                      </div>
+                      <h3 className={styles.seriesTitle}>{s.name}</h3>
+                      {s.summary.subtitle && (
+                        <p className={styles.seriesBlurb}>{s.summary.subtitle}</p>
                       )}
-                      {adv.summary.length && (
-                        <Pill tone="muted">{formatLength(adv.summary.length)}</Pill>
+                      <div className={styles.seriesFoot}>
+                        <Button
+                          variant="primary"
+                          href={`/modules/series/${encodeURIComponent(s.slug || s.public_id)}`}
+                          aria-label={`View series — ${s.name}`}
+                        >
+                          View series
+                        </Button>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {/* Adventure grid (one-shots) */}
+          {status === 'ok' && adventures.length > 0 && (
+            <section aria-labelledby={series.length > 0 ? 'oneshots-section-heading' : undefined} className={styles.section}>
+              {series.length > 0 && (
+                <h2 id="oneshots-section-heading" className={styles.sectionHeading}>
+                  One-shots
+                </h2>
+              )}
+              <ul className={styles.grid} aria-label="Adventures">
+                {adventures.map((adv) => (
+                  <Card key={adv.public_id} as="li" className={styles.module}>
+                    <span className={styles.moduleIcon} aria-hidden>
+                      <Icon name="Map" size={26} />
+                    </span>
+                    <div className={styles.moduleHead}>
+                      <div className={styles.modulePills}>
+                        {adv.summary.level_range && (
+                          <Pill tone="lav">{formatLevelRange(adv.summary.level_range)}</Pill>
+                        )}
+                        {adv.summary.length && (
+                          <Pill tone="muted">{formatLength(adv.summary.length)}</Pill>
+                        )}
+                        {adv.summary.series && (
+                          <Pill tone="warm">{adv.summary.series.title}</Pill>
+                        )}
+                      </div>
+                      <h2 className={styles.moduleTitle}>{adv.name}</h2>
+                      {adv.summary.subtitle && (
+                        <p className={styles.moduleBlurb}>{adv.summary.subtitle}</p>
                       )}
                     </div>
-                    <h2 className={styles.moduleTitle}>{adv.name}</h2>
-                    {adv.summary.subtitle && (
-                      <p className={styles.moduleBlurb}>{adv.summary.subtitle}</p>
-                    )}
-                  </div>
-                  <div className={styles.moduleFoot}>
-                    {/* Iro MAJOR-2: aria-label gives each "Run this" button a unique
-                        accessible name across cards. Visible text "Run this" is a
-                        substring of the label — Label-in-Name / voice-control safe. */}
-                    <Button
-                      variant="primary"
-                      onClick={() => setSelected(adv)}
-                      leadingIcon={<Icon name="D20" size={14} aria-hidden />}
-                      aria-label={`Run this — ${adv.name}`}
-                    >
-                      Run this
-                    </Button>
-                  </div>
-                </Card>
-              ))}
-            </div>
+                    <div className={styles.moduleFoot}>
+                      {/* Iro MAJOR-2: aria-label gives each "Run this" button a unique
+                          accessible name across cards. Visible text "Run this" is a
+                          substring of the label — Label-in-Name / voice-control safe. */}
+                      <Button
+                        variant="primary"
+                        onClick={() => setSelected(adv)}
+                        leadingIcon={<Icon name="D20" size={14} aria-hidden />}
+                        aria-label={`Run this — ${adv.name}`}
+                      >
+                        Run this
+                      </Button>
+                    </div>
+                  </Card>
+                ))}
+              </ul>
+            </section>
           )}
         </div>
       )}
     </TavernShell>
+  );
+}
+
+// ── Default export — Suspense wrapper for useSearchParams ─────────────────────
+/**
+ * useSearchParams() requires a Suspense boundary (mirrors src/app/login/page.tsx's
+ * wrapper — same reasoning: enables streaming/static prerender without bailing
+ * to a full client render). The fallback matches the page's existing loading
+ * skeleton so a deep link (?adventure=…) never flashes unstyled content.
+ */
+export default function ModulesPage() {
+  return (
+    <Suspense fallback={<PageSkeleton variant="card" lines={4} />}>
+      <ModulesPageInner />
+    </Suspense>
   );
 }

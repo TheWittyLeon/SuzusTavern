@@ -33,11 +33,27 @@
   background: color-mix(in oklab, var(--ink) 8%, transparent);
 }
 
+/* ── Catalog sections (T4p1: series + one-shots are separate sections/grids —
+   see the IA-fix comment at the call site in page.tsx) ──────────────────── */
+.section {
+  margin-bottom: 28px;
+}
+.section:last-child {
+  margin-bottom: 0;
+}
+.sectionHeading {
+  font-size: 15px;
+  margin: 0 0 12px;
+}
+
 /* ── Module catalog ───────────────────────────────────────────────────────── */
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: var(--density-gap);
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 .module {
   display: flex;
@@ -77,6 +93,68 @@
   justify-content: flex-end;
   padding-top: 4px;
   border-top: 1px solid var(--line-2);
+}
+
+/* ── Series cover cards (the catalog centerpiece) ───────────────────────────
+   Own grid, own wide minmax basis — deliberately NOT a `grid-column: span 2`
+   card mixed into the one-shot grid (see the IA-fix comment at the call
+   site). A wide minmax basis gets the same "featured, larger card" look
+   without the auto-placement fragility a shared span-2 grid has. */
+.seriesGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: var(--density-gap);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.seriesCard {
+  display: flex;
+  gap: var(--density-gap);
+  background: linear-gradient(
+    160deg,
+    color-mix(in oklab, var(--accent) 10%, var(--card-solid)),
+    var(--card-solid)
+  );
+  border-color: color-mix(in oklab, var(--accent) 28%, var(--line));
+}
+.seriesCoverArt {
+  align-self: flex-start;
+}
+.seriesBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+.seriesLabel {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.seriesTitle {
+  font-family: var(--font-display);
+  font-size: 20px;
+  margin: 0;
+}
+.seriesBlurb {
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.55;
+  margin: 0;
+}
+.seriesFoot {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: auto;
+  padding-top: 8px;
+}
+
+@media (max-width: 640px) {
+  .seriesCard {
+    flex-direction: column;
+  }
 }
 
 /* ── Starter form ─────────────────────────────────────────────────────────── */

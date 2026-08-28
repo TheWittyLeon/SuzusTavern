@@ -29,6 +29,9 @@ import '@testing-library/jest-dom';
 jest.mock('next/navigation', () => ({
   useParams: () => ({ sessionId: 's1' }),
   useRouter: () => ({ push: jest.fn() }),
+  // T4p1: modules/page.tsx now reads ?adventure= for the series-detail deep
+  // link (useSearchParams requires a Suspense boundary — mirrors login/page.tsx).
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 const mockToast = jest.fn();

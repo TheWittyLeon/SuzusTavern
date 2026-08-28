@@ -1716,6 +1716,20 @@ export interface BindCharacterResult {
 
 // ── DnD: catalog — adventure items (ADV-9) ────────────────────────────────────
 
+/**
+ * Series-membership stamp on an adventure's catalog summary (SUZU_DND_SERIES,
+ * flag-gated — see the 2026-08-25 Campaign Series design doc §8.2). Key is
+ * ABSENT entirely when the adventure isn't in any series — never present-but-
+ * null — so `summary.series` doubles as its own presence check.
+ */
+export interface AdventureSeriesStamp {
+  ref: string;
+  title: string;
+  /** 1-based index of this adventure within the series' member order. */
+  position: number;
+  total: number;
+}
+
 /** Summary block projected from the adventure data JSONB for catalog list mode. */
 export interface AdventureSummary {
   subtitle?: string;
@@ -1723,6 +1737,18 @@ export interface AdventureSummary {
   length?: string;
   content_rating?: string;
   tags?: string[];
+  /** Present only when SUZU_DND_SERIES is on and this adventure belongs to a
+   *  series (first match by pack precedence when it's in more than one —
+   *  see `also_in`). */
+  series?: AdventureSeriesStamp;
+  /** Count of ADDITIONAL series this adventure also belongs to, beyond the
+   *  one named in `series` above. Absent/0 = only ever in the one (or zero). */
+  also_in?: number;
+  /** Ships UNFLAGGED (plain data passthrough — Leon-ruled 2026-08-26). Tags
+   *  rows that are editorial inputs to spine-splice assembly (e.g. Act-I
+   *  chunk rows), not standalone-playable modules — the catalog UI filters
+   *  these out of the browsable one-shot grid. */
+  editorial_role?: string;
 }
 
 /** A catalog item for content_type='adventure'. */
@@ -1730,6 +1756,58 @@ export interface AdventureCatalogItem {
   public_id: string;
   name: string;
   summary: AdventureSummary;
+}
+
+// ── DnD: catalog — series items (T4p1 / TAV-SERIES-GROUPING) ─────────────────
+// See MainVault/architecture/2026-08-25 Campaign Series — Content Model &
+// Runtime Design.md §8.1. Member NAMES are deliberately NOT resolved in list
+// mode (design doc §8.1/§18 D1) — only `ref`/`act_handle`/`label` (an author-
+// supplied display override) travel on the wire; a bare ref with no `label`
+// has no resolved title until the Thread D detail endpoint ships.
+
+/** One ordered entry in a series' play order (design doc §4.1). */
+export interface SeriesMemberRef {
+  /** public_id of the member adventure, e.g. "dnd5e:adventure:mlp-act1-spine". */
+  ref: string;
+  /** Feeds meta_progression.current_act on rebind; live convention is bare
+   *  digits like "act1", not "act_i" (2026-08-26 post-review addendum). */
+  act_handle?: string;
+  /** Author-supplied display override — the only title text list mode has
+   *  for a member (see the module doc comment above). */
+  label?: string;
+}
+
+/** Procedural cover spec (design doc §4.1/§4.2) — franchise artwork is off
+ *  the table on the vault's IP posture; `image_ref` is reserved (must be
+ *  null) for a future raster-override pass. Decorative only — never the
+ *  sole carrier of meaning (content_rating/level_range/title stay in text). */
+export interface SeriesCover {
+  color: string;
+  pattern: 'stripes' | 'hatch' | 'dots' | 'none';
+  glyph: string;
+  image_ref: string | null;
+}
+
+/** Summary block projected from the series data JSONB for catalog list mode
+ *  (design doc §8.1). */
+export interface SeriesSummary {
+  subtitle?: string;
+  level_range?: { min: number; max: number };
+  length?: string;
+  content_rating?: string;
+  tags?: string[];
+  cover: SeriesCover;
+  member_count: number;
+  members: SeriesMemberRef[];
+}
+
+/** A catalog item for content_type='series'. */
+export interface SeriesCatalogItem {
+  public_id: string;
+  /** Bare slug (e.g. "mlp-toto-campaign") — used for the /modules/series/[slug] route. */
+  slug: string;
+  name: string;
+  summary: SeriesSummary;
 }
 
 // ── Narration SSE ──────────────────────────────────────────────────────────
