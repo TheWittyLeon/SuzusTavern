@@ -310,6 +310,15 @@ const GENERIC_CREATE_ERROR =
  */
 function describeCreateError(err: unknown): string {
   if (!(err instanceof Error)) return GENERIC_CREATE_ERROR;
+  // TAV-WIZARD-429-HANG: a limiter 429 is checked before the body probe — the
+  // rate limiter's wire body ({error:'rate_limited', retry_after}) carries no
+  // `message`, so this used to fall through to the generic "check your
+  // choices" line, blaming the player's picks for a limiter refusal. Covers
+  // both a direct 429 and client.ts's refresh_unavailable throw (which
+  // carries the refresh attempt's real 429 status).
+  if ((err as ApiError).status === 429) {
+    return 'Too many requests in a short window. Your choices are fine — wait a few seconds, then press Continue again.';
+  }
   const body = (err as ApiError).body;
   if (body && typeof body === 'object') {
     const message = (body as { message?: unknown }).message;
@@ -445,6 +454,7 @@ export default function CharacterNewPage(): ReactNode {
     // this, that card mounts with focus stranded at document top.
     if (
       catalog.status === 'error' ||
+      catalog.status === 'rate_limited' ||
       (catalog.status === 'unauthorized' && sessionReverified)
     ) {
       errorRetryRef.current?.focus();
@@ -998,6 +1008,37 @@ export default function CharacterNewPage(): ReactNode {
     return (
       <TavernShell active="dashboard" title="New character" actions={<Button variant="ghost" href="/dashboard">Cancel</Button>}>
         <PageSkeleton variant="card" lines={4} />
+      </TavernShell>
+    );
+  }
+
+  // ── Catalog rate-limited state (TAV-WIZARD-429-HANG) ──────────────────────────
+  // A limiter 429 during boot used to collapse into the generic 'error' card,
+  // whose copy told the player to check a connection that was fine. Name the
+  // real condition and the real remedy — wait, then retry. Same Card/alert
+  // structure and focus handling as the error card below.
+  if (catalog.status === 'rate_limited') {
+    return (
+      <TavernShell active="dashboard" title="New character" actions={<Button variant="ghost" href="/dashboard">Cancel</Button>}>
+        <Card
+          className={styles.catalogError}
+          role="alert"
+          aria-labelledby="catalog-error-title"
+        >
+          <p id="catalog-error-title" className={styles.catalogErrorTitle}>Hold on a moment.</p>
+          <p id="catalog-error-body" className={styles.catalogErrorBody}>
+            Too many requests in a short window. Wait a few seconds, then try again.
+          </p>
+          <Button
+            ref={errorRetryRef}
+            variant="primary"
+            size="lg"
+            onClick={catalog.retry}
+            aria-describedby="catalog-error-body"
+          >
+            Try again
+          </Button>
+        </Card>
       </TavernShell>
     );
   }
