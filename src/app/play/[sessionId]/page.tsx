@@ -4542,6 +4542,14 @@ export default function PlayPage() {
   // 3 successes land.
   const isDying = activeIsMine && activeParticipant?.death_saves?.is_dying === true;
 
+  // TAV-ATTACK-BUTTON-STALE: the viewer's own PC has already spent their
+  // ACTION this turn — read straight off the combat-state wire's per-turn
+  // action economy (`action_available`, engine DDX-06; resets at the start of
+  // their own turn), never invented client-side. Strict === false so an old
+  // combat-state payload without the field (absent -> undefined) keeps the
+  // pre-fix behavior of leaving Attack enabled rather than wrongly locking it.
+  const myActionSpent = activeIsMine && activeParticipant?.action_available === false;
+
   // Combat-UX Fixes 2026-07-27 §UI-states "Dead" row (Kage-CR/test-plan §4.2):
   // a dead PC is NOT the active-turn participant (is_active flips false at 3
   // failures, so `_advance` skips them — `activeParticipant`/`isDying` above
@@ -5875,6 +5883,8 @@ export default function PlayPage() {
                     refusedReason,
                     // Combat-UX Fixes 2026-07-27, Fix B.
                     isDying,
+                    // TAV-ATTACK-BUTTON-STALE: server-side action economy.
+                    actionSpent: myActionSpent,
                     deathSaves: activeParticipant?.death_saves
                       ? {
                           successes: activeParticipant.death_saves.successes,

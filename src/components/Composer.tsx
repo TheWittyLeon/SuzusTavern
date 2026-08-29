@@ -49,6 +49,13 @@ export interface ComposerCombat {
   /** Death-save tally for the viewer's own downed PC. Only meaningful (and
    *  only read) when `isDying` is true. */
   deathSaves?: { successes: number; failures: number } | null;
+  /** TAV-ATTACK-BUTTON-STALE: true when the viewer's own PC has already spent
+   *  their ACTION this turn — the server-authoritative 5e action economy
+   *  (CombatParticipantState.action_available === false on the combat-state
+   *  wire; no new server state). The Attack button renders disabled-visible
+   *  with its own reason label instead of letting the click round-trip into
+   *  the engine's 400 no_action_remaining. */
+  actionSpent?: boolean;
 }
 
 export interface ComposerProps {
@@ -210,8 +217,16 @@ function ActionRail({
   // a downed PC can still pass without rolling.
   const isDying = combat.isDying === true;
 
-  // Attack is disabled when: busy, no targets, not the player's turn, or dying.
-  const attackDisabled = combat.busy || combat.targets.length === 0 || notYourTurn || isDying;
+  // TAV-ATTACK-BUTTON-STALE: the action is already spent this turn (server-
+  // authoritative — see ComposerCombat.actionSpent). Attack-only for now:
+  // Dodge/Dash also cost the action engine-side, but this row scoped to the
+  // attack button (the observed 400-no_action_remaining path).
+  const actionSpent = combat.actionSpent === true;
+
+  // Attack is disabled when: busy, no targets, not the player's turn, dying,
+  // or the action is already spent this turn.
+  const attackDisabled =
+    combat.busy || combat.targets.length === 0 || notYourTurn || isDying || actionSpent;
   // Dodge/dash are also gated on turn + dying.
   const actionDisabled = combat.busy || notYourTurn || isDying;
   // End turn is NOT gated on isDying — a downed PC can pass without rolling.
@@ -291,9 +306,11 @@ function ActionRail({
               ? 'Attack (unavailable — you are down)'
               : notYourTurn
                 ? 'Attack (not your turn)'
-                : combat.targets.length === 0
-                  ? 'Attack (no valid targets)'
-                  : 'Attack'
+                : actionSpent
+                  ? 'Attack (action already spent this turn)'
+                  : combat.targets.length === 0
+                    ? 'Attack (no valid targets)'
+                    : 'Attack'
           }
         >
           <Icon name="Sword" size={13} /> Attack

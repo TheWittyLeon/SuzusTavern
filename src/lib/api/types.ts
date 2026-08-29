@@ -1022,6 +1022,13 @@ export interface CombatParticipantState {
   is_active_turn: boolean;
   /** Took their turn this round. */
   took_turn: boolean;
+  /** TAV-ATTACK-BUTTON-STALE: 5e per-turn action economy (DDX-06) — false
+   *  once this participant's ACTION is spent this turn; resets at the start
+   *  of their own turn. The engine sends it on every participant entry
+   *  (engine/combat.py::build_combat_state). Optional purely so pre-existing
+   *  test fixtures that construct literals keep compiling — same convention
+   *  as condition_durations above; absent is treated as "available". */
+  action_available?: boolean;
   /** PC-only; absent on monster entries. */
   death_saves?: CombatDeathSaves;
   /** Monster-only: AI tactic text from encounter meta. */
