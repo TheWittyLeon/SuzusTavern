@@ -566,23 +566,15 @@ describe('Faithful pass-through + upstream failure injection', () => {
     expect(await res.json()).toEqual({});
   });
 
-  it('KNOWN BUG (reported to Ren-Dev): a 204 No Content upstream response crashes the route instead of passing through cleanly', async () => {
-    // proxyToAuth always does `NextResponse.json(raw ?? {}, { status: res.status })`.
-    // When the upstream returns 204/205/304 (body-forbidden statuses — a
-    // completely standard shape for a successful DELETE), `res.json()` on the
-    // empty body throws (caught -> raw=null), then the fallback body `{}` is
-    // attached to a status that the Fetch spec forbids a body on, and
-    // NextResponse.json's own Response constructor throws synchronously.
-    // Net effect: DELETE /api/admin/auth/invitations/<id> against a
-    // spec-conformant upstream that answers 204 throws inside the route
-    // handler instead of forwarding 204 — the opposite of the route's own
-    // documented "faithful pass-through, never fake a status" contract.
-    //
-    // This test captures CURRENT (broken) behavior on purpose — do not "fix"
-    // it here (Miko is report-only on production code). When Ren-Dev patches
-    // proxyToAuth (e.g. omit the body for res.status in [204, 205, 304]),
-    // flip this assertion to `expect(res.status).toBe(204)` with an empty
-    // body, and delete the KNOWN BUG framing.
+  it('a 204 No Content upstream response passes through cleanly with no body (ADMIN-AUTH-BFF-204-THROW fixed)', async () => {
+    // Was the KNOWN BUG characterization: proxyToAuth always did
+    // `NextResponse.json(raw ?? {}, { status: res.status })`, and for
+    // 204/205/304 (body-forbidden statuses — a completely standard shape for
+    // a successful DELETE) attaching the `{}` fallback made NextResponse.json's
+    // own Response constructor throw synchronously
+    // (`/Invalid response status code 204/`), so the route crashed instead of
+    // forwarding 204. proxyToAuth now short-circuits those statuses to a bare
+    // `new NextResponse(null, { status })` — this test pins the FIX.
     const { DELETE } = loadRoute(false);
     mockAuthMeOk(['admin']);
     mockFetch.mockImplementationOnce(() => Promise.resolve(new Response(null, { status: 204 })));
@@ -591,10 +583,31 @@ describe('Faithful pass-through + upstream failure injection', () => {
       cookies: { st_access: 'admin-token' },
     });
 
-    await expect(DELETE(req, makeCtx(['invitations', '3']))).rejects.toThrow(
-      /Invalid response status code 204/,
-    );
+    const res = await DELETE(req, makeCtx(['invitations', '3']));
+
+    expect(res.status).toBe(204);
+    expect(res.body).toBeNull();
+    expect(await res.text()).toBe('');
   });
+
+  it.each([205, 304])(
+    'the other body-forbidden statuses (%i) also pass through bare, same as 204',
+    async (status) => {
+      const { GET } = loadRoute(false);
+      mockAuthMeOk(['admin']);
+      mockFetch.mockImplementationOnce(() =>
+        Promise.resolve(new Response(null, { status })),
+      );
+      const req = makeRequest('http://localhost:3000/api/admin/auth/invitations', {
+        cookies: { st_access: 'admin-token' },
+      });
+
+      const res = await GET(req, makeCtx(['invitations']));
+
+      expect(res.status).toBe(status);
+      expect(res.body).toBeNull();
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------
