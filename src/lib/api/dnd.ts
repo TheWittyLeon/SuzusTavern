@@ -1011,6 +1011,30 @@ export const restoreSession = (
 export const SESSIONS_TRASH_PATH = '/api/dnd/sessions/trash';
 
 /**
+ * TAV-TRASH-404 (2026-08-29): whether the engine actually serves the listing
+ * route above. `false` until ENGINE-SESSIONS-TRASH-LISTING (P2) ships — flip
+ * this to `true` (one line, same single-point-of-correction contract as
+ * `SESSIONS_TRASH_PATH`) when it lands.
+ *
+ * Why a hard gate instead of letting the request 404: verified against the
+ * running dev engine (2026-08-29) that `GET /api/dnd/sessions/trash` does not
+ * fall through to an unknown-route 404 — it MATCHES the engine's
+ * `GET /sessions/{session_id}` detail route with `session_id="trash"`
+ * (routes/sessions.py registers `/{session_id}` before any literal `/trash`
+ * could exist), 401s unauthenticated (`actor_required`) and 404s authed as an
+ * unknown-session lookup. So every /trash page load fired a request that is
+ * structurally guaranteed to fail, putting a guaranteed console 404 error on
+ * an otherwise-clean page (flagged by every UI-audit sweep since 08-11; the
+ * 2026-08-28 tavern20 baseline captured it as /trash's only console error).
+ * While this flag is false, `/trash`'s `loadCampaigns` skips the network call
+ * entirely and treats campaigns as UNAVAILABLE — byte-identical UI outcome to
+ * the 404 path (section hidden, nothing asserted), zero doomed requests. The
+ * honesty contract in `SESSIONS_TRASH_PATH`'s doc comment is unchanged: an
+ * unknown state is still never presented as a known-empty one.
+ */
+export const SESSIONS_TRASH_LISTING_AVAILABLE = false;
+
+/**
  * A user's trashed campaigns (the restore view — TAV-CAMPAIGN-TRASH-NO-RESTORE-UI).
  * Mirrors `listTrashedCharacters`'s URL shape exactly, hitting the
  * provisional `SESSIONS_TRASH_PATH` above — see that constant's doc comment

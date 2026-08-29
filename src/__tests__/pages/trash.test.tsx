@@ -49,6 +49,12 @@ jest.mock('../../lib/api/dnd', () => ({
   restoreCharacter: jest.fn(),
   listTrashedSessions: jest.fn(),
   restoreSession: jest.fn(),
+  // TAV-TRASH-404: the page now gates the campaigns listing call on this
+  // flag (real module default: false, until ENGINE-SESSIONS-TRASH-LISTING
+  // ships). Mocked TRUE here so the campaign-flow tests below keep
+  // exercising the real listing/restore paths; the gated-off describe and
+  // the shared beforeEach flip/reset it via the mocked module object.
+  SESSIONS_TRASH_LISTING_AVAILABLE: true,
 }));
 
 import * as authApi from '../../lib/api/auth';
@@ -117,6 +123,19 @@ function renderTrash(initialUser: User | null, initialMaybeAuthed = false) {
   );
 }
 
+/**
+ * Mutable view of the mocked module for the TAV-TRASH-404 gate flag.
+ * Deliberately via jest.requireMock, NOT the `import * as dnd` namespace
+ * above: SWC's wildcard-import interop hands this file a value-copied
+ * namespace object, so mutating `dnd.SESSIONS_TRASH_LISTING_AVAILABLE`
+ * would flip a private copy the page under test never reads. requireMock
+ * returns the registry-backed module object — the same one the page's own
+ * import reads from at call time.
+ */
+const dndMock = jest.requireMock('../../lib/api/dnd') as {
+  SESSIONS_TRASH_LISTING_AVAILABLE: boolean;
+};
+
 beforeEach(() => {
   mockReplace.mockClear();
   mockPush.mockClear();
@@ -125,6 +144,9 @@ beforeEach(() => {
   mockRestore.mockReset().mockResolvedValue({ message: 'restored' });
   mockListTrashedSessions.mockReset().mockResolvedValue([]);
   mockRestoreSession.mockReset().mockResolvedValue({ message: 'restored' });
+  // TAV-TRASH-404: reset the gate to open so the flag never leaks between
+  // describes — the gated-off tests set it false per-test.
+  dndMock.SESSIONS_TRASH_LISTING_AVAILABLE = true;
 });
 
 describe('Trash — empty', () => {
@@ -653,6 +675,46 @@ describe('Trash — campaigns listing unavailable (TAV-TRASH-CAMPAIGNS-404-HIDE)
     expect(
       screen.getByRole('button', { name: /restore the dragon's hoard/i }),
     ).toBeInTheDocument();
+  });
+});
+
+describe('Trash — campaigns listing gated off (TAV-TRASH-404)', () => {
+  // Real-module default while ENGINE-SESSIONS-TRASH-LISTING is unshipped:
+  // the listing URL structurally 404s (it matches the engine's
+  // GET /sessions/{session_id} with id="trash"), so the page must not fire
+  // the request at all — same hidden-section outcome as a failure, zero
+  // console 404 noise.
+  it('flag off → listTrashedSessions is never called and the Campaigns section is hidden', async () => {
+    dndMock.SESSIONS_TRASH_LISTING_AVAILABLE = false;
+    mockListTrashed.mockResolvedValue([VELKA]);
+    renderTrash(ALICE);
+
+    await screen.findByText('Velka');
+    expect(mockListTrashedSessions).not.toHaveBeenCalled();
+    expect(screen.queryByRole('heading', { name: /campaigns/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/no trashed campaigns/i)).not.toBeInTheDocument();
+    // Characters section unaffected.
+    expect(screen.getByRole('button', { name: /restore velka/i })).toBeInTheDocument();
+  });
+
+  it('flag off + characters empty → no page-level "Your trash is empty" claim (campaigns state is unknown)', async () => {
+    dndMock.SESSIONS_TRASH_LISTING_AVAILABLE = false;
+    mockListTrashed.mockResolvedValue([]);
+    renderTrash(ALICE);
+
+    await screen.findByText(/no trashed characters/i);
+    expect(mockListTrashedSessions).not.toHaveBeenCalled();
+    expect(screen.queryByText(/your trash is empty/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/no trashed campaigns/i)).not.toBeInTheDocument();
+  });
+
+  it('flag on → the listing request fires (the gate does not over-block once the engine ships)', async () => {
+    mockListTrashed.mockResolvedValue([]);
+    mockListTrashedSessions.mockResolvedValue([DRAGONS_HOARD]);
+    renderTrash(ALICE);
+
+    await screen.findByText("The Dragon's Hoard");
+    expect(mockListTrashedSessions).toHaveBeenCalledWith('alice', expect.anything());
   });
 });
 

@@ -53,6 +53,7 @@ import {
   restoreCharacter,
   listTrashedSessions,
   restoreSession,
+  SESSIONS_TRASH_LISTING_AVAILABLE,
 } from '@/lib/api/dnd';
 import type { Character, Session } from '@/lib/api/types';
 import TavernShell from '@/components/TavernShell';
@@ -239,6 +240,22 @@ export default function TrashPage() {
   const loadCampaigns = useCallback(
     async (signal?: AbortSignal) => {
       if (!username) return;
+      // TAV-TRASH-404 (2026-08-29): while the engine has no listing route,
+      // don't fire a request that is structurally guaranteed to fail — the
+      // provisional URL matches the engine's GET /sessions/{session_id} with
+      // id="trash" and 404s on every /trash load, putting a guaranteed
+      // console error on an otherwise-clean page. Same UNAVAILABLE outcome
+      // as the failure branch below (section hidden, nothing asserted), no
+      // doomed network call. See SESSIONS_TRASH_LISTING_AVAILABLE's doc
+      // comment in lib/api/dnd.ts; flip that flag when
+      // ENGINE-SESSIONS-TRASH-LISTING ships and this branch goes dead.
+      if (!SESSIONS_TRASH_LISTING_AVAILABLE) {
+        if (!signal?.aborted && mountedRef.current) {
+          setSessions([]);
+          setCampaignsUnavailable(true);
+        }
+        return;
+      }
       // .then(onSuccess, onFailure) rather than try/catch or a trailing
       // .catch() — mirrors `load` above's promise-chain shape (the lint rule
       // that guards against cascading setState-in-effect reads a bare
