@@ -2,65 +2,47 @@
  * Miko-QA drive-by finding, discovered while re-verifying the DDX-20
  * F9+Recap fold (70721c3) — NOT about that fold and NOT about
  * `journalSeenSeqsRef` (see play.ddx20-f9-recap-fold.miko-reqa.adversarial.test.tsx
- * for that verification). This is a SEPARATE, PRE-EXISTING defect in
+ * for that verification). This was a SEPARATE, PRE-EXISTING defect in
  * `rehydratedRef` (PLAY-PERSIST §7, page.tsx ~L421, predates DDX-20
  * entirely) surfaced by the SAME same-instance-session-switch construction.
  *
- * FINDING: `rehydratedRef.current` is set `true` once and NEVER reset. The
- * transcript rehydration block (`if (rawEvents && !rehydratedRef.current)`,
- * page.tsx ~L949) — which owns `setLog(rows)`, `lastEventSeqRef`, the X-card
- * scan, AND the sibling `renderedSeqsRef` ledger's own mount-seed — is gated
- * on this ref. On a same-instance sessionId change (mount effect deps
- * `[username, sessionId]`, so the effect DOES re-run), `rehydratedRef.current`
- * is already `true` from the FIRST session, so this entire block is skipped
- * for the second session: the visible transcript (role="log") silently
- * freezes on the FIRST session's content and never rehydrates the second
- * session's.
+ * FIXED 2026-08-31 (TAV-PLAY-CROSS-SESSION-BLEED, Ren-Dev): this ref, along
+ * with `narrationAbort`/`subscribedJobIdRef`/`pendingByKeyRef`/`turnKeyRef`/
+ * `lastDurableTurnRef`/`pollFailureGraceRef`/`renderedSeqsRef`/
+ * `lastEventSeqRef`/`journalSeenSeqsRef`, is now reset in a dedicated
+ * `useEffect(() => () => {...}, [sessionId])` cleanup in page.tsx (declared
+ * immediately before the "load session + party" effect). The reachability
+ * question below turned out to matter for real: an in-flight DM-narration
+ * SSE stream kept writing into whatever session the persisted instance was
+ * showing (via `narrationAbort` never being aborted on a session switch),
+ * observed live as TAV-PLAY-CROSS-SESSION-BLEED — a different campaign's
+ * live state bleeding into the open session for ~2 minutes. The narration-
+ * stream half of that bug has its own dedicated regression test in
+ * play.cross-session-bleed.test.tsx; THIS file locks the transcript-freeze
+ * half, which shares the same root cause and the same fix.
  *
- * Contrast with `journalSeenSeqsRef` (this fold's new ref): its own reseed
- * sits OUTSIDE the `rehydratedRef` gate (a different, unguarded `if
- * (rawEvents)` block just above), so it does NOT share this defect — that
- * asymmetry is what led here. `journalSeenSeqsRef` reseeding correctly is
- * VERIFIED, not assumed, in the sibling file above.
+ * ORIGINAL FINDING (kept for history): `rehydratedRef.current` was set
+ * `true` once and never reset. The transcript rehydration block (`if
+ * (rawEvents && !rehydratedRef.current)`, page.tsx ~L949) — which owns
+ * `setLog(rows)`, `lastEventSeqRef`, the X-card scan, AND the sibling
+ * `renderedSeqsRef` ledger's own mount-seed — is gated on this ref. On a
+ * same-instance sessionId change (mount effect deps `[username, sessionId]`,
+ * so the effect DOES re-run), `rehydratedRef.current` was already `true`
+ * from the FIRST session, so this entire block was skipped for the second
+ * session: the visible transcript (role="log") silently froze on the FIRST
+ * session's content and never rehydrated the second session's.
  *
- * SCOPE / WHY THIS IS NOT BLOCKING THIS FOLD'S GATE:
- *   - `rehydratedRef`'s gating logic is unchanged by 6e027cf and 70721c3 —
- *     git blame predates DDX-20. Not introduced by, or touched by, the fold
- *     under review.
- *   - Currently UNREACHABLE via any in-app navigation: `grep -rn
- *     "useRouter|router.push|router.replace" src/app/play` (excluding
- *     __tests__) returns nothing, and every `/play/` reference elsewhere in
- *     the repo is an inbound Link from a genuinely different top-level route
- *     (dashboard, modules, LevelUpButton), which forces a real unmount, not
- *     a same-instance switch. This test's precondition (same PlayPage
- *     instance reused across two different sessionIds) requires either a
- *     future in-app "switch table" feature or reliance on React/Next's
- *     documented same-instance-reuse behavior for a dynamic-segment-only
- *     change — neither is live today.
- *   - Not one of the explicitly carried items for this gate (F3 turnKeyRef,
- *     T2, T3, G1 whitespace) — a genuinely new, separate observation, not a
- *     reopened one.
+ * Contrast with `journalSeenSeqsRef` (this fold's new ref at the time):
+ * its own reseed sits OUTSIDE the `rehydratedRef` gate (a different,
+ * unguarded `if (rawEvents)` block just above), so it never shared this
+ * defect — that asymmetry is what led here originally.
  *
- * Filed here as a durable, re-runnable characterization lock instead of
- * only a prose note. Locked via Jest's `it.failing()` (Ren-Dev, DDX-20
- * fold-pass polish) rather than left RED — matches this repo's existing
- * convention for a known, accepted-but-not-yet-fixed defect (see
- * JournalPane.test.tsx's own `it.failing` stale-save-race lock). The test
- * body below is UNCHANGED from the original repro: it still asserts the
- * CORRECT (desired) behavior, not the buggy one — `it.failing()` just
- * expects that assertion to keep failing, so the suite reports it as green
- * while the defect exists. The day someone fixes `rehydratedRef`'s reset,
- * this test flips to an unexpected PASS, which Jest fails the suite on —
- * that's the trigger to drop `.failing()` and promote it into a real
- * regression test. The sibling reachability tripwire below is a SEPARATE
- * concern (whether the bug is reachable, not whether it's fixed) and is
- * unaffected by this — do not remove or weaken it.
- *
- * Recommend a follow-up ticket to reset `rehydratedRef.current = false`
- * (and re-seed `renderedSeqsRef`/`lastEventSeqRef` accordingly) whenever
- * `sessionId` itself changes, mirroring how `journalSeenSeqsRef`'s own
- * reseed already behaves correctly — Ren-Dev's call on the exact fix shape,
- * not built here (out of scope for this pass).
+ * Originally promoted via Jest's `it.failing()` while the defect was
+ * accepted-but-unfixed (matching JournalPane.test.tsx's own `it.failing`
+ * stale-save-race convention). Per that convention's own rule, a fix
+ * flips the assertion to an unexpected PASS, which Jest fails the suite
+ * on unless `.failing()` is dropped — that happened here, so `.failing()`
+ * is now removed and this is a normal regression test.
  */
 import React from 'react';
 import { execSync } from 'node:child_process';
@@ -196,16 +178,8 @@ beforeEach(() => {
   mockPostSessionEvent.mockResolvedValue({});
 });
 
-describe('QA drive-by finding — rehydratedRef never resets, freezing the transcript on a same-instance session switch (pre-existing, NOT part of the DDX-20 F9+Recap fold)', () => {
-  // it.failing (Ren-Dev, DDX-20 fold-pass polish): asserts the DESIRED
-  // (correct) behavior, which `rehydratedRef` does not currently implement
-  // — see the file header above for the full finding. Pre-existing,
-  // predates DDX-20, currently UNREACHABLE (header + the tripwire test
-  // below explain why). If a future fix makes this pass, Jest fails the
-  // suite (test.failing requires the body to keep failing) as a signal to
-  // drop `.failing` — same convention as JournalPane.test.tsx's own
-  // `it.failing` stale-save-race lock.
-  it.failing('FINDING: after switching from session A to session B (same PlayPage instance), the transcript log still shows session A\'s narration, not session B\'s', async () => {
+describe('rehydratedRef resets on a same-instance session switch (TAV-PLAY-CROSS-SESSION-BLEED, fixed 2026-08-31 — was: QA drive-by finding, pre-existing, NOT part of the DDX-20 F9+Recap fold)', () => {
+  it('FIXED: after switching from session A to session B (same PlayPage instance), the transcript log shows session B\'s narration, not session A\'s', async () => {
     const SESSION_A = makeSession('s1', 'Table A');
     const SESSION_B = makeSession('s2', 'Table B');
     const EVENTS_A: EngineSessionEvent[] = [
@@ -245,16 +219,16 @@ describe('QA drive-by finding — rehydratedRef never resets, freezing the trans
     await screen.findByText('Table B');
     await flush();
 
-    // EXPECTED (correct) behaviour: the transcript rehydrates for session B.
-    // ACTUAL (this finding): rehydratedRef.current is already true from
-    // session A, so page.tsx's `if (rawEvents && !rehydratedRef.current)`
-    // block — which owns setLog(rows) — never runs again. The transcript is
-    // frozen on session A's content.
+    // FIXED (TAV-PLAY-CROSS-SESSION-BLEED): the sessionId-keyed cleanup
+    // effect in page.tsx resets rehydratedRef.current = false (among other
+    // session-scoped refs) BEFORE the load effect re-fires for session B, so
+    // `if (rawEvents && !rehydratedRef.current)` runs again and rehydrates
+    // the transcript for the new session.
     expect(log).toHaveTextContent('Table B opens the door.');
     expect(log).not.toHaveTextContent('Table A opens the door.');
   });
 
-  it("regression tripwire: no in-app code currently navigates directly from one /play/[sessionId] to another (if this ever changes, the FINDING above stops being 'theoretical' and starts being a live, user-visible defect)", () => {
+  it('regression tripwire: no in-app code currently navigates directly from one /play/[sessionId] to another via router.push/router.replace (the same-instance switch this suite exercises is reachable via React/Next\'s documented same-instance-reuse behavior for a dynamic-segment-only change even without one — see TAV-PLAY-CROSS-SESSION-BLEED; this tripwire only flags a SECOND, more direct reachability path if one is ever added)', () => {
     const repoRoot = process.cwd();
     let hits = '';
     try {
@@ -266,8 +240,9 @@ describe('QA drive-by finding — rehydratedRef never resets, freezing the trans
       hits = '';
     }
     // If this fails, someone added self-navigation inside the play route —
-    // re-triage the FINDING above as live, not theoretical, before merging
-    // whatever added it.
+    // note it in the review, though it no longer changes the fix's
+    // correctness: the reset effect above covers same-instance reuse
+    // regardless of what triggers it.
     expect(hits.trim()).toBe('');
   });
 });

@@ -1170,6 +1170,80 @@ export default function PlayPage() {
     [sessionId, clearStreamNarration, upsertStreamNarration, appendLog],
   );
 
+  // ── TAV-PLAY-CROSS-SESSION-BLEED: reset session-scoped mutable refs on a
+  // same-instance sessionId change ────────────────────────────────────────
+  // PlayPage takes no props — it reads sessionId via useParams() — so React
+  // reconciles it as the SAME component instance across a dynamic-segment-
+  // only navigation (same component type, same tree position); Next's App
+  // Router does not remount the page just because the param changed. Proven
+  // mechanism: see play.rehydration.session-switch-staleness.adversarial
+  // .test.tsx, which reproduces this with `rerender(<PlayPage />)` after
+  // swapping the mocked sessionId.
+  //
+  // Before this fix, `narrationAbort` (the AbortController guarding the DM
+  // narration SSE stream) was only ever reassigned when a NEW stream
+  // started — never aborted on a session switch. An in-flight narration
+  // stream from the OUTGOING session kept resolving chunks into setState
+  // calls (upsertStreamNarration/appendLog/setTalking/...) that landed on
+  // whatever session the persisted instance was now rendering, for as long
+  // as that generation kept running — live-observed as a different
+  // campaign's live state bleeding into the open session for ~2 minutes
+  // (the tail of an in-flight LLM narration).
+  //
+  // Cleanup runs BEFORE the "load session + party" effect below re-fires
+  // for the new sessionId (React runs every changed effect's cleanup before
+  // any changed effect's new body, regardless of declaration order), so
+  // every consumer of these refs sees a clean slate the instant the new
+  // session's load effect starts. `rehydratedRef`/`renderedSeqsRef`/
+  // `lastEventSeqRef`/`journalSeenSeqsRef` are included too — the same
+  // same-instance-reuse mechanism otherwise freezes the transcript on the
+  // outgoing session's content (previously characterized, unfixed, in the
+  // adversarial test referenced above).
+  //
+  // `streamRowIdRef` also has to be cleared here, not just narrationAbort:
+  // the rehydration effect's `setLog(rows)` (fired once `rehydratedRef` is
+  // reset) fully REPLACES the log array for the new session, but that
+  // doesn't touch `streamRowIdRef` itself. Left stale, it would still point
+  // at an id from the outgoing session's now-discarded log — the new
+  // session's own first `upsertStreamNarration` call would then match
+  // nothing in `.map()` and silently drop the update instead of creating a
+  // fresh row, breaking that session's first narration reveal.
+  //
+  // `talking`/`thinking`/`jobFailed`/`activeJob` are React state, not refs,
+  // but the same reasoning applies: `narrate()`'s abort branch (`if
+  // (ctrl.signal.aborted) { ...; return; }`) intentionally returns WITHOUT
+  // clearing them — it's mid-beat, a SUCCESSOR beat in the SAME session owns
+  // clearing them next. On a session switch there is no successor beat; left
+  // set, `talking` permanently locks the new session's composer (`onSend`'s
+  // `if (!text || talking) return;` guard never releases), which is how this
+  // was actually caught — see play.cross-session-bleed.test.tsx's second
+  // case.
+  useEffect(() => {
+    // Captured here (not read as `pendingByKeyRef.current` inside the
+    // cleanup below) per react-hooks/exhaustive-deps: the Map instance
+    // itself is stable for the ref's whole lifetime (only ever `.clear()`-ed
+    // or read, never reassigned), so this is a safe, lint-clean snapshot.
+    const pendingLedger = pendingByKeyRef.current;
+    return () => {
+      narrationAbort.current?.abort();
+      narrationAbort.current = null;
+      subscribedJobIdRef.current = null;
+      pendingLedger.clear();
+      turnKeyRef.current = null;
+      lastDurableTurnRef.current = null;
+      pollFailureGraceRef.current = null;
+      setTalking(false);
+      setThinking(false);
+      setJobFailed(false);
+      setActiveJob(null);
+      rehydratedRef.current = false;
+      renderedSeqsRef.current = new Set();
+      lastEventSeqRef.current = 0;
+      journalSeenSeqsRef.current = new Set();
+      streamRowIdRef.current = null;
+    };
+  }, [sessionId]);
+
   // ── load session + party ────────────────────────────────────────────────────
   useEffect(() => {
     if (!username || !sessionId) return;
@@ -1185,6 +1259,15 @@ export default function PlayPage() {
         setSession(s);
         const initialCombatId = s.active_combat_id ?? null;
         setCombatId(initialCombatId);
+        // TAV-PLAY-CROSS-SESSION-BLEED: always clear first — the fetch just
+        // below only overwrites combatState when the NEW session actually
+        // has an active combat; without this, a same-instance switch from a
+        // combat-active session to a combat-free one left the OUTGOING
+        // session's combatState object in place (downstream reads that key
+        // off `combatId` are safe either way, but reads of combatState
+        // fields directly are not — see combatState?.participants call
+        // sites below that don't gate on combatId first).
+        setCombatState(null);
         setState('ok');
 
         // Fetch grounding, participants, and the raw event log (rehydration) in
