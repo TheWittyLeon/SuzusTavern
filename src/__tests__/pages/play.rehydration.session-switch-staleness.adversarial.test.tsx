@@ -228,7 +228,7 @@ describe('rehydratedRef resets on a same-instance session switch (TAV-PLAY-CROSS
     expect(log).not.toHaveTextContent('Table A opens the door.');
   });
 
-  it('regression tripwire: no in-app code currently navigates directly from one /play/[sessionId] to another via router.push/router.replace (the same-instance switch this suite exercises is reachable via React/Next\'s documented same-instance-reuse behavior for a dynamic-segment-only change even without one — see TAV-PLAY-CROSS-SESSION-BLEED; this tripwire only flags a SECOND, more direct reachability path if one is ever added)', () => {
+  it('regression tripwire: no in-app code currently navigates directly from one /play/[sessionId] to another via router.push/router.replace (the same-instance switch this suite exercises is structurally possible under React/Next\'s documented same-instance-reuse behavior for a dynamic-segment-only change, per TAV-PLAY-CROSS-SESSION-BLEED — no live trigger of it has actually been observed/reproduced outside this suite; this tripwire only flags a SECOND, more direct reachability path if one is ever added)', () => {
     const repoRoot = process.cwd();
     let hits = '';
     try {

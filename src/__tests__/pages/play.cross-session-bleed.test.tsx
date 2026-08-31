@@ -323,38 +323,29 @@ describe('TAV-PLAY-CROSS-SESSION-BLEED: an in-flight DM-narration SSE tail is ab
 
   /**
    * Miko-QA (2026-08-31 mutation pass) flagged `streamRowIdRef.current =
-   * null` in the switch-cleanup effect as completely uncovered. This test
-   * locks in the real, user-facing behavior it's meant to protect — a
-   * same-instance switch followed by the NEW session's own first
-   * composer turn must render that turn's narration, not silently drop it.
+   * null` in the switch-cleanup effect as completely uncovered — and Kage-CR
+   * (same-day review pass) confirmed the "divergent-behavior scenario" this
+   * test's earlier version flagged (a `revealRef` interval leak in the
+   * legacy typewriter path) was in fact the shipped bug: on the flag-OFF
+   * production path, nulling `streamRowIdRef` in the switch-cleanup was
+   * actively WRONG, not merely redundant. `revealText`'s 26ms interval keeps
+   * ticking after a session switch (it isn't tied to `narrationAbort`), and
+   * with the ref nulled, its next `upsertStreamNarration` call took the
+   * create-a-new-row branch — appending the OUTGOING session's prose into
+   * the NEW session's log. That is the mechanism behind the live ~2-minute
+   * bleed. See CRITICAL fix (page.tsx `[sessionId]` cleanup) and
+   * play.cross-session-bleed.flag-off.test.tsx for the flag-OFF repro.
    *
-   * Mutation-proof disclosure (ran per the handoff's explicit bar, not
-   * skipped): with `streamRowIdRef.current = null` commented OUT of the
-   * cleanup, this test — and the whole file — STILL PASSES. Root cause:
-   * `subscribeToJob` (page.tsx, the SOLE caller of `upsertStreamNarration`
-   * on every composer/beat/mount-resume path) already calls
-   * `clearStreamNarration(true)` — which itself unconditionally sets
-   * `streamRowIdRef.current = null` — as the FIRST thing it does on EVERY
-   * invocation, synchronously before any await (pre-existing code, commit
-   * d6fc1be7, 2026-07-14, a month before this fix). So by the time session
-   * B's own `narrateDurable` → `subscribeToJob(job-B, ...)` call reaches
-   * its `upsertStreamNarration('')` precreate, the ref has ALREADY been
-   * freshly cleared regardless of the switch-cleanup's own reset — the
-   * switch-cleanup line is redundant with pre-existing self-healing for
-   * every reachable "compose a message in the new session" path. Confirmed
-   * by removing the line and running the full file (`npx jest
-   * play.cross-session-bleed.test.tsx`): 4/4 still green.
-   *
-   * This test is kept anyway — it locks real, correct, user-facing
-   * behavior — but it does NOT satisfy "genuinely fails without its target
-   * line" for `streamRowIdRef.current = null` specifically. See the
-   * implementation report for the fuller trace (including the one
-   * divergent-behavior scenario found — a pre-existing, unrelated
-   * `revealRef` interval leak in the legacy typewriter path — where having
-   * this line present actually makes that OTHER, out-of-scope bug worse,
-   * not better, which is why it isn't usable as a "prove necessity" test
-   * either). Flagging for Miko/Leon rather than fabricating a test that
-   * would pass either way.
+   * The fix: the cleanup no longer nulls `streamRowIdRef` at all — it clears
+   * the `revealRef` interval instead, so no stray tick can fire post-switch.
+   * `streamRowIdRef` self-heals via `subscribeToJob`'s own unconditional
+   * `clearStreamNarration(true)` call (page.tsx, first thing it does on
+   * every invocation, pre-existing since commit d6fc1be7) — which is why
+   * THIS test (flag-ON, `subscribeDmJob` path) still passes: it was never
+   * exercising the actual bug, only the flag-OFF `narrate()`/`revealText`
+   * path was. Kept here as a same-session-first-render-after-switch check on
+   * the flag-ON path; the flag-OFF sibling file is the one that actually
+   * proves the fix.
    */
   it('resets the stale streaming-anchor ref on switch — the NEW session\'s own first narration turn renders instead of being silently dropped', async () => {
     const SESSION_A = makeSession('s1', 'Table A');

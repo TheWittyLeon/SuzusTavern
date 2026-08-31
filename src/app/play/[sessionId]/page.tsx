@@ -552,11 +552,25 @@ export default function PlayPage() {
   // null = not yet resolved; [] = DM-only (no character bound) or fetch failed.
   const [quickChecks, setQuickChecks] = useState<QuickCheck[] | null>(null);
 
-  // A1 — fire-once gate: ensures the opening beat only streams once per mount
-  // even under React StrictMode's double-invoke. The durable server-side event
-  // is the canonical guard; this ref prevents a second fire within the same
+  // A1 — fire-once gate: ensures the opening beat only streams once per
+  // SESSION, not merely once per mount. The durable server-side event is
+  // the canonical guard; this ref prevents a second fire within the same
   // component lifetime (e.g. StrictMode double-effect).
-  const openingFiredRef = useRef(false);
+  //
+  // TAV-PLAY-CROSS-SESSION-BLEED IMPORTANT-2 (Kage-CR 2026-08-31): keyed on
+  // sessionId (holds the id whose opening has already fired, or null)
+  // rather than a plain boolean — a same-instance sessionId switch reuses
+  // the SAME component instance (see the cleanup-effect comment above), so
+  // a plain fire-once boolean stayed `true` forever after the first
+  // session's opening and silently swallowed every subsequent session's
+  // cold open. Deliberately NOT reset in the [sessionId] cleanup effect
+  // above: that latch exists specifically to absorb StrictMode's
+  // double-invoke, and the cleanup fires on StrictMode's simulated unmount
+  // too (same sessionId) — resetting it there would re-open the door within
+  // the SAME session. Comparing against the current sessionId on each check
+  // instead gets both properties: a forward switch re-arms the gate, a
+  // StrictMode double-invoke within one session does not.
+  const openedSessionIdRef = useRef<string | null>(null);
 
   // PLAY-PERSIST §7: guards against a second rehydration within one mount
   // (e.g. a stray effect re-run). Rehydration runs once, synchronously before
@@ -1200,15 +1214,6 @@ export default function PlayPage() {
   // outgoing session's content (previously characterized, unfixed, in the
   // adversarial test referenced above).
   //
-  // `streamRowIdRef` also has to be cleared here, not just narrationAbort:
-  // the rehydration effect's `setLog(rows)` (fired once `rehydratedRef` is
-  // reset) fully REPLACES the log array for the new session, but that
-  // doesn't touch `streamRowIdRef` itself. Left stale, it would still point
-  // at an id from the outgoing session's now-discarded log — the new
-  // session's own first `upsertStreamNarration` call would then match
-  // nothing in `.map()` and silently drop the update instead of creating a
-  // fresh row, breaking that session's first narration reveal.
-  //
   // `talking`/`thinking`/`jobFailed`/`activeJob` are React state, not refs,
   // but the same reasoning applies: `narrate()`'s abort branch (`if
   // (ctrl.signal.aborted) { ...; return; }`) intentionally returns WITHOUT
@@ -1218,6 +1223,26 @@ export default function PlayPage() {
   // `if (!text || talking) return;` guard never releases), which is how this
   // was actually caught — see play.cross-session-bleed.test.tsx's second
   // case.
+  //
+  // Kage-CR CRITICAL (2026-08-31 review pass) — `streamRowIdRef` must NOT be
+  // nulled here, and the buffered/non-streamMode reveal interval must be.
+  // The buffered beat (narrate()'s `else` branch) is driven by revealText's
+  // 26ms setInterval (revealRef), which is independent of `narrationAbort`
+  // — aborting the fetch above does not stop a tick already scheduled. If
+  // this cleanup nulls `streamRowIdRef`, that pending tick's
+  // `upsertStreamNarration` call finds no existing id and takes the ELSE
+  // branch, MINTING A BRAND-NEW ROW that appends the outgoing session's
+  // prose straight into the new session's log — this was the actual
+  // mechanism behind the ~2-minute cross-campaign bleed, not a stale-ref
+  // read (every entry point calls `clearStreamNarration(true)` first —
+  // narrate() and subscribeToJob() both — so no reachable path reads a
+  // cross-session-stale ref). Leaving `streamRowIdRef` set means a stray
+  // tick's `.map()` call matches nothing after rehydration's `setLog(rows)`
+  // replaces the array, and silently no-ops instead of creating a row.
+  // Clearing `revealRef` here (mirroring the unmount cleanup a few effects
+  // down) stops the interval from ticking again at all, which is the actual
+  // fix — and it also means `shouldClearAbortedStreamRow` can still see its
+  // own row id match on the abort path instead of racing a nulled ref.
   useEffect(() => {
     // Captured here (not read as `pendingByKeyRef.current` inside the
     // cleanup below) per react-hooks/exhaustive-deps: the Map instance
@@ -1240,7 +1265,22 @@ export default function PlayPage() {
       renderedSeqsRef.current = new Set();
       lastEventSeqRef.current = 0;
       journalSeenSeqsRef.current = new Set();
-      streamRowIdRef.current = null;
+      if (revealRef.current) {
+        clearInterval(revealRef.current);
+        revealRef.current = null;
+      }
+      // TAV-PLAY-CROSS-SESSION-BLEED IMPORTANT-1 (Kage-CR 2026-08-31) — the
+      // combat poll (below) is keyed on `combatId`, and `combatId` is only
+      // reset by the load effect AFTER `await getSession(...)` resolves.
+      // During that window the poll interval keeps ticking with the
+      // OUTGOING session's combatId, resurrecting its roster into the new
+      // session. Tearing down synchronously here (not waiting on the fetch)
+      // closes the window; `stateSeqRef` bump makes any in-flight poll
+      // response for the outgoing combatId a no-op even if it lands before
+      // the interval itself is cleared.
+      stateSeqRef.current += 1;
+      setCombatId(null);
+      setCombatState(null);
     };
   }, [sessionId]);
 
@@ -1259,15 +1299,14 @@ export default function PlayPage() {
         setSession(s);
         const initialCombatId = s.active_combat_id ?? null;
         setCombatId(initialCombatId);
-        // TAV-PLAY-CROSS-SESSION-BLEED: always clear first — the fetch just
-        // below only overwrites combatState when the NEW session actually
-        // has an active combat; without this, a same-instance switch from a
-        // combat-active session to a combat-free one left the OUTGOING
-        // session's combatState object in place (downstream reads that key
-        // off `combatId` are safe either way, but reads of combatState
-        // fields directly are not — see combatState?.participants call
-        // sites below that don't gate on combatId first).
-        setCombatState(null);
+        // TAV-PLAY-CROSS-SESSION-BLEED IMPORTANT-1 (Kage-CR 2026-08-31): the
+        // OUTGOING session's combatId/combatState are now torn down
+        // synchronously in the [sessionId] cleanup effect above, BEFORE this
+        // load effect's body ever runs — not here. Doing it here instead was
+        // the bug: this whole (async) function only reaches this line AFTER
+        // `await getSession(...)` resolves, leaving the combat poll
+        // (keyed on the stale combatId) free to tick against the outgoing
+        // session's roster for the entire duration of that await.
         setState('ok');
 
         // Fetch grounding, participants, and the raw event log (rehydration) in
@@ -3432,8 +3471,11 @@ export default function PlayPage() {
     async (sid: string, g: GroundingData, signal: AbortSignal): Promise<boolean> => {
       // No authored scene — nothing to open.
       if (!g.scene_id || !g.boxed_text) return false;
-      // Per-lifetime ref guard catches StrictMode double-invoke within one mount.
-      if (openingFiredRef.current) return false;
+      // Session-keyed ref guard catches StrictMode double-invoke within one
+      // session AND prevents re-firing for a session whose opening already
+      // ran in this component instance — see openedSessionIdRef's own
+      // comment for why this can't be a plain per-mount boolean.
+      if (openedSessionIdRef.current === sid) return false;
 
       // FIX-4: getSessionEvents now returns null on error (engine unreachable).
       // Treat null as fail-safe: don't open when we can't confirm the session state.
@@ -3463,9 +3505,9 @@ export default function PlayPage() {
    * human-DM). No LLM call on open. Suzu's narration fires on the player's
    * first action instead (normal beat via onSend/onRoll).
    *
-   * Idempotency: guarded by openingFiredRef (in-memory, per-mount) AND the
-   * durable `opening_narrated` session event (survives remounts). The
-   * semantics of opening_narrated shift from "AI opening streamed" to
+   * Idempotency: guarded by openedSessionIdRef (in-memory, session-keyed)
+   * AND the durable `opening_narrated` session event (survives remounts).
+   * The semantics of opening_narrated shift from "AI opening streamed" to
    * "read-aloud shown", but the gate mechanic is unchanged.
    */
   const openScene = useCallback(
@@ -3474,8 +3516,10 @@ export default function PlayPage() {
       if (!shouldOpen || signal.aborted) return;
 
       // Latch: prevent a second fire from StrictMode double-invoke or any
-      // concurrent call within the same component lifetime.
-      openingFiredRef.current = true;
+      // concurrent call within the same session, while still re-arming for
+      // a later session switch (see openedSessionIdRef's declaration
+      // comment).
+      openedSessionIdRef.current = sid;
 
       // Step 1 — render the verbatim read-aloud block (authored, byte-identical,
       // same for every session type). No typewriter; player reads at their pace.

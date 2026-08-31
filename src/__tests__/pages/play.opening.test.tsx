@@ -7,7 +7,7 @@
  * opening lines, then writes the opening_narrated marker. No LLM call on open.
  *
  * What is tested:
- *   - Gate contract: when/when not to open (openingFiredRef + durable event).
+ *   - Gate contract: when/when not to open (openedSessionIdRef + durable event).
  *   - read_aloud row appears with byte-identical boxed_text for AI sessions.
  *   - read_aloud row appears for AI-off sessions (same path).
  *   - opening_lines are rendered as read_aloud_line rows after the block.
@@ -19,9 +19,10 @@
  *   - Structural events alone (session_start, character_bound) allow the opening.
  *
  * StrictMode abort note: React StrictMode double-invokes effects and tears down
- * the AbortController between mounts. The openingFiredRef latch prevents double-
- * fire within one mount. The durable marker prevents re-fire across remounts.
- * Both paths are exercised below.
+ * the AbortController between mounts. The openedSessionIdRef latch (keyed on
+ * sessionId, not a plain boolean — see TAV-PLAY-CROSS-SESSION-BLEED) prevents
+ * double-fire within one mount for the SAME session. The durable marker
+ * prevents re-fire across remounts. Both paths are exercised below.
  */
 import React from "react";
 import { render, screen, waitFor, act } from "@testing-library/react";
