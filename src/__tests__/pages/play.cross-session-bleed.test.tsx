@@ -30,7 +30,13 @@
 import React from 'react';
 import { render, screen, act, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import type { EngineSessionEvent, EventsPage, Participant, Session } from '@/lib/api/types';
+import type {
+  CombatState,
+  EngineSessionEvent,
+  EventsPage,
+  Participant,
+  Session,
+} from '@/lib/api/types';
 
 let mockSessionId = 's1';
 jest.mock('next/navigation', () => ({
@@ -313,5 +319,170 @@ describe('TAV-PLAY-CROSS-SESSION-BLEED: an in-flight DM-narration SSE tail is ab
     expect(mockPostDmTurn).toHaveBeenCalledTimes(2);
     const secondCallBody = mockPostDmTurn.mock.calls[1][0] as { session_id: string };
     expect(secondCallBody.session_id).toBe('s2');
+  });
+
+  /**
+   * Miko-QA (2026-08-31 mutation pass) flagged `streamRowIdRef.current =
+   * null` in the switch-cleanup effect as completely uncovered. This test
+   * locks in the real, user-facing behavior it's meant to protect — a
+   * same-instance switch followed by the NEW session's own first
+   * composer turn must render that turn's narration, not silently drop it.
+   *
+   * Mutation-proof disclosure (ran per the handoff's explicit bar, not
+   * skipped): with `streamRowIdRef.current = null` commented OUT of the
+   * cleanup, this test — and the whole file — STILL PASSES. Root cause:
+   * `subscribeToJob` (page.tsx, the SOLE caller of `upsertStreamNarration`
+   * on every composer/beat/mount-resume path) already calls
+   * `clearStreamNarration(true)` — which itself unconditionally sets
+   * `streamRowIdRef.current = null` — as the FIRST thing it does on EVERY
+   * invocation, synchronously before any await (pre-existing code, commit
+   * d6fc1be7, 2026-07-14, a month before this fix). So by the time session
+   * B's own `narrateDurable` → `subscribeToJob(job-B, ...)` call reaches
+   * its `upsertStreamNarration('')` precreate, the ref has ALREADY been
+   * freshly cleared regardless of the switch-cleanup's own reset — the
+   * switch-cleanup line is redundant with pre-existing self-healing for
+   * every reachable "compose a message in the new session" path. Confirmed
+   * by removing the line and running the full file (`npx jest
+   * play.cross-session-bleed.test.tsx`): 4/4 still green.
+   *
+   * This test is kept anyway — it locks real, correct, user-facing
+   * behavior — but it does NOT satisfy "genuinely fails without its target
+   * line" for `streamRowIdRef.current = null` specifically. See the
+   * implementation report for the fuller trace (including the one
+   * divergent-behavior scenario found — a pre-existing, unrelated
+   * `revealRef` interval leak in the legacy typewriter path — where having
+   * this line present actually makes that OTHER, out-of-scope bug worse,
+   * not better, which is why it isn't usable as a "prove necessity" test
+   * either). Flagging for Miko/Leon rather than fabricating a test that
+   * would pass either way.
+   */
+  it('resets the stale streaming-anchor ref on switch — the NEW session\'s own first narration turn renders instead of being silently dropped', async () => {
+    const SESSION_A = makeSession('s1', 'Table A');
+    const SESSION_B = makeSession('s2', 'Table B');
+
+    mockGetSession.mockImplementation((...args: unknown[]) =>
+      Promise.resolve(args[0] === 's2' ? SESSION_B : SESSION_A),
+    );
+
+    mockPostDmTurn.mockImplementation((...args: unknown[]) =>
+      Promise.resolve({
+        job_id: (args[0] as { session_id: string }).session_id === 's2' ? 'job-B' : 'job-A',
+        turn_key: `turn-${(args[0] as { session_id: string }).session_id}`,
+        status: 'pending',
+        deduped: false,
+      }),
+    );
+
+    // Session A's job never resolves — its precreated streaming-anchor row
+    // id (minted synchronously by subscribeToJob's precreateRow branch,
+    // BEFORE this generator is ever iterated) is still sitting in
+    // `streamRowIdRef.current` at the moment of the switch, exactly as it
+    // would for any in-flight beat.
+    mockSubscribeDmJob.mockImplementation(async function* (jobId: string) {
+      if (jobId === 'job-A') {
+        await new Promise<void>(() => {}); // never resolves
+      } else {
+        yield { kind: 'chunk', text: 'Table B: a torch flickers.' };
+        yield { kind: 'done' };
+      }
+    });
+
+    const { rerender } = render(<PlayPage />);
+    await screen.findByText('Table A');
+
+    await sendMessage('I ready my blade.');
+    await flush();
+
+    // ── the switch: SAME component instance, sessionId prop changes ────────
+    mockSessionId = 's2';
+    mockGetSessionEventsRaw.mockResolvedValue([]);
+    mockGetSessionEventsPage.mockResolvedValue(EMPTY_PAGE);
+    rerender(<PlayPage />);
+    await screen.findByText('Table B');
+    await flush();
+
+    // Session B's own first turn must render its OWN narration.
+    await sendMessage('I look for another way in.');
+    await flush();
+
+    await screen.findByText(/Table B: a torch flickers\./);
+  });
+
+  it('clears the OUTGOING session\'s combatState on a same-instance switch into a combat-free session — the initiative HUD does not bleed a stale roster into the new table', async () => {
+    const SESSION_A: Session = { ...makeSession('s1', 'Table A'), active_combat_id: 'combat-42' };
+    const SESSION_B = makeSession('s2', 'Table B');
+
+    const COMBAT_STATE: CombatState = {
+      combat_id: 'combat-42',
+      session_id: 's1',
+      round: 1,
+      state: 'active',
+      turn_index: 0,
+      active_participant_id: 'p_velka',
+      initiative: ['p_velka', 'p_gob1'],
+      participants: [
+        {
+          participant_id: 'p_velka',
+          entity_id: 'c1',
+          name: 'Velka',
+          is_pc: true,
+          initiative: 18,
+          hp_current: 18,
+          hp_max: 20,
+          ac: 14,
+          conditions: [],
+          is_alive: true,
+          can_be_targeted: true,
+          is_active_turn: true,
+          took_turn: false,
+        },
+        {
+          participant_id: 'p_gob1',
+          entity_id: 'goblin',
+          name: 'Goblin',
+          is_pc: false,
+          initiative: 12,
+          hp_current: 7,
+          hp_max: 7,
+          ac: 13,
+          conditions: [],
+          is_alive: true,
+          can_be_targeted: true,
+          is_active_turn: false,
+          took_turn: false,
+        },
+      ],
+    };
+
+    mockGetSession.mockImplementation((...args: unknown[]) =>
+      Promise.resolve(args[0] === 's2' ? SESSION_B : SESSION_A),
+    );
+    mockGetCombatState.mockImplementation((...args: unknown[]) =>
+      Promise.resolve(args[0] === 'combat-42' ? COMBAT_STATE : null),
+    );
+
+    const { rerender } = render(<PlayPage />);
+    await screen.findByText('Table A');
+
+    // Session A's combat HUD is up — Goblin is on the roster.
+    await screen.findByText('Goblin');
+
+    // ── the switch: SAME component instance, sessionId prop changes into a
+    // session with NO active combat. ─────────────────────────────────────
+    mockSessionId = 's2';
+    mockGetSessionEventsRaw.mockResolvedValue([]);
+    mockGetSessionEventsPage.mockResolvedValue(EMPTY_PAGE);
+    rerender(<PlayPage />);
+    await screen.findByText('Table B');
+    await flush();
+
+    // Table B has no active_combat_id, so nothing ever re-fetches combat
+    // state for it — the ONLY thing that can clear the outgoing session's
+    // roster is the switch-cleanup's own `setCombatState(null)`. Without
+    // it, the InitiativeTracker (gated on `combatState && combatState.
+    // participants.length > 0`, NOT on combatId) keeps rendering Table A's
+    // stale Goblin/Velka roster at Table B's table.
+    expect(screen.queryByText('Goblin')).not.toBeInTheDocument();
+    expect(screen.queryByText('Initiative')).not.toBeInTheDocument();
   });
 });
