@@ -290,18 +290,25 @@ export default function CodexSourcePicker({ packs, value, onChange, status }: Co
   // its options as direct children of the outer listbox. A HEADED group
   // (Homebrew/Other) uses the APG grouped-listbox shape instead of a bare
   // `aria-hidden` divider, so the heading text ("Homebrew") actually reaches
-  // the accessibility tree: `<li role="group" aria-labelledby>` wrapping a
-  // `<span role="presentation">` heading + a `<ul role="presentation">` of
-  // the group's options.
+  // the accessibility tree.
+  //
+  // Iro-A11y (live pass, .226) MINOR aria-allowed-role: `role="group"` +
+  // `aria-labelledby` must NOT sit on the outer `<li>` — ARIA-in-HTML
+  // doesn't permit `group` on `li` there. Canonical APG shape instead: the
+  // outer `<li>` is a plain presentational wrapper (HTML still wants a
+  // `<ul>`'s direct children to be `<li>`s); `role="group"` +
+  // `aria-labelledby` move onto the inner `<ul>` (a valid host for `group`),
+  // which wraps the group's actual `role="option"` items. Zero visual
+  // change — same DOM shape, the roles just moved one level down.
   function renderGroup(heading: string | null, groupOptions: FlatOption[], startIndex: number) {
     if (!heading) return <>{renderOptions(groupOptions, startIndex)}</>;
     const headingId = `${popupId}-group-${heading.toLowerCase()}`;
     return (
-      <li role="group" aria-labelledby={headingId}>
+      <li role="presentation">
         <span id={headingId} role="presentation" className={styles.sourcePickerGroup}>
           {heading}
         </span>
-        <ul role="presentation" className={styles.sourcePickerGroupList}>
+        <ul role="group" aria-labelledby={headingId} className={styles.sourcePickerGroupList}>
           {renderOptions(groupOptions, startIndex)}
         </ul>
       </li>

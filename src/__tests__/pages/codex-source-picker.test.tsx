@@ -475,6 +475,10 @@ describe('MAJOR-1 (Iro-A11y) — group headings reach the accessible tree', () =
 
     const group = within(listbox).getByRole('group', { name: /homebrew/i });
     expect(group).toBeInTheDocument();
+    // Live-pass MINOR aria-allowed-role fix: `role="group"` lives on the
+    // inner <ul>, not the outer <li> (li can't validly host `group` per
+    // ARIA-in-HTML) — pin the element, not just the role/name.
+    expect(group.tagName).toBe('UL');
     // The Naruto option lives inside the accessible group.
     expect(within(group).getByRole('option', { name: /naruto/i })).toBeInTheDocument();
   });

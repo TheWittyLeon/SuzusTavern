@@ -489,7 +489,20 @@ export default function CodexDetail({ item, kind, headingId, resolvedMonster }: 
           {badge.label && <Pill tone={badge.tone}>{badge.label}</Pill>}
         </div>
       </div>
-      <div className={styles.detailBody}>
+      {/* Iro-A11y (live pass, .226) SERIOUS scrollable-region-focusable: this
+          panel is `overflow-y: auto` (Codex.module.css) in BOTH the desktop
+          drawer and CodexDetailModal (which made it reachable below 1280px)
+          — without a tab stop, a keyboard-only user has no way to scroll
+          content that overflows below the fold. `role="region"` +
+          `aria-label` (not aria-labelledby: the desktop drawer never passes
+          `headingId`, only the modal does — a self-contained label works in
+          both places) gives it a real accessible name too. */}
+      <div
+        className={styles.detailBody}
+        tabIndex={0}
+        role="region"
+        aria-label={`${item.name} details`}
+      >
         {kind === 'spell' && <SpellDetail d={item.data as CatalogSpellData} />}
         {kind === 'monster' && <MonsterDetail d={item.data as CatalogMonsterData} />}
         {kind === 'item' && <ItemDetail d={item.data as CatalogEquipmentData} />}

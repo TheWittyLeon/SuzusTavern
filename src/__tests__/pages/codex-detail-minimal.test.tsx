@@ -180,3 +180,28 @@ describe('Adventure detail (FR-6/FR-22 — allowlist-only, never scenes/gm_descr
     expect(screen.getByText('short')).toBeInTheDocument();
   });
 });
+
+describe('Detail body is a focusable, labelled scroll region (Iro-A11y live pass, scrollable-region-focusable)', () => {
+  const FIREBALL: CatalogItem = {
+    slug: 'fireball',
+    name: 'Fireball',
+    content_type: 'spell',
+    source_type: 'srd',
+    data: { level: 3, school: 'evocation', description: 'A bright streak flashes.' },
+  };
+
+  it('the overflow-y:auto detail panel is keyboard-focusable and has an accessible name derived from the item', () => {
+    render(<CodexDetail item={FIREBALL} kind="spell" />);
+    const region = screen.getByRole('region', { name: /fireball details/i });
+    expect(region).toHaveAttribute('tabIndex', '0');
+    // A keyboard user must be able to Tab to it directly (jsdom doesn't lay
+    // out overflow, so this asserts reachability, not scroll behavior).
+    region.focus();
+    expect(region).toHaveFocus();
+  });
+
+  it('the accessible name works even without a headingId (the always-visible desktop drawer never passes one — only CodexDetailModal does)', () => {
+    render(<CodexDetail item={FIREBALL} kind="spell" headingId={undefined} />);
+    expect(screen.getByRole('region', { name: /fireball details/i })).toBeInTheDocument();
+  });
+});
