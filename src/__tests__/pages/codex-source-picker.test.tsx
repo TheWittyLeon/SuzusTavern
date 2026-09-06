@@ -156,6 +156,27 @@ describe('trigger + degraded states', () => {
   });
 });
 
+describe('rail counts reflect the active source (Aoi-UI §Rail)', () => {
+  it('re-fetches the manifest counts with `pack` when the source changes, and omits it for "All"', async () => {
+    renderCodex();
+    await screen.findByRole('option', { name: /fireball/i });
+    await waitFor(() =>
+      expect(mockGetCatalogCounts).toHaveBeenCalledWith('dnd5e', {}, expect.anything()),
+    );
+
+    fireEvent.click(screen.getByRole('combobox', { name: /content source/i }));
+    fireEvent.click(await screen.findByRole('option', { name: /naruto/i }));
+
+    await waitFor(() =>
+      expect(mockGetCatalogCounts).toHaveBeenCalledWith(
+        'dnd5e',
+        { pack: 'leon-naruto-5e' },
+        expect.anything(),
+      ),
+    );
+  });
+});
+
 describe('URL round-trip + persistence', () => {
   it('reads an initial ?source= from the URL and reflects it as the selected pack', async () => {
     mockSearchParams = new URLSearchParams('source=leon-naruto-5e');
