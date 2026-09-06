@@ -12,11 +12,15 @@ import type {
   CatalogEquipmentData,
   CatalogItem,
   CatalogMonsterData,
+  CatalogNpcData,
   CatalogRaceData,
   CatalogSpellData,
 } from '@/lib/api/types';
 import {
   CODEX_KIND_META,
+  adventureLengthLabel,
+  adventureLevelRangeLabel,
+  adventureSummary,
   itemCostLabel,
   monsterCrLabel,
   raceSpeedLabel,
@@ -26,6 +30,13 @@ import {
   type CodexKind,
 } from '@/lib/dnd/codex';
 import styles from './Codex.module.css';
+
+interface CatalogFeatRowData {
+  prerequisite?: string;
+}
+interface CatalogSubclassRowData {
+  parent_class?: string;
+}
 
 function RowMeta({ kind, item }: { kind: CodexKind; item: CatalogItem }) {
   if (kind === 'spell') {
@@ -92,6 +103,49 @@ function RowMeta({ kind, item }: { kind: CodexKind; item: CatalogItem }) {
             {s.replace(/_/g, ' ')}
           </span>
         ))}
+      </span>
+    );
+  }
+  // TAV-CODEX-SOURCE-PICKER-NPC (D4/Aoi-UI §2): role as a plain metaChip;
+  // affiliation as an inline Pill — ONE flat tone for every affiliation
+  // (no per-faction hashing/color-coding scheme), rank cue monospaced.
+  if (kind === 'npc') {
+    const d = item.data as CatalogNpcData;
+    return (
+      <span className={styles.rowMeta}>
+        {d.role && <span className={styles.metaChip}>{d.role}</span>}
+        {d.affiliation && <Pill tone="cool">{d.affiliation}</Pill>}
+        {d.rank_cue && <span className={`${styles.metaChip} ${styles.metaChipMono}`}>{d.rank_cue}</span>}
+      </span>
+    );
+  }
+  if (kind === 'feat') {
+    const d = item.data as CatalogFeatRowData;
+    return (
+      <span className={styles.rowMeta}>
+        {d.prerequisite && <span className={styles.metaChip}>{d.prerequisite}</span>}
+      </span>
+    );
+  }
+  if (kind === 'subclass') {
+    const d = item.data as CatalogSubclassRowData;
+    return (
+      <span className={styles.rowMeta}>
+        {d.parent_class && <span className={styles.metaChip}>{d.parent_class}</span>}
+      </span>
+    );
+  }
+  if (kind === 'adventure') {
+    // FR-6/FR-22: the engine's adventure row carries `summary` at the TOP
+    // LEVEL, not under `.data` — see codex.ts's adventureSummary() doc
+    // comment. No scene count exists on the wire (confirmed by Sora-Arch's
+    // design — the allowlist is subtitle/level_range/length/content_rating/
+    // tags only); `length` fills the second chip instead.
+    const s = adventureSummary(item);
+    return (
+      <span className={styles.rowMeta}>
+        <span className={`${styles.metaChip} ${styles.metaChipMono}`}>{adventureLevelRangeLabel(s.level_range)}</span>
+        {s.length && <span className={styles.metaChip}>{adventureLengthLabel(s.length)}</span>}
       </span>
     );
   }

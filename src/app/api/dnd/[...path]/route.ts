@@ -329,7 +329,15 @@ async function proxyRequest(
       { status: upstream.status },
     );
   }
-  return NextResponse.json(responseData, { status: upstream.status });
+  // TAV-CODEX-SOURCE-PICKER-NPC (Kuro-Sec C3, recommended): this proxy's JSON
+  // responses can carry an owner-only `dm_only` sub-object (catalog npc/
+  // monster rows) — set no matter what today, but belt-and-suspenders against
+  // a future shared cache/CDN in front of the Tavern ever caching a response
+  // that was scoped to one authenticated user's session.
+  return NextResponse.json(responseData, {
+    status: upstream.status,
+    headers: { 'Cache-Control': 'private, no-store' },
+  });
 }
 
 export const GET = (req: NextRequest, ctx: RouteContext): Promise<NextResponse> =>

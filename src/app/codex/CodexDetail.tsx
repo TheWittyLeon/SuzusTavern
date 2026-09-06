@@ -5,23 +5,32 @@
 // returns (see the CatalogXData types added in lib/api/types.ts) — no extra
 // adapter layer, since (unlike the character wizard) the Codex is a read-only
 // reference view of exactly what the engine has on file.
+//
+// TAV-CODEX-SOURCE-PICKER-NPC: `Section`/`StatsGrid`/`MonsterDetail`/
+// `DmOnlyDisclosure` moved to MonsterStatBlock.tsx so the standalone Monster
+// tab and NPC's embedded stat block share one renderer. Adds NpcDetail (with
+// the client-side stat_ref join, Sora-Arch §5), FeatDetail, SubclassDetail,
+// AdventureDetail.
 
-import type { ReactNode } from 'react';
 import Icon from '@/components/Icon';
 import Pill from '@/components/Pill';
-import { formatMod } from '@/lib/dnd/helpers';
 import type {
+  AdventureSummary,
   CatalogBackgroundData,
   CatalogClassData,
   CatalogConditionData,
   CatalogEquipmentData,
   CatalogItem,
   CatalogMonsterData,
+  CatalogNpcData,
   CatalogRaceData,
   CatalogSpellData,
 } from '@/lib/api/types';
 import {
   CODEX_KIND_META,
+  adventureLengthLabel,
+  adventureLevelRangeLabel,
+  adventureSummary,
   conditionHasData,
   itemCostLabel,
   itemDescription,
@@ -39,48 +48,14 @@ import {
   toneVar,
   type CodexKind,
 } from '@/lib/dnd/codex';
+import {
+  DmOnlyDisclosure,
+  MonsterDetail,
+  Section,
+  StatsGrid,
+  dmOnlyFields,
+} from './MonsterStatBlock';
 import styles from './Codex.module.css';
-
-interface Stat {
-  k: string;
-  v: string;
-}
-
-function StatsGrid({ stats }: { stats: Stat[] }) {
-  if (stats.length === 0) return null;
-  return (
-    <div className={styles.statsGrid}>
-      {stats.map((s) => (
-        <div key={s.k} className={styles.stat}>
-          <div className={styles.statK}>{s.k}</div>
-          <div className={styles.statV}>{s.v}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function Section({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className={styles.section}>
-      {/* A11Y (MINOR-1, Iro): was a <div> — not in the heading outline, so SR
-          users couldn't jump between sections. h3 nests under the hero's h2
-          in document order (see Codex.module.css .sectionLabel for the
-          margin reset this needed). */}
-      <h3 className={`label ${styles.sectionLabel}`}>{label}</h3>
-      {children}
-    </div>
-  );
-}
-
-const ABILITY_ORDER: { key: string; abbr: string }[] = [
-  { key: 'strength', abbr: 'STR' },
-  { key: 'dexterity', abbr: 'DEX' },
-  { key: 'constitution', abbr: 'CON' },
-  { key: 'intelligence', abbr: 'INT' },
-  { key: 'wisdom', abbr: 'WIS' },
-  { key: 'charisma', abbr: 'CHA' },
-];
 
 function SpellDetail({ d }: { d: CatalogSpellData }) {
   return (
@@ -116,83 +91,6 @@ function SpellDetail({ d }: { d: CatalogSpellData }) {
       {d.higher_levels && (
         <Section label="At higher levels">
           <p>{d.higher_levels}</p>
-        </Section>
-      )}
-    </>
-  );
-}
-
-function MonsterDetail({ d }: { d: CatalogMonsterData }) {
-  const scores = d.ability_scores ?? {};
-  return (
-    <>
-      <StatsGrid
-        stats={[
-          { k: 'AC', v: `${d.ac ?? '—'}${d.ac_note ? ` (${d.ac_note})` : ''}` },
-          { k: 'HP', v: d.hp_formula ?? '—' },
-          { k: 'CR', v: `${monsterCrLabel(d.cr)}${d.xp != null ? ` (${d.xp} XP)` : ''}` },
-          { k: 'Speed', v: monsterSpeedLabel(d) },
-        ]}
-      />
-      <StatsGrid
-        stats={[
-          { k: 'Type', v: `${d.size ?? ''} ${d.monster_type ?? ''}`.trim() || '—' },
-          { k: 'Alignment', v: d.alignment ?? '—' },
-        ]}
-      />
-      <Section label="Ability scores">
-        <div className={styles.statsGrid}>
-          {ABILITY_ORDER.filter(({ key }) => scores[key] != null).map(({ key, abbr }) => (
-            <div key={key} className={styles.stat}>
-              <div className={styles.statK}>{abbr}</div>
-              <div className={styles.statV}>
-                {scores[key]} ({formatMod(scores[key] as number)})
-              </div>
-            </div>
-          ))}
-        </div>
-      </Section>
-      <Section label="Senses">
-        <p>{monsterSensesLabel(d)}</p>
-      </Section>
-      {d.languages && d.languages.length > 0 && (
-        <Section label="Languages">
-          <p>{d.languages.join(', ')}</p>
-        </Section>
-      )}
-      {[
-        ['Damage resistances', d.damage_resistances],
-        ['Damage immunities', d.damage_immunities],
-        ['Condition immunities', d.condition_immunities],
-      ]
-        .filter(([, list]) => Array.isArray(list) && (list as string[]).length > 0)
-        .map(([label, list]) => (
-          <Section key={label as string} label={label as string}>
-            <p>{(list as string[]).join(', ')}</p>
-          </Section>
-        ))}
-      {d.actions && d.actions.length > 0 && (
-        <Section label="Actions">
-          {d.actions.map((a, i) => (
-            <div key={`${a.name}-${i}`} className={styles.actionRow}>
-              <p className={styles.actionName}>{monsterActionLine(a)}</p>
-              {monsterActionDescription(a) && (
-                <p className={styles.actionDesc}>{monsterActionDescription(a)}</p>
-              )}
-            </div>
-          ))}
-        </Section>
-      )}
-      {d.legendary_actions && d.legendary_actions.length > 0 && (
-        <Section label="Legendary actions">
-          {d.legendary_actions.map((a, i) => (
-            <div key={`${a.name}-${i}`} className={styles.actionRow}>
-              <p className={styles.actionName}>{a.name}</p>
-              {monsterActionDescription(a) && (
-                <p className={styles.actionDesc}>{monsterActionDescription(a)}</p>
-              )}
-            </div>
-          ))}
         </Section>
       )}
     </>
@@ -394,6 +292,176 @@ function ConditionDetail({ d }: { d: CatalogConditionData }) {
   );
 }
 
+// ── NPC detail (TAV-CODEX-SOURCE-PICKER-NPC, D4/FR-17/FR-18) ────────────────
+
+function NpcDetail({ d, monster }: { d: CatalogNpcData; monster: CatalogItem | undefined }) {
+  return (
+    <>
+      {d.aliases && d.aliases.length > 0 && (
+        <p className={styles.detailSubtitle}>also known as {d.aliases.join(', ')}</p>
+      )}
+      {(d.affiliation || d.rank_cue) && (
+        <div className={styles.tagList} style={{ marginBottom: 16 }}>
+          {d.affiliation && <Pill tone="cool">{d.affiliation}</Pill>}
+          {d.rank_cue && <Pill tone="muted">{d.rank_cue}</Pill>}
+        </div>
+      )}
+      {(d.role || d.motivation) && (
+        <Section label="Role & motivation">
+          {d.role && <p>{d.role}</p>}
+          {d.motivation && <p>{d.motivation}</p>}
+        </Section>
+      )}
+      {(d.height_ft || d.lineage || d.appearance) && (
+        <Section label="Appearance">
+          <StatsGrid
+            stats={[
+              ...(d.height_ft ? [{ k: 'Height', v: d.height_ft }] : []),
+              ...(d.lineage ? [{ k: 'Lineage', v: d.lineage }] : []),
+            ]}
+          />
+          {d.appearance && <p>{d.appearance}</p>}
+        </Section>
+      )}
+      {(d.aura_signature || d.form_state || d.power_tier_cue) && (
+        <Section label="Cues">
+          <StatsGrid
+            stats={[
+              ...(d.aura_signature ? [{ k: 'Aura', v: d.aura_signature }] : []),
+              ...(d.form_state ? [{ k: 'Form', v: d.form_state }] : []),
+              ...(d.power_tier_cue ? [{ k: 'Power tier', v: d.power_tier_cue }] : []),
+            ]}
+          />
+        </Section>
+      )}
+      {d.key_lines && d.key_lines.length > 0 && (
+        <Section label="Key lines">
+          <ul className={styles.quoteList}>
+            {d.key_lines.map((line, i) => (
+              <li key={i} className={styles.quoteLine}>
+                &ldquo;{line}&rdquo;
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+      {d.location && (
+        <Section label="Location">
+          <p>{d.location}</p>
+        </Section>
+      )}
+      {/* Sora-Arch §5: NO server-embedded stat block, no `resolve` param — the
+          monster row is looked up client-side in useCodexCatalog's own
+          (kind='monster', same source) cache by stat_ref's slug. A miss (49%
+          of authored NPCs dangle today — content debt, not a bug) renders a
+          quiet line, never styled as an error. */}
+      <Section label="Stat block">
+        {monster ? (
+          <MonsterDetail d={monster.data as CatalogMonsterData} />
+        ) : (
+          <p className={styles.stateBody}>No stat block on file for this NPC.</p>
+        )}
+      </Section>
+      <DmOnlyDisclosure fields={dmOnlyFields(d.dm_only)} />
+    </>
+  );
+}
+
+// ── Feat / Subclass / Adventure (minimal — D6, Aoi-UI §4) ───────────────────
+
+interface CatalogFeatData {
+  prerequisite?: string;
+  ability_score_increase?: string;
+  description?: string;
+}
+
+function FeatDetail({ d }: { d: CatalogFeatData }) {
+  return (
+    <>
+      <StatsGrid
+        stats={[
+          { k: 'Prerequisite', v: d.prerequisite ?? '—' },
+          { k: 'Ability score increase', v: d.ability_score_increase ?? '—' },
+        ]}
+      />
+      <Section label="Description">
+        <p>{d.description && d.description.trim() ? d.description : 'No description recorded for this feat yet.'}</p>
+      </Section>
+    </>
+  );
+}
+
+interface CatalogSubclassData {
+  parent_class?: string;
+  subclass_level?: number;
+  features?: string[];
+  description?: string;
+}
+
+function SubclassDetail({ d }: { d: CatalogSubclassData }) {
+  return (
+    <>
+      <StatsGrid
+        stats={[
+          { k: 'Parent class', v: d.parent_class ?? '—' },
+          { k: 'Unlocks at level', v: d.subclass_level != null ? String(d.subclass_level) : '—' },
+        ]}
+      />
+      {d.features && d.features.length > 0 && (
+        <Section label="Features">
+          <div className={styles.tagList}>
+            {d.features.map((f) => (
+              <Pill key={f} tone="muted">
+                {f}
+              </Pill>
+            ))}
+          </div>
+        </Section>
+      )}
+      <Section label="Description">
+        <p>{d.description && d.description.trim() ? d.description : 'No description recorded for this subclass yet.'}</p>
+      </Section>
+    </>
+  );
+}
+
+/**
+ * FR-6/FR-22: renders ONLY the engine's allowlisted adventure summary
+ * (subtitle, level_range, length, content_rating, tags) — never scenes or
+ * gm_description, even if a malformed/malicious payload carried them.
+ */
+function AdventureDetail({ item }: { item: CatalogItem }) {
+  const s: AdventureSummary = adventureSummary(item);
+  return (
+    <>
+      {s.subtitle && <p className={styles.detailSubtitle}>{s.subtitle}</p>}
+      <StatsGrid
+        stats={[
+          { k: 'Level range', v: adventureLevelRangeLabel(s.level_range) },
+          { k: 'Length', v: adventureLengthLabel(s.length) },
+          { k: 'Content rating', v: s.content_rating ?? '—' },
+        ]}
+      />
+      {s.tags && s.tags.length > 0 && (
+        <Section label="Tags">
+          <div className={styles.tagList}>
+            {s.tags.map((t) => (
+              <Pill key={t} tone="muted">
+                {t}
+              </Pill>
+            ))}
+          </div>
+        </Section>
+      )}
+      <Section label="Full adventure">
+        <p className={styles.stateBody}>
+          Full adventure content is DM-only and not shown in the codex.
+        </p>
+      </Section>
+    </>
+  );
+}
+
 export interface CodexDetailProps {
   item: CatalogItem;
   kind: CodexKind;
@@ -404,9 +472,17 @@ export interface CodexDetailProps {
    * the <aside>'s own dynamic aria-label instead (MAJOR-6, page.tsx).
    */
   headingId?: string;
+  /**
+   * TAV-CODEX-SOURCE-PICKER-NPC — only consulted for kind==='npc': the
+   * monster row (if any) resolved client-side against the active source's
+   * monster cache by the NPC's `stat_ref` slug (Sora-Arch §5). `undefined`
+   * either means "no stat_ref", "not loaded yet", or "no matching monster in
+   * this source" — all three render the same quiet fallback line.
+   */
+  resolvedMonster?: CatalogItem;
 }
 
-export default function CodexDetail({ item, kind, headingId }: CodexDetailProps) {
+export default function CodexDetail({ item, kind, headingId, resolvedMonster }: CodexDetailProps) {
   const meta = CODEX_KIND_META[kind];
   const badge = sourceBadge(item.source_type);
 
@@ -433,6 +509,10 @@ export default function CodexDetail({ item, kind, headingId }: CodexDetailProps)
         {kind === 'class' && <ClassDetail d={item.data as CatalogClassData} />}
         {kind === 'background' && <BackgroundDetail d={item.data as CatalogBackgroundData} />}
         {kind === 'condition' && <ConditionDetail d={item.data as CatalogConditionData} />}
+        {kind === 'npc' && <NpcDetail d={item.data as CatalogNpcData} monster={resolvedMonster} />}
+        {kind === 'feat' && <FeatDetail d={item.data as CatalogFeatData} />}
+        {kind === 'subclass' && <SubclassDetail d={item.data as CatalogSubclassData} />}
+        {kind === 'adventure' && <AdventureDetail item={item} />}
       </div>
     </div>
   );

@@ -10,22 +10,40 @@
  * list + drawer), re-implemented against the real catalog response shape.
  *
  * The engine has no server-side search param (routes/catalog.py: system/type/
- * packs/user/limit/offset only) — filtering is client-side over the loaded
- * per-kind list (useCodexCatalog caches each kind's page in component state
- * once fetched, so tab-switching back doesn't re-fetch).
+ * pack/packs/user/limit/offset only) — filtering is client-side over the
+ * loaded per-kind/per-source list (useCodexCatalog caches each (kind, source)
+ * pair's rows in component state once fetched, so tab-switching back doesn't
+ * re-fetch).
  *
- * Security posture (Kuro-Sec, DDX-21): this page only ever renders the
- * PUBLIC catalog. Private-pack visibility is NOT enforced end-to-end yet —
- * the engine's RLS runs as the `nekonova` superuser in production (which
- * bypasses row security), and until this pass a client could set its own
- * `?user=`/`?packs=` on the catalog request. Real per-user pack isolation is
- * pending the Track-A actor-enforcement work and the non-superuser RLS
- * cutover (STORY-PLAYFIX-PRODRLS) — neither is live yet. Until then, the
- * interim guard is server-side: the BFF (src/app/api/dnd/[...path]/route.ts)
- * strips any client-supplied `user`/`packs` query params on non-admin paths
- * before forwarding upstream, so a browser cannot assert its own identity or
- * scope. This page itself adds no client-side visibility logic and no
- * cross-user cache.
+ * TAV-CODEX-SOURCE-PICKER-NPC (2026-09-06): adds a single-select content
+ * source picker (All / SRD / Suzu's / each homebrew pack, validated
+ * server-side — see GET /catalog/packs), four new rail kinds (NPCs, Feats,
+ * Subclasses, Adventures), background paging past the engine's 500-row page
+ * cap, and an owner/admin-only "DM only" disclosure on NPC/Monster detail.
+ * Source state is a single `?source=<pack_id>` URL param shared across every
+ * kind tab (`useSearchParams` — needs the Suspense split at the bottom of
+ * this file, Next 16 App Router, same pattern as `login`/`reset-password`).
+ *
+ * Security posture (Kuro-Sec, DDX-21 + TAV-CODEX-SOURCE-PICKER-NPC): this
+ * page only ever renders what the engine chooses to project for the
+ * authenticated actor. The re-admitted `pack` filter (distinct from the
+ * legacy `packs`/`user`, still stripped below) is validated server-side
+ * against the actor's visible-pack set — this page never trusts the URL's
+ * `source` value directly: an invalid/inaccessible one silently falls back
+ * to "All" and is never reflected in the picker, the DOM, or a fetch that
+ * matters (the BFF strip below is unaffected either way). A `dm_only`
+ * sub-object, when present, is rendered iff the payload carries it — no
+ * client-side masking, no placeholder for a value that was never sent (the
+ * server already decided; a placeholder would be an existence oracle). It
+ * lives only in useCodexCatalog's mount-lifetime cache — never localStorage/
+ * sessionStorage/a module singleton, and never serialized into this page's
+ * own URL state.
+ *
+ * The BFF (src/app/api/dnd/[...path]/route.ts) strips any client-supplied
+ * `user`/`packs` query params on non-admin paths before forwarding upstream,
+ * so a browser cannot assert its own identity or the legacy unvalidated pack
+ * scope — `pack` (singular) is a distinct key the strip does not touch,
+ * pinned by a BFF test (src/__tests__/api/dnd-admin-gate.test.ts).
  *
  * Feature flag: gated behind CODEX_ENABLED (src/lib/config.ts) — disabled in
  * production until Codex ships broadly. Disabled renders redirect to
@@ -33,6 +51,7 @@
  * is hidden the same way (TavernShell).
  */
 import {
+  Suspense,
   useCallback,
   useEffect,
   useId,
@@ -41,7 +60,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuthGate } from '@/lib/auth/useAuthGate';
 import TavernShell from '@/components/TavernShell';
 import Card from '@/components/Card';
@@ -49,7 +68,9 @@ import Button from '@/components/Button';
 import Icon from '@/components/Icon';
 import PageSkeleton from '@/components/PageSkeleton';
 import { useCodexCatalog, type FetchStatus } from '@/lib/dnd/useCodexCatalog';
+import { usePacksList } from '@/lib/dnd/usePacksList';
 import { useMediaQuery } from '@/lib/useMediaQuery';
+import { useReducedMotion } from '@/lib/useReducedMotion';
 import { CODEX_ENABLED } from '@/lib/config';
 import {
   CODEX_KINDS,
@@ -63,11 +84,13 @@ import type {
   CatalogEquipmentData,
   CatalogItem,
   CatalogMonsterData,
+  CatalogNpcData,
   CatalogSpellData,
 } from '@/lib/api/types';
 import CodexRow from './CodexRow';
 import CodexDetail from './CodexDetail';
 import CodexDetailModal from './CodexDetailModal';
+import CodexSourcePicker from './CodexSourcePicker';
 import styles from './Codex.module.css';
 
 /** A11Y MAJOR-5: typeahead buffer reset window. */
@@ -106,6 +129,18 @@ function useSubfilterOptions(kind: CodexKind, items: CatalogItem[]) {
       ).sort();
       return types.map((t) => ({ value: t, label: t }));
     }
+    // TAV-CODEX-SOURCE-PICKER-NPC (D4/FR-16) — same "distinct values from the
+    // loaded list" pattern as spell/monster/item above.
+    if (kind === 'npc') {
+      const affiliations = Array.from(
+        new Set(
+          items
+            .map((i) => (i.data as CatalogNpcData).affiliation)
+            .filter((a): a is string => Boolean(a)),
+        ),
+      ).sort();
+      return affiliations.map((a) => ({ value: a, label: a }));
+    }
     return [];
   }, [kind, items]);
 }
@@ -114,6 +149,7 @@ const SUBFILTER_LABEL: Partial<Record<CodexKind, string>> = {
   spell: 'Level',
   monster: 'Type',
   item: 'Item type',
+  npc: 'Affiliation',
 };
 
 // DDX21-1: a stable reference (not a fresh `[]` literal per render) for the
@@ -122,8 +158,20 @@ const SUBFILTER_LABEL: Partial<Record<CodexKind, string>> = {
 // where `kindReady` is false, instead of invalidating it every time.
 const EMPTY_ITEMS: CatalogItem[] = [];
 
-export default function CodexPage() {
+/** Small pulsing-ring (or, reduced-motion, static "…") suffix next to a rail
+ *  count while background paging for that kind continues (FR-19/FR-20/A11Y-6). */
+function RailLoadingIndicator() {
+  const reduced = useReducedMotion();
+  return reduced ? (
+    <span className={styles.railLoadingStatic} aria-hidden="true" />
+  ) : (
+    <span className={styles.railLoading} aria-hidden="true" />
+  );
+}
+
+function CodexPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [activeKind, setActiveKind] = useState<CodexKind>('spell');
   const [query, setQuery] = useState('');
   const [sub, setSub] = useState('');
@@ -137,29 +185,68 @@ export default function CodexPage() {
   // actually hears, so rapid typing doesn't fire an announcement per keystroke.
   const [announcedCount, setAnnouncedCount] = useState('');
 
+  // TAV-CODEX-SOURCE-PICKER-NPC (FR-12/FR-13) — single-select source, shared
+  // across every kind tab, reflected in `?source=`. Read once at mount (the
+  // committed value lives in state, not derived from `searchParams` on every
+  // render — a source change writes BOTH this state and the URL, matching
+  // `login`/`reset-password`'s replace-not-push convention).
+  const [sourceParam, setSourceParam] = useState<string | undefined>(
+    () => searchParams.get('source') ?? undefined,
+  );
+  const { packs, status: packsStatus } = usePacksList();
+
+  // FR-13/Sensitive screens (Aoi-UI): an invalid or not-yet-confirmed source
+  // never reaches the picker's label, the DOM, or a `pack` query param.
+  // While packs are still loading it resolves to "All" (a brief, harmless
+  // widen-then-narrow on first load once packs confirm validity) rather than
+  // trusting the raw URL value optimistically.
+  const effectiveSource = useMemo(() => {
+    if (!sourceParam) return undefined;
+    if (packsStatus !== 'ok') return undefined;
+    return packs.some((p) => p.pack_id === sourceParam) ? sourceParam : undefined;
+  }, [sourceParam, packsStatus, packs]);
+
+  const handleSourceChange = useCallback(
+    (next: string | undefined) => {
+      setSourceParam(next);
+      const params = new URLSearchParams(searchParams.toString());
+      if (next) params.set('source', next);
+      else params.delete('source');
+      const qs = params.toString();
+      router.replace(qs ? `/codex?${qs}` : '/codex', { scroll: false });
+    },
+    [router, searchParams],
+  );
+
   const {
     counts,
     items: rawItems,
     itemsKind,
+    itemsSource,
     status: rawStatus,
     retry,
-  } = useCodexCatalog(activeKind);
+    retryRemainder,
+    pageProgress,
+    ensureKind,
+    getCachedItems,
+  } = useCodexCatalog(activeKind, effectiveSource);
 
   // DDX21-1 (fix pass 3, architectural — see useCodexCatalog.ts's doc comment
-  // for the full mechanism): `rawItems`/`rawStatus` above can lag one render
-  // behind `activeKind` right after a kind-tab switch, still holding the
-  // PREVIOUS kind's rows. `itemsKind` is tagged in the exact same
-  // state-update batch as `rawItems`, so `itemsKind !== activeKind` is true
-  // for precisely that stale render. Force both to a safe "still loading,
-  // nothing to show" shape for that window — every downstream computation
-  // below (subfilter options, `filtered`, the row map, `selected`/
-  // CodexDetail) reads these gated values, never the raw hook output, so a
-  // kind-specific renderer can never receive another kind's data. This is a
-  // single choke point rather than guarding individual fields one at a time
-  // (~13 of them, per Aoi-UI's live-browser re-verify).
-  const kindReady = itemsKind === activeKind;
+  // for the full mechanism, extended by TAV-CODEX-SOURCE-PICKER-NPC to cover
+  // `itemsSource` too): `rawItems`/`rawStatus` above can lag one render
+  // behind `activeKind`/`effectiveSource` right after a kind or source
+  // switch, still holding the PREVIOUS pair's rows. `itemsKind`/`itemsSource`
+  // are tagged in the exact same state-update batch as `rawItems`, so a
+  // mismatch on EITHER is true for precisely that stale render. Force both
+  // to a safe "still loading, nothing to show" shape for that window — every
+  // downstream computation below (subfilter options, `filtered`, the row
+  // map, `selected`/CodexDetail) reads these gated values, never the raw
+  // hook output, so a kind/source-specific renderer can never receive
+  // another pair's data.
+  const kindReady = itemsKind === activeKind && itemsSource === effectiveSource;
   const items = kindReady ? rawItems : EMPTY_ITEMS;
   const status: FetchStatus = kindReady ? rawStatus : 'loading';
+  const renderableList = status === 'ok' || status === 'partial';
 
   const subfilterOptions = useSubfilterOptions(activeKind, items);
   const retryRef = useRef<HTMLButtonElement>(null);
@@ -191,6 +278,13 @@ export default function CodexPage() {
     if (!CODEX_ENABLED) router.replace('/dashboard');
   }, [router]);
 
+  // Sora-Arch §5: guarantee the monster page for the active source is at
+  // least in flight the moment a user opens NPCs — the drawer's client-side
+  // stat_ref join reads it via getCachedItems('monster') below.
+  useEffect(() => {
+    if (activeKind === 'npc') ensureKind('monster');
+  }, [activeKind, effectiveSource, ensureKind]);
+
   // Reset the secondary filter and selection whenever the active tab changes —
   // a spell-level filter or a selected spell has no meaning once you're
   // looking at monsters. This is a UX nicety (closes the drawer/modal
@@ -200,8 +294,10 @@ export default function CodexPage() {
   // render (not an effect) per React's documented pattern for "adjusting
   // state when a prop changes" — avoids an extra render pass.
   const [prevActiveKind, setPrevActiveKind] = useState(activeKind);
-  if (activeKind !== prevActiveKind) {
+  const [prevSource, setPrevSource] = useState(effectiveSource);
+  if (activeKind !== prevActiveKind || effectiveSource !== prevSource) {
     setPrevActiveKind(activeKind);
+    setPrevSource(effectiveSource);
     setSub('');
     setSelectedSlug(null);
     setFocusedIdx(0);
@@ -224,6 +320,7 @@ export default function CodexPage() {
       if (activeKind === 'spell') return String((it.data as CatalogSpellData).level) === sub;
       if (activeKind === 'monster') return (it.data as CatalogMonsterData).monster_type === sub;
       if (activeKind === 'item') return (it.data as CatalogEquipmentData).item_type === sub;
+      if (activeKind === 'npc') return (it.data as CatalogNpcData).affiliation === sub;
       return true;
     });
   }, [items, query, sub, activeKind]);
@@ -242,6 +339,21 @@ export default function CodexPage() {
 
   const selected = filtered.find((i) => i.slug === selectedSlug) ?? null;
   const optionId = useCallback((slug: string) => `${listboxId}-${slug}`, [listboxId]);
+
+  // TAV-CODEX-SOURCE-PICKER-NPC (Sora-Arch §5) — the NPC drawer's client-side
+  // stat_ref join: look the linked monster up in the SAME source's monster
+  // cache by the slug portion of `stat_ref` ("dnd5e:monster:<slug>"). Never
+  // reaches into another pack's data — the cache only ever holds rows the
+  // active source's monster fetch (RLS-approved) actually returned.
+  const monsterItemsForSource = getCachedItems('monster');
+  const resolvedMonster = useMemo(() => {
+    if (activeKind !== 'npc' || !selected) return undefined;
+    const statRef = (selected.data as CatalogNpcData).stat_ref;
+    if (!statRef) return undefined;
+    const slug = statRef.split(':')[2];
+    if (!slug) return undefined;
+    return monsterItemsForSource.find((m) => m.slug === slug);
+  }, [activeKind, selected, monsterItemsForSource]);
 
   // A11Y MAJOR-4 / MAJOR-5: scroll the virtually-focused row into view. Looks
   // the row up by its option id rather than keeping a parallel ref array —
@@ -271,20 +383,23 @@ export default function CodexPage() {
   const [prevAnnounceStatus, setPrevAnnounceStatus] = useState(status);
   if (status !== prevAnnounceStatus) {
     setPrevAnnounceStatus(status);
-    if (status !== 'ok') setAnnouncedCount('');
+    if (!renderableList) setAnnouncedCount('');
   }
 
   useEffect(() => {
-    if (status !== 'ok') return;
+    if (!renderableList) return;
     const t = setTimeout(() => {
       // DDX21-3: nounPlural, not naive `${noun}s` ("class" -> "classes", not
-      // "classs").
+      // "classs"). TAV-CODEX-SOURCE-PICKER-NPC (A11Y-2/FR-20): re-fires as
+      // `items.length` grows during background paging; the ~400ms debounce
+      // naturally coalesces same-tick page landings into one announcement
+      // rather than one per page.
       const noun = filtered.length === 1 ? activeMeta.noun : activeMeta.nounPlural;
       const total = items.length !== filtered.length ? ` · ${items.length} total` : '';
       setAnnouncedCount(`${filtered.length} ${noun}${total}`);
     }, COUNT_ANNOUNCE_DEBOUNCE_MS);
     return () => clearTimeout(t);
-  }, [filtered.length, items.length, status, activeMeta.noun, activeMeta.nounPlural]);
+  }, [filtered.length, items.length, renderableList, activeMeta.noun, activeMeta.nounPlural]);
 
   const onListboxKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (filtered.length === 0) return;
@@ -358,6 +473,18 @@ export default function CodexPage() {
     railRefs.current[next]?.focus();
   };
 
+  // TAV-CODEX-SOURCE-PICKER-NPC (Aoi-UI §1 empty state): kinds (other than
+  // the active one) that DO have rows under the current source — offered as
+  // inline links when the active kind+source combination is empty.
+  const sourceLabel = useMemo(() => {
+    if (!effectiveSource) return null;
+    return packs.find((p) => p.pack_id === effectiveSource)?.display_name ?? null;
+  }, [effectiveSource, packs]);
+  const kindsWithRows = useMemo(() => {
+    if (!counts) return [];
+    return CODEX_KINDS.filter((k) => k.kind !== activeKind && (counts[k.kind] ?? 0) > 0);
+  }, [counts, activeKind]);
+
   // UIR2-TAV-3: this page previously had NO auth gate at all — it rendered
   // <TavernShell> unconditionally, so TavernShell's own useAuth() call could
   // see a null user (resolving, or a failed silent refresh) and UserMenu's
@@ -383,15 +510,23 @@ export default function CodexPage() {
       active="compendium"
       title="Codex"
       actions={
-        <div className={styles.search}>
-          <Icon name="Search" size={14} className={styles.searchIcon} aria-hidden />
-          <input
-            className={styles.searchInput}
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={`Search ${activeMeta.label.toLowerCase()}…`}
-            aria-label={`Search ${activeMeta.label.toLowerCase()}`}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div className={styles.search}>
+            <Icon name="Search" size={14} className={styles.searchIcon} aria-hidden />
+            <input
+              className={styles.searchInput}
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={`Search ${activeMeta.label.toLowerCase()}…`}
+              aria-label={`Search ${activeMeta.label.toLowerCase()}`}
+            />
+          </div>
+          <CodexSourcePicker
+            packs={packs}
+            value={effectiveSource}
+            onChange={handleSourceChange}
+            status={packsStatus}
           />
         </div>
       }
@@ -432,6 +567,7 @@ export default function CodexPage() {
                   </span>
                   <span className={styles.railLbl}>{m.label}</span>
                   {count != null && <span className={styles.railCount}>{count}</span>}
+                  {on && pageProgress && <RailLoadingIndicator />}
                 </button>
               );
             })}
@@ -471,7 +607,7 @@ export default function CodexPage() {
           className={styles.list}
         >
           <div className={styles.listHead}>
-            {status === 'ok' && (
+            {renderableList && (
               <span>
                 {/* DDX21-3: nounPlural, not naive `${noun}s` ("class" -> "classes"). */}
                 <b>{filtered.length}</b> {filtered.length === 1 ? activeMeta.noun : activeMeta.nounPlural}
@@ -518,18 +654,36 @@ export default function CodexPage() {
             </Card>
           )}
 
-          {status === 'ok' && filtered.length === 0 && (
+          {renderableList && filtered.length === 0 && (
             <div className={`${styles.listEmpty} ${styles.stateScroll}`}>
               <p className={styles.listEmptyTitle}>Nothing here.</p>
-              <p>
-                {items.length === 0
-                  ? `No ${activeMeta.label.toLowerCase()} are in the catalog yet.`
-                  : 'No results match your search.'}
-              </p>
+              {items.length === 0 ? (
+                sourceLabel ? (
+                  <>
+                    <p>
+                      No {activeMeta.label.toLowerCase()} in {sourceLabel}
+                      {kindsWithRows.length > 0 ? ' — try one of these instead:' : '.'}
+                    </p>
+                    {kindsWithRows.length > 0 && (
+                      <div className={styles.sourceEmptyLinks}>
+                        {kindsWithRows.map((k) => (
+                          <Button key={k.kind} variant="ghost" onClick={() => setActiveKind(k.kind)}>
+                            {k.label}
+                          </Button>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p>No {activeMeta.label.toLowerCase()} are in the catalog yet.</p>
+                )
+              ) : (
+                <p>No results match your search.</p>
+              )}
             </div>
           )}
 
-          {status === 'ok' && filtered.length > 0 && (
+          {renderableList && filtered.length > 0 && (
             <div
               ref={listboxRef}
               className={styles.rows}
@@ -557,6 +711,18 @@ export default function CodexPage() {
                   }}
                 />
               ))}
+              {/* FR-20: append-only background-loading affordance under the
+                  last row — never a spinner overlay on top of already-usable rows. */}
+              {pageProgress && <p className={styles.listLoadingMore}>Loading more…</p>}
+            </div>
+          )}
+
+          {status === 'partial' && (
+            <div className={styles.listLoadingMore}>
+              Some rows may be missing —{' '}
+              <Button variant="ghost" onClick={retryRemainder}>
+                Retry remaining
+              </Button>
             </div>
           )}
         </div>
@@ -568,7 +734,7 @@ export default function CodexPage() {
           }
         >
           {selected ? (
-            <CodexDetail item={selected} kind={activeKind} />
+            <CodexDetail item={selected} kind={activeKind} resolvedMonster={resolvedMonster} />
           ) : (
             <div className={styles.emptyDrawer}>
               <Icon name={activeMeta.icon} size={40} aria-hidden style={{ opacity: 0.5 }} />
@@ -593,5 +759,20 @@ export default function CodexPage() {
         />
       </div>
     </TavernShell>
+  );
+}
+
+// ── Default export — Suspense wrapper for useSearchParams ─────────────────────
+/**
+ * Aoi-UI §Changed #5: `useSearchParams` requires a Suspense boundary in the
+ * App Router (Next 16) — same split already used in `login`/`reset-password`
+ * (a thin default export wraps a `<Suspense>` inner component; the file stays
+ * 'use client' throughout, which Next 16 allows for this exact pattern).
+ */
+export default function CodexPage() {
+  return (
+    <Suspense fallback={<PageSkeleton variant="list" lines={6} />}>
+      <CodexPageInner />
+    </Suspense>
   );
 }
