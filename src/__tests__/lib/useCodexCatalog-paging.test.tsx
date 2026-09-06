@@ -242,10 +242,14 @@ describe('itemsSource invariant (DDX21-1 extension, Kage-CR #8)', () => {
     // (exactly what page.tsx's `kindReady` does) must treat the stale
     // pack-a row as unsafe to render under pack-b — i.e. itemsSource must
     // NOT still read 'pack-a' once the source prop has moved to 'pack-b'.
-    // (Deleting the `itemsSource` conjunct from that gate — collapsing it to
-    // `itemsKind === activeKind` alone, the pre-TAV-CODEX-SOURCE-PICKER-NPC
-    // shape — would make this assertion fail: itemsKind stays 'monster'
-    // across the switch, so only the itemsSource check catches it.)
+    // What this pins: the hook tags `itemsSource` in the same batch as
+    // `items`, so the tag can never lag the source prop. It does NOT
+    // exercise page.tsx's `kindReady` gate (a renderHook test never imports
+    // the page); that gate's value is a paintable frame in a real browser
+    // where `rawItems` still holds pack-a rows after `source` moved to
+    // pack-b — a window RTL's act() flushes away, which is why the
+    // page-level mutation in codex-source-picker.test.tsx does not
+    // reproduce (see its caveat). Kage re-review 2026-09-06.
     expect(result.current.itemsSource).not.toBe('pack-a');
 
     resolveSourceB();
