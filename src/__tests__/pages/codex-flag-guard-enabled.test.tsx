@@ -16,6 +16,7 @@ const mockReplace = jest.fn();
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush, replace: mockReplace }),
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 jest.mock('../../lib/api/auth', () => ({
@@ -30,6 +31,7 @@ jest.mock('../../lib/api/auth', () => ({
 jest.mock('../../lib/api/dnd', () => ({
   getCatalog: jest.fn(),
   getCatalogCounts: jest.fn(),
+  getPacks: jest.fn(),
 }));
 
 import * as dnd from '../../lib/api/dnd';
@@ -41,6 +43,15 @@ import type { User } from '../../lib/api/types';
 
 const mockGetCatalog = dnd.getCatalog as jest.MockedFunction<typeof dnd.getCatalog>;
 const mockGetCatalogCounts = dnd.getCatalogCounts as jest.MockedFunction<typeof dnd.getCatalogCounts>;
+const mockGetPacks = dnd.getPacks as jest.MockedFunction<typeof dnd.getPacks>;
+
+// TAV-CODEX-SOURCE-PICKER-NPC: usePacksList fetches once per mount. Every
+// codex test pre-dates the picker, so default it to a resolved empty list
+// (packsStatus:'ok', All-only) unless a test overrides it — never leaves it
+// unmocked-pending (that would hang usePacksList in 'loading' forever).
+beforeEach(() => {
+  mockGetPacks.mockReset().mockResolvedValue([]);
+});
 
 const LEON: User = { id: 1, username: 'leon', email: null };
 

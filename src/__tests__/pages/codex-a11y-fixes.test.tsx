@@ -32,6 +32,7 @@ import '@testing-library/jest-dom';
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 jest.mock('../../lib/api/auth', () => ({
@@ -46,6 +47,7 @@ jest.mock('../../lib/api/auth', () => ({
 jest.mock('../../lib/api/dnd', () => ({
   getCatalog: jest.fn(),
   getCatalogCounts: jest.fn(),
+  getPacks: jest.fn(),
 }));
 
 import * as dnd from '../../lib/api/dnd';
@@ -57,6 +59,15 @@ import type { CatalogItem, User } from '../../lib/api/types';
 
 const mockGetCatalog = dnd.getCatalog as jest.MockedFunction<typeof dnd.getCatalog>;
 const mockGetCatalogCounts = dnd.getCatalogCounts as jest.MockedFunction<typeof dnd.getCatalogCounts>;
+const mockGetPacks = dnd.getPacks as jest.MockedFunction<typeof dnd.getPacks>;
+
+// TAV-CODEX-SOURCE-PICKER-NPC: usePacksList fetches once per mount. Every
+// codex test pre-dates the picker, so default it to a resolved empty list
+// (packsStatus:'ok', All-only) unless a test overrides it — never leaves it
+// unmocked-pending (that would hang usePacksList in 'loading' forever).
+beforeEach(() => {
+  mockGetPacks.mockReset().mockResolvedValue([]);
+});
 
 const LEON: User = { id: 1, username: 'leon', email: null };
 
@@ -354,16 +365,18 @@ describe('Codex A11Y fixes (DDX-21)', () => {
 
   describe('rail keyboard navigation (MAJOR-8)', () => {
     it('Home/End jump to the first/last tab', async () => {
+      // TAV-CODEX-SOURCE-PICKER-NPC: rail reorder — first is now Classes,
+      // last is now Adventures (11 kinds total).
       mockMatchMedia([]);
       renderCodex();
       await screen.findAllByRole('tab');
 
       fireEvent.keyDown(screen.getByRole('tab', { name: /spells/i }), { key: 'End' });
-      const conditionsTab = screen.getByRole('tab', { name: /conditions/i });
-      expect(conditionsTab).toHaveAttribute('aria-selected', 'true');
+      const adventuresTab = screen.getByRole('tab', { name: /adventures/i });
+      expect(adventuresTab).toHaveAttribute('aria-selected', 'true');
 
-      fireEvent.keyDown(conditionsTab, { key: 'Home' });
-      expect(screen.getByRole('tab', { name: /spells/i })).toHaveAttribute('aria-selected', 'true');
+      fireEvent.keyDown(adventuresTab, { key: 'Home' });
+      expect(screen.getByRole('tab', { name: /^classes\b/i })).toHaveAttribute('aria-selected', 'true');
     });
 
     it('is aria-orientation="vertical" at a wide viewport, and ArrowLeft/ArrowRight do nothing', async () => {
@@ -410,23 +423,37 @@ describe('Codex A11Y fixes (DDX-21)', () => {
       expect(within(tablist).queryByRole('combobox')).toBeNull();
 
       // When the active kind exposes a subfilter, the <select> still renders —
-      // as a SIBLING outside the tablist, elsewhere on the page.
-      const subfilter = screen.queryByRole('combobox');
+      // as a SIBLING outside the tablist, elsewhere on the page. TAV-CODEX-
+      // SOURCE-PICKER-NPC: the header's source picker trigger is ALSO
+      // role="combobox" now, so this can no longer assume at most one match —
+      // it's identified by `aria-haspopup` (only the picker trigger has it;
+      // the native <select> subfilter never does).
+      const subfilter = screen
+        .getAllByRole('combobox')
+        .find((el) => !el.hasAttribute('aria-haspopup'));
       if (subfilter) {
         expect(tablist).not.toContainElement(subfilter);
       }
     });
 
     it('ArrowUp/ArrowDown move the active tab regardless of viewport width', async () => {
+      // TAV-CODEX-SOURCE-PICKER-NPC: rail reorder — Spells' next neighbor is
+      // now Items, not Monsters.
       mockMatchMedia([RAIL_HORIZONTAL, NARROW_DRAWER]);
       renderCodex();
       await screen.findAllByRole('tab');
 
       fireEvent.keyDown(screen.getByRole('tab', { name: /spells/i }), { key: 'ArrowDown' });
-      expect(screen.getByRole('tab', { name: /monsters/i })).toHaveAttribute('aria-selected', 'true');
-      // Let the monster-tab fetch this triggered settle before the test ends
+      expect(screen.getByRole('tab', { name: /items/i })).toHaveAttribute('aria-selected', 'true');
+      // Let the item-tab fetch this triggered settle before the test ends
       // (mirrors codex.test.tsx's own rail-navigation test).
-      await screen.findByRole('option', { name: /goblin/i });
+      await waitFor(() => {
+        expect(mockGetCatalog).toHaveBeenCalledWith(
+          'dnd5e',
+          { type: 'item', limit: 500, offset: 0 },
+          expect.anything(),
+        );
+      });
     });
   });
 

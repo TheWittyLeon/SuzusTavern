@@ -232,7 +232,7 @@ export function useCodexCatalog(
       // separately from `existing` (a snapshot from BEFORE this run) so the
       // runaway-guard/catch branches below report the freshest value, not a
       // stale one from a previous run.
-      const lastTotal = existing?.total ?? 0;
+      let lastTotal = existing?.total ?? 0;
 
       const isActive = () => activeKeyRef.current === key;
       const mirror = (entry: CacheEntry) => {

@@ -283,10 +283,15 @@ describe('CODEX_KINDS nounPlural (DDX21-3)', () => {
     class: 'classes',
     background: 'backgrounds',
     condition: 'conditions',
+    // TAV-CODEX-SOURCE-PICKER-NPC (D6/FR-15): four new rail kinds.
+    npc: 'NPCs',
+    feat: 'feats',
+    subclass: 'subclasses',
+    adventure: 'adventures',
   };
 
-  it('has exactly 7 kinds', () => {
-    expect(CODEX_KINDS).toHaveLength(7);
+  it('has exactly 11 kinds (7 original + npc/feat/subclass/adventure)', () => {
+    expect(CODEX_KINDS).toHaveLength(11);
   });
 
   it.each(CODEX_KINDS.map((m) => [m.kind, m] as const))(

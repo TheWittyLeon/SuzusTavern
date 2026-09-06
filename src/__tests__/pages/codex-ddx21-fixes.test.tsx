@@ -53,6 +53,7 @@ import '@testing-library/jest-dom';
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 jest.mock('../../lib/api/auth', () => ({
@@ -67,6 +68,7 @@ jest.mock('../../lib/api/auth', () => ({
 jest.mock('../../lib/api/dnd', () => ({
   getCatalog: jest.fn(),
   getCatalogCounts: jest.fn(),
+  getPacks: jest.fn(),
 }));
 
 import * as dnd from '../../lib/api/dnd';
@@ -79,6 +81,15 @@ import type { CatalogItem, CatalogMonsterData, User } from '../../lib/api/types'
 
 const mockGetCatalog = dnd.getCatalog as jest.MockedFunction<typeof dnd.getCatalog>;
 const mockGetCatalogCounts = dnd.getCatalogCounts as jest.MockedFunction<typeof dnd.getCatalogCounts>;
+const mockGetPacks = dnd.getPacks as jest.MockedFunction<typeof dnd.getPacks>;
+
+// TAV-CODEX-SOURCE-PICKER-NPC: usePacksList fetches once per mount. Every
+// codex test pre-dates the picker, so default it to a resolved empty list
+// (packsStatus:'ok', All-only) unless a test overrides it — never leaves it
+// unmocked-pending (that would hang usePacksList in 'loading' forever).
+beforeEach(() => {
+  mockGetPacks.mockReset().mockResolvedValue([]);
+});
 
 const LEON: User = { id: 1, username: 'leon', email: null };
 
@@ -272,7 +283,7 @@ describe('DDX21-1 fix pass 3: the architectural itemsKind gate — monster -> ba
     fireEvent.click(await screen.findByRole('tab', { name: /monsters/i }));
     await screen.findByRole('option', { name: /sneaky goblin/i });
 
-    const otherKindNames = [/spells/i, /items/i, /races/i, /classes/i, /backgrounds/i, /conditions/i];
+    const otherKindNames = [/spells/i, /items/i, /races/i, /^classes\b/i, /backgrounds/i, /conditions/i];
 
     for (const name of otherKindNames) {
       fireEvent.click(screen.getByRole('tab', { name }));
@@ -289,7 +300,8 @@ describe('DDX21-1 fix pass 3: the architectural itemsKind gate — monster -> ba
     }
 
     // The route is still fully functional after the whole sweep.
-    expect(screen.getAllByRole('tab')).toHaveLength(7);
+    // TAV-CODEX-SOURCE-PICKER-NPC: rail grew from 7 to 11 kinds.
+    expect(screen.getAllByRole('tab')).toHaveLength(11);
   });
 });
 
@@ -324,7 +336,7 @@ describe('DDX21-3: Classes tab pluralizes correctly ("classes", not "classs")', 
 
   it('the visible list-head count reads "2 classes", never "2 classs"', async () => {
     renderCodexWithBoundary();
-    fireEvent.click(await screen.findByRole('tab', { name: /classes/i }));
+    fireEvent.click(await screen.findByRole('tab', { name: /^classes\b/i }));
     await screen.findByRole('option', { name: /fighter/i });
 
     const listHead = document.querySelector('.listHead') as HTMLElement;
@@ -334,7 +346,7 @@ describe('DDX21-3: Classes tab pluralizes correctly ("classes", not "classs")', 
 
   it('the debounced sr-only announcement also reads "classes", never "classs"', async () => {
     renderCodexWithBoundary();
-    fireEvent.click(await screen.findByRole('tab', { name: /classes/i }));
+    fireEvent.click(await screen.findByRole('tab', { name: /^classes\b/i }));
     await screen.findByRole('option', { name: /fighter/i });
 
     await waitFor(() => {
