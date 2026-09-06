@@ -294,6 +294,22 @@ describe('CODEX_KINDS nounPlural (DDX21-3)', () => {
     expect(CODEX_KINDS).toHaveLength(11);
   });
 
+  it('Kage-CR #23: rail order is pinned exactly (Classes, Subclasses, Races, Backgrounds, Feats, Spells, Items, Conditions, Monsters, NPCs, Adventures)', () => {
+    expect(CODEX_KINDS.map((m) => m.kind)).toEqual([
+      'class',
+      'subclass',
+      'race',
+      'background',
+      'feat',
+      'spell',
+      'item',
+      'condition',
+      'monster',
+      'npc',
+      'adventure',
+    ]);
+  });
+
   it.each(CODEX_KINDS.map((m) => [m.kind, m] as const))(
     '%s pluralizes to the correct irregular-aware form',
     (kind, meta) => {

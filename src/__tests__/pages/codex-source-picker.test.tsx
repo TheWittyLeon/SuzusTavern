@@ -149,7 +149,12 @@ describe('trigger + degraded states', () => {
 
     const trigger = await screen.findByRole('combobox', { name: /content source/i });
     expect(trigger).toHaveTextContent('All sources');
-    expect(trigger).toBeDisabled();
+    // Kage-CR #16: aria-disabled, not the native `disabled` attribute — the
+    // trigger stays reachable/focusable (and announced as disabled, with a
+    // reason via the adjacent notice) rather than silently dropped from the
+    // tab order.
+    expect(trigger).not.toBeDisabled();
+    expect(trigger).toHaveAttribute('aria-disabled', 'true');
     expect(await screen.findByText(/sources unavailable/i)).toBeInTheDocument();
     // The rest of the page keeps working against the unfiltered catalog.
     expect(await screen.findByRole('option', { name: /fireball/i })).toBeInTheDocument();
@@ -257,6 +262,12 @@ describe('invalid/inaccessible ?source= (adversarial, Sensitive Screens)', () =>
 });
 
 describe('keyboard operation (APG select-only combobox, A11Y-1)', () => {
+  // CRITICAL-1 (Iro-A11y): real DOM focus never leaves the trigger button —
+  // the popup <ul> is a virtual-focus listbox, never itself focused. Every
+  // key dispatch below therefore targets the TRIGGER, not the list (the
+  // previous version of this suite fired on the list directly, which never
+  // exercises the real keydown handler and passed falsely even against the
+  // keyboard-trap bug).
   it('Enter opens the popup, ArrowDown moves virtual focus, Enter selects + closes + returns focus to the trigger', async () => {
     renderCodex();
     await screen.findByRole('option', { name: /fireball/i });
@@ -266,10 +277,11 @@ describe('keyboard operation (APG select-only combobox, A11Y-1)', () => {
     fireEvent.keyDown(trigger, { key: 'Enter' });
     const listbox = await screen.findByRole('listbox', { name: /content source/i });
     expect(listbox).toBeInTheDocument();
+    expect(trigger).toHaveFocus();
 
-    fireEvent.keyDown(listbox, { key: 'ArrowDown' }); // -> SRD
-    fireEvent.keyDown(listbox, { key: 'ArrowDown' }); // -> Naruto (homebrew)
-    fireEvent.keyDown(listbox, { key: 'Enter' });
+    fireEvent.keyDown(trigger, { key: 'ArrowDown' }); // -> SRD
+    fireEvent.keyDown(trigger, { key: 'ArrowDown' }); // -> Naruto (homebrew)
+    fireEvent.keyDown(trigger, { key: 'Enter' });
 
     expect(screen.queryByRole('listbox', { name: /content source/i })).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
@@ -282,9 +294,9 @@ describe('keyboard operation (APG select-only combobox, A11Y-1)', () => {
     const trigger = screen.getByRole('combobox', { name: /content source/i });
 
     fireEvent.click(trigger);
-    const listbox = await screen.findByRole('listbox', { name: /content source/i });
-    fireEvent.keyDown(listbox, { key: 'ArrowDown' });
-    fireEvent.keyDown(listbox, { key: 'Escape' });
+    await screen.findByRole('listbox', { name: /content source/i });
+    fireEvent.keyDown(trigger, { key: 'ArrowDown' });
+    fireEvent.keyDown(trigger, { key: 'Escape' });
 
     expect(screen.queryByRole('listbox', { name: /content source/i })).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
@@ -295,23 +307,41 @@ describe('keyboard operation (APG select-only combobox, A11Y-1)', () => {
   it('Home/End jump virtual focus to the first/last option', async () => {
     renderCodex();
     await screen.findByRole('option', { name: /fireball/i });
-    fireEvent.click(screen.getByRole('combobox', { name: /content source/i }));
-    const listbox = await screen.findByRole('listbox', { name: /content source/i });
+    const trigger = screen.getByRole('combobox', { name: /content source/i });
+    fireEvent.click(trigger);
+    await screen.findByRole('listbox', { name: /content source/i });
 
-    fireEvent.keyDown(listbox, { key: 'End' });
-    fireEvent.keyDown(listbox, { key: 'Enter' });
+    fireEvent.keyDown(trigger, { key: 'End' });
+    fireEvent.keyDown(trigger, { key: 'Enter' });
     expect(mockReplace).toHaveBeenCalledWith('/codex?source=leon-naruto-5e', { scroll: false });
   });
 
   it('typeahead jumps to the option starting with the typed letter', async () => {
     renderCodex();
     await screen.findByRole('option', { name: /fireball/i });
-    fireEvent.click(screen.getByRole('combobox', { name: /content source/i }));
+    const trigger = screen.getByRole('combobox', { name: /content source/i });
+    fireEvent.click(trigger);
+    await screen.findByRole('listbox', { name: /content source/i });
+
+    fireEvent.keyDown(trigger, { key: 'n' }); // "Naruto — ..." starts with n
+    fireEvent.keyDown(trigger, { key: 'Enter' });
+    expect(mockReplace).toHaveBeenCalledWith('/codex?source=leon-naruto-5e', { scroll: false });
+  });
+
+  it('CRITICAL-1 regression pin: dispatching keydown on the POPUP <ul> itself does nothing (proves the handler lives on the trigger, not a sibling that can never receive real focus)', async () => {
+    renderCodex();
+    await screen.findByRole('option', { name: /fireball/i });
+    const trigger = screen.getByRole('combobox', { name: /content source/i });
+    fireEvent.click(trigger);
     const listbox = await screen.findByRole('listbox', { name: /content source/i });
 
-    fireEvent.keyDown(listbox, { key: 'n' }); // "Naruto — ..." starts with n
+    fireEvent.keyDown(listbox, { key: 'End' });
     fireEvent.keyDown(listbox, { key: 'Enter' });
-    expect(mockReplace).toHaveBeenCalledWith('/codex?source=leon-naruto-5e', { scroll: false });
+
+    // Real focus never moved to the list, so these keys were never handled —
+    // the popup is still open and no selection was committed.
+    expect(screen.getByRole('listbox', { name: /content source/i })).toBeInTheDocument();
+    expect(mockReplace).not.toHaveBeenCalled();
   });
 
   it('outside click closes the popup without changing the selection', async () => {
@@ -339,5 +369,113 @@ describe('selected option indicator (non-color, A11Y checklist)', () => {
     const selectedOption = within(listbox).getByRole('option', { name: /naruto/i });
     expect(selectedOption).toHaveAttribute('aria-selected', 'true');
     expect(selectedOption.querySelector('svg')).toBeInTheDocument();
+  });
+});
+
+describe('itemsSource invariant — page.tsx kindReady gate (Kage-CR #8, DDX21-1 extension)', () => {
+  it('switching source at a FIXED kind never renders the stale source\'s monster row under the new source', async () => {
+    const ABOLETH: CatalogItem = {
+      slug: 'aboleth',
+      name: 'Aboleth',
+      content_type: 'monster',
+      source_type: 'srd',
+      data: { speed: { walk: 10, swim: 40 }, cr: 10 },
+    };
+    let resolveNaruto!: () => void;
+    mockGetCatalog.mockReset().mockImplementation((_s, opts) => {
+      if (opts?.type === 'spell') return Promise.resolve(respond('spell', [FIREBALL]));
+      if (opts?.type === 'monster' && !opts?.pack) return Promise.resolve(respond('monster', [ABOLETH]));
+      if (opts?.type === 'monster' && opts?.pack === 'leon-naruto-5e') {
+        return new Promise((res) => {
+          resolveNaruto = () => res(respond('monster', []));
+        });
+      }
+      return Promise.resolve(respond(opts?.type ?? '', []));
+    });
+
+    renderCodex();
+    await screen.findByRole('option', { name: /fireball/i });
+    fireEvent.click(screen.getByRole('tab', { name: /monsters/i }));
+    await screen.findByRole('option', { name: /aboleth/i });
+
+    // Switch source to Naruto — its monster fetch is deliberately delayed.
+    fireEvent.click(screen.getByRole('combobox', { name: /content source/i }));
+    fireEvent.click(await screen.findByRole('option', { name: /naruto/i }));
+
+    // THE INVARIANT: while Naruto's monster page is still in flight, the
+    // "All sources" Aboleth row must NOT still render as if it belongs to
+    // the new source — page.tsx's `kindReady` gate
+    // (`itemsKind === activeKind && itemsSource === effectiveSource`) is
+    // what's meant to guarantee this. Honest caveat (verified by mutation,
+    // not assumed): under RTL's synchronous `act()` flushing, deleting the
+    // `itemsSource` conjunct here does NOT currently fail this specific
+    // assertion — the hook's own `runPaging` synchronously clears `items`
+    // to `[]` inside the same effect that starts the new fetch (before any
+    // `await`), so the outer gate is redundant defense-in-depth for a
+    // same-kind source switch, not provably load-bearing via this black-box
+    // test. It remains load-bearing for the ORIGINAL DDX21-1 shape-mismatch
+    // class (a kind switch handing one kind's data to another's renderer,
+    // still covered by codex-ddx21-fixes.test.tsx) and as a guard against a
+    // future refactor of the hook that stops self-clearing synchronously.
+    // Kept in place; flagged to Kage-CR rather than presented as disproven.
+    await waitFor(() => {
+      expect(screen.queryByRole('option', { name: /aboleth/i })).not.toBeInTheDocument();
+    });
+
+    resolveNaruto();
+    await waitFor(() => {
+      expect(screen.getByText(/no monsters/i)).toBeInTheDocument();
+    });
+  });
+});
+
+describe('FR-16 — NPC subfilter is affiliation, populated from the loaded list (Kage-CR #9)', () => {
+  it('the Affiliation subfilter lists distinct affiliations from the currently loaded NPC rows', async () => {
+    const ITACHI: CatalogItem = {
+      slug: 'itachi',
+      name: 'Itachi Uchiha',
+      content_type: 'npc',
+      source_type: 'homebrew',
+      data: { name: 'Itachi Uchiha', affiliation: 'Akatsuki' },
+    };
+    const IRUKA: CatalogItem = {
+      slug: 'iruka',
+      name: 'Iruka Umino',
+      content_type: 'npc',
+      source_type: 'homebrew',
+      data: { name: 'Iruka Umino', affiliation: 'Leaf Village' },
+    };
+    mockGetCatalog.mockReset().mockImplementation((_s, opts) => {
+      if (opts?.type === 'spell') return Promise.resolve(respond('spell', [FIREBALL]));
+      if (opts?.type === 'npc') return Promise.resolve(respond('npc', [ITACHI, IRUKA]));
+      return Promise.resolve(respond(opts?.type ?? '', []));
+    });
+
+    renderCodex();
+    await screen.findByRole('option', { name: /fireball/i });
+    fireEvent.click(screen.getByRole('tab', { name: /npcs/i }));
+    await screen.findByRole('option', { name: /itachi/i });
+
+    const subfilter = screen.getByLabelText(/affiliation/i);
+    expect(within(subfilter).getByRole('option', { name: 'Akatsuki' })).toBeInTheDocument();
+    expect(within(subfilter).getByRole('option', { name: 'Leaf Village' })).toBeInTheDocument();
+
+    fireEvent.change(subfilter, { target: { value: 'Akatsuki' } });
+    expect(screen.getByRole('option', { name: /itachi/i })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /iruka/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('MAJOR-1 (Iro-A11y) — group headings reach the accessible tree', () => {
+  it('"Homebrew" is exposed via an accessible group, not an aria-hidden divider', async () => {
+    renderCodex();
+    await screen.findByRole('option', { name: /fireball/i });
+    fireEvent.click(screen.getByRole('combobox', { name: /content source/i }));
+    const listbox = await screen.findByRole('listbox', { name: /content source/i });
+
+    const group = within(listbox).getByRole('group', { name: /homebrew/i });
+    expect(group).toBeInTheDocument();
+    // The Naruto option lives inside the accessible group.
+    expect(within(group).getByRole('option', { name: /naruto/i })).toBeInTheDocument();
   });
 });

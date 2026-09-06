@@ -67,7 +67,7 @@ import Card from '@/components/Card';
 import Button from '@/components/Button';
 import Icon from '@/components/Icon';
 import PageSkeleton from '@/components/PageSkeleton';
-import { useCodexCatalog, type FetchStatus } from '@/lib/dnd/useCodexCatalog';
+import { useCodexCatalog, type FetchStatus, type PageProgress } from '@/lib/dnd/useCodexCatalog';
 import { usePacksList } from '@/lib/dnd/usePacksList';
 import { useMediaQuery } from '@/lib/useMediaQuery';
 import { useReducedMotion } from '@/lib/useReducedMotion';
@@ -158,14 +158,65 @@ const SUBFILTER_LABEL: Partial<Record<CodexKind, string>> = {
 // where `kindReady` is false, instead of invalidating it every time.
 const EMPTY_ITEMS: CatalogItem[] = [];
 
-/** Small pulsing-ring (or, reduced-motion, static "…") suffix next to a rail
- *  count while background paging for that kind continues (FR-19/FR-20/A11Y-6). */
-function RailLoadingIndicator() {
+/** A11Y MINOR-2/debounce window shared with the count/selection announcements. */
+const PAGING_ANNOUNCE_DEBOUNCE_MS = 400;
+
+/**
+ * Small pulsing-ring (or, reduced-motion, static "…") suffix next to a rail
+ * count while background paging for that kind continues (FR-19/FR-20/
+ * A11Y-6), PLUS an sr-only debounced live-region announcement (Iro-A11y
+ * MAJOR-2): "More {kind} still loading" while a background page is
+ * outstanding, "{Kind} finished loading" once it settles — fired once per
+ * transition, not per page. Mounted for the whole time its tab is active
+ * (not gated on `pageProgress` truthiness) so it's still present in the
+ * tree at the moment paging completes and can announce that transition.
+ */
+function RailLoadingIndicator({
+  pageProgress,
+  noun,
+  label,
+}: {
+  pageProgress: PageProgress | null;
+  noun: string;
+  label: string;
+}) {
   const reduced = useReducedMotion();
-  return reduced ? (
-    <span className={styles.railLoadingStatic} aria-hidden="true" />
-  ) : (
-    <span className={styles.railLoading} aria-hidden="true" />
+  const [announcement, setAnnouncement] = useState('');
+  // Tracks whether THIS tab has been seen mid-background-load at all, so the
+  // debounced effect below knows a real loading->done transition happened
+  // even if the whole sequence resolves faster than the debounce window.
+  // Kage-CR: refs must never be written during render (react-hooks/refs) —
+  // this is its own effect, ordered before the debounce effect so the value
+  // is current by the time that effect's (later-firing) timeout reads it.
+  const everLoadedRef = useRef(false);
+  useEffect(() => {
+    if (pageProgress) everLoadedRef.current = true;
+  }, [pageProgress]);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (pageProgress) {
+        setAnnouncement(`More ${noun} still loading`);
+      } else if (everLoadedRef.current) {
+        setAnnouncement(`${label} finished loading`);
+        everLoadedRef.current = false; // consumed — don't repeat
+      }
+    }, PAGING_ANNOUNCE_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [pageProgress, noun, label]);
+
+  return (
+    <>
+      {pageProgress &&
+        (reduced ? (
+          <span className={styles.railLoadingStatic} aria-hidden="true" />
+        ) : (
+          <span className={styles.railLoading} aria-hidden="true" />
+        ))}
+      <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {announcement}
+      </span>
+    </>
   );
 }
 
@@ -388,18 +439,27 @@ function CodexPageInner() {
 
   useEffect(() => {
     if (!renderableList) return;
+    // Kage-CR #7: skip entirely while a background page is still
+    // outstanding — `items.length`/`filtered.length` climb once per landed
+    // page, and re-scheduling this debounce on every climb doesn't
+    // guarantee "announce once" the way a hard gate does (a >400ms gap
+    // between two pages would still produce two distinct counts, each a
+    // real announcement). The paging-in-progress state itself is
+    // `RailLoadingIndicator`'s job (Iro-A11y MAJOR-2, "More X still
+    // loading"); this region's job is the SETTLED result count, which now
+    // fires exactly once — when paging finishes (or immediately, for a
+    // kind whose first page IS the whole answer, since pageProgress is
+    // already null then).
+    if (pageProgress) return;
     const t = setTimeout(() => {
       // DDX21-3: nounPlural, not naive `${noun}s` ("class" -> "classes", not
-      // "classs"). TAV-CODEX-SOURCE-PICKER-NPC (A11Y-2/FR-20): re-fires as
-      // `items.length` grows during background paging; the ~400ms debounce
-      // naturally coalesces same-tick page landings into one announcement
-      // rather than one per page.
+      // "classs").
       const noun = filtered.length === 1 ? activeMeta.noun : activeMeta.nounPlural;
       const total = items.length !== filtered.length ? ` · ${items.length} total` : '';
       setAnnouncedCount(`${filtered.length} ${noun}${total}`);
     }, COUNT_ANNOUNCE_DEBOUNCE_MS);
     return () => clearTimeout(t);
-  }, [filtered.length, items.length, renderableList, activeMeta.noun, activeMeta.nounPlural]);
+  }, [filtered.length, items.length, renderableList, pageProgress, activeMeta.noun, activeMeta.nounPlural]);
 
   const onListboxKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (filtered.length === 0) return;
@@ -510,7 +570,7 @@ function CodexPageInner() {
       active="compendium"
       title="Codex"
       actions={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <div className={styles.headerActions}>
           <div className={styles.search}>
             <Icon name="Search" size={14} className={styles.searchIcon} aria-hidden />
             <input
@@ -567,7 +627,13 @@ function CodexPageInner() {
                   </span>
                   <span className={styles.railLbl}>{m.label}</span>
                   {count != null && <span className={styles.railCount}>{count}</span>}
-                  {on && pageProgress && <RailLoadingIndicator />}
+                  {on && (
+                    <RailLoadingIndicator
+                      pageProgress={pageProgress}
+                      noun={m.nounPlural.toLowerCase()}
+                      label={m.label}
+                    />
+                  )}
                 </button>
               );
             })}
@@ -713,7 +779,11 @@ function CodexPageInner() {
               ))}
               {/* FR-20: append-only background-loading affordance under the
                   last row — never a spinner overlay on top of already-usable rows. */}
-              {pageProgress && <p className={styles.listLoadingMore}>Loading more…</p>}
+              {pageProgress && (
+                <p className={styles.listLoadingMore} role="status" aria-live="polite" aria-atomic="true">
+                  Loading more…
+                </p>
+              )}
             </div>
           )}
 
@@ -752,6 +822,7 @@ function CodexPageInner() {
           open={isNarrowDrawer && mobileDetailOpen}
           item={selected}
           kind={activeKind}
+          resolvedMonster={resolvedMonster}
           onClose={() => {
             setMobileDetailOpen(false);
             listboxRef.current?.focus();

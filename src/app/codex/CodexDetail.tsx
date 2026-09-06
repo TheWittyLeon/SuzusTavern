@@ -20,11 +20,13 @@ import type {
   CatalogClassData,
   CatalogConditionData,
   CatalogEquipmentData,
+  CatalogFeatData,
   CatalogItem,
   CatalogMonsterData,
   CatalogNpcData,
   CatalogRaceData,
   CatalogSpellData,
+  CatalogSubclassData,
 } from '@/lib/api/types';
 import {
   CODEX_KIND_META,
@@ -35,11 +37,6 @@ import {
   itemCostLabel,
   itemDescription,
   itemWeightLabel,
-  monsterActionDescription,
-  monsterActionLine,
-  monsterCrLabel,
-  monsterSensesLabel,
-  monsterSpeedLabel,
   raceSpeedLabel,
   sourceBadge,
   spellComponentsLabel,
@@ -301,7 +298,7 @@ function NpcDetail({ d, monster }: { d: CatalogNpcData; monster: CatalogItem | u
         <p className={styles.detailSubtitle}>also known as {d.aliases.join(', ')}</p>
       )}
       {(d.affiliation || d.rank_cue) && (
-        <div className={styles.tagList} style={{ marginBottom: 16 }}>
+        <div className={styles.npcBadgeRow}>
           {d.affiliation && <Pill tone="cool">{d.affiliation}</Pill>}
           {d.rank_cue && <Pill tone="muted">{d.rank_cue}</Pill>}
         </div>
@@ -357,7 +354,7 @@ function NpcDetail({ d, monster }: { d: CatalogNpcData; monster: CatalogItem | u
           quiet line, never styled as an error. */}
       <Section label="Stat block">
         {monster ? (
-          <MonsterDetail d={monster.data as CatalogMonsterData} />
+          <MonsterDetail d={monster.data as CatalogMonsterData} level={4} />
         ) : (
           <p className={styles.stateBody}>No stat block on file for this NPC.</p>
         )}
@@ -368,12 +365,10 @@ function NpcDetail({ d, monster }: { d: CatalogNpcData; monster: CatalogItem | u
 }
 
 // ── Feat / Subclass / Adventure (minimal — D6, Aoi-UI §4) ───────────────────
-
-interface CatalogFeatData {
-  prerequisite?: string;
-  ability_score_increase?: string;
-  description?: string;
-}
+// Kage-CR #13/#14: CatalogFeatData/CatalogSubclassData moved to
+// src/lib/api/types.ts (+ the CatalogItemData union) — CodexRow.tsx's row
+// renderers read the same two types now, instead of each file declaring its
+// own narrower local shape.
 
 function FeatDetail({ d }: { d: CatalogFeatData }) {
   return (
@@ -389,13 +384,6 @@ function FeatDetail({ d }: { d: CatalogFeatData }) {
       </Section>
     </>
   );
-}
-
-interface CatalogSubclassData {
-  parent_class?: string;
-  subclass_level?: number;
-  features?: string[];
-  description?: string;
 }
 
 function SubclassDetail({ d }: { d: CatalogSubclassData }) {

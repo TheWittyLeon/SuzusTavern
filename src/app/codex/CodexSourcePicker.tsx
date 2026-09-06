@@ -21,7 +21,7 @@
 //     sits next to it — the rest of the page keeps working against the
 //     unfiltered /catalog (no `pack` param sent for any kind).
 
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import Icon from '@/components/Icon';
 import type { ContentPack } from '@/lib/api/types';
 import { groupPacksBySource } from '@/lib/dnd/codex';
@@ -59,21 +59,28 @@ export default function CodexSourcePicker({ packs, value, onChange, status }: Co
   const popupId = useId();
   const labelId = useId();
 
-  const grouped = groupPacksBySource(packs);
+  const grouped = useMemo(() => groupPacksBySource(packs), [packs]);
   const interactive = status === 'ok';
 
   // Flattened options in display order — group headers are NOT options (APG:
   // a listbox's direct interactive children are role="option" only; group
   // labels are presentational dividers, matched by index-skipping below).
-  const options: FlatOption[] = interactive
-    ? [
-        ALL_OPTION,
-        ...grouped.srd.map((p) => ({ value: p.pack_id, label: p.display_name })),
-        ...grouped.suzu.map((p) => ({ value: p.pack_id, label: p.display_name })),
-        ...grouped.homebrew.map((p) => ({ value: p.pack_id, label: p.display_name })),
-        ...grouped.other.map((p) => ({ value: p.pack_id, label: p.display_name })),
-      ]
-    : [ALL_OPTION];
+  // Kage-CR #6: memoized — `selectIndex`/`onTriggerKeyDown` close over this
+  // array, and an unmemoized conditional expression here made its identity
+  // (and therefore useCallback's dependency) change on every render.
+  const options: FlatOption[] = useMemo(
+    () =>
+      interactive
+        ? [
+            ALL_OPTION,
+            ...grouped.srd.map((p) => ({ value: p.pack_id, label: p.display_name })),
+            ...grouped.suzu.map((p) => ({ value: p.pack_id, label: p.display_name })),
+            ...grouped.homebrew.map((p) => ({ value: p.pack_id, label: p.display_name })),
+            ...grouped.other.map((p) => ({ value: p.pack_id, label: p.display_name })),
+          ]
+        : [ALL_OPTION],
+    [interactive, grouped],
+  );
 
   const selectedIndex = Math.max(
     0,
@@ -104,6 +111,16 @@ export default function CodexSourcePicker({ packs, value, onChange, status }: Co
     [options, onChange, closePopup],
   );
 
+  // Kage-CR #19: clear a pending typeahead-buffer-reset timer on unmount —
+  // otherwise it fires after the component is gone (harmless in practice,
+  // since it only mutates a ref, but still a leaked timer with no owner).
+  useEffect(() => {
+    const typeahead = typeaheadRef.current;
+    return () => {
+      if (typeahead.timer) clearTimeout(typeahead.timer);
+    };
+  }, []);
+
   // Outside click closes without change (APG select-only combobox contract).
   useEffect(() => {
     if (!open) return;
@@ -116,15 +133,22 @@ export default function CodexSourcePicker({ packs, value, onChange, status }: Co
     return () => document.removeEventListener('mousedown', onDocMouseDown);
   }, [open]);
 
+  // CRITICAL-1 (Iro-A11y): real DOM focus NEVER leaves this trigger button —
+  // the popup <ul> below is a virtual-focus listbox (APG select-only
+  // combobox), never itself focused. Every key this widget handles — both
+  // "closed, about to open" AND "open, navigating" — therefore lives in ONE
+  // handler on the button, keyed on `open`, matching the exact precedent
+  // this file's header already cites (page.tsx's listbox: one handler,
+  // `aria-activedescendant`, virtual focus). A handler on the `<ul>` (a
+  // sibling of the focused button, not an ancestor) would never fire.
   const onTriggerKeyDown = (e: ReactKeyboardEvent<HTMLButtonElement>) => {
-    if (open) return;
-    if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      e.preventDefault();
-      openPopup();
+    if (!open) {
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        openPopup();
+      }
+      return;
     }
-  };
-
-  const onPopupKeyDown = (e: ReactKeyboardEvent<HTMLUListElement>) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       setActiveIndex((i) => Math.min(i + 1, options.length - 1));
@@ -168,8 +192,15 @@ export default function CodexSourcePicker({ packs, value, onChange, status }: Co
         aria-expanded={open}
         aria-controls={popupId}
         aria-labelledby={`${labelId} ${labelId}-value`}
+        // Kage-CR #16: aria-disabled, not the native `disabled` attribute —
+        // `disabled` removes the button from the tab order entirely, so a
+        // keyboard/AT user tabbing past it during "packs loading"/"packs
+        // failed" gets no signal it exists at all. `aria-disabled` keeps it
+        // reachable and announced as disabled (with a reason, via the
+        // adjacent notice on error) while `openPopup()` already no-ops for
+        // both click and keydown when `!interactive` — so it stays inert
+        // either way, just discoverable.
         aria-disabled={!interactive || undefined}
-        disabled={!interactive}
         className={styles.sourcePickerTrigger}
         aria-activedescendant={open ? optionDomId(activeIndex) : undefined}
         onClick={() => (open ? closePopup(false) : openPopup())}
@@ -181,7 +212,7 @@ export default function CodexSourcePicker({ packs, value, onChange, status }: Co
       </button>
 
       {status === 'error' && (
-        <span className={styles.sourcePickerNotice}>
+        <span className={styles.sourcePickerNotice} role="status" aria-live="polite">
           <span aria-hidden="true">!</span> Sources unavailable — showing everything
         </span>
       )}
@@ -193,8 +224,6 @@ export default function CodexSourcePicker({ packs, value, onChange, status }: Co
           role="listbox"
           aria-label="Content source"
           className={styles.sourcePickerPopup}
-          tabIndex={-1}
-          onKeyDown={onPopupKeyDown}
         >
           {renderGroup(null, [ALL_OPTION], 0)}
           {/* Aoi-UI §1: SRD/Suzu's render FLAT (no group heading) — assumes
@@ -232,37 +261,50 @@ export default function CodexSourcePicker({ packs, value, onChange, status }: Co
     </div>
   );
 
+  function renderOptions(groupOptions: FlatOption[], startIndex: number) {
+    return groupOptions.map((opt, i) => {
+      const idx = startIndex + i;
+      const selected = opt.value === value;
+      return (
+        <li
+          key={opt.value ?? '__all__'}
+          id={optionDomId(idx)}
+          role="option"
+          aria-selected={selected}
+          className={`${styles.sourcePickerOption} ${idx === activeIndex ? styles.sourcePickerOptionActive : ''}`}
+          onMouseDown={(e) => {
+            // Prevent the outside-click/blur handler from firing before
+            // the click's own selection logic runs.
+            e.preventDefault();
+          }}
+          onClick={() => selectIndex(idx)}
+        >
+          {selected && <Icon name="Check" size={12} aria-hidden className={styles.sourcePickerCheck} />}
+          {opt.label}
+        </li>
+      );
+    });
+  }
+
+  // MAJOR-1 (Iro-A11y): a flat group (All/SRD/Suzu's — no heading) renders
+  // its options as direct children of the outer listbox. A HEADED group
+  // (Homebrew/Other) uses the APG grouped-listbox shape instead of a bare
+  // `aria-hidden` divider, so the heading text ("Homebrew") actually reaches
+  // the accessibility tree: `<li role="group" aria-labelledby>` wrapping a
+  // `<span role="presentation">` heading + a `<ul role="presentation">` of
+  // the group's options.
   function renderGroup(heading: string | null, groupOptions: FlatOption[], startIndex: number) {
+    if (!heading) return <>{renderOptions(groupOptions, startIndex)}</>;
+    const headingId = `${popupId}-group-${heading.toLowerCase()}`;
     return (
-      <>
-        {heading && (
-          <li role="presentation" className={styles.sourcePickerGroup} aria-hidden="true">
-            {heading}
-          </li>
-        )}
-        {groupOptions.map((opt, i) => {
-          const idx = startIndex + i;
-          const selected = opt.value === value;
-          return (
-            <li
-              key={opt.value ?? '__all__'}
-              id={optionDomId(idx)}
-              role="option"
-              aria-selected={selected}
-              className={`${styles.sourcePickerOption} ${idx === activeIndex ? styles.sourcePickerOptionActive : ''}`}
-              onMouseDown={(e) => {
-                // Prevent the outside-click/blur handler from firing before
-                // the click's own selection logic runs.
-                e.preventDefault();
-              }}
-              onClick={() => selectIndex(idx)}
-            >
-              {selected && <Icon name="Check" size={12} aria-hidden className={styles.sourcePickerCheck} />}
-              {opt.label}
-            </li>
-          );
-        })}
-      </>
+      <li role="group" aria-labelledby={headingId}>
+        <span id={headingId} role="presentation" className={styles.sourcePickerGroup}>
+          {heading}
+        </span>
+        <ul role="presentation" className={styles.sourcePickerGroupList}>
+          {renderOptions(groupOptions, startIndex)}
+        </ul>
+      </li>
     );
   }
 }

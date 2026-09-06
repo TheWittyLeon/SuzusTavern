@@ -10,11 +10,13 @@ import type {
   CatalogBackgroundData,
   CatalogClassData,
   CatalogEquipmentData,
+  CatalogFeatData,
   CatalogItem,
   CatalogMonsterData,
   CatalogNpcData,
   CatalogRaceData,
   CatalogSpellData,
+  CatalogSubclassData,
 } from '@/lib/api/types';
 import {
   CODEX_KIND_META,
@@ -31,12 +33,8 @@ import {
 } from '@/lib/dnd/codex';
 import styles from './Codex.module.css';
 
-interface CatalogFeatRowData {
-  prerequisite?: string;
-}
-interface CatalogSubclassRowData {
-  parent_class?: string;
-}
+// Kage-CR #13/#14: reuse the canonical types from lib/api/types.ts instead
+// of a locally-declared narrower shape.
 
 function RowMeta({ kind, item }: { kind: CodexKind; item: CatalogItem }) {
   if (kind === 'spell') {
@@ -120,7 +118,7 @@ function RowMeta({ kind, item }: { kind: CodexKind; item: CatalogItem }) {
     );
   }
   if (kind === 'feat') {
-    const d = item.data as CatalogFeatRowData;
+    const d = item.data as CatalogFeatData;
     return (
       <span className={styles.rowMeta}>
         {d.prerequisite && <span className={styles.metaChip}>{d.prerequisite}</span>}
@@ -128,7 +126,7 @@ function RowMeta({ kind, item }: { kind: CodexKind; item: CatalogItem }) {
     );
   }
   if (kind === 'subclass') {
-    const d = item.data as CatalogSubclassRowData;
+    const d = item.data as CatalogSubclassData;
     return (
       <span className={styles.rowMeta}>
         {d.parent_class && <span className={styles.metaChip}>{d.parent_class}</span>}

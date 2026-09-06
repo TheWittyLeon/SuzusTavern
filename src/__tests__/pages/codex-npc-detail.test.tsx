@@ -17,6 +17,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 import CodexDetail from '../../app/codex/CodexDetail';
+import CodexDetailModal from '../../app/codex/CodexDetailModal';
 import type { CatalogItem, CatalogMonsterData, CatalogNpcData } from '../../lib/api/types';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────
@@ -90,8 +91,12 @@ const ITACHI_WITH_STALE_STAT_BLOCK_KEY: CatalogItem = {
   ...ITACHI_WIRE_ONLY,
   data: {
     ...(ITACHI_WIRE_ONLY.data as CatalogNpcData),
-    // @ts-expect-error -- deliberately injecting a field that doesn't exist
-    // on CatalogNpcData, simulating a stale/malicious payload.
+    // Deliberately injecting a field that doesn't exist on CatalogNpcData,
+    // simulating a stale/malicious payload — CatalogItemData's
+    // `Record<string, unknown>` union branch already permits this at the
+    // type level (no `@ts-expect-error` needed; that's exactly why the
+    // client-side join must be the thing that ignores it, not the type
+    // system).
     stat_block: { ac: 999, hp_formula: '999d20', cr: 30 },
   },
 };
@@ -192,6 +197,28 @@ describe('NPC stat block — client-side join, not a server field', () => {
     // The malicious/stale stat_block's fake AC/HP/CR never leak through.
     expect(screen.queryByText('999')).not.toBeInTheDocument();
     expect(screen.queryByText('999d20')).not.toBeInTheDocument();
+    expect(screen.getByText(/no stat block on file for this npc/i)).toBeInTheDocument();
+  });
+});
+
+// ── CodexDetailModal — the narrow-viewport surface (Kage-CR #4) ──────────
+
+describe('CodexDetailModal — resolvedMonster prop (Kage-CR #4)', () => {
+  it('passes resolvedMonster through to the embedded NpcDetail — the stat block is NOT NPC-drawer-exclusive below 1280px', () => {
+    render(
+      <CodexDetailModal
+        open
+        item={ITACHI_WIRE_ONLY}
+        kind="npc"
+        resolvedMonster={ITACHI_MONSTER_ROW}
+        onClose={() => {}}
+      />,
+    );
+    expect(screen.getByText('15d8+30')).toBeInTheDocument();
+  });
+
+  it('without the prop, the modal falls back to the quiet "no stat block" line — never silently blank', () => {
+    render(<CodexDetailModal open item={ITACHI_WIRE_ONLY} kind="npc" onClose={() => {}} />);
     expect(screen.getByText(/no stat block on file for this npc/i)).toBeInTheDocument();
   });
 });

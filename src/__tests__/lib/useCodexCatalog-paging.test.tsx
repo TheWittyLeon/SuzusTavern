@@ -114,6 +114,145 @@ describe('abort on source change', () => {
   });
 });
 
+describe('abort on kind change (Kage-CR #23)', () => {
+  it('aborts the in-flight page 2 request when the ACTIVE kind changes, source unchanged', async () => {
+    const npcAbortSpy = jest.fn();
+    mockGetCatalog.mockImplementation((_s, opts, signal?: AbortSignal) => {
+      const kind = (opts as { type?: string }).type;
+      const offset = (opts as { offset?: number }).offset ?? 0;
+      if (kind === 'npc') {
+        if (offset === 0) {
+          return Promise.resolve({ system: 'dnd5e', content_type: 'npc', items: makeItems('npc', 500, 0), total: 900, limit: 500, offset: 0 });
+        }
+        signal?.addEventListener('abort', npcAbortSpy);
+        return new Promise(() => {});
+      }
+      return Promise.resolve({ system: 'dnd5e', content_type: kind ?? null, items: makeItems(kind ?? '', 3), total: 3, limit: 500, offset: 0 });
+    });
+
+    const { result, rerender } = renderHook(
+      ({ kind }: { kind: 'npc' | 'monster' }) => useCodexCatalog(kind, undefined),
+      { initialProps: { kind: 'npc' as 'npc' | 'monster' } },
+    );
+
+    await waitFor(() => expect(result.current.items.length).toBe(500));
+    rerender({ kind: 'monster' });
+
+    await waitFor(() => expect(npcAbortSpy).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe('abort on unmount (Kage-CR #23)', () => {
+  it('aborts every in-flight controller when the hook unmounts mid-paging', async () => {
+    const abortSpy = jest.fn();
+    mockGetCatalog.mockImplementation((_s, opts, signal?: AbortSignal) => {
+      const offset = (opts as { offset?: number }).offset ?? 0;
+      if (offset === 0) {
+        return Promise.resolve({ system: 'dnd5e', content_type: 'npc', items: makeItems('npc', 500, 0), total: 900, limit: 500, offset: 0 });
+      }
+      signal?.addEventListener('abort', abortSpy);
+      return new Promise(() => {});
+    });
+
+    const { result, unmount } = renderHook(() => useCodexCatalog('npc', undefined));
+    await waitFor(() => expect(result.current.items.length).toBe(500));
+
+    unmount();
+
+    expect(abortSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ensureKind survives an abort (Kage-CR #3 — A source B source A round trip)', () => {
+  it('ensureKind restarts cleanly after its earlier run was aborted by a source switch away and back', async () => {
+    let monsterCallsForA = 0;
+    mockGetCatalog.mockImplementation((_s, opts) => {
+      const kind = (opts as { type?: string }).type;
+      const pack = (opts as { pack?: string }).pack;
+      if (kind === 'monster' && pack === 'pack-a') {
+        monsterCallsForA += 1;
+        // Never resolves — we want it caught mid-flight by the source switch.
+        return new Promise(() => {});
+      }
+      return Promise.resolve({ system: 'dnd5e', content_type: kind ?? null, items: makeItems(kind ?? '', 3), total: 3, limit: 500, offset: 0 });
+    });
+
+    const { result, rerender } = renderHook(
+      ({ source }: { source: string }) => useCodexCatalog('npc', source),
+      { initialProps: { source: 'pack-a' } },
+    );
+    await waitFor(() => expect(result.current.itemsKind).toBe('npc'));
+
+    // Start a background monster load for pack-a — never resolves in this test.
+    act(() => result.current.ensureKind('monster'));
+    await waitFor(() => expect(monsterCallsForA).toBe(1));
+
+    // Switch away (aborts + clears the stale 'loading' monster/pack-a entry
+    // per Kage-CR #3) and back to pack-a.
+    rerender({ source: 'pack-b' });
+    rerender({ source: 'pack-a' });
+
+    // Without the fix, the leftover 'loading' cache entry makes ensureKind a
+    // permanent no-op here — the monster fetch for pack-a never restarts.
+    act(() => result.current.ensureKind('monster'));
+    await waitFor(() => expect(monsterCallsForA).toBe(2));
+  });
+});
+
+describe('itemsSource invariant (DDX21-1 extension, Kage-CR #8)', () => {
+  // Mirrors the original DDX21-1 kind-switch crash class, but for a SOURCE
+  // switch at a FIXED kind: a monster row with a compound `speed` object
+  // must never be handed to a renderer under the WRONG source. This test is
+  // written to demonstrate the invariant is load-bearing — see the comment
+  // at the assertion for how to prove it (delete the itemsSource half of the
+  // gate and this goes red).
+  it('a monster row loaded under source A never renders as belonging to source B while B is still loading', async () => {
+    const COMPOUND_SPEED_MONSTER = {
+      slug: 'aboleth',
+      name: 'Aboleth',
+      content_type: 'monster',
+      source_type: 'homebrew',
+      data: { speed: { walk: 10, swim: 40 }, cr: 10 },
+    };
+    let resolveSourceB!: () => void;
+    mockGetCatalog.mockImplementation((_s, opts) => {
+      const pack = (opts as { pack?: string }).pack;
+      if (pack === 'pack-a') {
+        return Promise.resolve({ system: 'dnd5e', content_type: 'monster', items: [COMPOUND_SPEED_MONSTER], total: 1, limit: 500, offset: 0 });
+      }
+      // pack-b never resolves within this test.
+      return new Promise((res) => {
+        resolveSourceB = () =>
+          res({ system: 'dnd5e', content_type: 'monster', items: [], total: 0, limit: 500, offset: 0 });
+      });
+    });
+
+    const { result, rerender } = renderHook(
+      ({ source }: { source: string }) => useCodexCatalog('monster', source),
+      { initialProps: { source: 'pack-a' } },
+    );
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+    expect(result.current.itemsKind).toBe('monster');
+    expect(result.current.itemsSource).toBe('pack-a');
+
+    rerender({ source: 'pack-b' });
+
+    // THE INVARIANT: while pack-b's fetch is still outstanding, a caller
+    // gating on `itemsKind === activeKind && itemsSource === effectiveSource`
+    // (exactly what page.tsx's `kindReady` does) must treat the stale
+    // pack-a row as unsafe to render under pack-b — i.e. itemsSource must
+    // NOT still read 'pack-a' once the source prop has moved to 'pack-b'.
+    // (Deleting the `itemsSource` conjunct from that gate — collapsing it to
+    // `itemsKind === activeKind` alone, the pre-TAV-CODEX-SOURCE-PICKER-NPC
+    // shape — would make this assertion fail: itemsKind stays 'monster'
+    // across the switch, so only the itemsSource check catches it.)
+    expect(result.current.itemsSource).not.toBe('pack-a');
+
+    resolveSourceB();
+    await waitFor(() => expect(result.current.itemsSource).toBe('pack-b'));
+  });
+});
+
 describe('per-(kind,source) cache — switching back is free', () => {
   it('re-selecting a previously-loaded (kind,source) triggers zero new fetches', async () => {
     mockGetCatalog.mockImplementation((_s, opts) => {
@@ -168,6 +307,34 @@ describe('hard stop at 20 pages (runaway guard)', () => {
     expect(mockGetCatalog).toHaveBeenCalledTimes(20);
     // Rows already fetched are NOT wiped by the runaway stop.
     expect(result.current.items.length).toBe(20 * 500);
+  }, 10000);
+
+  it('Kage-CR #11: retryRemainder() after the runaway guard trips is NOT a silent no-op — it gets a fresh page budget', async () => {
+    // A "buggy engine" that eventually reports a satisfiable total after
+    // the guard has already tripped once — proves retryRemainder actually
+    // issues new requests instead of instantly re-tripping the guard with
+    // the carried-forward pagesFetched=20.
+    let everSatisfiable = false;
+    mockGetCatalog.mockImplementation((_s, opts) => {
+      const offset = (opts as { offset?: number }).offset ?? 0;
+      if (!everSatisfiable) {
+        return Promise.resolve({ system: 'dnd5e', content_type: 'npc', items: makeItems('npc', 500, offset), total: 999_999, limit: 500, offset });
+      }
+      return Promise.resolve({ system: 'dnd5e', content_type: 'npc', items: makeItems('npc', 200, offset), total: 10_200, limit: 500, offset });
+    });
+
+    const { result } = renderHook(() => useCodexCatalog('npc', undefined));
+    await waitFor(() => expect(result.current.status).toBe('partial'), { timeout: 5000 });
+    expect(mockGetCatalog).toHaveBeenCalledTimes(20);
+
+    everSatisfiable = true;
+    act(() => result.current.retryRemainder());
+
+    // If pagesFetched weren't reset, retryRemainder's very first step() call
+    // would immediately re-trip the guard with ZERO new fetches — assert the
+    // opposite: at least one more call actually goes out and rows grow.
+    await waitFor(() => expect(mockGetCatalog.mock.calls.length).toBeGreaterThan(20), { timeout: 5000 });
+    await waitFor(() => expect(result.current.items.length).toBeGreaterThan(20 * 500), { timeout: 5000 });
   }, 10000);
 });
 

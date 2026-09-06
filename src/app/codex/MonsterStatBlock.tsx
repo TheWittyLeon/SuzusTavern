@@ -42,14 +42,32 @@ export function StatsGrid({ stats }: { stats: Stat[] }) {
   );
 }
 
-export function Section({ label, children }: { label: string; children: ReactNode }) {
+export function Section({
+  label,
+  children,
+  level = 3,
+}: {
+  label: string;
+  children: ReactNode;
+  /**
+   * MINOR-1 (Iro-A11y, TAV-CODEX-SOURCE-PICKER-NPC): the NPC drawer nests a
+   * full MonsterDetail (itself built from `Section`s) inside its OWN
+   * "Stat block" `Section` — without this, the embedded "Ability scores"/
+   * "Senses"/etc. headings render as h3 SIBLINGS of the NPC's own h3s
+   * instead of properly nesting one level deeper. Defaults to 3 (unchanged
+   * for every existing call site); NpcDetail passes 4 to the embedded
+   * `<MonsterDetail level={4} />` only.
+   */
+  level?: 3 | 4;
+}) {
+  const HeadingTag = level === 4 ? 'h4' : 'h3';
   return (
     <div className={styles.section}>
       {/* A11Y (MINOR-1, Iro): was a <div> — not in the heading outline, so SR
           users couldn't jump between sections. h3 nests under the hero's h2
           in document order (see Codex.module.css .sectionLabel for the
           margin reset this needed). */}
-      <h3 className={`label ${styles.sectionLabel}`}>{label}</h3>
+      <HeadingTag className={`label ${styles.sectionLabel}`}>{label}</HeadingTag>
       {children}
     </div>
   );
@@ -90,23 +108,36 @@ function humanizeValue(value: unknown): string {
 const DM_ONLY_SUPPRESSED_KEYS = new Set(['shape_version']);
 
 export interface DmOnlyFieldRow {
+  /** The raw `dm_only` object key (e.g. "hidden_truth") — used as the React
+   *  list key (Kage-CR #20): two different raw keys could in principle
+   *  humanize to the same display label, which the label alone can't
+   *  disambiguate. */
+  key: string;
   label: string;
   value: string;
 }
 
-/** Converts a `dm_only` record into the labeled fact rows `DmOnlyDisclosure`
- *  renders. Returns `[]` for `undefined`/empty input — callers must still
- *  gate on the SOURCE object's presence (not this function's output length)
- *  before deciding whether to render a disclosure at all: FR-18 requires the
- *  block to be absent from the DOM when `dm_only` itself is absent, not
- *  merely "has nothing to show" (an owner-only object that happens to be
- *  `{}` is a real, if unlikely, wire shape and still marks the row as
- *  owner-visible). */
+/**
+ * Converts a `dm_only` record into the labeled fact rows `DmOnlyDisclosure`
+ * renders. Returns `[]` for `undefined` input, AND for a present-but-empty
+ * (or fully-suppressed) object — `DmOnlyDisclosure` treats both identically:
+ * an empty `fields` array renders nothing (Kage-CR #12: this is the code's
+ * actual behavior; an earlier draft of this comment claimed callers must
+ * separately gate on `dm_only`'s presence to distinguish "absent" from
+ * "present but empty", which the code never implemented. Given the choice,
+ * fail toward showing LESS — a genuinely-owner-visible-but-empty `dm_only`
+ * object is a real if unlikely wire shape (Sora-Arch §4.2), and rendering an
+ * empty disclosure shell for it would be a worse outcome than rendering
+ * nothing: FR-18's actual requirement is "never a placeholder hinting a
+ * hidden field exists", and a disclosure with zero rows inside it reads
+ * exactly like that placeholder to a non-owner who can't tell the
+ * difference from CSS/DOM alone).
+ */
 export function dmOnlyFields(dmOnly: DmOnly | undefined): DmOnlyFieldRow[] {
   if (!dmOnly) return [];
   return Object.entries(dmOnly)
     .filter(([key]) => !DM_ONLY_SUPPRESSED_KEYS.has(key))
-    .map(([key, value]) => ({ label: humanizeKey(key), value: humanizeValue(value) }));
+    .map(([key, value]) => ({ key, label: humanizeKey(key), value: humanizeValue(value) }));
 }
 
 export interface DmOnlyDisclosureProps {
@@ -142,7 +173,7 @@ export function DmOnlyDisclosure({ fields }: DmOnlyDisclosureProps) {
       {open && (
         <dl id={panelId} className={styles.dmOnlyPanel}>
           {fields.map((f) => (
-            <div key={f.label} className={styles.dmOnlyRow}>
+            <div key={f.key} className={styles.dmOnlyRow}>
               <dt>{f.label}</dt>
               <dd>{f.value}</dd>
             </div>
@@ -155,7 +186,16 @@ export function DmOnlyDisclosure({ fields }: DmOnlyDisclosureProps) {
 
 // ── Monster stat block (shared: standalone Monster tab + NPC's embedded block) ──
 
-export function MonsterDetail({ d }: { d: CatalogMonsterData }) {
+export function MonsterDetail({
+  d,
+  level = 3,
+}: {
+  d: CatalogMonsterData;
+  /** MINOR-1 (Iro-A11y): forwarded to every internal `Section` — 4 when
+   *  embedded inside NpcDetail's own "Stat block" Section, 3 (default,
+   *  unchanged) on the standalone Monster tab. */
+  level?: 3 | 4;
+}) {
   const scores = d.ability_scores ?? {};
   return (
     <>
@@ -173,7 +213,7 @@ export function MonsterDetail({ d }: { d: CatalogMonsterData }) {
           { k: 'Alignment', v: d.alignment ?? '—' },
         ]}
       />
-      <Section label="Ability scores">
+      <Section label="Ability scores" level={level}>
         <div className={styles.statsGrid}>
           {ABILITY_ORDER.filter(({ key }) => scores[key] != null).map(({ key, abbr }) => (
             <div key={key} className={styles.stat}>
@@ -185,11 +225,11 @@ export function MonsterDetail({ d }: { d: CatalogMonsterData }) {
           ))}
         </div>
       </Section>
-      <Section label="Senses">
+      <Section label="Senses" level={level}>
         <p>{monsterSensesLabel(d)}</p>
       </Section>
       {d.languages && d.languages.length > 0 && (
-        <Section label="Languages">
+        <Section label="Languages" level={level}>
           <p>{d.languages.join(', ')}</p>
         </Section>
       )}
@@ -200,12 +240,12 @@ export function MonsterDetail({ d }: { d: CatalogMonsterData }) {
       ]
         .filter(([, list]) => Array.isArray(list) && (list as string[]).length > 0)
         .map(([label, list]) => (
-          <Section key={label as string} label={label as string}>
+          <Section key={label as string} label={label as string} level={level}>
             <p>{(list as string[]).join(', ')}</p>
           </Section>
         ))}
       {d.actions && d.actions.length > 0 && (
-        <Section label="Actions">
+        <Section label="Actions" level={level}>
           {d.actions.map((a, i) => (
             <div key={`${a.name}-${i}`} className={styles.actionRow}>
               <p className={styles.actionName}>{monsterActionLine(a)}</p>
@@ -217,7 +257,7 @@ export function MonsterDetail({ d }: { d: CatalogMonsterData }) {
         </Section>
       )}
       {d.legendary_actions && d.legendary_actions.length > 0 && (
-        <Section label="Legendary actions">
+        <Section label="Legendary actions" level={level}>
           {d.legendary_actions.map((a, i) => (
             <div key={`${a.name}-${i}`} className={styles.actionRow}>
               <p className={styles.actionName}>{a.name}</p>

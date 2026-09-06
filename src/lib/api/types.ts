@@ -1311,6 +1311,32 @@ export interface CatalogNpcData {
   dm_only?: DmOnly;
 }
 
+/**
+ * Mechanical data shape for a feat catalog item — `data` for content_type
+ * === 'feat' (TAV-CODEX-SOURCE-PICKER-NPC, D6). `[PROVISIONAL]` per Aoi-UI
+ * §4 — the brief gave no field list; feats flow through the engine's
+ * generic, unprojected `list_catalog` path (FR-7), so these are the fields
+ * the codex's minimal Feat renderer currently reads, not an engine-pinned
+ * contract.
+ */
+export interface CatalogFeatData {
+  prerequisite?: string;
+  ability_score_increase?: string;
+  description?: string;
+}
+
+/**
+ * Mechanical data shape for a subclass catalog item — `data` for
+ * content_type === 'subclass' (TAV-CODEX-SOURCE-PICKER-NPC, D6).
+ * `[PROVISIONAL]` per Aoi-UI §4, same caveat as CatalogFeatData above.
+ */
+export interface CatalogSubclassData {
+  parent_class?: string;
+  subclass_level?: number;
+  features?: string[];
+  description?: string;
+}
+
 /** Mechanical data shape for an item (equipment) catalog item (DDX-21).
  *  Named "Equipment" (not "Item") to avoid colliding with CatalogItem, the
  *  generic catalog envelope every content_type shares. */
@@ -1344,6 +1370,8 @@ export type CatalogItemData =
   | CatalogEquipmentData
   | CatalogConditionData
   | CatalogNpcData
+  | CatalogFeatData
+  | CatalogSubclassData
   | Record<string, unknown>;
 
 export interface CatalogItem {

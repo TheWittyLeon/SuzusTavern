@@ -14,6 +14,7 @@ import type {
   CatalogCounts,
   CatalogResponse,
   ContentPack,
+  PacksResponse,
   Character,
   CharacterCreateRequest,
   CharacterCreated,
@@ -1729,7 +1730,9 @@ export const getPacks = (
   signal?: AbortSignal,
 ): Promise<ContentPack[]> => {
   const q = new URLSearchParams({ system });
-  return apiCall<{ system: string; packs: ContentPack[] }>(
+  // Kage-CR #14: use the canonical PacksResponse type instead of an
+  // ad-hoc inline shape that happened to describe the same thing.
+  return apiCall<PacksResponse>(
     `/api/dnd/catalog/packs?${q.toString()}`,
     { method: 'GET', signal },
   ).then((res) => res.packs ?? []);

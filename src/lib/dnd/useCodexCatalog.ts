@@ -337,9 +337,12 @@ export function useCodexCatalog(
   const ensureKind = useCallback(
     (kind: CodexKind) => {
       const key = cacheKeyOf(kind, source);
-      if (controllersRef.current.has(key)) return; // already in flight
+      if (controllersRef.current.has(key)) return; // genuinely in flight
       const cached = cacheRef.current.get(key);
-      if (cached && (cached.status === 'ok' || cached.status === 'loading' || cached.status === 'partial')) return;
+      if (cached && (cached.status === 'ok' || cached.status === 'partial')) return; // already settled
+      // Kage-CR #3 (defense in depth alongside abortAndClearStale above): a
+      // cached 'loading' entry with NO live controller is stale, not "in
+      // flight" — restart it rather than silently no-op-ing forever.
       runPaging(key, kind, source, 0);
     },
     [source, runPaging],
@@ -356,6 +359,24 @@ export function useCodexCatalog(
     [source, cacheTick],
   );
 
+  // Kage-CR #3: a controller only ever exists in `controllersRef` while its
+  // cache entry is 'loading' — every TERMINAL write (`finish()`, above)
+  // removes its own controller in the same tick. So a key we abort here is
+  // necessarily still 'loading', and leaving that stale entry behind (with
+  // no controller to ever finish it) permanently wedges a future
+  // `ensureKind`/tab-revisit: it sees status:'loading', assumes something is
+  // already in flight, and never restarts the fetch — an NPC's stat block
+  // (or a source revisited after an abort) can vanish for the rest of the
+  // mount. Deleting the cache entry alongside the controller makes the next
+  // `ensureKind`/effect run see a clean slate instead.
+  const abortAndClearStale = useCallback((key: string) => {
+    const ctrl = controllersRef.current.get(key);
+    if (!ctrl) return;
+    ctrl.abort();
+    controllersRef.current.delete(key);
+    cacheRef.current.delete(key);
+  }, []);
+
   useEffect(() => {
     if (!authReady) return;
     const key = cacheKeyOf(activeKind, source);
@@ -366,18 +387,14 @@ export function useCodexCatalog(
     if (activeSourceKeyRef.current !== null && activeSourceKeyRef.current !== srcKey) {
       // Source changed: every in-flight load (active OR ensured) for the OLD
       // source is now moot — abort them all.
-      for (const [k, ctrl] of controllersRef.current) {
-        if (k.endsWith(`::${activeSourceKeyRef.current}`)) {
-          ctrl.abort();
-          controllersRef.current.delete(k);
-        }
+      for (const k of Array.from(controllersRef.current.keys())) {
+        if (k.endsWith(`::${activeSourceKeyRef.current}`)) abortAndClearStale(k);
       }
     } else if (activeKeyRef.current !== null && activeKeyRef.current !== key) {
       // Kind changed, source didn't: abort only the PREVIOUS active kind's
       // fetch — an `ensureKind` load for a different kind under this same
       // source keeps running (it's independent of which tab is focused).
-      controllersRef.current.get(activeKeyRef.current)?.abort();
-      controllersRef.current.delete(activeKeyRef.current);
+      abortAndClearStale(activeKeyRef.current);
     }
     activeKeyRef.current = key;
     activeSourceKeyRef.current = srcKey;
@@ -406,7 +423,7 @@ export function useCodexCatalog(
     // NOTE: `retryTick` is a deliberate dependency (retry() clears the cache
     // entry then bumps it to force this effect to re-run); `retryRemainder`
     // is handled by its own effect below, not this one.
-  }, [activeKind, source, authReady, retryTick, runPaging]);
+  }, [activeKind, source, authReady, retryTick, runPaging, abortAndClearStale]);
 
   // retryRemainder: resume from the current cache length for the active key,
   // without clearing it (unlike `retry`).
@@ -417,6 +434,13 @@ export function useCodexCatalog(
     if (!cached) return;
     controllersRef.current.get(key)?.abort();
     controllersRef.current.delete(key);
+    // Kage-CR #11: without this, a retryRemainder() called after the
+    // 20-page runaway guard tripped is a silent no-op — runPaging carries
+    // `pagesFetched` forward from the cache entry, so a resumed run picks
+    // up already at 20 and its very first `step()` call re-trips the guard
+    // before issuing a single new request. The user explicitly asked to
+    // keep going, which earns a fresh page budget from wherever it left off.
+    cacheRef.current.set(key, { ...cached, pagesFetched: 0 });
     runPaging(key, activeKind, source, cached.items.length);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [retryRemainderTick]);

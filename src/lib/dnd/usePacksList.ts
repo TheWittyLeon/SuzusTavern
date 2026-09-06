@@ -13,7 +13,7 @@
 
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { getPacks } from '@/lib/api/dnd';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import type { ContentPack } from '@/lib/api/types';
@@ -36,11 +36,19 @@ export function usePacksList(): UsePacksListResult {
 
   const [packs, setPacks] = useState<ContentPack[]>([]);
   const [status, setStatus] = useState<PacksStatus>('loading');
-  const fetchedRef = useRef(false);
 
+  // Kage-CR #2: a `fetchedRef` "already ran" guard here deadlocks under
+  // React StrictMode's dev-only double-invoke (mount -> cleanup -> mount):
+  // run 1 sets the ref and starts the fetch, the synthetic unmount's cleanup
+  // aborts it, run 2 sees the ref already true and returns early — nothing
+  // ever completes, `status` stays 'loading' forever (trigger permanently
+  // disabled, `?source=` silently ignored, `pack` never sent). `[authReady]`
+  // alone is the correct re-run guard — exactly the shape the sibling
+  // counts effect in useCodexCatalog.ts already uses: every real effect run
+  // gets its own AbortController, and the (StrictMode-only) first run's
+  // abort is a no-op once its promise settles.
   useEffect(() => {
-    if (!authReady || fetchedRef.current) return;
-    fetchedRef.current = true;
+    if (!authReady) return;
     const ac = new AbortController();
     getPacks(SYSTEM, ac.signal)
       .then((res) => {

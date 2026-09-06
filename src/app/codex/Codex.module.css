@@ -2,6 +2,15 @@
    ui_kits/web/kit.css § COMPENDIUM (Codex), re-expressed as scoped module
    classes against the existing --tone / --card / --line token contract. */
 
+/* Kage-CR #18: module class instead of an inline style — wraps the header
+   search box + source picker (TAV-CODEX-SOURCE-PICKER-NPC). */
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 /* ── Header search ─────────────────────────────────────────────────────── */
 .search {
   display: flex;
@@ -706,7 +715,9 @@
   cursor: pointer;
   white-space: nowrap;
 }
-.sourcePickerTrigger:disabled {
+/* Kage-CR #16: aria-disabled (not the native `disabled` attribute — that
+   would pull the trigger out of the tab order). */
+.sourcePickerTrigger[aria-disabled='true'] {
   cursor: default;
   opacity: 0.6;
 }
@@ -736,7 +747,11 @@
   max-height: 320px;
   overflow-y: auto;
   margin: 0;
-  padding: 6px;
+  /* Kage-CR #17: container padding wired to the density token, matching
+     .actionRow/.subcard/.emptyDrawer's own precedent elsewhere in this
+     file — not one of the "small inline control" exceptions (icon-button
+     padding, chip spacing) the density-wiring rule carves out. */
+  padding: var(--density-pad, 6px);
   list-style: none;
   background: var(--card-solid);
   border: 1px solid var(--line-strong);
@@ -764,6 +779,14 @@
   text-transform: uppercase;
   color: var(--ink-3);
 }
+/* MAJOR-1 (Iro-A11y): the grouped-listbox <ul role="presentation"> wrapping
+   a headed group's (Homebrew/Other) options — pure list reset, no visual
+   change from the flat groups above it. */
+.sourcePickerGroupList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
 .sourcePickerOption {
   display: flex;
   align-items: center;
@@ -786,9 +809,27 @@
 }
 @media (max-width: 480px) {
   .sourcePickerTrigger,
-  .sourcePickerOption {
+  .sourcePickerOption,
+  .dmOnlyTrigger {
     min-height: 44px;
   }
+}
+/* MAJOR-4 (Iro-A11y): the 480px-width rule above only ever fired on a
+   narrow viewport — a coarse-pointer device (touchscreen) or a compact
+   density can both exist at ANY viewport width, and neither was covered.
+   WCAG 2.5.8 target size applies regardless of viewport, so these two
+   guards are independent of (not a replacement for) the one above. */
+@media (pointer: coarse) {
+  .sourcePickerTrigger,
+  .sourcePickerOption,
+  .dmOnlyTrigger {
+    min-height: 44px;
+  }
+}
+[data-density='compact'] .sourcePickerTrigger,
+[data-density='compact'] .sourcePickerOption,
+[data-density='compact'] .dmOnlyTrigger {
+  min-height: 44px;
 }
 
 /* ── Background paging progress (FR-19/FR-20) ────────────────────────────
@@ -837,6 +878,15 @@
   margin-top: 8px;
 }
 
+/* Kage-CR #18: module class instead of an inline style — the NPC drawer's
+   affiliation/rank_cue badge row (was `.tagList` + a bare `style={{...}}`). */
+.npcBadgeRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
 /* ── Detail subtitle / quote lines (NPC + Adventure detail) ──────────────── */
 .detailSubtitle {
   font-style: italic;
@@ -859,7 +909,14 @@
   color: var(--ink-2);
   line-height: 1.55;
   padding-left: 10px;
-  border-left: 2px solid var(--tone);
+  /* Kage-CR #5: `--tone` is only ever SET inline on .detailHero/.railItem/
+     .row — .quoteLine lives inside .detailBody, a SIBLING of .detailHero,
+     not a descendant, so an unqualified var(--tone) here resolved to
+     nothing (the property fell back to its initial value). Fallback to
+     --line-strong (this file's other "kind-neutral accent border" token,
+     e.g. .dmOnlyTrigger) so the line is never invisible outside a
+     --tone-bearing ancestor. */
+  border-left: 2px solid var(--tone, var(--line-strong));
 }
 
 /* ── DM-only disclosure (TAV-CODEX-SOURCE-PICKER-NPC, FR-18/A11Y-4) ───────
@@ -883,7 +940,10 @@
 }
 .dmOnlyPanel {
   margin: 8px 0 0;
-  padding: 10px 12px;
+  /* Kage-CR #17/#18: was a literal 10px 12px — this is a bordered card
+     CONTAINER (same shape as .actionRow/.subcard above), not an inline
+     control, so it wires to the density token like they do. */
+  padding: var(--density-pad, 10px);
   border: 2px dashed var(--line-strong);
   border-radius: 10px;
   background: color-mix(in oklab, var(--warn) 6%, var(--card));
@@ -900,7 +960,11 @@
 }
 .dmOnlyRow dt {
   font-family: var(--font-mono);
-  font-size: 9px;
+  /* MINOR-2 (Iro-A11y): was a fixed 9px — bumped to a rem unit at >=11px so
+     it actually scales with the user's root font-size preference (dynamic
+     type), matching the size floor the rest of this file already uses for
+     small mono labels (e.g. .statK, .subfilterLabel). */
+  font-size: 0.6875rem; /* 11px @ 16px root */
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--warn-ink);

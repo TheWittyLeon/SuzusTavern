@@ -6,6 +6,7 @@
  * packs:[] rather than throwing into the caller (the codex's source picker
  * then falls back to "All sources only" — see CodexSourcePicker.tsx).
  */
+import { StrictMode } from 'react';
 import { renderHook, waitFor } from '@testing-library/react';
 
 jest.mock('../../lib/api/dnd', () => ({
@@ -72,7 +73,13 @@ it('does not re-fetch on re-render (fetched exactly once per mount)', async () =
   expect(mockGetPacks).toHaveBeenCalledTimes(1);
 });
 
-it('aborts the in-flight request on unmount (no state update after unmount)', async () => {
+it('aborts the in-flight request on unmount (no React "state update on unmounted component" warning)', async () => {
+  // Kage-CR #23: "resolving a promise cannot throw" — a bare
+  // `expect(() => resolvePacks(...)).not.toThrow()` is vacuous (resolving a
+  // promise is never synchronously throwable regardless of unmount state,
+  // so it can't actually catch anything). The real contract is that React
+  // never logs its unmounted-component setState warning — assert THAT.
+  const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
   let resolvePacks!: (v: ContentPack[]) => void;
   mockGetPacks.mockReturnValue(
     new Promise((res) => {
@@ -83,7 +90,17 @@ it('aborts the in-flight request on unmount (no state update after unmount)', as
   expect(result.current.status).toBe('loading');
 
   unmount();
-  // Resolving AFTER unmount must not throw / warn about a state update on an
-  // unmounted component — the effect's AbortController-gated `.then` guards it.
-  expect(() => resolvePacks([SRD])).not.toThrow();
+  resolvePacks([SRD]);
+  await new Promise((r) => setTimeout(r, 0));
+
+  expect(consoleError).not.toHaveBeenCalled();
+  consoleError.mockRestore();
+});
+
+it('StrictMode double-mount still settles to status "ok" (Kage-CR #2 regression guard — a fetchedRef "already ran" guard deadlocks here)', async () => {
+  mockGetPacks.mockResolvedValue([SRD]);
+  const { result } = renderHook(() => usePacksList(), { wrapper: StrictMode });
+
+  await waitFor(() => expect(result.current.status).toBe('ok'));
+  expect(result.current.packs).toEqual([SRD]);
 });
