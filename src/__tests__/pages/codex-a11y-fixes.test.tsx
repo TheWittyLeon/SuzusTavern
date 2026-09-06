@@ -518,4 +518,49 @@ describe('Codex A11Y fixes (DDX-21)', () => {
       expect(countAnnouncementText()).toBe('1 spell · 3 total');
     });
   });
+
+  // ── FR-20/A11Y-6: background-paging progress respects reduced motion ────
+
+  describe('background-paging progress indicator (FR-19/FR-20/A11Y-6, TAV-CODEX-SOURCE-PICKER-NPC)', () => {
+    const REDUCED_MOTION = '(prefers-reduced-motion: reduce)';
+
+    function mockTwoPageSpellCatalog() {
+      let page2Resolve!: (v: unknown) => void;
+      const page2 = new Promise((res) => {
+        page2Resolve = res;
+      });
+      mockGetCatalog.mockReset().mockImplementation((_system, opts) => {
+        const offset = (opts as { offset?: number })?.offset ?? 0;
+        if (opts?.type !== 'spell') {
+          return Promise.resolve({ system: 'dnd5e', content_type: opts?.type ?? null, items: [], total: 0, limit: 500, offset: 0 });
+        }
+        if (offset === 0) {
+          return Promise.resolve({ system: 'dnd5e', content_type: 'spell', items: [FIREBALL, MAGE_HAND, GUST], total: 4, limit: 500, offset: 0 });
+        }
+        return page2 as never;
+      });
+      return () => page2Resolve({ system: 'dnd5e', content_type: 'spell', items: [], total: 4, limit: 500, offset: 3 });
+    }
+
+    it('shows a pulsing ring on the active rail count while a background page is outstanding (motion allowed)', async () => {
+      mockMatchMedia([]); // reduced-motion NOT requested
+      mockTwoPageSpellCatalog();
+      renderCodex();
+      await screen.findByRole('option', { name: /fireball/i });
+
+      const spellsTab = screen.getByRole('tab', { name: /spells/i });
+      expect(spellsTab.querySelector('[class*="railLoading"]')).toBeTruthy();
+      expect(spellsTab.querySelector('[class*="railLoadingStatic"]')).toBeNull();
+    });
+
+    it('substitutes a static "…" suffix instead of the animated pulse when prefers-reduced-motion is set', async () => {
+      mockMatchMedia([REDUCED_MOTION]);
+      mockTwoPageSpellCatalog();
+      renderCodex();
+      await screen.findByRole('option', { name: /fireball/i });
+
+      const spellsTab = screen.getByRole('tab', { name: /spells/i });
+      expect(spellsTab.querySelector('[class*="railLoadingStatic"]')).toBeTruthy();
+    });
+  });
 });
