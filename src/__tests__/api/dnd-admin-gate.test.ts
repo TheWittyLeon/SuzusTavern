@@ -625,3 +625,111 @@ describe('Security: Bearer header fallback (SECURITY-2)', () => {
     // A separate prod deployment test would be an e2e/staging concern.
   });
 });
+
+// ---------------------------------------------------------------------------
+// 8. TAV-CODEX-SOURCE-PICKER-NPC (Sora-Arch §7/§10.1): the re-admitted
+//    singular `pack` param passes through the non-admin strip untouched —
+//    it is a DISTINCT key from the legacy plural `packs` (and `user`), which
+//    stay stripped. Pins "no BFF change" with a real test, not the docstring.
+// ---------------------------------------------------------------------------
+
+describe('Security: singular `pack` passes through, `user`/`packs` still stripped (TAV-CODEX-SOURCE-PICKER-NPC)', () => {
+  it('forwards `pack` on a non-admin catalog request while still stripping `user`/`packs`', async () => {
+    mockUpstreamOk({ items: [], total: 0 });
+
+    const req = makeRequest(
+      'GET',
+      'http://localhost:3000/api/dnd/catalog?system=dnd5e&type=npc&pack=leon-naruto-5e&user=x&packs=y',
+    );
+    const ctx = makeContext(['catalog']);
+
+    const res = await GET(req, ctx);
+
+    expect(res.status).toBe(200);
+    // No /auth/me round-trip for a non-admin path — only the upstream call.
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [[upstreamUrl]] = mockFetch.mock.calls as [[string]];
+    const forwardedUrl = new URL(String(upstreamUrl));
+    expect(forwardedUrl.searchParams.get('pack')).toBe('leon-naruto-5e');
+    expect(forwardedUrl.searchParams.has('user')).toBe(false);
+    expect(forwardedUrl.searchParams.has('packs')).toBe(false);
+    // Legitimate params still forward untouched.
+    expect(forwardedUrl.searchParams.get('system')).toBe('dnd5e');
+    expect(forwardedUrl.searchParams.get('type')).toBe('npc');
+  });
+
+  it('forwards the packs-list endpoint (GET /catalog/packs) unchanged — same strip, no special-casing', async () => {
+    mockUpstreamOk({ system: 'dnd5e', packs: [] });
+
+    const req = makeRequest(
+      'GET',
+      'http://localhost:3000/api/dnd/catalog/packs?system=dnd5e&user=x&packs=y',
+    );
+    const ctx = makeContext(['catalog', 'packs']);
+
+    const res = await GET(req, ctx);
+
+    expect(res.status).toBe(200);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [[upstreamUrl]] = mockFetch.mock.calls as [[string]];
+    const forwardedUrl = new URL(String(upstreamUrl));
+    expect(forwardedUrl.pathname).toBe('/api/dnd/catalog/packs');
+    expect(forwardedUrl.searchParams.get('system')).toBe('dnd5e');
+    expect(forwardedUrl.searchParams.has('user')).toBe(false);
+    expect(forwardedUrl.searchParams.has('packs')).toBe(false);
+  });
+
+  it('a mixed-case ?PACK= is NOT stripped (only `user`/`packs` are case-insensitively stripped — `pack` singular is a legal, validated-server-side param, not a stripped one)', async () => {
+    mockUpstreamOk({ items: [], total: 0 });
+
+    const req = makeRequest(
+      'GET',
+      'http://localhost:3000/api/dnd/catalog?system=dnd5e&PACK=leon-naruto-5e',
+    );
+    const ctx = makeContext(['catalog']);
+
+    await GET(req, ctx);
+
+    const [[upstreamUrl]] = mockFetch.mock.calls as [[string]];
+    const forwardedUrl = new URL(String(upstreamUrl));
+    // URLSearchParams keys are case-sensitive; the proxy never touches `pack`
+    // in any casing, so a client-sent `PACK=` rides through as-is (the engine
+    // itself only recognises lowercase `pack` — this just confirms the BFF
+    // isn't the one doing anything special with the casing either way).
+    expect(forwardedUrl.searchParams.get('PACK')).toBe('leon-naruto-5e');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 9. TAV-CODEX-SOURCE-PICKER-NPC (Kuro-Sec C3, recommended): JSON responses
+//    carry `Cache-Control: private, no-store` — belt-and-suspenders against a
+//    future shared cache/CDN ever caching a response scoped to one session
+//    (a catalog npc/monster row can carry an owner-only `dm_only` sub-object).
+// ---------------------------------------------------------------------------
+
+describe('Security: Cache-Control on proxied JSON responses (Kuro-Sec C3)', () => {
+  it('sets Cache-Control: private, no-store on a successful non-admin response', async () => {
+    mockUpstreamOk({ items: [], total: 0 });
+
+    const req = makeRequest('GET', 'http://localhost:3000/api/dnd/catalog?system=dnd5e&type=npc');
+    const ctx = makeContext(['catalog']);
+
+    const res = await GET(req, ctx);
+
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+  });
+
+  it('sets Cache-Control: private, no-store on an admin-path response too', async () => {
+    mockAuthMeOk(['admin']);
+    mockUpstreamOk({ items: [] });
+
+    const req = makeRequest('GET', 'http://localhost:3000/api/dnd/admin/content/drafts', {
+      cookies: { st_access: 'admin-access-token' },
+    });
+    const ctx = makeContext(['admin', 'content', 'drafts']);
+
+    const res = await GET(req, ctx);
+
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+  });
+});
