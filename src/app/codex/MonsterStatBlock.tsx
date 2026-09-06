@@ -84,7 +84,9 @@ export const ABILITY_ORDER: { key: string; abbr: string }[] = [
 
 // ── DM-only disclosure (TAV-CODEX-SOURCE-PICKER-NPC, FR-18/A11Y-4) ──────────
 
-/** "hidden_truth" -> "Hidden Truth", "dark_intensity_floor" -> "Dark Intensity Floor". */
+/** "hidden_truth" -> "Hidden Truth", "tactics" -> "Tactics". Special-cased
+ *  keys (romanceable/romance_arc/age_category/au_overrides/
+ *  dark_intensity_floor — see below) never reach this generic labeler. */
 function humanizeKey(key: string): string {
   return key
     .replace(/_/g, ' ')
@@ -106,6 +108,68 @@ function humanizeValue(value: unknown): string {
  * future authored field must show up here, not silently vanish).
  */
 const DM_ONLY_SUPPRESSED_KEYS = new Set(['shape_version']);
+
+/**
+ * `romanceable` + `romance_arc` render as raw enum pairs to a non-author —
+ * two booleans/strings nobody but the field's author could parse at a
+ * glance. Folded into one "Romance" row (Leon ruling 2026-09-06, R31,
+ * CODEX-ROMANCE-LABELS). `romanceable:false` always wins over whatever
+ * `romance_arc` says (a not-romanceable NPC can carry a stale/leftover arc
+ * value) — checked first, unconditionally.
+ */
+const ROMANCE_ARC_LABELS: Record<string, string> = {
+  full: 'Authored arc',
+  emergent: 'Open — Suzu improvises',
+  authored: 'Authored arc, gated',
+  // Leon spotted this combination is an authoring inconsistency (romanceable
+  // with no arc yet) — the label keeps that visible as a to-do rather than
+  // smoothing it over.
+  none: 'Open — no arc yet (data gap)',
+};
+
+function romanceRowValue(dmOnly: DmOnly): string {
+  const romanceable = dmOnly['romanceable'];
+  const arc = dmOnly['romance_arc'];
+  if (romanceable === false) return 'Not romanceable';
+  if (typeof arc === 'string' && arc in ROMANCE_ARC_LABELS) return ROMANCE_ARC_LABELS[arc];
+  // Fail toward showing: an unrecognized/missing romance_arc (or a
+  // romanceable that's neither true nor false) still surfaces the raw
+  // value rather than disappearing.
+  if (romanceable === true) return arc == null ? 'Romanceable' : `Romanceable (${humanizeValue(arc)})`;
+  return humanizeValue(arc ?? romanceable);
+}
+
+/**
+ * `au_overrides` only means anything in the context of the age gate it
+ * modifies, so it folds into the "Age" row's `adult` case instead of
+ * rendering as its own row (same 2026-09-06 R31 ruling).
+ */
+const AU_OVERRIDE_SUFFIX: Record<string, string> = {
+  aged_up_adult: ' (aged-up AU)',
+  adult_presenting: ' (adult-presenting AU)',
+};
+
+function ageRowValue(ageCategory: unknown, auOverrides: unknown): string {
+  if (ageCategory === 'adult') {
+    const overrides = Array.isArray(auOverrides) ? auOverrides : [];
+    const suffixKey = (['aged_up_adult', 'adult_presenting'] as const).find((k) => overrides.includes(k));
+    return suffixKey ? `Adult${AU_OVERRIDE_SUFFIX[suffixKey]}` : 'Adult';
+  }
+  if (ageCategory === 'child_coded') return 'Child-coded — locked';
+  // Fail toward showing: an unrecognized age_category still renders.
+  return humanizeValue(ageCategory);
+}
+
+/** Keys consumed by the synthetic Romance/Age rows above — excluded from
+ *  the generic per-key passthrough below so they don't ALSO render as their
+ *  own raw-enum rows. */
+const DM_ONLY_FOLDED_KEYS = new Set([
+  'romanceable',
+  'romance_arc',
+  'age_category',
+  'au_overrides',
+  'dark_intensity_floor',
+]);
 
 export interface DmOnlyFieldRow {
   /** The raw `dm_only` object key (e.g. "hidden_truth") — used as the React
@@ -135,9 +199,36 @@ export interface DmOnlyFieldRow {
  */
 export function dmOnlyFields(dmOnly: DmOnly | undefined): DmOnlyFieldRow[] {
   if (!dmOnly) return [];
-  return Object.entries(dmOnly)
-    .filter(([key]) => !DM_ONLY_SUPPRESSED_KEYS.has(key))
-    .map(([key, value]) => ({ key, label: humanizeKey(key), value: humanizeValue(value) }));
+
+  const rows: DmOnlyFieldRow[] = [];
+
+  // Synthetic rows first (2026-09-06 R31/CODEX-ROMANCE-LABELS) — each keyed
+  // on one of its two-or-more source keys (Kage-CR #20 still applies: these
+  // synthetic keys never collide with a raw dm_only key because the keys
+  // they're derived from are excluded from the generic pass below).
+  if ('romanceable' in dmOnly || 'romance_arc' in dmOnly) {
+    rows.push({ key: 'romanceable', label: 'Romance', value: romanceRowValue(dmOnly) });
+  }
+  if ('age_category' in dmOnly) {
+    rows.push({
+      key: 'age_category',
+      label: 'Age',
+      value: ageRowValue(dmOnly['age_category'], dmOnly['au_overrides']),
+    });
+  }
+  if ('dark_intensity_floor' in dmOnly) {
+    rows.push({
+      key: 'dark_intensity_floor',
+      label: 'Dark intensity floor',
+      value: humanizeValue(dmOnly['dark_intensity_floor']),
+    });
+  }
+
+  Object.entries(dmOnly)
+    .filter(([key]) => !DM_ONLY_SUPPRESSED_KEYS.has(key) && !DM_ONLY_FOLDED_KEYS.has(key))
+    .forEach(([key, value]) => rows.push({ key, label: humanizeKey(key), value: humanizeValue(value) }));
+
+  return rows;
 }
 
 export interface DmOnlyDisclosureProps {

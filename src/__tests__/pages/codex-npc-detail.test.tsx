@@ -18,7 +18,8 @@ import '@testing-library/jest-dom';
 
 import CodexDetail from '../../app/codex/CodexDetail';
 import CodexDetailModal from '../../app/codex/CodexDetailModal';
-import type { CatalogItem, CatalogMonsterData, CatalogNpcData } from '../../lib/api/types';
+import { dmOnlyFields } from '../../app/codex/MonsterStatBlock';
+import type { CatalogItem, CatalogMonsterData, CatalogNpcData, DmOnly } from '../../lib/api/types';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -130,7 +131,10 @@ describe('DM-only disclosure — DOM absence/presence (Kuro-Sec C1)', () => {
     expect(trigger).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText(/slaughtered his clan/i)).toBeInTheDocument();
     expect(screen.getByText(/hidden truth/i)).toBeInTheDocument();
-    expect(screen.getByText(/age category/i)).toBeInTheDocument();
+    // CODEX-ROMANCE-LABELS (R31): age_category renders under the humanized
+    // "Age" row label, not the raw-key "Age Category" — see the dedicated
+    // dmOnlyFields() describe block below for the full mapping coverage.
+    expect(screen.getByText('Age')).toBeInTheDocument();
 
     fireEvent.click(trigger);
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
@@ -174,6 +178,79 @@ describe('DM-only disclosure — DOM absence/presence (Kuro-Sec C1)', () => {
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(trigger);
     expect(screen.getByText(/tsukuyomi/i)).toBeInTheDocument();
+  });
+});
+
+// ── dmOnlyFields() humanization (CODEX-ROMANCE-LABELS, Leon R31 2026-09-06) ─
+// Unit-level (not full-render) — the mapping is pure and exhaustively
+// combinatorial; driving it through CodexDetail per case would only add DOM
+// query noise, not coverage.
+
+describe('dmOnlyFields — Romance row folds romanceable + romance_arc into one label', () => {
+  const romanceRow = (dmOnly: DmOnly) => dmOnlyFields(dmOnly).find((f) => f.key === 'romanceable');
+
+  it.each([
+    // romanceable:false wins regardless of whatever romance_arc says —
+    // Leon's spotted inconsistency (a stale arc on a non-romanceable NPC)
+    // stays invisible to the reader, which is correct: it's not romanceable.
+    [{ romanceable: false, romance_arc: 'full' } as DmOnly, 'Not romanceable'],
+    [{ romanceable: true, romance_arc: 'full' } as DmOnly, 'Authored arc'],
+    [{ romanceable: true, romance_arc: 'emergent' } as DmOnly, 'Open — Suzu improvises'],
+    [{ romanceable: true, romance_arc: 'authored' } as DmOnly, 'Authored arc, gated'],
+    // The inconsistency Leon wants to STAY visible (romanceable:true with no
+    // authored arc yet) reads as an explicit to-do, not a smoothed-over gap.
+    [{ romanceable: true, romance_arc: 'none' } as DmOnly, 'Open — no arc yet (data gap)'],
+  ])('%j -> %s', (dmOnly, expected) => {
+    const row = romanceRow(dmOnly);
+    expect(row?.label).toBe('Romance');
+    expect(row?.value).toBe(expected);
+  });
+
+  it('renders exactly one Romance row — no separate romanceable or romance_arc rows', () => {
+    const fields = dmOnlyFields({ romanceable: true, romance_arc: 'full' });
+    expect(fields.filter((f) => f.label === 'Romance')).toHaveLength(1);
+    expect(fields.find((f) => f.key === 'romance_arc')).toBeUndefined();
+  });
+});
+
+describe('dmOnlyFields — Age row folds age_category + au_overrides into one label', () => {
+  const ageRow = (dmOnly: DmOnly) => dmOnlyFields(dmOnly).find((f) => f.key === 'age_category');
+
+  it.each([
+    [{ age_category: 'adult' } as DmOnly, 'Adult'],
+    [{ age_category: 'adult', au_overrides: ['aged_up_adult'] } as DmOnly, 'Adult (aged-up AU)'],
+    [{ age_category: 'adult', au_overrides: ['adult_presenting'] } as DmOnly, 'Adult (adult-presenting AU)'],
+    [{ age_category: 'child_coded' } as DmOnly, 'Child-coded — locked'],
+  ])('%j -> %s', (dmOnly, expected) => {
+    const row = ageRow(dmOnly);
+    expect(row?.label).toBe('Age');
+    expect(row?.value).toBe(expected);
+  });
+
+  it('drops the separate au_overrides row once folded into Age', () => {
+    const fields = dmOnlyFields({ age_category: 'adult', au_overrides: ['aged_up_adult'] });
+    expect(fields.find((f) => f.key === 'au_overrides')).toBeUndefined();
+  });
+
+  it('a child_coded NPC ignores any au_overrides suffix — the AU flags only ever modify the adult case', () => {
+    const row = ageRow({ age_category: 'child_coded', au_overrides: ['aged_up_adult'] });
+    expect(row?.value).toBe('Child-coded — locked');
+  });
+});
+
+describe('dmOnlyFields — remaining fields', () => {
+  it('dark_intensity_floor renders a sentence-case label with the raw value', () => {
+    const row = dmOnlyFields({ dark_intensity_floor: 2 }).find((f) => f.key === 'dark_intensity_floor');
+    expect(row?.label).toBe('Dark intensity floor');
+    expect(row?.value).toBe('2');
+  });
+
+  it('an unknown/future dm_only key still renders via the generic humanized-key path (fail toward showing)', () => {
+    const row = dmOnlyFields({ some_future_field: 'a brand new value' } as DmOnly).find(
+      (f) => f.key === 'some_future_field',
+    );
+    expect(row?.label).toBe('Some Future Field');
+    expect(row?.value).toBe('a brand new value');
   });
 });
 
