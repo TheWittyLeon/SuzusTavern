@@ -13,6 +13,7 @@ import type {
   BindCharacterResult,
   CatalogCounts,
   CatalogResponse,
+  ContentPack,
   Character,
   CharacterCreateRequest,
   CharacterCreated,
@@ -1655,6 +1656,17 @@ export interface CatalogOpts {
    * call.
    */
   user?: string;
+  /**
+   * TAV-CODEX-SOURCE-PICKER-NPC — a SINGLE content pack id, distinct from
+   * the legacy plural `packs` above. The BFF only strips `user`/`packs`
+   * (case-insensitively) on non-admin paths — `pack` is a different key and
+   * passes through untouched. It is NOT trusted as-is: the engine validates
+   * it server-side against the calling actor's visible-pack set (GET
+   * /catalog/packs) before scoping, so it can only narrow visibility, never
+   * widen it. A value outside the actor's visible set yields an empty item
+   * list, never that pack's rows.
+   */
+  pack?: string;
   limit?: number;
   offset?: number;
 }
@@ -1673,6 +1685,7 @@ export const getCatalog = (
   if (opts.type) q.set('type', opts.type);
   if (opts.packs) q.set('packs', opts.packs);
   if (opts.user) q.set('user', opts.user);
+  if (opts.pack) q.set('pack', opts.pack);
   if (opts.limit != null) q.set('limit', String(opts.limit));
   if (opts.offset != null) q.set('offset', String(opts.offset));
   return apiCall<CatalogResponse>(`/api/dnd/catalog?${q.toString()}`, {
@@ -1690,16 +1703,36 @@ export const getCatalog = (
  */
 export const getCatalogCounts = (
   system: string,
-  opts: Pick<CatalogOpts, 'packs' | 'user'> = {},
+  opts: Pick<CatalogOpts, 'packs' | 'user' | 'pack'> = {},
   signal?: AbortSignal,
 ): Promise<CatalogCounts> => {
   const q = new URLSearchParams({ system });
   if (opts.packs) q.set('packs', opts.packs);
   if (opts.user) q.set('user', opts.user);
+  if (opts.pack) q.set('pack', opts.pack);
   return apiCall<CatalogCounts>(`/api/dnd/catalog?${q.toString()}`, {
     method: 'GET',
     signal,
   });
+};
+
+/**
+ * List the actor's visible content packs from GET /api/dnd/catalog/packs
+ * (TAV-CODEX-SOURCE-PICKER-NPC). RLS-filtered server-side — never returns a
+ * pack the caller can't see, and never carries `owner_username` (SEC-6);
+ * `is_owner` is the only ownership signal. Powers the codex's source picker.
+ * Throws ApiError on failure — callers degrade to an "All sources only" view
+ * (see usePacksList.ts).
+ */
+export const getPacks = (
+  system: string,
+  signal?: AbortSignal,
+): Promise<ContentPack[]> => {
+  const q = new URLSearchParams({ system });
+  return apiCall<{ system: string; packs: ContentPack[] }>(
+    `/api/dnd/catalog/packs?${q.toString()}`,
+    { method: 'GET', signal },
+  ).then((res) => res.packs ?? []);
 };
 
 /** List available game systems from GET /api/dnd/systems. */

@@ -1244,6 +1244,17 @@ export interface CatalogMonsterAction {
   is_legendary?: boolean;
 }
 
+/**
+ * TAV-CODEX-SOURCE-PICKER-NPC — owner/admin-only sub-object. Present ONLY
+ * when the viewer owns the pack (or is an admin) — its ABSENCE is the
+ * signal, never render an empty DM-only block. Keys are open-ended by
+ * design: the engine sends the complement of the NPC wire allowlist (or,
+ * for monsters, a small fixed blocklist — see CatalogMonsterData.dm_only).
+ * Never persisted client-side beyond the component's mount (no
+ * localStorage/sessionStorage) — see useCodexCatalog.ts.
+ */
+export type DmOnly = Record<string, unknown>;
+
 /** Mechanical data shape for a monster catalog item — the full stat block (DDX-21). */
 export interface CatalogMonsterData {
   size?: string;
@@ -1263,6 +1274,41 @@ export interface CatalogMonsterData {
   damage_resistances?: string[];
   damage_immunities?: string[];
   condition_immunities?: string[];
+  /** TAV-CODEX-SOURCE-PICKER-NPC — owner/admin only: `tactics` + `hidden_truth`.
+   *  Absent for every other reader — the codex's Monster tab shows full
+   *  mechanics to everyone (Monster-Manual posture), this is the one gated bit. */
+  dm_only?: DmOnly;
+}
+
+/**
+ * Mechanical data shape for an NPC catalog item — `data` for content_type ===
+ * 'npc' (TAV-CODEX-SOURCE-PICKER-NPC). Field list is the engine's
+ * `_NPC_WIRE_FIELDS` narrator-projection allowlist (everyone gets these);
+ * `dm_only` is the owner/admin-only complement — see DmOnly's doc comment.
+ * `stat_ref` is NOT resolved server-side (no `resolve` param, no
+ * `stat_block` wire field, ~49% dangle) — the codex resolves it client-side
+ * by joining against the cached monster page for the same source, keyed by
+ * `stat_ref.split(':')[2]` (the slug). `summary_for_grounding` is
+ * narrator-internal — never rendered.
+ */
+export interface CatalogNpcData {
+  name: string;
+  role?: string;
+  motivation?: string;
+  key_lines?: string[];
+  appearance?: string;
+  location?: string;
+  stat_ref?: string;
+  lineage?: string;
+  height_ft?: string;
+  aliases?: string[];
+  summary_for_grounding?: string;
+  aura_signature?: string;
+  form_state?: string;
+  power_tier_cue?: string;
+  affiliation?: string;
+  rank_cue?: string;
+  dm_only?: DmOnly;
 }
 
 /** Mechanical data shape for an item (equipment) catalog item (DDX-21).
@@ -1297,6 +1343,7 @@ export type CatalogItemData =
   | CatalogMonsterData
   | CatalogEquipmentData
   | CatalogConditionData
+  | CatalogNpcData
   | Record<string, unknown>;
 
 export interface CatalogItem {
@@ -1324,6 +1371,29 @@ export interface CatalogResponse {
 export interface CatalogCounts {
   counts: Record<string, number>;
   content_type: null;
+}
+
+// ── DnD: catalog packs (TAV-CODEX-SOURCE-PICKER-NPC, GET /catalog/packs) ─────
+//
+// RLS-filtered — the engine only ever returns packs the calling actor can see
+// (public srd/nekonova always; homebrew only for the owner or an admin;
+// entitled per the existing entitlement guard). `owner_username` is
+// deliberately NOT on the wire (SEC-6) — `is_owner` is the only ownership
+// signal a client ever receives.
+
+export interface ContentPack {
+  pack_id: string;
+  display_name: string;
+  precedence: number;
+  system_id: string;
+  kind: 'srd' | 'nekonova' | 'homebrew' | 'licensed';
+  visibility: 'public' | 'unlisted' | 'private' | 'entitled';
+  is_owner: boolean;
+}
+
+export interface PacksResponse {
+  system: string;
+  packs: ContentPack[];
 }
 
 // ── DnD: systems (S2.4 — GET /api/dnd/systems) ───────────────────────────────
