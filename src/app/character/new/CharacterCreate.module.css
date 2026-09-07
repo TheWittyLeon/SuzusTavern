@@ -36,18 +36,6 @@
   }
   .rail {
     order: 1;
-    /* Iro-A11y live-pass CRITICAL-1 (2026-09-07): the base .rail rule below
-       is `position: sticky`, correct at 2/3-column widths where the rail
-       sits beside scrolling step content — but once .layout collapses to
-       ONE column here, "beside" no longer exists: the rail becomes the
-       first stacked block above .main, and sticky pins it over the step
-       content the instant that content scrolls past it (confirmed live at
-       375×812, 100% zoom). Reset to static so it scrolls away naturally
-       with the page, same as .main below it. Do NOT copy Codex.module.css's
-       history here — that component's rail deliberately stays sticky at
-       every width (a different UX intent, a persistent nav rail); this one
-       does not. */
-    position: static;
   }
   .main {
     order: 2;
@@ -55,9 +43,30 @@
 }
 
 /* ── Steps rail ──────────────────────────────────────────────────────────────── */
-.rail {
-  position: sticky;
-  top: 16px;
+/* Iro-A11y live-pass CRITICAL-1 (2026-09-07, RE-CHECKED live — first attempt
+   did not actually fix it): sticky must be made CONDITIONAL via its own
+   min-width guard, not "reset" by a max-width override placed earlier in
+   the file. CSS cascade ORDER (not media-query nesting) decides the winner
+   between two equal-specificity `.rail` rules — an unconditional base rule
+   declared AFTER a max-width override still wins at every width, because
+   it comes later in the compiled stylesheet regardless of which media
+   condition matched. The first attempt put `position: static` inside
+   `@media (max-width: 720px)` ABOVE this rule; computed `position` was
+   still "sticky" at 375/640px live, because THIS rule (unconditional,
+   later in source) overrode it. Guarding the STICKY declaration itself
+   with `min-width: 721px` makes the two conditions mutually exclusive, so
+   source order can no longer matter either way. Below 721px, .rail's
+   `position` is simply never set (initial value: static) — correct for
+   the single-column layout, where the rail is a stacked block above
+   .main, not a sidebar beside scrolling content. Do NOT copy
+   Codex.module.css's history here — that component's rail deliberately
+   stays sticky at every width (a different UX intent, a persistent nav
+   rail); this one does not. */
+@media (min-width: 721px) {
+  .rail {
+    position: sticky;
+    top: 16px;
+  }
 }
 
 .railList {

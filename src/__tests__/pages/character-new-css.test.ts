@@ -8,80 +8,144 @@
  * overlaps scrolled content is observable from a component test. This reads
  * the raw stylesheet text instead.
  *
- * Iro-A11y live-pass CRITICAL-1 (2026-09-07, dev Tavern @ 375×812, 100% zoom,
- * screenshots in the scratchpad `iro-live-wizard/zoom/`): `.rail { position:
- * sticky; top: 16px }` (the base rule) is correct at 2/3-column widths, where
- * the rail sits BESIDE scrolling step content — but the `@media (max-width:
- * 720px)` block collapses `.layout` to a single column (the rail becomes the
- * first STACKED block above `.main`, not a sidebar), and never reset
- * `.rail`'s position there. Sticky pinned the rail over scrolled step content
- * at every narrow width the new Subclass/Rung steps are exercised at. Fixed
- * with a one-line `.rail { position: static; }` inside that media block.
+ * Iro-A11y live-pass CRITICAL-1 (2026-09-07, dev Tavern @ 375×812/640px,
+ * 100% zoom): `.rail { position: sticky; top: 16px }` is correct at 2/3-
+ * column widths, where the rail sits BESIDE scrolling step content — but the
+ * `@media (max-width: 720px)` block collapses `.layout` to a single column
+ * (the rail becomes the first STACKED block above `.main`, not a sidebar),
+ * and sticky pinned it over scrolled step content there.
+ *
+ * FIRST ATTEMPT (WRONG — caught by Iro's live RE-CHECK, not this suite):
+ * added `.rail { position: static; }` inside the `@media (max-width: 720px)`
+ * block, which sits EARLIER in the file than the unconditional base `.rail`
+ * rule. CSS cascade order — not media-query nesting — decides the winner
+ * between two equal-specificity `.rail` rules: the unconditional base rule,
+ * declared LATER in the compiled stylesheet, still won at every width, so
+ * computed `position` stayed "sticky" at 375/640px live. The original test
+ * only asserted the override's TEXT was present somewhere in the file, never
+ * its position relative to the rule it was supposed to override — which is
+ * exactly why it passed on the broken fix.
+ *
+ * ACTUAL FIX: guard the STICKY declaration itself with its own min-width
+ * media query (`@media (min-width: 721px)`) instead of trying to reset it
+ * from a max-width query. This makes the two conditions (`max-width: 720px`
+ * / `min-width: 721px`) mutually exclusive, so file ORDER can never decide
+ * the winner — below 721px, `.rail`'s `position` is simply never set
+ * anywhere (initial value: static). This suite asserts that structure
+ * directly: every `.rail` rule that sets `position: sticky` must be nested
+ * inside a `(min-width: …)` media query, and the ≤720px `.rail` rule must
+ * never set `position: sticky` at all.
  */
 import fs from 'fs';
 import path from 'path';
 
-describe('CharacterCreate.module.css — .rail position (Iro-A11y live-pass CRITICAL-1)', () => {
-  let cssContent: string;
+interface CssBlock {
+  /** The selector or at-rule text immediately before this block's `{`. */
+  selector: string;
+  /** Raw text between this block's own `{` and `}` (not recursed into). */
+  body: string;
+  /** Enclosing selectors/at-rules, outermost first — e.g. a `.rail` block
+   *  nested in `@media (min-width: 721px)` has `parents: ['@media (min-width: 721px)']`. */
+  parents: string[];
+}
+
+/**
+ * Generic brace-depth CSS block parser — deliberately NOT regex-based (a
+ * regex can't track nesting, which is the entire point here: the bug this
+ * suite guards against is a nesting/ordering mistake regex-only assertions
+ * missed the first time). Assumes no literal `{`/`}` inside comments or
+ * strings, true of this stylesheet.
+ */
+function parseBlocks(css: string): CssBlock[] {
+  const blocks: CssBlock[] = [];
+  const stack: { selector: string; bodyStart: number; parents: string[] }[] = [];
+  let lastEnd = 0;
+  for (let i = 0; i < css.length; i += 1) {
+    if (css[i] === '{') {
+      const selector = css.slice(lastEnd, i).trim();
+      const parents = stack.map((frame) => frame.selector);
+      stack.push({ selector, bodyStart: i + 1, parents });
+      lastEnd = i + 1;
+    } else if (css[i] === '}') {
+      const frame = stack.pop();
+      if (frame) {
+        blocks.push({ selector: frame.selector, body: css.slice(frame.bodyStart, i), parents: frame.parents });
+      }
+      lastEnd = i + 1;
+    }
+  }
+  return blocks;
+}
+
+describe('CharacterCreate.module.css — .rail position guarding (Iro-A11y live-pass CRITICAL-1, re-fixed)', () => {
+  let blocks: CssBlock[];
 
   beforeAll(() => {
-    cssContent = fs.readFileSync(
+    const cssContent = fs.readFileSync(
       path.resolve(process.cwd(), 'src/app/character/new/CharacterCreate.module.css'),
       'utf8',
     );
+    // Strip comments FIRST — a selector slice that captures a preceding
+    // `/* ... */` block (this file has long ones) would fail a
+    // `.startsWith('@media')` check even though the actual rule right
+    // after the comment genuinely is an @media block.
+    const withoutComments = cssContent.replace(/\/\*[\s\S]*?\*\//g, '');
+    blocks = parseBlocks(withoutComments);
   });
 
-  /** The base (unconditional) `.rail { ... }` rule block, as raw text. */
-  function baseRailBlock(): string {
-    const start = cssContent.indexOf('.rail {');
-    expect(start).toBeGreaterThan(-1);
-    const end = cssContent.indexOf('\n}', start);
-    return cssContent.slice(start, end);
+  function railBlocks(): CssBlock[] {
+    const rails = blocks.filter((b) => b.selector === '.rail');
+    expect(rails.length).toBeGreaterThan(0);
+    return rails;
   }
 
-  /** The `@media (max-width: 720px) { ... }` block, as raw text — the ONE
-   *  breakpoint where `.layout` collapses to a single column. */
-  function narrowMediaBlock(): string {
-    const start = cssContent.indexOf('@media (max-width: 720px)');
-    expect(start).toBeGreaterThan(-1);
-    // Balanced-brace scan: the block's own nested rules each open/close a
-    // brace too, so a naive indexOf('\n}') would stop at the FIRST nested
-    // rule's closing brace, not the media block's own.
-    let depth = 0;
-    let i = cssContent.indexOf('{', start);
-    const blockStart = i;
-    for (; i < cssContent.length; i += 1) {
-      if (cssContent[i] === '{') depth += 1;
-      else if (cssContent[i] === '}') {
-        depth -= 1;
-        if (depth === 0) break;
-      }
+  it('every .rail rule setting position:sticky is nested inside a min-width media query — never unconditional, never inside a max-width query', () => {
+    const stickyBlocks = railBlocks().filter((b) => /position:\s*sticky/.test(b.body));
+    // Sanity: the sticky behavior must still exist SOMEWHERE (this suite
+    // guards its placement, not its existence).
+    expect(stickyBlocks.length).toBeGreaterThan(0);
+    for (const block of stickyBlocks) {
+      const enclosingMedia = block.parents.find((p) => p.startsWith('@media'));
+      expect(enclosingMedia).toBeDefined();
+      expect(enclosingMedia).toMatch(/min-width/);
+      expect(enclosingMedia).not.toMatch(/max-width/);
     }
-    return cssContent.slice(blockStart, i + 1);
-  }
-
-  it('the base .rail rule is sticky — correct at 2/3-column widths', () => {
-    const railBlock = baseRailBlock();
-    expect(railBlock).toContain('position: sticky');
   });
 
-  it('the ≤720px single-column media block resets .rail to a non-sticky position', () => {
-    const narrow = narrowMediaBlock();
-    // The collapsed one-column layout stacks .rail above .main (order: 1/2)
-    // — sticky there pins the rail over scrolled step content, which is
-    // exactly the live-pass CRITICAL-1 finding. Accepts static OR relative
-    // (either un-pins it); the fix landed as static.
-    const railInMedia = narrow.slice(narrow.indexOf('.rail {'), narrow.indexOf('.main {'));
-    expect(railInMedia).toMatch(/position:\s*(static|relative);/);
+  it('the min-width guard (721px) and the narrow-layout breakpoint (max-width: 720px) are complementary — no gap, no overlap, so file order can never decide the winner', () => {
+    const stickyBlocks = railBlocks().filter((b) => /position:\s*sticky/.test(b.body));
+    for (const block of stickyBlocks) {
+      const media = block.parents.find((p) => p.startsWith('@media'))!;
+      const match = media.match(/min-width:\s*(\d+)px/);
+      expect(match).not.toBeNull();
+      expect(Number(match![1])).toBe(721);
+    }
   });
 
-  it('the ≥721px layout is untouched — sticky still applies outside the ≤720px block', () => {
-    // Regression guard for the fix: the reset must live ONLY inside the
-    // ≤720px block, never leak into the base rule or the 1080px breakpoint
-    // (which keeps the 2-column layout, where sticky is still correct).
-    const start1080 = cssContent.indexOf('@media (max-width: 1080px)');
-    const end1080 = cssContent.indexOf('@media (max-width: 720px)');
-    const block1080 = cssContent.slice(start1080, end1080);
-    expect(block1080).not.toMatch(/\.rail\s*\{[^}]*position:\s*(static|relative)/);
+  it('the ≤720px .rail rule never sets position:sticky (regression guard — this is the exact bug the first attempt reintroduced)', () => {
+    const narrowRail = railBlocks().find((b) =>
+      b.parents.some((p) => p.startsWith('@media') && p.includes('max-width: 720px')),
+    );
+    expect(narrowRail).toBeDefined();
+    expect(narrowRail!.body).not.toMatch(/position:\s*sticky/);
+  });
+
+  it('the ≤720px .rail rule still reorders the rail above .main (unrelated to position, unaffected by the fix)', () => {
+    const narrowRail = railBlocks().find((b) =>
+      b.parents.some((p) => p.startsWith('@media') && p.includes('max-width: 720px')),
+    );
+    expect(narrowRail!.body).toMatch(/order:\s*1;/);
+  });
+
+  it('no OTHER .rail rule (e.g. the 1080px breakpoint) sets position at all', () => {
+    const otherRailBlocks = railBlocks().filter(
+      (b) =>
+        !b.parents.some(
+          (p) => p.startsWith('@media') && (p.includes('max-width: 720px') || p.includes('min-width: 721px')),
+        ),
+    );
+    for (const block of otherRailBlocks) {
+      expect(block.body).not.toMatch(/position:/);
+    }
   });
 });
