@@ -11,13 +11,23 @@ import {
   RACE_DECORATION,
   CLASS_DECORATION,
   BACKGROUND_DECORATION,
-  CLASS_CASTER_KIND,
   ABILITY_KEYS,
+  casterKindFromSpellcasting,
+  castingModelFromSpellcasting,
+  slugifyName,
+  DEFAULT_POINTS_LABEL,
   type AbilityKey,
   type CasterKind,
 } from './helpers';
 import type { IconName } from '@/components/Icon';
-import type { CatalogItem, CatalogRaceData, CatalogClassData, CatalogBackgroundData } from '@/lib/api/types';
+import type {
+  CatalogItem,
+  CatalogRaceData,
+  CatalogClassData,
+  CatalogBackgroundData,
+  CatalogSubclassData,
+  FeatureChoiceOption,
+} from '@/lib/api/types';
 
 // ── Wizard display types ──────────────────────────────────────────────────────
 
@@ -107,6 +117,55 @@ export interface WizardClass {
   /** The class's Unarmored Defense ability (barbarian CON / monk WIS /
    *  homebrew-declared), when it declares one. */
   unarmoredDefenseAbility?: AbilityKey;
+  /** TAV-WIZARD-HOMEBREW-CASTERS — RESOURCE model, display-only. Optional so
+   *  every pre-existing WizardClass test fixture keeps compiling; consumers
+   *  read `castingModel ?? 'slots'` (matches the campaign default — see
+   *  castingModelFromSpellcasting's docstring). Always 'slots' in practice
+   *  for anything produced by catalogItemToClass — never left undefined. */
+  castingModel?: 'slots' | 'points';
+  /** TAV-WIZARD-HOMEBREW-CASTERS — what a points caster calls its pool
+   *  ("Chakra", "Magic Power", "Ki"). Meaningful only when
+   *  castingModel === 'points'; consumers fall back to DEFAULT_POINTS_LABEL. */
+  pointsLabel?: string;
+  /** TAV-WIZARD-HOMEBREW-CASTERS — the catalog's `subclass_level` verbatim.
+   *  The Subclass step gates on `=== 1` (an archetype pick due at THIS
+   *  creation flow); higher values (wizard's 2, most SRD classes' 3) are
+   *  still exposed for completeness but the wizard doesn't act on them. */
+  subclassLevel?: number;
+  /** TAV-WIZARD-HOMEBREW-CASTERS — the class's FIRST choose-N feature menu
+   *  (`data.feature_choices[0]`), when the row declares one. The Rung step
+   *  gates on `knownAtLevel1 > 0`. */
+  rungMenu?: WizardRungMenu;
+}
+
+/** TAV-WIZARD-HOMEBREW-CASTERS — a class's level-1 "choose N from a list"
+ *  menu, e.g. Naruto's "Path Technique" / Fairy Tail's "Magic Rung". */
+export interface WizardRungMenu {
+  label: string;
+  /** Leon's 2026-08-23 ruling gate (`feature_choices[0].freeform`) — false
+   *  means level-up-only; the Rung step renders read-only and attempts no
+   *  API call (§3 of the design). */
+  freeform: boolean;
+  /** `known["1"]` off the wire — the exact pick count required at creation. */
+  knownAtLevel1: number;
+  /** The FULL unfiltered option menu (including archetype-tagged entries) —
+   *  RungStep filters client-side by `option.subclass` once an archetype is
+   *  chosen; see subclassesForClass's sibling filtering discipline below. */
+  options: FeatureChoiceOption[];
+}
+
+/** TAV-WIZARD-HOMEBREW-CASTERS — one catalog `subclass` row, shaped for the
+ *  creation wizard's Subclass step. Mirrors LevelChoicePicker's own
+ *  SubclassChoiceCard display shape (id/name/blurb) plus the raw `class`
+ *  field the shared filter below keys on. */
+export interface WizardSubclass {
+  id: string;
+  name: string;
+  /** Raw wire value off `data.class` (a lowercased display name, NOT a
+   *  slug — see CatalogSubclassData.class's docstring). Kept for callers
+   *  that want to re-derive scoping; ordinary rendering only needs id/name/blurb. */
+  class: string;
+  blurb: string;
 }
 
 export interface WizardBackground {
@@ -195,7 +254,25 @@ export function catalogItemToClass(item: CatalogItem): WizardClass {
   const saves = ((d.saving_throws ?? []) as string[]).filter(
     (s): s is AbilityKey => s in ABILITY_ABBR,
   );
-  const casterKind = CLASS_CASTER_KIND[item.slug];
+  // TAV-WIZARD-HOMEBREW-CASTERS — data-driven caster derivation, replacing
+  // the old per-slug CLASS_CASTER_KIND lookup.
+  const casterKind = casterKindFromSpellcasting(d.spellcasting);
+  const castingModel = castingModelFromSpellcasting(d.spellcasting);
+  const pointsLabelRaw = d.spellcasting?.points_label;
+  const pointsLabel =
+    typeof pointsLabelRaw === 'string' && pointsLabelRaw.trim().length > 0
+      ? pointsLabelRaw.trim()
+      : DEFAULT_POINTS_LABEL;
+  const subclassLevel = typeof d.subclass_level === 'number' ? d.subclass_level : undefined;
+  const rungBlock = Array.isArray(d.feature_choices) ? d.feature_choices[0] : undefined;
+  const rungMenu: WizardRungMenu | undefined = rungBlock
+    ? {
+        label: typeof rungBlock.label === 'string' ? rungBlock.label : '',
+        freeform: rungBlock.freeform === true,
+        knownAtLevel1: Number(rungBlock.known?.['1'] ?? 0) || 0,
+        options: Array.isArray(rungBlock.options) ? rungBlock.options : [],
+      }
+    : undefined;
   // TAV-CLASS-STAT-GUIDANCE — guidance fields, validated defensively:
   // Array.isArray before .filter (a garbage string on the wire would
   // otherwise throw), unknown entries dropped. Absent data maps to []/
@@ -226,9 +303,41 @@ export function catalogItemToClass(item: CatalogItem): WizardClass {
     flavor: deco.flavor || (typeof d.description === 'string' ? d.description : ''),
     isCaster: casterKind !== undefined,
     casterKind,
+    castingModel,
+    pointsLabel,
+    subclassLevel,
+    rungMenu,
     primary,
     spellcastingAbility,
     unarmoredDefenseAbility,
+  };
+}
+
+// ── Subclass adapter (TAV-WIZARD-HOMEBREW-CASTERS) ────────────────────────────
+
+/**
+ * Subclass rows scoped to a class — the SAME slugify-both-sides comparison
+ * `LevelChoicePicker`'s `SubclassChoiceCard` runs server-verified-live
+ * (TAV-SUBCLASS-CLASSKEY-MISMATCH), factored out here so the creation
+ * wizard's Subclass step and the sheet's level-up picker share ONE filter
+ * instead of two copies drifting apart. `className` accepts either a
+ * display name ("Ki Warrior") or a slug — slugifyName normalises both.
+ */
+export function subclassesForClass(items: CatalogItem[], className: string): CatalogItem[] {
+  const wanted = slugifyName(className);
+  return items.filter((item) => {
+    const raw = (item.data as CatalogSubclassData).class;
+    return slugifyName(String(raw ?? '')) === wanted;
+  });
+}
+
+export function catalogItemToSubclass(item: CatalogItem): WizardSubclass {
+  const d = item.data as CatalogSubclassData;
+  return {
+    id: item.slug,
+    name: item.name,
+    class: String(d.class ?? ''),
+    blurb: typeof d.description === 'string' ? d.description : '',
   };
 }
 
