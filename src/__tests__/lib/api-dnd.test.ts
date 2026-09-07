@@ -63,6 +63,7 @@ import {
   restoreSession,
   listTrashedSessions,
   SESSIONS_TRASH_PATH,
+  SESSIONS_TRASH_LISTING_AVAILABLE,
   getGrounding,
   getCombatState,
   resolveCheck,
@@ -887,6 +888,16 @@ describe('Delete / restore / trash (DEL-6)', () => {
 
   it('listTrashedSessions returns [] when sessions is absent', async () => {
     expect(await listTrashedSessions('leon')).toEqual([]);
+  });
+
+  // TAV-TRASH-404: pins the real module's gate default. While the engine has
+  // no listing route, /trash must not fire the structurally-doomed request
+  // (the URL matches GET /sessions/{session_id} with id="trash" and always
+  // 404s). Flip this expectation to `true` in the same commit that flips the
+  // flag when ENGINE-SESSIONS-TRASH-LISTING ships — it exists so that flip is
+  // a deliberate, reviewed act rather than drift.
+  it('SESSIONS_TRASH_LISTING_AVAILABLE defaults to false until the engine ships the listing route', () => {
+    expect(SESSIONS_TRASH_LISTING_AVAILABLE).toBe(false);
   });
 });
 

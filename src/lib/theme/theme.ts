@@ -14,7 +14,7 @@
  * `color-scheme` is set declaratively per `data-vibe` in globals.css.
  */
 
-export const VIBES = ['dusk-tavern', 'candlelit', 'aetheric', 'moonlit-grove'] as const;
+export const VIBES = ['hearthlight', 'dusk-tavern', 'candlelit', 'aetheric', 'moonlit-grove'] as const;
 export type Vibe = (typeof VIBES)[number];
 
 /**
@@ -27,15 +27,17 @@ export type VibePref = Vibe | 'system';
 export const DENSITIES = ['compact', 'cozy', 'airy'] as const;
 export type Density = (typeof DENSITIES)[number];
 
-/** Ultimate fallback vibe when the OS preference is unavailable (SSR / no matchMedia). */
-export const DEFAULT_VIBE: Vibe = 'dusk-tavern';
+/** Ultimate fallback vibe when the OS preference is unavailable (SSR / no matchMedia).
+ *  T4p1: hearthlight-refined is now the app default (dusk-tavern stays fully
+ *  selectable — see globals.css's sibling [data-vibe="hearthlight"] block). */
+export const DEFAULT_VIBE: Vibe = 'hearthlight';
 /** Default preference when nothing is stored — follow the device theme. */
 export const DEFAULT_VIBE_PREF: VibePref = 'system';
 export const DEFAULT_DENSITY: Density = 'cozy';
 
 /** Which concrete vibe `'system'` resolves to for each OS scheme. */
 export const SYSTEM_LIGHT_VIBE: Vibe = 'candlelit';
-export const SYSTEM_DARK_VIBE: Vibe = 'dusk-tavern';
+export const SYSTEM_DARK_VIBE: Vibe = 'hearthlight';
 
 export const VIBE_KEY = 'tavern.vibe';
 export const DENSITY_KEY = 'tavern.density';
@@ -44,6 +46,7 @@ export const DENSITY_KEY = 'tavern.density';
 export const VIBE_PREFS: readonly VibePref[] = ['system', ...VIBES];
 
 export const VIBE_LABELS: Record<Vibe, string> = {
+  hearthlight: 'Hearthlight',
   'dusk-tavern': 'Dusk Tavern',
   candlelit: 'Candlelit',
   aetheric: 'Aetheric',
@@ -51,6 +54,7 @@ export const VIBE_LABELS: Record<Vibe, string> = {
 };
 
 export const VIBE_HINTS: Record<Vibe, string> = {
+  hearthlight: 'Ember-rose and amethyst, crafted',
   'dusk-tavern': 'Cozy, fireside, aubergine',
   candlelit: 'Light parchment, ember',
   aetheric: 'Deep midnight, arcane teal',
@@ -110,11 +114,11 @@ export function resolveVibe(pref: VibePref, osPrefersLight: boolean): Vibe {
 /**
  * Dependency-free script injected into the document head. It runs before first
  * paint and applies the palette/density to <html>, so the correct scheme never
- * flashes the dusk default then swaps (AC #4). It resolves the palette from the
+ * flashes the default then swaps (AC #4). It resolves the palette from the
  * stored preference: a concrete saved vibe is used verbatim; anything else
  * (`'system'`, absent, or tampered) follows the OS `prefers-color-scheme` —
- * light → candlelit, otherwise dusk-tavern. Kept tiny and literal (no imports —
- * it executes before any module loads) and CSP-safe (no eval, no external src).
- * Mirrors the keys/values above; keep in sync.
+ * light → candlelit, otherwise hearthlight (T4p1: was dusk-tavern). Kept tiny
+ * and literal (no imports — it executes before any module loads) and CSP-safe
+ * (no eval, no external src). Mirrors the keys/values above; keep in sync.
  */
-export const NO_FLASH_SCRIPT = `(function(){try{var d=document.documentElement,v=localStorage.getItem('${VIBE_KEY}'),n=localStorage.getItem('${DENSITY_KEY}');if(v!=='dusk-tavern'&&v!=='candlelit'&&v!=='aetheric'&&v!=='moonlit-grove'){v=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches)?'candlelit':'dusk-tavern';}d.setAttribute('data-vibe',v);if(n==='compact'||n==='cozy'||n==='airy')d.setAttribute('data-density',n);}catch(e){}})();`;
+export const NO_FLASH_SCRIPT = `(function(){try{var d=document.documentElement,v=localStorage.getItem('${VIBE_KEY}'),n=localStorage.getItem('${DENSITY_KEY}');if(v!=='hearthlight'&&v!=='dusk-tavern'&&v!=='candlelit'&&v!=='aetheric'&&v!=='moonlit-grove'){v=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches)?'candlelit':'hearthlight';}d.setAttribute('data-vibe',v);if(n==='compact'||n==='cozy'||n==='airy')d.setAttribute('data-density',n);}catch(e){}})();`;

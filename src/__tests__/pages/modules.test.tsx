@@ -16,6 +16,9 @@ import '@testing-library/jest-dom';
 const mockPush = jest.fn();
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush, replace: jest.fn() }),
+  // T4p1: modules/page.tsx now reads ?adventure= for the series-detail deep
+  // link (useSearchParams requires a Suspense boundary — mirrors login/page.tsx).
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 jest.mock('../../lib/api/auth', () => ({
@@ -191,7 +194,9 @@ it('retry re-fetches the catalog and shows the grid on success', async () => {
   });
   // After retry, the adventure grid should render.
   expect(await screen.findByRole('heading', { level: 2, name: /hollow tide/i })).toBeInTheDocument();
-  expect(mockGetCatalog).toHaveBeenCalledTimes(2);
+  // T4p1: each fetch cycle now makes TWO parallel getCatalog calls
+  // (type=adventure + type=series) — 2 cycles (mount + retry) x 2 calls = 4.
+  expect(mockGetCatalog).toHaveBeenCalledTimes(4);
 });
 
 it('a second adventure in the catalog renders without any Tavern change', async () => {

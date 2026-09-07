@@ -1027,6 +1027,13 @@ export interface CombatParticipantState {
   is_active_turn: boolean;
   /** Took their turn this round. */
   took_turn: boolean;
+  /** TAV-ATTACK-BUTTON-STALE: 5e per-turn action economy (DDX-06) — false
+   *  once this participant's ACTION is spent this turn; resets at the start
+   *  of their own turn. The engine sends it on every participant entry
+   *  (engine/combat.py::build_combat_state). Optional purely so pre-existing
+   *  test fixtures that construct literals keep compiling — same convention
+   *  as condition_durations above; absent is treated as "available". */
+  action_available?: boolean;
   /** PC-only; absent on monster entries. */
   death_saves?: CombatDeathSaves;
   /** Monster-only: AI tactic text from encounter meta. */
@@ -1724,6 +1731,37 @@ export interface AdvanceSceneRequest {
   flags?: Record<string, unknown>;
 }
 
+/** `next_status` on a SeriesCompletionPointer (design doc §6.4). `unresolved`
+ *  is a HOLE, not an ending — a retired/invisible member, never silently
+ *  read as end-of-series (design doc §5.4). */
+export type SeriesNextStatus = 'ok' | 'end_of_series' | 'unresolved';
+
+/** The next adventure in a series, resolved (design doc §6.4). Absent
+ *  fields (`name`/`label`/`act_handle`/`level_range`) mean the field simply
+ *  wasn't authored on that member — never a signal to fall back to a guess. */
+export interface SeriesNextAdventure {
+  ref: string;
+  name?: string;
+  label?: string;
+  act_handle?: string;
+  level_range?: { min: number; max: number };
+}
+
+/** One entry of the `series` array on an /advance completion response
+ *  (design doc §6.4). Always a list — an adventure can legitimately sit in
+ *  more than one series (Dragon Ball's era-vs-full-run case, design doc
+ *  §10.2); `[]` means "not in a series". */
+export interface SeriesCompletionPointer {
+  ref: string;
+  title: string;
+  /** 1-based index of the member that was just completed. */
+  position: number;
+  total: number;
+  next_status: SeriesNextStatus;
+  /** Present only when next_status === 'ok'. */
+  next?: SeriesNextAdventure;
+}
+
 /**
  * Response from POST /api/dnd/sessions/{id}/advance.
  *
@@ -1733,6 +1771,13 @@ export interface AdvanceSceneRequest {
  * `completed: true` always accompanies `to_scene: null` (and never appears
  * otherwise); `ends_adventure` is also `true` on this shape but predates
  * `completed` and is kept for existing named-transition consumers.
+ *
+ * T4p1: `series`/`next_adventure` are the SUZU_DND_SERIES-gated completion
+ * fields from the 2026-08-25 Campaign Series design doc §6.4 — optional so
+ * a flag-off or pre-series engine response still types cleanly.
+ * `already_completed`/`persisted` are the idempotency fix from the same
+ * design (§6.1), shipped UNFLAGGED. None of these are wired into play
+ * chrome yet (out of scope this phase) — see NextPartOffer.tsx.
  */
 export interface AdvanceSceneResult {
   from_scene: string;
@@ -1742,6 +1787,17 @@ export interface AdvanceSceneResult {
   ends_adventure?: boolean;
   /** True only on the terminal (`to_scene: null`) shape — see above. */
   completed?: boolean;
+  /** Whether this call's completion needed to persist anything (false on a
+   *  repeat/idempotent call — see `already_completed`). */
+  persisted?: boolean;
+  /** True when this call found the adventure already completed and returned
+   *  the terminal payload as a no-op (design doc §6.1) — HTTP 200, not 409. */
+  already_completed?: boolean;
+  /** Always a list when present. [] = not in any series. */
+  series?: SeriesCompletionPointer[];
+  /** Flattened convenience — `engine.series.flatten_next`'s output. Present
+   *  (non-null) only when exactly one series entry has next_status 'ok'. */
+  next_adventure?: SeriesNextAdventure | null;
 }
 
 /** Request body for POST /api/dnd/sessions/{id}/flag. */
@@ -1890,6 +1946,20 @@ export interface BindCharacterResult {
 
 // ── DnD: catalog — adventure items (ADV-9) ────────────────────────────────────
 
+/**
+ * Series-membership stamp on an adventure's catalog summary (SUZU_DND_SERIES,
+ * flag-gated — see the 2026-08-25 Campaign Series design doc §8.2). Key is
+ * ABSENT entirely when the adventure isn't in any series — never present-but-
+ * null — so `summary.series` doubles as its own presence check.
+ */
+export interface AdventureSeriesStamp {
+  ref: string;
+  title: string;
+  /** 1-based index of this adventure within the series' member order. */
+  position: number;
+  total: number;
+}
+
 /** Summary block projected from the adventure data JSONB for catalog list mode. */
 export interface AdventureSummary {
   subtitle?: string;
@@ -1897,6 +1967,18 @@ export interface AdventureSummary {
   length?: string;
   content_rating?: string;
   tags?: string[];
+  /** Present only when SUZU_DND_SERIES is on and this adventure belongs to a
+   *  series (first match by pack precedence when it's in more than one —
+   *  see `also_in`). */
+  series?: AdventureSeriesStamp;
+  /** Count of ADDITIONAL series this adventure also belongs to, beyond the
+   *  one named in `series` above. Absent/0 = only ever in the one (or zero). */
+  also_in?: number;
+  /** Ships UNFLAGGED (plain data passthrough — Leon-ruled 2026-08-26). Tags
+   *  rows that are editorial inputs to spine-splice assembly (e.g. Act-I
+   *  chunk rows), not standalone-playable modules — the catalog UI filters
+   *  these out of the browsable one-shot grid. */
+  editorial_role?: string;
 }
 
 /** A catalog item for content_type='adventure'. */
@@ -1904,6 +1986,56 @@ export interface AdventureCatalogItem {
   public_id: string;
   name: string;
   summary: AdventureSummary;
+}
+
+// ── DnD: catalog — series items (T4p1 / TAV-SERIES-GROUPING) ─────────────────
+// See MainVault/architecture/2026-08-25 Campaign Series — Content Model &
+// Runtime Design.md §8.1. Member NAMES are deliberately NOT resolved in list
+// mode (design doc §8.1/§18 D1).
+//
+// B1 CORRECTION (T5 live sweep, 2026-08-28, engine D1 ruling verified against
+// .226): `summary.member_refs` is a PLAIN STRING ARRAY of adventure public_ids
+// — NOT the `{ref, act_handle, label}[]` object shape an earlier design draft
+// assumed (that shape never shipped; the original `members`-keyed mapper read
+// a key that never existed on the wire, so every real series mapped to null).
+// The engine owns this contract. Titles are resolved client-side by joining
+// member_refs against the type=adventure catalog list's own public_id/name —
+// see adventureCatalog.ts's `resolveSeriesMembers`.
+
+/** Procedural cover spec (design doc §4.1/§4.2) — franchise artwork is off
+ *  the table on the vault's IP posture; `image_ref` is reserved (must be
+ *  null) for a future raster-override pass. Decorative only — never the
+ *  sole carrier of meaning (content_rating/level_range/title stay in text). */
+export interface SeriesCover {
+  color: string;
+  pattern: 'stripes' | 'hatch' | 'dots' | 'none';
+  glyph: string;
+  image_ref: string | null;
+}
+
+/** Summary block projected from the series data JSONB for catalog list mode
+ *  (design doc §8.1, corrected per the B1 note above). */
+export interface SeriesSummary {
+  subtitle?: string;
+  level_range?: { min: number; max: number };
+  length?: string;
+  content_rating?: string;
+  tags?: string[];
+  cover: SeriesCover;
+  member_count: number;
+  /** Ordered adventure public_ids — play order IS array order. Bare strings
+   *  on the wire (see the B1 correction note above); titles/levels are
+   *  resolved client-side, not carried here. */
+  member_refs: string[];
+}
+
+/** A catalog item for content_type='series'. */
+export interface SeriesCatalogItem {
+  public_id: string;
+  /** Bare slug (e.g. "mlp-toto-campaign") — used for the /modules/series/[slug] route. */
+  slug: string;
+  name: string;
+  summary: SeriesSummary;
 }
 
 // ── Narration SSE ──────────────────────────────────────────────────────────

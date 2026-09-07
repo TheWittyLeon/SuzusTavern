@@ -27,7 +27,7 @@
 
   /* Hardcoded high-contrast yellow/black — intentionally not using design tokens.
    * This is a "you are not in production" danger signal that must be legible
-   * on every vibe palette without per-theme overrides. */
+   * on every vibe palette without per-theme overrides. design-token-exempt */
   background: #ffd600;
   color: #1a1100;
 

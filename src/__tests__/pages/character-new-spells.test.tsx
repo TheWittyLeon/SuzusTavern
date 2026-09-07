@@ -1327,5 +1327,76 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
         await screen.findByText(/Suzu couldn.?t write that down\. Check your choices/i),
       ).toBeInTheDocument();
     });
+
+    // TAV-WIZARD-429-HANG merge (post20 staging + wizard-homebrew-casters):
+    // describeCreateError checks a limiter 429 BEFORE delegating to
+    // engineErrorMessage. 429 is deliberately outside engineError.ts's
+    // BUSINESS_4XX_STATUSES (that set is curated for the engine's own
+    // creation-refusal copy, not the rate limiter) — without the early
+    // return this body ({error:'rate_limited', retry_after}, no `message`)
+    // would fall through engineErrorMessage straight to GENERIC_CREATE_ERROR,
+    // blaming the player's picks for a limiter refusal.
+    it('a 429 (limiter) surfaces the rate-limit copy, never the generic "check your choices" line', async () => {
+      mockCreateCharacter.mockRejectedValueOnce(
+        Object.assign(new Error('429'), {
+          status: 429,
+          code: '429',
+          body: { error: 'rate_limited', retry_after: 30 },
+        }),
+      );
+      renderWizard();
+      pickRace();
+      fireEvent.click(screen.getByRole('radio', { name: /Wizard/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      fillBackground();
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Equipment
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      });
+
+      const alert = await screen.findByText(/too many requests in a short window/i);
+      expect(alert).toBeInTheDocument();
+      expect(alert).toHaveTextContent(/your choices are fine/i);
+      expect(screen.queryByText(/check your choices/i)).not.toBeInTheDocument();
+      // Retry affordance: still on Equipment, Continue re-enabled.
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
+    });
+
+    // Companion case for the same merge: a real 400 business refusal still
+    // routes through engineErrorMessage's chokepoint — the raw `[DnD] `
+    // subsystem tag never reaches the player.
+    it('a 400 with an engine [DnD]-prefixed message surfaces the cleaned copy via the chokepoint, tag stripped', async () => {
+      mockCreateCharacter.mockRejectedValueOnce(
+        Object.assign(new Error('400'), {
+          status: 400,
+          code: '400',
+          body: {
+            success: false,
+            message: '[DnD] Half-Elf ability score choices must be exactly two abilities, excluding Charisma.',
+            data: {},
+          },
+        }),
+      );
+      renderWizard();
+      pickRace();
+      fireEvent.click(screen.getByRole('radio', { name: /Wizard/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      fillBackground();
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Equipment
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      });
+
+      expect(
+        await screen.findByText(
+          'Half-Elf ability score choices must be exactly two abilities, excluding Charisma.',
+        ),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/\[DnD\]/i)).not.toBeInTheDocument();
+    });
   });
 });

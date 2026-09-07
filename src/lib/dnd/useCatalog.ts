@@ -41,8 +41,16 @@ export interface CatalogData {
  * else — offline, DNS, 5xx, a malformed payload. They need opposite
  * remedies, so a consumer that collapses them back into one branch has
  * re-created the bug.
+ *
+ * TAV-WIZARD-429-HANG: `'rate_limited'` = the request (or the silent
+ * /api/auth/refresh retry a 401 triggered — client.ts carries the refresh
+ * attempt's REAL status through as `err.status`, so both arrive here as 429)
+ * was refused by a rate limiter. Distinct from 'error' because the remedy is
+ * "wait a few seconds, then retry" — the old collapse into 'error' told the
+ * player to check a connection that was fine, which reads as a dead end
+ * during a limiter episode.
  */
-export type CatalogStatus = 'loading' | 'ok' | 'error' | 'unauthorized';
+export type CatalogStatus = 'loading' | 'ok' | 'error' | 'unauthorized' | 'rate_limited';
 
 export interface UseCatalogResult {
   status: CatalogStatus;
@@ -110,10 +118,18 @@ export function useCatalog(): UseCatalogResult {
         // for a DIRECT (non-retry) 401/403 throw, which never goes through
         // client.ts's refresh-classification branch at all.
         const e = err as { status?: number; code?: string } | null;
+        // TAV-WIZARD-429-HANG: a limiter 429 is checked FIRST — it can arrive
+        // either directly (the catalog endpoint itself answered 429) or as
+        // client.ts's `refresh_unavailable` throw after the 401-triggered
+        // refresh retry hit the limiter (that throw carries the refresh
+        // attempt's real 429 status). Both need the wait-then-retry surface,
+        // not the check-your-connection one.
         setStatus(
-          e?.status === 401 || e?.status === 403 || e?.code === 'unauthorized'
-            ? 'unauthorized'
-            : 'error',
+          e?.status === 429
+            ? 'rate_limited'
+            : e?.status === 401 || e?.status === 403 || e?.code === 'unauthorized'
+              ? 'unauthorized'
+              : 'error',
         );
       });
 

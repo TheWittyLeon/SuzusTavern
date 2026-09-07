@@ -111,7 +111,11 @@
   place-items: center;
   border-radius: 12px;
   border: none;
-  background: var(--accent);
+  /* T4p2 (hearthlight): matches the .btn-primary gradient convention used
+     everywhere else a primary action sits on the accent (globals.css,
+     TavernShell's .tabActive, Composer's own send-affordance sibling
+     surfaces) — was a flat var(--accent), the one outlier. Value-only. */
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
   /* Per-palette contrast-safe foreground on the accent surface (was #fff, which
      failed 3:1 on 3 of 4 palettes). */
   color: var(--on-accent);

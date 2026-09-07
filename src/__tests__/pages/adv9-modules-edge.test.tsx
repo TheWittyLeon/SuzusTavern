@@ -17,6 +17,9 @@ import '@testing-library/jest-dom';
 const mockPush = jest.fn();
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush, replace: jest.fn() }),
+  // T4p1: modules/page.tsx now reads ?adventure= for the series-detail deep
+  // link (useSearchParams requires a Suspense boundary — mirrors login/page.tsx).
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 // The auth API is used by AuthProvider internally — stub it to avoid network calls.

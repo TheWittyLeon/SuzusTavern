@@ -108,6 +108,16 @@ async function proxyToAuth(
     return NextResponse.json({ error: 'upstream_unavailable' }, { status: 502 });
   }
 
+  // ADMIN-AUTH-BFF-204-THROW: 204/205/304 are body-forbidden statuses (Fetch
+  // spec) — attaching even the `{}` fallback makes NextResponse.json's own
+  // Response constructor throw synchronously ("Invalid response status code
+  // 204"), so a spec-conformant upstream answering 204 to a DELETE crashed
+  // the route instead of passing through. Forward the bare status instead —
+  // never attempt a body (nor a body read: there is nothing to parse).
+  if (res.status === 204 || res.status === 205 || res.status === 304) {
+    return new NextResponse(null, { status: res.status });
+  }
+
   let raw: unknown = null;
   try {
     raw = await res.json();

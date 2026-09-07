@@ -19,6 +19,9 @@ const mockPush = jest.fn();
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush, replace: jest.fn() }),
   useParams: () => ({ sessionId: 's1' }),
+  // T4p1: modules/page.tsx now reads ?adventure= for the series-detail deep
+  // link (useSearchParams requires a Suspense boundary — mirrors login/page.tsx).
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 jest.mock('../../lib/api/auth', () => ({
@@ -315,14 +318,16 @@ describe('Tora MINOR-2 — retry guard ignores clicks when not in error state', 
     renderModules();
     // Wait for catalog to finish loading (status → ok).
     await screen.findByRole('button', { name: /run this/i });
-    // getCatalog must have been called exactly once (the initial load).
-    expect(mockGetCatalog).toHaveBeenCalledTimes(1);
+    // getCatalog must have been called exactly twice (the initial load's
+    // parallel type=adventure + type=series calls — T4p1).
+    expect(mockGetCatalog).toHaveBeenCalledTimes(2);
 
     // The retry callback is internal — we verify the guard indirectly: the
     // catalog must not re-fetch when status !== 'error'. Since the retry button
     // only renders in error state, this guard matters for programmatic / rapid-tap
-    // scenarios. We confirm the load ran exactly once (no spurious re-fetch).
-    expect(mockGetCatalog).toHaveBeenCalledTimes(1);
+    // scenarios. We confirm the load ran exactly once per content type (no
+    // spurious re-fetch).
+    expect(mockGetCatalog).toHaveBeenCalledTimes(2);
   });
 
   it('retry fires correctly when status is "error" (re-fetches catalog)', async () => {
@@ -340,7 +345,8 @@ describe('Tora MINOR-2 — retry guard ignores clicks when not in error state', 
 
     // After retry the catalog re-fetched and the grid appears.
     expect(await screen.findByRole('heading', { level: 2, name: /hollow tide/i })).toBeInTheDocument();
-    expect(mockGetCatalog).toHaveBeenCalledTimes(2);
+    // T4p1: 2 cycles (mount + retry) x 2 parallel calls (adventure + series) = 4.
+    expect(mockGetCatalog).toHaveBeenCalledTimes(4);
   });
 });
 

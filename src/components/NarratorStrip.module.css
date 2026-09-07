@@ -7,6 +7,11 @@
   background: color-mix(in oklab, var(--accent) 7%, var(--bg-2));
   border: 1px solid color-mix(in oklab, var(--accent) 22%, var(--line));
   min-height: 56px;
+  /* T4p2 (hearthlight): richer elevation on the "Suzu is narrating" strip —
+     the play.html artboard's narratorStrip carries shadow-soft; the shipped
+     strip had none. Additive only, matches the shadow every other .card-like
+     surface in the app already gets. */
+  box-shadow: var(--shadow-soft);
 }
 
 .dialog {
