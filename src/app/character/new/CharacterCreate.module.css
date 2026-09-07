@@ -36,6 +36,18 @@
   }
   .rail {
     order: 1;
+    /* Iro-A11y live-pass CRITICAL-1 (2026-09-07): the base .rail rule below
+       is `position: sticky`, correct at 2/3-column widths where the rail
+       sits beside scrolling step content — but once .layout collapses to
+       ONE column here, "beside" no longer exists: the rail becomes the
+       first stacked block above .main, and sticky pins it over the step
+       content the instant that content scrolls past it (confirmed live at
+       375×812, 100% zoom). Reset to static so it scrolls away naturally
+       with the page, same as .main below it. Do NOT copy Codex.module.css's
+       history here — that component's rail deliberately stays sticky at
+       every width (a different UX intent, a persistent nav rail); this one
+       does not. */
+    position: static;
   }
   .main {
     order: 2;

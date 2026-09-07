@@ -188,12 +188,42 @@ const LEGACY_CASTER = {
   },
 };
 
+// Iro-A11y live-pass MINOR-1 (2026-09-07): a freeform Rung menu with cap>1
+// and NO Subclass step (subclassLevel omitted) — isolates the pluralization
+// concern (budgetNum's aria-label, the nav continueHint) from subclass-pick
+// mechanics entirely.
+const TWO_PICK_CASTER = {
+  id: 'two-pick-caster',
+  name: 'Two Pick Caster',
+  hitDie: 8,
+  saves: ['wisdom', 'charisma'] as ['wisdom', 'charisma'],
+  icon: 'Wizard' as const,
+  accent: 'var(--cool)',
+  flavor: 'Picks two tricks, not one.',
+  isCaster: true,
+  casterKind: 'known' as const,
+  castingModel: 'points' as const,
+  pointsLabel: 'Focus',
+  primary: ['wisdom'] as ['wisdom'],
+  spellcastingAbility: 'wisdom' as const,
+  rungMenu: {
+    label: 'Trick',
+    freeform: true,
+    knownAtLevel1: 2,
+    options: [
+      { slug: 'trick-one', name: 'Trick One', level: 1 },
+      { slug: 'trick-two', name: 'Trick Two', level: 1 },
+      { slug: 'trick-three', name: 'Trick Three', level: 1 },
+    ],
+  },
+};
+
 const defaultCatalog = {
   status: 'ok' as const,
   retry: jest.fn(),
   data: {
     races: [HUMAN],
-    classes: [FIGHTER, SHINOBI, CLERIC, LEGACY_CASTER],
+    classes: [FIGHTER, SHINOBI, CLERIC, LEGACY_CASTER, TWO_PICK_CASTER],
     backgrounds: [
       { id: 'acolyte', name: 'Acolyte', skills: ['insight', 'religion'], blurb: 'you were good at the prayers.' },
     ],
@@ -419,6 +449,31 @@ describe('Rung step (TAV-WIZARD-HOMEBREW-CASTERS)', () => {
     await advanceToRung();
     const heading = screen.getByRole('heading', { name: /What do you already know how to do/i });
     await waitFor(() => expect(heading).toHaveFocus());
+  });
+
+  // Iro-A11y live-pass MINOR-1 (2026-09-07): countedLabel must actually
+  // pluralize at cap>1 — every OTHER fixture in this file uses cap 1, which
+  // can't distinguish "pluralizes correctly" from "happens to render the
+  // same string either way".
+  it('pluralizes the budgetNum aria-label and the nav continueHint at cap>1 (Iro-A11y MINOR-1)', async () => {
+    renderWizard();
+    pickRace();
+    pickClass(/Two Pick Caster/i); // -> lands directly on Rung (no Subclass step)
+    await screen.findByRole('heading', { name: /What do you already know how to do/i });
+
+    expect(screen.getByLabelText('0 of 2 Tricks chosen')).toBeInTheDocument();
+    // sr-only hint text for the "hint" at 0/2 -- continueHint (visible via
+    // the sr-only #continue-hint span while Continue is disabled).
+    expect(screen.getByText('Pick 2 Tricks to continue.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /Trick One/i }));
+    expect(screen.getByLabelText('1 of 2 Tricks chosen')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /Trick Two/i }));
+    expect(screen.getByLabelText('2 of 2 Tricks chosen')).toBeInTheDocument();
+    expect(
+      document.getElementById('rung-cap-hint')?.textContent,
+    ).toMatch(/You.ve chosen all 2 Tricks — deselect one to pick another/i);
   });
 
   it('enforces the exact pick count (cap 1) — a second pick is disabled, Continue gates on it', async () => {
