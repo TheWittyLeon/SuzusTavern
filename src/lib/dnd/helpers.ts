@@ -7,6 +7,7 @@
 // src/lib/api/dnd.ts (getCatalog) and src/lib/dnd/catalog.ts.
 
 import type { IconName } from '@/components/Icon';
+import type { CatalogSpellcastingBlock } from '@/lib/api/types';
 
 // ── Abilities ──────────────────────────────────────────────────────────────────
 
@@ -269,19 +270,8 @@ export const CLASS_DECORATION: Record<
   monk:      { icon: 'Monk',      accent: 'var(--accent-2)', flavor: 'Fists, focus, ki.' },
 };
 
-// ── Caster gate (T4/DDX-11t creation slice) ───────────────────────────────────
-// Mirrors engine/classes.py's SpellcastingProfile setup (verified by read,
-// NekoNova-DnDEngine 2026-07-09): the 6 classes below get real cantrips AND
-// 1st-level slots at character level 1. Paladin/ranger DO set a
-// spellcasting_ability (surfaced by the catalog's CatalogClassData) but their
-// `cantrips_known` table is empty and their half-caster slot table starts at
-// level 2 (see spellbook.py's max_castable_spell_level docstring) — so they
-// have a ZERO spell budget at creation and are correctly excluded here. This
-// is the "class -> caster" map the DDX-11t creation-wizard slice uses to gate
-// the Spells step; it does NOT reflect casters unlocked by subclass (e.g.
-// Eldritch Knight/Arcane Trickster at level 3), which are out of scope for a
-// level-1 creation flow.
-//
+// ── Caster gate (T4/DDX-11t creation slice; data-driven since
+// TAV-WIZARD-HOMEBREW-CASTERS) ─────────────────────────────────────────────
 // `kind` mirrors engine/spellbook.py's caster_kind() classification and
 // decides which hop the creation wizard uses for a chosen 1st-level spell:
 //  - 'known'     (bard/sorcerer/warlock) -> learnSpell, capped by
@@ -297,14 +287,77 @@ export const CLASS_DECORATION: Record<
 //                 wizard_spellbook_size, a static SRD formula not on the wire).
 export type CasterKind = 'known' | 'prepared' | 'spellbook';
 
-export const CLASS_CASTER_KIND: Record<string, CasterKind> = {
-  bard: 'known',
-  sorcerer: 'known',
-  warlock: 'known',
-  cleric: 'prepared',
-  druid: 'prepared',
-  wizard: 'spellbook',
-};
+/**
+ * TAV-WIZARD-HOMEBREW-CASTERS — replaces the old hardcoded `CLASS_CASTER_KIND`
+ * 6-class map. Derives `CasterKind` from the class row's OWN declared
+ * `spellcasting` block (verified against NekoNova-DnDEngine's
+ * `scripts/import_srd.py::build_classes` + `engine/rules_catalog.py::
+ * _spellcasting_profile_from_row`), so a tenth homebrew caster (Naruto's
+ * Shinobi, Fairy Tail's ft-caster/holder/slayer, DBZ's Ki Warrior) needs no
+ * client-side map edit.
+ *
+ * PROGRESSION GATE (the reason this isn't just "block present -> caster"):
+ * paladin and ranger BOTH declare a real `spellcasting` block on the wire
+ * (they have a spellcasting ability from level 1) but their curve is named
+ * "half", whose level-1 slot table is an empty `{}`
+ * (`engine/progressions.py`'s `HALF_CASTER[1]`) — a genuine ZERO spell
+ * budget at creation, same for a "third"-progression class (Eldritch
+ * Knight/Arcane Trickster, subclass-granted, never a base class row anyway).
+ * Only "full" and "pact" progressions have a non-empty level-1 table, which
+ * is exactly bard/cleric/druid/sorcerer/warlock/wizard PLUS every verified
+ * homebrew caster (all declare `progression: "full"`) — the SRD SIX stay
+ * byte-identical to the old hardcoded map, and paladin/ranger correctly stay
+ * non-casters at level 1, unchanged from before this function existed.
+ *
+ * Returns `undefined` for a non-caster (no block, an explicit-null block, or
+ * a half/third progression) — callers treat that as `isCaster: false`,
+ * unchanged gating.
+ */
+export function casterKindFromSpellcasting(
+  sc: CatalogSpellcastingBlock | null | undefined,
+): CasterKind | undefined {
+  if (!sc) return undefined;
+  if (sc.progression !== 'full' && sc.progression !== 'pact') return undefined;
+  if (sc.prepares_from_spellbook) return 'spellbook';
+  if (sc.is_prepared_caster) return 'prepared';
+  return 'known';
+}
+
+/**
+ * TAV-WIZARD-HOMEBREW-CASTERS — the class's RESOURCE model (slots vs.
+ * points), display-only per the design's axis split. `casting_model` absent/
+ * null means "follow the campaign setting", which resolves to "slots" at
+ * creation (no campaign is bound yet — mirrors `engine/spells_dispatch.py::
+ * resolve_casting_model`'s own default, verified by read).
+ */
+export function castingModelFromSpellcasting(
+  sc: CatalogSpellcastingBlock | null | undefined,
+): 'slots' | 'points' {
+  return sc?.casting_model === 'points' ? 'points' : 'slots';
+}
+
+/** Generic fallback when a points caster declares no `points_label` of its
+ *  own — mirrors `SheetSpellPoints.label`'s documented default (types.ts). */
+export const DEFAULT_POINTS_LABEL = 'Spell points';
+
+/** A11Y: roving-tabindex radiogroup arrow-key nav for a CUSTOM
+ *  `role="radio"` button group (native `<input type="radio">` groups get
+ *  this from the browser for free and never need it — see LevelChoicePicker's
+ *  SubclassChoiceCard/AsiChoiceCard, whose options are buttons, not native
+ *  inputs). Up/Left move to the previous option, Down/Right to the next
+ *  (both wrap), Home/End jump to the ends. Arrow-key movement ALSO selects
+ *  (native radio-group semantics), so callers select + refocus together.
+ *  Returns null for any other key so the caller can no-op without calling
+ *  preventDefault. */
+export function radioStepIndex(key: string, idx: number, length: number): number | null {
+  if (length === 0) return null;
+  const from = idx < 0 ? 0 : idx;
+  if (key === 'ArrowRight' || key === 'ArrowDown') return (from + 1) % length;
+  if (key === 'ArrowLeft' || key === 'ArrowUp') return (from - 1 + length) % length;
+  if (key === 'Home') return 0;
+  if (key === 'End') return length - 1;
+  return null;
+}
 
 /** SRD wizard spellbook size at level 1 (engine/spellbook.py:110,
  *  `wizard_spellbook_size`: `6 + 2 * (level - 1)`). Hardcoded here because a
