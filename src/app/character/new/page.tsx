@@ -92,9 +92,13 @@ import {
   createCharacter,
   deleteCharacter,
   getAvailableSpells,
+  getCatalog,
+  getFeaturePicks,
   getStartingEquipment,
+  learnFeaturePick,
   learnSpell,
   prepareSpell,
+  resolveLevelChoice,
 } from '@/lib/api/dnd';
 import { useCatalog } from '@/lib/dnd/useCatalog';
 import { raceSpeedLabel, spellComponentsLabel, spellLevelLabel } from '@/lib/dnd/codex';
@@ -130,7 +134,15 @@ import {
   type AbilityScores,
 } from '@/lib/dnd/helpers';
 import { indefiniteArticle } from '@/lib/text/indefiniteArticle';
-import type { WizardRace, WizardClass, WizardBackground } from '@/lib/dnd/catalog';
+import {
+  catalogItemToSubclass,
+  subclassesForClass,
+  type WizardRace,
+  type WizardClass,
+  type WizardBackground,
+  type WizardSubclass,
+  type WizardRungMenu,
+} from '@/lib/dnd/catalog';
 import type {
   ApiError,
   AvailableSpellEntry,
@@ -138,11 +150,25 @@ import type {
   CatalogItem,
   CatalogSpellData,
   EquipmentSelection,
+  FeatureChoiceOption,
   StartingEquipmentResult,
 } from '@/lib/api/types';
 import styles from './CharacterCreate.module.css';
 
-type StepKey = 'race' | 'class' | 'abilities' | 'background' | 'equipment' | 'spells' | 'review';
+// dnd5e — the only system this wizard drives today (matches useCatalog.ts's
+// own SYSTEM constant and LevelChoicePicker's).
+const SYSTEM = 'dnd5e';
+
+type StepKey =
+  | 'race'
+  | 'class'
+  | 'subclass'
+  | 'rung'
+  | 'abilities'
+  | 'background'
+  | 'equipment'
+  | 'spells'
+  | 'review';
 
 interface StepMeta {
   key: StepKey;
@@ -208,8 +234,53 @@ const REVIEW_STEP: StepMeta = {
   intro: "A last look. Once you confirm, Suzu writes it down. (She doesn't forget.)",
 };
 
-function buildSteps(isCaster: boolean): StepMeta[] {
-  return isCaster ? [...BASE_STEPS, SPELLS_STEP, REVIEW_STEP] : [...BASE_STEPS, REVIEW_STEP];
+// TAV-WIZARD-HOMEBREW-CASTERS — inserted right after Class, gated on
+// `WizardClass.subclassLevel === 1` (data-driven — replaces the sheet-only
+// LevelChoicePicker path for the six classes that pick an archetype at
+// level 1: bard/cleric/sorcerer/warlock get it post-create today; this adds
+// three homebrew casters and, per the design doc's flagged side effect,
+// SRD cleric/sorcerer/warlock now ALSO get it at creation instead of
+// leaving it as a post-create sheet nag).
+const SUBCLASS_STEP: StepMeta = {
+  key: 'subclass',
+  t: 'Archetype',
+  heading: 'And which path do you follow?',
+  intro:
+    'Some classes fork early — a school, a domain, an order, a bloodline. Pick yours now; it shapes what you can do from level one.',
+};
+
+// Inserted after Subclass, gated on `WizardClass.rungMenu.knownAtLevel1 > 0`
+// (§3 of the design — Rung MUST come after Subclass so archetype-scoped
+// options are resolvable; see the design's engine fact 4).
+const RUNG_STEP: StepMeta = {
+  key: 'rung',
+  t: 'Techniques',
+  heading: 'What do you already know how to do?',
+  intro:
+    "Your archetype comes with its own starting menu. Pick from what your path allows — you'll unlock more as you climb.",
+};
+
+/** TAV-WIZARD-HOMEBREW-CASTERS — generalized from a bare `isCaster` boolean
+ *  to the three independent, data-driven gates (`isCaster`/`hasSubclassStep`/
+ *  `hasRungStep`) each step now has. Order is fixed: Race, Class,
+ *  [Subclass], [Rung], Abilities, Background, Equipment, [Spells], Review —
+ *  Subclass/Rung sit visually right after Class even though the actual
+ *  resolveLevelChoice/learnFeaturePick calls fire later (Equipment→next,
+ *  same deferred-POST idiom as every other early-picked field — see the
+ *  design's §"What I changed from a literal reading" item 1). */
+function buildSteps(flags: {
+  isCaster: boolean;
+  hasSubclassStep: boolean;
+  hasRungStep: boolean;
+}): StepMeta[] {
+  const [race, cls, abilities, background, equipment] = BASE_STEPS;
+  const steps: StepMeta[] = [race, cls];
+  if (flags.hasSubclassStep) steps.push(SUBCLASS_STEP);
+  if (flags.hasRungStep) steps.push(RUNG_STEP);
+  steps.push(abilities, background, equipment);
+  if (flags.isCaster) steps.push(SPELLS_STEP);
+  steps.push(REVIEW_STEP);
+  return steps;
 }
 
 // ── F7/TAV-CREATE-EDIT-NOT-RETRO — snapshot-compare-and-recreate ──────────────
@@ -389,6 +460,37 @@ export default function CharacterNewPage(): ReactNode {
     'loading',
   );
 
+  // ── TAV-WIZARD-HOMEBREW-CASTERS — Subclass step ─────────────────────────────
+  // Fetched once whenever a class with subclassLevel===1 is selected (own
+  // `type=subclass` catalog fetch — races/classes/backgrounds arrive via
+  // useCatalog, but subclasses don't, same reason LevelChoicePicker's own
+  // SubclassChoiceCard fetches separately). `selectedSubclass` is the chosen
+  // subclass SLUG, pure local state at pick time — resolved server-side only
+  // once the silent create fires (§4 of the design).
+  const [selectedSubclass, setSelectedSubclass] = useState<string | null>(null);
+  const [subclassOptions, setSubclassOptions] = useState<WizardSubclass[]>([]);
+  const [subclassLoadState, setSubclassLoadState] = useState<'loading' | 'ok' | 'error'>(
+    'loading',
+  );
+
+  // ── TAV-WIZARD-HOMEBREW-CASTERS — Rung step ─────────────────────────────────
+  // No live fetch — `feature_choices[0].options` already rode in on the class
+  // catalog item (see WizardClass.rungMenu). Picked slugs, pure local state.
+  const [rungPicks, setRungPicks] = useState<Set<string>>(new Set());
+
+  // ── TAV-WIZARD-HOMEBREW-CASTERS — silent-create batch apply state ──────────
+  // `subclassDone`/`rungDone` track whether THIS character's post-create
+  // resolveLevelChoice/learnFeaturePick calls have fully succeeded — reset
+  // alongside characterId whenever a class change (or an F7 recreate-on-drift)
+  // invalidates the character they applied to. `setupIssues` is the
+  // "resume, not dead-end" state: survives through Spells/Review so the
+  // player is never stuck — Review renders it as a persistent callout with a
+  // retry action.
+  const [subclassDone, setSubclassDone] = useState(false);
+  const [rungDone, setRungDone] = useState(false);
+  const [setupIssues, setSetupIssues] = useState<string[]>([]);
+  const [retryingSetup, setRetryingSetup] = useState(false);
+
   const headingRef = useRef<HTMLHeadingElement>(null);
   const errorRetryRef = useRef<HTMLButtonElement>(null);
   const mountedRef = useRef(false);
@@ -458,6 +560,16 @@ export default function CharacterNewPage(): ReactNode {
   const bgObj = catalog.data.backgrounds.find((b) => b.id === background);
   const isCasterClass = !!clsObj?.isCaster;
 
+  // TAV-WIZARD-HOMEBREW-CASTERS — the two new step gates. hasRungStep does
+  // NOT require hasSubclassStep to be true (the design gates it purely on
+  // the menu's own knownAtLevel1) but in practice every declared Rung menu
+  // today rides on a subclassLevel:1 class too.
+  const hasSubclassStep = clsObj?.subclassLevel === 1;
+  const hasRungStep = (clsObj?.rungMenu?.knownAtLevel1 ?? 0) > 0;
+  const rungOptions = (clsObj?.rungMenu?.options ?? []).filter(
+    (o) => !o.subclass || o.subclass === selectedSubclass,
+  );
+
   // TAV-CREATE-SUBRACE-ASI-PICKER — gates the Race step's pickers/Continue.
   const raceHasSubraces = (raceObj?.subraces.length ?? 0) > 0;
   /* Whether the wizard BLOCKS on the subrace step. Not the same question as
@@ -471,8 +583,12 @@ export default function CharacterNewPage(): ReactNode {
   const selectedSubrace = raceObj?.subraces.find((sr) => sr.name === subrace);
 
   // T4/DDX-11t — the step list adapts to the chosen class (Spells only for a
-  // caster). Recomputed whenever the class changes.
-  const steps = useMemo(() => buildSteps(isCasterClass), [isCasterClass]);
+  // caster; TAV-WIZARD-HOMEBREW-CASTERS added Subclass/Rung on the same
+  // per-class basis). Recomputed whenever any of the three flags change.
+  const steps = useMemo(
+    () => buildSteps({ isCaster: isCasterClass, hasSubclassStep, hasRungStep }),
+    [isCasterClass, hasSubclassStep, hasRungStep],
+  );
   const stepKey: StepKey = steps[Math.min(step, steps.length - 1)]?.key ?? 'race';
 
   // A shorter/longer step list (class toggled caster<->non-caster after the
@@ -505,8 +621,49 @@ export default function CharacterNewPage(): ReactNode {
       setEquipmentSelections({});
       setEquipmentChoiceIds([]);
       setEquipmentLoadState('loading');
+      // TAV-WIZARD-HOMEBREW-CASTERS — a stale Subclass/Rung pick (or applied
+      // state) can't survive onto a DIFFERENT class's menu.
+      setSelectedSubclass(null);
+      setSubclassOptions([]);
+      setSubclassLoadState('loading');
+      setRungPicks(new Set());
+      setSubclassDone(false);
+      setRungDone(false);
+      setSetupIssues([]);
     }
   }, [cls]);
+
+  // TAV-WIZARD-HOMEBREW-CASTERS — fetch the subclass catalog (own type,
+  // doesn't arrive via useCatalog) whenever a subclassLevel:1 class is
+  // selected. Mirrors LevelChoicePicker's SubclassChoiceCard fetch-on-mount
+  // pattern (AbortController + Kage abort guard). The class's own display
+  // name is what subclassesForClass slugify-compares against `data.class`.
+  useEffect(() => {
+    if (!hasSubclassStep || !clsObj) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSubclassOptions([]);
+      setSubclassLoadState('ok');
+      return;
+    }
+    const ac = new AbortController();
+    setSubclassLoadState('loading');
+    getCatalog(SYSTEM, { type: 'subclass' }, ac.signal)
+      .then((res) => {
+        const filtered = subclassesForClass(res.items, clsObj.name).map(catalogItemToSubclass);
+        setSubclassOptions(filtered);
+        setSubclassLoadState('ok');
+      })
+      .catch(() => {
+        if (ac.signal.aborted) return;
+        setSubclassLoadState('error');
+      });
+    return () => ac.abort();
+    // clsObj?.name (not clsObj itself) is the dep — same discipline
+    // EquipmentStep's own fetch effect uses for clsObj/bgObj, avoiding a
+    // refetch loop if the catalog hook ever returns a fresh array/object
+    // reference across renders without the underlying data changing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasSubclassStep, clsObj?.name]);
 
   // TAV-CREATE-SUBRACE-ASI-PICKER — a subrace/ASI choice is only meaningful
   // for the race it was made under; changing race must clear both so a
@@ -565,6 +722,19 @@ export default function CharacterNewPage(): ReactNode {
         return true;
       case 'class':
         return !!cls;
+      case 'subclass':
+        // Required, gates Continue (§2 of the design). Naturally covers the
+        // loading/error/empty-catalog states too — there's nothing to click,
+        // so selectedSubclass stays null and this returns false regardless
+        // of WHY the grid is empty.
+        return !!selectedSubclass;
+      case 'rung': {
+        // A non-freeform menu (future case) is read-only informational
+        // content — nothing to pick, never blocks.
+        if (clsObj?.rungMenu?.freeform === false) return true;
+        const cap = clsObj?.rungMenu?.knownAtLevel1 ?? 0;
+        return rungPicks.size === cap;
+      }
       case 'abilities':
         return remaining >= 0;
       case 'background':
@@ -617,6 +787,9 @@ export default function CharacterNewPage(): ReactNode {
     spellReq,
     spellCantrips,
     spellLeveled,
+    selectedSubclass,
+    clsObj,
+    rungPicks,
   ]);
 
   // 2026-07-24 Starting Equipment design — same defensive backstop rationale
@@ -748,16 +921,87 @@ export default function CharacterNewPage(): ReactNode {
     equipmentSelections,
   ]);
 
-  // Nav "Continue" — the ONE special case is Equipment -> Spells for a
-  // caster: the character must exist before the Spells step can fetch a real
-  // pool/budget (see the module doc comment), so this is async there and
-  // synchronous everywhere else. Moved here (was Background -> Spells) by
-  // the 2026-07-24 Starting Equipment design so equipment_selections are
-  // already collected when this POST fires.
+  // TAV-WIZARD-HOMEBREW-CASTERS — post-create Subclass/Rung apply. Called
+  // once from handleContinue's silent-create branch, and again (idempotent)
+  // from Review's "Retry setup" action. Returns the outstanding issue
+  // strings (empty = fully applied) — never throws; every failure mode
+  // degrades to an issue string instead ("resume, not dead-end", §4/§7).
+  //
+  // Ordering is the load-bearing part: resolveLevelChoice('subclass:1', …)
+  // MUST complete before getFeaturePicks is called, or the engine's
+  // class_feature_choice_options(subclass=None) branch strips every
+  // archetype-tagged rung option (engine fact 4) — getFeaturePicks is also
+  // what lets a RETRY diff against what's already known server-side, so a
+  // partial-failure resume never double-submits an already-learned pick.
+  const applyPendingSetup = useCallback(
+    async (id: string): Promise<string[]> => {
+      const issues: string[] = [];
+      if (!username) return issues;
+      let subclassOk = !hasSubclassStep || subclassDone;
+      if (hasSubclassStep && !subclassDone) {
+        try {
+          await resolveLevelChoice(id, username, 'subclass:1', { subclass: selectedSubclass });
+          setSubclassDone(true);
+          subclassOk = true;
+        } catch {
+          issues.push(
+            `${clsObj?.name ?? 'Your'} archetype couldn't be saved — finish it from the character sheet.`,
+          );
+          if (hasRungStep) {
+            issues.push(
+              "Your starting techniques couldn't be picked yet — they depend on your archetype being set first.",
+            );
+          }
+          subclassOk = false;
+        }
+      }
+      if (hasRungStep && subclassOk && !rungDone) {
+        try {
+          const current = await getFeaturePicks(id, username);
+          const known = new Set(current.known.map((o) => o.slug));
+          const toLearn = Array.from(rungPicks).filter((slug) => !known.has(slug));
+          const results = await Promise.allSettled(
+            toLearn.map((slug) => learnFeaturePick(id, username, slug)),
+          );
+          const failed = results.filter((r) => r.status === 'rejected').length;
+          if (failed > 0) {
+            issues.push(
+              `${failed} starting technique${failed > 1 ? 's' : ''} couldn't be learned — add ${
+                failed > 1 ? 'them' : 'it'
+              } from the character sheet.`,
+            );
+          } else {
+            setRungDone(true);
+          }
+        } catch {
+          issues.push(
+            "Your starting techniques couldn't be checked — add them from the character sheet.",
+          );
+        }
+      }
+      if (issues.length > 0) {
+        toast({
+          message: 'Character created, but setup needs a follow-up — see Review.',
+          tone: 'warn',
+        });
+      }
+      return issues;
+    },
+    [username, hasSubclassStep, hasRungStep, subclassDone, rungDone, selectedSubclass, rungPicks, clsObj, toast],
+  );
+
+  // Nav "Continue" — the ONE special case is Equipment -> next for a caster
+  // and/or a class with a Subclass/Rung step: the character must exist
+  // before the Spells step can fetch a real pool/budget, and before
+  // resolveLevelChoice/learnFeaturePick have anything to act on (see the
+  // module doc comment), so this is async there and synchronous everywhere
+  // else. Moved here (was Background -> Spells) by the 2026-07-24 Starting
+  // Equipment design so equipment_selections are already collected when
+  // this POST fires. Generalized (TAV-WIZARD-HOMEBREW-CASTERS) from a bare
+  // isCaster check to isCaster || hasSubclassStep || hasRungStep.
+  const needsSilentCreate = isCasterClass || hasSubclassStep || hasRungStep;
   const handleContinue = useCallback(async () => {
-    const idx = steps.findIndex((s) => s.key === stepKey);
-    const next = steps[idx + 1];
-    if (stepKey === 'equipment' && next?.key === 'spells' && !characterId) {
+    if (stepKey === 'equipment' && needsSilentCreate && !characterId) {
       if (!canCreatePrereqs) {
         // TAV-CREATE-DEADEND-DIAGNOSABLE: was a silent `return` — the user
         // stayed on Background with zero feedback. Surface the specific gap.
@@ -770,6 +1014,8 @@ export default function CharacterNewPage(): ReactNode {
         const id = await createNow();
         setCharacterId(id);
         setCreatedSnapshot(snapshotNow());
+        const issues = await applyPendingSetup(id);
+        setSetupIssues(issues);
         setStep((s) => Math.min(steps.length - 1, s + 1));
       } catch (err) {
         // TAV-CREATE-DEADEND-DIAGNOSABLE: was always the generic line — a
@@ -781,7 +1027,32 @@ export default function CharacterNewPage(): ReactNode {
       return;
     }
     setStep((s) => Math.min(steps.length - 1, s + 1));
-  }, [steps, stepKey, characterId, canCreatePrereqs, missingPrereqsReason, createNow, snapshotNow]);
+  }, [
+    steps,
+    stepKey,
+    needsSilentCreate,
+    characterId,
+    canCreatePrereqs,
+    missingPrereqsReason,
+    createNow,
+    snapshotNow,
+    applyPendingSetup,
+  ]);
+
+  // Review's "Retry setup" — re-runs applyPendingSetup against the CURRENT
+  // characterId. Idempotent: subclassDone/rungDone skip whatever already
+  // succeeded, and getFeaturePicks diffs rungPicks against what the server
+  // already knows before re-attempting learnFeaturePick.
+  const handleRetrySetup = useCallback(async () => {
+    if (!characterId) return;
+    setRetryingSetup(true);
+    try {
+      const issues = await applyPendingSetup(characterId);
+      setSetupIssues(issues);
+    } finally {
+      setRetryingSetup(false);
+    }
+  }, [characterId, applyPendingSetup]);
 
   const handleSubmit = useCallback(async () => {
     if (!canCreatePrereqs && !characterId) return;
@@ -804,6 +1075,22 @@ export default function CharacterNewPage(): ReactNode {
         charId = await createNow();
         setCharacterId(charId);
         setCreatedSnapshot(snapshotNow());
+        // TAV-WIZARD-HOMEBREW-CASTERS — an F7 recreate invalidates whatever
+        // subclass/rung work already landed on the STALE id; the fresh id
+        // needs a full re-apply below.
+        setSubclassDone(false);
+        setRungDone(false);
+      }
+
+      // TAV-WIZARD-HOMEBREW-CASTERS — apply Subclass/Rung against whichever
+      // character is now current. Normally already done by handleContinue's
+      // silent-create branch (this is a no-op then, since subclassDone/
+      // rungDone are already true); reached here for real only on an F7
+      // recreate, or the (currently theoretical) case of a class with a
+      // Subclass/Rung step but no early silent-create trigger of its own.
+      if (hasSubclassStep || hasRungStep) {
+        const issues = await applyPendingSetup(charId);
+        setSetupIssues(issues);
       }
 
       // Caster path: batch-apply the spell picks against whichever character
@@ -880,6 +1167,9 @@ export default function CharacterNewPage(): ReactNode {
     createdSnapshot,
     snapshotNow,
     createNow,
+    hasSubclassStep,
+    hasRungStep,
+    applyPendingSetup,
     isCasterClass,
     username,
     clsObj,
@@ -893,6 +1183,15 @@ export default function CharacterNewPage(): ReactNode {
   let suzuLine: string;
   if (stepKey === 'race') suzuLine = race ? (SUZU_LINES.race[race] ?? 'An unusual choice. Suzu is intrigued.') : 'Take your time. The tavern will keep.';
   else if (stepKey === 'class') suzuLine = cls ? (SUZU_LINES.class[cls] ?? 'An interesting calling.') : 'Pick a verb.';
+  else if (stepKey === 'subclass')
+    suzuLine = selectedSubclass
+      ? `${subclassOptions.find((s) => s.id === selectedSubclass)?.name ?? 'That path'}. Suzu approves — probably.`
+      : 'Every class forks somewhere. Pick your fork.';
+  else if (stepKey === 'rung')
+    suzuLine =
+      rungPicks.size > 0
+        ? `${rungPicks.size} technique${rungPicks.size === 1 ? '' : 's'} down. Suzu is taking notes.`
+        : "First tricks. Choose wisely — or don't, Suzu will still watch.";
   else if (stepKey === 'abilities') suzuLine = abilitiesComment(scores);
   else if (stepKey === 'background')
     suzuLine = name.trim()
@@ -919,7 +1218,11 @@ export default function CharacterNewPage(): ReactNode {
       ? `In one wry sentence, react to my new D&D character being a ${raceObj?.name ?? 'race I haven’t picked yet'}.`
       : stepKey === 'class'
         ? `In one wry sentence, react to my character's class: ${clsObj?.name ?? 'undecided'}.`
-        : stepKey === 'abilities'
+        : stepKey === 'subclass'
+          ? `In one wry sentence, react to my character's archetype choice within ${clsObj?.name ?? 'their class'}.`
+          : stepKey === 'rung'
+            ? `In one wry sentence, react to my character picking their first starting techniques.`
+            : stepKey === 'abilities'
           ? `In one wry sentence, react to how I've spread my character's ability scores.`
           : stepKey === 'background'
             ? `In one wry sentence, react to my character's name and background: ${name.trim() || 'unnamed'}, ${bgObj?.name ?? 'no background yet'}.`
@@ -946,7 +1249,11 @@ export default function CharacterNewPage(): ReactNode {
             : ''
       : stepKey === 'class'
         ? 'Select a class to continue.'
-        : stepKey === 'background'
+        : stepKey === 'subclass'
+          ? 'Choose an archetype to continue.'
+          : stepKey === 'rung' && clsObj?.rungMenu
+            ? `Pick ${clsObj.rungMenu.knownAtLevel1} ${clsObj.rungMenu.label.toLowerCase()} to continue.`
+            : stepKey === 'background'
           ? 'Enter a name and choose a background to continue.'
           : stepKey === 'equipment' && equipmentLoadState === 'loading'
             ? 'Loading your starting equipment…'
@@ -961,6 +1268,12 @@ export default function CharacterNewPage(): ReactNode {
         return raceObj ? (subrace ? `${raceObj.name} · ${subrace}` : raceObj.name) : '—';
       case 'class':
         return clsObj?.name ?? '—';
+      case 'subclass':
+        return selectedSubclass
+          ? (subclassOptions.find((s) => s.id === selectedSubclass)?.name ?? '—')
+          : '—';
+      case 'rung':
+        return rungPicks.size > 0 ? `${rungPicks.size} chosen` : '—';
       case 'abilities': {
         // TAV-28: pluralize so a single point reads "1 pt spent", not "1 pts".
         const spent = POINT_BUY_BUDGET - remaining;
@@ -1129,6 +1442,23 @@ export default function CharacterNewPage(): ReactNode {
                 onChange={setCls}
               />
             )}
+            {stepKey === 'subclass' && clsObj && (
+              <SubclassStep
+                className={clsObj.name}
+                options={subclassOptions}
+                loadState={subclassLoadState}
+                value={selectedSubclass}
+                onChange={setSelectedSubclass}
+              />
+            )}
+            {stepKey === 'rung' && clsObj?.rungMenu && (
+              <RungStep
+                menu={clsObj.rungMenu}
+                options={rungOptions}
+                picked={rungPicks}
+                onChange={setRungPicks}
+              />
+            )}
             {stepKey === 'abilities' && (
               <AbilitiesStep
                 scores={scores}
@@ -1184,6 +1514,23 @@ export default function CharacterNewPage(): ReactNode {
                 derived={derived}
                 spellCantripCount={isCasterClass ? spellCantrips.size : undefined}
                 spellLeveledCount={isCasterClass ? spellLeveled.size : undefined}
+                subclassName={
+                  hasSubclassStep
+                    ? (subclassOptions.find((s) => s.id === selectedSubclass)?.name ?? undefined)
+                    : undefined
+                }
+                rungPickNames={
+                  hasRungStep
+                    ? rungOptions.filter((o) => rungPicks.has(o.slug)).map((o) => o.name)
+                    : undefined
+                }
+                rungMenuLabel={clsObj?.rungMenu?.label}
+                pointsLabel={
+                  isCasterClass && clsObj?.castingModel === 'points' ? clsObj.pointsLabel : undefined
+                }
+                setupIssues={setupIssues}
+                onRetrySetup={setupIssues.length > 0 ? () => void handleRetrySetup() : undefined}
+                retryingSetup={retryingSetup}
               />
             )}
           </div>
@@ -1446,6 +1793,162 @@ function ClassStep({
           <span className={`mono ${styles.optBonus}`}>d{c.hitDie} hit die</span>
         </label>
       ))}
+    </fieldset>
+  );
+}
+
+// ── Step: Subclass (TAV-WIZARD-HOMEBREW-CASTERS) ──────────────────────────────
+// Mirrors ClassStep's exact card grid — native <input type="radio"> in a
+// <label>, `.optGrid`/`.optCard` reused verbatim (design §5). Native radios
+// get arrow-key roving for free from the browser; no custom keyboard
+// handling needed (see LevelChoicePicker.tsx's note on why its OWN
+// button-based radiogroups need radioStepIndex and this one doesn't).
+function SubclassStep({
+  className,
+  options,
+  loadState,
+  value,
+  onChange,
+}: {
+  /** Display name of the chosen class, for copy ("archetypes for Shinobi"). */
+  className: string;
+  options: WizardSubclass[];
+  loadState: 'loading' | 'ok' | 'error';
+  value: string | null;
+  onChange: (id: string) => void;
+}) {
+  if (loadState === 'loading') {
+    return (
+      <p className={styles.spellHint} aria-busy="true" aria-live="polite">
+        Suzu is pulling up {className}&rsquo;s archetypes…
+      </p>
+    );
+  }
+  if (loadState === 'error') {
+    return (
+      <p className={styles.spellHint} role="alert">
+        Suzu couldn&rsquo;t load {className}&rsquo;s archetypes right now — go back and
+        forward to retry.
+      </p>
+    );
+  }
+  // Content-bug state (design's state table): a class that DECLARES
+  // subclassLevel:1 but has zero seeded subclass rows. Never silently skip
+  // the step — say so, and keep Continue disabled (value stays null).
+  if (options.length === 0) {
+    return (
+      <p className={styles.spellHint} role="alert">
+        No archetypes are seeded for {className} yet.
+      </p>
+    );
+  }
+  return (
+    <fieldset className={styles.optGrid}>
+      <legend className={styles.srOnly}>{`Choose ${className}'s archetype`}</legend>
+      {options.map((s) => (
+        <label key={s.id} className={styles.optCard} data-selected={value === s.id}>
+          <input
+            type="radio"
+            name="subclass"
+            value={s.id}
+            checked={value === s.id}
+            onChange={() => onChange(s.id)}
+            className={styles.srOnly}
+          />
+          <span className={styles.optName}>{s.name}</span>
+          {s.blurb && <span className={styles.optSub}>{s.blurb}</span>}
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
+// ── Step: Rung (TAV-WIZARD-HOMEBREW-CASTERS) ──────────────────────────────────
+// Mirrors SpellsStep's fieldset+checklist pattern (design §6) — no live
+// fetch, `menu.options` already rode in on the class catalog item; `options`
+// prop here is the CALLER's pre-filtered set (scoped to the chosen
+// archetype, computed in the parent as `rungOptions`).
+function RungStep({
+  menu,
+  options,
+  picked,
+  onChange,
+}: {
+  menu: WizardRungMenu;
+  options: FeatureChoiceOption[];
+  picked: Set<string>;
+  onChange: (next: Set<string>) => void;
+}) {
+  const cap = menu.knownAtLevel1;
+
+  // Non-freeform menu (future case, §3): read-only, no API call attempted —
+  // finish this pick from the sheet after creation.
+  if (!menu.freeform) {
+    return (
+      <p className={styles.spellHint}>
+        {menu.label} isn&rsquo;t ready to pick here yet — finish this from the
+        character sheet once you&rsquo;re created.
+      </p>
+    );
+  }
+
+  function toggle(slug: string) {
+    const next = new Set(picked);
+    if (next.has(slug)) {
+      next.delete(slug);
+    } else if (next.size < cap) {
+      next.add(slug);
+    }
+    onChange(next);
+  }
+
+  return (
+    <fieldset className={styles.spellSection}>
+      <legend className={styles.srOnly}>{`Choose your ${menu.label}`}</legend>
+      <div className={styles.budget}>
+        <span
+          className={styles.budgetNum}
+          aria-live="polite"
+          aria-atomic="true"
+          aria-label={`${picked.size} of ${cap} ${menu.label} chosen`}
+        >
+          {picked.size}/{cap}
+        </span>
+        <span>
+          <span className={styles.budgetTitle}>{menu.label}</span>
+          <span className={styles.budgetSub}>
+            Pick {cap} to start — you&rsquo;ll unlock more as you grow.
+          </span>
+        </span>
+      </div>
+      <ul className={styles.spellList}>
+        {options.length === 0 && (
+          <li className={styles.spellEmpty}>
+            No {menu.label.toLowerCase()} options for this archetype yet.
+          </li>
+        )}
+        {options.map((o) => {
+          const checked = picked.has(o.slug);
+          const disabled = !checked && picked.size >= cap;
+          return (
+            <li key={o.slug} className={styles.spellRow}>
+              <label className={styles.spellRowLabel}>
+                <input
+                  type="checkbox"
+                  className={styles.spellCheckbox}
+                  checked={checked}
+                  disabled={disabled}
+                  onChange={() => toggle(o.slug)}
+                />
+                <span className={styles.spellRowName}>{o.name}</span>
+              </label>
+              {o.description && (
+                <p className={`mono ${styles.spellRowMeta}`}>{o.description}</p>
+              )}
+            </li>
+          );
+        })}
+      </ul>
     </fieldset>
   );
 }
@@ -1823,6 +2326,13 @@ function ReviewStep({
   derived,
   spellCantripCount,
   spellLeveledCount,
+  subclassName,
+  rungPickNames,
+  rungMenuLabel,
+  pointsLabel,
+  setupIssues,
+  onRetrySetup,
+  retryingSetup,
 }: {
   name: string;
   onName: (v: string) => void;
@@ -1838,6 +2348,19 @@ function ReviewStep({
    *  (0 is valid — the picks are optional) once the Spells step has run. */
   spellCantripCount?: number;
   spellLeveledCount?: number;
+  /** TAV-WIZARD-HOMEBREW-CASTERS — undefined when the class has no Subclass/
+   *  Rung step; a name/label/list once picked (empty array is valid — the
+   *  player may have zero rung picks selected only if cap is 0, which never
+   *  happens while the step is gated on cap>0, but the type stays honest). */
+  subclassName?: string;
+  rungPickNames?: string[];
+  rungMenuLabel?: string;
+  /** The class's points-pool label, when castingModel==='points'. */
+  pointsLabel?: string;
+  /** Persistent "resume, not dead-end" callout content — empty = fully set up. */
+  setupIssues?: string[];
+  onRetrySetup?: () => void;
+  retryingSetup?: boolean;
 }) {
   const initial = (name.trim() || '?').charAt(0).toUpperCase();
   const derivedRows: { label: string; value: string }[] = [
@@ -1883,6 +2406,32 @@ function ReviewStep({
           ))}
         </dl>
       </Card>
+
+      {/* TAV-WIZARD-HOMEBREW-CASTERS — "resume, not dead-end" (§4/§7 of the
+          design): a persistent callout, not a toast that vanishes before
+          Review is reached. Character exists either way — this only ever
+          points at a follow-up, never a blocker. role="alert" announces once
+          on mount. */}
+      {setupIssues && setupIssues.length > 0 && (
+        <Card className={styles.setupIssues} role="alert">
+          <p className={styles.setupIssuesTitle}>Setup incomplete</p>
+          <ul className={styles.setupIssuesList}>
+            {setupIssues.map((issue) => (
+              <li key={issue}>{issue}</li>
+            ))}
+          </ul>
+          {onRetrySetup && (
+            <Button
+              variant="ghost"
+              size="default"
+              disabled={retryingSetup}
+              onClick={onRetrySetup}
+            >
+              {retryingSetup ? 'Retrying…' : 'Retry setup'}
+            </Button>
+          )}
+        </Card>
+      )}
 
       <div className={styles.reviewCols}>
         <Card className={styles.reviewPanel}>
@@ -1930,6 +2479,29 @@ function ReviewStep({
               {!clsObj && <span className={styles.profEmpty}>pick a class</span>}
             </div>
           </div>
+          {subclassName !== undefined && (
+            <div className={styles.profGroup}>
+              <span className={styles.profLabel}>Archetype</span>
+              <div className={styles.profPills}>
+                <Pill tone="lav">{subclassName}</Pill>
+              </div>
+            </div>
+          )}
+          {rungPickNames !== undefined && (
+            <div className={styles.profGroup}>
+              <span className={styles.profLabel}>{rungMenuLabel ?? 'Techniques'}</span>
+              <div className={styles.profPills}>
+                {rungPickNames.map((n) => (
+                  <Pill key={n} tone="lav">
+                    {n}
+                  </Pill>
+                ))}
+                {rungPickNames.length === 0 && (
+                  <span className={styles.profEmpty}>none picked</span>
+                )}
+              </div>
+            </div>
+          )}
           {spellCantripCount !== undefined && (
             <div className={styles.profGroup}>
               <span className={styles.profLabel}>Starting spells</span>
@@ -1937,6 +2509,15 @@ function ReviewStep({
                 <Pill tone="lav">{spellCantripCount} cantrip{spellCantripCount === 1 ? '' : 's'}</Pill>
                 <Pill tone="lav">{spellLeveledCount ?? 0} 1st-level</Pill>
               </div>
+              {/* TAV-WIZARD-HOMEBREW-CASTERS — the resource-model "pool
+                  label" mention for a points caster (Chakra/Magic Power/Ki),
+                  same static-string idiom as SpellsStep's own callout. */}
+              {pointsLabel && (
+                <span className={styles.profEmpty}>
+                  Runs on {pointsLabel} — no fixed slots. You&rsquo;ll see your pool on the
+                  sheet.
+                </span>
+              )}
             </div>
           )}
         </Card>
@@ -2207,6 +2788,16 @@ function SpellsStep({
 
   return (
     <div>
+      {/* TAV-WIZARD-HOMEBREW-CASTERS — a points caster (Chakra/Magic Power/
+          Ki) has no fixed slots to preview; static string, no new fetch (the
+          engine's own budget shape is identical either way — see the design
+          doc's §"What I changed from a literal reading" item 3). */}
+      {clsObj?.castingModel === 'points' && (
+        <p className={styles.spellHint}>
+          Runs on {clsObj.pointsLabel ?? 'spell points'} — no fixed slots. You&rsquo;ll see
+          your pool on the sheet.
+        </p>
+      )}
       {/* TAV-A11Y-SPELLSTEP-FIELDSET: group each checkbox list under a fieldset
           with an sr-only legend (mirrors the Race step's ASI/subrace groups) so a
           screen reader announces "Cantrips group" / "1st-level spells group"

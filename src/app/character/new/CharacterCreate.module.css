@@ -935,6 +935,34 @@
   max-width: 38ch;
 }
 
+/* ── Setup-incomplete callout (TAV-WIZARD-HOMEBREW-CASTERS) ────────────────────
+   "Resume, not dead-end" — the character already exists; this only ever
+   points at a follow-up, never a blocker. warn-toned (not .error's bad/red —
+   nothing here failed the whole flow), same token discipline as .error above. */
+.setupIssues {
+  margin-top: 18px;
+  padding: var(--density-pad);
+  display: flex;
+  flex-direction: column;
+  gap: var(--density-gap);
+  color: var(--warn-ink);
+  background: color-mix(in oklab, var(--warn) 10%, transparent);
+  border: 1px solid color-mix(in oklab, var(--warn) 28%, transparent);
+}
+.setupIssuesTitle {
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  color: var(--ink);
+}
+.setupIssuesList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  padding-left: 18px;
+}
+
 /* Suppress selection/hover transitions for vestibular-sensitive users. */
 @media (prefers-reduced-motion: reduce) {
   .railStep,
