@@ -126,9 +126,24 @@ const SHINOBI = {
     freeform: true,
     knownAtLevel1: 1,
     options: [
-      { slug: 'flame-bullet', name: 'Flame Bullet', level: 1, subclass: 'ninjutsu-specialist' },
+      {
+        slug: 'flame-bullet',
+        name: 'Flame Bullet',
+        level: 1,
+        subclass: 'ninjutsu-specialist',
+        description: 'Rung I · D-rank (2 CP) · a cone of chakra-fed flame.',
+      },
       { slug: 'gale-palm', name: 'Gale Palm', level: 1, subclass: 'ninjutsu-specialist' },
       { slug: 'iron-fist', name: 'Iron Fist', level: 1, subclass: 'taijutsu-specialist' },
+      // Kage-CR BLOCKING-1: a level-3 option, archetype-matched but ABOVE
+      // creation's fixed level 1 — must never render as a pickable
+      // checkbox even though its subclass tag matches.
+      {
+        slug: 'great-fireball',
+        name: 'Great Fireball',
+        level: 3,
+        subclass: 'ninjutsu-specialist',
+      },
     ],
   },
 };
@@ -202,6 +217,7 @@ import { AuthProvider } from '../../lib/auth/AuthProvider';
 import { ThemeProvider } from '../../lib/theme/ThemeProvider';
 import { ToastProvider } from '../../components/Toast';
 import CharacterNewPage from '../../app/character/new/page';
+import { makeApiError } from '../../lib/api/client';
 import type { User } from '../../lib/api/types';
 
 const ALICE: User = { id: 1, username: 'alice', email: null };
@@ -286,7 +302,10 @@ beforeEach(() => {
     freeform: true,
     budget: { known: 0, cap: 1 },
     known: [],
-    eligible: [],
+    // Kage-CR #8: eligible is the server-authoritative reconciliation set —
+    // must include whatever the fixture's default flow actually picks
+    // (Flame Bullet) or applyPendingSetup would correctly refuse to attempt it.
+    eligible: [{ slug: 'flame-bullet', name: 'Flame Bullet', level: 1 }],
   });
   mockLearnFeaturePick.mockResolvedValue({ learned: 'flame-bullet', menu_label: 'Path Technique', known: ['flame-bullet'] });
   catalogOverride = { ...defaultCatalog };
@@ -344,6 +363,30 @@ describe('Subclass step presence (TAV-WIZARD-HOMEBREW-CASTERS)', () => {
     expect(await screen.findByText(/No archetypes are seeded for Shinobi yet/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
   });
+
+  it('a failed subclass fetch offers a REAL Retry (Kage-CR IMPORTANT-2, not "go back and forward")', async () => {
+    mockGetCatalog.mockRejectedValueOnce(new Error('network down'));
+    renderWizard();
+    pickRace();
+    pickClass(/Shinobi/i);
+    expect(await screen.findByRole('button', { name: 'Retry' })).toBeInTheDocument();
+
+    mockGetCatalog.mockResolvedValue(SHINOBI_SUBCLASSES);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('radio', { name: /Ninjutsu Specialist/i })).toBeInTheDocument();
+  });
+
+  it('fetches with limit:500 (Kage-CR IMPORTANT-2 — the 69-row catalog must not silently truncate against a smaller default)', async () => {
+    renderWizard();
+    pickRace();
+    pickClass(/Shinobi/i);
+    await screen.findByText(/And which path do you follow/i);
+    expect(mockGetCatalog).toHaveBeenCalledWith(
+      'dnd5e',
+      { type: 'subclass', limit: 500 },
+      expect.anything(),
+    );
+  });
 });
 
 describe('Rung step (TAV-WIZARD-HOMEBREW-CASTERS)', () => {
@@ -364,6 +407,20 @@ describe('Rung step (TAV-WIZARD-HOMEBREW-CASTERS)', () => {
     expect(screen.queryByRole('checkbox', { name: /Iron Fist/i })).not.toBeInTheDocument();
   });
 
+  // Kage-CR BLOCKING-1: the engine refuses any option whose declared level
+  // exceeds the character's (always 1 at creation) level — archetype
+  // scoping alone isn't the whole gate.
+  it('excludes an archetype-matched option above level 1 (engine refuses it with option_level_unmet)', async () => {
+    await advanceToRung();
+    expect(screen.queryByRole('checkbox', { name: /Great Fireball/i })).not.toBeInTheDocument();
+  });
+
+  it('moves focus to the Rung step heading on entry (a11y)', async () => {
+    await advanceToRung();
+    const heading = screen.getByRole('heading', { name: /What do you already know how to do/i });
+    await waitFor(() => expect(heading).toHaveFocus());
+  });
+
   it('enforces the exact pick count (cap 1) — a second pick is disabled, Continue gates on it', async () => {
     await advanceToRung();
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
@@ -371,6 +428,36 @@ describe('Rung step (TAV-WIZARD-HOMEBREW-CASTERS)', () => {
     expect(screen.getByLabelText('1 of 1 Path Technique chosen')).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: /Gale Palm/i })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
+  });
+
+  // Iro-A11y CRITICAL-1/MAJOR-1: mirrors SpellsStep.renderRow's own
+  // TAV-A11Y-CAP-HINT pattern exactly.
+  it('associates a description as the checkbox\'s accessible description', async () => {
+    await advanceToRung();
+    const flameBullet = screen.getByRole('checkbox', { name: /Flame Bullet/i });
+    expect(flameBullet).toHaveAccessibleDescription(/cone of chakra-fed flame/i);
+  });
+
+  it('references the hidden cap hint when a checkbox is disabled at cap, not when enabled', async () => {
+    await advanceToRung();
+    const flameBullet = screen.getByRole('checkbox', { name: /Flame Bullet/i });
+    const galePalm = screen.getByRole('checkbox', { name: /Gale Palm/i });
+    // Below cap: neither checkbox is disabled, so neither references the
+    // cap hint (Gale Palm has no description either, so its describedby is
+    // entirely absent at this point).
+    expect(flameBullet).not.toHaveAttribute('aria-describedby', expect.stringContaining('rung-cap-hint'));
+    fireEvent.click(flameBullet);
+    // At cap: the now-disabled Gale Palm checkbox must reference the hidden
+    // hint — WCAG 4.1.2/3.3.2, the whole point of the fix (native `disabled`
+    // drops a row from the Tab order, so the reason has to be discoverable
+    // another way).
+    expect(galePalm).toHaveAttribute('aria-describedby', expect.stringContaining('rung-cap-hint'));
+    // The hint text is split across a fragment ({menuLabelPlural(cap)} sits
+    // between two literal text nodes) — read the element directly rather
+    // than pattern-matching a single text node.
+    expect(document.getElementById('rung-cap-hint')?.textContent).toMatch(
+      /You.ve chosen all 1 Path Technique — deselect one to pick another/i,
+    );
   });
 
   it('a non-freeform menu renders read-only with no pickable options', async () => {
@@ -454,6 +541,57 @@ describe('Silent-create call order (TAV-WIZARD-HOMEBREW-CASTERS)', () => {
     await waitFor(() => expect(mockGetFeaturePicks).toHaveBeenCalled());
     expect(mockLearnFeaturePick).not.toHaveBeenCalled();
   });
+
+  it('a picked technique NOT in the server-authoritative eligible list is never attempted and counts as a real failure (Kage-CR #8)', async () => {
+    mockGetFeaturePicks.mockResolvedValue({
+      menu_label: 'Path Technique',
+      freeform: true,
+      budget: { known: 0, cap: 1 },
+      known: [],
+      // flame-bullet picked client-side but NOT server-eligible (e.g. a
+      // stale catalog vs. a since-changed subclass) — must be refused
+      // without ever calling learnFeaturePick.
+      eligible: [],
+    });
+    await advanceToEquipmentContinue();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    });
+    await waitFor(() => expect(mockGetFeaturePicks).toHaveBeenCalled());
+    expect(mockLearnFeaturePick).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
+    expect(await screen.findByText('Setup incomplete')).toBeInTheDocument();
+    expect(screen.getByText(/1 starting technique couldn.t be learned/i)).toBeInTheDocument();
+  });
+
+  it('already_chosen on resolveLevelChoice is treated as success, not a failure to retry forever (Kage-CR #3)', async () => {
+    mockResolveLevelChoice.mockRejectedValueOnce(
+      makeApiError(400, '400', { message: 'Already chosen', data: { reason: 'already_chosen' } }),
+    );
+    await advanceToEquipmentContinue();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // creates!
+    });
+
+    // The rung apply still runs — subclassOk flips true on already_chosen —
+    // and no setupIssues callout is raised for the archetype at all.
+    await waitFor(() => expect(mockLearnFeaturePick).toHaveBeenCalledWith('char-1', 'alice', 'flame-bullet'));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
+    expect(screen.queryByText('Setup incomplete')).not.toBeInTheDocument();
+  });
+
+  it('duplicate_option on learnFeaturePick is treated as success, not a real failure (Kage-CR #3)', async () => {
+    mockLearnFeaturePick.mockRejectedValueOnce(
+      makeApiError(400, '400', { message: 'Already known', data: { reason: 'duplicate_option' } }),
+    );
+    await advanceToEquipmentContinue();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // creates!
+    });
+    await waitFor(() => expect(mockLearnFeaturePick).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
+    expect(screen.queryByText('Setup incomplete')).not.toBeInTheDocument();
+  });
 });
 
 describe('setupIssues — resume, not dead-end (TAV-WIZARD-HOMEBREW-CASTERS)', () => {
@@ -507,6 +645,12 @@ describe('setupIssues — resume, not dead-end (TAV-WIZARD-HOMEBREW-CASTERS)', (
     fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
     await screen.findByText('Setup incomplete');
 
+    // Iro-A11y MINOR-2: the retry button's accessible description is the
+    // outstanding-issues list, not just its own label.
+    expect(screen.getByRole('button', { name: 'Retry setup' })).toHaveAccessibleDescription(
+      /archetype couldn.t be saved/i,
+    );
+
     // Retry succeeds this time (mockResolveLevelChoice's default resolved
     // value from beforeEach applies to every subsequent call).
     await act(async () => {
@@ -515,10 +659,35 @@ describe('setupIssues — resume, not dead-end (TAV-WIZARD-HOMEBREW-CASTERS)', (
 
     await waitFor(() => expect(mockLearnFeaturePick).toHaveBeenCalledWith('char-2', 'alice', 'flame-bullet'));
     expect(screen.queryByText('Setup incomplete')).not.toBeInTheDocument();
+    // Iro-A11y MINOR-3: a successful retry fires the existing role="status"
+    // Toast — the callout unmounting alone gives AT no confirmation.
+    // The warn-toned "needs a follow-up" toast from the earlier failure may
+    // still be visible (role="status" too — only 'error' tone gets 'alert')
+    // — assert the success message rendered, not a single ambiguous role.
+    expect(await screen.findByText(/Setup finished/i)).toBeInTheDocument();
     // Both the rail summary AND the Review "Archetype"/"Techniques" pills
     // render this text — assert at least one instance exists rather than
     // picking a single (ambiguous) element.
     expect(screen.getAllByText('Ninjutsu Specialist').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Flame Bullet').length).toBeGreaterThan(0);
+  });
+
+  it('a repeated identical failure re-announces via an attempt counter (MINOR-4)', async () => {
+    mockResolveLevelChoice.mockRejectedValue(new Error('boom'));
+    await advanceToEquipmentContinue();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
+    await screen.findByText('Setup incomplete');
+    expect(screen.queryByText(/attempt 2/i)).not.toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Retry setup' }));
+    });
+
+    // Same failure again — the callout's own text now differs (the attempt
+    // counter), which is what makes role="alert" re-announce it at all.
+    expect(await screen.findByText(/Setup incomplete \(attempt 2\)/i)).toBeInTheDocument();
   });
 });

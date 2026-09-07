@@ -100,11 +100,15 @@ export interface WizardClass {
   /** Contrast-safe TEXT variant of the accent for the selected bonus label. */
   accentInk?: string;
   flavor: string;
-  /** T4/DDX-11t — true for the 6 classes with a real spell budget at level 1
-   *  (see CLASS_CASTER_KIND in helpers.ts). Gates the wizard's Spells step. */
+  /** T4/DDX-11t — true for a class with a real spell budget at level 1,
+   *  derived from the catalog row's own `spellcasting` block (see
+   *  casterKindFromSpellcasting in helpers.ts, TAV-WIZARD-HOMEBREW-
+   *  CASTERS). Kage-CR #10: absent `spellcasting` on the wire (v1 row, or
+   *  an explicit-null v2 non-caster declaration) maps here to `false` —
+   *  never fabricated as a caster. Gates the wizard's Spells step. */
   isCaster: boolean;
-  /** Undefined for a non-caster; see CLASS_CASTER_KIND's docstring for what
-   *  each kind means for the creation-time learn/prepare hop. */
+  /** Undefined for a non-caster; see casterKindFromSpellcasting's docstring
+   *  for what each kind means for the creation-time learn/prepare hop. */
   casterKind?: CasterKind;
   /** TAV-CLASS-STAT-GUIDANCE — the class's DECLARED recommended abilities
    *  (catalog `primary_ability`, validated), in declared order. [] when the

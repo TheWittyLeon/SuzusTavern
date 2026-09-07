@@ -9,8 +9,11 @@
  *
  * 6 steps for a non-caster: Race → Class → Abilities (27-point buy) →
  * Background → Equipment → Review. A CASTER class (wizard/cleric/sorcerer/…,
- * gated on WizardClass.isCaster — see helpers.ts's CLASS_CASTER_KIND) gets a
- * 7th "Spells" step inserted between Equipment and Review (T4/DDX-11t).
+ * gated on WizardClass.isCaster — data-driven off the class row's own
+ * spellcasting block, see helpers.ts's casterKindFromSpellcasting,
+ * TAV-WIZARD-HOMEBREW-CASTERS) gets a 7th "Spells" step inserted between
+ * Equipment and Review (T4/DDX-11t). TAV-WIZARD-HOMEBREW-CASTERS also
+ * inserts Subclass/Rung steps right after Class — see buildSteps.
  *
  * Equipment (2026-07-24 Starting Equipment design) sits after Background (a
  * background contributes its own gear package) and before Spells (so the
@@ -363,6 +366,36 @@ function isAlreadyKnownRejection(reason: unknown): boolean {
   return (data as { reason?: unknown }).reason === 'already_known';
 }
 
+/**
+ * TAV-WIZARD-HOMEBREW-CASTERS (Kage-CR #3/#4) — the machine reason off an
+ * engine rejection's `body.data.reason` (mirrors LevelChoicePicker.tsx's own
+ * `refusalReason` probe). Used both for retry-idempotence checks
+ * (already_chosen / duplicate_option genuinely mean "already done, not a
+ * failure") and to append the engine's own explanation to a setupIssues
+ * string instead of a bare bound-but-unread `catch {}`.
+ */
+function apiRejectionReason(err: unknown): string | undefined {
+  if (!(err instanceof Error)) return undefined;
+  const body = (err as ApiError).body as
+    | { data?: { reason?: string }; reason?: string; message?: string }
+    | null
+    | undefined;
+  return body?.data?.reason ?? body?.reason;
+}
+
+/** Same body-shape read as describeCreateError, reused for a setupIssues
+ *  line so a genuine failure names the engine's own explanation instead of
+ *  a bare generic string. Falls back to `fallback` for a non-ApiError
+ *  (network/abort) or a malformed body. */
+function describeRejection(err: unknown, fallback: string): string {
+  if (err instanceof Error) {
+    const body = (err as ApiError).body as { message?: unknown } | null | undefined;
+    const message = body?.message;
+    if (typeof message === 'string' && message.trim().length > 0) return `${fallback} (${message})`;
+  }
+  return fallback;
+}
+
 const GENERIC_CREATE_ERROR =
   "Suzu couldn’t write that down. Check your choices and try again in a moment.";
 
@@ -472,6 +505,11 @@ export default function CharacterNewPage(): ReactNode {
   const [subclassLoadState, setSubclassLoadState] = useState<'loading' | 'ok' | 'error'>(
     'loading',
   );
+  // Kage-CR IMPORTANT-2: the fetch effect's deps ([hasSubclassStep,
+  // clsObj?.name]) never change on a plain back/forward — a real retry
+  // needs its own counter to bump, same SubclassChoiceCard/SpellChoiceCard
+  // convention as LevelChoicePicker.tsx's loadKey.
+  const [subclassLoadKey, setSubclassLoadKey] = useState(0);
 
   // ── TAV-WIZARD-HOMEBREW-CASTERS — Rung step ─────────────────────────────────
   // No live fetch — `feature_choices[0].options` already rode in on the class
@@ -490,6 +528,12 @@ export default function CharacterNewPage(): ReactNode {
   const [rungDone, setRungDone] = useState(false);
   const [setupIssues, setSetupIssues] = useState<string[]>([]);
   const [retryingSetup, setRetryingSetup] = useState(false);
+  // Iro-A11y MINOR-4: a repeated identical failure re-renders the SAME
+  // issue strings — role="alert" only re-announces on a text CHANGE, so a
+  // content-identical re-fail would silently not re-announce. Appended to
+  // the callout title once >0 so the alert's text content genuinely
+  // differs attempt to attempt.
+  const [retryAttempt, setRetryAttempt] = useState(0);
 
   const headingRef = useRef<HTMLHeadingElement>(null);
   const errorRetryRef = useRef<HTMLButtonElement>(null);
@@ -566,8 +610,15 @@ export default function CharacterNewPage(): ReactNode {
   // today rides on a subclassLevel:1 class too.
   const hasSubclassStep = clsObj?.subclassLevel === 1;
   const hasRungStep = (clsObj?.rungMenu?.knownAtLevel1 ?? 0) > 0;
+  // Kage-CR BLOCKING-1: the engine refuses ANY option whose declared `level`
+  // exceeds the character's level (`class_feature_choice_options`'s per-
+  // option gate, enforced again by `learn_feature_pick` -> `option_level_
+  // unmet`) — a creation-time character is ALWAYS level 1, so an unfiltered
+  // menu offered ~4/16 (shinobi/ninjutsu), ~3/14 (ft-caster), ~4/8
+  // (ki-warrior) genuinely pickable options behind checkboxes that would
+  // 400 on apply. Archetype scoping alone isn't the whole gate.
   const rungOptions = (clsObj?.rungMenu?.options ?? []).filter(
-    (o) => !o.subclass || o.subclass === selectedSubclass,
+    (o) => (!o.subclass || o.subclass === selectedSubclass) && (o.level ?? 0) <= 1,
   );
 
   // TAV-CREATE-SUBRACE-ASI-PICKER — gates the Race step's pickers/Continue.
@@ -630,6 +681,7 @@ export default function CharacterNewPage(): ReactNode {
       setSubclassDone(false);
       setRungDone(false);
       setSetupIssues([]);
+      setRetryAttempt(0);
     }
   }, [cls]);
 
@@ -647,7 +699,12 @@ export default function CharacterNewPage(): ReactNode {
     }
     const ac = new AbortController();
     setSubclassLoadState('loading');
-    getCatalog(SYSTEM, { type: 'subclass' }, ac.signal)
+    // Kage-CR IMPORTANT-2: limit:500 — the seeded subclass catalog is ~69
+    // rows today; a homebrew-heavy day crossing whatever the engine's
+    // default page size is would silently truncate this list rather than
+    // erroring, and a truncated (not empty) list would never trip the
+    // content-bug empty state below.
+    getCatalog(SYSTEM, { type: 'subclass', limit: 500 }, ac.signal)
       .then((res) => {
         const filtered = subclassesForClass(res.items, clsObj.name).map(catalogItemToSubclass);
         setSubclassOptions(filtered);
@@ -663,7 +720,7 @@ export default function CharacterNewPage(): ReactNode {
     // refetch loop if the catalog hook ever returns a fresh array/object
     // reference across renders without the underlying data changing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasSubclassStep, clsObj?.name]);
+  }, [hasSubclassStep, clsObj?.name, subclassLoadKey]);
 
   // TAV-CREATE-SUBRACE-ASI-PICKER — a subrace/ASI choice is only meaningful
   // for the race it was made under; changing race must clear both so a
@@ -939,31 +996,86 @@ export default function CharacterNewPage(): ReactNode {
       if (!username) return issues;
       let subclassOk = !hasSubclassStep || subclassDone;
       if (hasSubclassStep && !subclassDone) {
-        try {
-          await resolveLevelChoice(id, username, 'subclass:1', { subclass: selectedSubclass });
-          setSubclassDone(true);
-          subclassOk = true;
-        } catch {
+        // Kage-CR #9: canContinue on the Subclass step already requires a
+        // pick before Continue enables — this guards the (should-be-
+        // unreachable) case of arriving here with none anyway, rather than
+        // POSTing {subclass: null} and letting the engine's own 400 stand
+        // in for a copy line this file could write itself.
+        if (!selectedSubclass) {
           issues.push(
-            `${clsObj?.name ?? 'Your'} archetype couldn't be saved — finish it from the character sheet.`,
+            `${clsObj?.name ?? 'Your'} archetype was never chosen — pick one from the character sheet.`,
           );
-          if (hasRungStep) {
-            issues.push(
-              "Your starting techniques couldn't be picked yet — they depend on your archetype being set first.",
-            );
-          }
           subclassOk = false;
+        } else {
+          try {
+            await resolveLevelChoice(id, username, 'subclass:1', { subclass: selectedSubclass });
+            setSubclassDone(true);
+            subclassOk = true;
+          } catch (err) {
+            // Kage-CR #3: already_chosen means a PRIOR attempt actually
+            // landed (e.g. the first apply succeeded server-side but this
+            // client never observed it before erroring elsewhere) — that is
+            // success, not a failure to retry forever.
+            if (apiRejectionReason(err) === 'already_chosen') {
+              setSubclassDone(true);
+              subclassOk = true;
+            } else {
+              issues.push(
+                describeRejection(
+                  err,
+                  `${clsObj?.name ?? 'Your'} archetype couldn't be saved — finish it from the character sheet.`,
+                ),
+              );
+              if (hasRungStep) {
+                issues.push(
+                  "Your starting techniques couldn't be picked yet — they depend on your archetype being set first.",
+                );
+              }
+              subclassOk = false;
+              // Kage-CR #4: never swallow the engine's own explanation.
+              console.warn('TAV-WIZARD-HOMEBREW-CASTERS: subclass resolve failed', err);
+            }
+          }
         }
       }
       if (hasRungStep && subclassOk && !rungDone) {
         try {
           const current = await getFeaturePicks(id, username);
           const known = new Set(current.known.map((o) => o.slug));
-          const toLearn = Array.from(rungPicks).filter((slug) => !known.has(slug));
-          const results = await Promise.allSettled(
-            toLearn.map((slug) => learnFeaturePick(id, username, slug)),
-          );
-          const failed = results.filter((r) => r.status === 'rejected').length;
+          // Kage-CR #8: reconcile against the server-authoritative eligible
+          // list rather than trusting the render-time filter alone —
+          // options.length/level can't drift mid-wizard, but this is the
+          // same defense-in-depth discipline `class_feature_choice_options`
+          // itself applies (never trust a client-computed set as the
+          // entitlement answer). A picked slug that's neither known nor
+          // eligible is a genuine, nameable failure — never attempted (it
+          // would just 400 option_level_unmet/wrong_subclass) and never
+          // silently dropped from the count either.
+          const eligible = new Set(current.eligible.map((o) => o.slug));
+          const picked = Array.from(rungPicks);
+          const toLearn = picked.filter((slug) => !known.has(slug) && eligible.has(slug));
+          const ineligible = picked.filter((slug) => !known.has(slug) && !eligible.has(slug));
+
+          // Kage-CR #6: sequential, not Promise.allSettled — concurrent
+          // learnFeaturePick calls are a lost-update race on the same
+          // character body (no optimistic locking server-side; each call
+          // reads-modifies-writes the full feature_choices bag).
+          let failed = ineligible.length;
+          for (const slug of toLearn) {
+            try {
+              await learnFeaturePick(id, username, slug);
+            } catch (err) {
+              // Kage-CR #3: duplicate_option means it's already known —
+              // getFeaturePicks's own `known` list can lag a stamp the
+              // ledger already has (see feature_picks.py's orphan-stamp
+              // docstring); treat it the same as isAlreadyKnownRejection
+              // does for spells.
+              if (apiRejectionReason(err) !== 'duplicate_option') {
+                failed += 1;
+                console.warn('TAV-WIZARD-HOMEBREW-CASTERS: learnFeaturePick failed', slug, err);
+              }
+            }
+          }
           if (failed > 0) {
             issues.push(
               `${failed} starting technique${failed > 1 ? 's' : ''} couldn't be learned — add ${
@@ -973,10 +1085,14 @@ export default function CharacterNewPage(): ReactNode {
           } else {
             setRungDone(true);
           }
-        } catch {
+        } catch (err) {
           issues.push(
-            "Your starting techniques couldn't be checked — add them from the character sheet.",
+            describeRejection(
+              err,
+              "Your starting techniques couldn't be checked — add them from the character sheet.",
+            ),
           );
+          console.warn('TAV-WIZARD-HOMEBREW-CASTERS: getFeaturePicks failed', err);
         }
       }
       if (issues.length > 0) {
@@ -1049,10 +1165,21 @@ export default function CharacterNewPage(): ReactNode {
     try {
       const issues = await applyPendingSetup(characterId);
       setSetupIssues(issues);
+      if (issues.length === 0) {
+        // Iro-A11y MINOR-3: the callout just unmounting on success gives AT
+        // no confirmation — fire the existing Toast (role="status" for a
+        // non-error tone) so success is actually announced.
+        toast({ message: 'Setup finished — everything is saved.', tone: 'success' });
+      } else {
+        // Iro-A11y MINOR-4: bump even on a still-failing retry so the
+        // callout's text content changes and role="alert" re-announces a
+        // repeated identical failure (see retryAttempt's own comment).
+        setRetryAttempt((n) => n + 1);
+      }
     } finally {
       setRetryingSetup(false);
     }
-  }, [characterId, applyPendingSetup]);
+  }, [characterId, applyPendingSetup, toast]);
 
   const handleSubmit = useCallback(async () => {
     if (!canCreatePrereqs && !characterId) return;
@@ -1097,7 +1224,7 @@ export default function CharacterNewPage(): ReactNode {
       // is now current (the original silent create, or its replacement).
       // Cantrips are always a `learn`; leveled picks are `learn` for known/
       // spellbook casters or `prepare` for a prepared caster (cleric/druid —
-      // see CLASS_CASTER_KIND's docstring in helpers.ts). Best-effort: a
+      // see casterKindFromSpellcasting's docstring in helpers.ts). Best-effort: a
       // failed pick surfaces a toast but never blocks navigating to the new
       // sheet — the character itself already exists either way.
       if (isCasterClass && username) {
@@ -1449,6 +1576,7 @@ export default function CharacterNewPage(): ReactNode {
                 loadState={subclassLoadState}
                 value={selectedSubclass}
                 onChange={setSelectedSubclass}
+                onRetry={() => setSubclassLoadKey((k) => k + 1)}
               />
             )}
             {stepKey === 'rung' && clsObj?.rungMenu && (
@@ -1531,6 +1659,7 @@ export default function CharacterNewPage(): ReactNode {
                 setupIssues={setupIssues}
                 onRetrySetup={setupIssues.length > 0 ? () => void handleRetrySetup() : undefined}
                 retryingSetup={retryingSetup}
+                retryAttempt={retryAttempt}
               />
             )}
           </div>
@@ -1809,6 +1938,7 @@ function SubclassStep({
   loadState,
   value,
   onChange,
+  onRetry,
 }: {
   /** Display name of the chosen class, for copy ("archetypes for Shinobi"). */
   className: string;
@@ -1816,6 +1946,10 @@ function SubclassStep({
   loadState: 'loading' | 'ok' | 'error';
   value: string | null;
   onChange: (id: string) => void;
+  /** Kage-CR IMPORTANT-2: bumps subclassLoadKey — the fetch effect's own
+   *  deps never change on a plain step back/forward, so "go back and
+   *  forward to retry" was false; a real retry needs a real trigger. */
+  onRetry: () => void;
 }) {
   if (loadState === 'loading') {
     return (
@@ -1827,8 +1961,10 @@ function SubclassStep({
   if (loadState === 'error') {
     return (
       <p className={styles.spellHint} role="alert">
-        Suzu couldn&rsquo;t load {className}&rsquo;s archetypes right now — go back and
-        forward to retry.
+        Suzu couldn&rsquo;t load {className}&rsquo;s archetypes right now.{' '}
+        <Button variant="ghost" size="default" onClick={onRetry}>
+          Retry
+        </Button>
       </p>
     );
   }
@@ -1902,6 +2038,16 @@ function RungStep({
     onChange(next);
   }
 
+  // Iro-A11y MINOR-1: mirrors SpellsStep's own "N noun[s]" phrasing
+  // ("You've chosen all 3 cantrips"), pluralizing menu.label instead of
+  // hardcoding a plural — a naive "+s" suffix, same heuristic this file
+  // already uses elsewhere (cantrip/pt pluralization above). A label that's
+  // already plural on the wire (e.g. a hypothetical "Techniques") would
+  // double-pluralize at n>1. Flagged, not fixed (MINOR severity); every
+  // verified homebrew menu label today ("Path Technique", "Magic Rung") is
+  // singular, so this is correct for real content.
+  const countedLabel = (n: number) => `${n} ${n === 1 ? menu.label : `${menu.label}s`}`;
+
   return (
     <fieldset className={styles.spellSection}>
       <legend className={styles.srOnly}>{`Choose your ${menu.label}`}</legend>
@@ -1921,6 +2067,22 @@ function RungStep({
           </span>
         </span>
       </div>
+      {/* Iro-A11y CRITICAL-1 (TAV-A11Y-CAP-HINT, mirrors SpellsStep.renderRow
+          exactly): explain why the remaining options go disabled once the
+          cap is hit — native `disabled` drops a row from the Tab order, so a
+          capped keyboard/switch user needs the reason surfaced some other
+          way. */}
+      <p id="rung-cap-hint" className={styles.srOnly}>
+        {picked.size >= cap ? (
+          <>
+            You&rsquo;ve chosen all {countedLabel(cap)} — deselect one to pick another.
+          </>
+        ) : (
+          <>
+            {picked.size} of {cap} {menu.label} chosen — pick {cap - picked.size} more.
+          </>
+        )}
+      </p>
       <ul className={styles.spellList}>
         {options.length === 0 && (
           <li className={styles.spellEmpty}>
@@ -1930,6 +2092,13 @@ function RungStep({
         {options.map((o) => {
           const checked = picked.has(o.slug);
           const disabled = !checked && picked.size >= cap;
+          // Iro-A11y MAJOR-1: descId only when there's a description to
+          // associate — mirrors SpellsStep.renderRow's `hasMeta` gate so
+          // aria-describedby never points at an id that isn't rendered.
+          const descId = o.description ? `rung-desc-${o.slug}` : undefined;
+          const describedBy =
+            [descId, disabled ? 'rung-cap-hint' : undefined].filter(Boolean).join(' ') ||
+            undefined;
           return (
             <li key={o.slug} className={styles.spellRow}>
               <label className={styles.spellRowLabel}>
@@ -1938,12 +2107,15 @@ function RungStep({
                   className={styles.spellCheckbox}
                   checked={checked}
                   disabled={disabled}
+                  aria-describedby={describedBy}
                   onChange={() => toggle(o.slug)}
                 />
                 <span className={styles.spellRowName}>{o.name}</span>
               </label>
               {o.description && (
-                <p className={`mono ${styles.spellRowMeta}`}>{o.description}</p>
+                <p className={`mono ${styles.spellRowMeta}`} id={descId}>
+                  {o.description}
+                </p>
               )}
             </li>
           );
@@ -2333,6 +2505,7 @@ function ReviewStep({
   setupIssues,
   onRetrySetup,
   retryingSetup,
+  retryAttempt,
 }: {
   name: string;
   onName: (v: string) => void;
@@ -2361,6 +2534,10 @@ function ReviewStep({
   setupIssues?: string[];
   onRetrySetup?: () => void;
   retryingSetup?: boolean;
+  /** Iro-A11y MINOR-4 — bumped on every still-failing retry so the alert's
+   *  text content changes and role="alert" re-announces a repeated
+   *  identical failure. 0 = never retried (no counter shown). */
+  retryAttempt?: number;
 }) {
   const initial = (name.trim() || '?').charAt(0).toUpperCase();
   const derivedRows: { label: string; value: string }[] = [
@@ -2414,8 +2591,15 @@ function ReviewStep({
           on mount. */}
       {setupIssues && setupIssues.length > 0 && (
         <Card className={styles.setupIssues} role="alert">
-          <p className={styles.setupIssuesTitle}>Setup incomplete</p>
-          <ul className={styles.setupIssuesList}>
+          <p className={styles.setupIssuesTitle}>
+            Setup incomplete
+            {/* Iro-A11y MINOR-4: a repeated identical failure re-renders the
+                SAME issue text — role="alert" only re-announces on a text
+                CHANGE, so this counter is what makes attempt 2, 3, … actually
+                differ from attempt 1 in the DOM. */}
+            {!!retryAttempt && retryAttempt > 0 && ` (attempt ${retryAttempt + 1})`}
+          </p>
+          <ul id="setup-issues-list" className={styles.setupIssuesList}>
             {setupIssues.map((issue) => (
               <li key={issue}>{issue}</li>
             ))}
@@ -2425,6 +2609,10 @@ function ReviewStep({
               variant="ghost"
               size="default"
               disabled={retryingSetup}
+              // Iro-A11y MINOR-2: label what the button retries — the
+              // issues list itself, so its accessible description carries
+              // the actual outstanding follow-ups, not just the button text.
+              aria-describedby="setup-issues-list"
               onClick={onRetrySetup}
             >
               {retryingSetup ? 'Retrying…' : 'Retry setup'}
