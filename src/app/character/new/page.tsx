@@ -137,6 +137,7 @@ import {
   type AbilityScores,
 } from '@/lib/dnd/helpers';
 import { indefiniteArticle } from '@/lib/text/indefiniteArticle';
+import { extractReason, engineErrorMessage, isApiError } from '@/lib/dnd/engineError';
 import {
   catalogItemToSubclass,
   subclassesForClass,
@@ -367,34 +368,32 @@ function isAlreadyKnownRejection(reason: unknown): boolean {
 }
 
 /**
- * TAV-WIZARD-HOMEBREW-CASTERS (Kage-CR #3/#4) — the machine reason off an
- * engine rejection's `body.data.reason` (mirrors LevelChoicePicker.tsx's own
- * `refusalReason` probe). Used both for retry-idempotence checks
- * (already_chosen / duplicate_option genuinely mean "already done, not a
- * failure") and to append the engine's own explanation to a setupIssues
- * string instead of a bare bound-but-unread `catch {}`.
+ * TAV-WIZARD-HOMEBREW-CASTERS (Kage-CR review round 2) — curated copy for the
+ * subclass-resolve and rung-learn refusal reasons, passed to
+ * `engineErrorMessage` (lib/dnd/engineError.ts) rather than a hand-rolled
+ * body-shape probe. `already_chosen`/`duplicate_option` are ALSO handled as
+ * idempotent successes before either apply loop ever reaches an error path
+ * (see applyPendingSetup) — kept here too as the honest fallback copy for
+ * the case that reasoning doesn't apply (e.g. a genuinely-repeated attempt
+ * that still somehow surfaces the reason as a hard refusal upstream).
+ * Subclass-resolve reasons mirror LevelChoicePicker.tsx's own
+ * RESOLVE_REFUSAL_COPY (one curated vocabulary for both surfaces); rung ones
+ * are `learnFeaturePick`'s own documented refusal set (dnd.ts).
  */
-function apiRejectionReason(err: unknown): string | undefined {
-  if (!(err instanceof Error)) return undefined;
-  const body = (err as ApiError).body as
-    | { data?: { reason?: string }; reason?: string; message?: string }
-    | null
-    | undefined;
-  return body?.data?.reason ?? body?.reason;
-}
-
-/** Same body-shape read as describeCreateError, reused for a setupIssues
- *  line so a genuine failure names the engine's own explanation instead of
- *  a bare generic string. Falls back to `fallback` for a non-ApiError
- *  (network/abort) or a malformed body. */
-function describeRejection(err: unknown, fallback: string): string {
-  if (err instanceof Error) {
-    const body = (err as ApiError).body as { message?: unknown } | null | undefined;
-    const message = body?.message;
-    if (typeof message === 'string' && message.trim().length > 0) return `${fallback} (${message})`;
-  }
-  return fallback;
-}
+const SETUP_REASON_MAP: Record<string, string> = {
+  // resolveLevelChoice('subclass:1', …)
+  choice_not_found: 'That choice is no longer pending — reload to see the current state.',
+  invalid_subclass: "That archetype isn't available for this class.",
+  already_chosen: 'That archetype is already set.',
+  not_owner: "That's not your character.",
+  // learnFeaturePick
+  not_freeform: "This class's menu isn't set up for creation-time picks yet.",
+  wrong_subclass: 'That technique belongs to another archetype.',
+  unknown_option: "That technique isn't recognized — try again from the sheet.",
+  option_level_unmet: 'That technique needs a higher level.',
+  duplicate_option: 'That technique is already known.',
+  over_menu_cap: "You've already picked the maximum for this menu.",
+};
 
 const GENERIC_CREATE_ERROR =
   "Suzu couldn’t write that down. Check your choices and try again in a moment.";
@@ -406,20 +405,31 @@ const GENERIC_CREATE_ERROR =
  * `_err()`) is `{success: false, message: <human string>, data: {reason?}}`
  * — `err.body.message` IS the engine's own explanation of what was rejected
  * (e.g. an invalid race/subrace/ASI combination), already written to be
- * shown to a player. `client.ts`'s apiFetch attaches the full parsed body
- * verbatim as `err.body` on every non-2xx response, so this is always
- * available except for a genuine network/abort failure or a malformed body
- * — those fall back to the generic line, never to an undefined/`[object
- * Object]` render.
+ * shown to a player. Kage-CR review round 2: delegates to
+ * `engineErrorMessage` (lib/dnd/engineError.ts) rather than reading
+ * `body.message` raw — that raw read let the engine's `[DnD] ` subsystem
+ * prefix leak into player-facing copy, and never withheld a 5xx's message
+ * (a network/stack-adjacent "Internal server error" string) the way
+ * engineErrorMessage's business-4xx-only gate does. No reasonMap: creation
+ * failures are too varied (race/subrace/ASI/background/equipment combos)
+ * for a fixed vocabulary — the engine's own cleaned message is still the
+ * best available copy, same as before this fix, just laundered.
  */
 function describeCreateError(err: unknown): string {
-  if (!(err instanceof Error)) return GENERIC_CREATE_ERROR;
-  const body = (err as ApiError).body;
-  if (body && typeof body === 'object') {
-    const message = (body as { message?: unknown }).message;
-    if (typeof message === 'string' && message.trim().length > 0) return message;
-  }
-  return GENERIC_CREATE_ERROR;
+  return engineErrorMessage(err, { fallback: GENERIC_CREATE_ERROR });
+}
+
+/**
+ * TAV-WIZARD-HOMEBREW-CASTERS — "N noun[s]" phrasing, shared between
+ * RungStep's own cap-hint/budget copy and the nav `continueHint` below
+ * (Iro-A11y MINOR-1: one canonical pluralizer instead of two copies
+ * drifting apart). Naive "+s" suffix — a label that's already plural on the
+ * wire (e.g. a hypothetical "Techniques") would double-pluralize at n>1;
+ * flagged, not fixed (MINOR severity), every verified homebrew menu label
+ * today ("Path Technique", "Magic Rung") is singular.
+ */
+function countedLabel(label: string, n: number): string {
+  return `${n} ${n === 1 ? label : `${label}s`}`;
 }
 
 // ── Suzu commentary for the abilities step (ST-053 v1) ─────────────────────────
@@ -997,10 +1007,11 @@ export default function CharacterNewPage(): ReactNode {
       let subclassOk = !hasSubclassStep || subclassDone;
       if (hasSubclassStep && !subclassDone) {
         // Kage-CR #9: canContinue on the Subclass step already requires a
-        // pick before Continue enables — this guards the (should-be-
-        // unreachable) case of arriving here with none anyway, rather than
-        // POSTing {subclass: null} and letting the engine's own 400 stand
-        // in for a copy line this file could write itself.
+        // pick before Continue enables — this branch guards the (should-be-
+        // unreachable, hence no test) case of arriving here with none
+        // anyway, rather than POSTing {subclass: null} and letting the
+        // engine's own 400 stand in for a copy line this file could write
+        // itself.
         if (!selectedSubclass) {
           issues.push(
             `${clsObj?.name ?? 'Your'} archetype was never chosen — pick one from the character sheet.`,
@@ -1016,15 +1027,15 @@ export default function CharacterNewPage(): ReactNode {
             // landed (e.g. the first apply succeeded server-side but this
             // client never observed it before erroring elsewhere) — that is
             // success, not a failure to retry forever.
-            if (apiRejectionReason(err) === 'already_chosen') {
+            if (isApiError(err) && extractReason(err) === 'already_chosen') {
               setSubclassDone(true);
               subclassOk = true;
             } else {
               issues.push(
-                describeRejection(
-                  err,
-                  `${clsObj?.name ?? 'Your'} archetype couldn't be saved — finish it from the character sheet.`,
-                ),
+                engineErrorMessage(err, {
+                  fallback: `${clsObj?.name ?? 'Your'} archetype couldn't be saved — finish it from the character sheet.`,
+                  reasonMap: SETUP_REASON_MAP,
+                }),
               );
               if (hasRungStep) {
                 issues.push(
@@ -1061,6 +1072,11 @@ export default function CharacterNewPage(): ReactNode {
           // character body (no optimistic locking server-side; each call
           // reads-modifies-writes the full feature_choices bag).
           let failed = ineligible.length;
+          // Kage-CR review round 2: the FIRST real failure's curated reason
+          // rides along with the aggregate count — a bare "N couldn't be
+          // learned" told the player nothing they could act on; "(That
+          // technique needs a higher level.)" does.
+          let firstFailureReason: string | undefined;
           for (const slug of toLearn) {
             try {
               await learnFeaturePick(id, username, slug);
@@ -1070,27 +1086,33 @@ export default function CharacterNewPage(): ReactNode {
               // ledger already has (see feature_picks.py's orphan-stamp
               // docstring); treat it the same as isAlreadyKnownRejection
               // does for spells.
-              if (apiRejectionReason(err) !== 'duplicate_option') {
+              if (!(isApiError(err) && extractReason(err) === 'duplicate_option')) {
                 failed += 1;
+                if (!firstFailureReason) {
+                  firstFailureReason = engineErrorMessage(err, {
+                    fallback: "a starting technique couldn't be learned",
+                    reasonMap: SETUP_REASON_MAP,
+                  });
+                }
                 console.warn('TAV-WIZARD-HOMEBREW-CASTERS: learnFeaturePick failed', slug, err);
               }
             }
           }
           if (failed > 0) {
             issues.push(
-              `${failed} starting technique${failed > 1 ? 's' : ''} couldn't be learned — add ${
-                failed > 1 ? 'them' : 'it'
-              } from the character sheet.`,
+              `${failed} starting technique${failed > 1 ? 's' : ''} couldn't be learned${
+                firstFailureReason ? ` (${firstFailureReason})` : ''
+              } — add ${failed > 1 ? 'them' : 'it'} from the character sheet.`,
             );
           } else {
             setRungDone(true);
           }
         } catch (err) {
           issues.push(
-            describeRejection(
-              err,
-              "Your starting techniques couldn't be checked — add them from the character sheet.",
-            ),
+            engineErrorMessage(err, {
+              fallback: "Your starting techniques couldn't be checked — add them from the character sheet.",
+              reasonMap: SETUP_REASON_MAP,
+            }),
           );
           console.warn('TAV-WIZARD-HOMEBREW-CASTERS: getFeaturePicks failed', err);
         }
@@ -1379,7 +1401,10 @@ export default function CharacterNewPage(): ReactNode {
         : stepKey === 'subclass'
           ? 'Choose an archetype to continue.'
           : stepKey === 'rung' && clsObj?.rungMenu
-            ? `Pick ${clsObj.rungMenu.knownAtLevel1} ${clsObj.rungMenu.label.toLowerCase()} to continue.`
+            ? // Iro-A11y MINOR-1: countedLabel pluralizes at cap>1 ("Pick 2
+              // Path Techniques to continue."); dropped the old .toLowerCase()
+              // to match RungStep's own Title Case usage of menu.label.
+              `Pick ${countedLabel(clsObj.rungMenu.label, clsObj.rungMenu.knownAtLevel1)} to continue.`
             : stepKey === 'background'
           ? 'Enter a name and choose a background to continue.'
           : stepKey === 'equipment' && equipmentLoadState === 'loading'
@@ -2038,16 +2063,6 @@ function RungStep({
     onChange(next);
   }
 
-  // Iro-A11y MINOR-1: mirrors SpellsStep's own "N noun[s]" phrasing
-  // ("You've chosen all 3 cantrips"), pluralizing menu.label instead of
-  // hardcoding a plural — a naive "+s" suffix, same heuristic this file
-  // already uses elsewhere (cantrip/pt pluralization above). A label that's
-  // already plural on the wire (e.g. a hypothetical "Techniques") would
-  // double-pluralize at n>1. Flagged, not fixed (MINOR severity); every
-  // verified homebrew menu label today ("Path Technique", "Magic Rung") is
-  // singular, so this is correct for real content.
-  const countedLabel = (n: number) => `${n} ${n === 1 ? menu.label : `${menu.label}s`}`;
-
   return (
     <fieldset className={styles.spellSection}>
       <legend className={styles.srOnly}>{`Choose your ${menu.label}`}</legend>
@@ -2056,7 +2071,10 @@ function RungStep({
           className={styles.budgetNum}
           aria-live="polite"
           aria-atomic="true"
-          aria-label={`${picked.size} of ${cap} ${menu.label} chosen`}
+          // Iro-A11y MINOR-1: countedLabel (module-level, shared with the
+          // nav continueHint) so the noun pluralizes at cap>1 — was a bare
+          // `${cap} ${menu.label}` that never pluralized.
+          aria-label={`${picked.size} of ${countedLabel(menu.label, cap)} chosen`}
         >
           {picked.size}/{cap}
         </span>
@@ -2075,7 +2093,8 @@ function RungStep({
       <p id="rung-cap-hint" className={styles.srOnly}>
         {picked.size >= cap ? (
           <>
-            You&rsquo;ve chosen all {countedLabel(cap)} — deselect one to pick another.
+            You&rsquo;ve chosen all {countedLabel(menu.label, cap)} — deselect one to pick
+            another.
           </>
         ) : (
           <>

@@ -636,6 +636,45 @@ describe('setupIssues — resume, not dead-end (TAV-WIZARD-HOMEBREW-CASTERS)', (
     expect(screen.getByRole('button', { name: 'Retry setup' })).toBeInTheDocument();
   });
 
+  // Kage-CR review round 2: engineErrorMessage's reasonMap must win over the
+  // engine's raw body.message, AND that raw message's "[DnD] " subsystem
+  // prefix must never leak into player-facing copy either way.
+  it('a curated subclass-resolve reason renders its reasonMap copy, never the raw [DnD]-prefixed message', async () => {
+    mockResolveLevelChoice.mockRejectedValueOnce(
+      makeApiError(400, '400', {
+        message: '[DnD] Not a valid archetype for Shinobi.',
+        data: { reason: 'invalid_subclass' },
+      }),
+    );
+    await advanceToEquipmentContinue();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
+    expect(await screen.findByText('Setup incomplete')).toBeInTheDocument();
+    expect(screen.getByText(/That archetype isn.t available for this class\./)).toBeInTheDocument();
+    expect(screen.queryByText(/\[DnD\]/)).not.toBeInTheDocument();
+  });
+
+  it('a curated rung-learn reason (option_level_unmet) renders its reasonMap copy, never the raw [DnD]-prefixed message', async () => {
+    mockLearnFeaturePick.mockRejectedValueOnce(
+      makeApiError(400, '400', {
+        message: '[DnD] Flame Bullet requires a higher level.',
+        data: { reason: 'option_level_unmet' },
+      }),
+    );
+    await advanceToEquipmentContinue();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
+    expect(await screen.findByText('Setup incomplete')).toBeInTheDocument();
+    expect(
+      screen.getByText(/1 starting technique couldn.t be learned \(That technique needs a higher level\.\)/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/\[DnD\]/)).not.toBeInTheDocument();
+  });
+
   it('Retry setup re-attempts and clears the callout once it succeeds', async () => {
     mockResolveLevelChoice.mockRejectedValueOnce(new Error('boom'));
     await advanceToEquipmentContinue();
