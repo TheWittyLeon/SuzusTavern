@@ -92,7 +92,8 @@ import {
   learnSpell,
   resolveLevelChoice,
 } from '@/lib/api/dnd';
-import { ABILITIES, slugifyName, type AbilityKey } from '@/lib/dnd/helpers';
+import { ABILITIES, radioStepIndex, type AbilityKey } from '@/lib/dnd/helpers';
+import { subclassesForClass } from '@/lib/dnd/catalog';
 import type {
   ApiError,
   AvailableSpellEntry,
@@ -199,21 +200,13 @@ function unmetFeatPrereqs(item: CatalogItem, sheet: CharacterSheet): string[] {
 
 const SYSTEM = 'dnd5e';
 
-/** A11Y (Iro CRITICAL-1): roving-tabindex radiogroup arrow-key nav, mirrors
- *  SpellbookPanel.tsx's tablist onKeyDown (:362-388) — Up/Left move to the
- *  previous option, Down/Right to the next (both wrap), Home/End jump to the
- *  ends. Arrow-key movement ALSO selects (native radio-group semantics), so
- *  callers select + refocus together. Returns null for any other key so the
- *  caller can no-op without calling preventDefault. */
-function radioStepIndex(key: string, idx: number, length: number): number | null {
-  if (length === 0) return null;
-  const from = idx < 0 ? 0 : idx;
-  if (key === 'ArrowRight' || key === 'ArrowDown') return (from + 1) % length;
-  if (key === 'ArrowLeft' || key === 'ArrowUp') return (from - 1 + length) % length;
-  if (key === 'Home') return 0;
-  if (key === 'End') return length - 1;
-  return null;
-}
+// radioStepIndex moved to lib/dnd/helpers.ts (TAV-WIZARD-HOMEBREW-CASTERS) —
+// a single canonical copy for every CUSTOM role="radio" button-group in this
+// file (Subclass/ASI/feat below). The creation wizard's own Subclass step
+// does NOT need it: its cards are native <input type="radio"> (the
+// optCard/optGrid pattern Race/Class/Background already use), which get
+// arrow-key roving for free from the browser — adding this helper on top
+// would double-handle the keypress.
 
 export interface LevelChoicePickerProps {
   characterId: string;
@@ -383,12 +376,10 @@ function SubclassChoiceCard({
         // ("ki-warrior"), so a bare lowercase compare matched nothing and the
         // card claimed "No archetypes are seeded" for a class with six. Every
         // SRD class is one word, which is the only reason this held until the
-        // first multi-word class arrived. Slugify BOTH sides — see
-        // `slugifyName`'s note; it mirrors the engine's `_slugify` exactly.
-        const wanted = slugifyName(charClass);
-        const filtered = res.items.filter(
-          (item) => slugifyName(String((item.data as { class?: string }).class ?? '')) === wanted,
-        );
+        // first multi-word class arrived. subclassesForClass slugifies BOTH
+        // sides (lib/dnd/catalog.ts) — shared with the creation wizard's own
+        // Subclass step (TAV-WIZARD-HOMEBREW-CASTERS) rather than forked.
+        const filtered = subclassesForClass(res.items, charClass);
         setOptions(filtered);
         setSelectedSlug((prev) => prev || filtered[0]?.slug || '');
         setLoadState('ok');
