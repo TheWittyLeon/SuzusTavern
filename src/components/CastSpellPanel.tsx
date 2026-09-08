@@ -57,7 +57,13 @@ import { castSpell, getCharacterSheet, getKnownSpells } from '@/lib/api/dnd';
 import { engineErrorMessage } from '@/lib/dnd/engineError';
 import { CAST_REFUSAL_REASON_MAP } from '@/lib/dnd/engineReasons';
 import { isCastableCombatTarget } from '@/lib/dnd/combatTargets';
-import { affordableMaxSpend, previewSpend, resolveMaxSpend, resourceLabelFor } from '@/lib/dnd/variableCost';
+import {
+  affordableMaxSpend,
+  previewSpend,
+  resolveMaxSpend,
+  resourceLabelFor,
+  snapSpend,
+} from '@/lib/dnd/variableCost';
 import type {
   CharacterSheet,
   CombatParticipantState,
@@ -477,7 +483,16 @@ export default function CastSpellPanel({
                 aria-valuemax={spendCeiling ?? variableCost.base_cost}
                 aria-valuenow={spend}
                 aria-valuetext={`${spend} ${resourceLabel}`}
-                onChange={(e) => setSpend(Number(e.target.value))}
+                onChange={(e) =>
+                  setSpend(
+                    snapSpend(
+                      Number(e.target.value),
+                      variableCost.base_cost,
+                      variableCost.step_cost,
+                      spendCeiling ?? variableCost.base_cost,
+                    ),
+                  )
+                }
               />
               {spendPreview && (
                 <p className={styles.spendPreview} aria-live="polite" aria-atomic="true">

@@ -105,6 +105,54 @@ const SLOTS: Record<string, SheetSpellSlot> = {
   '3': { max: 0, used: 0, remaining: 0 },
 };
 
+// HB-P7e fixtures — worked example verbatim from the design doc §5b (Fire
+// Dragon's Roar): base 2, step 2, per-step +2d6 / "+15 ft of cone", max
+// spend PB×2 (the UNRESOLVED expression form — today's engine, per the
+// recorded contract gap).
+const ROAR_SPELL: SheetSpellEntry = {
+  slug: 'fire-dragons-roar',
+  name: "Fire Dragon's Roar",
+  level: 1,
+  school: 'evocation',
+  source: 'class',
+  prepared: true,
+  is_cantrip: false,
+  concentration: false,
+  ritual: false,
+  castable_now: true,
+  min_slot_level: 1,
+  heals: false,
+  variable_cost: {
+    base_cost: 2,
+    step_cost: 2,
+    max_spend: { pb_mult: 2 },
+    per_step: { damage_dice: '2d6', narrative: '+15 ft of cone' },
+  },
+};
+
+// Same shape, but the engine has ALREADY resolved max_spend to a plain
+// integer — the other half of the "handle both forms" requirement.
+const RESOLVED_ROAR_SPELL: SheetSpellEntry = {
+  ...ROAR_SPELL,
+  slug: 'fire-dragons-roar-resolved',
+  name: "Fire Dragon's Roar (resolved)",
+  variable_cost: {
+    ...ROAR_SPELL.variable_cost!,
+    max_spend: 12,
+  },
+};
+
+function magicPower(current: number, maximum = 20): SheetSpellPoints {
+  return {
+    casting_model: 'points',
+    label: 'Magic Power',
+    points: { current, maximum },
+    high_level_casts: {},
+    max_slot_level: 5,
+    costs: {},
+  };
+}
+
 function participant(overrides: Partial<CombatParticipantState>): CombatParticipantState {
   return {
     participant_id: 'p',
@@ -1160,5 +1208,156 @@ describe('CastSpellPanel — refetch failure after a successful cast (D2 pattern
     ).toBeInTheDocument();
     expect(onSheetChanged).not.toHaveBeenCalled();
     expect(onStateRefresh).not.toHaveBeenCalled();
+  });
+});
+
+describe('CastSpellPanel — HB-P7e spend stepper', () => {
+  function withRoar(extra: SheetSpellEntry[] = [ROAR_SPELL]) {
+    mockGetKnown.mockResolvedValue({ ...SPELL_LIST, spells: [...SPELL_LIST.spells, ...extra] });
+  }
+
+  function selectBySlug(slug: string) {
+    fireEvent.change(screen.getByLabelText('Spell'), { target: { value: slug } });
+  }
+
+  it('hides the chooser when the selected spell has no variable_cost', async () => {
+    withRoar();
+    renderPanel({ spellPoints: magicPower(20) });
+    await flush();
+
+    selectSpell('Cure Wounds');
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument();
+    // The ordinary slot-level select is unaffected.
+    expect(screen.getByLabelText('Slot level')).toBeInTheDocument();
+  });
+
+  it('shows the chooser (and hides the slot-level select) for a variable_cost spell, defaulted to base_cost', async () => {
+    withRoar();
+    renderPanel({ spellPoints: magicPower(20) });
+    await flush();
+
+    selectBySlug('fire-dragons-roar');
+    const slider = await screen.findByRole('slider');
+    expect(slider).toHaveAttribute('value', '2');
+    expect(slider).toHaveAttribute('aria-valuenow', '2');
+    expect(screen.queryByLabelText('Slot level')).not.toBeInTheDocument();
+  });
+
+  it('resolves max_spend from the UNRESOLVED {pb_mult} expression form using the caster\'s own proficiency bonus', async () => {
+    withRoar();
+    renderPanel({ spellPoints: magicPower(20), proficiencyBonus: 2 });
+    await flush();
+
+    selectBySlug('fire-dragons-roar');
+    const slider = await screen.findByRole('slider');
+    // PB 2 x pb_mult 2 = 4.
+    expect(slider).toHaveAttribute('max', '4');
+    expect(slider).toHaveAttribute('aria-valuemax', '4');
+  });
+
+  it('resolves max_spend from an already-RESOLVED integer form unchanged', async () => {
+    withRoar([RESOLVED_ROAR_SPELL]);
+    renderPanel({ spellPoints: magicPower(50), proficiencyBonus: 2 });
+    await flush();
+
+    selectBySlug('fire-dragons-roar-resolved');
+    const slider = await screen.findByRole('slider');
+    expect(slider).toHaveAttribute('max', '12');
+    expect(slider).toHaveAttribute('aria-valuemax', '12');
+  });
+
+  it('steps land only on valid spends — an off-step raw value snaps to the nearest one', async () => {
+    withRoar();
+    renderPanel({ spellPoints: magicPower(20), proficiencyBonus: 2 });
+    await flush();
+
+    selectBySlug('fire-dragons-roar');
+    const slider = await screen.findByRole('slider');
+    // base 2, step 2: 3 is not a valid spend (2 or 4 are) — snaps up to 4.
+    fireEvent.change(slider, { target: { value: '3' } });
+    await flush();
+    expect(slider).toHaveAttribute('value', '4');
+    expect(slider).toHaveAttribute('aria-valuenow', '4');
+  });
+
+  it('over-pool spends are unreachable — the slider max clamps to what the pool affords', async () => {
+    withRoar();
+    // PB 2 -> resolved max 4, but the pool only holds 3: can afford base (2)
+    // but not the next step (4).
+    renderPanel({ spellPoints: magicPower(3), proficiencyBonus: 2 });
+    await flush();
+
+    selectBySlug('fire-dragons-roar');
+    const slider = await screen.findByRole('slider');
+    expect(slider).toHaveAttribute('max', '2');
+    expect(slider).toHaveAttribute('aria-valuemax', '2');
+  });
+
+  it('live-region preview updates with the resolved cost, step dice, narrative, and pool remaining', async () => {
+    withRoar();
+    renderPanel({ spellPoints: magicPower(20), proficiencyBonus: 2 });
+    await flush();
+
+    selectBySlug('fire-dragons-roar');
+    const slider = await screen.findByRole('slider');
+    expect(
+      screen.getByText('Spend 2 Magic Power. 18 Magic Power remaining.'),
+    ).toBeInTheDocument();
+
+    fireEvent.change(slider, { target: { value: '4' } });
+    await flush();
+    expect(
+      screen.getByText('Spend 4 Magic Power → +1×2d6 · +15 ft of cone. 16 Magic Power remaining.'),
+    ).toBeInTheDocument();
+  });
+
+  it('falls back to the generic "points" label when the class row has none', async () => {
+    withRoar();
+    renderPanel({
+      spellPoints: { ...magicPower(20), label: '' },
+      proficiencyBonus: 2,
+    });
+    await flush();
+
+    selectBySlug('fire-dragons-roar');
+    expect(screen.getByLabelText('Spend (points)')).toBeInTheDocument();
+  });
+
+  it('sends `spend` (never slot_level) on the cast body for a variable-cost spell', async () => {
+    withRoar();
+    mockCastSpell.mockResolvedValue({ message: 'The dragon roars.' });
+    mockGetSheet.mockResolvedValue(SHEET);
+    renderPanel({ spellPoints: magicPower(20), proficiencyBonus: 2 });
+    await flush();
+
+    selectBySlug('fire-dragons-roar');
+    const slider = await screen.findByRole('slider');
+    fireEvent.change(slider, { target: { value: '4' } });
+    await flush();
+
+    fireEvent.click(screen.getByRole('button', { name: /^Cast /i }));
+    await flush();
+
+    expect(mockCastSpell).toHaveBeenCalledTimes(1);
+    const body = mockCastSpell.mock.calls[0][0];
+    expect(body).toMatchObject({ spell_name: 'fire-dragons-roar', spend: 4 });
+    expect(body).not.toHaveProperty('slot_level');
+  });
+
+  it('omits `spend` for an ordinary (non-variable-cost) cast', async () => {
+    withRoar();
+    mockCastSpell.mockResolvedValue({ message: 'ok' });
+    mockGetSheet.mockResolvedValue(SHEET);
+    renderPanel({ spellPoints: magicPower(20), proficiencyBonus: 2 });
+    await flush();
+
+    selectSpell('Cure Wounds');
+    fireEvent.click(screen.getByRole('button', { name: /^Cast /i }));
+    await flush();
+
+    expect(mockCastSpell).toHaveBeenCalledTimes(1);
+    const body = mockCastSpell.mock.calls[0][0];
+    expect(body).not.toHaveProperty('spend');
+    expect(body).toMatchObject({ spell_name: 'cure-wounds', slot_level: 1 });
   });
 });

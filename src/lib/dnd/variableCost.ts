@@ -46,6 +46,20 @@ export function affordableMaxSpend(
   return baseCost + steps * stepCost;
 }
 
+/** Snaps an arbitrary raw value (from the range input's onChange) onto the
+ *  nearest valid spend — a multiple of `stepCost` above `baseCost`, clamped
+ *  to `[baseCost, ceiling]`. A native `<input type="range" step=...">`
+ *  already only reports step-aligned values from real
+ *  drag/keyboard/Home/End interaction, but this is the backstop that makes
+ *  "steps land only on valid spends" (behavior spec) true regardless of
+ *  how the raw value got there. */
+export function snapSpend(raw: number, baseCost: number, stepCost: number, ceiling: number): number {
+  if (stepCost <= 0) return baseCost;
+  const clamped = Math.min(Math.max(raw, baseCost), Math.max(ceiling, baseCost));
+  const steps = Math.round((clamped - baseCost) / stepCost);
+  return baseCost + steps * stepCost;
+}
+
 /** How many step increments a spend represents above `base_cost`. Always
  *  clamped >= 0 — a spend below base_cost shouldn't reach here (the
  *  slider's own `min` prevents it) but this stays defensive rather than
@@ -57,15 +71,18 @@ export function stepsFor(vc: SpellVariableCost, spend: number): number {
 
 /** `per_step.narrative` joined once per step (the design's §4-P7e behavior
  *  spec: "per_step.narrative repeated per step") — e.g. 3 steps of "+15 ft
- *  of cone" reads "+15 ft of cone + 15 ft of cone + 15 ft of cone",
+ *  of cone" reads "+15 ft of cone, +15 ft of cone, +15 ft of cone",
  *  mirroring the authored rule text's own "per 2 MP" phrasing rather than
  *  trying to parse and sum the geometry (the engine itself never
- *  interprets this string either — §5a). Returns null at 0 steps (base
- *  cast, nothing extra to narrate yet) or when the row has no narrative. */
+ *  interprets this string either — §5a). Comma-joined rather than " + "
+ *  because authored narrative strings already carry their own leading
+ *  "+"/"and" (§5a's own example is "+5 ft of cone") — " + " would read as
+ *  a double plus. Returns null at 0 steps (base cast, nothing extra to
+ *  narrate yet) or when the row has no narrative. */
 export function repeatNarrative(vc: SpellVariableCost, steps: number): string | null {
   const narrative = vc.per_step?.narrative;
   if (!narrative || steps <= 0) return null;
-  return Array.from({ length: steps }, () => narrative).join(' + ');
+  return Array.from({ length: steps }, () => narrative).join(', ');
 }
 
 /** The per-step damage-dice INCREMENT, formatted "+N×dice" (e.g. "+3×2d6").
