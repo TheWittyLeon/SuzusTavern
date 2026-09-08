@@ -81,7 +81,10 @@ const SCOUT = {
   flavor: 'Sees it before it sees you.',
   isCaster: false,
   primary: ['dexterity', 'wisdom'] as ['dexterity', 'wisdom'],
-  skillChoices: ['acrobatics', 'athletics', 'insight', 'perception', 'stealth', 'survival'],
+  // 'animal_handling' is deliberately in the pool (unused by the default
+  // athletics+perception flow) so a single test can pin the wire-shape-
+  // normalization case (Kage-CR pin, 2026-09-08) without a new fixture.
+  skillChoices: ['acrobatics', 'athletics', 'animal_handling', 'insight', 'perception', 'stealth', 'survival'],
   skillCount: 2,
 };
 
@@ -525,6 +528,41 @@ describe('Skills apply sequence — slow path (no other silent-create trigger)',
     expect(screen.queryByText('Setup incomplete')).not.toBeInTheDocument();
   });
 
+  // Kage-CR pin (2026-09-08): a wire-shape-mismatched entry on the
+  // AUTHORITATIVE sheet ("Animal-Handling" — mixed case, a hyphen instead
+  // of underscore) must still match the wizard's own picked slug
+  // ("animal_handling") once both sides run through normalizeSkillSlug —
+  // the exact normalization _resolve_skills_choice applies server-side.
+  // Without it, this pick would falsely refuse despite being genuinely
+  // valid.
+  it('normalizes a wire-shape-mismatched pending.options entry before comparing — "Animal-Handling" matches a picked "animal_handling"', async () => {
+    mockCreateCharacter.mockResolvedValue({ character_id: 'char-scout' });
+    mockGetCharacterSheet.mockResolvedValue(sheetWithPendingSkills(2, ['athletics', 'Animal-Handling']));
+    renderWizard();
+    pickRace();
+    pickClass(/Scout/i);
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Background
+    fillBackground();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Skills
+    await screen.findByText('What are you actually good at?');
+    fireEvent.click(screen.getByRole('checkbox', { name: /Athletics/i }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /Animal Handling/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Equipment
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
+
+    await act(async () => {
+      fireEvent.click(await screen.findByRole('button', { name: /Begin your campaign/i }));
+    });
+    await waitFor(() =>
+      expect(mockResolveLevelChoice).toHaveBeenCalledWith('char-scout', 'alice', 'skills:1', {
+        picks: expect.arrayContaining(['athletics', 'animal_handling']),
+      }),
+    );
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/character/char-scout'));
+    expect(screen.queryByText('Setup incomplete')).not.toBeInTheDocument();
+  });
+
   it('coordinator note: the choice being ABSENT from the real sheet after create is NOT a failure', async () => {
     mockGetCharacterSheet.mockResolvedValue({ name: 'Velka', pending_choices: [] });
     await advanceToReview();
@@ -563,6 +601,28 @@ describe('Skills apply sequence — slow path (no other silent-create trigger)',
       fireEvent.click(screen.getByRole('button', { name: 'Retry setup' }));
     });
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/character/char-scout'));
+  });
+
+  // Kage-CR round-4 pin (2026-09-08): the delegated retry (handleSubmit
+  // called again) must still bump retryAttempt on a REPEATED failure, or
+  // the callout's text content never changes between attempts and
+  // role="alert" silently fails to re-announce it (Iro-A11y MINOR-4's own
+  // mechanism, otherwise bypassed on this now-majority final-submit path —
+  // probe D). First failure: no "(attempt N)" suffix (retryAttempt starts
+  // at 0). Second failure (via Retry, still rejecting): "(attempt 2)".
+  it('a repeated failure on the final-submit path bumps retryAttempt so the callout text differs between attempts', async () => {
+    mockResolveLevelChoice.mockRejectedValue(new Error('boom')); // fails EVERY call, not just once
+    await advanceToReview();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
+    });
+    expect(await screen.findByText('Setup incomplete')).toBeInTheDocument();
+    expect(screen.queryByText(/attempt 2/i)).not.toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Retry setup' }));
+    });
+    expect(await screen.findByText(/Setup incomplete \(attempt 2\)/i)).toBeInTheDocument();
   });
 
   // Kage-CR follow-up #5: pin no-duplicate-create directly — a second

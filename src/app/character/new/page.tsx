@@ -1515,6 +1515,15 @@ export default function CharacterNewPage(): ReactNode {
           // already exists (createNow succeeded above) — stay on Review
           // with the persistent callout instead; a successful "Retry
           // setup" (see its own doc comment) finishes this submit for them.
+          //
+          // Kage-CR round-3 follow-up: `awaitingSubmitRetry` already being
+          // true here means this IS a repeated failure (a retry delegated
+          // back into handleSubmit itself, or a second manual "Begin your
+          // campaign" click) — bump retryAttempt so the callout's text
+          // content genuinely changes and role="alert" re-announces it
+          // (Iro-A11y MINOR-4's mechanism, otherwise silently bypassed on
+          // this now-majority path — probe D).
+          if (awaitingSubmitRetry) setRetryAttempt((n) => n + 1);
           setAwaitingSubmitRetry(true);
           setSubmitting(false);
           return;
@@ -1600,6 +1609,7 @@ export default function CharacterNewPage(): ReactNode {
     hasRungStep,
     hasSkillsStep,
     applyPendingSetup,
+    awaitingSubmitRetry,
     isCasterClass,
     username,
     clsObj,

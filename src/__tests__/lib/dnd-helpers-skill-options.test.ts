@@ -7,7 +7,27 @@
  * string so neither deploy ordering between this repo and
  * NekoNova-DnDEngine ever strands a character on a shape it can't render.
  */
-import { normalizeSkillOption, normalizeSkillOptions } from '../../lib/dnd/helpers';
+import { normalizeSkillOption, normalizeSkillOptions, normalizeSkillSlug } from '../../lib/dnd/helpers';
+
+// Kage-CR pin (2026-09-08): normalizeSkillSlug was unpinned directly —
+// mutating it to a bare `raw.trim()` left every other test green, since
+// every fixture used ALREADY-normalized input. This exercises the actual
+// transform (mixed case + a hyphen AND a space) byte-identical to the
+// engine's own `_resolve_skills_choice` normalization
+// (`str(p).strip().lower().replace(" ","_").replace("-","_")`).
+describe('normalizeSkillSlug', () => {
+  it('trims, lowercases, and replaces both spaces and hyphens with underscores', () => {
+    expect(normalizeSkillSlug('Sleight-Of Hand')).toBe('sleight_of_hand');
+  });
+
+  it('is a no-op on already-normalized input', () => {
+    expect(normalizeSkillSlug('animal_handling')).toBe('animal_handling');
+  });
+
+  it('trims surrounding whitespace', () => {
+    expect(normalizeSkillSlug('  athletics  ')).toBe('athletics');
+  });
+});
 
 describe('normalizeSkillOption', () => {
   it('accepts the CURRENT wire shape — {slug, name}', () => {
