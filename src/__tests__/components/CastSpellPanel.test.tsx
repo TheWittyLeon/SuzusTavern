@@ -1255,7 +1255,27 @@ describe('CastSpellPanel — HB-P7e spend stepper', () => {
     const slider = await screen.findByRole('slider');
     expect(slider).toHaveAttribute('value', '2');
     expect(slider).toHaveAttribute('aria-valuenow', '2');
+    // QA gate item 6: valuemin/valuetext, not just valuemax/valuenow.
+    expect(slider).toHaveAttribute('aria-valuemin', '2');
+    expect(slider).toHaveAttribute('aria-valuetext', '2 Magic Power');
     expect(screen.queryByLabelText('Slot level')).not.toBeInTheDocument();
+  });
+
+  it('aria-valuemin stays pinned to base_cost and aria-valuetext updates as spend changes', async () => {
+    withRoar();
+    renderPanel({ spellPoints: magicPower(20), proficiencyBonus: 2 });
+    await flush();
+
+    selectBySlug('fire-dragons-roar');
+    const slider = await screen.findByRole('slider');
+    expect(slider).toHaveAttribute('aria-valuemin', '2');
+    expect(slider).toHaveAttribute('aria-valuetext', '2 Magic Power');
+
+    fireEvent.change(slider, { target: { value: '4' } });
+    await flush();
+    // base_cost (and thus the floor) never moves; valuetext tracks the new spend.
+    expect(slider).toHaveAttribute('aria-valuemin', '2');
+    expect(slider).toHaveAttribute('aria-valuetext', '4 Magic Power');
   });
 
   it('resolves max_spend from the UNRESOLVED {pb_mult} expression form using the caster\'s own proficiency bonus', async () => {
