@@ -7,6 +7,7 @@
 import type { SpellVariableCost } from '../../lib/api/types';
 import {
   affordableMaxSpend,
+  isVariableCostUsable,
   previewSpend,
   repeatNarrative,
   resolveMaxSpend,
@@ -218,27 +219,51 @@ describe('stepDicePreview', () => {
 // The engine rejects a malformed variable_cost row server-side, but the
 // KNOWN-SPELLS payload that feeds this whole module is rendered client-side
 // with no schema validation in between — so a bad row from that wire reaches
-// these functions directly. Two of the four requested degenerate shapes
-// (`step_cost: 0`, negative step_cost) are ALREADY handled gracefully and are
-// pinned above. The other two are NOT — see the QA report
-// (2026-09-08, HB-P7e spend stepper gate) for full repro and severity. These
-// `it.todo`s are deliberately non-asserting placeholders, not skipped
-// passing tests: asserting today's NaN output as "expected" would read as
-// this bug being sanctioned. Ren-Dev: turn each into a real assertion once
-// the corresponding fix lands, then delete this comment block.
+// these functions directly. `step_cost: 0` and a negative step_cost are
+// handled gracefully and pinned above. The two NaN-cascade defects the QA
+// gate found (2026-09-08) are fixed by `isVariableCostUsable`, which
+// CastSpellPanel applies at the source so a malformed row degrades to an
+// ordinary cast instead of rendering `max="NaN"`.
 // -----------------------------------------------------------------------
-describe.skip('KNOWN DEFECTS — do not un-skip without a production fix (see QA report 2026-09-08)', () => {
-  it.todo(
-    'resolveMaxSpend on an unrecognized max_spend expression shape (e.g. {}) currently returns NaN ' +
-      '(proficiencyBonus * undefined), which survives the `?? base_cost` fallback in CastSpellPanel ' +
-      "because NaN is not null/undefined — repro: resolveMaxSpend({} as VariableCostMaxSpend, 2) is " +
-      'NaN, not a thrown error or a safe fallback. Renders an <input type=\"range\" max=\"NaN\">. ' +
-      'Fix should make resolveMaxSpend throw/fall back on any shape that is neither a number nor {pb_mult}.',
-  );
-  it.todo(
-    'affordableMaxSpend/stepsFor/snapSpend with a missing/undefined base_cost currently produce NaN ' +
-      'throughout (repro: affordableMaxSpend(undefined, 2, 10, null) is NaN) rather than a safe fallback.',
-  );
+describe('isVariableCostUsable — the malformed-row gate', () => {
+  it('accepts a well-formed block (both max_spend shapes)', () => {
+    expect(isVariableCostUsable(ROAR, 2)).toBe(true);
+    expect(isVariableCostUsable({ ...ROAR, max_spend: 12 }, 2)).toBe(true);
+  });
+
+  it('rejects an unrecognized max_spend expression shape, instead of yielding NaN', () => {
+    const bad = { ...ROAR, max_spend: {} as unknown as SpellVariableCost['max_spend'] };
+    // the underlying arithmetic still produces NaN ...
+    expect(Number.isNaN(resolveMaxSpend(bad.max_spend, 2))).toBe(true);
+    // ... but the gate refuses the row, so no NaN ever reaches the slider.
+    expect(isVariableCostUsable(bad, 2)).toBe(false);
+  });
+
+  it('rejects a missing or non-finite base_cost', () => {
+    expect(
+      isVariableCostUsable({ ...ROAR, base_cost: undefined as unknown as number }, 2),
+    ).toBe(false);
+    expect(isVariableCostUsable({ ...ROAR, base_cost: Number.NaN }, 2)).toBe(false);
+  });
+
+  it('rejects a negative base_cost (nonsensical UI: negative spend label and slider min)', () => {
+    expect(isVariableCostUsable({ ...ROAR, base_cost: -5 }, 2)).toBe(false);
+  });
+
+  it('rejects a zero, negative, or non-finite step_cost', () => {
+    expect(isVariableCostUsable({ ...ROAR, step_cost: 0 }, 2)).toBe(false);
+    expect(isVariableCostUsable({ ...ROAR, step_cost: -2 }, 2)).toBe(false);
+    expect(isVariableCostUsable({ ...ROAR, step_cost: Number.NaN }, 2)).toBe(false);
+  });
+
+  it('rejects a non-finite proficiency bonus feeding a pb_mult expression', () => {
+    expect(isVariableCostUsable(ROAR, Number.NaN)).toBe(false);
+  });
+
+  it('rejects null/undefined outright', () => {
+    expect(isVariableCostUsable(null, 2)).toBe(false);
+    expect(isVariableCostUsable(undefined, 2)).toBe(false);
+  });
 });
 
 describe('previewSpend', () => {

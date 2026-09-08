@@ -23,7 +23,26 @@ import type { SpellVariableCost, VariableCostMaxSpend } from '@/lib/api/types';
  *  directly — §5a's contract allows either shape). */
 export function resolveMaxSpend(maxSpend: VariableCostMaxSpend, proficiencyBonus: number): number {
   if (typeof maxSpend === 'number') return maxSpend;
+  if (!maxSpend || typeof maxSpend !== 'object') return Number.NaN;
   return proficiencyBonus * maxSpend.pb_mult;
+}
+
+/** Whether the client can actually render a chooser for this `variable_cost`.
+ *  The known-spells wire is unvalidated content data, so one malformed row
+ *  (missing/non-finite `base_cost`, `step_cost` <= 0, or an unrecognized
+ *  `max_spend` expression such as `{}`) must degrade to "no variable cost
+ *  offered" — an ordinary cast — rather than propagate `NaN` into the
+ *  slider's `min`/`max`/`step` and `aria-*` attributes. Found by the QA gate
+ *  2026-09-09: `??` does NOT catch `NaN` (it is neither null nor undefined),
+ *  so `max={spendCeiling ?? base_cost}` rendered a literal `max="NaN"`. */
+export function isVariableCostUsable(
+  vc: SpellVariableCost | null | undefined,
+  proficiencyBonus: number,
+): boolean {
+  if (!vc) return false;
+  if (!Number.isFinite(vc.base_cost) || vc.base_cost < 0) return false;
+  if (!Number.isFinite(vc.step_cost) || vc.step_cost <= 0) return false;
+  return Number.isFinite(resolveMaxSpend(vc.max_spend, proficiencyBonus));
 }
 
 /** The highest spend the character's CURRENT pool can actually afford, on a

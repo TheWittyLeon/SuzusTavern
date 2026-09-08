@@ -60,6 +60,7 @@ import { isCastableCombatTarget } from '@/lib/dnd/combatTargets';
 import {
   affordableMaxSpend,
   previewSpend,
+  isVariableCostUsable,
   resolveMaxSpend,
   resourceLabelFor,
   snapSpend,
@@ -282,7 +283,12 @@ export default function CastSpellPanel({
   // HB-P7e — see this file's header comment for why this replaces the
   // slot-level select for a variable-cost spell rather than sitting beside
   // it.
-  const variableCost = selectedSpell?.variable_cost ?? null;
+  // A malformed variable_cost from the (unvalidated) known-spells wire degrades to
+  // an ordinary cast rather than rendering a NaN slider — see isVariableCostUsable.
+  const rawVariableCost = selectedSpell?.variable_cost ?? null;
+  const variableCost = isVariableCostUsable(rawVariableCost, proficiencyBonus)
+    ? rawVariableCost
+    : null;
   const resourceLabel = resourceLabelFor(spellPoints?.label);
   const poolCurrent = spellPoints?.points.current ?? null;
   const resolvedMaxSpend = useMemo(

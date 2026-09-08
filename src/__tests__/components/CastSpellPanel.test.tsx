@@ -1266,6 +1266,34 @@ describe('CastSpellPanel — HB-P7e spend stepper', () => {
     expect(screen.getByLabelText('Slot level')).toBeInTheDocument();
   });
 
+  // QA gate 2026-09-09: the known-spells wire is unvalidated content data, and
+  // `??` does not catch NaN — so before isVariableCostUsable, a malformed row
+  // rendered <input type="range" max="NaN">. A bad row must degrade to an
+  // ORDINARY cast (no chooser, no `spend` in the body), never a NaN slider.
+  it.each([
+    ['an unrecognized max_spend expression', { base_cost: 2, step_cost: 2, max_spend: {} }],
+    ['a missing base_cost', { step_cost: 2, max_spend: 12 }],
+    ['a zero step_cost', { base_cost: 2, step_cost: 0, max_spend: 12 }],
+    ['a negative base_cost', { base_cost: -5, step_cost: 2, max_spend: 12 }],
+  ])('degrades to an ordinary cast for a malformed variable_cost: %s', async (_label, vc) => {
+    withRoar([
+      {
+        ...ROAR_SPELL,
+        slug: 'malformed-roar',
+        name: 'Malformed Roar',
+        variable_cost: vc as unknown as SheetSpellEntry['variable_cost'],
+      },
+    ]);
+    renderPanel({ spellPoints: magicPower(20) });
+    await flush();
+
+    selectBySlug('malformed-roar');
+    // No chooser at all — and critically, no slider carrying max="NaN".
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument();
+    // It falls back to the ordinary leveled-cast control instead.
+    expect(screen.getByLabelText('Slot level')).toBeInTheDocument();
+  });
+
   it('shows the chooser (and hides the slot-level select) for a variable_cost spell, defaulted to base_cost', async () => {
     withRoar();
     renderPanel({ spellPoints: magicPower(20) });
