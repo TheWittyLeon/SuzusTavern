@@ -142,6 +142,21 @@ const RESOLVED_ROAR_SPELL: SheetSpellEntry = {
   },
 };
 
+// pb_mult:3 (rather than ROAR_SPELL's 2) so a PB other than 2 disambiguates
+// multiplication from addition (QA gate item 3): at PB=3, mult gives 9
+// (which ALSO happens to land off a step-2-from-base-2 boundary, exercising
+// the misaligned-ceiling path — item 1 — through the full component, not
+// just the pure function) while a broken `+` would give 6.
+const PB3_ROAR_SPELL: SheetSpellEntry = {
+  ...ROAR_SPELL,
+  slug: 'fire-dragons-roar-pb3',
+  name: "Fire Dragon's Roar (PBx3)",
+  variable_cost: {
+    ...ROAR_SPELL.variable_cost!,
+    max_spend: { pb_mult: 3 },
+  },
+};
+
 function magicPower(current: number, maximum = 20): SheetSpellPoints {
   return {
     casting_model: 'points',
@@ -1359,5 +1374,42 @@ describe('CastSpellPanel — HB-P7e spend stepper', () => {
     const body = mockCastSpell.mock.calls[0][0];
     expect(body).not.toHaveProperty('spend');
     expect(body).toMatchObject({ spell_name: 'cure-wounds', slot_level: 1 });
+  });
+
+  // QA gate item 3: PB values other than 2 — and, as a side effect, a
+  // resolved max_spend that does NOT sit on a step boundary from base_cost
+  // (item 1), reached through the real component wiring rather than just
+  // the pure function directly.
+  it('resolves {pb_mult} against a PB other than 2, flooring an off-boundary result to the nearest step', async () => {
+    withRoar([PB3_ROAR_SPELL]);
+    renderPanel({ spellPoints: magicPower(50), proficiencyBonus: 3 });
+    await flush();
+
+    selectBySlug('fire-dragons-roar-pb3');
+    const slider = await screen.findByRole('slider');
+    // PB 3 x pb_mult 3 = 9 (a broken `+` would give 6); base 2 step 2 means
+    // valid spends are {2,4,6,8,...} — 9 floors to 8, not 9.
+    expect(slider).toHaveAttribute('max', '8');
+    expect(slider).toHaveAttribute('aria-valuemax', '8');
+  });
+
+  // QA gate item 2: the pool affords NOTHING — not even base_cost. The
+  // engine's castable_now gate should mean this spell is never offered, but
+  // if it somehow is (stale state, a race with a mid-combat resource spend),
+  // the slider collapses to an unmovable base_cost and the cast button's
+  // OWN gate (spendOverPool) — independent of the slider's construction —
+  // must still refuse the cast rather than let it through at a price the
+  // character can't pay.
+  it('pool affords less than base_cost — slider collapses to base_cost and the cast button stays disabled', async () => {
+    withRoar();
+    renderPanel({ spellPoints: magicPower(1), proficiencyBonus: 2 });
+    await flush();
+
+    selectBySlug('fire-dragons-roar');
+    const slider = await screen.findByRole('slider');
+    expect(slider).toHaveAttribute('min', '2');
+    expect(slider).toHaveAttribute('max', '2');
+    expect(slider).toHaveAttribute('value', '2');
+    expect(screen.getByRole('button', { name: /^Cast /i })).toBeDisabled();
   });
 });
