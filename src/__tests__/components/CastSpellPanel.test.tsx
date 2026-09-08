@@ -1427,6 +1427,77 @@ describe('CastSpellPanel — HB-P7e spend stepper', () => {
     expect(body).not.toHaveProperty('slot_level');
   });
 
+  // Kage-CR blocker, 2026-09-09: isVariableCostUsable was wired into the RENDER
+  // path but not into handleCast, which still read the RAW selectedSpell
+  // .variable_cost — so a rejected row silently dropped slot_level AND put the
+  // very values the guard rejected (-5, "4", null) on the wire as `spend`.
+  // The whole 3060-test suite was green with and without the fix; this is the
+  // assertion that pins the WIRE half of "degrades to an ordinary cast".
+  it.each([
+    ['an unrecognized max_spend expression', { base_cost: 2, step_cost: 2, max_spend: {} }],
+    ['a missing base_cost', { step_cost: 2, max_spend: 12 }],
+    ['a zero step_cost', { base_cost: 2, step_cost: 0, max_spend: 12 }],
+    ['a negative base_cost', { base_cost: -5, step_cost: 2, max_spend: 12 }],
+    ['a non-numeric pb_mult', { base_cost: 2, step_cost: 2, max_spend: { pb_mult: '3' } }],
+  ])(
+    'a malformed variable_cost casts as an ORDINARY spell on the wire too: %s',
+    async (_label, vc) => {
+      withRoar([
+        {
+          ...ROAR_SPELL,
+          slug: 'malformed-roar',
+          name: 'Malformed Roar',
+          variable_cost: vc as unknown as SheetSpellEntry['variable_cost'],
+        },
+      ]);
+      mockCastSpell.mockResolvedValue({ message: 'ok' });
+      mockGetSheet.mockResolvedValue(SHEET);
+      renderPanel({ spellPoints: magicPower(20), proficiencyBonus: 2 });
+      await flush();
+
+      selectBySlug('malformed-roar');
+      fireEvent.click(screen.getByRole('button', { name: /^Cast /i }));
+      await flush();
+
+      expect(mockCastSpell).toHaveBeenCalledTimes(1);
+      const body = mockCastSpell.mock.calls[0][0];
+      // No rejected value may reach an `Optional[int]` engine field ...
+      expect(body).not.toHaveProperty('spend');
+      // ... and the slot-level control the user actually sees must be honoured,
+      // not rendered-then-discarded.
+      expect(body).toMatchObject({ spell_name: 'malformed-roar', slot_level: 1 });
+    },
+  );
+
+  // Iro-A11y MAJOR-1 / MAJOR-2, 2026-09-09.
+  it('links the spend preview to the slider via aria-describedby', async () => {
+    withRoar();
+    renderPanel({ spellPoints: magicPower(20), proficiencyBonus: 2 });
+    await flush();
+
+    selectBySlug('fire-dragons-roar');
+    const slider = await screen.findByRole('slider');
+    const describedBy = slider.getAttribute('aria-describedby');
+    expect(describedBy).toBeTruthy();
+    const preview = document.getElementById(describedBy as string);
+    expect(preview).toBeInTheDocument();
+    expect(preview).toHaveAttribute('aria-live', 'polite');
+    expect(preview?.textContent).toMatch(/Magic Power/);
+  });
+
+  it('states WHY the cast button is disabled, not just that it is', async () => {
+    withRoar();
+    // `disabled` is a parent-driven state (session paused / sibling mutation
+    // in flight) that previously announced a bare "Cast <spell>".
+    renderPanel({ spellPoints: magicPower(20), proficiencyBonus: 2, disabled: true });
+    await flush();
+
+    selectSpell('Cure Wounds');
+    const btn = screen.getByRole('button', { name: /^Cast /i });
+    expect(btn).toBeDisabled();
+    expect(btn).toHaveAttribute('aria-label', expect.stringContaining('unavailable right now'));
+  });
+
   it('omits `spend` for an ordinary (non-variable-cost) cast', async () => {
     withRoar();
     mockCastSpell.mockResolvedValue({ message: 'ok' });

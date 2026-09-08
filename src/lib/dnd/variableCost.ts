@@ -24,6 +24,12 @@ import type { SpellVariableCost, VariableCostMaxSpend } from '@/lib/api/types';
 export function resolveMaxSpend(maxSpend: VariableCostMaxSpend, proficiencyBonus: number): number {
   if (typeof maxSpend === 'number') return maxSpend;
   if (!maxSpend || typeof maxSpend !== 'object') return Number.NaN;
+  // `2 * "3"` is 6 and `2 * true` is 2 — JS coercion would sail past the
+  // Number.isFinite check in isVariableCostUsable and yield a wrong-but-sane
+  // ceiling. Reject anything that isn't actually a number.
+  if (typeof maxSpend.pb_mult !== 'number' || !Number.isFinite(maxSpend.pb_mult)) {
+    return Number.NaN;
+  }
   return proficiencyBonus * maxSpend.pb_mult;
 }
 
@@ -76,7 +82,12 @@ export function snapSpend(raw: number, baseCost: number, stepCost: number, ceili
   if (stepCost <= 0) return baseCost;
   const clamped = Math.min(Math.max(raw, baseCost), Math.max(ceiling, baseCost));
   const steps = Math.round((clamped - baseCost) / stepCost);
-  return baseCost + steps * stepCost;
+  // Math.round overshoots when `ceiling` is not itself step-aligned —
+  // snapSpend(9, 4, 3, 9) rounded to 10, above the documented [base, ceiling].
+  // Clamp back down to the last aligned value at or below the ceiling.
+  const snapped = baseCost + steps * stepCost;
+  if (snapped <= ceiling) return snapped;
+  return baseCost + Math.floor((Math.max(ceiling, baseCost) - baseCost) / stepCost) * stepCost;
 }
 
 /** How many step increments a spend represents above `base_cost`. Always

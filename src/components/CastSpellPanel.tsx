@@ -290,7 +290,7 @@ export default function CastSpellPanel({
     ? rawVariableCost
     : null;
   const resourceLabel = resourceLabelFor(spellPoints?.label);
-  const poolCurrent = spellPoints?.points.current ?? null;
+  const poolCurrent = spellPoints?.points?.current ?? null;
   const resolvedMaxSpend = useMemo(
     () => (variableCost ? resolveMaxSpend(variableCost.max_spend, proficiencyBonus) : null),
     [variableCost, proficiencyBonus],
@@ -320,6 +320,14 @@ export default function CastSpellPanel({
     setSpend(spendCeiling);
   } else if (!variableCost && spend !== null) {
     setSpend(null);
+  } else if (variableCost && spend === null) {
+    // variable_cost flipped null -> usable WITHOUT the slug changing (e.g. the
+    // sheet's proficiency_bonus arrived late, so isVariableCostUsable rejected
+    // the row on an earlier pass). Without this branch `spend` stays null
+    // forever for that selection and the render predicates disagree — the slot
+    // select is hidden by `!variableCost` while the slider needs `spend !== null`
+    // — leaving the user with NEITHER control. Self-extinguishing like the rest.
+    setSpend(variableCost.base_cost);
   }
 
   const spendPreview = useMemo(
@@ -343,13 +351,19 @@ export default function CastSpellPanel({
           // HB-P7e: slot_level doesn't apply to a variable-cost cast (it's a
           // points-pool spend, not a numbered slot) — omitted for that
           // spell the same way it's omitted for a cantrip.
-          ...(selectedSpell.is_cantrip || selectedSpell.variable_cost
+          // NB: both branches key off the GUARDED `variableCost`, never the raw
+          // `selectedSpell.variable_cost` — a malformed row is rejected by
+          // isVariableCostUsable, and must then behave as an ordinary cast on
+          // the WIRE too, not just in the render. Reading the raw field here
+          // dropped slot_level and sent the rejected values (-5, "4", null)
+          // as `spend` against an `Optional[int]` signature.
+          ...(selectedSpell.is_cantrip || variableCost
             ? {}
             : { slot_level: slotLevel ?? selectedSpell.level }),
-          // HB-P7e: sent iff the spell carries variable_cost — an ordinary
-          // cast's body stays byte-identical to before this field existed.
-          ...(selectedSpell.variable_cost
-            ? { spend: spend ?? selectedSpell.variable_cost.base_cost }
+          // HB-P7e: sent iff the spell carries a USABLE variable_cost — an
+          // ordinary cast's body stays byte-identical to before this field existed.
+          ...(variableCost
+            ? { spend: spend ?? variableCost.base_cost }
             : {}),
           // DDX-CAST-TARGETID-PLUMBING: send both — target_id is preferred by
           // the engine (disambiguates two combatants with identical exact
@@ -392,7 +406,21 @@ export default function CastSpellPanel({
   // practice, but the cast button's own gate is priced off the CHOSEN
   // spend (behavior spec), not just the slider's construction.
   const spendOverPool = variableCost != null && spend != null && poolCurrent != null && spend > poolCurrent;
+
+  // Iro-A11y MAJOR-2: castDisabled has four causes but the button only ever
+  // announced one of them, so a screen-reader user hit an inert control with
+  // no stated reason whenever the parent disabled the panel. Derived here,
+  // beside castDisabled, so the two cannot drift apart.
   const castDisabled = busy || disabled || notYourTurn || !selectedSpell || spendOverPool;
+  const castDisabledReason = notYourTurn
+    ? ' (not your turn)'
+    : spendOverPool
+      ? ' (spend exceeds your pool)'
+      : !selectedSpell
+        ? ' (no spell selected)'
+        : disabled
+          ? ' (unavailable right now)'
+          : '';
 
   return (
     <div
@@ -489,6 +517,7 @@ export default function CastSpellPanel({
                 aria-valuemax={spendCeiling ?? variableCost.base_cost}
                 aria-valuenow={spend}
                 aria-valuetext={`${spend} ${resourceLabel}`}
+                aria-describedby={spendPreview ? `${uid}-spend-preview` : undefined}
                 onChange={(e) =>
                   setSpend(
                     snapSpend(
@@ -500,11 +529,20 @@ export default function CastSpellPanel({
                   )
                 }
               />
-              {spendPreview && (
-                <p className={styles.spendPreview} aria-live="polite" aria-atomic="true">
-                  {spendPreview.live}
-                </p>
-              )}
+              {/* Iro-A11y MAJOR-1: the region stays MOUNTED (text swapped, not
+                  the node) — a live region mounted at the same moment as its
+                  content is frequently not announced at all. It is also the
+                  slider's aria-describedby target, so a user who Tabs straight
+                  onto the control hears the resolved cost without having to
+                  change the value first. */}
+              <p
+                id={`${uid}-spend-preview`}
+                className={styles.spendPreview}
+                aria-live="polite"
+                aria-atomic="true"
+              >
+                {spendPreview ? spendPreview.live : ''}
+              </p>
             </div>
           )}
           <div className={styles.field}>
@@ -534,11 +572,7 @@ export default function CastSpellPanel({
             variant="primary"
             size="default"
             className={styles.castBtn}
-            aria-label={
-              notYourTurn
-                ? `Cast ${selectedSpell?.name ?? 'spell'} (not your turn)`
-                : `Cast ${selectedSpell?.name ?? 'spell'}`
-            }
+            aria-label={`Cast ${selectedSpell?.name ?? 'spell'}${castDisabledReason}`}
             aria-busy={busy}
             disabled={castDisabled}
             onClick={() => void handleCast()}

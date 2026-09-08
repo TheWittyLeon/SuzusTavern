@@ -225,6 +225,31 @@ describe('stepDicePreview', () => {
 // CastSpellPanel applies at the source so a malformed row degrades to an
 // ordinary cast instead of rendering `max="NaN"`.
 // -----------------------------------------------------------------------
+// Kage-CR minors, 2026-09-09.
+describe('snapSpend / resolveMaxSpend — contract edges found in review', () => {
+  it('never returns above the ceiling when the ceiling is not step-aligned', () => {
+    // Math.round overshot here: base 4, step 3 -> valid {4,7,10,...}; a ceiling
+    // of 9 is not aligned, and raw 9 rounded UP to 10, above the documented
+    // [baseCost, ceiling] range this function promises.
+    expect(snapSpend(9, 4, 3, 9)).toBe(7);
+    expect(snapSpend(9, 4, 3, 9)).toBeLessThanOrEqual(9);
+  });
+
+  it('still snaps normally when the ceiling IS step-aligned', () => {
+    expect(snapSpend(9, 4, 3, 10)).toBe(10);
+    expect(snapSpend(5, 2, 2, 8)).toBe(6);
+  });
+
+  it('rejects a non-numeric pb_mult instead of coercing it', () => {
+    // `2 * "3"` is 6 in JS — finite, so it would sail past the isFinite check
+    // and yield a wrong-but-plausible ceiling rather than being rejected.
+    expect(Number.isNaN(resolveMaxSpend({ pb_mult: '3' } as never, 2))).toBe(true);
+    expect(Number.isNaN(resolveMaxSpend({ pb_mult: true } as never, 2))).toBe(true);
+    expect(Number.isNaN(resolveMaxSpend({ pb_mult: null } as never, 2))).toBe(true);
+    expect(isVariableCostUsable({ base_cost: 2, step_cost: 2, max_spend: { pb_mult: '3' } as never }, 2)).toBe(false);
+  });
+});
+
 describe('isVariableCostUsable — the malformed-row gate', () => {
   it('accepts a well-formed block (both max_spend shapes)', () => {
     expect(isVariableCostUsable(ROAR, 2)).toBe(true);
