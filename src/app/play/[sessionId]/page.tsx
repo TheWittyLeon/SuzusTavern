@@ -5671,6 +5671,8 @@ export default function PlayPage() {
                 username={username ?? ''}
                 participants={combatState.participants}
                 spellSlots={mySheet.spell_slots}
+                spellPoints={mySheet.spell_points}
+                proficiencyBonus={mySheet.proficiency_bonus}
                 isPlayerTurn={isPlayerTurn}
                 disabled={combatBusy || sessionLocked}
                 onCast={(text) => appendLog({ who: username ?? 'you', kind: 'system', text })}

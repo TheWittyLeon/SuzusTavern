@@ -25,6 +25,7 @@ import type {
   CharacterSheet,
   CombatParticipantState,
   SheetSpellEntry,
+  SheetSpellPoints,
   SheetSpellSlot,
   SpellListResult,
 } from '../../lib/api/types';
@@ -181,6 +182,8 @@ const SHEET: CharacterSheet = {
 function renderPanel(overrides?: {
   isPlayerTurn?: boolean;
   disabled?: boolean;
+  spellPoints?: SheetSpellPoints | null;
+  proficiencyBonus?: number;
   onCast?: (text: string) => void;
   onSheetChanged?: (sheet: CharacterSheet) => void;
   onStateRefresh?: () => void;
@@ -198,6 +201,8 @@ function renderPanel(overrides?: {
         username="leon"
         participants={[SELF, ALLY, ENEMY]}
         spellSlots={SLOTS}
+        spellPoints={overrides?.spellPoints}
+        proficiencyBonus={overrides?.proficiencyBonus ?? 2}
         isPlayerTurn={overrides?.isPlayerTurn ?? true}
         disabled={overrides?.disabled ?? false}
         onCast={onCast}
@@ -316,6 +321,7 @@ describe('CastSpellPanel — DDX-04 upcast slot-level chooser', () => {
           username="leon"
           participants={[SELF, ALLY, ENEMY]}
           spellSlots={ALL_EMPTY}
+          proficiencyBonus={2}
           isPlayerTurn
           onCast={jest.fn()}
           onSheetChanged={jest.fn()}
@@ -399,6 +405,7 @@ describe('CastSpellPanel — target picker', () => {
           username="leon"
           participants={[SELF, ALLY, ENEMY, DOWNED_ENEMY]}
           spellSlots={SLOTS}
+          proficiencyBonus={2}
           isPlayerTurn
           onCast={jest.fn()}
           onSheetChanged={jest.fn()}
@@ -439,6 +446,7 @@ describe('CastSpellPanel — target picker', () => {
           username="leon"
           participants={[SELF, ALLY, ENEMY, DOWNED_ALLY]}
           spellSlots={SLOTS}
+          proficiencyBonus={2}
           isPlayerTurn
           onCast={jest.fn()}
           onSheetChanged={jest.fn()}
@@ -481,6 +489,7 @@ describe('CastSpellPanel — target picker', () => {
           username="leon"
           participants={[SELF, ALLY, ENEMY, DEAD_PC]}
           spellSlots={SLOTS}
+          proficiencyBonus={2}
           isPlayerTurn
           onCast={jest.fn()}
           onSheetChanged={jest.fn()}
@@ -533,6 +542,7 @@ describe('CastSpellPanel — target picker', () => {
           username="leon"
           participants={[SELF, GOBLIN_A, GOBLIN_B]}
           spellSlots={SLOTS}
+          proficiencyBonus={2}
           isPlayerTurn
           onCast={jest.fn()}
           onSheetChanged={jest.fn()}
@@ -757,6 +767,7 @@ describe('CastSpellPanel — TAV-CAST-SELF-HEAL-UI (self as a heal target)', () 
           username="leon"
           participants={[ALLY, ENEMY]} // caster's own participant row absent
           spellSlots={SLOTS}
+          proficiencyBonus={2}
           isPlayerTurn
           onCast={jest.fn()}
           onSheetChanged={jest.fn()}

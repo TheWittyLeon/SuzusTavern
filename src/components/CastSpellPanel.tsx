@@ -31,6 +31,23 @@
  * the play page the exact same way it already is for the attack/dodge/dash
  * rail (activeIsMine), so a caster always sees their spell options; they just
  * can't fire them off-turn.
+ *
+ * HB-P7e (spend stepper): a selected spell that carries `variable_cost`
+ * (design doc §5a) additionally renders a spend slider IN PLACE OF the
+ * ordinary slot-level select — variable-cost casting is a points-pool
+ * primitive, not a numbered slot, so upcastLevels' own defensive fallback
+ * (a points caster's empty `spell_slots` degrades to a single `[min]`
+ * option) would otherwise show a redundant, meaningless "Level 1" picker
+ * next to it. `spend` is sent on the cast body iff `variable_cost` is
+ * present; `slot_level` is omitted for that same spell (it doesn't apply).
+ * CONTRACT GAP as of 2026-09-08: the engine does not yet emit
+ * `variable_cost` on the known-spells wire at all (`list_repertoire` /
+ * `_spell_wire_info`, engine/spells_msm.py), so this whole branch is inert
+ * — `selectedSpell.variable_cost` is always undefined — until the engine
+ * ships it. Harmless in the meantime: every existing spell renders exactly
+ * as before. See `src/lib/dnd/variableCost.ts`'s header comment for the
+ * related base-`damage_dice` gap that limits the spend preview to an
+ * INCREMENT rather than a resolved total.
  */
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import Button from '@/components/Button';
@@ -40,10 +57,12 @@ import { castSpell, getCharacterSheet, getKnownSpells } from '@/lib/api/dnd';
 import { engineErrorMessage } from '@/lib/dnd/engineError';
 import { CAST_REFUSAL_REASON_MAP } from '@/lib/dnd/engineReasons';
 import { isCastableCombatTarget } from '@/lib/dnd/combatTargets';
+import { affordableMaxSpend, previewSpend, resolveMaxSpend, resourceLabelFor } from '@/lib/dnd/variableCost';
 import type {
   CharacterSheet,
   CombatParticipantState,
   SheetSpellEntry,
+  SheetSpellPoints,
   SheetSpellSlot,
   SpellListResult,
 } from '@/lib/api/types';
@@ -98,6 +117,15 @@ export interface CastSpellPanelProps {
   participants: CombatParticipantState[];
   /** The caster's own spell slots (from the sheet) — drives the upcast range. */
   spellSlots: Record<string, SheetSpellSlot>;
+  /** HB-P7e: the caster's own points pool (`sheet.spell_points`), or `null`
+   *  for a slots caster / an engine that predates HB-P2. Drives the spend
+   *  slider's affordability clamp and its resource label — never a
+   *  hardcoded "MP" (design doc §4-P7e behavior spec). */
+  spellPoints?: SheetSpellPoints | null;
+  /** HB-P7e: `sheet.proficiency_bonus` — resolves a `{pb_mult}`-shaped
+   *  `max_spend` expression client-side (design doc §5a) when the engine
+   *  hasn't pre-resolved it to an integer. */
+  proficiencyBonus: number;
   /** Mirrors ActionRail's turn gate: disables (never hides) controls off-turn. */
   isPlayerTurn: boolean;
   /** Extra disable — session paused/ended, or another combat mutation in flight. */
@@ -123,6 +151,8 @@ export default function CastSpellPanel({
   username,
   participants,
   spellSlots,
+  spellPoints = null,
+  proficiencyBonus,
   isPlayerTurn,
   disabled = false,
   onCast,
@@ -139,6 +169,10 @@ export default function CastSpellPanel({
   const [selectedSlug, setSelectedSlug] = useState('');
   const [slotLevel, setSlotLevel] = useState<number | null>(null);
   const [targetId, setTargetId] = useState('');
+  /** HB-P7e — see this file's header comment. Amount of the caster's own
+   *  resource pool to spend on a `variable_cost` spell; `null` when the
+   *  selected spell has none. */
+  const [spend, setSpend] = useState<number | null>(null);
 
   const [busy, setBusy] = useState(false);
   /** Synchronous double-submit latch — see SpellSlotsPanel/SpellbookPanel's
@@ -239,6 +273,48 @@ export default function CastSpellPanel({
     }
   }
 
+  // HB-P7e — see this file's header comment for why this replaces the
+  // slot-level select for a variable-cost spell rather than sitting beside
+  // it.
+  const variableCost = selectedSpell?.variable_cost ?? null;
+  const resourceLabel = resourceLabelFor(spellPoints?.label);
+  const poolCurrent = spellPoints?.points.current ?? null;
+  const resolvedMaxSpend = useMemo(
+    () => (variableCost ? resolveMaxSpend(variableCost.max_spend, proficiencyBonus) : null),
+    [variableCost, proficiencyBonus],
+  );
+  // The highest spend the slider can actually reach: the resolved cap,
+  // clamped down to what the pool can afford on a valid step boundary.
+  // Values above this are simply unreachable on the slider — that's how
+  // "values the pool cannot afford are disabled" (behavior spec) is
+  // enforced for a continuous range control.
+  const spendCeiling = useMemo(() => {
+    if (!variableCost || resolvedMaxSpend == null) return null;
+    return affordableMaxSpend(variableCost.base_cost, variableCost.step_cost, resolvedMaxSpend, poolCurrent);
+  }, [variableCost, resolvedMaxSpend, poolCurrent]);
+
+  // Default `spend` to the spell's base_cost whenever the SELECTED SPELL
+  // changes (mirrors the selectedSlug/slotLevel reset pattern above);
+  // separately clamp it back down if the pool shrinks between renders
+  // (e.g. a prior cast spent resource the character no longer has) without
+  // the spell selection itself changing. `else if` keeps at most one
+  // setState call per render pass — each branch's own condition goes false
+  // once applied, so this converges in the next render rather than looping.
+  const [prevSelectedSlugForSpend, setPrevSelectedSlugForSpend] = useState(selectedSlug);
+  if (selectedSlug !== prevSelectedSlugForSpend) {
+    setPrevSelectedSlugForSpend(selectedSlug);
+    setSpend(variableCost ? variableCost.base_cost : null);
+  } else if (variableCost && spendCeiling !== null && spend !== null && spend > spendCeiling) {
+    setSpend(spendCeiling);
+  } else if (!variableCost && spend !== null) {
+    setSpend(null);
+  }
+
+  const spendPreview = useMemo(
+    () => (variableCost && spend !== null ? previewSpend(variableCost, spend, resourceLabel, poolCurrent) : null),
+    [variableCost, spend, resourceLabel, poolCurrent],
+  );
+
   async function handleCast() {
     if (!selectedSpell || mutationBusyRef.current || disabled || !isPlayerTurn) return;
     mutationBusyRef.current = true;
@@ -252,7 +328,17 @@ export default function CastSpellPanel({
           username,
           combat_id: combatId,
           spell_name: selectedSpell.slug,
-          ...(selectedSpell.is_cantrip ? {} : { slot_level: slotLevel ?? selectedSpell.level }),
+          // HB-P7e: slot_level doesn't apply to a variable-cost cast (it's a
+          // points-pool spend, not a numbered slot) — omitted for that
+          // spell the same way it's omitted for a cantrip.
+          ...(selectedSpell.is_cantrip || selectedSpell.variable_cost
+            ? {}
+            : { slot_level: slotLevel ?? selectedSpell.level }),
+          // HB-P7e: sent iff the spell carries variable_cost — an ordinary
+          // cast's body stays byte-identical to before this field existed.
+          ...(selectedSpell.variable_cost
+            ? { spend: spend ?? selectedSpell.variable_cost.base_cost }
+            : {}),
           // DDX-CAST-TARGETID-PLUMBING: send both — target_id is preferred by
           // the engine (disambiguates two combatants with identical exact
           // names), target stays for logs/graceful degradation.
@@ -289,7 +375,12 @@ export default function CastSpellPanel({
   }
 
   const notYourTurn = !isPlayerTurn;
-  const castDisabled = busy || disabled || notYourTurn || !selectedSpell;
+  // HB-P7e: belt-and-suspenders — the slider's own max is already clamped
+  // to what the pool affords (spendCeiling), so this should never trip in
+  // practice, but the cast button's own gate is priced off the CHOSEN
+  // spend (behavior spec), not just the slider's construction.
+  const spendOverPool = variableCost != null && spend != null && poolCurrent != null && spend > poolCurrent;
+  const castDisabled = busy || disabled || notYourTurn || !selectedSpell || spendOverPool;
 
   return (
     <div
@@ -341,7 +432,7 @@ export default function CastSpellPanel({
               ))}
             </select>
           </div>
-          {selectedSpell && !selectedSpell.is_cantrip && (
+          {selectedSpell && !selectedSpell.is_cantrip && !variableCost && (
             <div className={styles.field}>
               <label className={styles.fieldLabel} htmlFor={`${uid}-slot`}>
                 Slot level
@@ -359,6 +450,40 @@ export default function CastSpellPanel({
                   </option>
                 ))}
               </select>
+            </div>
+          )}
+          {/* HB-P7e: renders only when the selected spell carries
+              variable_cost (see this file's header comment) — inert today
+              per the recorded contract gap. Native <input type="range">
+              gives keyboard stepping (arrow keys + Home/End) and a
+              `slider` accessible role for free; the explicit aria-value*
+              attributes make the resolved cost verifiable rather than
+              relying on the browser's implicit AX-tree mirroring alone. */}
+          {selectedSpell && variableCost && spend !== null && (
+            <div className={`${styles.field} ${styles.spendField}`}>
+              <label className={styles.fieldLabel} htmlFor={`${uid}-spend`}>
+                Spend ({resourceLabel})
+              </label>
+              <input
+                id={`${uid}-spend`}
+                type="range"
+                className={styles.spendSlider}
+                min={variableCost.base_cost}
+                max={spendCeiling ?? variableCost.base_cost}
+                step={variableCost.step_cost}
+                value={spend}
+                disabled={busy || disabled}
+                aria-valuemin={variableCost.base_cost}
+                aria-valuemax={spendCeiling ?? variableCost.base_cost}
+                aria-valuenow={spend}
+                aria-valuetext={`${spend} ${resourceLabel}`}
+                onChange={(e) => setSpend(Number(e.target.value))}
+              />
+              {spendPreview && (
+                <p className={styles.spendPreview} aria-live="polite" aria-atomic="true">
+                  {spendPreview.live}
+                </p>
+              )}
             </div>
           )}
           <div className={styles.field}>
