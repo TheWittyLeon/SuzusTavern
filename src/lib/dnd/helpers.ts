@@ -162,6 +162,21 @@ export function humanizeSkill(skill: string): string {
 }
 
 /**
+ * ORACLE-CANDIDATE-1 (Kage-CR follow-up, 2026-09-08) — the EXACT
+ * normalization `_resolve_skills_choice` applies to every submitted pick
+ * server-side (NekoNova-DnDEngine engine/commands/character_msm.py:
+ * `str(p).strip().lower().replace(" ", "_").replace("-", "_")`). Used both
+ * to canonicalize an incoming wire slug (normalizeSkillOption below) and,
+ * client-side in the wizard, to compare a picked slug against the server's
+ * authoritative `pending.options` before ever attempting the resolve — a
+ * stray case/whitespace/hyphen difference between the two sides must never
+ * produce a false "not on this class's list" refusal.
+ */
+export function normalizeSkillSlug(raw: string): string {
+  return raw.trim().toLowerCase().replace(/[ -]/g, '_');
+}
+
+/**
  * ORACLE-CANDIDATE-1 tolerance adapter (coordinator note, 2026-09-08, on
  * Kage-CR's engine review): the engine's `skills:1` pending-choice
  * enrichment ships `{slug, name}` objects on `PendingLevelChoice.options`
@@ -175,11 +190,11 @@ export function humanizeSkill(skill: string): string {
  */
 export function normalizeSkillOption(entry: unknown): SkillChoiceOption | null {
   if (typeof entry === 'string') {
-    const slug = entry.trim();
+    const slug = normalizeSkillSlug(entry);
     return slug ? { slug, name: humanizeSkill(slug) } : null;
   }
   if (entry && typeof entry === 'object' && 'slug' in entry) {
-    const slug = String((entry as { slug?: unknown }).slug ?? '').trim();
+    const slug = normalizeSkillSlug(String((entry as { slug?: unknown }).slug ?? ''));
     if (!slug) return null;
     const rawName = (entry as { name?: unknown }).name;
     const name =

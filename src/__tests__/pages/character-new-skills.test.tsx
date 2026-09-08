@@ -460,7 +460,7 @@ describe('Skills apply sequence — slow path (no other silent-create trigger)',
   // (offered by the wizard's own client-side skillOptions mirror) but the
   // SERVER's enrichment doesn't offer it this time — a genuine drift the
   // client-side mirror alone can't catch.
-  it("blocks the resolve when a pick isn't on the sheet's authoritative options, even though the wizard's own mirror offered it", async () => {
+  it("blocks the resolve when a pick isn't on the sheet's authoritative options, even though the wizard's own mirror offered it, and NAMES the offending skill in the callout (Kage-CR follow-up #3)", async () => {
     mockGetCharacterSheet.mockResolvedValue(
       sheetWithPendingSkills(2, ['acrobatics', 'athletics', 'insight', 'stealth', 'survival']),
     );
@@ -470,8 +470,59 @@ describe('Skills apply sequence — slow path (no other silent-create trigger)',
     });
     await waitFor(() => expect(mockGetCharacterSheet).toHaveBeenCalled());
     expect(mockResolveLevelChoice).not.toHaveBeenCalled();
-    expect(await screen.findByText('Setup incomplete')).toBeInTheDocument();
+    // 'perception' is the pick NOT on the authoritative list — named, not a
+    // generic "one of the picks" message.
+    expect(await screen.findByText(/Perception isn.t on Scout.s skill list anymore/i)).toBeInTheDocument();
     expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  // Kage-CR follow-up #1 (CRITICAL): the engine's own enrichment
+  // (`get_character_sheet_data`'s pending_choices loop) degrades to an
+  // EMPTY pool on any exception ("display enrichment only") — an empty or
+  // absent `pending.options` is NOT a refusal signal, since
+  // `_resolve_skills_choice` re-derives the real pool server-side
+  // regardless of what shipped on the sheet. Without the fail-open guard,
+  // probes A1/A2 below permanently blocked creation: resolveLevelChoice was
+  // never attempted, the callout never cleared, and "Retry setup" looped
+  // forever against the same empty list.
+  it('FAIL OPEN — probe A1: an EMPTY pending.options array is not a refusal signal, resolve IS attempted', async () => {
+    mockGetCharacterSheet.mockResolvedValue({
+      name: 'Velka',
+      pending_choices: [
+        { id: 'skills:1', type: 'skills', level: 1, class: 'Scout', count: 2, label: 'Choose 2 class skills', options: [] },
+      ],
+    });
+    await advanceToReview();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
+    });
+    await waitFor(() =>
+      expect(mockResolveLevelChoice).toHaveBeenCalledWith('char-scout', 'alice', 'skills:1', {
+        picks: expect.arrayContaining(['athletics', 'perception']),
+      }),
+    );
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/character/char-scout'));
+    expect(screen.queryByText('Setup incomplete')).not.toBeInTheDocument();
+  });
+
+  it('FAIL OPEN — probe A2: pending.options ABSENT ENTIRELY (no key at all) is not a refusal signal, resolve IS attempted', async () => {
+    mockGetCharacterSheet.mockResolvedValue({
+      name: 'Velka',
+      pending_choices: [
+        { id: 'skills:1', type: 'skills', level: 1, class: 'Scout', count: 2, label: 'Choose 2 class skills' },
+      ],
+    });
+    await advanceToReview();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
+    });
+    await waitFor(() =>
+      expect(mockResolveLevelChoice).toHaveBeenCalledWith('char-scout', 'alice', 'skills:1', {
+        picks: expect.arrayContaining(['athletics', 'perception']),
+      }),
+    );
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/character/char-scout'));
+    expect(screen.queryByText('Setup incomplete')).not.toBeInTheDocument();
   });
 
   it('coordinator note: the choice being ABSENT from the real sheet after create is NOT a failure', async () => {
@@ -514,6 +565,68 @@ describe('Skills apply sequence — slow path (no other silent-create trigger)',
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/character/char-scout'));
   });
 
+  // Kage-CR follow-up #5: pin no-duplicate-create directly — a second
+  // "Begin your campaign" click (rather than "Retry setup") after a
+  // blocked submit, with NOTHING changed since, must resume the SAME
+  // character (characterId/createdSnapshot were stamped after the first
+  // createNow(), see handleSubmit's own doc comment) rather than creating
+  // a second one.
+  it('a second "Begin your campaign" click after a blocked submit (no rename/drift) does NOT create a duplicate character', async () => {
+    mockResolveLevelChoice.mockRejectedValueOnce(new Error('boom'));
+    await advanceToReview();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
+    });
+    expect(await screen.findByText('Setup incomplete')).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
+    });
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/character/char-scout'));
+    expect(mockCreateCharacter).toHaveBeenCalledTimes(1);
+  });
+
+  // Kage-CR follow-up #2 (IMPORTANT): the old retry shortcut (bare
+  // applyPendingSetup + a direct router.push) bypassed handleSubmit's own
+  // F7 drift check entirely — a rename made AFTER a blocked submit was
+  // silently discarded (probe B2). Retry must now resume the FULL submit
+  // (handleSubmit itself), so the drift IS caught, a fresh character is
+  // created with the new name, and the pre-rename character is cleaned up
+  // (no orphan — same family as the F7 abandoned-wizard case).
+  it('blocked submit -> Back -> rename -> Retry runs the F7 drift/recreate path: the NEW name lands and the stale character is deleted', async () => {
+    mockCreateCharacter
+      .mockResolvedValueOnce({ character_id: 'char-scout' })
+      .mockResolvedValueOnce({ character_id: 'char-scout-2' });
+    mockResolveLevelChoice.mockRejectedValueOnce(new Error('boom')); // blocks the FIRST submit only
+    await advanceToReview();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
+    });
+    expect(await screen.findByText('Setup incomplete')).toBeInTheDocument();
+    expect(mockPush).not.toHaveBeenCalled();
+
+    // Back to Background via the rail (only already-visited steps are
+    // clickable), rename, walk forward again to Review.
+    fireEvent.click(screen.getByRole('button', { name: /Background/i }));
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Renamed' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Skills
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Equipment
+    // Re-entering Equipment re-fetches (own fetch-on-mount effect) — same
+    // wait advanceToReview's own first pass through this step needs.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
+    await screen.findByRole('button', { name: /Begin your campaign/i });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Retry setup' }));
+    });
+
+    await waitFor(() => expect(mockCreateCharacter).toHaveBeenCalledTimes(2));
+    expect(mockCreateCharacter.mock.calls[1][0]).toEqual(expect.objectContaining({ name: 'Renamed' }));
+    await waitFor(() => expect(mockDeleteCharacter).toHaveBeenCalledWith('char-scout', 'alice'));
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/character/char-scout-2'));
+  });
+
   it('already_chosen on resolveLevelChoice(skills:1) is treated as success', async () => {
     mockResolveLevelChoice.mockRejectedValueOnce(
       makeApiError(400, '400', { message: 'Already chosen', data: { reason: 'already_chosen' } }),
@@ -554,5 +667,95 @@ describe('Skills apply sequence — fast path (a class that already silent-creat
     expect(mockResolveLevelChoice).toHaveBeenCalledWith('char-sorc', 'alice', 'skills:1', {
       picks: expect.arrayContaining(['arcana', 'deception']),
     });
+  });
+
+  // Kage-CR follow-up #2 (IMPORTANT): the old retry shortcut never reached
+  // handleSubmit's caster spell batch at all — a retried caster navigated
+  // to their new sheet with an EMPTY spellbook despite having picked
+  // cantrips/spells on the Spells step. Sequence: the early silent-create
+  // apply fails (issues surfaced, but "resume, not dead-end" lets the
+  // player continue to Spells anyway); the FIRST "Begin your campaign"
+  // click re-attempts and fails again -> blocked, spell batch never
+  // reached; "Retry setup" (now delegating to handleSubmit itself) succeeds
+  // this time and DOES run the spell batch.
+  it('a blocked submit-retry for a caster ALSO runs the spell batch (previously skipped by the old shortcut)', async () => {
+    mockCreateCharacter.mockResolvedValue({ character_id: 'char-sorc' });
+    mockGetCharacterSheet.mockResolvedValue(
+      sheetWithPendingSkills(2, ['arcana', 'deception', 'insight', 'intimidation', 'persuasion', 'religion']),
+    );
+    mockGetAvailableSpells.mockResolvedValue({
+      cantrips: [
+        { slug: 'fire-bolt', name: 'Fire Bolt', level: 0, school: 'evocation', concentration: false, ritual: false, in_repertoire: false, prepared: false },
+      ],
+      by_level: {
+        '1': [
+          { slug: 'magic-missile', name: 'Magic Missile', level: 1, school: 'evocation', concentration: false, ritual: false, in_repertoire: false, prepared: false },
+        ],
+      },
+      can_learn: true,
+      can_prepare: false,
+      budget: {
+        cantrips_known: 0,
+        cantrips_max: 1,
+        spells_known: 0,
+        spells_max: 1,
+        prepared_used: 0,
+        prepared_max: 0,
+      },
+    });
+    // 1st resolveLevelChoice call = the early silent-create apply (fails);
+    // 2nd = handleSubmit's own re-attempt on the first "Begin your
+    // campaign" click (fails again -> blocks); 3rd = the Retry-driven
+    // handleSubmit rerun (succeeds — default mocked value from beforeEach).
+    mockResolveLevelChoice
+      .mockRejectedValueOnce(new Error('early apply failed'))
+      .mockRejectedValueOnce(new Error('submit apply failed too'));
+
+    renderWizard();
+    pickRace();
+    pickClass(/Sorcerer/i);
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Background
+    fillBackground();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Skills
+    await screen.findByText('What are you actually good at?');
+    fireEvent.click(screen.getByRole('checkbox', { name: /Arcana/i }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /Deception/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Equipment
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // creates! early apply fails
+    });
+    await screen.findByRole('heading', { name: /What do you already know/i });
+    fireEvent.click(screen.getByRole('checkbox', { name: /Fire Bolt/i }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /Magic Missile/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
+    await screen.findByRole('button', { name: /Begin your campaign/i });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i })); // 2nd resolve fails -> blocked
+    });
+    expect(await screen.findByText('Setup incomplete')).toBeInTheDocument();
+    expect(mockLearnSpell).not.toHaveBeenCalled();
+    expect(mockPush).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Retry setup' })); // 3rd resolve succeeds
+    });
+    await waitFor(() =>
+      expect(mockLearnSpell).toHaveBeenCalledWith('char-sorc', 'alice', 'fire-bolt'),
+    );
+    expect(mockLearnSpell).toHaveBeenCalledWith(
+      'char-sorc',
+      'alice',
+      'magic-missile',
+      undefined,
+      undefined,
+      undefined,
+    );
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/character/char-sorc'));
+    // No drift here (only the resolve outcome changed) — no recreate, no orphan.
+    expect(mockCreateCharacter).toHaveBeenCalledTimes(1);
+    expect(mockDeleteCharacter).not.toHaveBeenCalled();
   });
 });
