@@ -218,12 +218,60 @@ const TWO_PICK_CASTER = {
   },
 };
 
+// TAV-FT-SUBCLASS-SLUG-PREFIX (2026-09-07) fixture: the class's own SLUG
+// carries a prefix ("ft-") the display NAME never mentions — the exact
+// shape `slugifyName` cannot bridge (see its own doc comment). Reproduces
+// the live bug proven by Iro on .226 @ ae62774: the Subclass step called
+// `subclassesForClass(items, clsObj.name)`, which slugified "Caster (Fairy
+// Tail)" to "caster-(fairy-tail)" — nothing on the wire ever matches that —
+// and rendered "No archetypes are seeded" despite 59 real FT-caster rows.
+const FT_CASTER = {
+  id: 'ft-caster',
+  name: 'Caster (Fairy Tail)',
+  hitDie: 8,
+  saves: ['constitution', 'charisma'] as ['constitution', 'charisma'],
+  icon: 'Sorcerer' as const,
+  accent: 'var(--crit)',
+  flavor: 'Magic in the open air.',
+  isCaster: true,
+  casterKind: 'known' as const,
+  castingModel: 'points' as const,
+  pointsLabel: 'Magic Power',
+  primary: ['charisma'] as ['charisma'],
+  spellcastingAbility: 'charisma' as const,
+  subclassLevel: 1,
+};
+
+const FT_SUBCLASSES = {
+  system: 'dnd5e',
+  content_type: 'subclass',
+  total: 2,
+  limit: 500,
+  offset: 0,
+  items: [
+    {
+      slug: 'ft-fire-magic',
+      name: 'Fire Magic',
+      content_type: 'subclass',
+      source_type: 'homebrew',
+      data: { class: 'ft-caster', description: 'The plainest elemental Magic in Fiore.' },
+    },
+    {
+      slug: 'water-magic',
+      name: 'Water Magic',
+      content_type: 'subclass',
+      source_type: 'homebrew',
+      data: { class: 'ft-caster', description: 'Restrain, push, drown, reshape the weather.' },
+    },
+  ],
+};
+
 const defaultCatalog = {
   status: 'ok' as const,
   retry: jest.fn(),
   data: {
     races: [HUMAN],
-    classes: [FIGHTER, SHINOBI, CLERIC, LEGACY_CASTER, TWO_PICK_CASTER],
+    classes: [FIGHTER, SHINOBI, CLERIC, LEGACY_CASTER, TWO_PICK_CASTER, FT_CASTER],
     backgrounds: [
       { id: 'acolyte', name: 'Acolyte', skills: ['insight', 'religion'], blurb: 'you were good at the prayers.' },
     ],
@@ -416,6 +464,25 @@ describe('Subclass step presence (TAV-WIZARD-HOMEBREW-CASTERS)', () => {
       { type: 'subclass', limit: 500 },
       expect.anything(),
     );
+  });
+
+  // TAV-FT-SUBCLASS-SLUG-PREFIX (2026-09-07): the class's slug ("ft-caster")
+  // carries a prefix its display name ("Caster (Fairy Tail)") doesn't — the
+  // exact shape slugifyName cannot bridge. Proven live by Iro on .226 @
+  // ae62774: this rendered "No archetypes are seeded for Caster (Fairy
+  // Tail) yet." despite 59 real seeded rows, because the fetch effect
+  // filtered by clsObj.name instead of clsObj.id.
+  it('a class whose SLUG carries a prefix the NAME does not still matches its seeded subclasses', async () => {
+    mockGetCatalog.mockResolvedValue(FT_SUBCLASSES);
+    renderWizard();
+    pickRace();
+    pickClass(/Caster \(Fairy Tail\)/i);
+    expect(await screen.findByRole('radio', { name: /Fire Magic/i })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /Water Magic/i })).toBeInTheDocument();
+    expect(screen.queryByText(/no archetypes are seeded/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('radio', { name: /Fire Magic/i }));
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
   });
 });
 

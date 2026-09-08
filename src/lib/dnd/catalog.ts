@@ -324,11 +324,27 @@ export function catalogItemToClass(item: CatalogItem): WizardClass {
  * `LevelChoicePicker`'s `SubclassChoiceCard` runs server-verified-live
  * (TAV-SUBCLASS-CLASSKEY-MISMATCH), factored out here so the creation
  * wizard's Subclass step and the sheet's level-up picker share ONE filter
- * instead of two copies drifting apart. `className` accepts either a
- * display name ("Ki Warrior") or a slug — slugifyName normalises both.
+ * instead of two copies drifting apart.
+ *
+ * `classKey` should be the class's own catalog SLUG (`WizardClass.id` /
+ * `CatalogItem.slug`, e.g. "ft-caster") whenever the caller has one — slug-
+ * to-slug is the only comparison `slugifyName` can make safely (see its own
+ * doc comment: it normalises SHAPE, not a name→slug PREFIX). A display name
+ * ("Ki Warrior") only works by accident, when it happens to slugify to the
+ * same string as the real slug — true for every SRD class (single word, no
+ * prefix) and for a homebrew class whose slug has no prefix either, but NOT
+ * for a prefixed slug like "ft-caster" (name "Caster (Fairy Tail)") or
+ * "ninjutsu-specialist"-style rows. That gap is TAV-FT-SUBCLASS-SLUG-PREFIX
+ * (2026-09-07): the creation wizard's Subclass step called this with the
+ * display name and silently returned [] for every Fairy Tail caster/holder/
+ * slayer despite 59 seeded rows. Both wizard call sites now pass the class
+ * id/slug directly. `LevelChoicePicker`'s card has no id in scope (the
+ * sheet wire only carries the class's display name) — see its own comment
+ * for how it resolves one via a class-catalog lookup before falling back to
+ * this same name-based degrade.
  */
-export function subclassesForClass(items: CatalogItem[], className: string): CatalogItem[] {
-  const wanted = slugifyName(className);
+export function subclassesForClass(items: CatalogItem[], classKey: string): CatalogItem[] {
+  const wanted = slugifyName(classKey);
   return items.filter((item) => {
     const raw = (item.data as CatalogSubclassData).class;
     return slugifyName(String(raw ?? '')) === wanted;

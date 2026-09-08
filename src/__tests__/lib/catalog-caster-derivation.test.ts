@@ -334,6 +334,27 @@ describe('subclassesForClass / catalogItemToSubclass (TAV-WIZARD-HOMEBREW-CASTER
     expect(subclassesForClass(items, 'Wizard')).toEqual([]);
   });
 
+  // TAV-FT-SUBCLASS-SLUG-PREFIX (2026-09-07): a class whose SLUG carries a
+  // prefix its NAME doesn't ("Caster (Fairy Tail)" -> `ft-caster`, verified
+  // live against 59 seeded FT subclass rows keyed `class:"ft-caster"`).
+  // slugifyName can only normalise shape (case/spaces), never bridge that
+  // prefix gap — passing the class's real SLUG is the only comparison that
+  // can work; passing the display name can't, by construction.
+  it('SLUG key ("ft-caster") matches Fairy Tail subclass rows the display name cannot bridge', () => {
+    const items = [
+      subclassItem('ft-fire-magic', 'Fire Magic', { class: 'ft-caster', description: 'Fire chassis.' }),
+      subclassItem('water-magic', 'Water Magic', { class: 'ft-caster', description: 'Water chassis.' }),
+      subclassItem('gun-magic', 'Gun Magic', { class: 'ft-holder', description: 'Holder chassis.' }),
+    ];
+    expect(subclassesForClass(items, 'ft-caster').map((i) => i.slug)).toEqual([
+      'ft-fire-magic',
+      'water-magic',
+    ]);
+    // Documents WHY every caller must pass the slug, not the name: the name
+    // alone cannot reconstruct the "ft-" prefix, so it matches nothing.
+    expect(subclassesForClass(items, 'Caster (Fairy Tail)')).toEqual([]);
+  });
+
   it('catalogItemToSubclass maps id/name/class/blurb', () => {
     const w = catalogItemToSubclass(
       subclassItem('turtle-school', 'Turtle School', {

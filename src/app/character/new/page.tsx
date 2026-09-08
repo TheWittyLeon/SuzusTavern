@@ -711,8 +711,13 @@ export default function CharacterNewPage(): ReactNode {
   // TAV-WIZARD-HOMEBREW-CASTERS — fetch the subclass catalog (own type,
   // doesn't arrive via useCatalog) whenever a subclassLevel:1 class is
   // selected. Mirrors LevelChoicePicker's SubclassChoiceCard fetch-on-mount
-  // pattern (AbortController + Kage abort guard). The class's own display
-  // name is what subclassesForClass slugify-compares against `data.class`.
+  // pattern (AbortController + Kage abort guard). TAV-FT-SUBCLASS-SLUG-
+  // PREFIX (2026-09-07): filters by `clsObj.id` (the class's catalog SLUG),
+  // not its display name — a prefixed slug like "ft-caster" ("Caster (Fairy
+  // Tail)") can't be derived from the name via slugifyName (see
+  // subclassesForClass's doc comment), so passing the name silently
+  // returned zero rows for every Fairy Tail class despite 59 seeded
+  // subclasses.
   useEffect(() => {
     if (!hasSubclassStep || !clsObj) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -729,7 +734,7 @@ export default function CharacterNewPage(): ReactNode {
     // content-bug empty state below.
     getCatalog(SYSTEM, { type: 'subclass', limit: 500 }, ac.signal)
       .then((res) => {
-        const filtered = subclassesForClass(res.items, clsObj.name).map(catalogItemToSubclass);
+        const filtered = subclassesForClass(res.items, clsObj.id).map(catalogItemToSubclass);
         setSubclassOptions(filtered);
         setSubclassLoadState('ok');
       })
@@ -738,12 +743,12 @@ export default function CharacterNewPage(): ReactNode {
         setSubclassLoadState('error');
       });
     return () => ac.abort();
-    // clsObj?.name (not clsObj itself) is the dep — same discipline
+    // clsObj?.id (not clsObj itself) is the dep — same discipline
     // EquipmentStep's own fetch effect uses for clsObj/bgObj, avoiding a
     // refetch loop if the catalog hook ever returns a fresh array/object
     // reference across renders without the underlying data changing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasSubclassStep, clsObj?.name, subclassLoadKey]);
+  }, [hasSubclassStep, clsObj?.id, subclassLoadKey]);
 
   // TAV-CREATE-SUBRACE-ASI-PICKER — a subrace/ASI choice is only meaningful
   // for the race it was made under; changing race must clear both so a

@@ -1409,11 +1409,19 @@ export interface CatalogFeatData {
  */
 export interface CatalogSubclassData {
   parent_class?: string;
-  /** TAV-WIZARD-HOMEBREW-CASTERS — the ACTUAL wire field the engine emits
-   *  (`scripts/import_srd.py`'s `_lc(s, "class", "name")`) — a lowercased
-   *  class name, not a slug (`slugifyName` bridges the shape mismatch on
-   *  read). `parent_class` above has no live producer verified in this repo;
-   *  kept as-is for CodexDetail's existing display read, not removed here. */
+  /** TAV-WIZARD-HOMEBREW-CASTERS — the ACTUAL wire field the engine emits.
+   *  For SRD rows (`scripts/import_srd.py`'s `_lc(s, "class", "name")`)
+   *  this is a lowercased class NAME, not a slug — harmless for SRD since
+   *  every class name is one word and slugifies to its own slug anyway.
+   *  TAV-FT-SUBCLASS-SLUG-PREFIX (2026-09-07): homebrew packs are hand-
+   *  authored with the class's real SLUG here instead (verified in
+   *  NekoNova-DnDEngine `scripts/seed_data/leon-fairytail-5e/20-subclasses-
+   *  *.json`, e.g. `"class": "ft-caster"`) — a prefixed slug `slugifyName`
+   *  cannot derive from the display name ("Caster (Fairy Tail)"), which is
+   *  why every filter reading this field must compare against the class's
+   *  own slug, not its name (see `subclassesForClass`'s doc comment).
+   *  `parent_class` above has no live producer verified in this repo; kept
+   *  as-is for CodexDetail's existing display read, not removed here. */
   class?: string;
   subclass_level?: number;
   features?: string[];

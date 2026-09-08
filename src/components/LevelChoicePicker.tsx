@@ -369,17 +369,43 @@ function SubclassChoiceCard({
     // There's no external store to subscribe to here.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoadState('loading');
-    getCatalog(SYSTEM, { type: 'subclass' }, ac.signal)
-      .then((res) => {
-        // TAV-SUBCLASS-CLASSKEY-MISMATCH: `charClass` is a DISPLAY name
-        // ("Ki Warrior") while a subclass row's `data.class` is a SLUG
-        // ("ki-warrior"), so a bare lowercase compare matched nothing and the
-        // card claimed "No archetypes are seeded" for a class with six. Every
-        // SRD class is one word, which is the only reason this held until the
-        // first multi-word class arrived. subclassesForClass slugifies BOTH
-        // sides (lib/dnd/catalog.ts) — shared with the creation wizard's own
-        // Subclass step (TAV-WIZARD-HOMEBREW-CASTERS) rather than forked.
-        const filtered = subclassesForClass(res.items, charClass);
+
+    // TAV-SUBCLASS-CLASSKEY-MISMATCH: `charClass` is a DISPLAY name
+    // ("Ki Warrior") while a subclass row's `data.class` is a SLUG
+    // ("ki-warrior"), so a bare lowercase compare matched nothing and the
+    // card claimed "No archetypes are seeded" for a class with six. Every
+    // SRD class is one word, which is the only reason this held until the
+    // first multi-word class arrived. subclassesForClass slugifies BOTH
+    // sides (lib/dnd/catalog.ts) — shared with the creation wizard's own
+    // Subclass step (TAV-WIZARD-HOMEBREW-CASTERS) rather than forked.
+    //
+    // TAV-FT-SUBCLASS-SLUG-PREFIX (2026-09-07) sequel: slugifying the name
+    // can't bridge a slug that carries a PREFIX the name doesn't ("Caster
+    // (Fairy Tail)" -> `ft-caster`) — see slugifyName's own doc comment.
+    // Unlike the creation wizard, this card has no class SLUG in scope —
+    // `choice.class`/`sheet.char_class` are both display names on the wire
+    // (PendingLevelChoice's own doc comment; CharacterSheet carries no
+    // class-slug field at all). Try the name first — it's correct for
+    // every SRD/no-prefix homebrew class today and costs nothing extra.
+    // Only on a genuinely empty result do we pay for a second fetch: look
+    // the class up by name in the class catalog to get its real slug, and
+    // re-filter with THAT. A class the lookup can't find (or a class that
+    // really has zero seeded subclasses) stays empty either way — the
+    // "no archetypes are seeded" state below still fires correctly.
+    async function loadOptions(): Promise<CatalogItem[]> {
+      const subclassRes = await getCatalog(SYSTEM, { type: 'subclass' }, ac.signal);
+      const byName = subclassesForClass(subclassRes.items, charClass);
+      if (byName.length > 0) return byName;
+      const classRes = await getCatalog(SYSTEM, { type: 'class' }, ac.signal);
+      const classRow = classRes.items.find(
+        (c) => c.name.trim().toLowerCase() === charClass.trim().toLowerCase(),
+      );
+      if (!classRow) return byName;
+      return subclassesForClass(subclassRes.items, classRow.slug);
+    }
+
+    loadOptions()
+      .then((filtered) => {
         setOptions(filtered);
         setSelectedSlug((prev) => prev || filtered[0]?.slug || '');
         setLoadState('ok');

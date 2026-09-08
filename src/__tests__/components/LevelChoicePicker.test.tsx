@@ -807,6 +807,53 @@ describe('LevelChoicePicker — subclass: catalog failure, case-insensitive filt
     expect(await screen.findByText(/no archetypes are seeded for fighter yet/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /confirm/i })).not.toBeInTheDocument();
   });
+
+  it('does NOT fetch the class catalog when the display-name filter already matches (no wasted request)', async () => {
+    renderPicker([SUBCLASS_CHOICE]);
+    expect(await screen.findByRole('radio', { name: 'Champion' })).toBeInTheDocument();
+    expect(mockGetCatalog).toHaveBeenCalledTimes(1);
+    expect(mockGetCatalog).not.toHaveBeenCalledWith('dnd5e', { type: 'class' }, expect.anything());
+  });
+
+  // TAV-FT-SUBCLASS-SLUG-PREFIX (2026-09-07): the class's SLUG carries a
+  // prefix its display NAME doesn't ("Speed Chassis (Sonic)" -> `sonic-
+  // speed`, NekoNova-DnDEngine `scripts/seed_data/leon-sonic-5e/10-classes.
+  // json`) — the same shape as the Fairy Tail casters, hit here at level 3
+  // instead of level 1. `choice.class`/`sheet.char_class` are both display
+  // names on the wire (this card has no slug in scope), so a bare
+  // subclassesForClass(items, charClass) call returns [] — the card must
+  // resolve the real slug via a class-catalog lookup before it can match.
+  it('REGRESSION (TAV-FT-SUBCLASS-SLUG-PREFIX): a class slug with a prefix the name lacks resolves via a class-catalog lookup', async () => {
+    const SONIC_CHOICE: PendingLevelChoice = {
+      id: 'subclass:3',
+      type: 'subclass',
+      level: 3,
+      class: 'Speed Chassis (Sonic)',
+      label: 'Choose your Speed Chassis (Sonic) archetype',
+    };
+    mockGetCatalog.mockImplementation((_s: string, opts: { type?: string }) => {
+      if (opts?.type === 'class') {
+        return Promise.resolve(
+          catalogResponse([
+            { slug: 'sonic-speed', name: 'Speed Chassis (Sonic)', content_type: 'class', source_type: 'homebrew', data: {} },
+          ]),
+        );
+      }
+      if (opts?.type === 'subclass') {
+        return Promise.resolve(
+          catalogResponse([...SUBCLASS_ITEMS, catalogItem('blur-style', 'Blur Style', { class: 'sonic-speed' })]),
+        );
+      }
+      return Promise.resolve(catalogResponse([]));
+    });
+    renderPicker([SONIC_CHOICE]);
+
+    expect(await screen.findByRole('radio', { name: 'Blur Style' })).toBeInTheDocument();
+    // Off-class rows (Fighter's Champion etc.) must still be excluded.
+    expect(screen.queryByRole('radio', { name: 'Champion' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/no archetypes are seeded/i)).not.toBeInTheDocument();
+    expect(mockGetCatalog).toHaveBeenCalledWith('dnd5e', { type: 'class' }, expect.anything());
+  });
 });
 
 describe('LevelChoicePicker — subclass-scoped menus (ENGINE-SUBCLASS-SCOPED-MENUS)', () => {
