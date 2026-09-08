@@ -7,7 +7,7 @@
 // src/lib/api/dnd.ts (getCatalog) and src/lib/dnd/catalog.ts.
 
 import type { IconName } from '@/components/Icon';
-import type { CatalogSpellcastingBlock } from '@/lib/api/types';
+import type { CatalogSpellcastingBlock, SkillChoiceOption } from '@/lib/api/types';
 
 // ── Abilities ──────────────────────────────────────────────────────────────────
 
@@ -148,6 +148,49 @@ export function humanizeSkill(skill: string): string {
     .split('_')
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(' ');
+}
+
+/**
+ * ORACLE-CANDIDATE-1 tolerance adapter (coordinator note, 2026-09-08, on
+ * Kage-CR's engine review): the engine's `skills:1` pending-choice
+ * enrichment ships `{slug, name}` objects on `PendingLevelChoice.options`
+ * (sibling-shaped with `feature_choice`'s own `FeatureChoiceOption[]`), but
+ * an earlier build of the same commit shipped bare skill-slug STRINGS —
+ * accept both shapes so neither deploy ordering between this repo and
+ * NekoNova-DnDEngine ever strands a character on an option list it can't
+ * render. A malformed entry (missing/blank slug, wrong type) is dropped,
+ * never thrown — same fail-open discipline as this module's other wire
+ * coercions (e.g. `_conditions_from_body`'s engine-side sibling).
+ */
+export function normalizeSkillOption(entry: unknown): SkillChoiceOption | null {
+  if (typeof entry === 'string') {
+    const slug = entry.trim();
+    return slug ? { slug, name: humanizeSkill(slug) } : null;
+  }
+  if (entry && typeof entry === 'object' && 'slug' in entry) {
+    const slug = String((entry as { slug?: unknown }).slug ?? '').trim();
+    if (!slug) return null;
+    const rawName = (entry as { name?: unknown }).name;
+    const name =
+      typeof rawName === 'string' && rawName.trim().length > 0
+        ? rawName.trim()
+        : humanizeSkill(slug);
+    return { slug, name };
+  }
+  return null;
+}
+
+/** Maps `normalizeSkillOption` over a wire `options` array, dropping any
+ *  entry that doesn't normalize and degrading a non-array (undefined, or a
+ *  genuinely malformed wire value) to `[]` rather than throwing. */
+export function normalizeSkillOptions(entries: unknown): SkillChoiceOption[] {
+  if (!Array.isArray(entries)) return [];
+  const out: SkillChoiceOption[] = [];
+  for (const entry of entries) {
+    const normalized = normalizeSkillOption(entry);
+    if (normalized) out.push(normalized);
+  }
+  return out;
 }
 
 // ── Racial bonus application ──────────────────────────────────────────────────

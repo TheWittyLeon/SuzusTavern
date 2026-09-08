@@ -140,6 +140,16 @@ export interface WizardClass {
    *  (`data.feature_choices[0]`), when the row declares one. The Rung step
    *  gates on `knownAtLevel1 > 0`. */
   rungMenu?: WizardRungMenu;
+  /** ORACLE-CANDIDATE-1 / TAV-SKILLS-STEP (2026-09-08) — the class's own
+   *  skill-proficiency choice pool (catalog `skill_choices`), resolved
+   *  server-side via the `skills:1` pending choice the engine now queues at
+   *  creation. Undefined/empty for a v1 row or a class that declares none —
+   *  the Skills step gates on `skillCount > 0 && skillChoices.length > 0`
+   *  (see hasSkillsStep), so that degrades to today's background-only
+   *  behaviour, never a broken step. */
+  skillChoices?: string[];
+  /** How many of `skillChoices` to pick (catalog `skill_count`). */
+  skillCount?: number;
 }
 
 /** TAV-WIZARD-HOMEBREW-CASTERS — a class's level-1 "choose N from a list"
@@ -290,6 +300,12 @@ export function catalogItemToClass(item: CatalogItem): WizardClass {
   const unarmoredDefenseAbility = isAbilityKey(d.unarmored_defense_ability)
     ? d.unarmored_defense_ability
     : undefined;
+  // ORACLE-CANDIDATE-1 / TAV-SKILLS-STEP — defensive against a garbage wire
+  // value the same way primary/spellcastingAbility above are: Array.isArray
+  // before use, a non-array skill_choices degrades to [] (no step) rather
+  // than throwing.
+  const skillChoices = Array.isArray(d.skill_choices) ? d.skill_choices : undefined;
+  const skillCount = typeof d.skill_count === 'number' ? d.skill_count : undefined;
   return {
     id: item.slug,
     name: item.name,
@@ -311,6 +327,8 @@ export function catalogItemToClass(item: CatalogItem): WizardClass {
     pointsLabel,
     subclassLevel,
     rungMenu,
+    skillChoices,
+    skillCount,
     primary,
     spellcastingAbility,
     unarmoredDefenseAbility,

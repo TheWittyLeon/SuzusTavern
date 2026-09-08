@@ -15,6 +15,17 @@
  * Equipment and Review (T4/DDX-11t). TAV-WIZARD-HOMEBREW-CASTERS also
  * inserts Subclass/Rung steps right after Class — see buildSteps.
  *
+ * ORACLE-CANDIDATE-1 / TAV-SKILLS-STEP (2026-09-08): a class's own skill
+ * PROFICIENCY choice (`skill_choices`/`skill_count`, distinct from the
+ * Subclass/Rung archetype menus above) gets a "Skills" step inserted right
+ * after Background, gated on `WizardClass.skillCount > 0` (hasSkillsStep —
+ * see buildSteps). Its option pool is background-DEPENDENT (excludes
+ * whatever the chosen background already grants, mirroring the engine's own
+ * RAW "duplicate skill lets you pick another from the class list" rule), so
+ * it renders after Background rather than alongside Subclass/Rung. Unlike
+ * Subclass/Rung, a class with a Skills step does NOT necessarily need the
+ * early silent-create — see needsSilentCreate's own doc comment for why.
+ *
  * Equipment (2026-07-24 Starting Equipment design) sits after Background (a
  * background contributes its own gear package) and before Spells (so the
  * caster silent-create — see below — fires with equipment_selections already
@@ -96,6 +107,7 @@ import {
   deleteCharacter,
   getAvailableSpells,
   getCatalog,
+  getCharacterSheet,
   getFeaturePicks,
   getStartingEquipment,
   learnFeaturePick,
@@ -170,6 +182,7 @@ type StepKey =
   | 'rung'
   | 'abilities'
   | 'background'
+  | 'skills'
   | 'equipment'
   | 'spells'
   | 'review';
@@ -264,24 +277,44 @@ const RUNG_STEP: StepMeta = {
     "Your archetype comes with its own starting menu. Pick from what your path allows — you'll unlock more as you climb.",
 };
 
+// ORACLE-CANDIDATE-1 / TAV-SKILLS-STEP (2026-09-08) — inserted right after
+// Background, gated on `WizardClass.skillCount > 0` (hasSkillsStep). Placed
+// AFTER Background (not before, unlike Subclass/Rung's placement after
+// Class) because its own option pool is background-DEPENDENT — the engine
+// excludes whatever the background already granted, and this step mirrors
+// that client-side, so the background must already be chosen by the time
+// this renders.
+const SKILLS_STEP: StepMeta = {
+  key: 'skills',
+  t: 'Skills',
+  heading: 'What are you actually good at?',
+  intro:
+    "Your class grants its own skill proficiencies, on top of your background's. Pick from what's left on the list.",
+};
+
 /** TAV-WIZARD-HOMEBREW-CASTERS — generalized from a bare `isCaster` boolean
- *  to the three independent, data-driven gates (`isCaster`/`hasSubclassStep`/
- *  `hasRungStep`) each step now has. Order is fixed: Race, Class,
- *  [Subclass], [Rung], Abilities, Background, Equipment, [Spells], Review —
- *  Subclass/Rung sit visually right after Class even though the actual
- *  resolveLevelChoice/learnFeaturePick calls fire later (Equipment→next,
- *  same deferred-POST idiom as every other early-picked field — see the
- *  design's §"What I changed from a literal reading" item 1). */
+ *  to the four independent, data-driven gates (`isCaster`/`hasSubclassStep`/
+ *  `hasRungStep`/`hasSkillsStep`) each step now has. Order is fixed: Race,
+ *  Class, [Subclass], [Rung], Abilities, Background, [Skills], Equipment,
+ *  [Spells], Review — Subclass/Rung/Skills all render well before their
+ *  actual resolveLevelChoice calls fire (Equipment→next for a class that
+ *  needs the early silent create, or Review's final submit otherwise — see
+ *  needsSilentCreate/applyPendingSetup), same deferred-POST idiom as every
+ *  other early-picked field (see the design's §"What I changed from a
+ *  literal reading" item 1). */
 function buildSteps(flags: {
   isCaster: boolean;
   hasSubclassStep: boolean;
   hasRungStep: boolean;
+  hasSkillsStep: boolean;
 }): StepMeta[] {
   const [race, cls, abilities, background, equipment] = BASE_STEPS;
   const steps: StepMeta[] = [race, cls];
   if (flags.hasSubclassStep) steps.push(SUBCLASS_STEP);
   if (flags.hasRungStep) steps.push(RUNG_STEP);
-  steps.push(abilities, background, equipment);
+  steps.push(abilities, background);
+  if (flags.hasSkillsStep) steps.push(SKILLS_STEP);
+  steps.push(equipment);
   if (flags.isCaster) steps.push(SPELLS_STEP);
   steps.push(REVIEW_STEP);
   return steps;
@@ -393,6 +426,25 @@ const SETUP_REASON_MAP: Record<string, string> = {
   option_level_unmet: 'That technique needs a higher level.',
   duplicate_option: 'That technique is already known.',
   over_menu_cap: "You've already picked the maximum for this menu.",
+};
+
+/**
+ * ORACLE-CANDIDATE-1 / TAV-SKILLS-STEP (2026-09-08) — curated copy for
+ * resolveLevelChoice('skills:1', …) refusals, kept SEPARATE from
+ * SETUP_REASON_MAP: `duplicate_option`/`unknown_option` are both reused by
+ * that map's rung-learn wording ("That technique…"), which would be wrong
+ * copy for a skill pick. `already_chosen` isn't a reason
+ * `_resolve_skills_choice` actually emits (NekoNova-DnDEngine
+ * engine/commands/character_msm.py has no such branch there today) but is
+ * still checked for as an idempotent-success case in applyPendingSetup, the
+ * same defense-in-depth the subclass branch already applies.
+ */
+const SKILLS_REASON_MAP: Record<string, string> = {
+  choice_not_found: 'That choice is no longer pending — reload to see the current state.',
+  invalid_skills_choice: "That selection doesn't match what's required.",
+  duplicate_option: 'One of those skills is already yours (from your background).',
+  unknown_option: "That isn't one of this class's skill choices.",
+  not_owner: "That's not your character.",
 };
 
 const GENERIC_CREATE_ERROR =
@@ -538,6 +590,15 @@ export default function CharacterNewPage(): ReactNode {
   // catalog item (see WizardClass.rungMenu). Picked slugs, pure local state.
   const [rungPicks, setRungPicks] = useState<Set<string>>(new Set());
 
+  // ── ORACLE-CANDIDATE-1 / TAV-SKILLS-STEP — Skills step ──────────────────────
+  // No live fetch — the class's own skill_choices pool rode in on the class
+  // catalog item (see WizardClass.skillChoices). Picked skill slugs, pure
+  // local state; pruned whenever the OPTION POOL this depends on changes
+  // (class OR background — see the reset effects below), since a stale pick
+  // that overlaps a since-changed background would otherwise silently eat
+  // the pick budget without ever rendering as a checked box.
+  const [skillPicks, setSkillPicks] = useState<Set<string>>(new Set());
+
   // ── TAV-WIZARD-HOMEBREW-CASTERS — silent-create batch apply state ──────────
   // `subclassDone`/`rungDone` track whether THIS character's post-create
   // resolveLevelChoice/learnFeaturePick calls have fully succeeded — reset
@@ -548,6 +609,7 @@ export default function CharacterNewPage(): ReactNode {
   // retry action.
   const [subclassDone, setSubclassDone] = useState(false);
   const [rungDone, setRungDone] = useState(false);
+  const [skillsDone, setSkillsDone] = useState(false);
   const [setupIssues, setSetupIssues] = useState<string[]>([]);
   const [retryingSetup, setRetryingSetup] = useState(false);
   // Iro-A11y MINOR-4: a repeated identical failure re-renders the SAME
@@ -644,6 +706,19 @@ export default function CharacterNewPage(): ReactNode {
     (o) => (!o.subclass || o.subclass === selectedSubclass) && (o.level ?? 0) <= 1,
   );
 
+  // ORACLE-CANDIDATE-1 / TAV-SKILLS-STEP — gated purely on the class row
+  // (independent of Subclass/Rung, unlike Rung's practical-but-not-required
+  // subclass coupling). `skillOptions` mirrors the engine's own exclusion
+  // rule client-side (`_resolve_skills_choice`'s "pool minus proficient_
+  // skills"): the class's pool minus whatever the CHOSEN background already
+  // grants, so a duplicate is never even offered as a checkbox (obs #168) —
+  // the exact "options include known picks" bug class feature_choice's own
+  // enrichment already had to fix once (ENGINE-PENDING-OPTIONS-INCLUDE-
+  // KNOWN-PICKS).
+  const hasSkillsStep = (clsObj?.skillCount ?? 0) > 0 && (clsObj?.skillChoices?.length ?? 0) > 0;
+  const bgSkillSet = new Set(bgObj?.skills ?? []);
+  const skillOptions = (clsObj?.skillChoices ?? []).filter((s) => !bgSkillSet.has(s));
+
   // TAV-CREATE-SUBRACE-ASI-PICKER — gates the Race step's pickers/Continue.
   const raceHasSubraces = (raceObj?.subraces.length ?? 0) > 0;
   /* Whether the wizard BLOCKS on the subrace step. Not the same question as
@@ -658,10 +733,11 @@ export default function CharacterNewPage(): ReactNode {
 
   // T4/DDX-11t — the step list adapts to the chosen class (Spells only for a
   // caster; TAV-WIZARD-HOMEBREW-CASTERS added Subclass/Rung on the same
-  // per-class basis). Recomputed whenever any of the three flags change.
+  // per-class basis; ORACLE-CANDIDATE-1 added Skills). Recomputed whenever
+  // any of the four flags change.
   const steps = useMemo(
-    () => buildSteps({ isCaster: isCasterClass, hasSubclassStep, hasRungStep }),
-    [isCasterClass, hasSubclassStep, hasRungStep],
+    () => buildSteps({ isCaster: isCasterClass, hasSubclassStep, hasRungStep, hasSkillsStep }),
+    [isCasterClass, hasSubclassStep, hasRungStep, hasSkillsStep],
   );
   const stepKey: StepKey = steps[Math.min(step, steps.length - 1)]?.key ?? 'race';
 
@@ -703,10 +779,31 @@ export default function CharacterNewPage(): ReactNode {
       setRungPicks(new Set());
       setSubclassDone(false);
       setRungDone(false);
+      // ORACLE-CANDIDATE-1 / TAV-SKILLS-STEP — a stale Skills pick (or
+      // applied state) can't survive onto a DIFFERENT class's skill pool
+      // either.
+      setSkillPicks(new Set());
+      setSkillsDone(false);
       setSetupIssues([]);
       setRetryAttempt(0);
     }
   }, [cls]);
+
+  // ORACLE-CANDIDATE-1 / TAV-SKILLS-STEP — a stale Skills pick can also be
+  // invalidated by a BACKGROUND change alone (same class, different
+  // background): `skillOptions` excludes whatever the background grants, so
+  // a pick that's now a background duplicate must not silently survive as a
+  // phantom selection that inflates skillPicks.size past what renders as
+  // checked. `skillsDone` is deliberately NOT reset here — a background
+  // change is caught by the F7/TAV-CREATE-EDIT-NOT-RETRO snapshot compare
+  // (CreatedSnapshot.background) instead, which resets it on recreate.
+  const prevBackgroundRef = useRef(background);
+  useEffect(() => {
+    if (prevBackgroundRef.current !== background) {
+      prevBackgroundRef.current = background;
+      setSkillPicks(new Set());
+    }
+  }, [background]);
 
   // TAV-WIZARD-HOMEBREW-CASTERS — fetch the subclass catalog (own type,
   // doesn't arrive via useCatalog) whenever a subclassLevel:1 class is
@@ -824,6 +921,17 @@ export default function CharacterNewPage(): ReactNode {
         return remaining >= 0;
       case 'background':
         return !!background && name.trim().length > 0;
+      case 'skills': {
+        // ORACLE-CANDIDATE-1 / TAV-SKILLS-STEP: fail-closed when the
+        // background has already eaten the entire class pool — an empty
+        // `skillOptions` can never satisfy `size === cap` (cap is always
+        // >=1 here, hasSkillsStep already guards that), so this is never a
+        // silent dead end, it's an honest "nothing left to pick" refusal
+        // rendered by SkillsStep's own empty state.
+        if (skillOptions.length === 0) return false;
+        const cap = clsObj?.skillCount ?? 0;
+        return skillPicks.size === cap;
+      }
       case 'equipment':
         // A failed fetch (equipmentLoadState === 'error') must never block
         // Continue — creation just goes gearless (see the module doc
@@ -875,6 +983,8 @@ export default function CharacterNewPage(): ReactNode {
     selectedSubclass,
     clsObj,
     rungPicks,
+    skillOptions,
+    skillPicks,
   ]);
 
   // 2026-07-24 Starting Equipment design — same defensive backstop rationale
@@ -1135,6 +1245,73 @@ export default function CharacterNewPage(): ReactNode {
           console.warn('TAV-WIZARD-HOMEBREW-CASTERS: getFeaturePicks failed', err);
         }
       }
+      // ORACLE-CANDIDATE-1 / TAV-SKILLS-STEP — independent of subclass/rung
+      // (no ordering coupling: skillOptions is derived purely from class +
+      // background, both already fixed by the time this runs).
+      //
+      // Coordinator note (2026-09-08, on Kage-CR's engine review): the
+      // engine queues NOTHING for a homebrew class row that lacks
+      // skill_count server-side, even when hasSkillsStep (derived PRE-
+      // RENDER from the wizard's own catalog copy of WizardClass.skillCount)
+      // said otherwise. Never assume the choice exists post-create — check
+      // the real sheet first, same discipline the Rung branch above already
+      // applies via getFeaturePicks. Absence is NOT a failure: it means this
+      // class genuinely has nothing to resolve, so skillsOk without an issue.
+      if (hasSkillsStep && !skillsDone) {
+        try {
+          const currentSheet = await getCharacterSheet(id, username);
+          const pending = (currentSheet.pending_choices ?? []).find(
+            (c) => c.type === 'skills',
+          );
+          if (!pending) {
+            setSkillsDone(true);
+          } else {
+            const cap = pending.count ?? clsObj?.skillCount ?? 0;
+            if (skillPicks.size !== cap) {
+              // Kage-CR #9 precedent (subclass branch above): canContinue on
+              // the Skills step already requires exactly `cap` picks before
+              // Continue enables — this guards the should-be-unreachable
+              // case of arriving here with fewer/more anyway, rather than
+              // letting the engine's own `invalid_skills_choice` 400 stand
+              // in for copy this file can write itself.
+              issues.push(
+                `${clsObj?.name ?? 'Your'} class skills were never chosen — pick them from the character sheet.`,
+              );
+            } else {
+              try {
+                await resolveLevelChoice(id, username, pending.id, {
+                  picks: Array.from(skillPicks),
+                });
+                setSkillsDone(true);
+              } catch (err) {
+                // Same idempotent-success defense the subclass branch
+                // applies — see SKILLS_REASON_MAP's doc comment for why this
+                // reason isn't one `_resolve_skills_choice` actually emits
+                // today.
+                if (isApiError(err) && extractReason(err) === 'already_chosen') {
+                  setSkillsDone(true);
+                } else {
+                  issues.push(
+                    engineErrorMessage(err, {
+                      fallback: `${clsObj?.name ?? 'Your'} class skills couldn't be saved — finish them from the character sheet.`,
+                      reasonMap: SKILLS_REASON_MAP,
+                    }),
+                  );
+                  console.warn('TAV-WIZARD-HOMEBREW-CASTERS: skills resolve failed', err);
+                }
+              }
+            }
+          }
+        } catch (err) {
+          issues.push(
+            engineErrorMessage(err, {
+              fallback: "Your class skills couldn't be checked — add them from the character sheet.",
+              reasonMap: SKILLS_REASON_MAP,
+            }),
+          );
+          console.warn('TAV-WIZARD-HOMEBREW-CASTERS: skills sheet check failed', err);
+        }
+      }
       if (issues.length > 0) {
         toast({
           message: 'Character created, but setup needs a follow-up — see Review.',
@@ -1143,7 +1320,20 @@ export default function CharacterNewPage(): ReactNode {
       }
       return issues;
     },
-    [username, hasSubclassStep, hasRungStep, subclassDone, rungDone, selectedSubclass, rungPicks, clsObj, toast],
+    [
+      username,
+      hasSubclassStep,
+      hasRungStep,
+      hasSkillsStep,
+      subclassDone,
+      rungDone,
+      skillsDone,
+      selectedSubclass,
+      rungPicks,
+      skillPicks,
+      clsObj,
+      toast,
+    ],
   );
 
   // Nav "Continue" — the ONE special case is Equipment -> next for a caster
@@ -1155,6 +1345,20 @@ export default function CharacterNewPage(): ReactNode {
   // Equipment design so equipment_selections are already collected when
   // this POST fires. Generalized (TAV-WIZARD-HOMEBREW-CASTERS) from a bare
   // isCaster check to isCaster || hasSubclassStep || hasRungStep.
+  //
+  // ORACLE-CANDIDATE-1 / TAV-SKILLS-STEP — deliberately NOT added here.
+  // Nearly every real class has a skill_count > 0 (12/12 SRD classes), so
+  // folding hasSkillsStep into this gate would force EVERY class creation
+  // through the early-silent-create UX (character exists before Equipment,
+  // name locked on Review, F7 recreate-on-drift machinery engaged) for a
+  // choice that has no actual ordering dependency on anything else — unlike
+  // Spells (needs a real character_id to fetch the pool) or Rung (needs
+  // subclass resolved first), skills:1 only needs class+background, both
+  // already fixed by Background. `applyPendingSetup` still resolves it
+  // correctly EITHER way: early (via this branch, for a class that already
+  // needs silent create for another reason) or once, at Review's final
+  // submit (via handleSubmit's own `hasSkillsStep` gate below) for a class
+  // that has no other reason to create early.
   const needsSilentCreate = isCasterClass || hasSubclassStep || hasRungStep;
   const handleContinue = useCallback(async () => {
     if (stepKey === 'equipment' && needsSilentCreate && !characterId) {
@@ -1243,19 +1447,22 @@ export default function CharacterNewPage(): ReactNode {
         setCharacterId(charId);
         setCreatedSnapshot(snapshotNow());
         // TAV-WIZARD-HOMEBREW-CASTERS — an F7 recreate invalidates whatever
-        // subclass/rung work already landed on the STALE id; the fresh id
-        // needs a full re-apply below.
+        // subclass/rung/skills work already landed on the STALE id; the
+        // fresh id needs a full re-apply below.
         setSubclassDone(false);
         setRungDone(false);
+        setSkillsDone(false);
       }
 
-      // TAV-WIZARD-HOMEBREW-CASTERS — apply Subclass/Rung against whichever
-      // character is now current. Normally already done by handleContinue's
-      // silent-create branch (this is a no-op then, since subclassDone/
-      // rungDone are already true); reached here for real only on an F7
-      // recreate, or the (currently theoretical) case of a class with a
-      // Subclass/Rung step but no early silent-create trigger of its own.
-      if (hasSubclassStep || hasRungStep) {
+      // TAV-WIZARD-HOMEBREW-CASTERS — apply Subclass/Rung/Skills against
+      // whichever character is now current. For Subclass/Rung this is
+      // normally a no-op (already done by handleContinue's silent-create
+      // branch, since subclassDone/rungDone are already true) — reached for
+      // real only on an F7 recreate. For Skills (ORACLE-CANDIDATE-1) this is
+      // the FIRST and only application for a class with no other reason to
+      // silent-create early (see needsSilentCreate's doc comment) — `charId`
+      // was just created a few lines up in that case.
+      if (hasSubclassStep || hasRungStep || hasSkillsStep) {
         const issues = await applyPendingSetup(charId);
         setSetupIssues(issues);
       }
@@ -1336,6 +1543,7 @@ export default function CharacterNewPage(): ReactNode {
     createNow,
     hasSubclassStep,
     hasRungStep,
+    hasSkillsStep,
     applyPendingSetup,
     isCasterClass,
     username,
@@ -1364,6 +1572,11 @@ export default function CharacterNewPage(): ReactNode {
     suzuLine = name.trim()
       ? `${name.trim()}. Suzu likes the sound of it.`
       : 'Names matter. Even the ones you change later.';
+  else if (stepKey === 'skills')
+    suzuLine =
+      skillPicks.size > 0
+        ? `${skillPicks.size} skill${skillPicks.size === 1 ? '' : 's'} claimed. Suzu will hold you to it.`
+        : "What you're good at, on paper at least.";
   else if (stepKey === 'equipment')
     suzuLine = 'A pack, a weapon, something sharp for emergencies. Suzu already picked for you — check her work.';
   else if (stepKey === 'spells')
@@ -1393,7 +1606,9 @@ export default function CharacterNewPage(): ReactNode {
           ? `In one wry sentence, react to how I've spread my character's ability scores.`
           : stepKey === 'background'
             ? `In one wry sentence, react to my character's name and background: ${name.trim() || 'unnamed'}, ${bgObj?.name ?? 'no background yet'}.`
-            : stepKey === 'equipment'
+            : stepKey === 'skills'
+              ? `In one wry sentence, react to my ${clsObj?.name ?? 'character'} picking their class skills.`
+              : stepKey === 'equipment'
               ? `In one wry sentence, react to my ${clsObj?.name ?? 'character'}'s starting gear choices.`
               : stepKey === 'spells'
                 ? `In one wry sentence, react to my ${clsObj?.name ?? 'caster'} picking their starting spells.`
@@ -1425,7 +1640,11 @@ export default function CharacterNewPage(): ReactNode {
               `Pick ${countedLabel(clsObj.rungMenu.label, clsObj.rungMenu.knownAtLevel1)} to continue.`
             : stepKey === 'background'
           ? 'Enter a name and choose a background to continue.'
-          : stepKey === 'equipment' && equipmentLoadState === 'loading'
+          : stepKey === 'skills'
+            ? skillOptions.length === 0
+              ? "This class's skills are already covered by your background — nothing left to pick."
+              : `Pick ${countedLabel('skill', clsObj?.skillCount ?? 0)} to continue.`
+            : stepKey === 'equipment' && equipmentLoadState === 'loading'
             ? 'Loading your starting equipment…'
             : stepKey === 'spells' && spellReq
               ? `Pick your ${spellReq.cantripsNeeded} cantrip${spellReq.cantripsNeeded === 1 ? '' : 's'} and ${spellReq.leveledNeeded} first-level spell${spellReq.leveledNeeded === 1 ? '' : 's'} to continue.`
@@ -1451,6 +1670,8 @@ export default function CharacterNewPage(): ReactNode {
       }
       case 'background':
         return bgObj?.name ?? (name.trim() ? name.trim() : '—');
+      case 'skills':
+        return skillPicks.size > 0 ? `${skillPicks.size} chosen` : '—';
       case 'equipment': {
         const chosen = equipmentChoiceIds.filter((id) => !!equipmentSelections[id]).length;
         if (equipmentLoadState === 'error') return 'gearless';
@@ -1678,6 +1899,15 @@ export default function CharacterNewPage(): ReactNode {
                 onName={setName}
               />
             )}
+            {stepKey === 'skills' && (
+              <SkillsStep
+                className={clsObj?.name}
+                options={skillOptions}
+                count={clsObj?.skillCount ?? 0}
+                picked={skillPicks}
+                onChange={setSkillPicks}
+              />
+            )}
             {stepKey === 'equipment' && (
               <EquipmentStep
                 clsObj={clsObj}
@@ -1727,6 +1957,9 @@ export default function CharacterNewPage(): ReactNode {
                     : undefined
                 }
                 rungMenuLabel={clsObj?.rungMenu?.label}
+                skillPickNames={
+                  hasSkillsStep ? Array.from(skillPicks).map((s) => humanizeSkill(s)) : undefined
+                }
                 pointsLabel={
                   isCasterClass && clsObj?.castingModel === 'points' ? clsObj.pointsLabel : undefined
                 }
@@ -2193,6 +2426,101 @@ function RungStep({
   );
 }
 
+// ── Step: Skills (ORACLE-CANDIDATE-1 / TAV-SKILLS-STEP, 2026-09-08) ──────────
+// Mirrors RungStep's fieldset + native-checkbox + cap-hint mechanism above
+// (same touch-target/aria-describedby idiom, new element ids so the two
+// steps never collide when both render in the same DOM at different times)
+// — the class's own skill_choices/skill_count, with `options` already
+// excluding the chosen background's skills (see the parent's `skillOptions`
+// derivation). No description/popover per option — the wire carries bare
+// skill slugs, not FeatureChoiceOption objects.
+function SkillsStep({
+  className,
+  options,
+  count,
+  picked,
+  onChange,
+}: {
+  /** The chosen class's display name, for the legend/empty-state copy only. */
+  className?: string;
+  options: string[];
+  count: number;
+  picked: Set<string>;
+  onChange: (next: Set<string>) => void;
+}) {
+  function toggle(skill: string) {
+    const next = new Set(picked);
+    if (next.has(skill)) {
+      next.delete(skill);
+    } else if (next.size < count) {
+      next.add(skill);
+    }
+    onChange(next);
+  }
+
+  return (
+    <fieldset className={styles.spellSection}>
+      <legend className={styles.srOnly}>{`Choose ${className ?? 'your class'}'s skills`}</legend>
+      <div className={styles.budget}>
+        <span
+          className={styles.budgetNum}
+          aria-live="polite"
+          aria-atomic="true"
+          aria-label={`${picked.size} of ${countedLabel('skill', count)} chosen`}
+        >
+          {picked.size}/{count}
+        </span>
+        <span>
+          <span className={styles.budgetTitle}>Class skills</span>
+          <span className={styles.budgetSub}>
+            Pick {count} — anything your background already grants isn&rsquo;t offered twice.
+          </span>
+        </span>
+      </div>
+      {/* Iro-A11y CRITICAL-1 precedent (TAV-A11Y-CAP-HINT, mirrors RungStep's
+          own rung-cap-hint exactly): explain why the remaining options go
+          disabled once the cap is hit. */}
+      <p id="skills-cap-hint" className={styles.srOnly}>
+        {picked.size >= count ? (
+          <>You&rsquo;ve chosen all {countedLabel('skill', count)} — deselect one to pick another.</>
+        ) : (
+          <>
+            {picked.size} of {count} skills chosen — pick {count - picked.size} more.
+          </>
+        )}
+      </p>
+      <ul className={styles.spellList}>
+        {options.length === 0 && (
+          <li className={styles.spellEmpty}>
+            No class skills left to choose — {className ?? 'this class'}&rsquo;s whole list is
+            already covered by your background.
+          </li>
+        )}
+        {options.map((skill) => {
+          const checked = picked.has(skill);
+          const disabled = !checked && picked.size >= count;
+          const describedBy = disabled ? 'skills-cap-hint' : undefined;
+          return (
+            <li key={skill} className={styles.spellRow}>
+              <label className={styles.spellRowLabel}>
+                <input
+                  type="checkbox"
+                  className={styles.spellCheckbox}
+                  checked={checked}
+                  disabled={disabled}
+                  aria-describedby={describedBy}
+                  onChange={() => toggle(skill)}
+                />
+                <span className={styles.spellRowName}>{humanizeSkill(skill)}</span>
+              </label>
+            </li>
+          );
+        })}
+      </ul>
+    </fieldset>
+  );
+}
+
 // ── Step: Abilities (point buy) ───────────────────────────────────────────────
 function AbilitiesStep({
   scores,
@@ -2569,6 +2897,7 @@ function ReviewStep({
   subclassName,
   rungPickNames,
   rungMenuLabel,
+  skillPickNames,
   pointsLabel,
   setupIssues,
   onRetrySetup,
@@ -2596,6 +2925,10 @@ function ReviewStep({
   subclassName?: string;
   rungPickNames?: string[];
   rungMenuLabel?: string;
+  /** ORACLE-CANDIDATE-1 / TAV-SKILLS-STEP — undefined when the class has no
+   *  Skills step; a (possibly empty, same honesty as rungPickNames) list of
+   *  humanized skill names once picked. */
+  skillPickNames?: string[];
   /** The class's points-pool label, when castingModel==='points'. */
   pointsLabel?: string;
   /** Persistent "resume, not dead-end" callout content — empty = fully set up. */
@@ -2724,6 +3057,21 @@ function ReviewStep({
               {!bgObj && <span className={styles.profEmpty}>pick a background</span>}
             </div>
           </div>
+          {skillPickNames !== undefined && (
+            <div className={styles.profGroup}>
+              <span className={styles.profLabel}>Skills (class)</span>
+              <div className={styles.profPills}>
+                {skillPickNames.map((n) => (
+                  <Pill key={n} tone="lav">
+                    {n}
+                  </Pill>
+                ))}
+                {skillPickNames.length === 0 && (
+                  <span className={styles.profEmpty}>none picked</span>
+                )}
+              </div>
+            </div>
+          )}
           <div className={styles.profGroup}>
             <span className={styles.profLabel}>Saving throws (class)</span>
             <div className={styles.profPills}>

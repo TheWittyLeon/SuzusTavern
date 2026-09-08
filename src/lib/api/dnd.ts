@@ -154,6 +154,9 @@ export const levelUpCharacter = (
  *     (every key one of the 6 full ability names; values sum to exactly 2;
  *     at most 2 distinct abilities)
  *   - asi, feat instead -> {"mode": "feat", "feat": "<slug>"}
+ *   - skills (ORACLE-CANDIDATE-1, 2026-09-08 — a class's own skill
+ *     proficiency pick, queued once at creation as "skills:1") ->
+ *     {"picks": ["<skill>", ...]}, exactly `choice.count` entries
  *
  * Same wire-shape bug class as levelUpCharacter/equipItem: the engine's
  * route always `return _ok({"message": message})` on success — never the
@@ -166,7 +169,8 @@ export const levelUpCharacter = (
  * route's docstring for the full set (choice_not_found, invalid_subclass,
  * already_chosen, not_owner, unsupported_choice_type, invalid_asi,
  * ability_cap_exceeded, unknown_feat, feat_prereq_unmet,
- * feat_already_taken -> 400; save_failed -> 500; not_found -> 404).
+ * feat_already_taken, invalid_skills_choice, duplicate_option,
+ * unknown_option -> 400; save_failed -> 500; not_found -> 404).
  */
 export const resolveLevelChoice = (
   characterId: string,

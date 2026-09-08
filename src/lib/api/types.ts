@@ -438,6 +438,18 @@ export interface FeatureChoiceOption {
   subclass?: string;
 }
 
+/** ORACLE-CANDIDATE-1 (2026-09-08) — one option on a `skills:1` (or a later
+ *  level's `skills:N`) pending choice's `options` array — the engine's
+ *  enrichment there ships this shape (sibling to FeatureChoiceOption, but
+ *  minimal: no `level`/`description`/`subclass`, since a skill pick has none
+ *  of those). Defined here (not lib/dnd/helpers.ts) because this file has no
+ *  imports of its own and helpers.ts already imports FROM here — keeping the
+ *  wire shape's canonical definition on the import-leaf side avoids a cycle. */
+export interface SkillChoiceOption {
+  slug: string;
+  name: string;
+}
+
 export interface PendingLevelChoice {
   id: string;
   type: string;
@@ -465,8 +477,22 @@ export interface PendingLevelChoice {
   /** INVOC — the full option menu, enriched onto the pending entry at
    *  SHEET READ time (display + client-side pre-validation only; the
    *  resolver re-validates server-side). Absent on a pre-upgrade backend
-   *  that queued the choice without enrichment. */
-  options?: FeatureChoiceOption[];
+   *  that queued the choice without enrichment.
+   *
+   *  Shape depends on `type`: `FeatureChoiceOption[]` for `feature_choice`
+   *  (INVOC). ORACLE-CANDIDATE-1 (2026-09-08) reuses this same wire field
+   *  for `type === 'skills'` — the engine's enrichment there
+   *  (`get_character_sheet_data`'s pending_choices loop, NekoNova-DnDEngine
+   *  engine/commands/character_msm.py) ships `{slug, name}` objects
+   *  (sibling-shaped with `feature_choice`, per Kage-CR's review of that
+   *  commit), already excluding whatever is on `proficient_skills`
+   *  (background grants) — `SkillChoiceOption[]` below, NOT the fuller
+   *  `FeatureChoiceOption` (no `level`/`description`/`subclass`). A bare
+   *  `string[]` is ALSO accepted client-side (lib/dnd/helpers.ts's
+   *  `normalizeSkillOptions` tolerance adapter) so neither deploy ordering
+   *  between this repo and the engine ever strands a character on a shape
+   *  it can't render. Consumers narrow by `choice.type`. */
+  options?: FeatureChoiceOption[] | SkillChoiceOption[] | string[];
 }
 
 /** INVOC: one resolved menu group on the sheet — the character's CHOSEN

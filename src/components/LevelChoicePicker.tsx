@@ -21,7 +21,10 @@
  * regardless). This component itself only checks `pending_choices` is
  * non-empty; it renders nothing otherwise.
  *
- * Three choice `type`s exist today (engine's `_queue_level_choices`):
+ * Several choice `type`s exist today (engine's `_queue_level_choices`) —
+ * this comment predates two of them (`feature_choice`/INVOC and `skills`/
+ * ORACLE-CANDIDATE-1, see their own FeatureChoiceCard/SkillsChoiceCard doc
+ * comments below for what they added):
  *   - `subclass` — pick an archetype. No `options` array ships on the
  *     pending-choice record itself (just {id,type,level,class,label}), so
  *     the options come from GET /api/dnd/catalog?type=subclass, filtered
@@ -92,7 +95,13 @@ import {
   learnSpell,
   resolveLevelChoice,
 } from '@/lib/api/dnd';
-import { ABILITIES, radioStepIndex, slugifyName, type AbilityKey } from '@/lib/dnd/helpers';
+import {
+  ABILITIES,
+  normalizeSkillOptions,
+  radioStepIndex,
+  slugifyName,
+  type AbilityKey,
+} from '@/lib/dnd/helpers';
 import { subclassesForClass } from '@/lib/dnd/catalog';
 import type {
   ApiError,
@@ -146,6 +155,11 @@ const RESOLVE_REFUSAL_COPY: Record<string, string> = {
   // one, live-broken from prod night until it was caught days later).
   subclass_required: 'Choose your archetype first — this menu depends on it.',
   wrong_subclass: 'That option belongs to a different archetype.',
+  // ORACLE-CANDIDATE-1 (2026-09-08) — `_resolve_skills_choice`'s own
+  // refusal reason not already covered above (unknown_option/
+  // duplicate_option are shared verbatim; their existing copy above is
+  // generic enough to read correctly for a skill pick too).
+  invalid_skills_choice: "That selection doesn't match the expected shape.",
 };
 
 function resolveErrorMessage(err: unknown): string {
@@ -309,9 +323,21 @@ export default function LevelChoicePicker({
             />
           );
         }
+        if (choice.type === 'skills') {
+          return (
+            <SkillsChoiceCard
+              key={choice.id}
+              characterId={characterId}
+              username={username}
+              sheet={sheet}
+              choice={choice}
+              onResolved={handleChildResolved}
+            />
+          );
+        }
         // unsupported_choice_type — the engine queues only subclass/asi/
-        // spell/feature_choice today; this is forward-compat scaffolding,
-        // not a live path.
+        // spell/feature_choice/skills today; this is forward-compat
+        // scaffolding, not a live path.
         return (
           <div key={choice.id} className={styles.card}>
             {/* TAV-SHEET-HEADING-ORDER: h3 — nested under "Pending choices"
@@ -1207,7 +1233,11 @@ function FeatureChoiceCard({ characterId, username, sheet, choice, onResolved }:
   const { toast } = useToast();
   const headingId = useId();
   const cap = choice.count ?? 0;
-  const options = choice.options ?? [];
+  // ORACLE-CANDIDATE-1: `choice.options` widened to `FeatureChoiceOption[] |
+  // string[]` to also cover `type: 'skills'` (SkillsChoiceCard below) — this
+  // card only ever renders for `type === 'feature_choice'`, whose own
+  // enrichment always ships objects, never bare strings.
+  const options = (choice.options as FeatureChoiceOption[] | undefined) ?? [];
   const menuLabel = choice.menu_label ?? 'options';
   /* True while the character still OWES an archetype pick. Distinguishes "this
      menu is empty because you haven't chosen a School yet" from "this menu is
@@ -1479,6 +1509,148 @@ function FeatureChoiceCard({ characterId, username, sheet, choice, onResolved }:
         variant="primary"
         size="default"
         aria-label={`Confirm ${menuLabel} (level ${choice.level})`}
+        aria-busy={busy}
+        disabled={!canConfirm}
+        onClick={() => void handleResolve()}
+      >
+        {busy ? '…' : 'Confirm'}
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * ORACLE-CANDIDATE-1 (2026-09-08) — `skills` choice: a class's own skill
+ * proficiency pick (`class_proficiencies`'s `skill_choices`/`skill_count`).
+ * Queued ONLY at creation (`skills:1`, level 1 always — see the engine's
+ * `_queue_level_choices` doc comment), so the creation wizard's own Skills
+ * step (`character/new/page.tsx`) is the primary surface — this card exists
+ * for the character that reaches level-up with it STILL pending: a
+ * pre-ORACLE-CANDIDATE-1 character (rebuild re-queues it, same
+ * REBUILD_OWNED_KEYS convention `proficient_skills` already follows), or a
+ * creation flow that left it unresolved (a setup-issue callout).
+ *
+ * No fetch, same as FeatureChoiceCard: `choice.options` rides on the
+ * pending-choice entry itself, enriched at sheet-read time — `{slug, name}`
+ * objects (sibling-shaped with `feature_choice`'s own `FeatureChoiceOption[]`
+ * but minimal: no `level`/`description`/`subclass`), already excluding
+ * whatever is on `sheet.proficient_skills` (the RAW "duplicate skill lets
+ * you pick another from the class list" rule, applied server-side).
+ * `normalizeSkillOptions` (lib/dnd/helpers.ts) ALSO tolerates a bare
+ * skill-slug string per option, so this renders correctly against either
+ * deploy ordering of this repo and NekoNova-DnDEngine — see its own doc
+ * comment. No description text ships per option, so this uses the same
+ * toggle-button idiom as FeatureChoiceCard's `optionButton` but without the
+ * SpellInfoPopover wrap.
+ */
+function SkillsChoiceCard({ characterId, username, sheet, choice, onResolved }: ChoiceCardProps) {
+  const { toast } = useToast();
+  const headingId = useId();
+  const cap = choice.count ?? 0;
+  // ORACLE-CANDIDATE-1 (coordinator note, 2026-09-08, on Kage-CR's engine
+  // review): the engine ships `{slug, name}` objects here (sibling-shaped
+  // with feature_choice), but normalizeSkillOptions ALSO tolerates a bare
+  // skill-slug string — so this card renders correctly against either
+  // deploy ordering of this repo and NekoNova-DnDEngine.
+  const options = normalizeSkillOptions(choice.options);
+  const pickHintId = `${headingId}-picks`;
+
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  /** Synchronous double-submit latch — same useRef pattern as the sibling cards. */
+  const busyRef = useRef(false);
+
+  function togglePick(skill: string) {
+    if (busy) return;
+    const next = new Set(picked);
+    if (next.has(skill)) {
+      next.delete(skill);
+    } else if (next.size < cap) {
+      next.add(skill);
+    }
+    setPicked(next);
+  }
+
+  // cap >= 1 pairs with the render-side dead-end below (Kage m6 precedent on
+  // FeatureChoiceCard): a malformed count-less entry must never be
+  // confirmable at zero picks.
+  const canConfirm = !busy && options.length > 0 && cap >= 1 && picked.size === cap;
+
+  async function handleResolve() {
+    if (busyRef.current || !canConfirm) return;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      try {
+        await resolveLevelChoice(characterId, username, choice.id, {
+          picks: Array.from(picked),
+        });
+      } catch (err) {
+        toast({ message: resolveErrorMessage(err), tone: 'error' });
+        return;
+      }
+      try {
+        const after = await getCharacterSheet(characterId, username);
+        onResolved(after);
+        // Prefer the engine's own curated `name` (via `options`, not a
+        // re-humanized slug) — same "server copy wins" discipline as
+        // FeatureChoiceCard's success toast above.
+        const names = options
+          .filter((o) => picked.has(o.slug))
+          .map((o) => o.name)
+          .join(', ');
+        toast({ message: `${sheet.name} gains proficiency in ${names}!`, tone: 'success' });
+      } catch {
+        toast({
+          message: "Couldn't refresh your sheet — reload to see the result.",
+          tone: 'warn',
+        });
+      }
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className={styles.card} aria-busy={busy}>
+      {/* TAV-SHEET-HEADING-ORDER: h3 — nested under "Pending choices" (h2). */}
+      <h3 id={headingId} className={styles.cardLabel}>
+        {choice.label}
+      </h3>
+      {options.length === 0 || cap < 1 ? (
+        <p className={styles.emptyRow} aria-live="polite" aria-atomic="true">
+          No skill options are available right now — reload the sheet to try again.
+        </p>
+      ) : (
+        <>
+          <p id={pickHintId} className={styles.hint} aria-live="polite" aria-atomic="true">
+            {picked.size} of {cap} chosen
+          </p>
+          <div className={styles.optionRow} role="group" aria-labelledby={pickHintId}>
+            {options.map((o) => {
+              const isOn = picked.has(o.slug);
+              const atCap = !isOn && picked.size >= cap;
+              return (
+                <button
+                  key={o.slug}
+                  type="button"
+                  aria-pressed={isOn}
+                  className={isOn ? `${styles.option} ${styles.optionOn}` : styles.option}
+                  disabled={busy || atCap}
+                  onClick={() => togglePick(o.slug)}
+                >
+                  {o.name}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+      <Button
+        variant="primary"
+        size="default"
+        aria-label={`Confirm ${choice.label}`}
         aria-busy={busy}
         disabled={!canConfirm}
         onClick={() => void handleResolve()}

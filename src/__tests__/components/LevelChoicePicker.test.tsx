@@ -1986,3 +1986,120 @@ describe('LevelChoicePicker — Kage I3 swap disclosure', () => {
     expect(screen.getByRole('button', { name: /confirm eldritch invocations/i })).toBeDisabled();
   });
 });
+
+describe('LevelChoicePicker — skills choice (ORACLE-CANDIDATE-1, 2026-09-08)', () => {
+  function skillsChoice(over: Partial<PendingLevelChoice> = {}): PendingLevelChoice {
+    return {
+      id: 'skills:1',
+      type: 'skills',
+      level: 1,
+      class: 'Fighter',
+      label: 'Choose 2 class skills',
+      count: 2,
+      options: [
+        { slug: 'athletics', name: 'Athletics' },
+        { slug: 'perception', name: 'Perception' },
+        { slug: 'stealth', name: 'Stealth' },
+      ],
+      ...over,
+    };
+  }
+
+  it('renders the menu from the choice entry itself (no fetch), gates Confirm on exactly `count` picks, and resolves with {picks}', async () => {
+    const { onResolved } = renderPicker([skillsChoice()]);
+
+    // No fetch — the options ride on the pending entry (sheet enrichment).
+    expect(mockGetCatalog).not.toHaveBeenCalled();
+    expect(mockGetAvailableSpells).not.toHaveBeenCalled();
+
+    const confirm = screen.getByRole('button', { name: /confirm choose 2 class skills/i });
+    expect(confirm).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Athletics' }));
+    expect(confirm).toBeDisabled(); // 1 of 2
+    fireEvent.click(screen.getByRole('button', { name: 'Perception' }));
+    expect(confirm).toBeEnabled();
+
+    fireEvent.click(confirm);
+    await flush();
+    expect(mockResolve).toHaveBeenCalledWith('cid-1', 'leon', 'skills:1', {
+      picks: expect.arrayContaining(['athletics', 'perception']),
+    });
+    expect(onResolved).toHaveBeenCalled();
+  });
+
+  it('enforces the pick cap — the third option disables once two are chosen', () => {
+    renderPicker([skillsChoice()]);
+    fireEvent.click(screen.getByRole('button', { name: 'Athletics' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Perception' }));
+    expect(screen.getByRole('button', { name: 'Stealth' })).toBeDisabled();
+    // Toggle one back off frees the cap.
+    fireEvent.click(screen.getByRole('button', { name: 'Athletics' }));
+    expect(screen.getByRole('button', { name: 'Stealth' })).toBeEnabled();
+  });
+
+  it('TOLERANCE (coordinator note, 2026-09-08): a bare skill-slug string per option renders and resolves identically to {slug, name}', async () => {
+    renderPicker([skillsChoice({ options: ['athletics', 'perception', 'stealth'] as never })]);
+    // Bare string is humanized for display.
+    const athletics = screen.getByRole('button', { name: 'Athletics' });
+    fireEvent.click(athletics);
+    fireEvent.click(screen.getByRole('button', { name: 'Perception' }));
+    fireEvent.click(screen.getByRole('button', { name: /confirm choose 2 class skills/i }));
+    await flush();
+    expect(mockResolve).toHaveBeenCalledWith('cid-1', 'leon', 'skills:1', {
+      picks: expect.arrayContaining(['athletics', 'perception']),
+    });
+  });
+
+  it('missing options (enrichment absent) is an honest dead-end — message shown, Confirm disabled, resolve never attempted', () => {
+    renderPicker([skillsChoice({ options: undefined })]);
+    expect(
+      screen.getByText(/no skill options are available right now/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /confirm choose 2 class skills/i }),
+    ).toBeDisabled();
+    expect(mockResolve).not.toHaveBeenCalled();
+  });
+
+  it('a count-less (malformed) entry is a dead end, not confirmable at zero picks (m6 precedent)', () => {
+    renderPicker([skillsChoice({ count: undefined })]);
+    expect(
+      screen.getByText(/no skill options are available right now/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /confirm choose 2 class skills/i }),
+    ).toBeDisabled();
+  });
+
+  it('a resolve failure surfaces the curated refusal copy and releases the busy latch', async () => {
+    const err = Object.assign(new Error('[DnD] Bad shape.'), {
+      status: 400,
+      body: { data: { reason: 'invalid_skills_choice' } },
+    });
+    mockResolve.mockRejectedValueOnce(err);
+    renderPicker([skillsChoice()]);
+    fireEvent.click(screen.getByRole('button', { name: 'Athletics' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Perception' }));
+    const confirm = screen.getByRole('button', { name: /confirm choose 2 class skills/i });
+    fireEvent.click(confirm);
+    await flush();
+    expect(
+      screen.getByText(/that selection doesn.t match the expected shape/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/\[DnD\]/)).not.toBeInTheDocument();
+    // Busy latch released — Confirm is clickable again (still enabled, 2/2 picked).
+    expect(confirm).toBeEnabled();
+  });
+
+  it('a same-tick double click only resolves once (busy latch)', async () => {
+    renderPicker([skillsChoice()]);
+    fireEvent.click(screen.getByRole('button', { name: 'Athletics' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Perception' }));
+    const confirm = screen.getByRole('button', { name: /confirm choose 2 class skills/i });
+    fireEvent.click(confirm);
+    fireEvent.click(confirm);
+    await flush();
+    expect(mockResolve).toHaveBeenCalledTimes(1);
+  });
+});
