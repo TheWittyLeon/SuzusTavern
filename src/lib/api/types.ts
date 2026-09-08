@@ -253,6 +253,32 @@ export interface SpellWireInfo {
   higher_levels?: string | null;
 }
 
+/** HB-P7e (design doc §5a): the total-spend ceiling on a `variable_cost`
+ *  block. Arrives EITHER as a resolved integer (an engine that pre-resolves
+ *  it server-side) OR as an unresolved `{pb_mult}` expression (today's
+ *  engine — `resource_grants.Expr`'s grammar, engine/resource_grants.py) —
+ *  resolve with `resolveMaxSpend` (`@/lib/dnd/variableCost`), never assume
+ *  one shape. */
+export type VariableCostMaxSpend = number | { pb_mult: number };
+
+/** HB-P7e (design doc §5a). CONTRACT GAP as of 2026-09-08: the engine does
+ *  not yet emit this field anywhere on the known-spells wire
+ *  (`list_repertoire` / `_spell_wire_info`, engine/spells_msm.py) — see
+ *  CastSpellPanel's header comment. Declared here so the client is ready
+ *  the moment it ships; until then every `SheetSpellEntry.variable_cost` is
+ *  `undefined` and the spend chooser never renders. */
+export interface SpellVariableCost {
+  base_cost: number;
+  step_cost: number;
+  max_spend: VariableCostMaxSpend;
+  /** Both optional per §5a — a row may cost more without adding damage
+   *  (rare) or without any narrated geometry. */
+  per_step?: {
+    damage_dice?: string;
+    narrative?: string;
+  };
+}
+
 /** One entry in the character's own repertoire (GET /spells/:id/list). */
 export interface SheetSpellEntry extends SpellWireInfo {
   slug: string;
@@ -272,6 +298,10 @@ export interface SheetSpellEntry extends SpellWireInfo {
    *  so a frontend deploy that lands before the engine field ships degrades
    *  safely: undefined -> falsy -> self simply isn't offered yet. */
   heals?: boolean;
+  /** HB-P7e — see `SpellVariableCost`'s own doc comment for the contract
+   *  gap. Optional/absent for every ordinary spell and (today) for every
+   *  spell, period, until the engine ships it. */
+  variable_cost?: SpellVariableCost;
 }
 
 /** GET /api/dnd/spells/:id/list response data. */
@@ -926,6 +956,11 @@ export interface CombatActionRequest {
 export interface SpellCastRequest extends CombatActionRequest {
   spell_name: string;
   slot_level?: number;
+  /** HB-P7e: raw resource spend for a variable-cost spell (design doc
+   *  §4-P7c/§5). Sent iff the selected spell carries `variable_cost` —
+   *  omitted entirely for every ordinary spell, so a body without this
+   *  field is byte-identical to before HB-P7e existed. */
+  spend?: number;
 }
 
 /** T7 (DDX-17e): DM-only apply-condition body. DDX-CAST-TARGETID-PLUMBING:
