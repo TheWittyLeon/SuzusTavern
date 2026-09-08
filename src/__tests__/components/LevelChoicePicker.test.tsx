@@ -255,7 +255,7 @@ describe('LevelChoicePicker — subclass choice', () => {
     // Off-class options (Wizard's Evocation) must never appear for a Fighter.
     expect(screen.queryByRole('radio', { name: 'School of Evocation' })).not.toBeInTheDocument();
 
-    expect(mockGetCatalog).toHaveBeenCalledWith('dnd5e', { type: 'subclass' }, expect.anything());
+    expect(mockGetCatalog).toHaveBeenCalledWith('dnd5e', { type: 'subclass', limit: 500 }, expect.anything());
   });
 
   it('renders the card title as a real heading and labels the radiogroup by it (Iro MINOR-1/2)', async () => {
@@ -725,7 +725,10 @@ describe('LevelChoicePicker — ASI: feat mode busy-latch + loading-state confir
 
 describe('LevelChoicePicker — subclass: catalog failure, case-insensitive filter, empty seed set', () => {
   it('a catalog fetch failure shows an error and renders no confirm affordance — never crashes', async () => {
-    mockGetCatalog.mockImplementationOnce(() => Promise.reject(new Error('network down')));
+    // Both the class-catalog and subclass-catalog fetches (Kage-CR round 2:
+    // resolved in parallel via Promise.all) reject — either one failing
+    // fails the whole load.
+    mockGetCatalog.mockImplementation(() => Promise.reject(new Error('network down')));
     renderPicker([SUBCLASS_CHOICE]);
 
     const errorMsg = await screen.findByText(/couldn.?t load archetype options/i);
@@ -738,25 +741,36 @@ describe('LevelChoicePicker — subclass: catalog failure, case-insensitive filt
   });
 
   it('FIXED (Iro SERIOUS-4/DEFECT-2): a catalog fetch failure offers a Retry that re-fetches', async () => {
+    // Kage-CR round 2: loadOptions now issues TWO concurrent getCatalog
+    // calls per attempt (class, then subclass) — queue a once-rejection for
+    // each so the FIRST attempt's pair both fail; the retry's pair falls
+    // through to the default (successful) mock.
+    mockGetCatalog.mockImplementationOnce(() => Promise.reject(new Error('network down')));
     mockGetCatalog.mockImplementationOnce(() => Promise.reject(new Error('network down')));
     renderPicker([SUBCLASS_CHOICE]);
 
     await screen.findByText(/couldn.?t load archetype options/i);
-    expect(mockGetCatalog).toHaveBeenCalledTimes(1);
+    expect(mockGetCatalog).toHaveBeenCalledTimes(2);
 
     fireEvent.click(screen.getByRole('button', { name: /retry/i }));
 
     // The retry uses the default (successful) mock — options render.
     expect(await screen.findByRole('radio', { name: 'Champion' })).toBeInTheDocument();
-    expect(mockGetCatalog).toHaveBeenCalledTimes(2);
+    expect(mockGetCatalog).toHaveBeenCalledTimes(4);
   });
 
   it('filters the class match case-insensitively (engine may send any casing)', async () => {
-    mockGetCatalog.mockImplementationOnce((_s: string, opts: { type?: string }) => {
-      if (opts?.type !== 'subclass') return Promise.resolve(catalogResponse([]));
-      return Promise.resolve(
-        catalogResponse([catalogItem('champion', 'Champion', { class: 'FIGHTER' })]),
-      );
+    // No class-catalog row resolves ('Fighter' isn't seeded there in this
+    // fixture) — exercises subclassesForClass's own case-insensitive
+    // fallback compare against the raw name.
+    mockGetCatalog.mockImplementation((_s: string, opts: { type?: string }) => {
+      if (opts?.type === 'class') return Promise.resolve(catalogResponse([]));
+      if (opts?.type === 'subclass') {
+        return Promise.resolve(
+          catalogResponse([catalogItem('champion', 'Champion', { class: 'FIGHTER' })]),
+        );
+      }
+      return Promise.resolve(catalogResponse([]));
     });
     renderPicker([SUBCLASS_CHOICE]);
 
@@ -772,7 +786,9 @@ describe('LevelChoicePicker — subclass: catalog failure, case-insensitive filt
      *
      * Every SRD class is a single word, which is the ONLY reason the old code
      * held; this is the first multi-word class. Reproduced in the browser on
-     * dev as tav-test-1, 2026-08-21. */
+     * dev as tav-test-1, 2026-08-21. No class-catalog row resolves here
+     * either (Kage-CR round 2) — this exercises the raw-name FALLBACK path,
+     * which still needs to bridge ordinary multi-word names correctly. */
     const KI_CHOICE: PendingLevelChoice = {
       id: 'subclass:1',
       type: 'subclass',
@@ -780,17 +796,20 @@ describe('LevelChoicePicker — subclass: catalog failure, case-insensitive filt
       class: 'Ki Warrior',
       label: 'Choose your Ki Warrior archetype',
     };
-    mockGetCatalog.mockImplementationOnce((_s: string, opts: { type?: string }) => {
-      if (opts?.type !== 'subclass') return Promise.resolve(catalogResponse([]));
-      return Promise.resolve(
-        catalogResponse([
-          catalogItem('turtle-school', 'Turtle School', { class: 'ki-warrior' }),
-          catalogItem('crane-school', 'Crane School', { class: 'ki-warrior' }),
-          // A different class's row must still be excluded — without this the
-          // test would also pass if the filter were simply removed.
-          catalogItem('champion', 'Champion', { class: 'fighter' }),
-        ]),
-      );
+    mockGetCatalog.mockImplementation((_s: string, opts: { type?: string }) => {
+      if (opts?.type === 'class') return Promise.resolve(catalogResponse([]));
+      if (opts?.type === 'subclass') {
+        return Promise.resolve(
+          catalogResponse([
+            catalogItem('turtle-school', 'Turtle School', { class: 'ki-warrior' }),
+            catalogItem('crane-school', 'Crane School', { class: 'ki-warrior' }),
+            // A different class's row must still be excluded — without this the
+            // test would also pass if the filter were simply removed.
+            catalogItem('champion', 'Champion', { class: 'fighter' }),
+          ]),
+        );
+      }
+      return Promise.resolve(catalogResponse([]));
     });
     renderPicker([KI_CHOICE]);
 
@@ -801,18 +820,53 @@ describe('LevelChoicePicker — subclass: catalog failure, case-insensitive filt
   });
 
   it('shows "no archetypes seeded" and renders no confirm button when the filtered set is empty', async () => {
-    mockGetCatalog.mockImplementationOnce(() => Promise.resolve(catalogResponse([])));
+    mockGetCatalog.mockImplementation(() => Promise.resolve(catalogResponse([])));
     renderPicker([SUBCLASS_CHOICE]);
 
     expect(await screen.findByText(/no archetypes are seeded for fighter yet/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /confirm/i })).not.toBeInTheDocument();
   });
 
-  it('does NOT fetch the class catalog when the display-name filter already matches (no wasted request)', async () => {
+  // Kage-CR round 2: the fetch order is now class-first (resolve the real
+  // slug before filtering), not name-first-with-a-conditional-fallback —
+  // BOTH getCatalog calls fire on every card render, unconditionally. One
+  // extra request per render is the accepted cost of never risking a
+  // false-positive name match serving another class's archetypes.
+  it('always fetches BOTH the class and subclass catalogs (class-row resolution first)', async () => {
     renderPicker([SUBCLASS_CHOICE]);
     expect(await screen.findByRole('radio', { name: 'Champion' })).toBeInTheDocument();
-    expect(mockGetCatalog).toHaveBeenCalledTimes(1);
-    expect(mockGetCatalog).not.toHaveBeenCalledWith('dnd5e', { type: 'class' }, expect.anything());
+    expect(mockGetCatalog).toHaveBeenCalledTimes(2);
+    expect(mockGetCatalog).toHaveBeenCalledWith('dnd5e', { type: 'class' }, expect.anything());
+    expect(mockGetCatalog).toHaveBeenCalledWith('dnd5e', { type: 'subclass', limit: 500 }, expect.anything());
+  });
+
+  // Kage-CR round 2: catches the mutation "loadOptions just returns
+  // subclassRes.items" — which survived all 80 pre-existing tests, since
+  // none of them exercised "class row unresolved AND the subclass catalog
+  // is non-empty but contains no match for this class". A private/scoped-
+  // away class (its own row invisible to this session) must still fail
+  // CLOSED to the empty state, never leak another class's unfiltered rows.
+  it('FAIL-CLOSED: a class row that never resolves (private pack scoped away) renders the empty state, not an unfiltered subclass list', async () => {
+    const KI_CHOICE: PendingLevelChoice = {
+      id: 'subclass:1',
+      type: 'subclass',
+      level: 1,
+      class: 'Ki Warrior',
+      label: 'Choose your Ki Warrior archetype',
+    };
+    mockGetCatalog.mockImplementation((_s: string, opts: { type?: string }) => {
+      // Scoped away — the class's own row never resolves.
+      if (opts?.type === 'class') return Promise.resolve(catalogResponse([]));
+      // Non-empty, but every row is Fighter/Wizard's — none tagged
+      // 'ki-warrior'. A `return subclassRes.items` mutation would render
+      // these; the correct fallback filter must exclude all of them.
+      if (opts?.type === 'subclass') return Promise.resolve(catalogResponse(SUBCLASS_ITEMS));
+      return Promise.resolve(catalogResponse([]));
+    });
+    renderPicker([KI_CHOICE]);
+
+    expect(await screen.findByText(/no archetypes are seeded for ki warrior yet/i)).toBeInTheDocument();
+    expect(screen.queryByRole('radio')).not.toBeInTheDocument();
   });
 
   // TAV-FT-SUBCLASS-SLUG-PREFIX (2026-09-07): the class's SLUG carries a
@@ -820,10 +874,9 @@ describe('LevelChoicePicker — subclass: catalog failure, case-insensitive filt
   // speed`, NekoNova-DnDEngine `scripts/seed_data/leon-sonic-5e/10-classes.
   // json`) — the same shape as the Fairy Tail casters, hit here at level 3
   // instead of level 1. `choice.class`/`sheet.char_class` are both display
-  // names on the wire (this card has no slug in scope), so a bare
-  // subclassesForClass(items, charClass) call returns [] — the card must
-  // resolve the real slug via a class-catalog lookup before it can match.
-  it('REGRESSION (TAV-FT-SUBCLASS-SLUG-PREFIX): a class slug with a prefix the name lacks resolves via a class-catalog lookup', async () => {
+  // names on the wire (this card has no slug in scope), so the class-row
+  // lookup is the ONLY comparison that can resolve it.
+  it('REGRESSION (TAV-FT-SUBCLASS-SLUG-PREFIX): a class slug with a prefix the name lacks resolves via the class-catalog lookup', async () => {
     const SONIC_CHOICE: PendingLevelChoice = {
       id: 'subclass:3',
       type: 'subclass',
@@ -855,7 +908,6 @@ describe('LevelChoicePicker — subclass: catalog failure, case-insensitive filt
     expect(mockGetCatalog).toHaveBeenCalledWith('dnd5e', { type: 'class' }, expect.anything());
   });
 });
-
 describe('LevelChoicePicker — subclass-scoped menus (ENGINE-SUBCLASS-SCOPED-MENUS)', () => {
   const FEATURE_CHOICE: PendingLevelChoice = {
     id: 'feature_choice:1',

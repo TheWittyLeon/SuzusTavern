@@ -92,7 +92,7 @@ import {
   learnSpell,
   resolveLevelChoice,
 } from '@/lib/api/dnd';
-import { ABILITIES, radioStepIndex, type AbilityKey } from '@/lib/dnd/helpers';
+import { ABILITIES, radioStepIndex, slugifyName, type AbilityKey } from '@/lib/dnd/helpers';
 import { subclassesForClass } from '@/lib/dnd/catalog';
 import type {
   ApiError,
@@ -385,27 +385,32 @@ function SubclassChoiceCard({
     // Unlike the creation wizard, this card has no class SLUG in scope —
     // `choice.class`/`sheet.char_class` are both display names on the wire
     // (PendingLevelChoice's own doc comment; CharacterSheet carries no
-    // class-slug field at all). Try the name first — it's correct for
-    // every SRD/no-prefix homebrew class today and costs nothing extra.
-    // Only on a genuinely empty result do we pay for a second fetch: look
-    // the class up by name in the class catalog to get its real slug, and
-    // re-filter with THAT. A class the lookup can't find (or a class that
-    // really has zero seeded subclasses) stays empty either way — the
-    // "no archetypes are seeded" state below still fires correctly.
+    // class-slug field at all). Kage-CR round 2: resolve the class ROW
+    // FIRST via a name match against the class catalog (mirrors the
+    // engine's own `_resolve` step 2), and use ITS slug to filter — a
+    // name-first order (try the raw name, only look the class up on an
+    // empty result) would silently serve another class's archetypes the
+    // moment two class names ever slugified to the same string, because a
+    // false-positive name match on the WRONG class's rows would never even
+    // trigger the fallback lookup. One class-catalog fetch per card render
+    // is the accepted cost of closing that gap. A class row that never
+    // resolves (e.g. a private pack scoped away from this session) degrades
+    // to the old raw-name compare — still correct for every SRD/no-prefix
+    // class, and fails CLOSED (empty) rather than returning an unfiltered
+    // subclass list for anything else.
     async function loadOptions(): Promise<CatalogItem[]> {
-      const subclassRes = await getCatalog(SYSTEM, { type: 'subclass' }, ac.signal);
-      const byName = subclassesForClass(subclassRes.items, charClass);
-      if (byName.length > 0) return byName;
-      const classRes = await getCatalog(SYSTEM, { type: 'class' }, ac.signal);
-      const classRow = classRes.items.find(
-        (c) => c.name.trim().toLowerCase() === charClass.trim().toLowerCase(),
-      );
-      if (!classRow) return byName;
-      return subclassesForClass(subclassRes.items, classRow.slug);
+      const [classRes, subclassRes] = await Promise.all([
+        getCatalog(SYSTEM, { type: 'class' }, ac.signal),
+        getCatalog(SYSTEM, { type: 'subclass', limit: 500 }, ac.signal),
+      ]);
+      const classRow = classRes.items.find((c) => slugifyName(c.name) === slugifyName(charClass));
+      if (classRow) return subclassesForClass(subclassRes.items, classRow.slug);
+      return subclassesForClass(subclassRes.items, charClass);
     }
 
     loadOptions()
       .then((filtered) => {
+        if (ac.signal.aborted) return;
         setOptions(filtered);
         setSelectedSlug((prev) => prev || filtered[0]?.slug || '');
         setLoadState('ok');
@@ -568,7 +573,7 @@ function AsiChoiceCard({ characterId, username, sheet, choice, onResolved }: Cho
     const ac = new AbortController();
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setFeatLoadState('loading');
-    getCatalog(SYSTEM, { type: 'feat' }, ac.signal)
+    getCatalog(SYSTEM, { type: 'feat', limit: 500 }, ac.signal)
       .then((res) => {
         const alreadyTaken = new Set((sheet.feats ?? []).map((f) => f.slug));
         const eligible = res.items.filter(
