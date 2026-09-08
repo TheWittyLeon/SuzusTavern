@@ -98,6 +98,7 @@ export function useSuzuNote(
               `In one or two sentences, in character, give a flavorful note about ` +
               `${sheet.name}, a level ${sheet.level} ${sheet.race} ${sheet.char_class} ` +
               `with a ${sheet.background} background. No mechanics.`,
+            stateless: true,
           },
           { signal: ctrl.signal },
         )) {

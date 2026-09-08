@@ -115,6 +115,21 @@ describe('useSuzuNote', () => {
     expect(mStream).not.toHaveBeenCalled();
   });
 
+  // NEKONOVA-WIZARD-COMMENTARY-CONTEXT-BLEED (2026-09-09): a one-shot note, so
+  // it opts out of the narrator's username-keyed context. The engine default is
+  // stateful, so the flag must be sent explicitly on this request.
+  it('sends stateless:true on the one-shot note request', async () => {
+    mStream.mockImplementation(async function* () {
+      yield { kind: 'chunk' as const, text: 'A quiet sort.' };
+      yield { kind: 'done' as const };
+    });
+    renderHook(() => useSuzuNote(sheet, 'full'));
+    await waitFor(() => expect(mStream).toHaveBeenCalled());
+    expect(mStream.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ username: 'leon', stateless: true }),
+    );
+  });
+
   it('generates once via narration when assist is on, then persists it', async () => {
     mStream.mockImplementation(async function* () {
       yield { kind: 'chunk' as const, text: 'This one steals hearts and coin purses alike.' };

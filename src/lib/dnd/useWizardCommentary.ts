@@ -58,7 +58,7 @@ export function useWizardCommentary(opts: {
       let full = '';
       try {
         for await (const ev of streamNarration(
-          { username, channel: 'character-creation', message: promptRef.current },
+          { username, channel: 'character-creation', message: promptRef.current, stateless: true },
           { signal: ctrl.signal },
         )) {
           if (ev.kind === 'chunk') {

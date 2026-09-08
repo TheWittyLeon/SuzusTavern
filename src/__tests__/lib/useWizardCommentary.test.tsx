@@ -44,6 +44,23 @@ describe('useWizardCommentary', () => {
     expect(mStream).toHaveBeenCalledTimes(1);
   });
 
+  // NEKONOVA-WIZARD-COMMENTARY-CONTEXT-BLEED (2026-09-09): this hook is a
+  // one-shot flavor-text caller, so it must opt out of the narrator's
+  // username-keyed context entirely. The engine default is stateful, so the
+  // flag has to be sent explicitly on every request from here.
+  it('sends stateless:true so the one-shot commentary reads/writes no user context', async () => {
+    mStream.mockImplementation(async function* () {
+      yield { kind: 'chunk' as const, text: 'A rogue, naturally.' };
+    });
+    renderHook(() =>
+      useWizardCommentary({ aiAssistLevel: 'full', username: 'leon', commentaryKey: '9', prompt: 'p' }),
+    );
+    await waitFor(() => expect(mStream).toHaveBeenCalledTimes(1));
+    expect(mStream.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ username: 'leon', channel: 'character-creation', stateless: true }),
+    );
+  });
+
   it('handles the [DONE] sentinel — keeps the text, stops streaming', async () => {
     mStream.mockImplementation(async function* () {
       yield { kind: 'chunk' as const, text: 'A halfling. Bold.' };

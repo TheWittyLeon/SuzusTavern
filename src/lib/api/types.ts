@@ -1830,6 +1830,13 @@ export interface NarrationRequest {
   username: string;
   message: string;
   channel: string;
+  /** NEKONOVA-WIZARD-COMMENTARY-CONTEXT-BLEED (2026-09-09). When true the
+   *  narrator answers as a pure one-shot: it reads none of the three
+   *  username-keyed context sources (conversation window, durable facts,
+   *  vector memories) and writes neither a window entry nor extracted facts.
+   *  Omitted/false = today's stateful behavior for every existing caller.
+   *  Set by the one-shot flavor-text hooks only. */
+  stateless?: boolean;
 }
 
 /** DM-narration request (ST-062) — POST /api/narration/dm/stream.
