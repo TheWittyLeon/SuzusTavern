@@ -142,6 +142,26 @@ const RESOLVED_ROAR_SPELL: SheetSpellEntry = {
   },
 };
 
+// A second, differently-priced variable_cost spell (own base_cost/step_cost,
+// no per_step) — for the spell-switch state-transition case: spend must
+// reset to the NEWLY selected spell's own base_cost, not carry over a stale
+// value from whatever was selected before.
+const EMBER_SPELL: SheetSpellEntry = {
+  slug: 'ember-lash',
+  name: 'Ember Lash',
+  level: 1,
+  school: 'evocation',
+  source: 'class',
+  prepared: true,
+  is_cantrip: false,
+  concentration: false,
+  ritual: false,
+  castable_now: true,
+  min_slot_level: 1,
+  heals: false,
+  variable_cost: { base_cost: 6, step_cost: 3, max_spend: 15 },
+};
+
 // pb_mult:3 (rather than ROAR_SPELL's 2) so a PB other than 2 disambiguates
 // multiplication from addition (QA gate item 3): at PB=3, mult gives 9
 // (which ALSO happens to land off a step-2-from-base-2 boundary, exercising
@@ -1420,6 +1440,26 @@ describe('CastSpellPanel — HB-P7e spend stepper', () => {
   // OWN gate (spendOverPool) — independent of the slider's construction —
   // must still refuse the cast rather than let it through at a price the
   // character can't pay.
+  it('switching between two DIFFERENT variable-cost spells resets spend to the newly selected spell\'s own base_cost, not a stale value', async () => {
+    withRoar([ROAR_SPELL, EMBER_SPELL]);
+    renderPanel({ spellPoints: magicPower(20), proficiencyBonus: 2 });
+    await flush();
+
+    selectBySlug('fire-dragons-roar');
+    let slider = await screen.findByRole('slider');
+    fireEvent.change(slider, { target: { value: '4' } }); // bump roar's spend off its default
+    await flush();
+    expect(slider).toHaveAttribute('value', '4');
+
+    selectBySlug('ember-lash');
+    await flush();
+    slider = await screen.findByRole('slider');
+    // Ember Lash's own base_cost (6), never a stale 4 carried over from Roar.
+    expect(slider).toHaveAttribute('value', '6');
+    expect(slider).toHaveAttribute('aria-valuenow', '6');
+    expect(slider).toHaveAttribute('min', '6');
+  });
+
   it('pool affords less than base_cost — slider collapses to base_cost and the cast button stays disabled', async () => {
     withRoar();
     renderPanel({ spellPoints: magicPower(1), proficiencyBonus: 2 });
