@@ -144,6 +144,7 @@ import {
   formatMod,
   hasBackgroundBlurb,
   humanizeSkill,
+  normalizeSkillOptions,
   pointsRemaining,
   type AbilityKey,
   type AbilityScores,
@@ -618,6 +619,14 @@ export default function CharacterNewPage(): ReactNode {
   // the callout title once >0 so the alert's text content genuinely
   // differs attempt to attempt.
   const [retryAttempt, setRetryAttempt] = useState(0);
+  // Kage-CR follow-up (2026-09-08): true from the moment a final-submit
+  // (handleSubmit) apply attempt is blocked by a setup issue until either a
+  // successful "Retry setup" or a class change clears it. handleRetrySetup
+  // reads this to decide whether a clean retry should FINISH the submit the
+  // player already tried (navigate straight to the sheet) or just clear the
+  // callout (the ordinary early-create-then-still-browsing-Review case,
+  // where the player never clicked "Begin your campaign" at all).
+  const [awaitingSubmitRetry, setAwaitingSubmitRetry] = useState(false);
 
   const headingRef = useRef<HTMLHeadingElement>(null);
   const errorRetryRef = useRef<HTMLButtonElement>(null);
@@ -786,6 +795,7 @@ export default function CharacterNewPage(): ReactNode {
       setSkillsDone(false);
       setSetupIssues([]);
       setRetryAttempt(0);
+      setAwaitingSubmitRetry(false);
     }
   }, [cls]);
 
@@ -1267,6 +1277,21 @@ export default function CharacterNewPage(): ReactNode {
             setSkillsDone(true);
           } else {
             const cap = pending.count ?? clsObj?.skillCount ?? 0;
+            // Kage-CR follow-up (2026-09-08, "suggestion 1"): validate
+            // against `pending.options` — the AUTHORITATIVE, server-
+            // enriched pool (already excludes proficient_skills, the same
+            // ENGINE-PENDING-OPTIONS-INCLUDE-KNOWN-PICKS / obs #168
+            // discipline `feature_choice` already applies) — rather than
+            // trusting the wizard's own client-side `skillOptions` mirror,
+            // which was computed against whatever background/class were
+            // selected at THAT render and can't see a server-side edit.
+            // Closes obs #168 without re-deriving the exclusion rule here.
+            const validSlugs = new Set(
+              normalizeSkillOptions(pending.options).map((o) => o.slug),
+            );
+            const invalidPicks = Array.from(skillPicks).filter(
+              (slug) => !validSlugs.has(slug),
+            );
             if (skillPicks.size !== cap) {
               // Kage-CR #9 precedent (subclass branch above): canContinue on
               // the Skills step already requires exactly `cap` picks before
@@ -1276,6 +1301,10 @@ export default function CharacterNewPage(): ReactNode {
               // in for copy this file can write itself.
               issues.push(
                 `${clsObj?.name ?? 'Your'} class skills were never chosen — pick them from the character sheet.`,
+              );
+            } else if (invalidPicks.length > 0) {
+              issues.push(
+                `${clsObj?.name ?? 'Your'} class skills couldn't be saved — one of the picks isn't on this class's list anymore. Fix it from the character sheet.`,
               );
             } else {
               try {
@@ -1403,6 +1432,16 @@ export default function CharacterNewPage(): ReactNode {
   // characterId. Idempotent: subclassDone/rungDone skip whatever already
   // succeeded, and getFeaturePicks diffs rungPicks against what the server
   // already knows before re-attempting learnFeaturePick.
+  //
+  // Kage-CR follow-up (2026-09-08): a successful retry NAVIGATES straight to
+  // the new sheet when `awaitingSubmitRetry` is set — the player already
+  // clicked "Begin your campaign" once and handleSubmit's own apply attempt
+  // is what put the callout here (see handleSubmit's issues.length gate
+  // below); finishing that submit for them beats making them click it a
+  // second time. Otherwise (the ordinary case: an early-create apply failed
+  // and the player is still browsing Spells/Review, never having clicked
+  // submit) this stays exactly as before — clear the callout, toast, stay
+  // put; "Begin your campaign" remains a separate, explicit action.
   const handleRetrySetup = useCallback(async () => {
     if (!characterId) return;
     setRetryingSetup(true);
@@ -1410,6 +1449,12 @@ export default function CharacterNewPage(): ReactNode {
       const issues = await applyPendingSetup(characterId);
       setSetupIssues(issues);
       if (issues.length === 0) {
+        if (awaitingSubmitRetry) {
+          setAwaitingSubmitRetry(false);
+          toast({ message: 'Setup finished — everything is saved.', tone: 'success' });
+          router.push(`/character/${encodeURIComponent(characterId)}`);
+          return;
+        }
         // Iro-A11y MINOR-3: the callout just unmounting on success gives AT
         // no confirmation — fire the existing Toast (role="status" for a
         // non-error tone) so success is actually announced.
@@ -1423,7 +1468,7 @@ export default function CharacterNewPage(): ReactNode {
     } finally {
       setRetryingSetup(false);
     }
-  }, [characterId, applyPendingSetup, toast]);
+  }, [characterId, applyPendingSetup, toast, awaitingSubmitRetry, router]);
 
   const handleSubmit = useCallback(async () => {
     if (!canCreatePrereqs && !characterId) return;
@@ -1441,6 +1486,15 @@ export default function CharacterNewPage(): ReactNode {
       let staleCharId: string | null = null;
       if (!charId) {
         charId = await createNow();
+        // Kage-CR follow-up (2026-09-08): this used to leave `characterId`
+        // state null on this (previously rare, now the MAJORITY — 12/12 SRD
+        // classes declare a skill pool) path, so "Retry setup" below
+        // (which reads `characterId` state, not this local `charId`) could
+        // never find the character to retry against, and a second submit
+        // click would silently create a SECOND character instead of
+        // resuming this one. Mirrors the F7-recreate branch's own stamp.
+        setCharacterId(charId);
+        setCreatedSnapshot(snapshotNow());
       } else if (createdSnapshot && !snapshotsEqual(createdSnapshot, snapshotNow())) {
         staleCharId = charId;
         charId = await createNow();
@@ -1461,10 +1515,27 @@ export default function CharacterNewPage(): ReactNode {
       // real only on an F7 recreate. For Skills (ORACLE-CANDIDATE-1) this is
       // the FIRST and only application for a class with no other reason to
       // silent-create early (see needsSilentCreate's doc comment) — `charId`
-      // was just created a few lines up in that case.
+      // was just created a few lines up in that case, and — Kage-CR follow-
+      // up (2026-09-08) — this is now the MAJORITY final-submit path: every
+      // SRD class declares a skill pool (12/12), and barbarian/fighter/
+      // monk/rogue have no OTHER early-create trigger at all, so this is
+      // their only apply attempt.
       if (hasSubclassStep || hasRungStep || hasSkillsStep) {
         const issues = await applyPendingSetup(charId);
         setSetupIssues(issues);
+        if (issues.length > 0) {
+          // Kage-CR follow-up: used to fall through to router.push
+          // unconditionally — the player got a "needs a follow-up" toast
+          // pointing at a Review screen that had just been unmounted out
+          // from under them, and never saw "Retry setup". The character
+          // already exists (createNow succeeded above) — stay on Review
+          // with the persistent callout instead; a successful "Retry
+          // setup" (see its own doc comment) finishes this submit for them.
+          setAwaitingSubmitRetry(true);
+          setSubmitting(false);
+          return;
+        }
+        setAwaitingSubmitRetry(false);
       }
 
       // Caster path: batch-apply the spell picks against whichever character

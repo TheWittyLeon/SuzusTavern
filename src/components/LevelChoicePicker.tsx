@@ -1554,6 +1554,12 @@ function SkillsChoiceCard({ characterId, username, sheet, choice, onResolved }: 
   // deploy ordering of this repo and NekoNova-DnDEngine.
   const options = normalizeSkillOptions(choice.options);
   const pickHintId = `${headingId}-picks`;
+  // Iro-A11y CRITICAL-1 precedent (TAV-A11Y-CAP-HINT -- third instance,
+  // mirrors the wizard's RungStep `rung-cap-hint`/SkillsStep `skills-cap-
+  // hint` exactly, Kage-CR follow-up 2026-09-08): native `disabled` drops a
+  // capped option out of the Tab order, so the reason has to be discoverable
+  // another way for a keyboard/switch user.
+  const capHintId = `${headingId}-cap-hint`;
 
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
@@ -1627,6 +1633,15 @@ function SkillsChoiceCard({ characterId, username, sheet, choice, onResolved }: 
           <p id={pickHintId} className={styles.hint} aria-live="polite" aria-atomic="true">
             {picked.size} of {cap} chosen
           </p>
+          <p id={capHintId} className="sr-only">
+            {picked.size >= cap ? (
+              <>You&rsquo;ve chosen all {cap} skill{cap === 1 ? '' : 's'} — deselect one to pick another.</>
+            ) : (
+              <>
+                {picked.size} of {cap} skills chosen — pick {cap - picked.size} more.
+              </>
+            )}
+          </p>
           <div className={styles.optionRow} role="group" aria-labelledby={pickHintId}>
             {options.map((o) => {
               const isOn = picked.has(o.slug);
@@ -1636,6 +1651,7 @@ function SkillsChoiceCard({ characterId, username, sheet, choice, onResolved }: 
                   key={o.slug}
                   type="button"
                   aria-pressed={isOn}
+                  aria-describedby={atCap ? capHintId : undefined}
                   className={isOn ? `${styles.option} ${styles.optionOn}` : styles.option}
                   disabled={busy || atCap}
                   onClick={() => togglePick(o.slug)}

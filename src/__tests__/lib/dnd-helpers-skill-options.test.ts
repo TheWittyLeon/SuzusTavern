@@ -17,10 +17,17 @@ describe('normalizeSkillOption', () => {
     });
   });
 
-  it('accepts a bare string (tolerance for the other deploy ordering) and humanizes it', () => {
+  it('accepts a bare string (tolerance for the other deploy ordering) and humanizes it via the curated SKILLS table', () => {
     expect(normalizeSkillOption('sleight_of_hand')).toEqual({
       slug: 'sleight_of_hand',
-      name: 'Sleight Of Hand',
+      name: 'Sleight of Hand', // NOT the naive split-capitalize 'Sleight Of Hand'
+    });
+  });
+
+  it('a bare string for an unknown/homebrew slug falls back to split-capitalize', () => {
+    expect(normalizeSkillOption('shadow_weaving')).toEqual({
+      slug: 'shadow_weaving',
+      name: 'Shadow Weaving',
     });
   });
 

@@ -80,10 +80,14 @@ describe('ability modifiers (helpers)', () => {
 });
 
 describe('humanizeSkill (helpers)', () => {
-  it('capitalizes each word from snake_case', () => {
-    expect(humanizeSkill('sleight_of_hand')).toBe('Sleight Of Hand');
+  it('looks up the curated SKILLS table first — "Sleight of Hand", NOT the naive split-capitalize "Sleight Of Hand" (Kage-CR follow-up, 2026-09-08)', () => {
+    expect(humanizeSkill('sleight_of_hand')).toBe('Sleight of Hand');
     expect(humanizeSkill('animal_handling')).toBe('Animal Handling');
     expect(humanizeSkill('stealth')).toBe('Stealth');
+  });
+
+  it('falls back to split-capitalize for an unknown/homebrew slug not in SKILLS', () => {
+    expect(humanizeSkill('shadow_weaving')).toBe('Shadow Weaving');
   });
 });
 

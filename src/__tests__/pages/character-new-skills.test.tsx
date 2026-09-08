@@ -135,6 +135,23 @@ const SORCERER = {
   skillCount: 2,
 };
 
+// Kage-CR follow-up (2026-09-08), pin #1: a class row that declares a
+// skill_choices POOL but skill_count: 0 — hasSkillsStep must gate on BOTH
+// (`skillCount > 0 && skillChoices.length > 0`), not skillChoices alone.
+const NO_PICKS_CLASS = {
+  id: 'no-picks',
+  name: 'Herald',
+  hitDie: 8,
+  saves: ['wisdom', 'charisma'] as ['wisdom', 'charisma'],
+  icon: 'Cleric' as const,
+  accent: 'var(--accent-3)',
+  flavor: 'Knows everything already, apparently.',
+  isCaster: false,
+  primary: ['wisdom'] as ['wisdom'],
+  skillChoices: ['insight', 'religion', 'persuasion'],
+  skillCount: 0,
+};
+
 const defaultCatalog = {
   status: 'ok' as const,
   retry: jest.fn(),
@@ -152,7 +169,7 @@ const defaultCatalog = {
         needsAsiChoice: false,
       },
     ],
-    classes: [SCOUT, DEVOTEE, FIGHTER, SORCERER],
+    classes: [SCOUT, DEVOTEE, FIGHTER, SORCERER, NO_PICKS_CLASS],
     backgrounds: [
       { id: 'acolyte', name: 'Acolyte', skills: ['insight', 'religion'], blurb: 'you were good at the prayers.' },
     ],
@@ -218,10 +235,17 @@ const SORCERER_AVAILABLE = {
 // Default sheet a `getCharacterSheet` call returns post-create — carries the
 // `skills:1` pending choice (the engine's normal case) unless a test
 // overrides it (e.g. to prove the "absence is not a failure" behaviour).
-function sheetWithPendingSkills(count = 2) {
+// `options` defaults to Scout's own pool (Kage-CR follow-up, 2026-09-08:
+// applyPendingSetup now validates picks against THIS authoritative,
+// server-enriched list before resolving) — a test exercising a different
+// class's picks (e.g. Sorcerer) passes its own pool explicitly.
+const SCOUT_POOL = ['acrobatics', 'athletics', 'insight', 'perception', 'stealth', 'survival'];
+function sheetWithPendingSkills(count = 2, options: string[] = SCOUT_POOL) {
   return {
     name: 'Velka',
-    pending_choices: [{ id: 'skills:1', type: 'skills', level: 1, class: 'Scout', count, label: `Choose ${count} class skills` }],
+    pending_choices: [
+      { id: 'skills:1', type: 'skills', level: 1, class: 'Scout', count, label: `Choose ${count} class skills`, options },
+    ],
   };
 }
 
@@ -259,7 +283,8 @@ function fillBackground() {
 }
 
 describe('Skills step presence (ORACLE-CANDIDATE-1 / TAV-SKILLS-STEP)', () => {
-  it('is ABSENT for a class with no skill_choices/skill_count (fighter) — byte-identical to before', async () => {
+  it('is ABSENT for a class with no skill_choices/skill_count (fighter) — byte-identical to before, and resolveLevelChoice is never called at submit', async () => {
+    mockCreateCharacter.mockResolvedValue({ character_id: 'char-fighter' });
     renderWizard();
     pickRace();
     pickClass(/Fighter/i);
@@ -268,6 +293,44 @@ describe('Skills step presence (ORACLE-CANDIDATE-1 / TAV-SKILLS-STEP)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Equipment directly
     expect(screen.queryByText('What are you actually good at?')).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByText(/What did you bring/i)).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
+    await act(async () => {
+      fireEvent.click(await screen.findByRole('button', { name: /Begin your campaign/i }));
+    });
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/character/char-fighter'));
+    // No skills:1 (or any) resolve was ever attempted for a class with
+    // nothing to resolve — getCharacterSheet's presence-check is the
+    // absence-tolerant path (see the "coordinator note" test below); a
+    // class that never even RENDERS the step must not reach that path at
+    // all, since hasSubclassStep/hasRungStep/hasSkillsStep are all false.
+    expect(mockGetCharacterSheet).not.toHaveBeenCalled();
+    expect(mockResolveLevelChoice).not.toHaveBeenCalled();
+  });
+
+  // Kage-CR follow-up (2026-09-08), pin #1: skill_choices PRESENT but
+  // skill_count: 0 — hasSkillsStep must gate on BOTH fields, not the pool
+  // alone (a mutation dropping the `skillCount > 0` half of that AND would
+  // otherwise still show a Skills step, and worse, still attempt a resolve
+  // with cap 0).
+  it('is ABSENT for a class whose skill_choices pool is non-empty but skill_count is 0', async () => {
+    mockCreateCharacter.mockResolvedValue({ character_id: 'char-herald' });
+    renderWizard();
+    pickRace();
+    pickClass(/Herald/i);
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Background
+    fillBackground();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Equipment directly
+    expect(screen.queryByText('What are you actually good at?')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/What did you bring/i)).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
+    await act(async () => {
+      fireEvent.click(await screen.findByRole('button', { name: /Begin your campaign/i }));
+    });
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/character/char-herald'));
+    expect(mockGetCharacterSheet).not.toHaveBeenCalled();
+    expect(mockResolveLevelChoice).not.toHaveBeenCalled();
   });
 
   it('is PRESENT for a class with a declared skill pool (scout)', async () => {
@@ -369,6 +432,48 @@ describe('Skills apply sequence — slow path (no other silent-create trigger)',
     expect(screen.getAllByText('Perception').length).toBeGreaterThan(0);
   });
 
+  // Kage-CR follow-up (2026-09-08), pin #2: `cap = pending.count ??
+  // clsObj?.skillCount ?? 0` — the SHEET's authoritative count must win over
+  // the class row's own copy when they disagree. Scout's catalog row says
+  // skillCount: 2 (the real UI lets the player pick exactly 2, no more), but
+  // the SHEET's real pending choice says 3 — a genuine client/server
+  // disagreement (e.g. a catalog edit landed between page load and create).
+  // A mutation that flips the `??` precedence to prefer clsObj.skillCount
+  // would see 2 === 2 and wrongly resolve; the correct code sees 2 !== 3
+  // and refuses instead.
+  it("uses the SHEET's authoritative pending.count over the class row's skillCount when they disagree", async () => {
+    mockGetCharacterSheet.mockResolvedValue(sheetWithPendingSkills(3));
+    await advanceToReview();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
+    });
+    await waitFor(() => expect(mockGetCharacterSheet).toHaveBeenCalled());
+    expect(mockResolveLevelChoice).not.toHaveBeenCalled();
+    expect(await screen.findByText('Setup incomplete')).toBeInTheDocument();
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  // Kage-CR follow-up (2026-09-08), suggestion 1: validate picks against
+  // the AUTHORITATIVE `pending.options` (server-enriched, already excludes
+  // proficient_skills) before ever attempting the resolve — closes obs #168
+  // without re-deriving the exclusion rule. 'perception' is a real pick
+  // (offered by the wizard's own client-side skillOptions mirror) but the
+  // SERVER's enrichment doesn't offer it this time — a genuine drift the
+  // client-side mirror alone can't catch.
+  it("blocks the resolve when a pick isn't on the sheet's authoritative options, even though the wizard's own mirror offered it", async () => {
+    mockGetCharacterSheet.mockResolvedValue(
+      sheetWithPendingSkills(2, ['acrobatics', 'athletics', 'insight', 'stealth', 'survival']),
+    );
+    await advanceToReview();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
+    });
+    await waitFor(() => expect(mockGetCharacterSheet).toHaveBeenCalled());
+    expect(mockResolveLevelChoice).not.toHaveBeenCalled();
+    expect(await screen.findByText('Setup incomplete')).toBeInTheDocument();
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
   it('coordinator note: the choice being ABSENT from the real sheet after create is NOT a failure', async () => {
     mockGetCharacterSheet.mockResolvedValue({ name: 'Velka', pending_choices: [] });
     await advanceToReview();
@@ -382,21 +487,30 @@ describe('Skills apply sequence — slow path (no other silent-create trigger)',
     expect(screen.queryByText('Setup incomplete')).not.toBeInTheDocument();
   });
 
-  it('a resolveLevelChoice(skills:1) refusal surfaces a setup-issues callout, never blocking navigation to the sheet', async () => {
+  it('a resolveLevelChoice(skills:1) refusal on final submit STAYS on Review with the callout + Retry — never navigates away (Kage-CR follow-up, 2026-09-08)', async () => {
     mockResolveLevelChoice.mockRejectedValueOnce(new Error('boom'));
     await advanceToReview();
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
     });
-    // The final submit still navigates (character exists either way) — but
-    // wait, handleSubmit navigates AFTER the apply block, so re-render on
-    // this same screen would already have moved on. Assert via the mock
-    // call instead of the (now-unmounted) DOM.
+
+    // Character exists (createCharacter succeeded) but the apply failed —
+    // the wizard must NOT navigate away and strand the player on a sheet
+    // that never saw the callout/retry.
     await waitFor(() =>
       expect(mockResolveLevelChoice).toHaveBeenCalledWith('char-scout', 'alice', 'skills:1', {
         picks: expect.arrayContaining(['athletics', 'perception']),
       }),
     );
+    expect(await screen.findByText('Setup incomplete')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry setup' })).toBeInTheDocument();
+    expect(mockPush).not.toHaveBeenCalled();
+
+    // A successful Retry finishes the submit the player already tried —
+    // navigates straight to the sheet, no second "Begin your campaign" click.
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Retry setup' }));
+    });
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/character/char-scout'));
   });
 
@@ -415,6 +529,9 @@ describe('Skills apply sequence — slow path (no other silent-create trigger)',
 describe('Skills apply sequence — fast path (a class that already silent-creates early)', () => {
   it('resolveLevelChoice(skills:1) fires as part of the SAME early silent-create sequence as spells (Equipment -> next)', async () => {
     mockCreateCharacter.mockResolvedValue({ character_id: 'char-sorc' });
+    mockGetCharacterSheet.mockResolvedValue(
+      sheetWithPendingSkills(2, ['arcana', 'deception', 'insight', 'intimidation', 'persuasion', 'religion']),
+    );
     renderWizard();
     pickRace();
     pickClass(/Sorcerer/i);

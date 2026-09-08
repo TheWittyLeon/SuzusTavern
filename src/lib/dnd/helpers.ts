@@ -142,8 +142,19 @@ export function formatMod(score: number): string {
 
 // ── Skill helpers ─────────────────────────────────────────────────────────────
 
-/** 'sleight_of_hand' → 'Sleight of Hand'. */
+/** 'sleight_of_hand' → 'Sleight of Hand'. Looks up the curated SKILLS table
+ *  FIRST (the same table the character sheet renders skill names from) so
+ *  this never disagrees with it — a naive split-capitalize gives 'Sleight
+ *  Of Hand' (capitalized "Of"), which the sheet has never shown. Falls back
+ *  to split-capitalize only for a slug SKILLS doesn't know (an unknown/
+ *  homebrew skill) — Kage-CR follow-up (2026-09-08): this also makes the
+ *  bare-string tolerance branch of normalizeSkillOption below agree with
+ *  the engine's own curated `name` on the {slug, name} wire shape, so a
+ *  degraded (string-only) `skills:1` option and the real one render
+ *  identically. */
 export function humanizeSkill(skill: string): string {
+  const known = SKILLS.find((s) => s.key === skill);
+  if (known) return known.name;
   return skill
     .split('_')
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))

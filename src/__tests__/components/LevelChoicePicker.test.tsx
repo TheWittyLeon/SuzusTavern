@@ -2038,6 +2038,25 @@ describe('LevelChoicePicker — skills choice (ORACLE-CANDIDATE-1, 2026-09-08)',
     expect(screen.getByRole('button', { name: 'Stealth' })).toBeEnabled();
   });
 
+  // Kage-CR follow-up (2026-09-08), suggestion 2: same TAV-A11Y-CAP-HINT
+  // mechanism as the wizard's RungStep/SkillsStep (third instance) — a
+  // capped, disabled option must reference a hidden hint explaining why,
+  // since native `disabled` drops it from the Tab order.
+  it('a capped option references the hidden cap hint; an unpicked option below cap does not', () => {
+    renderPicker([skillsChoice()]);
+    const athletics = screen.getByRole('button', { name: 'Athletics' });
+    const stealth = screen.getByRole('button', { name: 'Stealth' });
+    // Below cap: nothing is disabled, so nothing references the hint.
+    expect(stealth).not.toHaveAttribute('aria-describedby');
+    fireEvent.click(athletics);
+    fireEvent.click(screen.getByRole('button', { name: 'Perception' }));
+    // At cap: the now-disabled Stealth option references the hidden hint.
+    expect(stealth).toHaveAttribute('aria-describedby', expect.stringContaining('cap-hint'));
+    expect(
+      document.getElementById(stealth.getAttribute('aria-describedby')!)?.textContent,
+    ).toMatch(/You.ve chosen all 2 skills — deselect one to pick another/i);
+  });
+
   it('TOLERANCE (coordinator note, 2026-09-08): a bare skill-slug string per option renders and resolves identically to {slug, name}', async () => {
     renderPicker([skillsChoice({ options: ['athletics', 'perception', 'stealth'] as never })]);
     // Bare string is humanized for display.
