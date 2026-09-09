@@ -44,6 +44,14 @@ export interface WizardSubrace {
   bonuses: Partial<Record<AbilityKey, number>>;
   bonusLabel: string;
   speed?: number;
+  /** RACE-SKILLS-STAMP / Iro live-walk follow-up (2026-09-09) — a
+   *  subrace's OWN skill-proficiency grant, additive with the base race's
+   *  (mirrors the engine's `race_skill_proficiencies`: union, never
+   *  override — no real 5e subrace removes its base race's grant). Empty
+   *  for every subrace seeded today (verified live on suzu_dnd_dev,
+   *  2026-09-08: zero subraces declare their own key) — this is
+   *  forward-compatible plumbing, not yet exercised by real content. */
+  skillProficiencies?: string[];
 }
 
 export interface WizardRace {
@@ -86,6 +94,16 @@ export interface WizardRace {
    * Content decides, via `data.subrace_required: false` on the race row.
    */
   subraceRequired?: boolean;
+  /** RACE-SKILLS-STAMP / Iro live-walk follow-up (2026-09-09) — the race's
+   *  fixed skill-proficiency grant (e.g. SRD Elf's Perception via Keen
+   *  Senses, FT Human's Persuasion), now genuinely stamped into
+   *  proficient_skills at creation (NekoNova-DnDEngine
+   *  `rules_catalog.race_skill_proficiencies`, unioned into
+   *  `build_level1_character` BEFORE the class's own `skills:1` choice is
+   *  queued — so the engine's authoritative skills:1 option pool already
+   *  excludes these). The Skills step mirrors that exclusion client-side
+   *  so a race-granted skill is never offered as a wasted pick. */
+  skillProficiencies?: string[];
 }
 
 export interface WizardClass {
@@ -230,13 +248,23 @@ export function catalogItemToRace(item: CatalogItem): WizardRace {
   const deco = RACE_DECORATION[item.slug] ?? { icon: 'Users' as IconName, sub: '' };
   const bonuses = (d.ability_bonus ?? {}) as Partial<Record<AbilityKey, number>>;
   const subraces: WizardSubrace[] = Object.entries(d.subraces ?? {}).map(([name, raw]) => {
-    const sub = (raw ?? {}) as { ability_bonus?: Partial<Record<string, number>>; speed?: number };
+    const sub = (raw ?? {}) as {
+      ability_bonus?: Partial<Record<string, number>>;
+      speed?: number;
+      skill_proficiencies?: unknown;
+    };
     const subBonuses = (sub.ability_bonus ?? {}) as Partial<Record<AbilityKey, number>>;
     return {
       name,
       bonuses: subBonuses,
       bonusLabel: buildBonusLabel(subBonuses),
       speed: sub.speed,
+      // RACE-SKILLS-STAMP — defensive against a garbage wire value the same
+      // way skillChoices/rungMenu.options are elsewhere in this file:
+      // Array.isArray before use, degrades to [] rather than throwing.
+      skillProficiencies: Array.isArray(sub.skill_proficiencies)
+        ? sub.skill_proficiencies
+        : [],
     };
   });
   return {
@@ -254,6 +282,7 @@ export function catalogItemToRace(item: CatalogItem): WizardRace {
     needsAsiChoice: item.slug === 'half-elf',
     // Absent → true, so every existing race keeps the SRD behaviour exactly.
     subraceRequired: d.subrace_required !== false,
+    skillProficiencies: Array.isArray(d.skill_proficiencies) ? d.skill_proficiencies : [],
   };
 }
 

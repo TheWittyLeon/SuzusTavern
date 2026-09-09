@@ -155,23 +155,62 @@ const NO_PICKS_CLASS = {
   skillCount: 0,
 };
 
+const HUMAN = {
+  id: 'human',
+  name: 'Human',
+  sub: 'ambitious · versatile',
+  bonusLabel: '+1 to all',
+  bonuses: { strength: 1, dexterity: 1, constitution: 1, intelligence: 1, wisdom: 1, charisma: 1 },
+  speed: 30,
+  icon: 'Users' as const,
+  subraces: [],
+  needsAsiChoice: false,
+  skillProficiencies: [] as string[],
+};
+
+// RACE-SKILLS-STAMP / Iro live-walk follow-up (2026-09-09) — SRD Elf's
+// Keen Senses grants Perception at the RACE level (verified against
+// NekoNova-DnDEngine engine/races.py: skill_proficiencies=["perception"]
+// on the base race, no subrace involvement). No subraces here — kept
+// minimal so these tests isolate the race-exclusion mirror from the
+// subrace picker entirely.
+const ELF = {
+  id: 'elf',
+  name: 'Elf',
+  sub: 'keen-eyed · quick',
+  bonusLabel: '+2 DEX',
+  bonuses: { dexterity: 2 },
+  speed: 30,
+  icon: 'Users' as const,
+  subraces: [],
+  needsAsiChoice: false,
+  skillProficiencies: ['perception'],
+};
+
+// leon-fairytail-5e's ft-human row (verified live, 2026-09-08):
+// skill_proficiencies: ['persuasion'] — the exact repro from Iro's live
+// walk (an FT Caster's Persuasion pick was excluded server-side by this
+// grant, not by the class's own list).
+// Named to avoid colliding with pickRace()'s `/Human/i` radio matcher
+// (same discipline as the class-name collisions elsewhere in this file).
+const FT_HUMAN = {
+  id: 'ft-human',
+  name: 'Fiore Native',
+  sub: 'ordinary · determined',
+  bonusLabel: '+1 to all',
+  bonuses: { strength: 1, dexterity: 1, constitution: 1, intelligence: 1, wisdom: 1, charisma: 1 },
+  speed: 30,
+  icon: 'Users' as const,
+  subraces: [],
+  needsAsiChoice: false,
+  skillProficiencies: ['persuasion'],
+};
+
 const defaultCatalog = {
   status: 'ok' as const,
   retry: jest.fn(),
   data: {
-    races: [
-      {
-        id: 'human',
-        name: 'Human',
-        sub: 'ambitious · versatile',
-        bonusLabel: '+1 to all',
-        bonuses: { strength: 1, dexterity: 1, constitution: 1, intelligence: 1, wisdom: 1, charisma: 1 },
-        speed: 30,
-        icon: 'Users' as const,
-        subraces: [],
-        needsAsiChoice: false,
-      },
-    ],
+    races: [HUMAN, ELF, FT_HUMAN],
     classes: [SCOUT, DEVOTEE, FIGHTER, SORCERER, NO_PICKS_CLASS],
     backgrounds: [
       { id: 'acolyte', name: 'Acolyte', skills: ['insight', 'religion'], blurb: 'you were good at the prayers.' },
@@ -391,6 +430,92 @@ describe('Skills step derivation (ORACLE-CANDIDATE-1 / TAV-SKILLS-STEP)', () => 
     expect(screen.getByText(/No class skills left to choose/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  });
+});
+
+// RACE-SKILLS-STAMP / Iro live-walk follow-up (2026-09-09): the engine now
+// stamps the chosen race's + subrace's own skill_proficiencies into
+// proficient_skills at creation, BEFORE the class's skills:1 choice is
+// queued (NekoNova-DnDEngine engine/commands/character_msm.py's
+// build_level1_character) — so its authoritative options pool already
+// excludes a race grant. The Skills step's own options must mirror that,
+// or the player is offered a guaranteed-wasted (Elf Ranger/Perception) or
+// outright refusable (FT Human/Persuasion) pick.
+describe('Skills step — race/subrace exclusion (RACE-SKILLS-STAMP follow-up)', () => {
+  async function advanceToSkillsWithRace(raceName: RegExp, className: RegExp) {
+    renderWizard();
+    fireEvent.click(screen.getByRole('radio', { name: raceName }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Class
+    pickClass(className);
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Background
+    fillBackground();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Skills
+    await screen.findByText('What are you actually good at?');
+  }
+
+  it('Elf Ranger: Perception is absent from options — already granted by Keen Senses (race-level skill_proficiencies)', async () => {
+    await advanceToSkillsWithRace(/Elf/i, /Scout/i);
+    expect(screen.queryByRole('checkbox', { name: /^Perception$/i })).not.toBeInTheDocument();
+    // The rest of Scout's pool (unaffected by the race grant) still renders.
+    expect(screen.getByRole('checkbox', { name: /Athletics/i })).toBeInTheDocument();
+  });
+
+  it('FT Fiore human: Persuasion is absent from options — already granted by the race (Iro live-walk exact repro)', async () => {
+    await advanceToSkillsWithRace(/Fiore Native/i, /Sorcerer/i);
+    expect(screen.queryByRole('checkbox', { name: /^Persuasion$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /Arcana/i })).toBeInTheDocument();
+  });
+
+  it('Review shows the race-granted skill under "Skills (race)"', async () => {
+    await advanceToSkillsWithRace(/Elf/i, /Scout/i);
+    fireEvent.click(screen.getByRole('checkbox', { name: /Athletics/i }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /Stealth/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Equipment
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
+    expect(await screen.findByText('Skills (race)')).toBeInTheDocument();
+    expect(screen.getAllByText('Perception').length).toBeGreaterThan(0);
+  });
+
+  // Iro live-walk follow-up (2026-09-09), pin #3: the MESSAGE the player
+  // sees when a rejected pick is a race grant. `Perception` is picked while
+  // Elf's OWN grant is (deliberately, for this one test) temporarily
+  // emptied so the real checkbox UI still offers it — mirrors the drift
+  // the server-side authoritative check exists to catch in the first
+  // place (the client's picture of race grants disagreeing with the
+  // engine's, e.g. a stale catalog fetch) — then the grant is restored
+  // and the sheet's authoritative pending.options is set to match
+  // (excluding Perception, same as the engine would once it knows about
+  // the grant) before the resolve is attempted. Read-before-green: on
+  // main (round-4 code), an invalid pick ALWAYS got the generic "isn't on
+  // this class's skill list anymore" wording, blaming the wrong thing.
+  it('a rejected pick that IS a race grant gets "already granted by your race", not the generic wording', async () => {
+    mockCreateCharacter.mockResolvedValue({ character_id: 'char-elf' });
+    const elfFixture = { ...ELF, skillProficiencies: [] as string[] };
+    catalogOverride = {
+      ...defaultCatalog,
+      data: { ...defaultCatalog.data, races: [HUMAN, elfFixture, FT_HUMAN] },
+    };
+    await advanceToSkillsWithRace(/Elf/i, /Scout/i);
+    fireEvent.click(screen.getByRole('checkbox', { name: /Perception/i }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /Athletics/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Equipment
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
+
+    // The grant "arrives" (drift resolved) right before submit — the
+    // sheet's authoritative options already reflect it.
+    elfFixture.skillProficiencies = ['perception'];
+    mockGetCharacterSheet.mockResolvedValue(sheetWithPendingSkills(2, ['athletics']));
+
+    await act(async () => {
+      fireEvent.click(await screen.findByRole('button', { name: /Begin your campaign/i }));
+    });
+    expect(mockResolveLevelChoice).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText(/Perception is already granted by your race — pick another/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/isn.t on Scout.s skill list anymore/i)).not.toBeInTheDocument();
   });
 });
 

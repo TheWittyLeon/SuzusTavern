@@ -720,14 +720,25 @@ export default function CharacterNewPage(): ReactNode {
   // (independent of Subclass/Rung, unlike Rung's practical-but-not-required
   // subclass coupling). `skillOptions` mirrors the engine's own exclusion
   // rule client-side (`_resolve_skills_choice`'s "pool minus proficient_
-  // skills"): the class's pool minus whatever the CHOSEN background already
-  // grants, so a duplicate is never even offered as a checkbox (obs #168) —
-  // the exact "options include known picks" bug class feature_choice's own
-  // enrichment already had to fix once (ENGINE-PENDING-OPTIONS-INCLUDE-
-  // KNOWN-PICKS).
+  // skills"): the class's pool minus whatever's ALREADY in proficient_skills
+  // by the time skills:1 is queued — so a duplicate is never even offered as
+  // a checkbox (obs #168, the same "options include known picks" bug
+  // feature_choice's own enrichment already had to fix once, ENGINE-
+  // PENDING-OPTIONS-INCLUDE-KNOWN-PICKS). RACE-SKILLS-STAMP follow-up (Iro
+  // live-walk, 2026-09-09): proficient_skills at that point is background
+  // grants UNION the chosen race's + subrace's own skill_proficiencies
+  // (NekoNova-DnDEngine unions the race stamp into build_level1_character
+  // BEFORE skills:1 is queued) — omitting either half offered a wasted,
+  // guaranteed-refusable pick (repro: Elf Ranger offered Perception,
+  // already granted by Keen Senses).
   const hasSkillsStep = (clsObj?.skillCount ?? 0) > 0 && (clsObj?.skillChoices?.length ?? 0) > 0;
-  const bgSkillSet = new Set(bgObj?.skills ?? []);
-  const skillOptions = (clsObj?.skillChoices ?? []).filter((s) => !bgSkillSet.has(s));
+  const chosenSubraceForSkills = raceObj?.subraces.find((sr) => sr.name === subrace);
+  const grantedSkillSet = new Set([
+    ...(bgObj?.skills ?? []),
+    ...(raceObj?.skillProficiencies ?? []),
+    ...(chosenSubraceForSkills?.skillProficiencies ?? []),
+  ]);
+  const skillOptions = (clsObj?.skillChoices ?? []).filter((s) => !grantedSkillSet.has(s));
 
   // TAV-CREATE-SUBRACE-ASI-PICKER — gates the Race step's pickers/Continue.
   const raceHasSubraces = (raceObj?.subraces.length ?? 0) > 0;
@@ -861,14 +872,37 @@ export default function CharacterNewPage(): ReactNode {
   // TAV-CREATE-SUBRACE-ASI-PICKER — a subrace/ASI choice is only meaningful
   // for the race it was made under; changing race must clear both so a
   // stale Wood Elf pick can't survive a switch to Dwarf.
+  //
+  // RACE-SKILLS-STAMP follow-up (Iro live-walk, 2026-09-09) — same
+  // stale-pick-inflates-the-budget risk the background-change effect above
+  // guards against: `skillOptions`'s exclusion set now depends on
+  // race.skillProficiencies too, so a race change made AFTER some Skills
+  // picks (reachable via the rail, same path the F7 rename flow already
+  // exercises) must prune them, not just leave a phantom selection that
+  // renders unchecked but still counts toward the pick budget.
   const prevRaceRef = useRef(race);
   useEffect(() => {
     if (prevRaceRef.current !== race) {
       prevRaceRef.current = race;
       setSubrace(null);
       setHalfElfAsi([]);
+      setSkillPicks(new Set());
     }
   }, [race]);
+
+  // RACE-SKILLS-STAMP follow-up: a SUBRACE-only change (race unchanged)
+  // can also move a skill in/out of the granted set once any subrace ever
+  // declares its own skill_proficiencies (forward-compatible plumbing —
+  // no seeded subrace does today, see WizardSubrace.skillProficiencies'
+  // own doc comment). Separate from the race effect above because
+  // switching subrace does NOT go through prevRaceRef at all.
+  const prevSubraceRef = useRef(subrace);
+  useEffect(() => {
+    if (prevSubraceRef.current !== subrace) {
+      prevSubraceRef.current = subrace;
+      setSkillPicks(new Set());
+    }
+  }, [subrace]);
 
   const toggleHalfElfAsi = useCallback((key: AbilityKey) => {
     setHalfElfAsi((prev) => {
@@ -1327,11 +1361,54 @@ export default function CharacterNewPage(): ReactNode {
               // Kage-CR follow-up #3: name the offending skill(s) — a bare
               // "one of the picks isn't on this class's list" gave the
               // player nothing to act on.
-              const names = invalidPicks.map((slug) => humanizeSkill(slug)).join(', ');
-              const plural = invalidPicks.length === 1;
-              issues.push(
-                `${names} ${plural ? "isn't" : "aren't"} on ${clsObj?.name ?? 'this class'}'s skill list anymore — fix ${plural ? 'it' : 'them'} from the character sheet.`,
-              );
+              //
+              // Iro live-walk follow-up (2026-09-09): an invalid pick that
+              // happens to be a race/background grant gets its OWN copy —
+              // the round-3 wording ("not on this class's list") blamed the
+              // wrong thing (repro: an FT Caster's Persuasion pick was
+              // excluded by a race grant server-side, not by the class's
+              // own list). Race is checked before background to match
+              // skillOptions' own exclusion order; a skill in both grant
+              // sets (never happens today, defensive) reads as race-granted.
+              {
+                const normalizedRaceSkills = new Set(
+                  [
+                    ...(raceObj?.skillProficiencies ?? []),
+                    ...(chosenSubraceForSkills?.skillProficiencies ?? []),
+                  ].map(normalizeSkillSlug),
+                );
+                const normalizedBgSkills = new Set(
+                  (bgObj?.skills ?? []).map(normalizeSkillSlug),
+                );
+                const raceGranted = invalidPicks.filter((s) => normalizedRaceSkills.has(s));
+                const bgGranted = invalidPicks.filter(
+                  (s) => normalizedBgSkills.has(s) && !normalizedRaceSkills.has(s),
+                );
+                const genuinelyUnknown = invalidPicks.filter(
+                  (s) => !normalizedRaceSkills.has(s) && !normalizedBgSkills.has(s),
+                );
+                const parts: string[] = [];
+                if (raceGranted.length > 0) {
+                  const names = raceGranted.map((slug) => humanizeSkill(slug)).join(', ');
+                  parts.push(
+                    `${names} ${raceGranted.length === 1 ? 'is' : 'are'} already granted by your race — pick another.`,
+                  );
+                }
+                if (bgGranted.length > 0) {
+                  const names = bgGranted.map((slug) => humanizeSkill(slug)).join(', ');
+                  parts.push(
+                    `${names} ${bgGranted.length === 1 ? 'is' : 'are'} already granted by your background — pick another.`,
+                  );
+                }
+                if (genuinelyUnknown.length > 0) {
+                  const names = genuinelyUnknown.map((slug) => humanizeSkill(slug)).join(', ');
+                  const plural = genuinelyUnknown.length === 1;
+                  parts.push(
+                    `${names} ${plural ? "isn't" : "aren't"} on ${clsObj?.name ?? 'this class'}'s skill list anymore — fix ${plural ? 'it' : 'them'} from the character sheet.`,
+                  );
+                }
+                issues.push(parts.join(' '));
+              }
             } else {
               try {
                 await resolveLevelChoice(id, username, pending.id, {
@@ -1387,6 +1464,9 @@ export default function CharacterNewPage(): ReactNode {
       rungPicks,
       skillPicks,
       clsObj,
+      raceObj,
+      chosenSubraceForSkills,
+      bgObj,
       toast,
     ],
   );
@@ -2084,6 +2164,13 @@ export default function CharacterNewPage(): ReactNode {
                 skillPickNames={
                   hasSkillsStep ? Array.from(skillPicks).map((s) => humanizeSkill(s)) : undefined
                 }
+                // Iro live-walk follow-up (2026-09-09) — surfaces WHY some
+                // skills are absent from the Skills step's own checkbox
+                // list, same reasoning "Skills (background)" already gives.
+                raceSkillNames={[
+                  ...(raceObj?.skillProficiencies ?? []),
+                  ...(chosenSubraceForSkills?.skillProficiencies ?? []),
+                ].map((s) => humanizeSkill(s))}
                 pointsLabel={
                   isCasterClass && clsObj?.castingModel === 'points' ? clsObj.pointsLabel : undefined
                 }
@@ -3022,6 +3109,7 @@ function ReviewStep({
   rungPickNames,
   rungMenuLabel,
   skillPickNames,
+  raceSkillNames,
   pointsLabel,
   setupIssues,
   onRetrySetup,
@@ -3053,6 +3141,13 @@ function ReviewStep({
    *  Skills step; a (possibly empty, same honesty as rungPickNames) list of
    *  humanized skill names once picked. */
   skillPickNames?: string[];
+  /** RACE-SKILLS-STAMP / Iro live-walk follow-up (2026-09-09) — the
+   *  chosen race's + subrace's own skill-proficiency grant, humanized.
+   *  Always an array (possibly empty, unlike skillPickNames/rungPickNames
+   *  — there's no "step doesn't apply" state to distinguish here, most
+   *  races grant none); the "Skills (race)" group only renders when
+   *  non-empty. */
+  raceSkillNames: string[];
   /** The class's points-pool label, when castingModel==='points'. */
   pointsLabel?: string;
   /** Persistent "resume, not dead-end" callout content — empty = fully set up. */
@@ -3181,6 +3276,18 @@ function ReviewStep({
               {!bgObj && <span className={styles.profEmpty}>pick a background</span>}
             </div>
           </div>
+          {raceSkillNames.length > 0 && (
+            <div className={styles.profGroup}>
+              <span className={styles.profLabel}>Skills (race)</span>
+              <div className={styles.profPills}>
+                {raceSkillNames.map((n) => (
+                  <Pill key={n} tone="lav">
+                    {n}
+                  </Pill>
+                ))}
+              </div>
+            </div>
+          )}
           {skillPickNames !== undefined && (
             <div className={styles.profGroup}>
               <span className={styles.profLabel}>Skills (class)</span>
