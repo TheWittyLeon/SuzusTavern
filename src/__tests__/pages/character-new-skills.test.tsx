@@ -226,11 +226,29 @@ const FT_HUMAN = {
   skillProficiencies: ['persuasion'],
 };
 
+// leon-sonic-5e's sonic-wolf row (verified live, 2026-09-09): "Wolf
+// (Mobian)", skill_proficiencies: ['perception'] — combined with
+// SONIC_POWER + Soldier below, this is the FULL-overlap live repro (round
+// 2, Kage-CR): Athletics/Intimidation from the background, Perception
+// from the race — sonic-power's entire 3-skill pool, gone.
+const WOLF_MOBIAN = {
+  id: 'sonic-wolf',
+  name: 'Wolf (Mobian)',
+  sub: 'sharp-eyed · loyal',
+  bonusLabel: '+2 WIS',
+  bonuses: { wisdom: 2 },
+  speed: 30,
+  icon: 'Users' as const,
+  subraces: [],
+  needsAsiChoice: false,
+  skillProficiencies: ['perception'],
+};
+
 const defaultCatalog = {
   status: 'ok' as const,
   retry: jest.fn(),
   data: {
-    races: [HUMAN, ELF, FT_HUMAN],
+    races: [HUMAN, ELF, FT_HUMAN, WOLF_MOBIAN],
     classes: [SCOUT, DEVOTEE, FIGHTER, SORCERER, NO_PICKS_CLASS, SONIC_POWER],
     backgrounds: [
       { id: 'acolyte', name: 'Acolyte', skills: ['insight', 'religion'], blurb: 'you were good at the prayers.' },
@@ -405,6 +423,33 @@ describe('Skills step presence (ORACLE-CANDIDATE-1 / TAV-SKILLS-STEP)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Skills
     expect(await screen.findByText('What are you actually good at?')).toBeInTheDocument();
   });
+
+  // Kage-CR follow-up (2026-09-09), round 2: the FULL-overlap case — a
+  // class whose entire pool is already granted (here, by the background
+  // alone) — must SKIP the step entirely, matching the engine's own
+  // behaviour ("the pick is simply done" when the pool is empty). Gating
+  // hasSkillsStep on the class's raw pool length (rather than the
+  // POST-exclusion skillOptions) left this rendered with canContinue
+  // permanently false and no skip — a hard, un-completable dead end.
+  it('is ABSENT when background grants cover the ENTIRE class pool (devotee/acolyte) — creation completes, no resolve attempted', async () => {
+    mockCreateCharacter.mockResolvedValue({ character_id: 'char-devotee' });
+    renderWizard();
+    pickRace();
+    pickClass(/Devotee/i);
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Background
+    fillBackground();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Equipment directly
+    expect(screen.queryByText('What are you actually good at?')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/What did you bring/i)).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
+    await act(async () => {
+      fireEvent.click(await screen.findByRole('button', { name: /Begin your campaign/i }));
+    });
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/character/char-devotee'));
+    expect(mockGetCharacterSheet).not.toHaveBeenCalled();
+    expect(mockResolveLevelChoice).not.toHaveBeenCalled();
+  });
 });
 
 describe('Skills step derivation (ORACLE-CANDIDATE-1 / TAV-SKILLS-STEP)', () => {
@@ -446,12 +491,6 @@ describe('Skills step derivation (ORACLE-CANDIDATE-1 / TAV-SKILLS-STEP)', () => 
     expect(screen.getByRole('checkbox', { name: /Stealth/i })).toBeDisabled();
   });
 
-  it('fail-closed: a class whose entire pool is already granted by the background renders an empty state and disables Continue', async () => {
-    await advanceToSkills(/Devotee/i);
-    expect(screen.getByText(/No class skills left to choose/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
-    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
-  });
 });
 
 // RACE-SKILLS-STAMP / Iro live-walk follow-up (2026-09-09): the engine now
@@ -610,6 +649,43 @@ describe('Skills step — pool smaller than the declared cap (Kage-CR follow-up,
     );
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/character/char-sonic'));
     expect(screen.queryByText('Setup incomplete')).not.toBeInTheDocument();
+  });
+});
+
+// Kage-CR follow-up (2026-09-09), round 2: the FULL-overlap case reached
+// via TWO grant sources combined — neither the background NOR the race
+// alone exhausts sonic-power's pool, but TOGETHER (Athletics/Intimidation
+// from Soldier, Perception from Wolf/sonic-wolf) they do. Live repro; the
+// engine queues NOTHING when the pool is empty ("the pick is simply
+// done") — the wizard must skip the step the same way, not render a
+// permanently-blocked Continue.
+describe('Skills step — full overlap across background AND race combined (Kage-CR follow-up, 2026-09-09, round 2)', () => {
+  it('sonic-power + Soldier + Wolf (Mobian): no Skills step, creation completes, no resolve attempted', async () => {
+    mockCreateCharacter.mockResolvedValue({ character_id: 'char-wolf' });
+    renderWizard();
+    fireEvent.click(screen.getByRole('radio', { name: /Wolf/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Class
+    pickClass(/Power Chassis/i);
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Background
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Wolf' } });
+    fireEvent.click(screen.getByRole('radio', { name: /Soldier/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Equipment directly
+    expect(screen.queryByText('What are you actually good at?')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/What did you bring/i)).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
+    await act(async () => {
+      fireEvent.click(await screen.findByRole('button', { name: /Begin your campaign/i }));
+    });
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/character/char-wolf'));
+    expect(mockGetCharacterSheet).not.toHaveBeenCalled();
+    expect(mockResolveLevelChoice).not.toHaveBeenCalled();
+    // Review's existing "Skills (race)"/"Skills (background)" lines are
+    // what tell the player WHY nothing was pickable — no separate "Skills
+    // (class)" line renders (skillPickNames is undefined when
+    // hasSkillsStep is false), which this asserts by omission: neither
+    // Perception nor a "Skills (class)" label appears.
+    expect(screen.queryByText('Skills (class)')).not.toBeInTheDocument();
   });
 });
 

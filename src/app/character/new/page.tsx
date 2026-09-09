@@ -731,7 +731,6 @@ export default function CharacterNewPage(): ReactNode {
   // BEFORE skills:1 is queued) — omitting either half offered a wasted,
   // guaranteed-refusable pick (repro: Elf Ranger offered Perception,
   // already granted by Keen Senses).
-  const hasSkillsStep = (clsObj?.skillCount ?? 0) > 0 && (clsObj?.skillChoices?.length ?? 0) > 0;
   const chosenSubraceForSkills = raceObj?.subraces.find((sr) => sr.name === subrace);
   // Kage-CR follow-up (2026-09-09): normalize BOTH sides before comparing —
   // same discipline the applyPendingSetup classifier ~40 lines below
@@ -750,6 +749,21 @@ export default function CharacterNewPage(): ReactNode {
   const skillOptions = (clsObj?.skillChoices ?? []).filter(
     (s) => !grantedSkillSet.has(normalizeSkillSlug(s)),
   );
+  // Kage-CR follow-up (2026-09-09), round 2: gated on `skillOptions.length`
+  // (post-exclusion), NOT the class's raw pool length — a class whose
+  // ENTIRE pool is already covered by background+race+subrace grants
+  // (live repro: sonic-power + Soldier + Wolf/sonic-wolf — Athletics/
+  // Intimidation from the background, Perception from the race — leaves
+  // literally nothing) must SKIP the step entirely, matching the engine's
+  // own behaviour: it queues NOTHING when the pool is empty ("the pick is
+  // simply done", NekoNova-DnDEngine's _queue_level_choices `_skill_pool`
+  // guard). Gating on the raw pool length instead left the step rendered
+  // with canContinue permanently `false` at skillOptions.length === 0 and
+  // no skip — a hard, un-completable dead end. The 1-of-2 shortfall case
+  // (some but not all options excluded) is UNCHANGED — the step still
+  // renders with the honest "Only N remain" copy; only the full-overlap
+  // case is skipped.
+  const hasSkillsStep = (clsObj?.skillCount ?? 0) > 0 && skillOptions.length > 0;
   // Kage-CR follow-up (2026-09-09), "stopgap for a pool smaller than the
   // cap": the class's DECLARED skill_count can exceed what's actually left
   // once background/race grants are subtracted (live repro: sonic-power's
@@ -1344,7 +1358,15 @@ export default function CharacterNewPage(): ReactNode {
           if (!pending) {
             setSkillsDone(true);
           } else {
-            const cap = pending.count ?? clsObj?.skillCount ?? 0;
+            // Kage-CR follow-up (2026-09-09), round 2: fall back to
+            // `skillCap` (the CLAMPED client cap — min(class skill_count,
+            // available options)), not the raw `clsObj?.skillCount` — a
+            // server row that omits `count` entirely (a pre-upgrade
+            // backend) would otherwise re-introduce the exact "cap exceeds
+            // what's pickable" dead end this round's fix closed, since
+            // skillPicks.size could never reach the raw class count on a
+            // shortfall class like sonic-power.
+            const cap = pending.count ?? skillCap;
             // Kage-CR follow-up (2026-09-08, "suggestion 1"): validate
             // against `pending.options` — the AUTHORITATIVE, server-
             // enriched pool (already excludes proficient_skills, the same
@@ -1500,6 +1522,7 @@ export default function CharacterNewPage(): ReactNode {
       raceObj,
       chosenSubraceForSkills,
       bgObj,
+      skillCap,
       toast,
     ],
   );
