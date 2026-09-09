@@ -733,12 +733,40 @@ export default function CharacterNewPage(): ReactNode {
   // already granted by Keen Senses).
   const hasSkillsStep = (clsObj?.skillCount ?? 0) > 0 && (clsObj?.skillChoices?.length ?? 0) > 0;
   const chosenSubraceForSkills = raceObj?.subraces.find((sr) => sr.name === subrace);
-  const grantedSkillSet = new Set([
-    ...(bgObj?.skills ?? []),
-    ...(raceObj?.skillProficiencies ?? []),
-    ...(chosenSubraceForSkills?.skillProficiencies ?? []),
-  ]);
-  const skillOptions = (clsObj?.skillChoices ?? []).filter((s) => !grantedSkillSet.has(s));
+  // Kage-CR follow-up (2026-09-09): normalize BOTH sides before comparing —
+  // same discipline the applyPendingSetup classifier ~40 lines below
+  // already applies (byte-identical to the engine's own
+  // _resolve_skills_choice normalization). Latent today (every live grant/
+  // pool is already lowercase_underscore, so this is a no-op in practice)
+  // but a raw string compare here would silently re-offer a race/
+  // background skill the moment any pack's casing/hyphenation drifts.
+  const grantedSkillSet = new Set(
+    [
+      ...(bgObj?.skills ?? []),
+      ...(raceObj?.skillProficiencies ?? []),
+      ...(chosenSubraceForSkills?.skillProficiencies ?? []),
+    ].map(normalizeSkillSlug),
+  );
+  const skillOptions = (clsObj?.skillChoices ?? []).filter(
+    (s) => !grantedSkillSet.has(normalizeSkillSlug(s)),
+  );
+  // Kage-CR follow-up (2026-09-09), "stopgap for a pool smaller than the
+  // cap": the class's DECLARED skill_count can exceed what's actually left
+  // once background/race grants are subtracted (live repro: sonic-power's
+  // skill_count is 2, but a Soldier background leaves only Perception —
+  // Athletics/Intimidation are both already granted). The engine requires
+  // the exact declared count TODAY (a server-side clamp is being built in
+  // parallel and will ship a clamped `count` on the pending entry) — until
+  // then, the wizard's OWN required-picks count is clamped to whatever's
+  // actually available, so the step is never a hard, un-completable dead
+  // end (Continue could never enable at 1/2 with no way to reach 2/2).
+  // `applyPendingSetup` already reads the server's authoritative
+  // `pending.count` preferentially (round-3 fix) — once the engine's own
+  // clamp ships, this client clamp and the server's agree by construction
+  // (both computed as min(class skill_count, available)); until then, a
+  // still-unclamped server count surfaces as the existing "class skills
+  // were never chosen" retry-able issue rather than a silent success.
+  const skillCap = Math.min(clsObj?.skillCount ?? 0, skillOptions.length);
 
   // TAV-CREATE-SUBRACE-ASI-PICKER — gates the Race step's pickers/Continue.
   const raceHasSubraces = (raceObj?.subraces.length ?? 0) > 0;
@@ -967,15 +995,19 @@ export default function CharacterNewPage(): ReactNode {
       case 'background':
         return !!background && name.trim().length > 0;
       case 'skills': {
-        // ORACLE-CANDIDATE-1 / TAV-SKILLS-STEP: fail-closed when the
-        // background has already eaten the entire class pool — an empty
-        // `skillOptions` can never satisfy `size === cap` (cap is always
-        // >=1 here, hasSkillsStep already guards that), so this is never a
-        // silent dead end, it's an honest "nothing left to pick" refusal
-        // rendered by SkillsStep's own empty state.
+        // ORACLE-CANDIDATE-1 / TAV-SKILLS-STEP: fail-closed ONLY when
+        // NOTHING is left to pick — an empty `skillOptions` can never
+        // satisfy `size === skillCap` (skillCap would itself be 0, which
+        // would otherwise trivially "succeed" at zero picks — the
+        // dedicated check here is what keeps that a real, honest refusal
+        // instead), rendered by SkillsStep's own empty state.
+        //
+        // Kage-CR follow-up (2026-09-09): a NON-zero shortfall (available
+        // < the class's declared skill_count — see skillCap's own doc
+        // comment) is NOT fail-closed — Continue enables once every
+        // available option is picked (skillCap already clamps to that).
         if (skillOptions.length === 0) return false;
-        const cap = clsObj?.skillCount ?? 0;
-        return skillPicks.size === cap;
+        return skillPicks.size === skillCap;
       }
       case 'equipment':
         // A failed fetch (equipmentLoadState === 'error') must never block
@@ -1030,6 +1062,7 @@ export default function CharacterNewPage(): ReactNode {
     rungPicks,
     skillOptions,
     skillPicks,
+    skillCap,
   ]);
 
   // 2026-07-24 Starting Equipment design — same defensive backstop rationale
@@ -1847,7 +1880,7 @@ export default function CharacterNewPage(): ReactNode {
           : stepKey === 'skills'
             ? skillOptions.length === 0
               ? "This class's skills are already covered by your background — nothing left to pick."
-              : `Pick ${countedLabel('skill', clsObj?.skillCount ?? 0)} to continue.`
+              : `Pick ${countedLabel('skill', skillCap)} to continue.`
             : stepKey === 'equipment' && equipmentLoadState === 'loading'
             ? 'Loading your starting equipment…'
             : stepKey === 'spells' && spellReq
@@ -2107,7 +2140,8 @@ export default function CharacterNewPage(): ReactNode {
               <SkillsStep
                 className={clsObj?.name}
                 options={skillOptions}
-                count={clsObj?.skillCount ?? 0}
+                count={skillCap}
+                classCount={clsObj?.skillCount ?? 0}
                 picked={skillPicks}
                 onChange={setSkillPicks}
               />
@@ -2649,13 +2683,22 @@ function SkillsStep({
   className,
   options,
   count,
+  classCount,
   picked,
   onChange,
 }: {
   /** The chosen class's display name, for the legend/empty-state copy only. */
   className?: string;
   options: string[];
+  /** Kage-CR follow-up (2026-09-09) — the CLAMPED cap (min(classCount,
+   *  options.length)), what this step actually asks the player to pick and
+   *  gates its own Continue on. Every pick/cap mechanic below uses this,
+   *  never `classCount`. */
   count: number;
+  /** The class's own DECLARED skill_count, unclamped — used ONLY to detect
+   *  a shortfall (classCount > options.length, e.g. sonic-power's 2 vs a
+   *  Soldier background's 1 remaining option) for the honest copy below. */
+  classCount: number;
   picked: Set<string>;
   onChange: (next: Set<string>) => void;
 }) {
@@ -2668,6 +2711,14 @@ function SkillsStep({
     }
     onChange(next);
   }
+
+  // Kage-CR follow-up (2026-09-09) — "stopgap for a pool smaller than the
+  // cap": some class skills are already covered by the background/race,
+  // leaving fewer options than the class's own declared skill_count (live
+  // repro: sonic-power's 2 vs a Soldier background's 1 remaining). Distinct
+  // from the options.length===0 dead end below — here there's still
+  // something to pick, just fewer than the class "officially" grants.
+  const shortfall = options.length > 0 && classCount > options.length;
 
   return (
     <fieldset className={styles.spellSection}>
@@ -2705,6 +2756,13 @@ function SkillsStep({
           <li className={styles.spellEmpty}>
             No class skills left to choose — {className ?? 'this class'}&rsquo;s whole list is
             already covered by your background.
+          </li>
+        )}
+        {shortfall && (
+          <li className={styles.spellEmpty}>
+            Only {countedLabel('class skill', options.length)}{' '}
+            {options.length === 1 ? 'remains' : 'remain'} for this background/race —{' '}
+            {className ?? 'this class'}&rsquo;s other choices are already granted.
           </li>
         )}
         {options.map((skill) => {

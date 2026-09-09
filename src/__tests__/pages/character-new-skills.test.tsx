@@ -155,6 +155,26 @@ const NO_PICKS_CLASS = {
   skillCount: 0,
 };
 
+// Kage-CR follow-up (2026-09-09), "stopgap for a pool smaller than the
+// cap" — leon-sonic-5e's real sonic-power row (verified live, 2026-09-08):
+// skill_choices: ['athletics', 'intimidation', 'perception'], skill_count:
+// 2. Paired with the real SRD Soldier background (athletics +
+// intimidation), only Perception is left — 1 option against a declared
+// cap of 2.
+const SONIC_POWER = {
+  id: 'sonic-power',
+  name: 'Power Chassis (Sonic)',
+  hitDie: 10,
+  saves: ['strength', 'constitution'] as ['strength', 'constitution'],
+  icon: 'Fighter' as const,
+  accent: 'var(--crit)',
+  flavor: 'Runs fast, hits harder.',
+  isCaster: false,
+  primary: ['strength', 'dexterity'] as ['strength', 'dexterity'],
+  skillChoices: ['athletics', 'intimidation', 'perception'],
+  skillCount: 2,
+};
+
 const HUMAN = {
   id: 'human',
   name: 'Human',
@@ -211,9 +231,10 @@ const defaultCatalog = {
   retry: jest.fn(),
   data: {
     races: [HUMAN, ELF, FT_HUMAN],
-    classes: [SCOUT, DEVOTEE, FIGHTER, SORCERER, NO_PICKS_CLASS],
+    classes: [SCOUT, DEVOTEE, FIGHTER, SORCERER, NO_PICKS_CLASS, SONIC_POWER],
     backgrounds: [
       { id: 'acolyte', name: 'Acolyte', skills: ['insight', 'religion'], blurb: 'you were good at the prayers.' },
+      { id: 'soldier', name: 'Soldier', skills: ['athletics', 'intimidation'], blurb: 'you served.' },
     ],
   },
 };
@@ -516,6 +537,79 @@ describe('Skills step — race/subrace exclusion (RACE-SKILLS-STAMP follow-up)',
       await screen.findByText(/Perception is already granted by your race — pick another/i),
     ).toBeInTheDocument();
     expect(screen.queryByText(/isn.t on Scout.s skill list anymore/i)).not.toBeInTheDocument();
+  });
+});
+
+// Kage-CR follow-up (2026-09-09) — "stopgap for a pool smaller than the
+// cap": a class's DECLARED skill_count can exceed what's left once
+// background/race grants are subtracted (live repro: sonic-power's
+// skill_count is 2, a Soldier background leaves only Perception). Before
+// this fix, the step demanded exactly 2 picks from a 1-option pool —
+// Continue could NEVER enable, a hard, un-completable dead end.
+describe('Skills step — pool smaller than the declared cap (Kage-CR follow-up, 2026-09-09)', () => {
+  async function advanceToSkillsSonicSoldier() {
+    renderWizard();
+    pickRace(); // plain Human — isolates the shortfall to the background alone
+    pickClass(/Power Chassis/i);
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Background
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Sonic' } });
+    fireEvent.click(screen.getByRole('radio', { name: /Soldier/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Skills
+    await screen.findByText('What are you actually good at?');
+  }
+
+  it('shows the honest shortfall message and offers exactly the 1 remaining option (Perception)', async () => {
+    await advanceToSkillsSonicSoldier();
+    expect(
+      await screen.findByText(
+        /Only 1 class skill remains for this background\/race — Power Chassis \(Sonic\).s other choices are already granted\./i,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /Perception/i })).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: /Athletics/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: /Intimidation/i })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('0 of 1 skill chosen')).toBeInTheDocument();
+  });
+
+  it('Continue enables with just the 1 available pick — never a hard dead end at 1/2', async () => {
+    await advanceToSkillsSonicSoldier();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('checkbox', { name: /Perception/i }));
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
+  });
+
+  it("proceeds and resolves with the 1 pick when the sheet's authoritative pending count is 1 (red on the current code)", async () => {
+    mockCreateCharacter.mockResolvedValue({ character_id: 'char-sonic' });
+    mockGetCharacterSheet.mockResolvedValue({
+      name: 'Sonic',
+      pending_choices: [
+        {
+          id: 'skills:1',
+          type: 'skills',
+          level: 1,
+          class: 'Power Chassis (Sonic)',
+          count: 1,
+          label: 'Choose 1 class skill',
+          options: ['perception'],
+        },
+      ],
+    });
+    await advanceToSkillsSonicSoldier();
+    fireEvent.click(screen.getByRole('checkbox', { name: /Perception/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Equipment
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // -> Review
+
+    await act(async () => {
+      fireEvent.click(await screen.findByRole('button', { name: /Begin your campaign/i }));
+    });
+    await waitFor(() =>
+      expect(mockResolveLevelChoice).toHaveBeenCalledWith('char-sonic', 'alice', 'skills:1', {
+        picks: ['perception'],
+      }),
+    );
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/character/char-sonic'));
+    expect(screen.queryByText('Setup incomplete')).not.toBeInTheDocument();
   });
 });
 
