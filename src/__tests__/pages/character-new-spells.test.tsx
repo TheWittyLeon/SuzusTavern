@@ -136,6 +136,29 @@ const defaultCatalog = {
         primary: ['charisma'] as ['charisma'],
         spellcastingAbility: 'charisma' as const,
       },
+      // R62-SPELLSTEP-CANLEARN (Kage-CR, 2026-09-10) — a rung-only points
+      // caster (ft-caster/holder/slayer, ki-warrior shape): `progression:
+      // 'full'` on the wire still derives casterKind:'known'
+      // (casterKindFromSpellcasting), so isCaster:true and the Spells step
+      // renders same as any other caster — its techniques are acquired
+      // ONLY via the Rung step's learnFeaturePick, never through this one.
+      // `/spells/{id}/available` answers can_learn:false, can_prepare:false
+      // for this class; SpellsStep must read THAT, not casterKind.
+      {
+        id: 'ft-caster',
+        name: 'Caster (Fairy Tail)',
+        hitDie: 8,
+        saves: ['constitution', 'charisma'] as ['constitution', 'charisma'],
+        icon: 'Sorcerer' as const,
+        accent: 'var(--crit)',
+        flavor: 'Magic in the open air.',
+        isCaster: true,
+        casterKind: 'known' as const,
+        castingModel: 'points' as const,
+        pointsLabel: 'Magic Power',
+        primary: ['charisma'] as ['charisma'],
+        spellcastingAbility: 'charisma' as const,
+      },
     ],
     backgrounds: [
       { id: 'acolyte', name: 'Acolyte', skills: ['insight', 'religion'], blurb: 'you were good at the prayers.' },
@@ -1398,5 +1421,155 @@ describe('Wizard spells-at-creation slice (T4/DDX-11t)', () => {
       ).toBeInTheDocument();
       expect(screen.queryByText(/\[DnD\]/i)).not.toBeInTheDocument();
     });
+  });
+});
+
+
+describe('R62-SPELLSTEP-CANLEARN (Kage-CR, 2026-09-10): pick UI gated on can_learn/can_prepare, not casterKind', () => {
+  // Defensive on purpose: a NON-EMPTY by_level['1'] alongside
+  // can_learn:false/can_prepare:false — proves the suppression reads the
+  // engine's own verdict rather than inferring "nothing offered" from an
+  // empty catalog (the coincidence that held for today's seeded rung
+  // classes but isn't a contract anything enforces).
+  const RUNG_ONLY_AVAILABLE = {
+    cantrips: [
+      { slug: 'flame-bolt', name: 'Flame Bolt', level: 0, school: 'evocation', concentration: false, ritual: false, in_repertoire: false, prepared: false },
+    ],
+    by_level: {
+      '1': [
+        { slug: 'water-lock', name: 'Water Lock', level: 1, school: 'abjuration', concentration: false, ritual: false, in_repertoire: false, prepared: false },
+      ],
+    },
+    can_learn: false,
+    can_prepare: false,
+    budget: {
+      cantrips_known: 0,
+      cantrips_max: 2,
+      spells_known: null,
+      spells_max: 2,
+      prepared_used: 0,
+      prepared_max: 0,
+    },
+  };
+
+  async function advanceRungOnlyToSpells() {
+    mockCreateCharacter.mockResolvedValue({ character_id: 'char-rung' });
+    mockGetAvailableSpells.mockResolvedValue(RUNG_ONLY_AVAILABLE);
+    renderWizard();
+    pickRace();
+    fireEvent.click(screen.getByRole('radio', { name: /Caster \(Fairy Tail\)/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Abilities
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Background
+    fillBackground();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Equipment
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Spells (creates!)
+    });
+    await waitFor(() => expect(mockGetAvailableSpells).toHaveBeenCalledWith('char-rung', 'alice'));
+  }
+
+  it('(1) a rung-only class with can_learn:false/can_prepare:false renders NO pickable pools even though by_level[1] is non-empty, and Continue is immediately enabled', async () => {
+    await advanceRungOnlyToSpells();
+
+    expect(
+      await screen.findByText(/doesn.t learn spells through this step/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Runs on Magic Power/i)).toBeInTheDocument();
+    // Neither pool's checkbox renders — including the leveled entry the
+    // mock deliberately shipped despite can_learn:false.
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(screen.queryByText('Water Lock')).not.toBeInTheDocument();
+    expect(screen.queryByText('Flame Bolt')).not.toBeInTheDocument();
+    // No empty fieldset/legend pair either (a11y) — nothing to announce.
+    expect(screen.queryByRole('group')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
+  });
+
+  it('(1) belt-and-braces: no learnSpell/prepareSpell call reaches the wire for the rung-only class at submit', async () => {
+    await advanceRungOnlyToSpells();
+    await screen.findByText(/doesn.t learn spells through this step/i);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Review
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
+    });
+
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/character/char-rung'));
+    expect(mockLearnSpell).not.toHaveBeenCalled();
+    expect(mockPrepareSpell).not.toHaveBeenCalled();
+  });
+
+  it('(2) regression control: an SRD known-caster (sorcerer, can_learn:true) still renders pools and calls learnSpell', async () => {
+    mockCreateCharacter.mockResolvedValue({ character_id: 'char-sorc-2' });
+    mockGetAvailableSpells.mockResolvedValue({
+      cantrips: [
+        { slug: 'fire-bolt', name: 'Fire Bolt', level: 0, school: 'evocation', concentration: false, ritual: false, in_repertoire: false, prepared: false },
+      ],
+      by_level: { '1': [] },
+      can_learn: true,
+      can_prepare: false,
+      budget: { cantrips_known: 0, cantrips_max: 1, spells_known: null, spells_max: 0, prepared_used: 0, prepared_max: 0 },
+    });
+    renderWizard();
+    pickRace();
+    fireEvent.click(screen.getByRole('radio', { name: /Sorcerer/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fillBackground();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Equipment
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Spells (creates!)
+    });
+
+    expect(await screen.findByRole('checkbox', { name: /Fire Bolt/i })).toBeInTheDocument();
+    expect(screen.queryByText(/doesn.t learn spells through this step/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: /Fire Bolt/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Review
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
+    });
+
+    await waitFor(() =>
+      expect(mockLearnSpell).toHaveBeenCalledWith('char-sorc-2', 'alice', 'fire-bolt'),
+    );
+  });
+
+  it('(3) a prepared caster (can_prepare:true, can_learn:false) still renders pools and works end-to-end', async () => {
+    mockCreateCharacter.mockResolvedValue({ character_id: 'char-cleric-2' });
+    mockGetAvailableSpells.mockResolvedValue(CLERIC_AVAILABLE);
+    renderWizard();
+    pickRace();
+    fireEvent.click(screen.getByRole('radio', { name: /Cleric/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fillBackground();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Equipment
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled());
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Spells (creates!)
+    });
+
+    // can_learn:false alone must NOT suppress — can_prepare:true keeps the
+    // pools rendered (CLERIC_AVAILABLE's own cantrips_max/prepared_max: 3/2).
+    expect(await screen.findByRole('checkbox', { name: /Sacred Flame/i })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /Cure Wounds/i })).toBeInTheDocument();
+    expect(screen.queryByText(/doesn.t learn spells through this step/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /Sacred Flame/i }));
+    // CLERIC_AVAILABLE's leveledNeeded is 2 (min(prepared_max:2, catalog
+    // size:2)) — both Cure Wounds and Bless are required before Continue
+    // off Spells enables.
+    fireEvent.click(screen.getByRole('checkbox', { name: /Cure Wounds/i }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /Bless/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' })); // → Review
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Begin your campaign/i }));
+    });
+
+    await waitFor(() =>
+      expect(mockPrepareSpell).toHaveBeenCalledWith('char-cleric-2', 'alice', 'cure-wounds', true),
+    );
   });
 });

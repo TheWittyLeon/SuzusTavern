@@ -549,9 +549,16 @@ export default function CharacterNewPage(): ReactNode {
   const [spellLeveled, setSpellLeveled] = useState<Set<string>>(new Set());
   // TAV-SPELLSTEP-CAP-MSG: the required pick counts SpellsStep reports after
   // its catalog fetch — null until reported (or on fetch error) = fail-open.
+  // R62-SPELLSTEP-CANLEARN: `pickable` rides the SAME report — the engine's
+  // own can_learn/can_prepare verdict off GET /spells/{id}/available, read
+  // by handleSubmit's caster-apply block below as a belt-and-braces skip
+  // (SpellsStep itself already never lets spellCantrips/spellLeveled become
+  // non-empty when !pickable, since it renders no checkboxes in that case —
+  // this is defense in depth against any stale/future path that could).
   const [spellReq, setSpellReq] = useState<{
     cantripsNeeded: number;
     leveledNeeded: number;
+    pickable: boolean;
   } | null>(null);
 
   // 2026-07-24 Starting Equipment design — {choiceId: optionId}, one entry per
@@ -1736,7 +1743,18 @@ export default function CharacterNewPage(): ReactNode {
       // see casterKindFromSpellcasting's docstring in helpers.ts). Best-effort: a
       // failed pick surfaces a toast but never blocks navigating to the new
       // sheet — the character itself already exists either way.
-      if (isCasterClass && username) {
+      //
+      // R62-SPELLSTEP-CANLEARN (Kage-CR, belt-and-braces): `spellReq?.pickable
+      // === false` is the engine's OWN last-known verdict (GET /spells/{id}/
+      // available's can_learn/can_prepare) that this class can't learn or
+      // prepare through this endpoint at all — SpellsStep already never lets
+      // spellCantrips/spellLeveled become non-empty in that case (it renders
+      // no checkboxes), so this should be a no-op in practice, but skipping
+      // outright means a stale/future pick list can never reach learnSpell
+      // and 400 with not_a_learning_caster. `spellReq === null` (fetch never
+      // completed, or errored) stays fail-open — same as every other gate
+      // this field feeds.
+      if (isCasterClass && username && spellReq?.pickable !== false) {
         const leveledAction = clsObj?.casterKind === 'prepared' ? 'prepare' : 'learn';
         // Slice B Fix 3: a wizard's (spellbook caster's) PICKED leveled
         // spells must land prepared=true -- picked == prepared -- or
@@ -1813,6 +1831,7 @@ export default function CharacterNewPage(): ReactNode {
     clsObj,
     spellCantrips,
     spellLeveled,
+    spellReq,
     toast,
     router,
   ]);
@@ -3634,8 +3653,16 @@ function SpellsStep({
   onLeveled: (next: Set<string>) => void;
   // TAV-SPELLSTEP-CAP-MSG: reports the REQUIRED pick counts up to the wizard
   // once the catalog fetch lands (null on fetch error = wizard fails open).
+  // R62-SPELLSTEP-CANLEARN (Kage-CR): `pickable` mirrors SpellbookPanel's
+  // own `canLearn` gate — true iff the engine's `/available` response says
+  // EITHER can_learn or can_prepare, read straight off the SAME fetch this
+  // step already makes rather than re-derived from `clsObj.casterKind`/
+  // `progression` (a content-time classification with no idea whether the
+  // engine will actually accept a learn/prepare call for this class — see
+  // the rung-only points casters, ki-warrior/ft-caster/holder/slayer, whose
+  // "spells" are acquired ONLY through the Rung step's learnFeaturePick).
   onRequirement: (
-    req: { cantripsNeeded: number; leveledNeeded: number } | null,
+    req: { cantripsNeeded: number; leveledNeeded: number; pickable: boolean } | null,
   ) => void;
 }) {
   const [available, setAvailable] = useState<AvailableSpellsResult | null>(null);
@@ -3668,9 +3695,21 @@ function SpellsStep({
             : kind === 'prepared'
               ? (data.budget.prepared_max ?? 0)
               : WIZARD_LEVEL1_SPELLBOOK_SIZE;
+        // R62-SPELLSTEP-CANLEARN: the engine's own runtime verdict, not a
+        // content-time guess — zero the REQUIRED counts too (not just the
+        // render-time caps below) so canContinue never demands a pick that
+        // can't be offered, and so a defensively non-empty `by_level['1']`
+        // alongside `can_learn:false` can't smuggle a nonzero requirement
+        // through this reporting hop.
+        const pickable = data.can_learn || data.can_prepare;
         onRequirement({
-          cantripsNeeded: Math.min(data.budget.cantrips_max, data.cantrips.length),
-          leveledNeeded: Math.min(lvlCap, (data.by_level['1'] ?? []).length),
+          cantripsNeeded: pickable
+            ? Math.min(data.budget.cantrips_max, data.cantrips.length)
+            : 0,
+          leveledNeeded: pickable
+            ? Math.min(lvlCap, (data.by_level['1'] ?? []).length)
+            : 0,
+          pickable,
         });
       })
       .catch(() => {
@@ -3712,10 +3751,21 @@ function SpellsStep({
     );
   }
 
-  const cantripCap = available.budget.cantrips_max;
+  // R62-SPELLSTEP-CANLEARN (Kage-CR): mirrors SpellbookPanel's own
+  // `canLearn={available.can_learn}` gate — read the engine's runtime
+  // verdict off the SAME /available response this step already fetched,
+  // rather than inferring learnability from `clsObj.casterKind`/
+  // `progression` (a content-time classification, see onRequirement's own
+  // doc comment for why the two can disagree). A rung-only points class
+  // (ki-warrior, ft-caster/holder/slayer) reports can_learn:false and
+  // can_prepare:false — its techniques are acquired entirely through the
+  // Rung step's learnFeaturePick, never through this one.
+  const pickable = available.can_learn || available.can_prepare;
+  const cantripCap = pickable ? available.budget.cantrips_max : 0;
   const leveledKind = clsObj?.casterKind ?? 'known';
-  const leveledCap =
-    leveledKind === 'known'
+  const leveledCap = !pickable
+    ? 0
+    : leveledKind === 'known'
       ? (available.budget.spells_max ?? 0)
       : leveledKind === 'prepared'
         ? (available.budget.prepared_max ?? 0)
@@ -3723,10 +3773,18 @@ function SpellsStep({
   // TAV-SPELLPICK-POOL-GROUPING: both lists are a single spell level each
   // (cantrips, 1st-level) so no by-level grouping applies here — just sort by
   // name for a stable, scannable order (was insertion order off the wire).
-  const sortedCantrips = [...available.cantrips].sort((a, b) => a.name.localeCompare(b.name));
-  const level1 = [...(available.by_level['1'] ?? [])].sort((a, b) =>
-    a.name.localeCompare(b.name),
-  );
+  //
+  // R62-SPELLSTEP-CANLEARN: forced to [] (not just capped) when !pickable —
+  // belt-and-braces against a defensive/future wire shape where `/available`
+  // ships a non-empty pool alongside can_learn:false/can_prepare:false; the
+  // pick UI must never render a checkbox the engine has already said it
+  // will refuse.
+  const sortedCantrips = pickable
+    ? [...available.cantrips].sort((a, b) => a.name.localeCompare(b.name))
+    : [];
+  const level1 = pickable
+    ? [...(available.by_level['1'] ?? [])].sort((a, b) => a.name.localeCompare(b.name))
+    : [];
 
   const renderRow = (
     s: AvailableSpellEntry,
@@ -3815,100 +3873,121 @@ function SpellsStep({
       {/* TAV-WIZARD-HOMEBREW-CASTERS — a points caster (Chakra/Magic Power/
           Ki) has no fixed slots to preview; static string, no new fetch (the
           engine's own budget shape is identical either way — see the design
-          doc's §"What I changed from a literal reading" item 3). */}
+          doc's §"What I changed from a literal reading" item 3). Rendered
+          regardless of `pickable` — it's describing the RESOURCE model, not
+          promising a pick UI below it. */}
       {clsObj?.castingModel === 'points' && (
         <p className={styles.spellHint}>
           Runs on {clsObj.pointsLabel ?? 'spell points'} — no fixed slots. You&rsquo;ll see
           your pool on the sheet.
         </p>
       )}
+      {/* R62-SPELLSTEP-CANLEARN (Kage-CR): the engine says neither learn nor
+          prepare is offered THROUGH THIS ENDPOINT for this class — no
+          fieldset/legend pair renders at all (an empty one would announce
+          "Cantrips group" to a screen reader with nothing inside it to act
+          on). A rung-only points class already acquired its techniques via
+          the Rung step; this is the only copy explaining why Spells has
+          nothing left to do. */}
+      {!pickable && (
+        <p className={styles.spellHint} aria-live="polite">
+          {clsObj?.name ?? 'This class'} doesn&rsquo;t learn spells through this step —
+          nothing to pick here. You&rsquo;ll see what you&rsquo;ve got on the character
+          sheet.
+        </p>
+      )}
       {/* TAV-A11Y-SPELLSTEP-FIELDSET: group each checkbox list under a fieldset
           with an sr-only legend (mirrors the Race step's ASI/subrace groups) so a
           screen reader announces "Cantrips group" / "1st-level spells group"
           around the choices instead of a bare list of orphan checkboxes. */}
-      <fieldset className={styles.spellSection}>
-        <legend className={styles.srOnly}>Choose your cantrips</legend>
-        <div className={styles.budget}>
-          <span
-            className={styles.budgetNum}
-            aria-live="polite"
-            aria-atomic="true"
-            aria-label={`${cantrips.size} of ${cantripCap} cantrips chosen`}
-          >
-            {cantrips.size}/{cantripCap}
-          </span>
-          <span>
-            <span className={styles.budgetTitle}>Cantrips</span>
-            <span className={styles.budgetSub}>Free tricks — cast any time, no slot spent.</span>
-          </span>
-        </div>
-        <p id="cantrip-cap-hint" className={styles.srOnly}>
-          {cantrips.size >= cantripCap ? (
-            <>You&rsquo;ve chosen all {cantripCap} cantrips — deselect one to pick another.</>
-          ) : (
-            // TAV-SPELLSTEP-CAP-MSG: the at-cap line used to render
-            // unconditionally — an SR user at 0/2 was told they'd already
-            // picked everything. Say what's actually true.
-            <>
-              {cantrips.size} of {cantripCap} cantrips chosen — pick{' '}
-              {cantripCap - cantrips.size} more.
-            </>
-          )}
-        </p>
-        <ul className={styles.spellList}>
-          {sortedCantrips.length === 0 && (
-            <li className={styles.spellEmpty}>No cantrips for this class.</li>
-          )}
-          {sortedCantrips.map((s) =>
-            renderRow(s, cantrips, onCantrips, cantripCap, 'cantrip-cap-hint'),
-          )}
-        </ul>
-      </fieldset>
+      {pickable && (
+        <>
+          <fieldset className={styles.spellSection}>
+            <legend className={styles.srOnly}>Choose your cantrips</legend>
+            <div className={styles.budget}>
+              <span
+                className={styles.budgetNum}
+                aria-live="polite"
+                aria-atomic="true"
+                aria-label={`${cantrips.size} of ${cantripCap} cantrips chosen`}
+              >
+                {cantrips.size}/{cantripCap}
+              </span>
+              <span>
+                <span className={styles.budgetTitle}>Cantrips</span>
+                <span className={styles.budgetSub}>Free tricks — cast any time, no slot spent.</span>
+              </span>
+            </div>
+            <p id="cantrip-cap-hint" className={styles.srOnly}>
+              {cantrips.size >= cantripCap ? (
+                <>You&rsquo;ve chosen all {cantripCap} cantrips — deselect one to pick another.</>
+              ) : (
+                // TAV-SPELLSTEP-CAP-MSG: the at-cap line used to render
+                // unconditionally — an SR user at 0/2 was told they'd already
+                // picked everything. Say what's actually true.
+                <>
+                  {cantrips.size} of {cantripCap} cantrips chosen — pick{' '}
+                  {cantripCap - cantrips.size} more.
+                </>
+              )}
+            </p>
+            <ul className={styles.spellList}>
+              {sortedCantrips.length === 0 && (
+                <li className={styles.spellEmpty}>No cantrips for this class.</li>
+              )}
+              {sortedCantrips.map((s) =>
+                renderRow(s, cantrips, onCantrips, cantripCap, 'cantrip-cap-hint'),
+              )}
+            </ul>
+          </fieldset>
 
-      <fieldset className={styles.spellSection}>
-        <legend className={styles.srOnly}>Choose your 1st-level spells</legend>
-        <div className={styles.budget}>
-          <span
-            className={styles.budgetNum}
-            aria-live="polite"
-            aria-atomic="true"
-            aria-label={`${leveled.size} of ${leveledCap} first level spells chosen`}
-          >
-            {leveled.size}/{leveledCap}
-          </span>
-          <span>
-            <span className={styles.budgetTitle}>1st-level spells</span>
-            <span className={styles.budgetSub}>
-              {leveledKind === 'prepared'
-                ? 'Chosen from your full class list — you re-prepare daily once you adventure.'
-                : 'Learned into your repertoire for good.'}
-            </span>
-          </span>
-        </div>
-        <p id="leveled-cap-hint" className={styles.srOnly}>
-          {leveled.size >= leveledCap ? (
-            <>
-              You&rsquo;ve chosen all {leveledCap} first-level spells — deselect one to pick
-              another.
-            </>
-          ) : (
-            <>
-              {leveled.size} of {leveledCap} first-level spells chosen — pick{' '}
-              {leveledCap - leveled.size} more.
-            </>
-          )}
-        </p>
-        <ul className={styles.spellList}>
-          {level1.length === 0 && (
-            <li className={styles.spellEmpty}>No 1st-level spells for this class yet.</li>
-          )}
-          {level1.map((s) => renderRow(s, leveled, onLeveled, leveledCap, 'leveled-cap-hint'))}
-        </ul>
-      </fieldset>
+          <fieldset className={styles.spellSection}>
+            <legend className={styles.srOnly}>Choose your 1st-level spells</legend>
+            <div className={styles.budget}>
+              <span
+                className={styles.budgetNum}
+                aria-live="polite"
+                aria-atomic="true"
+                aria-label={`${leveled.size} of ${leveledCap} first level spells chosen`}
+              >
+                {leveled.size}/{leveledCap}
+              </span>
+              <span>
+                <span className={styles.budgetTitle}>1st-level spells</span>
+                <span className={styles.budgetSub}>
+                  {leveledKind === 'prepared'
+                    ? 'Chosen from your full class list — you re-prepare daily once you adventure.'
+                    : 'Learned into your repertoire for good.'}
+                </span>
+              </span>
+            </div>
+            <p id="leveled-cap-hint" className={styles.srOnly}>
+              {leveled.size >= leveledCap ? (
+                <>
+                  You&rsquo;ve chosen all {leveledCap} first-level spells — deselect one to pick
+                  another.
+                </>
+              ) : (
+                <>
+                  {leveled.size} of {leveledCap} first-level spells chosen — pick{' '}
+                  {leveledCap - leveled.size} more.
+                </>
+              )}
+            </p>
+            <ul className={styles.spellList}>
+              {level1.length === 0 && (
+                <li className={styles.spellEmpty}>No 1st-level spells for this class yet.</li>
+              )}
+              {level1.map((s) => renderRow(s, leveled, onLeveled, leveledCap, 'leveled-cap-hint'))}
+            </ul>
+          </fieldset>
+        </>
+      )}
 
       {/* TAV-SPELLPICK-OVERLAY: one shared overlay for every row's 🔍, driven
           by `openSpell` — reuses /codex's own detail modal (portal dialog,
-          focus-trap, Escape, backdrop-click) rather than a bespoke dialog. */}
+          focus-trap, Escape, backdrop-click) rather than a bespoke dialog.
+          Harmless when !pickable — no row ever sets openSpell in that case. */}
       <CodexDetailModal
         open={openSpell !== null}
         item={openSpell}
