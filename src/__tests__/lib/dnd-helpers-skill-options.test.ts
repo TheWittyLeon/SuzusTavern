@@ -37,6 +37,28 @@ describe('normalizeSkillOption', () => {
     });
   });
 
+  // Kage-CR (2026-09-10): the engine's skills:1 enrichment title-cases
+  // blindly (`s.replace("_", " ").title()`), which disagrees with the
+  // curated SKILLS table for any multi-word skill whose middle word is a
+  // preposition — "Sleight Of Hand" vs. the curated "Sleight of Hand". A
+  // known slug's curated name must win over whatever the wire sent, so the
+  // wizard's Skills step and the level-up SkillsChoiceCard never render the
+  // SAME skill under two different names depending on which one happened
+  // to read the raw wire name.
+  it('a known slug prefers the curated SKILLS name over a wrongly-cased server name', () => {
+    expect(normalizeSkillOption({ slug: 'sleight_of_hand', name: 'Sleight Of Hand' })).toEqual({
+      slug: 'sleight_of_hand',
+      name: 'Sleight of Hand',
+    });
+  });
+
+  it('an UNKNOWN slug still defers to the server-sent name (no curated opinion to prefer)', () => {
+    expect(normalizeSkillOption({ slug: 'shadow_weaving', name: 'Shadow-Weaving (Homebrew)' })).toEqual({
+      slug: 'shadow_weaving',
+      name: 'Shadow-Weaving (Homebrew)',
+    });
+  });
+
   it('accepts a bare string (tolerance for the other deploy ordering) and humanizes it via the curated SKILLS table', () => {
     expect(normalizeSkillOption('sleight_of_hand')).toEqual({
       slug: 'sleight_of_hand',

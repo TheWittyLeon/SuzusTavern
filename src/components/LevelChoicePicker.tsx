@@ -426,6 +426,17 @@ function SubclassChoiceCard({
     // doc comment) is AUTHORITATIVE: obs #168's discipline applies here too
     // — never re-derive a filter client-side when the wire already shipped
     // the answer. No fetch needed at all in this branch.
+    //
+    // Kage-CR (2026-09-10): only object entries ({slug, name[, level]})
+    // count as a valid enrichment — a BARE STRING (the shape the engine's
+    // skills:1 enrichment shipped in an earlier build, per normalizeSkillOption's
+    // own doc comment) has no `.slug`/`.name` property and is filtered out,
+    // so `enriched` can legitimately end up empty even though
+    // `choice.options` was non-empty. Falling through to the fetch path
+    // below in THAT case (instead of treating zero valid entries as "zero
+    // archetypes exist") is what avoids the exact "No archetypes are
+    // seeded" false content-bug message this repo has now hit three times
+    // on other wire-shape mismatches.
     if (Array.isArray(choice.options) && choice.options.length > 0) {
       const enriched = (
         choice.options as Array<{ slug?: unknown; name?: unknown; level?: unknown }>
@@ -438,17 +449,19 @@ function SubclassChoiceCard({
             level: typeof o.level === 'number' ? o.level : undefined,
           }),
         );
-      const unlocked = enriched.filter((o) => o.level === undefined || o.level <= sheet.level);
-      const locked = enriched.filter((o) => o.level !== undefined && o.level > sheet.level);
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setOptions(unlocked);
-       
-      setLockedOptions(locked);
-       
-      setSelectedSlug((prev) => prev || unlocked[0]?.slug || '');
-       
-      setLoadState('ok');
-      return;
+      if (enriched.length > 0) {
+        const unlocked = enriched.filter((o) => o.level === undefined || o.level <= sheet.level);
+        const locked = enriched.filter((o) => o.level !== undefined && o.level > sheet.level);
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setOptions(unlocked);
+        setLockedOptions(locked);
+        setSelectedSlug((prev) => prev || unlocked[0]?.slug || '');
+        setLoadState('ok');
+        return;
+      }
+      // Every entry was malformed/unusable (e.g. bare strings) — fall
+      // through to the fetch-and-derive path below rather than rendering
+      // an empty result.
     }
 
     const ac = new AbortController();
@@ -514,6 +527,12 @@ function SubclassChoiceCard({
       const classSubclassLevel = classRow
         ? (classRow.data as CatalogClassData).subclass_level
         : undefined;
+      // Assumption named (Kage-CR, 2026-09-10): `>=` treats a RISE
+      // (choice.level above the class's plain level) the same as "no
+      // override" — R62 only ever pulls the effective level DOWN (a min
+      // across subclasses), so choice.level > classSubclassLevel isn't a
+      // real case this ruling produces; `>=` is deliberately permissive
+      // there rather than a stricter `!==`.
       if (typeof classSubclassLevel !== 'number' || choice.level >= classSubclassLevel) {
         return { unlocked: scoped.map((item) => toCardOption(item)), locked: [] };
       }
@@ -543,12 +562,18 @@ function SubclassChoiceCard({
         setLoadState('error');
       });
     return () => ac.abort();
-    // choice.options/choice.level are read above but intentionally excluded
-    // from the deps — they ride on the SAME `choice` object identity as
-    // `charClass` derives from (`choice.class`), which is already covered
-    // by every existing retry/re-render path; adding them risked a refetch
-    // loop the moment `sheet` (and therefore `choice`) is replaced by the
-    // post-resolve refetch for a SIBLING pending choice.
+    // Kage-CR (2026-09-10): the deps are the three PRIMITIVES this effect
+    // actually needs to re-run for — `charClass`/`loadKey` are the
+    // existing retry/class-change triggers, `sheet.level` only changes on
+    // a real level-up. `choice.options`/`choice.level` (read above, in the
+    // enrichment check and loadOptions' own gate) are deliberately NOT
+    // deps: `sheet` — and therefore every `choice` object inside its
+    // `pending_choices`, including ones whose OWN data didn't change — gets
+    // a brand-new reference on every post-resolve refetch, including one
+    // triggered by resolving a SIBLING pending choice entirely. Depending
+    // on `choice.options`/`choice.level` directly would re-run the whole
+    // enrichment-check-then-maybe-fetch effect on every one of those,
+    // never on anything this card actually cares about changing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [charClass, loadKey, sheet.level]);
 

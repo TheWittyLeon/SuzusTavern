@@ -2585,9 +2585,11 @@ function SubclassStep({
   options: WizardSubclass[];
   /** R62/TAV-SUBCLASS-LEVEL-OVERRIDE — the complement: subclasses seeded for
    *  this class whose own effective level is > 1 (e.g. an SRD rogue's own
-   *  archetypes, still gated at 3, alongside Re:Zero's level-1 picks). Only
-   *  meaningful when `options` is empty — see the "unlocks at level N" state
-   *  below. */
+   *  archetypes, still gated at 3, alongside Re:Zero's level-1 picks). Read
+   *  in TWO states below: when `options` is also empty ("unlocks at level
+   *  N", nothing pickable yet) and when `options` is non-empty too (the
+   *  mixed case — some archetypes are pickable now, a footnote names the
+   *  rest so the grid doesn't read as the full roster). */
   lockedOptions: WizardSubclass[];
   loadState: 'loading' | 'ok' | 'error';
   value: string | null;
@@ -2645,23 +2647,38 @@ function SubclassStep({
     );
   }
   return (
-    <fieldset className={styles.optGrid}>
-      <legend className={styles.srOnly}>{`Choose ${className}'s archetype`}</legend>
-      {options.map((s) => (
-        <label key={s.id} className={styles.optCard} data-selected={value === s.id}>
-          <input
-            type="radio"
-            name="subclass"
-            value={s.id}
-            checked={value === s.id}
-            onChange={() => onChange(s.id)}
-            className={styles.srOnly}
-          />
-          <span className={styles.optName}>{s.name}</span>
-          {s.blurb && <span className={styles.optSub}>{s.blurb}</span>}
-        </label>
-      ))}
-    </fieldset>
+    <>
+      <fieldset className={styles.optGrid}>
+        <legend className={styles.srOnly}>{`Choose ${className}'s archetype`}</legend>
+        {options.map((s) => (
+          <label key={s.id} className={styles.optCard} data-selected={value === s.id}>
+            <input
+              type="radio"
+              name="subclass"
+              value={s.id}
+              checked={value === s.id}
+              onChange={() => onChange(s.id)}
+              className={styles.srOnly}
+            />
+            <span className={styles.optName}>{s.name}</span>
+            {s.blurb && <span className={styles.optSub}>{s.blurb}</span>}
+          </label>
+        ))}
+      </fieldset>
+      {/* R62/TAV-SUBCLASS-LEVEL-OVERRIDE: the mixed case — some archetypes
+          (Re:Zero) unlock at 1, others (the SRD chassis's own) don't yet.
+          Same reasoning as LevelChoicePicker's own SubclassChoiceCard
+          footnote ("More archetypes unlock at level N.") — plain text, not
+          a disabled radio, so the exclusion stays out of the DOM entirely
+          rather than offering a control that can only refuse. Without this
+          the grid silently reads as the FULL roster. */}
+      {lockedOptions.length > 0 && (
+        <p className={styles.spellHint} aria-live="polite">
+          {lockedOptions.length === 1 ? 'One more archetype unlocks' : 'More archetypes unlock'} at
+          level {Math.min(...lockedOptions.map((s) => s.subclassLevel ?? Infinity))}.
+        </p>
+      )}
+    </>
   );
 }
 

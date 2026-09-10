@@ -922,12 +922,19 @@ describe('LevelChoicePicker — R62/TAV-SUBCLASS-LEVEL-OVERRIDE: per-subclass ga
     label: 'Choose your Rogue archetype',
   };
 
+  // Kage-CR (2026-09-10): the wire ALSO carries effective_subclass_level:1
+  // here (min-across-subclasses — two Re:Zero archetypes below declare 1) —
+  // without it on this fixture, a mutation that swaps the card's per-option
+  // fallback to `effective_subclass_level ?? subclass_level` would silently
+  // land on the SAME 3 (since effective_subclass_level was absent) and every
+  // test below would stay green regardless of which field the code actually
+  // reads. Present here so that mutation is provably caught.
   const ROGUE_CLASS_ROW: CatalogItem = {
     slug: 'rogue',
     name: 'Rogue',
     content_type: 'class',
     source_type: 'srd',
-    data: { subclass_level: 3 },
+    data: { subclass_level: 3, effective_subclass_level: 1 },
   };
 
   const ROGUE_SUBCLASS_ITEMS: CatalogItem[] = [
@@ -994,6 +1001,33 @@ describe('LevelChoicePicker — R62/TAV-SUBCLASS-LEVEL-OVERRIDE: per-subclass ga
     expect(await screen.findByRole('radio', { name: 'Sloth' })).toBeInTheDocument();
     expect(screen.queryByRole('radio', { name: 'Thief' })).not.toBeInTheDocument();
     expect(mockGetCatalog).not.toHaveBeenCalled();
+  });
+
+  // Kage-CR (2026-09-10): the engine's OWN skills:1 enrichment shipped bare
+  // strings in an earlier build (see normalizeSkillOption's doc comment) —
+  // if a subclass enrichment ever does the same, every entry fails the
+  // object-shape filter and `enriched` comes back empty even though
+  // `choice.options` was non-empty. Treating that as "zero archetypes
+  // exist" would render the false "No archetypes are seeded" content-bug
+  // message this repo has hit three times already; it must fall through to
+  // the ordinary fetch-and-derive path instead.
+  it('an enriched choice.options of BARE STRINGS (no usable slug/name) falls through to the fetch path, not "no archetypes"', async () => {
+    mockRogueCatalog();
+    const BARE_STRING_CHOICE: PendingLevelChoice = {
+      ...ROGUE_RZ_CHOICE,
+      options: ['sloth', 'gluttony'] as unknown as PendingLevelChoice['options'],
+    };
+    renderPicker([BARE_STRING_CHOICE], { level: 1 });
+
+    expect(await screen.findByRole('radio', { name: 'Sloth' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Gluttony' })).toBeInTheDocument();
+    expect(screen.queryByText(/no archetypes are seeded/i)).not.toBeInTheDocument();
+    expect(mockGetCatalog).toHaveBeenCalledWith('dnd5e', { type: 'class' }, expect.anything());
+    expect(mockGetCatalog).toHaveBeenCalledWith(
+      'dnd5e',
+      { type: 'subclass', limit: 500 },
+      expect.anything(),
+    );
   });
 
   it('no override signal (choice.level === the class\'s plain subclass_level): every scoped option renders unfiltered, byte-identical to before this ruling', async () => {

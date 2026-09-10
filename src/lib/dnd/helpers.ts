@@ -196,6 +196,19 @@ export function normalizeSkillOption(entry: unknown): SkillChoiceOption | null {
   if (entry && typeof entry === 'object' && 'slug' in entry) {
     const slug = normalizeSkillSlug(String((entry as { slug?: unknown }).slug ?? ''));
     if (!slug) return null;
+    // Kage-CR (2026-09-10): a curated SKILLS entry wins over whatever name
+    // the server sent — the engine's skills:1 enrichment title-cases
+    // blindly (`s.replace("_", " ").title()` -> "Sleight Of Hand"), which
+    // disagrees with the curated "Sleight of Hand" every OTHER skill
+    // surface (the character sheet, humanizeSkill's own split-capitalize
+    // fallback) renders. Without this, the wizard's Skills step and the
+    // level-up SkillsChoiceCard would show the same skill under two
+    // different names depending on which one happened to read the raw
+    // wire name. Only a slug SKILLS has no opinion on (an unknown/homebrew
+    // skill) defers to the server's own name — engine-side proper fix
+    // filed separately.
+    const known = SKILLS.find((s) => s.key === slug);
+    if (known) return { slug, name: known.name };
     const rawName = (entry as { name?: unknown }).name;
     const name =
       typeof rawName === 'string' && rawName.trim().length > 0

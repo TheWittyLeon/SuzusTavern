@@ -277,6 +277,20 @@ describe('R62 — Subclass step presence tracks effective_subclass_level, not su
     );
   });
 
+  it('Kage-CR: the mixed case (RZ pickable at 1, SRD chassis still locked at 3) names the locked ones too — the grid must not read as the full roster', async () => {
+    catalogOverride = { ...defaultCatalog, data: { ...defaultCatalog.data, classes: [ROGUE_RZ] } };
+    renderWizard();
+    pickRace();
+    pickClass(/Rogue/i);
+
+    await screen.findByRole('radio', { name: /Sloth/i });
+    // Only 2 radios render (Sloth/Gluttony) — Thief/Assassin are excluded
+    // from the DOM (not disabled radios), per the a11y approach the
+    // LevelChoicePicker card already uses for the same trade-off.
+    expect(screen.getAllByRole('radio')).toHaveLength(2);
+    expect(await screen.findByText(/more archetypes unlock at level 3/i)).toBeInTheDocument();
+  });
+
   it('a pick is required when qualifying archetypes exist — Continue stays disabled until one is chosen', async () => {
     catalogOverride = { ...defaultCatalog, data: { ...defaultCatalog.data, classes: [ROGUE_RZ] } };
     renderWizard();
