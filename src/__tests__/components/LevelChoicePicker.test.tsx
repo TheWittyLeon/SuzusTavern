@@ -908,6 +908,110 @@ describe('LevelChoicePicker — subclass: catalog failure, case-insensitive filt
     expect(mockGetCatalog).toHaveBeenCalledWith('dnd5e', { type: 'class' }, expect.anything());
   });
 });
+
+describe('LevelChoicePicker — R62/TAV-SUBCLASS-LEVEL-OVERRIDE: per-subclass gate on the level-up card', () => {
+  // The engine now queues this choice at the class's EFFECTIVE level (1,
+  // because two Re:Zero archetypes declare their own subclass_level:1),
+  // even though the Rogue chassis's own plain subclass_level is 3 — exactly
+  // what `PendingLevelChoice.level` carries per the engine contract.
+  const ROGUE_RZ_CHOICE: PendingLevelChoice = {
+    id: 'subclass:1',
+    type: 'subclass',
+    level: 1,
+    class: 'Rogue',
+    label: 'Choose your Rogue archetype',
+  };
+
+  const ROGUE_CLASS_ROW: CatalogItem = {
+    slug: 'rogue',
+    name: 'Rogue',
+    content_type: 'class',
+    source_type: 'srd',
+    data: { subclass_level: 3 },
+  };
+
+  const ROGUE_SUBCLASS_ITEMS: CatalogItem[] = [
+    catalogItem('thief', 'Thief', { class: 'rogue' }), // no override -> falls back to 3
+    catalogItem('assassin', 'Assassin', { class: 'rogue' }),
+    catalogItem('sloth', 'Sloth', { class: 'rogue', subclass_level: 1 }),
+    catalogItem('gluttony', 'Gluttony', { class: 'rogue', subclass_level: 1 }),
+  ];
+
+  function mockRogueCatalog() {
+    mockGetCatalog.mockImplementation((_s: string, opts: { type?: string }) => {
+      if (opts?.type === 'class') return Promise.resolve(catalogResponse([ROGUE_CLASS_ROW]));
+      if (opts?.type === 'subclass') return Promise.resolve(catalogResponse(ROGUE_SUBCLASS_ITEMS));
+      return Promise.resolve(catalogResponse([]));
+    });
+  }
+
+  // Kage-CR trap (2026-09-10): the per-option gate must read each row's OWN
+  // subclass_level, falling back to the CLASS's PLAIN subclass_level (3),
+  // NEVER the class's effective_subclass_level (1) — the wrong fallback
+  // would render Thief/Assassin as pickable at level 1 too, and the engine
+  // would refuse each one with subclass_level_not_reached.
+  it('at level 1: only the Re:Zero archetypes (own subclass_level:1) are offered; the SRD ones are NOT selectable', async () => {
+    mockRogueCatalog();
+    renderPicker([ROGUE_RZ_CHOICE], { level: 1 });
+
+    expect(await screen.findByRole('radio', { name: 'Sloth' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Gluttony' })).toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: 'Thief' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: 'Assassin' })).not.toBeInTheDocument();
+  });
+
+  it('"unlocks at level N" copy names the SRD chassis\'s own plain gate (3), not the class\'s effective level (1)', async () => {
+    mockRogueCatalog();
+    renderPicker([ROGUE_RZ_CHOICE], { level: 1 });
+    await screen.findByRole('radio', { name: 'Sloth' });
+
+    expect(
+      await screen.findByText(/more archetypes unlock at level 3/i),
+    ).toBeInTheDocument();
+  });
+
+  it('at level 3: the SRD archetypes are now ALSO offered, alongside the already-unlocked Re:Zero ones', async () => {
+    mockRogueCatalog();
+    renderPicker([ROGUE_RZ_CHOICE], { level: 3 });
+
+    expect(await screen.findByRole('radio', { name: 'Thief' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Assassin' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Sloth' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Gluttony' })).toBeInTheDocument();
+    expect(screen.queryByText(/unlock at level/i)).not.toBeInTheDocument();
+  });
+
+  it('an enriched pending choice (choice.options already resolved server-side) is authoritative — no catalog fetch at all', async () => {
+    const ENRICHED_CHOICE: PendingLevelChoice = {
+      ...ROGUE_RZ_CHOICE,
+      options: [
+        { slug: 'sloth', name: 'Sloth', level: 1 },
+        { slug: 'thief', name: 'Thief', level: 3 },
+      ],
+    };
+    renderPicker([ENRICHED_CHOICE], { level: 1 });
+
+    expect(await screen.findByRole('radio', { name: 'Sloth' })).toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: 'Thief' })).not.toBeInTheDocument();
+    expect(mockGetCatalog).not.toHaveBeenCalled();
+  });
+
+  it('no override signal (choice.level === the class\'s plain subclass_level): every scoped option renders unfiltered, byte-identical to before this ruling', async () => {
+    mockGetCatalog.mockImplementation((_s: string, opts: { type?: string }) => {
+      if (opts?.type === 'class') return Promise.resolve(catalogResponse([ROGUE_CLASS_ROW]));
+      if (opts?.type === 'subclass') return Promise.resolve(catalogResponse(ROGUE_SUBCLASS_ITEMS));
+      return Promise.resolve(catalogResponse([]));
+    });
+    const NO_OVERRIDE_CHOICE: PendingLevelChoice = { ...ROGUE_RZ_CHOICE, level: 3 };
+    renderPicker([NO_OVERRIDE_CHOICE], { level: 3 });
+
+    expect(await screen.findByRole('radio', { name: 'Thief' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Assassin' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Sloth' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Gluttony' })).toBeInTheDocument();
+  });
+});
+
 describe('LevelChoicePicker — subclass-scoped menus (ENGINE-SUBCLASS-SCOPED-MENUS)', () => {
   const FEATURE_CHOICE: PendingLevelChoice = {
     id: 'feature_choice:1',

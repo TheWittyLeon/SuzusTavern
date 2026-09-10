@@ -12,7 +12,12 @@
  * (`subclass_level:1`, `casting_model:"points"`, `feature_choices[0].
  * freeform:true`) rather than a live wire capture.
  */
-import { catalogItemToClass, catalogItemToSubclass, subclassesForClass } from '../../lib/dnd/catalog';
+import {
+  catalogItemToClass,
+  catalogItemToSubclass,
+  subclassesForClass,
+  subclassOwnLevel,
+} from '../../lib/dnd/catalog';
 import type { CatalogItem } from '../../lib/api/types';
 
 function classItem(slug: string, name: string, data: Record<string, unknown>): CatalogItem {
@@ -373,5 +378,55 @@ describe('subclassesForClass / catalogItemToSubclass (TAV-WIZARD-HOMEBREW-CASTER
   it('catalogItemToSubclass degrades a missing description to an empty blurb, not undefined text', () => {
     const w = catalogItemToSubclass(subclassItem('champion', 'Champion', { class: 'fighter' }));
     expect(w.blurb).toBe('');
+  });
+});
+
+describe('R62/TAV-SUBCLASS-LEVEL-OVERRIDE — effectiveSubclassLevel / subclassOwnLevel', () => {
+  it('catalogItemToClass reads effective_subclass_level verbatim when the wire declares it', () => {
+    const cls = catalogItemToClass(
+      classItem('rogue', 'Rogue', { hit_die: 8, subclass_level: 3, effective_subclass_level: 1 }),
+    );
+    expect(cls.subclassLevel).toBe(3);
+    expect(cls.effectiveSubclassLevel).toBe(1);
+  });
+
+  it('catalogItemToClass falls back effectiveSubclassLevel to subclassLevel when the wire omits it (pre-ruling engine — byte-identical)', () => {
+    const cls = catalogItemToClass(classItem('fighter', 'Fighter', { hit_die: 10, subclass_level: 3 }));
+    expect(cls.subclassLevel).toBe(3);
+    expect(cls.effectiveSubclassLevel).toBe(3);
+  });
+
+  it('both stay undefined when the class row declares no subclass_level at all', () => {
+    const cls = catalogItemToClass(classItem('rogue', 'Rogue', { hit_die: 8 }));
+    expect(cls.subclassLevel).toBeUndefined();
+    expect(cls.effectiveSubclassLevel).toBeUndefined();
+  });
+
+  // Kage-CR trap (2026-09-10): the per-subclass gate must read the CLASS's
+  // PLAIN subclass_level as a non-declaring row's fallback, NEVER its
+  // effective_subclass_level — using the effective value would render every
+  // SRD archetype as "unlocked at 1" (min-across-subclasses collapsed) and
+  // the engine would refuse each one with subclass_level_not_reached.
+  it('subclassOwnLevel falls back to the PLAIN class subclass_level, never the effective one — an SRD archetype stays gated at 3 even though the class is effectively 1', () => {
+    const rzArchetype = subclassItem('sloth', 'Sloth', { class: 'rogue', subclass_level: 1 });
+    const srdArchetype = subclassItem('thief', 'Thief', { class: 'rogue' }); // no override
+
+    // classSubclassLevel passed in is the class's PLAIN level (3) — a caller
+    // must never pass the class's effectiveSubclassLevel (1) here instead.
+    const classSubclassLevel = 3;
+    expect(subclassOwnLevel(rzArchetype, classSubclassLevel)).toBe(1);
+    expect(subclassOwnLevel(srdArchetype, classSubclassLevel)).toBe(3);
+  });
+
+  it('catalogItemToSubclass threads the same fallback through its own subclassLevel field', () => {
+    const rzArchetype = subclassItem('sloth', 'Sloth', { class: 'rogue', subclass_level: 1 });
+    const srdArchetype = subclassItem('thief', 'Thief', { class: 'rogue' });
+    expect(catalogItemToSubclass(rzArchetype, 3).subclassLevel).toBe(1);
+    expect(catalogItemToSubclass(srdArchetype, 3).subclassLevel).toBe(3);
+  });
+
+  it('subclassOwnLevel is undefined when neither the row nor a class fallback declares a level', () => {
+    const item = subclassItem('champion', 'Champion', { class: 'fighter' });
+    expect(subclassOwnLevel(item, undefined)).toBeUndefined();
   });
 });

@@ -1237,6 +1237,18 @@ export interface CatalogClassData {
   skill_choices?: string[];
   skill_count?: number;
   subclass_level?: number;
+  /** R62/TAV-SUBCLASS-LEVEL-OVERRIDE — the effective archetype-pick level,
+   *  distinct from `subclass_level` above (which stays the class's own
+   *  plain declaration, unchanged). The engine's
+   *  `class_effective_subclass_level_for_wire` (NekoNova-DnDEngine
+   *  `rules_catalog.py`) computes this as the MIN over the class row's own
+   *  `subclass_level` and every subclass row visible to the caller that
+   *  declares its own (e.g. Re:Zero's archetypes at 1 pull an SRD rogue's
+   *  chassis, `subclass_level:3`, down to `effective_subclass_level:1`).
+   *  Absent on an engine that predates this ruling — every reader falls
+   *  back to `subclass_level`, so a pre-upgrade backend renders byte-
+   *  identical to today. */
+  effective_subclass_level?: number;
   spellcasting_ability?: string | null;
   /** TAV-CLASS-STAT-GUIDANCE — the class's Unarmored Defense ability
    *  (barbarian → constitution, monk → wisdom, homebrew-declared), flat
@@ -1449,6 +1461,13 @@ export interface CatalogSubclassData {
    *  `parent_class` above has no live producer verified in this repo; kept
    *  as-is for CodexDetail's existing display read, not removed here. */
   class?: string;
+  /** R62/TAV-SUBCLASS-LEVEL-OVERRIDE — this ROW's own archetype-pick level
+   *  override (e.g. Re:Zero's archetypes declare `1`). Absent means "no
+   *  override — use the owning class's plain `subclass_level`", per
+   *  `rules_catalog.class_effective_subclass_level_for_wire`'s own
+   *  per-row fallback; see `subclassOwnLevel` (lib/dnd/catalog.ts) for the
+   *  one shared derivation both the creation wizard and LevelChoicePicker
+   *  read this through. */
   subclass_level?: number;
   features?: string[];
   description?: string;

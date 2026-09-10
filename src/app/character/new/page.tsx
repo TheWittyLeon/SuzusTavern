@@ -577,7 +577,19 @@ export default function CharacterNewPage(): ReactNode {
   // subclass SLUG, pure local state at pick time — resolved server-side only
   // once the silent create fires (§4 of the design).
   const [selectedSubclass, setSelectedSubclass] = useState<string | null>(null);
+  // R62/TAV-SUBCLASS-LEVEL-OVERRIDE — `subclassOptions` is the QUALIFYING
+  // subset (own effective level <= 1, via subclassOwnLevel), i.e. what
+  // actually renders as pickable — every existing reader (Review's name
+  // lookup, suzuLine, canContinue's truthy check, applyPendingSetup) keeps
+  // reading THIS one unchanged. `subclassLockedOptions` is the complement
+  // (own effective level > 1) — subclasses that exist for this class but
+  // don't unlock yet (e.g. an SRD rogue's own archetypes, still gated at
+  // its plain subclass_level:3, sitting alongside Re:Zero's level-1 picks).
+  // Distinguishing the two is what tells "content bug — zero seeded rows"
+  // (both empty) apart from "seeded, just not pickable at level 1 yet"
+  // (locked non-empty) — see SubclassStep's own state table.
   const [subclassOptions, setSubclassOptions] = useState<WizardSubclass[]>([]);
+  const [subclassLockedOptions, setSubclassLockedOptions] = useState<WizardSubclass[]>([]);
   const [subclassLoadState, setSubclassLoadState] = useState<'loading' | 'ok' | 'error'>(
     'loading',
   );
@@ -703,7 +715,18 @@ export default function CharacterNewPage(): ReactNode {
   // NOT require hasSubclassStep to be true (the design gates it purely on
   // the menu's own knownAtLevel1) but in practice every declared Rung menu
   // today rides on a subclassLevel:1 class too.
-  const hasSubclassStep = clsObj?.subclassLevel === 1;
+  // R62/TAV-SUBCLASS-LEVEL-OVERRIDE — gates on `effectiveSubclassLevel`, NOT
+  // the plain `subclassLevel`: an SRD rogue's own row still says
+  // subclass_level:3 (unchanged), but the moment a Re:Zero archetype
+  // declares its own subclass_level:1, the class's effective level (the
+  // engine-computed MIN across every visible subclass) drops to 1 and this
+  // class now owes a creation-time pick too. Falls back to `subclassLevel`
+  // itself when `effectiveSubclassLevel` is absent — catalogItemToClass
+  // already does this at the wire boundary (pre-ruling engine), and the
+  // `??` here is the SAME fallback applied again at the read site so it
+  // holds for every WizardClass value, not just ones built through that one
+  // constructor — keeps this byte-identical to today either way.
+  const hasSubclassStep = (clsObj?.effectiveSubclassLevel ?? clsObj?.subclassLevel) === 1;
   const hasRungStep = (clsObj?.rungMenu?.knownAtLevel1 ?? 0) > 0;
   // Kage-CR BLOCKING-1: the engine refuses ANY option whose declared `level`
   // exceeds the character's level (`class_feature_choice_options`'s per-
@@ -883,6 +906,7 @@ export default function CharacterNewPage(): ReactNode {
     if (!hasSubclassStep || !clsObj) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setSubclassOptions([]);
+      setSubclassLockedOptions([]);
       setSubclassLoadState('ok');
       return;
     }
@@ -895,8 +919,22 @@ export default function CharacterNewPage(): ReactNode {
     // content-bug empty state below.
     getCatalog(SYSTEM, { type: 'subclass', limit: 500 }, ac.signal)
       .then((res) => {
-        const filtered = subclassesForClass(res.items, clsObj.id).map(catalogItemToSubclass);
-        setSubclassOptions(filtered);
+        // R62/TAV-SUBCLASS-LEVEL-OVERRIDE — every scoped row, each carrying
+        // its OWN effective gate level (own declared value, or the class's
+        // plain subclassLevel fallback — see subclassOwnLevel), then split
+        // into what's pickable at THIS creation flow (fixed level 1) versus
+        // what unlocks later. A class with no override at all (every row
+        // falls back to the SAME subclassLevel !== 1, since hasSubclassStep
+        // already requires effectiveSubclassLevel === 1 — reachable only
+        // when at least one row genuinely declares 1) degrades to "all
+        // qualify" exactly like before this ruling.
+        const scoped = subclassesForClass(res.items, clsObj.id).map((item) =>
+          catalogItemToSubclass(item, clsObj.subclassLevel),
+        );
+        const qualifying = scoped.filter((s) => (s.subclassLevel ?? Infinity) <= 1);
+        const locked = scoped.filter((s) => (s.subclassLevel ?? Infinity) > 1);
+        setSubclassOptions(qualifying);
+        setSubclassLockedOptions(locked);
         setSubclassLoadState('ok');
       })
       .catch(() => {
@@ -992,10 +1030,20 @@ export default function CharacterNewPage(): ReactNode {
       case 'class':
         return !!cls;
       case 'subclass':
-        // Required, gates Continue (§2 of the design). Naturally covers the
-        // loading/error/empty-catalog states too — there's nothing to click,
+        // Required, gates Continue (§2 of the design) — WHENEVER a pick is
+        // actually possible. Naturally covers the loading/error/content-bug
+        // (zero seeded rows at all) states too — there's nothing to click,
         // so selectedSubclass stays null and this returns false regardless
         // of WHY the grid is empty.
+        //
+        // R62/TAV-SUBCLASS-LEVEL-OVERRIDE: a class can own subclasses that
+        // exist but ALL sit above level 1 (subclassOptions empty while
+        // subclassLockedOptions is not) — nothing is pickable at THIS
+        // creation flow yet, so a pick is not required; SubclassStep renders
+        // the "unlocks at level N" explainer instead and the engine keeps
+        // the pending choice for a future level-up (applyPendingSetup mirrors
+        // this — it only resolves subclass:1 when a pick was actually made).
+        if (subclassOptions.length === 0 && subclassLockedOptions.length > 0) return true;
         return !!selectedSubclass;
       case 'rung': {
         // A non-freeform menu (future case) is read-only informational
@@ -1072,6 +1120,8 @@ export default function CharacterNewPage(): ReactNode {
     spellCantrips,
     spellLeveled,
     selectedSubclass,
+    subclassOptions,
+    subclassLockedOptions,
     clsObj,
     rungPicks,
     skillOptions,
@@ -1226,17 +1276,27 @@ export default function CharacterNewPage(): ReactNode {
       if (!username) return issues;
       let subclassOk = !hasSubclassStep || subclassDone;
       if (hasSubclassStep && !subclassDone) {
-        // Kage-CR #9: canContinue on the Subclass step already requires a
-        // pick before Continue enables — this branch guards the (should-be-
-        // unreachable, hence no test) case of arriving here with none
-        // anyway, rather than POSTing {subclass: null} and letting the
-        // engine's own 400 stand in for a copy line this file could write
-        // itself.
+        // R62/TAV-SUBCLASS-LEVEL-OVERRIDE: resolve subclass:1 ONLY when a
+        // pick was actually made. `!selectedSubclass` now splits two real
+        // cases instead of one should-be-unreachable one:
+        //  - nothing qualified at level 1 (subclassOptions empty,
+        //    subclassLockedOptions non-empty — SubclassStep rendered the
+        //    "unlocks at level N" explainer and never asked for a pick).
+        //    Nothing to resolve here; the pending choice stays on the sheet
+        //    for a future level-up, same as if this class had never gotten
+        //    a creation-time step at all. NOT an issue.
+        //  - a pick WAS available (subclassOptions non-empty) but is still
+        //    missing — Kage-CR #9's original should-be-unreachable guard
+        //    (canContinue already requires one), kept as a real refusal.
         if (!selectedSubclass) {
-          issues.push(
-            `${clsObj?.name ?? 'Your'} archetype was never chosen — pick one from the character sheet.`,
-          );
-          subclassOk = false;
+          if (subclassOptions.length === 0 && subclassLockedOptions.length > 0) {
+            subclassOk = true;
+          } else {
+            issues.push(
+              `${clsObj?.name ?? 'Your'} archetype was never chosen — pick one from the character sheet.`,
+            );
+            subclassOk = false;
+          }
         } else {
           try {
             await resolveLevelChoice(id, username, 'subclass:1', { subclass: selectedSubclass });
@@ -1516,6 +1576,8 @@ export default function CharacterNewPage(): ReactNode {
       rungDone,
       skillsDone,
       selectedSubclass,
+      subclassOptions,
+      subclassLockedOptions,
       rungPicks,
       skillPicks,
       clsObj,
@@ -2128,6 +2190,7 @@ export default function CharacterNewPage(): ReactNode {
               <SubclassStep
                 className={clsObj.name}
                 options={subclassOptions}
+                lockedOptions={subclassLockedOptions}
                 loadState={subclassLoadState}
                 value={selectedSubclass}
                 onChange={setSelectedSubclass}
@@ -2510,6 +2573,7 @@ function ClassStep({
 function SubclassStep({
   className,
   options,
+  lockedOptions,
   loadState,
   value,
   onChange,
@@ -2517,7 +2581,14 @@ function SubclassStep({
 }: {
   /** Display name of the chosen class, for copy ("archetypes for Shinobi"). */
   className: string;
+  /** Qualifying subset — own effective level <= 1, i.e. actually pickable now. */
   options: WizardSubclass[];
+  /** R62/TAV-SUBCLASS-LEVEL-OVERRIDE — the complement: subclasses seeded for
+   *  this class whose own effective level is > 1 (e.g. an SRD rogue's own
+   *  archetypes, still gated at 3, alongside Re:Zero's level-1 picks). Only
+   *  meaningful when `options` is empty — see the "unlocks at level N" state
+   *  below. */
+  lockedOptions: WizardSubclass[];
   loadState: 'loading' | 'ok' | 'error';
   value: string | null;
   onChange: (id: string) => void;
@@ -2543,9 +2614,29 @@ function SubclassStep({
       </p>
     );
   }
+  // R62/TAV-SUBCLASS-LEVEL-OVERRIDE: seeded, but every one of them sits
+  // above level 1 (an SRD-shaped chassis whose own archetypes only unlock
+  // later, reached here because SOME other visible subclass pulled the
+  // class's effective level down to 1 without this session actually seeing
+  // an early-unlocking option itself — e.g. a scoping mismatch between the
+  // class catalog's min-across-subclasses computation and what this fetch
+  // can see). Nothing is pickable yet; Continue is enabled (see canContinue)
+  // and the engine keeps the pending choice for a future level-up.
+  if (options.length === 0 && lockedOptions.length > 0) {
+    const unlockLevel = Math.min(
+      ...lockedOptions.map((s) => s.subclassLevel ?? Infinity),
+    );
+    return (
+      <p className={styles.spellHint} aria-live="polite">
+        {className}&rsquo;s archetypes unlock at level{' '}
+        {Number.isFinite(unlockLevel) ? unlockLevel : '?'} — you can pick one from the
+        character sheet once you get there.
+      </p>
+    );
+  }
   // Content-bug state (design's state table): a class that DECLARES
-  // subclassLevel:1 but has zero seeded subclass rows. Never silently skip
-  // the step — say so, and keep Continue disabled (value stays null).
+  // subclassLevel:1 but has zero seeded subclass rows at all. Never silently
+  // skip the step — say so, and keep Continue disabled (value stays null).
   if (options.length === 0) {
     return (
       <p className={styles.spellHint} role="alert">

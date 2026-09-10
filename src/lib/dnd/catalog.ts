@@ -154,6 +154,18 @@ export interface WizardClass {
    *  creation flow); higher values (wizard's 2, most SRD classes' 3) are
    *  still exposed for completeness but the wizard doesn't act on them. */
   subclassLevel?: number;
+  /** R62/TAV-SUBCLASS-LEVEL-OVERRIDE — the catalog's `effective_subclass_
+   *  level` (the MIN over `subclassLevel` and every visible subclass's own
+   *  declared level), falling back to `subclassLevel` itself when the wire
+   *  omits the field (pre-ruling engine) — that fallback is what keeps
+   *  `hasSubclassStep`'s `=== 1` gate byte-identical to today whenever the
+   *  field is absent. `hasSubclassStep` reads THIS field, not the plain
+   *  `subclassLevel` — an SRD rogue whose class row still says
+   *  `subclass_level: 3` gets a creation-time Subclass step the moment a
+   *  Re:Zero archetype pulls its `effectiveSubclassLevel` down to 1;
+   *  `subclassLevel` itself is untouched and still governs the individual
+   *  SRD archetypes' own gate via `subclassOwnLevel`'s fallback below. */
+  effectiveSubclassLevel?: number;
   /** TAV-WIZARD-HOMEBREW-CASTERS — the class's FIRST choose-N feature menu
    *  (`data.feature_choices[0]`), when the row declares one. The Rung step
    *  gates on `knownAtLevel1 > 0`. */
@@ -198,6 +210,14 @@ export interface WizardSubclass {
    *  that want to re-derive scoping; ordinary rendering only needs id/name/blurb. */
   class: string;
   blurb: string;
+  /** R62/TAV-SUBCLASS-LEVEL-OVERRIDE — this subclass's OWN effective gate
+   *  level: its own declared `data.subclass_level` when present, else the
+   *  owning class's plain `subclass_level` (the fallback passed into
+   *  `catalogItemToSubclass`) — see `subclassOwnLevel`'s doc comment for
+   *  why the fallback is the class's PLAIN level, not its `effective`
+   *  (already-minned) one. Undefined only when neither resolved (no class
+   *  fallback was supplied at all). */
+  subclassLevel?: number;
 }
 
 export interface WizardBackground {
@@ -307,6 +327,12 @@ export function catalogItemToClass(item: CatalogItem): WizardClass {
       ? pointsLabelRaw.trim()
       : DEFAULT_POINTS_LABEL;
   const subclassLevel = typeof d.subclass_level === 'number' ? d.subclass_level : undefined;
+  // R62/TAV-SUBCLASS-LEVEL-OVERRIDE — fall back to `subclassLevel` itself
+  // when the wire omits `effective_subclass_level` (pre-ruling engine),
+  // which is what keeps `hasSubclassStep`'s `=== 1` gate byte-identical to
+  // today on an engine that hasn't deployed this yet.
+  const effectiveSubclassLevel =
+    typeof d.effective_subclass_level === 'number' ? d.effective_subclass_level : subclassLevel;
   const rungBlock = Array.isArray(d.feature_choices) ? d.feature_choices[0] : undefined;
   const rungMenu: WizardRungMenu | undefined = rungBlock
     ? {
@@ -355,6 +381,7 @@ export function catalogItemToClass(item: CatalogItem): WizardClass {
     castingModel,
     pointsLabel,
     subclassLevel,
+    effectiveSubclassLevel,
     rungMenu,
     skillChoices,
     skillCount,
@@ -398,13 +425,46 @@ export function subclassesForClass(items: CatalogItem[], classKey: string): Cata
   });
 }
 
-export function catalogItemToSubclass(item: CatalogItem): WizardSubclass {
+/**
+ * R62/TAV-SUBCLASS-LEVEL-OVERRIDE — one subclass row's OWN archetype-pick
+ * gate level: its own declared `data.subclass_level` when present, else
+ * `classSubclassLevel` (the owning class's PLAIN `subclass_level`, NOT its
+ * `effectiveSubclassLevel` — the effective value is already the MIN across
+ * every visible subclass, so using it here would collapse every
+ * non-declaring subclass's floor down to the earliest archetype's level,
+ * e.g. an SRD rogue's three level-3 archetypes would wrongly read as
+ * unlocking at 1 alongside Re:Zero's). Shared by the creation wizard's
+ * Subclass step (via `catalogItemToSubclass`) and `LevelChoicePicker`'s
+ * level-up `SubclassChoiceCard` so the per-subclass gate is derived in
+ * exactly one place — mirrors the engine's own
+ * `class_effective_subclass_level_for_wire` per-row fallback.
+ */
+export function subclassOwnLevel(
+  item: CatalogItem,
+  classSubclassLevel: number | undefined,
+): number | undefined {
+  const own = (item.data as CatalogSubclassData).subclass_level;
+  return typeof own === 'number' ? own : classSubclassLevel;
+}
+
+/**
+ * `classSubclassLevel` — the owning class's PLAIN `subclass_level` (see
+ * `subclassOwnLevel`'s doc comment for why not `effectiveSubclassLevel`),
+ * passed by the caller once it has resolved the class row. Optional and
+ * defaults to `undefined` (every pre-existing call site keeps compiling and
+ * `subclassLevel` on the result is simply undefined — no behavior change).
+ */
+export function catalogItemToSubclass(
+  item: CatalogItem,
+  classSubclassLevel?: number,
+): WizardSubclass {
   const d = item.data as CatalogSubclassData;
   return {
     id: item.slug,
     name: item.name,
     class: String(d.class ?? ''),
     blurb: typeof d.description === 'string' ? d.description : '',
+    subclassLevel: subclassOwnLevel(item, classSubclassLevel),
   };
 }
 

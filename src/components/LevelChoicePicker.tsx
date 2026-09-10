@@ -102,11 +102,12 @@ import {
   slugifyName,
   type AbilityKey,
 } from '@/lib/dnd/helpers';
-import { subclassesForClass } from '@/lib/dnd/catalog';
+import { subclassesForClass, subclassOwnLevel } from '@/lib/dnd/catalog';
 import type {
   ApiError,
   AvailableSpellEntry,
   AvailableSpellsResult,
+  CatalogClassData,
   CatalogItem,
   CharacterSheet,
   FeatureChoiceOption,
@@ -131,6 +132,11 @@ function refusalReason(e: ApiError): string | undefined {
 const RESOLVE_REFUSAL_COPY: Record<string, string> = {
   choice_not_found: 'That choice is no longer pending — reload to see the current state.',
   invalid_subclass: "That archetype isn't available for this class.",
+  // R62/TAV-SUBCLASS-LEVEL-OVERRIDE: the per-subclass gate this card mirrors
+  // client-side (subclassOwnLevel) — kept as a real refusal message in case
+  // a stale option (e.g. an enriched pending choice from before a level-up)
+  // still gets clicked, never just "try again in a moment".
+  subclass_level_not_reached: "That archetype hasn't unlocked yet.",
   already_chosen: 'A subclass has already been chosen.',
   not_owner: "That's not your character.",
   unsupported_choice_type: "Suzu doesn't have a picker for that choice type yet.",
@@ -361,6 +367,25 @@ interface ChoiceCardProps {
   onResolved: (updated: CharacterSheet) => void;
 }
 
+/**
+ * R62/TAV-SUBCLASS-LEVEL-OVERRIDE — minimal display shape for one offerable-
+ * or-locked subclass on this card. `level` is the row's own gate level
+ * (`subclassOwnLevel`'s result, or whatever an enriched pending choice
+ * shipped verbatim); undefined only when no override signal exists anywhere
+ * (pre-ruling engine, or the class row didn't resolve) — see loadOptions'
+ * own comment for why that degrades to "every scoped option is offerable",
+ * byte-identical to before this ruling.
+ */
+interface SubclassCardOption {
+  slug: string;
+  name: string;
+  level?: number;
+}
+
+function toCardOption(item: CatalogItem, level?: number): SubclassCardOption {
+  return { slug: item.slug, name: item.name, level };
+}
+
 function SubclassChoiceCard({
   characterId,
   username,
@@ -371,7 +396,12 @@ function SubclassChoiceCard({
   const { toast } = useToast();
   const headingId = useId();
   const charClass = choice.class || sheet.char_class;
-  const [options, setOptions] = useState<CatalogItem[] | null>(null);
+  // R62/TAV-SUBCLASS-LEVEL-OVERRIDE — `options` is what's actually offerable
+  // (pickable) right now; `lockedOptions` is the complement (own gate level
+  // above the character's current level) — same split as the creation
+  // wizard's SubclassStep, one derivation shared via `subclassOwnLevel`.
+  const [options, setOptions] = useState<SubclassCardOption[] | null>(null);
+  const [lockedOptions, setLockedOptions] = useState<SubclassCardOption[]>([]);
   const [loadState, setLoadState] = useState<'loading' | 'ok' | 'error'>('loading');
   // A11Y/QA (SERIOUS-4, DEFECT-2): bump to retry a failed catalog fetch via
   // an effect-dep counter. This is THE canonical retry shape for every fetch
@@ -390,10 +420,41 @@ function SubclassChoiceCard({
   const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   useEffect(() => {
+    // R62/TAV-SUBCLASS-LEVEL-OVERRIDE — an enriched pending choice (options
+    // already resolved server-side, same wire idiom `feature_choice`/
+    // `skills` choices already use — see PendingLevelChoice.options' own
+    // doc comment) is AUTHORITATIVE: obs #168's discipline applies here too
+    // — never re-derive a filter client-side when the wire already shipped
+    // the answer. No fetch needed at all in this branch.
+    if (Array.isArray(choice.options) && choice.options.length > 0) {
+      const enriched = (
+        choice.options as Array<{ slug?: unknown; name?: unknown; level?: unknown }>
+      )
+        .filter((o) => typeof o?.slug === 'string' && typeof o?.name === 'string')
+        .map(
+          (o): SubclassCardOption => ({
+            slug: o.slug as string,
+            name: o.name as string,
+            level: typeof o.level === 'number' ? o.level : undefined,
+          }),
+        );
+      const unlocked = enriched.filter((o) => o.level === undefined || o.level <= sheet.level);
+      const locked = enriched.filter((o) => o.level !== undefined && o.level > sheet.level);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setOptions(unlocked);
+       
+      setLockedOptions(locked);
+       
+      setSelectedSlug((prev) => prev || unlocked[0]?.slug || '');
+       
+      setLoadState('ok');
+      return;
+    }
+
     const ac = new AbortController();
     // Canonical fetch-on-mount pattern (React docs "Fetching data" example).
     // There's no external store to subscribe to here.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+     
     setLoadState('loading');
 
     // TAV-SUBCLASS-CLASSKEY-MISMATCH: `charClass` is a DISPLAY name
@@ -424,21 +485,55 @@ function SubclassChoiceCard({
     // to the old raw-name compare — still correct for every SRD/no-prefix
     // class, and fails CLOSED (empty) rather than returning an unfiltered
     // subclass list for anything else.
-    async function loadOptions(): Promise<CatalogItem[]> {
+    //
+    // R62/TAV-SUBCLASS-LEVEL-OVERRIDE: partitioning is a SEPARATE concern
+    // from that resolution — it only ever compares against `classSubclassLevel`
+    // (the resolved class row's PLAIN `data.subclass_level`, NEVER its
+    // `effective_subclass_level` — see subclassOwnLevel's doc comment for
+    // why: the effective value is already the min across every visible
+    // subclass, so using it as every non-declaring row's own floor would
+    // render an SRD rogue's own archetypes as pickable at level 1 too, and
+    // the engine would refuse each one with `subclass_level_not_reached`,
+    // Kage-CR's exact trap). Only partitions when the pending choice fired
+    // EARLIER than that plain level (`choice.level < classSubclassLevel`) —
+    // absent that signal (no override anywhere, or the class row never
+    // resolved) every scoped option is offered unfiltered, byte-identical
+    // to today.
+    async function loadOptions(): Promise<{
+      unlocked: SubclassCardOption[];
+      locked: SubclassCardOption[];
+    }> {
       const [classRes, subclassRes] = await Promise.all([
         getCatalog(SYSTEM, { type: 'class' }, ac.signal),
         getCatalog(SYSTEM, { type: 'subclass', limit: 500 }, ac.signal),
       ]);
       const classRow = classRes.items.find((c) => slugifyName(c.name) === slugifyName(charClass));
-      if (classRow) return subclassesForClass(subclassRes.items, classRow.slug);
-      return subclassesForClass(subclassRes.items, charClass);
+      const scoped = classRow
+        ? subclassesForClass(subclassRes.items, classRow.slug)
+        : subclassesForClass(subclassRes.items, charClass);
+      const classSubclassLevel = classRow
+        ? (classRow.data as CatalogClassData).subclass_level
+        : undefined;
+      if (typeof classSubclassLevel !== 'number' || choice.level >= classSubclassLevel) {
+        return { unlocked: scoped.map((item) => toCardOption(item)), locked: [] };
+      }
+      const unlocked: SubclassCardOption[] = [];
+      const locked: SubclassCardOption[] = [];
+      for (const item of scoped) {
+        const level = subclassOwnLevel(item, classSubclassLevel);
+        const opt = toCardOption(item, level);
+        if (typeof level === 'number' && level <= sheet.level) unlocked.push(opt);
+        else locked.push(opt);
+      }
+      return { unlocked, locked };
     }
 
     loadOptions()
-      .then((filtered) => {
+      .then(({ unlocked, locked }) => {
         if (ac.signal.aborted) return;
-        setOptions(filtered);
-        setSelectedSlug((prev) => prev || filtered[0]?.slug || '');
+        setOptions(unlocked);
+        setLockedOptions(locked);
+        setSelectedSlug((prev) => prev || unlocked[0]?.slug || '');
         setLoadState('ok');
       })
       .catch(() => {
@@ -448,7 +543,14 @@ function SubclassChoiceCard({
         setLoadState('error');
       });
     return () => ac.abort();
-  }, [charClass, loadKey]);
+    // choice.options/choice.level are read above but intentionally excluded
+    // from the deps — they ride on the SAME `choice` object identity as
+    // `charClass` derives from (`choice.class`), which is already covered
+    // by every existing retry/re-render path; adding them risked a refetch
+    // loop the moment `sheet` (and therefore `choice`) is replaced by the
+    // post-resolve refetch for a SIBLING pending choice.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [charClass, loadKey, sheet.level]);
 
   async function handleResolve() {
     if (busyRef.current || !selectedSlug) return;
@@ -501,7 +603,17 @@ function SubclassChoiceCard({
           </Button>
         </p>
       )}
-      {loadState === 'ok' && options && options.length === 0 && (
+      {/* R62/TAV-SUBCLASS-LEVEL-OVERRIDE: seeded, but every one of them sits
+          above the character's current level — nothing to pick THIS visit
+          (mirrors the creation wizard's own SubclassStep state table). */}
+      {loadState === 'ok' && options && options.length === 0 && lockedOptions.length > 0 && (
+        <p className={styles.emptyRow} aria-live="polite" aria-atomic="true">
+          {charClass}&rsquo;s remaining archetypes unlock at level{' '}
+          {Math.min(...lockedOptions.map((o) => o.level ?? Infinity))} — check back once{' '}
+          {sheet.name} gets there.
+        </p>
+      )}
+      {loadState === 'ok' && options && options.length === 0 && lockedOptions.length === 0 && (
         <p className={styles.emptyRow} aria-live="polite" aria-atomic="true">
           No archetypes are seeded for {charClass} yet.
         </p>
@@ -551,6 +663,16 @@ function SubclassChoiceCard({
           >
             {busy ? '…' : 'Confirm archetype'}
           </Button>
+          {/* R62/TAV-SUBCLASS-LEVEL-OVERRIDE: an early-unlocking archetype
+              (e.g. Re:Zero at 1) can render alongside a still-locked one
+              (e.g. an SRD rogue's own, gated at 3) — say so, so the menu
+              doesn't read as the FULL roster. */}
+          {lockedOptions.length > 0 && (
+            <p className={styles.emptyRow} aria-live="polite" aria-atomic="true">
+              {lockedOptions.length === 1 ? 'One more archetype unlocks' : 'More archetypes unlock'}{' '}
+              at level {Math.min(...lockedOptions.map((o) => o.level ?? Infinity))}.
+            </p>
+          )}
         </>
       )}
     </div>
