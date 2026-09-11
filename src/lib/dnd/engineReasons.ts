@@ -385,3 +385,46 @@ export const SESSION_START_REASON_MAP: Record<string, string> = {
   msm_disabled: 'Multi-system content is not available for this session.',
   unknown_adventure: "That adventure couldn't be found — pick another one from the list.",
 };
+
+/**
+ * Delete refusals for `DeleteCharacterButton` (soft-delete "move to trash",
+ * the sheet header AND grid-card icon variants).
+ * `DELETE /api/dnd/characters/{id}`, proxied through the same
+ * `api/routes/dnd_characters.py` module the maps above trace —
+ * `message` forwarded intact.
+ *
+ * ENGINE-PARTICIPANT-FK-CHECK-CONTRADICTION (2026-09-10, NekoNova-DnDEngine
+ * `fix/participant-fk-cascade` @ e5b14b5, `routes/characters.py`): the ONE
+ * new refusal this route can return that no prior copy in this file
+ * anticipated — `delete_character_route` now refuses with 409
+ * `character_in_active_combat` (`_active_combat_refusal`) when the
+ * character holds a seat in an active encounter. Deliberately LEFT OUT of
+ * this map: the engine's own message already names the specific encounter
+ * ("Character is seated in an active encounter (#<id>); end the fight
+ * before deleting.") — no neutral string this file could author says
+ * anything more useful, same reasoning `COMBAT_REFUSAL_REASON_MAP`'s
+ * `not_your_character` entry documents above. Tier 2 (raw `body.message`;
+ * 409 is a `BUSINESS_4XX_STATUSES` status) carries it verbatim via
+ * `engineErrorMessage`. `purge_character_route` shares the SAME refusal
+ * shape (`action:"purging"`) but has no Tavern caller today — this repo has
+ * no user-facing purge control, only the weekly server-side purge (see
+ * `/trash`'s own header comment).
+ *
+ * A 404 "character not found" on THIS route is VERIFIED (read directly
+ * against `routes/characters.py`, not assumed) to carry NO `data.reason` at
+ * all: `delete_character_route`'s not-found branch is `_err(result, 404)`
+ * with `reason` defaulting to `""` (the legacy `_classify()` string-prefix
+ * path, not `_character_not_found()`'s structured `reason:"not_found"`
+ * helper other routes use). `DeleteCharacterButton`'s own status check
+ * (`e.status === 404`) is therefore the real gate for that case, not this
+ * map — `not_found`/`character_not_found` are kept here anyway as harmless,
+ * defensive aliases in case a future engine build migrates this route onto
+ * the structured helper (mirrors `LEAVE_CAMPAIGN_REASON_MAP`'s own
+ * defensive aliases for the same not-found family).
+ */
+export const DELETE_CHARACTER_REASON_MAP: Record<string, string> = {
+  ...SHARED_REASON_COPY,
+
+  not_found: 'That character is already gone.',
+  character_not_found: 'That character is already gone.',
+};

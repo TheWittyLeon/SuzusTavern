@@ -21,12 +21,8 @@ import Icon from '@/components/Icon';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { useToast } from '@/components/Toast';
 import { deleteCharacter, restoreCharacter } from '@/lib/api/dnd';
-import type { ApiError } from '@/lib/api/types';
-
-/** ApiError is an interface (Error + status/code), so detect by shape, not instanceof. */
-function isApiError(e: unknown): e is ApiError {
-  return e instanceof Error && 'status' in e;
-}
+import { engineErrorMessage, isApiError } from '@/lib/dnd/engineError';
+import { DELETE_CHARACTER_REASON_MAP } from '@/lib/dnd/engineReasons';
 
 export interface DeleteCharacterButtonProps {
   characterId: string;
@@ -54,10 +50,24 @@ export default function DeleteCharacterButton({
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const errMessage = (e: unknown): string =>
-    isApiError(e) && e.status === 404
-      ? 'That character is already gone.'
-      : 'Could not delete the character. Try again in a moment.';
+  // ENGINE-PARTICIPANT-FK-CHECK-CONTRADICTION (2026-09-10): a 404 here
+  // carries NO data.reason on the wire (verified against
+  // routes/characters.py — see DELETE_CHARACTER_REASON_MAP's own doc
+  // comment for why), so status is the real gate for that ONE case.
+  // Everything else routes through the shared chokepoint: curated copy
+  // when mapped, else the engine's own message verbatim on a 4xx — the
+  // ONLY way `character_in_active_combat`'s specific, encounter-naming
+  // text ("Character is seated in an active encounter (#<id>); end the
+  // fight before deleting.") ever reaches the player, since it's
+  // deliberately NOT curated (the engine message is more useful than
+  // anything this file could author).
+  const errMessage = (e: unknown): string => {
+    if (isApiError(e) && e.status === 404) return 'That character is already gone.';
+    return engineErrorMessage(e, {
+      fallback: 'Could not delete the character. Try again in a moment.',
+      reasonMap: DELETE_CHARACTER_REASON_MAP,
+    });
+  };
 
   async function restore() {
     try {
