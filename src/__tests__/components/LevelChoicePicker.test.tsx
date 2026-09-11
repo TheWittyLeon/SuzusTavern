@@ -1696,6 +1696,15 @@ describe('LevelChoicePicker — ENGINE-FEAT-ELIGIBILITY-DATA (Kage-CR, 2026-09-1
     ...ASI_CHOICE,
     options: [{ slug: 'grappler', name: 'Grappler' }],
   };
+  // Kage-CR (2026-09-10): eligible:false with why_not:[] — the
+  // feat_already_taken shape (see AsiFeatOption's own doc comment) — with
+  // this slug NOT in sheet.feats, simulating a stale local read that never
+  // reaches the alreadyTaken filter. Must still disable with SOME reason,
+  // never a bare disabled radio with no description at all.
+  const ASI_CHOICE_INELIGIBLE_NO_REASON = {
+    ...ASI_CHOICE,
+    options: [{ slug: 'grappler', name: 'Grappler', eligible: false, why_not: [] }],
+  };
 
   it('STR-8: an ineligible feat renders disabled with its why_not reason as an ACCESSIBLE DESCRIPTION (not folded into the name), is never auto-selected, arrow-nav skips it, and Confirm stays disabled', async () => {
     renderPicker([ASI_CHOICE_STR8_INELIGIBLE], {
@@ -1745,6 +1754,18 @@ describe('LevelChoicePicker — ENGINE-FEAT-ELIGIBILITY-DATA (Kage-CR, 2026-09-1
       mode: 'feat',
       feat: 'grappler',
     });
+  });
+
+  it('Kage-CR: eligible:false with why_not:[] (already-held shape, stale sheet.feats) still disables with a GENERIC description, never a bare aria-describedby={null}', async () => {
+    renderPicker([ASI_CHOICE_INELIGIBLE_NO_REASON], {
+      ability_scores: { ...BASE_SHEET.ability_scores, strength: ability(16, 3) },
+    });
+    fireEvent.click(screen.getByRole('radio', { name: 'Take a feat' }));
+
+    const opt = await screen.findByRole('radio', { name: 'Grappler' });
+    expect(opt).toBeDisabled();
+    expect(opt).toHaveAttribute('aria-checked', 'false');
+    expect(opt).toHaveAccessibleDescription(/Not available for this character/i);
   });
 
   it('an option with NO eligible key at all renders enabled — never fail closed on an absent verdict', async () => {

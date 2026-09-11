@@ -1126,8 +1126,17 @@ function AsiChoiceCard({ characterId, username, sheet, choice, onResolved }: Cho
                   // roving-tabindex nav above; only native `disabled` (not
                   // aria-disabled) removes it from sequential Tab order,
                   // same accepted trade-off the cap-hint precedent makes.
-                  const reasonId =
-                    !f.eligible && f.whyNot.length > 0 ? `${headingId}-feat-reason-${i}` : undefined;
+                  // Kage-CR (2026-09-10): keyed on `!f.eligible` ALONE —
+                  // an already-held non-repeatable feat's `feat_already_
+                  // taken` refusal carries `why_not: []` (see AsiFeatOption's
+                  // own doc comment), and a stale `sheet.feats` read could
+                  // let one slip past the `alreadyTaken` filter above.
+                  // Gating the id on `whyNot.length > 0` too left that
+                  // option disabled with `aria-describedby={null}` and no
+                  // reason at all — every ineligible option now gets a
+                  // description, generic when the engine sent no specific
+                  // text.
+                  const reasonId = !f.eligible ? `${headingId}-feat-reason-${i}` : undefined;
                   return (
                     <Fragment key={f.slug}>
                       <button
@@ -1151,7 +1160,9 @@ function AsiChoiceCard({ characterId, username, sheet, choice, onResolved }: Cho
                       </button>
                       {reasonId && (
                         <span id={reasonId} className={styles.prereqNote}>
-                          — requires {f.whyNot.join(', ')}
+                          {f.whyNot.length > 0
+                            ? `— requires ${f.whyNot.join(', ')}`
+                            : '— Not available for this character.'}
                         </span>
                       )}
                       {/* FALLBACK PATH ONLY — supplementary flavor text, never
