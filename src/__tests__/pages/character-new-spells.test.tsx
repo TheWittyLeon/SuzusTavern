@@ -173,9 +173,29 @@ jest.mock('../../lib/dnd/useCatalog', () => ({
   useCatalog: () => catalogOverride,
 }));
 
+// TAV-JEST-FLAKE-WIZARD-COMMENTARY (Kage-CR, 2026-09-10): useWizardCommentary's
+// detached async IIFE (useWizardCommentary.ts:57-76) calls setStreaming(false)
+// after `for await` drains the stream. Even an EMPTY async generator takes
+// >=1 microtask tick to settle (ECMA-262 Await semantics apply regardless of
+// how "fast" the generator body is), and that tick lands OUTSIDE any act()
+// boundary this file's fireEvent calls establish. Under worker contention,
+// this file's many chained real-timer waitFor(Continue enabled) transitions
+// can lose that race (flaked twice across review rounds — up to 73s vs ~20s
+// normal). Fix AT THE CAUSE: mock streamNarration as a PLAIN function that
+// throws SYNCHRONOUSLY instead of an async generator. `for await`'s iterable
+// expression is evaluated eagerly and synchronously (ECMA-262 ForIn/OfBody
+// evaluation) — the throw fires there, before any `await` is ever reached, so
+// the hook's try/catch + the subsequent setStreaming(false) all complete on
+// the SAME synchronous tick the triggering effect runs on (itself already
+// inside whatever act() boundary invoked it). No dangling microtask, no race,
+// by construction — not just a smaller window. Observably identical to the
+// old empty-generator shape (the hook's own `catch {}` swallows either one;
+// `text` stays '', `streaming` ends false) — this file never asserts on
+// streamed commentary content, only on the deterministic fallback it renders
+// while `enabled` but empty.
 jest.mock('../../lib/stream', () => ({
-  streamNarration: jest.fn(async function* () {
-    /* no chunks → the wizard falls back to its deterministic line */
+  streamNarration: jest.fn(() => {
+    throw new Error('streamNarration disabled in this test file — deterministic fallback only');
   }),
 }));
 
