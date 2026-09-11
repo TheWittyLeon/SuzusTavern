@@ -84,7 +84,7 @@
  * documented follow-up, same treatment as DDX-16's warlock-invocations
  * "eligible menu, not yet chosen" placeholder.
  */
-import { useEffect, useId, useRef, useState } from 'react';
+import { Fragment, useEffect, useId, useRef, useState } from 'react';
 import Button from '@/components/Button';
 import SpellInfoPopover from '@/components/SpellInfoPopover';
 import { useToast } from '@/components/Toast';
@@ -175,47 +175,104 @@ function resolveErrorMessage(err: unknown): string {
   return RESOLVE_REFUSAL_COPY[reason ?? ''] ?? fallback;
 }
 
-// SRD ASI feat slugs the engine will actually grant through this mechanic
-// today (NekoNova-DnDEngine engine/commands/character_msm.py::
-// _ASI_ELIGIBLE_FEATS). Manually mirrored here — there is no eligibility flag
-// on the catalog wire (same "no catalog endpoint exposes the real rule" gap
-// as conditions.ts's DND_CONDITIONS mirror of engine/rules.py::CONDITIONS).
-// A catalog `feat` row outside this set (e.g. the PF2e-shaped `power-attack`
-// row the engine's own docstring calls out) always refuses with
-// `unknown_feat` server-side even if offered here, so it's filtered out
-// rather than offered as a guaranteed dead end. Extend only when the
-// engine's own allowlist grows.
+// ENGINE-FEAT-ELIGIBILITY-DATA (Kage-CR, 2026-09-10) — FALLBACK ONLY. The
+// engine now ships the real per-character eligibility verdict directly on
+// the pending `asi` choice's own `options` (`AsiFeatOption[]` — see its doc
+// comment in lib/api/types.ts): `feats/loadOptions` below reads THAT when
+// present, in which case this set is never consulted at all (the server has
+// already filtered to every `acquisition: "asi"` feat, not just one slug).
+// This hardcoded set — the SRD feat the pre-flag engine granted through this
+// mechanic today (NekoNova-DnDEngine's retired `_ASI_ELIGIBLE_FEATS`) — only
+// still matters for a backend that hasn't deployed the flag yet, where the
+// pending choice carries no `options` at all: the degrade-path the design's
+// own "never fail closed on an absent verdict" rule calls for, not a second
+// copy of the engine's real allowlist. Extend only if that fallback path
+// ever needs to widen (it shouldn't, once every environment has the flag).
 const ASI_ELIGIBLE_FEAT_SLUGS = new Set<string>(['grappler']);
 
-// FEAT-PREREQ-UX: client mirror of the engine's best-effort feat-prereq
-// check (_resolve_asi_feat): a `prerequisites` entry naming an ability (the
-// wire carries 5e-bits' abbreviated names, e.g. "STR" for Grappler) requires
-// a score of 13+ in that ability. Only ability minimums are understood, and
-// the threshold is the same hardcoded 13 — deliberately, so the disabled
-// state here always agrees with the `feat_prereq_unmet` refusal the engine
-// would return for the same pick. Returns the unmet requirements as display
-// strings ("STR 13"), empty when the character qualifies.
-function unmetFeatPrereqs(item: CatalogItem, sheet: CharacterSheet): string[] {
-  const raw = (item.data as { prerequisites?: unknown }).prerequisites;
-  const prereqs = Array.isArray(raw) ? raw : [];
-  const unmet: string[] = [];
-  for (const entry of prereqs) {
-    const text = String(entry ?? '')
-      .trim()
-      .toLowerCase();
-    // Kage I4 (INVOC r1): EXACT match only — the engine normalizes the
-    // whole string and requires exact membership in ABILITIES, so a
-    // full-sentence prereq ("Strength 13 or higher") is NOT enforced
-    // server-side. A substring match here would block a feat the engine
-    // allows, with a threshold this client invented. Mirror = exact.
-    const ability = ABILITIES.find(
-      (a) => text === a.abbr.toLowerCase() || text === a.key,
-    );
-    if (ability && (sheet.ability_scores[ability.key]?.score ?? 10) < 13) {
-      unmet.push(`${ability.abbr} 13`);
-    }
+/**
+ * ENGINE-FEAT-ELIGIBILITY-DATA (Kage-CR, 2026-09-10) — the normalized shape
+ * both feat sources (the engine's own enriched `AsiFeatOption[]`, and the
+ * fallback catalog fetch below) collapse into for rendering. Retires
+ * `unmetFeatPrereqs`, which parsed `data.prerequisites` as a bare array of
+ * ability abbreviations — the engine's structured `{require, display}`
+ * grammar (`engine/feat_prereqs.py`) made that shape read `Array.isArray ===
+ * false` and silently return `[]` unmet for EVERY feat, rendering an
+ * ineligible one (Grappler at STR 8) as checked/eligible with no
+ * disclosure — a client mirror of an engine rule (design-durability red
+ * flag) that had already drifted from what it mirrored. `eligible`/`whyNot`
+ * are ALWAYS the engine's own verdict when available, never re-derived here.
+ */
+interface FeatPickOption {
+  slug: string;
+  name: string;
+  /** Fallback-default `true` — "never fail closed on an absent verdict":
+   *  a pre-flag engine (no `options` on the choice at all) or a malformed
+   *  individual entry (missing `eligible` key) both render as pickable,
+   *  same as today's behaviour; the resolver's own 400 is still the real
+   *  backstop either way. */
+  eligible: boolean;
+  /** The engine's own unmet-predicate text, one entry per failing
+   *  requirement. Can be `[]` even when `eligible` is false (an
+   *  already-held non-repeatable feat's `feat_already_taken` refusal
+   *  carries no predicate text) — that case is filtered out entirely by
+   *  the existing `alreadyTaken` check before it ever reaches here. */
+  whyNot: string[];
+  /** FALLBACK PATH ONLY — the feat row's own author-written
+   *  `prerequisites.display` strings, shown as supplementary flavor copy
+   *  underneath the feat name. NEVER used to compute `eligible`/`whyNot` —
+   *  display text is not a rule. Empty for every entry sourced from the
+   *  engine's own enriched `options` (that path already carries the real
+   *  verdict, so no supplementary copy is needed). */
+  displayHints: string[];
+}
+
+/** The engine's enriched `AsiFeatOption[]` (or a defensively-shaped
+ *  equivalent), normalized to `FeatPickOption[]`. Returns `null` when
+ *  `raw` isn't a usable array of feat-shaped objects at all — the caller's
+ *  signal to fall through to the catalog-fetch path, same "authoritative
+ *  when present, degrade otherwise" discipline as `subclassesForClass`'s
+ *  siblings elsewhere in this file. */
+function normalizeAsiFeatOptions(raw: unknown): FeatPickOption[] | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const out: FeatPickOption[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue;
+    const slug = (entry as { slug?: unknown }).slug;
+    const name = (entry as { name?: unknown }).name;
+    if (typeof slug !== 'string' || !slug || typeof name !== 'string' || !name) continue;
+    const rawEligible = (entry as { eligible?: unknown }).eligible;
+    const rawWhyNot = (entry as { why_not?: unknown }).why_not;
+    out.push({
+      slug,
+      name,
+      // Fallback-default true when the key is absent or not a boolean —
+      // never fail closed on an absent verdict.
+      eligible: typeof rawEligible === 'boolean' ? rawEligible : true,
+      whyNot: Array.isArray(rawWhyNot)
+        ? rawWhyNot.filter((s): s is string => typeof s === 'string' && s.length > 0)
+        : [],
+      displayHints: [],
+    });
   }
-  return unmet;
+  return out.length > 0 ? out : null;
+}
+
+/**
+ * FALLBACK PATH ONLY (ENGINE-FEAT-ELIGIBILITY-DATA) — a feat catalog row's
+ * own `data.prerequisites.display` when the row has already migrated to the
+ * structured `{require, display}` shape (`engine/feat_prereqs.py`'s
+ * `is_legacy_shape` returns false for it). Author-written flavor text,
+ * read verbatim and NEVER used to compute eligibility — that would be
+ * exactly the re-derivation this fix removes. Returns `[]` for the legacy
+ * array shape, an absent key, or anything malformed; never throws.
+ */
+function extractPrerequisiteDisplay(item: CatalogItem): string[] {
+  const spec = (item.data as { prerequisites?: unknown }).prerequisites;
+  if (!spec || typeof spec !== 'object' || Array.isArray(spec)) return [];
+  const display = (spec as { display?: unknown }).display;
+  if (!Array.isArray(display)) return [];
+  return display.filter((s): s is string => typeof s === 'string' && s.length > 0);
 }
 
 const SYSTEM = 'dnd5e';
@@ -711,7 +768,7 @@ function AsiChoiceCard({ characterId, username, sheet, choice, onResolved }: Cho
   const headingId = useId();
   const [mode, setMode] = useState<'increase' | 'feat'>('increase');
   const [allocations, setAllocations] = useState<Partial<Record<AbilityKey, number>>>({});
-  const [feats, setFeats] = useState<CatalogItem[] | null>(null);
+  const [feats, setFeats] = useState<FeatPickOption[] | null>(null);
   const [featLoadState, setFeatLoadState] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle');
   // LVL-FEAT-SELF-ABORT fix: retry via an effect-dep counter (the
   // SubclassChoiceCard/SpellChoiceCard convention), NOT by resetting
@@ -743,25 +800,47 @@ function AsiChoiceCard({ characterId, username, sheet, choice, onResolved }: Cho
     // entry / retry-key bump / taken-feats change, exactly the counter
     // pattern the sibling cards use.
     if (mode !== 'feat') return;
+    const alreadyTaken = new Set((sheet.feats ?? []).map((f) => f.slug));
+
+    // ENGINE-FEAT-ELIGIBILITY-DATA (Kage-CR): the pending choice's own
+    // `options` already carries the engine's per-character verdict — same
+    // obs #168 discipline as every other enriched-options read in this
+    // file (SubclassChoiceCard/SkillsChoiceCard): trust it outright, no
+    // catalog fetch, no client-side re-evaluation.
+    const enriched = normalizeAsiFeatOptions(choice.options)?.filter(
+      (f) => !alreadyTaken.has(f.slug),
+    );
+    if (enriched && enriched.length > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setFeats(enriched);
+      // FEAT-PREREQ-UX: auto-select the first feat the character actually
+      // QUALIFIES for — never an ineligible one (those render disabled,
+      // and pre-selecting one would arm a Confirm that can only refuse).
+      setSelectedFeat((prev) => prev || enriched.find((f) => f.eligible)?.slug || '');
+      setFeatLoadState('ok');
+      return;
+    }
+
+    // FALLBACK — no enriched verdict on this choice at all (pre-flag
+    // engine): the OLD catalog-fetch path, degraded to "every offered feat
+    // is eligible" (never fail closed on an absent verdict). A feat row's
+    // own `prerequisites.display` (when the structured shape is already
+    // migrated) rides along as supplementary, non-gating copy only.
     const ac = new AbortController();
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setFeatLoadState('loading');
     getCatalog(SYSTEM, { type: 'feat', limit: 500 }, ac.signal)
       .then((res) => {
-        const alreadyTaken = new Set((sheet.feats ?? []).map((f) => f.slug));
-        const eligible = res.items.filter(
-          (item) => ASI_ELIGIBLE_FEAT_SLUGS.has(item.slug) && !alreadyTaken.has(item.slug),
-        );
+        const eligible: FeatPickOption[] = res.items
+          .filter((item) => ASI_ELIGIBLE_FEAT_SLUGS.has(item.slug) && !alreadyTaken.has(item.slug))
+          .map((item) => ({
+            slug: item.slug,
+            name: item.name,
+            eligible: true,
+            whyNot: [],
+            displayHints: extractPrerequisiteDisplay(item),
+          }));
         setFeats(eligible);
-        // FEAT-PREREQ-UX: auto-select the first feat the character actually
-        // QUALIFIES for — never a prereq-unmet one (those render disabled,
-        // and pre-selecting one would arm a Confirm that can only refuse).
-        setSelectedFeat(
-          (prev) =>
-            prev ||
-            eligible.find((f) => unmetFeatPrereqs(f, sheet).length === 0)?.slug ||
-            '',
-        );
+        setSelectedFeat((prev) => prev || eligible[0]?.slug || '');
         setFeatLoadState('ok');
       })
       .catch(() => {
@@ -770,6 +849,15 @@ function AsiChoiceCard({ characterId, username, sheet, choice, onResolved }: Cho
         setFeatLoadState('error');
       });
     return () => ac.abort();
+    // choice.options is read above (enriched branch) but intentionally
+    // excluded — `sheet`, and therefore every `choice` object inside its
+    // `pending_choices` (including this one), gets a brand-new reference on
+    // ANY sibling pending choice's resolve, not just a change relevant to
+    // THIS card; re-running on every one of those would reset `selectedFeat`
+    // out from under an in-progress pick. `sheet.feats` is depended on
+    // directly since it's the one piece that must be current (an
+    // already-taken feat must never re-appear after this card's own resolve).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, featLoadKey, sheet.feats]);
 
   // QA (Miko DEFECT-1): switching ASI mode must not leave a stale allocation
@@ -835,12 +923,13 @@ function AsiChoiceCard({ characterId, username, sheet, choice, onResolved }: Cho
       successMessage = `${sheet.name}'s Ability Score Improvement: ${allocationNames}.`;
     } else {
       if (!selectedFeat) return;
-      // FEAT-PREREQ-UX backstop: the unmet options are disabled and skipped
-      // by arrow-nav, so this should be unreachable — but a stale selection
-      // (e.g. scores changed under us via a sibling ASI card) must never
+      // FEAT-PREREQ-UX backstop: ineligible options are disabled and
+      // skipped by arrow-nav, so this should be unreachable — but a stale
+      // selection (e.g. the engine's verdict changed under us via a
+      // sibling ASI card, or the character's scores moved) must never
       // submit a pick the engine will refuse.
       const chosen = feats?.find((f) => f.slug === selectedFeat);
-      if (!chosen || unmetFeatPrereqs(chosen, sheet).length > 0) return;
+      if (!chosen || !chosen.eligible) return;
       selection = { mode: 'feat', feat: selectedFeat };
       successMessage = `${sheet.name} takes the ${chosen.name} feat!`;
     }
@@ -1004,7 +1093,7 @@ function AsiChoiceCard({ characterId, username, sheet, choice, onResolved }: Cho
                 role="radiogroup"
                 aria-label={`Feat (level ${choice.level})`}
                 onKeyDown={(e) => {
-                  // FEAT-PREREQ-UX: arrow-nav must skip prereq-unmet feats —
+                  // FEAT-PREREQ-UX: arrow-nav must skip ineligible feats —
                   // they're disabled below, and arrow movement SELECTS in a
                   // radio group, so stepping onto one would arm a pick the
                   // engine can only refuse. Walk until an enabled option is
@@ -1013,7 +1102,7 @@ function AsiChoiceCard({ characterId, username, sheet, choice, onResolved }: Cho
                   for (let step = 0; step < feats.length; step += 1) {
                     const next = radioStepIndex(e.key, idx, feats.length);
                     if (next === null) return;
-                    if (unmetFeatPrereqs(feats[next], sheet).length === 0) {
+                    if (feats[next].eligible) {
                       e.preventDefault();
                       setSelectedFeat(feats[next].slug);
                       featRefs.current[next]?.focus();
@@ -1021,42 +1110,63 @@ function AsiChoiceCard({ characterId, username, sheet, choice, onResolved }: Cho
                     }
                     idx = next;
                   }
-                  e.preventDefault(); // every option unmet — nothing to move to
+                  e.preventDefault(); // every option ineligible — nothing to move to
                 }}
               >
                 {feats.map((f, i) => {
-                  // FEAT-PREREQ-UX: a feat the character can't take renders
-                  // disabled with the requirement inline — the old behavior
-                  // offered it as the ONLY option and let the (correct)
-                  // refusal toast be the first hint.
-                  const unmet = unmetFeatPrereqs(f, sheet);
+                  // ENGINE-FEAT-ELIGIBILITY-DATA (Kage-CR): an ineligible
+                  // feat renders disabled, with its `why_not` reason as a
+                  // SIBLING description (not folded into the accessible
+                  // NAME — mirrors SpellsStep's own descId/aria-describedby
+                  // split) so a screen reader announces "Grappler" as the
+                  // option and "requires Strength 13 or higher" as why it's
+                  // disabled, same relationship the Skills/Rung/Spells
+                  // cap-hint pattern already establishes elsewhere in this
+                  // repo. Still Tab/arrow-reachable via the radiogroup's own
+                  // roving-tabindex nav above; only native `disabled` (not
+                  // aria-disabled) removes it from sequential Tab order,
+                  // same accepted trade-off the cap-hint precedent makes.
+                  const reasonId =
+                    !f.eligible && f.whyNot.length > 0 ? `${headingId}-feat-reason-${i}` : undefined;
                   return (
-                    <button
-                      key={f.slug}
-                      ref={(el) => {
-                        featRefs.current[i] = el;
-                      }}
-                      type="button"
-                      role="radio"
-                      aria-checked={selectedFeat === f.slug}
-                      tabIndex={selectedFeat === f.slug ? 0 : -1}
-                      className={
-                        selectedFeat === f.slug
-                          ? `${styles.option} ${styles.optionOn}`
-                          : styles.option
-                      }
-                      disabled={busy || unmet.length > 0}
-                      onClick={() => setSelectedFeat(f.slug)}
-                    >
-                      {f.name}
-                      {unmet.length > 0 && (
-                        <span className={styles.prereqNote}> — requires {unmet.join(', ')}</span>
+                    <Fragment key={f.slug}>
+                      <button
+                        ref={(el) => {
+                          featRefs.current[i] = el;
+                        }}
+                        type="button"
+                        role="radio"
+                        aria-checked={selectedFeat === f.slug}
+                        aria-describedby={reasonId}
+                        tabIndex={selectedFeat === f.slug ? 0 : -1}
+                        className={
+                          selectedFeat === f.slug
+                            ? `${styles.option} ${styles.optionOn}`
+                            : styles.option
+                        }
+                        disabled={busy || !f.eligible}
+                        onClick={() => setSelectedFeat(f.slug)}
+                      >
+                        {f.name}
+                      </button>
+                      {reasonId && (
+                        <span id={reasonId} className={styles.prereqNote}>
+                          — requires {f.whyNot.join(', ')}
+                        </span>
                       )}
-                    </button>
+                      {/* FALLBACK PATH ONLY — supplementary flavor text, never
+                          gating; the enriched path never populates this. */}
+                      {f.displayHints.length > 0 && (
+                        <span className={styles.prereqNote}>
+                          {' '}
+                          ({f.displayHints.join(', ')})
+                        </span>
+                      )}
+                    </Fragment>
                   );
                 })}
               </div>
-              {feats.every((f) => unmetFeatPrereqs(f, sheet).length > 0) && (
+              {feats.every((f) => !f.eligible) && (
                 <p className={styles.hint} aria-live="polite" aria-atomic="true">
                   {sheet.name} doesn&rsquo;t meet any offered feat&rsquo;s prerequisites —
                   choose an ability increase instead.

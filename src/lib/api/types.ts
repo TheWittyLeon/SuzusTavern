@@ -450,6 +450,38 @@ export interface SkillChoiceOption {
   name: string;
 }
 
+/** ENGINE-FEAT-ELIGIBILITY-DATA (2026-09-10) — one option on an `asi`
+ *  pending choice's `options` array, in FEAT mode: the engine's own
+ *  eligibility verdict for THIS character, computed by the SAME
+ *  `rules_catalog.feat_selectable_for` the ASI resolver's accept path
+ *  calls (`engine/commands/character_msm.py`'s sheet-read `pending_choices`
+ *  enrichment, gated on `feature_flags.feat_prereqs_enabled()`) — so
+ *  "offered" and "accepted" cannot diverge. `eligible`/`why_not` ride
+ *  together: `why_not` is `[]` when `eligible` is true, and a non-empty
+ *  human-readable (or the `"prerequisite_unstructured"` code) string per
+ *  UNMET predicate when false — EXCEPT for an already-held non-repeatable
+ *  feat, whose `why_not` is `[]` even though `eligible` is false (the
+ *  engine's own `feat_already_taken` refusal carries no predicate text;
+ *  consumers must not assume a false `eligible` always pairs with a
+ *  non-empty `why_not`).
+ *
+ *  Both fields are OPTIONAL on this type, not because the engine ever
+ *  omits them once it enriches an entry at all, but so a consumer's
+ *  fallback-on-absence read (`entry.eligible ?? true`) type-checks against
+ *  a pre-upgrade backend that queued the choice with no enrichment
+ *  whatsoever (`options` absent from the whole entry, not just this
+ *  field) — see LevelChoicePicker's AsiChoiceCard for the one place this
+ *  is read; the client MUST NEVER re-derive `eligible`/`why_not` from a
+ *  feat row's own raw `data.prerequisites` (that grammar belongs to
+ *  `engine/feat_prereqs.py` alone — see its own module docstring for why a
+ *  second evaluator drifts). */
+export interface AsiFeatOption {
+  slug: string;
+  name: string;
+  eligible?: boolean;
+  why_not?: string[];
+}
+
 export interface PendingLevelChoice {
   id: string;
   type: string;
@@ -491,8 +523,11 @@ export interface PendingLevelChoice {
    *  `string[]` is ALSO accepted client-side (lib/dnd/helpers.ts's
    *  `normalizeSkillOptions` tolerance adapter) so neither deploy ordering
    *  between this repo and the engine ever strands a character on a shape
-   *  it can't render. Consumers narrow by `choice.type`. */
-  options?: FeatureChoiceOption[] | SkillChoiceOption[] | string[];
+   *  it can't render. ENGINE-FEAT-ELIGIBILITY-DATA (2026-09-10) reuses this
+   *  SAME field a third time for `type === 'asi'` entries in FEAT mode:
+   *  `AsiFeatOption[]` — see its own doc comment. Consumers narrow by
+   *  `choice.type`. */
+  options?: FeatureChoiceOption[] | SkillChoiceOption[] | AsiFeatOption[] | string[];
 }
 
 /** INVOC: one resolved menu group on the sheet — the character's CHOSEN

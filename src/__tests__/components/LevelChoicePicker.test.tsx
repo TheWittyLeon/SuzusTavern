@@ -1655,7 +1655,7 @@ describe('feat-mode fetch does not abort itself', () => {
   });
 });
 
-describe('LevelChoicePicker — FEAT-PREREQ-UX (prereq-unmet feats disabled inline)', () => {
+describe('LevelChoicePicker — ENGINE-FEAT-ELIGIBILITY-DATA (Kage-CR, 2026-09-10): eligible/why_not off the wire, never re-evaluated', () => {
   // The real wire Grappler row DOES carry prerequisites (5e-bits abbreviated
   // ability names — scripts/import_srd.py::transform_feat emits ["STR"]);
   // the base FEAT_ITEMS fixture's data:{} models a prereq-less feat, which is
@@ -1677,26 +1677,48 @@ describe('LevelChoicePicker — FEAT-PREREQ-UX (prereq-unmet feats disabled inli
     });
   }
 
-  it('an unmet feat renders disabled with the requirement inline, is never auto-selected, arrow-nav skips it, and Confirm stays disabled', async () => {
-    mockFeatCatalog();
-    renderPicker([ASI_CHOICE], {
-      ability_scores: { ...BASE_SHEET.ability_scores, strength: ability(9, -1) },
+  // The engine's own eligibility verdict rides on the pending choice's
+  // `options` (AsiFeatOption[]) — the SAME shape feature_choice/skills
+  // choices already use. No catalog fetch, no re-derivation.
+  const ASI_CHOICE_STR8_INELIGIBLE = {
+    ...ASI_CHOICE,
+    options: [
+      { slug: 'grappler', name: 'Grappler', eligible: false, why_not: ['Requires Strength 13 or higher'] },
+    ],
+  };
+  const ASI_CHOICE_STR13_ELIGIBLE = {
+    ...ASI_CHOICE,
+    options: [{ slug: 'grappler', name: 'Grappler', eligible: true, why_not: [] }],
+  };
+  // No `eligible`/`why_not` keys at all on this one entry — a malformed or
+  // pre-migration individual row. Fallback default: eligible.
+  const ASI_CHOICE_ABSENT_VERDICT = {
+    ...ASI_CHOICE,
+    options: [{ slug: 'grappler', name: 'Grappler' }],
+  };
+
+  it('STR-8: an ineligible feat renders disabled with its why_not reason as an ACCESSIBLE DESCRIPTION (not folded into the name), is never auto-selected, arrow-nav skips it, and Confirm stays disabled', async () => {
+    renderPicker([ASI_CHOICE_STR8_INELIGIBLE], {
+      ability_scores: { ...BASE_SHEET.ability_scores, strength: ability(8, -1) },
     });
     fireEvent.click(screen.getByRole('radio', { name: 'Take a feat' }));
 
-    // Requirement is part of the option's own text — screen-reader users
-    // hear the "why" with the name, not just "dimmed, unavailable".
-    const opt = await screen.findByRole('radio', { name: /Grappler — requires STR 13/i });
+    // The accessible NAME is just "Grappler" — WCAG 3.3.1: the reason is a
+    // DESCRIPTION (aria-describedby), never smuggled into the option's name.
+    const opt = await screen.findByRole('radio', { name: 'Grappler' });
     expect(opt).toBeDisabled();
     expect(opt).toHaveAttribute('aria-checked', 'false');
+    expect(opt).toHaveAccessibleDescription(/Requires Strength 13 or higher/i);
+    // No catalog fetch at all — the engine's own verdict is authoritative.
+    expect(mockGetCatalog).not.toHaveBeenCalled();
 
-    // Every offered feat unmet → the steering hint renders.
+    // Every offered feat ineligible → the steering hint renders.
     expect(
       screen.getByText(/doesn’t meet any offered feat’s prerequisites/i),
     ).toBeInTheDocument();
 
-    // Arrow movement SELECTS in a radio group — it must skip unmet options
-    // rather than arm a pick the engine can only refuse.
+    // Arrow movement SELECTS in a radio group — it must skip ineligible
+    // options rather than arm a pick the engine can only refuse.
     fireEvent.keyDown(screen.getByRole('radiogroup', { name: 'Feat (level 4)' }), {
       key: 'ArrowRight',
     });
@@ -1706,38 +1728,52 @@ describe('LevelChoicePicker — FEAT-PREREQ-UX (prereq-unmet feats disabled inli
     expect(mockResolve).not.toHaveBeenCalled();
   });
 
-  it('Kage r2-3 pin: a full-sentence prereq the ENGINE does not enforce stays ENABLED here too (exact-match mirror, no substring)', async () => {
-    // The engine normalizes the whole string and requires exact membership
-    // in ABILITIES — "Strength 13 or higher" is NOT enforced server-side, so
-    // the client must not block it with an invented threshold (the
-    // CONTENT-BREADTH bulk-import shape). Red if the .includes substring
-    // match ever comes back.
-    mockGetCatalog.mockImplementation((_system: string, opts: { type?: string }) =>
-      Promise.resolve(
-        catalogResponse(
-          opts?.type === 'feat'
-            ? [
-                {
-                  slug: 'grappler',
-                  name: 'Grappler',
-                  content_type: 'feat',
-                  source_type: 'srd',
-                  data: { prerequisites: ['Strength 13 or higher'] },
-                },
-              ]
-            : SUBCLASS_ITEMS,
-        ),
-      ),
-    );
+  it('STR-13: the same feat, eligible:true off the wire, renders enabled, auto-selected, and resolvable', async () => {
+    renderPicker([ASI_CHOICE_STR13_ELIGIBLE], {
+      ability_scores: { ...BASE_SHEET.ability_scores, strength: ability(13, 1) },
+    });
+    fireEvent.click(screen.getByRole('radio', { name: 'Take a feat' }));
+    const opt = await screen.findByRole('radio', { name: 'Grappler' });
+    expect(opt).toBeEnabled();
+    expect(opt).toHaveAttribute('aria-checked', 'true'); // auto-selected
+    expect(opt).not.toHaveAttribute('aria-describedby');
+    expect(mockGetCatalog).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /confirm feat/i }));
+    await flush();
+    expect(mockResolve).toHaveBeenCalledWith('cid-1', 'leon', 'asi:4', {
+      mode: 'feat',
+      feat: 'grappler',
+    });
+  });
+
+  it('an option with NO eligible key at all renders enabled — never fail closed on an absent verdict', async () => {
+    renderPicker([ASI_CHOICE_ABSENT_VERDICT], {
+      ability_scores: { ...BASE_SHEET.ability_scores, strength: ability(8, -1) },
+    });
+    fireEvent.click(screen.getByRole('radio', { name: 'Take a feat' }));
+    const opt = await screen.findByRole('radio', { name: 'Grappler' });
+    expect(opt).toBeEnabled();
+    expect(opt).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('FALLBACK (pre-flag engine, choice carries no options at all): a legacy prerequisites array is never re-evaluated client-side — renders enabled regardless of ability score', async () => {
+    // The array-shape evaluator this fix retires used to disable Grappler
+    // here for a STR-9 character; the durable fix is that NOTHING client-
+    // side computes eligibility from a feat row's raw prerequisites at all
+    // — the engine's own resolve is the real (and only) gate in this
+    // degrade path.
+    mockFeatCatalog();
     renderPicker([ASI_CHOICE], {
       ability_scores: { ...BASE_SHEET.ability_scores, strength: ability(9, -1) },
     });
     fireEvent.click(screen.getByRole('radio', { name: 'Take a feat' }));
     const opt = await screen.findByRole('radio', { name: 'Grappler' });
-    expect(opt).toBeEnabled(); // no invented "requires STR 13" block
+    expect(opt).toBeEnabled();
+    expect(mockGetCatalog).toHaveBeenCalledWith('dnd5e', { type: 'feat', limit: 500 }, expect.anything());
   });
 
-  it('the same feat with the prereq met stays enabled, auto-selected, and resolvable', async () => {
+  it('FALLBACK: the same feat with the prereq met stays enabled, auto-selected, and resolvable', async () => {
     mockFeatCatalog();
     renderPicker([ASI_CHOICE]); // BASE_SHEET: STR 16 — met
 
