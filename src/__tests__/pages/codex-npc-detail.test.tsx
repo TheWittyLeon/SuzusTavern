@@ -19,7 +19,7 @@ import '@testing-library/jest-dom';
 import CodexDetail from '../../app/codex/CodexDetail';
 import CodexDetailModal from '../../app/codex/CodexDetailModal';
 import { dmOnlyFields } from '../../app/codex/MonsterStatBlock';
-import type { CatalogItem, CatalogMonsterData, CatalogNpcData, DmOnly } from '../../lib/api/types';
+import type { CatalogItem, CatalogMonsterData, CatalogNpcData, CatalogPhysique, DmOnly } from '../../lib/api/types';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -101,6 +101,172 @@ const ITACHI_WITH_STALE_STAT_BLOCK_KEY: CatalogItem = {
     stat_block: { ac: 999, hp_formula: '999d20', cr: 30 },
   },
 };
+
+// ── PHYSIQUE-000 fixtures (Sora-Arch §8.2/§5, Aoi-UI §1, Kuro-Sec F3) ────────
+// Building ahead of the engine's E7 split (unmerged `feature/codex-packs`) —
+// these hand-built payloads are the mock for that not-yet-deployed shape.
+// The live cross-user check against a real deploy happens post-.226 (Phase
+// 8); this file proves the CLIENT'S half of the contract only.
+
+/** Matches the illustrative row in Sora-Arch §5 exactly (public half only —
+ *  weight_kg/measurements never appear at this path, Kuro-Sec F3). */
+const NARUTO_PHYSIQUE: CatalogPhysique = {
+  body_plan: 'human',
+  build: 'lean, athletic, wiry-strong',
+  hair_color: 'bright sun-blond',
+  hair_style: 'short, spiky in every direction',
+  eye_color: 'vivid cerulean blue',
+  skin: 'warm, lightly tanned',
+  skin_kind: 'skin',
+  marks: ['three whisker birthmarks per cheek'],
+  outfit: 'orange-and-black tracksuit-flak',
+  tell: 'the whisker-marked grin under blond spikes',
+  height_cm: 168,
+};
+
+const ANTHRO_PHYSIQUE: CatalogPhysique = {
+  body_plan: 'anthro',
+  build: 'digitigrade, powerful haunches',
+  height_cm: 140,
+};
+
+const CHILD_CODED_PHYSIQUE: CatalogPhysique = {
+  body_plan: 'human',
+  build: 'small, still growing into her limbs',
+};
+
+/** Builds an NPC catalog item from ITACHI_WIRE_ONLY's envelope with `data`
+ *  overridden — every PHYSIQUE-000 fixture below only needs to vary
+ *  `physique`/`dm_only`, not the whole envelope. */
+function npcWith(data: Partial<CatalogNpcData>): CatalogItem {
+  return {
+    ...ITACHI_WIRE_ONLY,
+    data: { ...(ITACHI_WIRE_ONLY.data as CatalogNpcData), ...data } as CatalogNpcData,
+  };
+}
+
+describe('NpcDetail — physique descriptor cells (PHYSIQUE-000, Aoi-UI §1)', () => {
+  it('renders Build/Hair/Eyes/Skin/Marks/Outfit/Tell, in order, when physique is present', () => {
+    render(<CodexDetail item={npcWith({ physique: NARUTO_PHYSIQUE })} kind="npc" />);
+    expect(screen.getByText('Build')).toBeInTheDocument();
+    expect(screen.getByText('lean, athletic, wiry-strong')).toBeInTheDocument();
+    expect(screen.getByText('Hair')).toBeInTheDocument();
+    expect(screen.getByText('short, spiky in every direction; bright sun-blond')).toBeInTheDocument();
+    expect(screen.getByText('Eyes')).toBeInTheDocument();
+    expect(screen.getByText('vivid cerulean blue')).toBeInTheDocument();
+    expect(screen.getByText('Skin')).toBeInTheDocument();
+    expect(screen.getByText('warm, lightly tanned')).toBeInTheDocument();
+    expect(screen.getByText('Marks')).toBeInTheDocument();
+    expect(screen.getByText('three whisker birthmarks per cheek')).toBeInTheDocument();
+    expect(screen.getByText('orange-and-black tracksuit-flak')).toBeInTheDocument();
+    expect(screen.getByText('the whisker-marked grin under blond spikes')).toBeInTheDocument();
+  });
+
+  it('renders no descriptor cells or Marks section when physique is absent — no placeholder, no empty cell', () => {
+    render(<CodexDetail item={ITACHI_WIRE_ONLY} kind="npc" />);
+    expect(screen.queryByText('Build')).not.toBeInTheDocument();
+    expect(screen.queryByText('Hair')).not.toBeInTheDocument();
+    expect(screen.queryByText('Eyes')).not.toBeInTheDocument();
+    expect(screen.queryByText('Skin')).not.toBeInTheDocument();
+    expect(screen.queryByText('Marks')).not.toBeInTheDocument();
+  });
+
+  it('the default skin_kind ("skin") renders no Pill suffix — the enum default is omitted, not branched on', () => {
+    render(<CodexDetail item={npcWith({ physique: NARUTO_PHYSIQUE })} kind="npc" />);
+    const skinValue = screen.getByText('Skin').nextElementSibling as HTMLElement;
+    expect(skinValue.querySelector('.pill')).toBeNull();
+  });
+
+  it('a non-default skin_kind (e.g. "fur") renders as a muted Pill suffix — data-driven, never a per-species branch', () => {
+    const furry = npcWith({ physique: { ...NARUTO_PHYSIQUE, skin: 'russet', skin_kind: 'fur' } });
+    render(<CodexDetail item={furry} kind="npc" />);
+    const skinValue = screen.getByText('Skin').nextElementSibling as HTMLElement;
+    expect(skinValue.textContent).toBe('russet fur');
+    expect(skinValue.querySelector('.pill')).not.toBeNull();
+  });
+
+  it('never renders weight_kg or measurements as public cells regardless of what the row carries', () => {
+    render(<CodexDetail item={npcWith({ physique: NARUTO_PHYSIQUE })} kind="npc" />);
+    expect(screen.queryByText(/weight/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/measurements/i)).not.toBeInTheDocument();
+  });
+});
+
+// ── PHYSIQUE-000 — the hard indistinguishability requirement ────────────────
+// A non-owner viewing a populated row, an anthro row that structurally has no
+// measurements, and a child-coded row that structurally cannot have them
+// must be impossible to tell apart from the rendered player-view DOM. The
+// client has exactly one signal — dm_only.physique.{weight_kg,measurements}
+// presence — so all three of these fixtures simply lack a `dm_only` key
+// (that IS what "non-owner" means on the wire); the public `physique`
+// content varies only to reflect each of the three named reasons.
+
+describe('PHYSIQUE-000 — owner-only measurements/weight indistinguishability (hard requirement)', () => {
+  it.each([
+    ['a non-owner viewing a populated row', NARUTO_PHYSIQUE],
+    ['an anthro row that structurally has no measurements', ANTHRO_PHYSIQUE],
+    ['a child-coded row that structurally cannot have measurements', CHILD_CODED_PHYSIQUE],
+  ])('%s: no dm_only key at all -> zero DM-only affordance in the DOM', (_label, physique) => {
+    render(<CodexDetail item={npcWith({ physique })} kind="npc" />);
+    expect(screen.queryByRole('button', { name: /dm only/i })).not.toBeInTheDocument();
+    expect(document.querySelector('[aria-expanded]')).toBeNull();
+    expect(screen.queryByText(/weight/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/measurements/i)).not.toBeInTheDocument();
+  });
+
+  it('all three non-owner cases render byte-identical "no DM-only affordance" DOM — same absence, regardless of why', () => {
+    const traces = [NARUTO_PHYSIQUE, ANTHRO_PHYSIQUE, CHILD_CODED_PHYSIQUE].map((physique) => {
+      const { container, unmount } = render(<CodexDetail item={npcWith({ physique })} kind="npc" />);
+      const trace = container.querySelector('[aria-expanded]');
+      unmount();
+      return trace;
+    });
+    expect(traces.every((t) => t === null)).toBe(true);
+  });
+
+  it('anthro vs. child-coded: identical byte-for-byte DM-only block when both structurally lack measurements but DO have other dm_only content (Aoi-UI §5, rows 3-4)', () => {
+    // Two different structural reasons for "no physique.measurements" —
+    // `dm_only.physique` key absent entirely vs. present-but-empty (both are
+    // legitimate engine outputs once E7 lands) — must render identically.
+    const anthroKeyAbsent = npcWith({
+      physique: ANTHRO_PHYSIQUE,
+      dm_only: { hidden_truth: 'Guards the north gate.' },
+    });
+    const childCodedKeyEmpty = npcWith({
+      physique: CHILD_CODED_PHYSIQUE,
+      dm_only: { hidden_truth: 'Guards the north gate.', physique: {} },
+    });
+
+    const first = render(<CodexDetail item={anthroKeyAbsent} kind="npc" />);
+    fireEvent.click(screen.getByRole('button', { name: /dm only.*never read aloud/i }));
+    const htmlA = first.container.querySelector('[role="region"]')!.querySelector('dl')!.innerHTML;
+    first.unmount();
+
+    const second = render(<CodexDetail item={childCodedKeyEmpty} kind="npc" />);
+    fireEvent.click(screen.getByRole('button', { name: /dm only.*never read aloud/i }));
+    const htmlB = second.container.querySelector('[role="region"]')!.querySelector('dl')!.innerHTML;
+    second.unmount();
+
+    expect(htmlA).toBe(htmlB);
+    expect(htmlA).not.toMatch(/weight/i);
+    expect(htmlA).not.toMatch(/measurements/i);
+  });
+
+  it('POSITIVE CONTROL: the same populated NPC, viewed as owner (dm_only.physique present), DOES render Weight + Measurements — proving the negative assertions above are not vacuous', () => {
+    const owner = npcWith({
+      physique: NARUTO_PHYSIQUE,
+      dm_only: {
+        physique: { weight_kg: 58, measurements: { bust_cm: 0, waist_cm: 0, hips_cm: 0, cup: 'B' } },
+      },
+    });
+    render(<CodexDetail item={owner} kind="npc" />);
+    fireEvent.click(screen.getByRole('button', { name: /dm only.*never read aloud/i }));
+    expect(screen.getByText('Weight')).toBeInTheDocument();
+    expect(screen.getByText('58 kg')).toBeInTheDocument();
+    expect(screen.getByText('Measurements')).toBeInTheDocument();
+    expect(screen.getByText(/cup b/i)).toBeInTheDocument();
+  });
+});
 
 // ── DM-only DOM contract (Kuro-Sec C1) ───────────────────────────────────
 

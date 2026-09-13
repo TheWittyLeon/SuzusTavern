@@ -1281,6 +1281,61 @@ export interface CatalogMonsterData {
 }
 
 /**
+ * PHYSIQUE-000 (Sora-Arch §8.2) — player-visible physique descriptors for an
+ * NPC. Every atom is independently optional; absence at this path is the
+ * whole rule (no placeholder implied, no client-side re-derivation of which
+ * pack/age/body_plan may carry which atom). `height_cm` sits alongside the
+ * existing top-level `height_ft` — both are always present together and are
+ * NOT redundant (`height_ft` is the authored narration string, `height_cm`
+ * the number); the Codex renders at most one, `height_ft` (Aoi-UI §1, "Height
+ * (height_ft, unchanged)" — `height_cm` is data-contract-only here, not a
+ * second grid cell).
+ * `weight_kg` and `measurements` are OWNER-ONLY (Kuro-Sec F3, coordinator-
+ * accepted tightening beyond the original brief) and therefore never appear
+ * on this public shape — see `CatalogPhysiqueOwnerOnly`, which appears only
+ * at `dm_only.physique`.
+ */
+export interface CatalogPhysique {
+  body_plan?: string;
+  build?: string;
+  hair_color?: string;
+  hair_style?: string;
+  eye_color?: string;
+  skin?: string;
+  skin_kind?: string;
+  marks?: string[];
+  outfit?: string;
+  tell?: string;
+  height_cm?: number;
+  /** Only for atoms present in THIS object — never implies a withheld atom
+   *  exists (Sora-Arch §5.1, no-existence-leak rule). Not surfaced in the
+   *  Codex (Aoi-UI §3) — typed here for contract completeness only. */
+  provenance?: Record<string, string>;
+}
+
+/** Owner-only body measurements (PHYSIQUE-000) — appears ONLY inside
+ *  `dm_only.physique.measurements`, never at the public `physique` path. */
+export interface CatalogMeasurements {
+  bust_cm?: number;
+  waist_cm?: number;
+  hips_cm?: number;
+  cup?: string;
+}
+
+/**
+ * PHYSIQUE-000 (Kuro-Sec F3) — the owner/admin-only half of an NPC's
+ * physique block, appearing ONLY at `dm_only.physique`. The engine's E7
+ * split emits exactly these two atoms into `dm_only` (never the public
+ * descriptors, which stay at the top-level `physique` key) — no client-side
+ * mirror of that split, the wire shape already tells the client everything
+ * (§7: "dm_only absent ⇒ non-owner. That is the entire client rule.").
+ */
+export interface CatalogPhysiqueOwnerOnly {
+  weight_kg?: number;
+  measurements?: CatalogMeasurements;
+}
+
+/**
  * Mechanical data shape for an NPC catalog item — `data` for content_type ===
  * 'npc' (TAV-CODEX-SOURCE-PICKER-NPC). Field list is the engine's
  * `_NPC_WIRE_FIELDS` narrator-projection allowlist (everyone gets these);
@@ -1290,6 +1345,9 @@ export interface CatalogMonsterData {
  * by joining against the cached monster page for the same source, keyed by
  * `stat_ref.split(':')[2]` (the slug). `summary_for_grounding` is
  * narrator-internal — never rendered.
+ * PHYSIQUE-000: `physique` (public descriptors) is additive; when present,
+ * `dm_only`, if also present, may carry `physique: CatalogPhysiqueOwnerOnly`
+ * among its generic open-ended complement (see DmOnly's doc comment).
  */
 export interface CatalogNpcData {
   name: string;
@@ -1308,6 +1366,7 @@ export interface CatalogNpcData {
   power_tier_cue?: string;
   affiliation?: string;
   rank_cue?: string;
+  physique?: CatalogPhysique;
   dm_only?: DmOnly;
 }
 

@@ -19,13 +19,13 @@ import { useId, useState, type ReactNode } from 'react';
 import Icon from '@/components/Icon';
 import Button from '@/components/Button';
 import { formatMod } from '@/lib/dnd/helpers';
-import type { CatalogMonsterData, DmOnly } from '@/lib/api/types';
+import type { CatalogMeasurements, CatalogMonsterData, CatalogPhysiqueOwnerOnly, DmOnly } from '@/lib/api/types';
 import { monsterActionDescription, monsterActionLine, monsterCrLabel, monsterSensesLabel, monsterSpeedLabel } from '@/lib/dnd/codex';
 import styles from './Codex.module.css';
 
 export interface Stat {
   k: string;
-  v: string;
+  v: ReactNode;
 }
 
 export function StatsGrid({ stats }: { stats: Stat[] }) {
@@ -162,14 +162,36 @@ function ageRowValue(ageCategory: unknown, auOverrides: unknown): string {
 
 /** Keys consumed by the synthetic Romance/Age rows above — excluded from
  *  the generic per-key passthrough below so they don't ALSO render as their
- *  own raw-enum rows. */
+ *  own raw-enum rows. `physique` (PHYSIQUE-000) joins this set for the same
+ *  reason: it's consumed by the synthetic Weight/Measurements rows below, and
+ *  without the exclusion the generic loop would ALSO JSON.stringify the raw
+ *  `dm_only.physique` object as its own row — redundant at best, and at
+ *  worst a second, unreviewed render path for the same owner-only data. */
 const DM_ONLY_FOLDED_KEYS = new Set([
   'romanceable',
   'romance_arc',
   'age_category',
   'au_overrides',
   'dark_intensity_floor',
+  'physique',
 ]);
+
+/**
+ * PHYSIQUE-000 (Sora-Arch §8.2) — formats the owner-only measurements object
+ * into one readable row value. Every sub-atom is independently optional
+ * (Aoi-UI: "every cell independently optional, no placeholders implied") —
+ * `!= null` (not truthiness) is the presence check throughout, since `0` is
+ * a legitimate present value here, same convention as ItemDetail's
+ * `d.ac_base != null` elsewhere in this codebase.
+ */
+function measurementsRowValue(m: CatalogMeasurements): string {
+  const parts: string[] = [];
+  if (m.bust_cm != null) parts.push(`Bust ${m.bust_cm} cm`);
+  if (m.waist_cm != null) parts.push(`Waist ${m.waist_cm} cm`);
+  if (m.hips_cm != null) parts.push(`Hips ${m.hips_cm} cm`);
+  if (m.cup) parts.push(`Cup ${m.cup}`);
+  return parts.length > 0 ? parts.join(', ') : '—';
+}
 
 export interface DmOnlyFieldRow {
   /** The raw `dm_only` object key (e.g. "hidden_truth") — used as the React
@@ -222,6 +244,27 @@ export function dmOnlyFields(dmOnly: DmOnly | undefined): DmOnlyFieldRow[] {
       label: 'Dark intensity floor',
       value: humanizeValue(dmOnly['dark_intensity_floor']),
     });
+  }
+
+  // PHYSIQUE-000 (Sora-Arch §8.2, Kuro-Sec F3, Aoi-UI §2): nested owner-only
+  // path — `dm_only.physique.weight_kg` / `dm_only.physique.measurements`.
+  // Each is its own independent synthetic row, built ONLY when that atom
+  // exists, matching the Romance/Age pattern above. No mirror of the
+  // exposure table here — the wire already told the client everything by
+  // where the atom arrived (§7); this block only reads what's in front of it.
+  const physique = dmOnly['physique'];
+  if (physique && typeof physique === 'object') {
+    const p = physique as CatalogPhysiqueOwnerOnly;
+    if (p.weight_kg != null) {
+      rows.push({ key: 'physique.weight_kg', label: 'Weight', value: `${p.weight_kg} kg` });
+    }
+    if (p.measurements) {
+      rows.push({
+        key: 'physique.measurements',
+        label: 'Measurements',
+        value: measurementsRowValue(p.measurements),
+      });
+    }
   }
 
   Object.entries(dmOnly)

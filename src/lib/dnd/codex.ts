@@ -14,6 +14,7 @@ import type {
   CatalogItem,
   CatalogMonsterAction,
   CatalogMonsterData,
+  CatalogPhysique,
   CatalogSpellData,
   ContentPack,
 } from '@/lib/api/types';
@@ -203,6 +204,17 @@ export function monsterSensesLabel(d: CatalogMonsterData): string {
     .filter(([, v]) => typeof v === 'number')
     .map(([k, v]) => `${k.replace(/_/g, ' ')} ${v}`);
   return parts.length ? parts.join(', ') : '—';
+}
+
+/**
+ * PHYSIQUE-000 (Aoi-UI §1) — combines `physique.hair_style` + `hair_color`
+ * into the single "Hair" grid row her spec calls for, e.g. "short, spiky in
+ * every direction; bright sun-blond". Either atom alone renders on its own
+ * (no dangling "; "); both absent returns '' so the caller can omit the cell
+ * entirely (the pattern every other cell here uses — no atom, no cell).
+ */
+export function physiqueHairLabel(p: CatalogPhysique): string {
+  return [p.hair_style, p.hair_color].filter((v): v is string => Boolean(v)).join('; ');
 }
 
 export function monsterCrLabel(cr: number | string | undefined): string {
