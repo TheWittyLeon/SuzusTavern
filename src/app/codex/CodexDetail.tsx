@@ -37,6 +37,7 @@ import {
   itemCostLabel,
   itemDescription,
   itemWeightLabel,
+  PHYSIQUE_SKIN_KIND_DEFAULT_LABEL,
   physiqueHairLabel,
   raceSpeedLabel,
   sourceBadge,
@@ -338,7 +339,7 @@ function NpcDetail({ d, monster }: { d: CatalogNpcData; monster: CatalogItem | u
               ...(physique?.build ? [{ k: 'Build', v: physique.build }] : []),
               ...(hairLabel ? [{ k: 'Hair', v: hairLabel }] : []),
               ...(physique?.eye_color ? [{ k: 'Eyes', v: physique.eye_color }] : []),
-              // The muted Pill suffix is omitted for the 'skin' enum default
+              // The muted Pill suffix is omitted for the skin_kind default
               // (Aoi-UI §1) — never a hardcoded per-species branch, purely
               // "is skin_kind the default value or not".
               ...(physique?.skin
@@ -346,7 +347,8 @@ function NpcDetail({ d, monster }: { d: CatalogNpcData; monster: CatalogItem | u
                     {
                       k: 'Skin',
                       v:
-                        physique.skin_kind && physique.skin_kind !== 'skin' ? (
+                        physique.skin_kind &&
+                        physique.skin_kind !== PHYSIQUE_SKIN_KIND_DEFAULT_LABEL ? (
                           <>
                             {physique.skin} <Pill tone="muted">{physique.skin_kind}</Pill>
                           </>
