@@ -43,9 +43,30 @@
 }
 
 /* ── Steps rail ──────────────────────────────────────────────────────────────── */
-.rail {
-  position: sticky;
-  top: 16px;
+/* Iro-A11y live-pass CRITICAL-1 (2026-09-07, RE-CHECKED live — first attempt
+   did not actually fix it): sticky must be made CONDITIONAL via its own
+   min-width guard, not "reset" by a max-width override placed earlier in
+   the file. CSS cascade ORDER (not media-query nesting) decides the winner
+   between two equal-specificity `.rail` rules — an unconditional base rule
+   declared AFTER a max-width override still wins at every width, because
+   it comes later in the compiled stylesheet regardless of which media
+   condition matched. The first attempt put `position: static` inside
+   `@media (max-width: 720px)` ABOVE this rule; computed `position` was
+   still "sticky" at 375/640px live, because THIS rule (unconditional,
+   later in source) overrode it. Guarding the STICKY declaration itself
+   with `min-width: 721px` makes the two conditions mutually exclusive, so
+   source order can no longer matter either way. Below 721px, .rail's
+   `position` is simply never set (initial value: static) — correct for
+   the single-column layout, where the rail is a stacked block above
+   .main, not a sidebar beside scrolling content. Do NOT copy
+   Codex.module.css's history here — that component's rail deliberately
+   stays sticky at every width (a different UX intent, a persistent nav
+   rail); this one does not. */
+@media (min-width: 721px) {
+  .rail {
+    position: sticky;
+    top: 16px;
+  }
 }
 
 .railList {
@@ -941,6 +962,34 @@
   color: var(--ink-2);
   line-height: 1.55;
   max-width: 38ch;
+}
+
+/* ── Setup-incomplete callout (TAV-WIZARD-HOMEBREW-CASTERS) ────────────────────
+   "Resume, not dead-end" — the character already exists; this only ever
+   points at a follow-up, never a blocker. warn-toned (not .error's bad/red —
+   nothing here failed the whole flow), same token discipline as .error above. */
+.setupIssues {
+  margin-top: 18px;
+  padding: var(--density-pad);
+  display: flex;
+  flex-direction: column;
+  gap: var(--density-gap);
+  color: var(--warn-ink);
+  background: color-mix(in oklab, var(--warn) 10%, transparent);
+  border: 1px solid color-mix(in oklab, var(--warn) 28%, transparent);
+}
+.setupIssuesTitle {
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  color: var(--ink);
+}
+.setupIssuesList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  padding-left: 18px;
 }
 
 /* Suppress selection/hover transitions for vestibular-sensitive users. */

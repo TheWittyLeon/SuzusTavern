@@ -7,6 +7,7 @@
 // src/lib/api/dnd.ts (getCatalog) and src/lib/dnd/catalog.ts.
 
 import type { IconName } from '@/components/Icon';
+import type { CatalogSpellcastingBlock, SkillChoiceOption } from '@/lib/api/types';
 
 // ── Abilities ──────────────────────────────────────────────────────────────────
 
@@ -141,12 +142,94 @@ export function formatMod(score: number): string {
 
 // ── Skill helpers ─────────────────────────────────────────────────────────────
 
-/** 'sleight_of_hand' → 'Sleight of Hand'. */
+/** 'sleight_of_hand' → 'Sleight of Hand'. Looks up the curated SKILLS table
+ *  FIRST (the same table the character sheet renders skill names from) so
+ *  this never disagrees with it — a naive split-capitalize gives 'Sleight
+ *  Of Hand' (capitalized "Of"), which the sheet has never shown. Falls back
+ *  to split-capitalize only for a slug SKILLS doesn't know (an unknown/
+ *  homebrew skill) — Kage-CR follow-up (2026-09-08): this also makes the
+ *  bare-string tolerance branch of normalizeSkillOption below agree with
+ *  the engine's own curated `name` on the {slug, name} wire shape, so a
+ *  degraded (string-only) `skills:1` option and the real one render
+ *  identically. */
 export function humanizeSkill(skill: string): string {
+  const known = SKILLS.find((s) => s.key === skill);
+  if (known) return known.name;
   return skill
     .split('_')
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(' ');
+}
+
+/**
+ * ORACLE-CANDIDATE-1 (Kage-CR follow-up, 2026-09-08) — the EXACT
+ * normalization `_resolve_skills_choice` applies to every submitted pick
+ * server-side (NekoNova-DnDEngine engine/commands/character_msm.py:
+ * `str(p).strip().lower().replace(" ", "_").replace("-", "_")`). Used both
+ * to canonicalize an incoming wire slug (normalizeSkillOption below) and,
+ * client-side in the wizard, to compare a picked slug against the server's
+ * authoritative `pending.options` before ever attempting the resolve — a
+ * stray case/whitespace/hyphen difference between the two sides must never
+ * produce a false "not on this class's list" refusal.
+ */
+export function normalizeSkillSlug(raw: string): string {
+  return raw.trim().toLowerCase().replace(/[ -]/g, '_');
+}
+
+/**
+ * ORACLE-CANDIDATE-1 tolerance adapter (coordinator note, 2026-09-08, on
+ * Kage-CR's engine review): the engine's `skills:1` pending-choice
+ * enrichment ships `{slug, name}` objects on `PendingLevelChoice.options`
+ * (sibling-shaped with `feature_choice`'s own `FeatureChoiceOption[]`), but
+ * an earlier build of the same commit shipped bare skill-slug STRINGS —
+ * accept both shapes so neither deploy ordering between this repo and
+ * NekoNova-DnDEngine ever strands a character on an option list it can't
+ * render. A malformed entry (missing/blank slug, wrong type) is dropped,
+ * never thrown — same fail-open discipline as this module's other wire
+ * coercions (e.g. `_conditions_from_body`'s engine-side sibling).
+ */
+export function normalizeSkillOption(entry: unknown): SkillChoiceOption | null {
+  if (typeof entry === 'string') {
+    const slug = normalizeSkillSlug(entry);
+    return slug ? { slug, name: humanizeSkill(slug) } : null;
+  }
+  if (entry && typeof entry === 'object' && 'slug' in entry) {
+    const slug = normalizeSkillSlug(String((entry as { slug?: unknown }).slug ?? ''));
+    if (!slug) return null;
+    // Kage-CR (2026-09-10): a curated SKILLS entry wins over whatever name
+    // the server sent — the engine's skills:1 enrichment title-cases
+    // blindly (`s.replace("_", " ").title()` -> "Sleight Of Hand"), which
+    // disagrees with the curated "Sleight of Hand" every OTHER skill
+    // surface (the character sheet, humanizeSkill's own split-capitalize
+    // fallback) renders. Without this, the wizard's Skills step and the
+    // level-up SkillsChoiceCard would show the same skill under two
+    // different names depending on which one happened to read the raw
+    // wire name. Only a slug SKILLS has no opinion on (an unknown/homebrew
+    // skill) defers to the server's own name — engine-side proper fix
+    // filed separately.
+    const known = SKILLS.find((s) => s.key === slug);
+    if (known) return { slug, name: known.name };
+    const rawName = (entry as { name?: unknown }).name;
+    const name =
+      typeof rawName === 'string' && rawName.trim().length > 0
+        ? rawName.trim()
+        : humanizeSkill(slug);
+    return { slug, name };
+  }
+  return null;
+}
+
+/** Maps `normalizeSkillOption` over a wire `options` array, dropping any
+ *  entry that doesn't normalize and degrading a non-array (undefined, or a
+ *  genuinely malformed wire value) to `[]` rather than throwing. */
+export function normalizeSkillOptions(entries: unknown): SkillChoiceOption[] {
+  if (!Array.isArray(entries)) return [];
+  const out: SkillChoiceOption[] = [];
+  for (const entry of entries) {
+    const normalized = normalizeSkillOption(entry);
+    if (normalized) out.push(normalized);
+  }
+  return out;
 }
 
 // ── Racial bonus application ──────────────────────────────────────────────────
@@ -269,19 +352,8 @@ export const CLASS_DECORATION: Record<
   monk:      { icon: 'Monk',      accent: 'var(--accent-2)', flavor: 'Fists, focus, ki.' },
 };
 
-// ── Caster gate (T4/DDX-11t creation slice) ───────────────────────────────────
-// Mirrors engine/classes.py's SpellcastingProfile setup (verified by read,
-// NekoNova-DnDEngine 2026-07-09): the 6 classes below get real cantrips AND
-// 1st-level slots at character level 1. Paladin/ranger DO set a
-// spellcasting_ability (surfaced by the catalog's CatalogClassData) but their
-// `cantrips_known` table is empty and their half-caster slot table starts at
-// level 2 (see spellbook.py's max_castable_spell_level docstring) — so they
-// have a ZERO spell budget at creation and are correctly excluded here. This
-// is the "class -> caster" map the DDX-11t creation-wizard slice uses to gate
-// the Spells step; it does NOT reflect casters unlocked by subclass (e.g.
-// Eldritch Knight/Arcane Trickster at level 3), which are out of scope for a
-// level-1 creation flow.
-//
+// ── Caster gate (T4/DDX-11t creation slice; data-driven since
+// TAV-WIZARD-HOMEBREW-CASTERS) ─────────────────────────────────────────────
 // `kind` mirrors engine/spellbook.py's caster_kind() classification and
 // decides which hop the creation wizard uses for a chosen 1st-level spell:
 //  - 'known'     (bard/sorcerer/warlock) -> learnSpell, capped by
@@ -297,14 +369,77 @@ export const CLASS_DECORATION: Record<
 //                 wizard_spellbook_size, a static SRD formula not on the wire).
 export type CasterKind = 'known' | 'prepared' | 'spellbook';
 
-export const CLASS_CASTER_KIND: Record<string, CasterKind> = {
-  bard: 'known',
-  sorcerer: 'known',
-  warlock: 'known',
-  cleric: 'prepared',
-  druid: 'prepared',
-  wizard: 'spellbook',
-};
+/**
+ * TAV-WIZARD-HOMEBREW-CASTERS — replaces the old hardcoded `CLASS_CASTER_KIND`
+ * 6-class map. Derives `CasterKind` from the class row's OWN declared
+ * `spellcasting` block (verified against NekoNova-DnDEngine's
+ * `scripts/import_srd.py::build_classes` + `engine/rules_catalog.py::
+ * _spellcasting_profile_from_row`), so a tenth homebrew caster (Naruto's
+ * Shinobi, Fairy Tail's ft-caster/holder/slayer, DBZ's Ki Warrior) needs no
+ * client-side map edit.
+ *
+ * PROGRESSION GATE (the reason this isn't just "block present -> caster"):
+ * paladin and ranger BOTH declare a real `spellcasting` block on the wire
+ * (they have a spellcasting ability from level 1) but their curve is named
+ * "half", whose level-1 slot table is an empty `{}`
+ * (`engine/progressions.py`'s `HALF_CASTER[1]`) — a genuine ZERO spell
+ * budget at creation, same for a "third"-progression class (Eldritch
+ * Knight/Arcane Trickster, subclass-granted, never a base class row anyway).
+ * Only "full" and "pact" progressions have a non-empty level-1 table, which
+ * is exactly bard/cleric/druid/sorcerer/warlock/wizard PLUS every verified
+ * homebrew caster (all declare `progression: "full"`) — the SRD SIX stay
+ * byte-identical to the old hardcoded map, and paladin/ranger correctly stay
+ * non-casters at level 1, unchanged from before this function existed.
+ *
+ * Returns `undefined` for a non-caster (no block, an explicit-null block, or
+ * a half/third progression) — callers treat that as `isCaster: false`,
+ * unchanged gating.
+ */
+export function casterKindFromSpellcasting(
+  sc: CatalogSpellcastingBlock | null | undefined,
+): CasterKind | undefined {
+  if (!sc) return undefined;
+  if (sc.progression !== 'full' && sc.progression !== 'pact') return undefined;
+  if (sc.prepares_from_spellbook) return 'spellbook';
+  if (sc.is_prepared_caster) return 'prepared';
+  return 'known';
+}
+
+/**
+ * TAV-WIZARD-HOMEBREW-CASTERS — the class's RESOURCE model (slots vs.
+ * points), display-only per the design's axis split. `casting_model` absent/
+ * null means "follow the campaign setting", which resolves to "slots" at
+ * creation (no campaign is bound yet — mirrors `engine/spells_dispatch.py::
+ * resolve_casting_model`'s own default, verified by read).
+ */
+export function castingModelFromSpellcasting(
+  sc: CatalogSpellcastingBlock | null | undefined,
+): 'slots' | 'points' {
+  return sc?.casting_model === 'points' ? 'points' : 'slots';
+}
+
+/** Generic fallback when a points caster declares no `points_label` of its
+ *  own — mirrors `SheetSpellPoints.label`'s documented default (types.ts). */
+export const DEFAULT_POINTS_LABEL = 'Spell points';
+
+/** A11Y: roving-tabindex radiogroup arrow-key nav for a CUSTOM
+ *  `role="radio"` button group (native `<input type="radio">` groups get
+ *  this from the browser for free and never need it — see LevelChoicePicker's
+ *  SubclassChoiceCard/AsiChoiceCard, whose options are buttons, not native
+ *  inputs). Up/Left move to the previous option, Down/Right to the next
+ *  (both wrap), Home/End jump to the ends. Arrow-key movement ALSO selects
+ *  (native radio-group semantics), so callers select + refocus together.
+ *  Returns null for any other key so the caller can no-op without calling
+ *  preventDefault. */
+export function radioStepIndex(key: string, idx: number, length: number): number | null {
+  if (length === 0) return null;
+  const from = idx < 0 ? 0 : idx;
+  if (key === 'ArrowRight' || key === 'ArrowDown') return (from + 1) % length;
+  if (key === 'ArrowLeft' || key === 'ArrowUp') return (from - 1 + length) % length;
+  if (key === 'Home') return 0;
+  if (key === 'End') return length - 1;
+  return null;
+}
 
 /** SRD wizard spellbook size at level 1 (engine/spellbook.py:110,
  *  `wizard_spellbook_size`: `6 + 2 * (level - 1)`). Hardcoded here because a

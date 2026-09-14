@@ -80,10 +80,14 @@ describe('ability modifiers (helpers)', () => {
 });
 
 describe('humanizeSkill (helpers)', () => {
-  it('capitalizes each word from snake_case', () => {
-    expect(humanizeSkill('sleight_of_hand')).toBe('Sleight Of Hand');
+  it('looks up the curated SKILLS table first — "Sleight of Hand", NOT the naive split-capitalize "Sleight Of Hand" (Kage-CR follow-up, 2026-09-08)', () => {
+    expect(humanizeSkill('sleight_of_hand')).toBe('Sleight of Hand');
     expect(humanizeSkill('animal_handling')).toBe('Animal Handling');
     expect(humanizeSkill('stealth')).toBe('Stealth');
+  });
+
+  it('falls back to split-capitalize for an unknown/homebrew slug not in SKILLS', () => {
+    expect(humanizeSkill('shadow_weaving')).toBe('Shadow Weaving');
   });
 });
 
@@ -468,32 +472,67 @@ describe('catalogItemToClass', () => {
     expect(cls.saves).toEqual(['intelligence', 'wisdom']);
   });
 
-  // T4/DDX-11t — creation-wizard Spells step caster gate.
+  // T4/DDX-11t — creation-wizard Spells step caster gate. TAV-WIZARD-
+  // HOMEBREW-CASTERS: derivation moved off a slug-hardcoded map onto the
+  // catalog row's own `data.spellcasting` block — fixtures below now carry
+  // the real wire shape (see catalog-caster-derivation.test.ts for the full
+  // 12-SRD-class + homebrew derivation table this pins the seam for).
   it('marks a full-caster class (wizard) isCaster with its casterKind', () => {
-    const item = makeItem('wizard', 'Wizard', 'class', { hit_die: 6, saving_throws: [] });
+    const item = makeItem('wizard', 'Wizard', 'class', {
+      hit_die: 6,
+      saving_throws: [],
+      spellcasting: {
+        ability: 'intelligence',
+        progression: 'full',
+        is_prepared_caster: true,
+        prepares_from_spellbook: true,
+      },
+    });
     const cls = catalogItemToClass(item);
     expect(cls.isCaster).toBe(true);
     expect(cls.casterKind).toBe('spellbook');
   });
 
   it('marks a prepared caster (cleric) with casterKind "prepared"', () => {
-    const item = makeItem('cleric', 'Cleric', 'class', { hit_die: 8, saving_throws: [] });
+    const item = makeItem('cleric', 'Cleric', 'class', {
+      hit_die: 8,
+      saving_throws: [],
+      spellcasting: {
+        ability: 'wisdom',
+        progression: 'full',
+        is_prepared_caster: true,
+        prepares_from_spellbook: false,
+      },
+    });
     const cls = catalogItemToClass(item);
     expect(cls.isCaster).toBe(true);
     expect(cls.casterKind).toBe('prepared');
   });
 
-  it('marks a non-caster class (fighter) isCaster false with no casterKind', () => {
+  it('marks a non-caster class (fighter) isCaster false with no casterKind (no spellcasting key at all)', () => {
     const item = makeItem('fighter', 'Fighter', 'class', { hit_die: 10, saving_throws: [] });
     const cls = catalogItemToClass(item);
     expect(cls.isCaster).toBe(false);
     expect(cls.casterKind).toBeUndefined();
   });
 
-  it('marks a level-1 half-caster (paladin) isCaster false (no budget until level 2)', () => {
-    const item = makeItem('paladin', 'Paladin', 'class', { hit_die: 10, saving_throws: [] });
+  it('marks a level-1 half-caster (paladin) isCaster false (progression:half has an empty level-1 slot table)', () => {
+    // TAV-WIZARD-HOMEBREW-CASTERS: paladin DOES declare a real spellcasting
+    // block on the wire (verified against NekoNova-DnDEngine's SRD_CLASSES,
+    // 2026-09-07) — this is the reason isCaster isn't just "block present".
+    const item = makeItem('paladin', 'Paladin', 'class', {
+      hit_die: 10,
+      saving_throws: [],
+      spellcasting: {
+        ability: 'charisma',
+        progression: 'half',
+        is_prepared_caster: true,
+        prepares_from_spellbook: false,
+      },
+    });
     const cls = catalogItemToClass(item);
     expect(cls.isCaster).toBe(false);
+    expect(cls.casterKind).toBeUndefined();
   });
 });
 

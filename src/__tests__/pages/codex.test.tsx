@@ -18,6 +18,7 @@ import '@testing-library/jest-dom';
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 jest.mock('../../lib/api/auth', () => ({
@@ -32,6 +33,7 @@ jest.mock('../../lib/api/auth', () => ({
 jest.mock('../../lib/api/dnd', () => ({
   getCatalog: jest.fn(),
   getCatalogCounts: jest.fn(),
+  getPacks: jest.fn(),
 }));
 
 import * as dnd from '../../lib/api/dnd';
@@ -43,6 +45,15 @@ import type { CatalogItem, User } from '../../lib/api/types';
 
 const mockGetCatalog = dnd.getCatalog as jest.MockedFunction<typeof dnd.getCatalog>;
 const mockGetCatalogCounts = dnd.getCatalogCounts as jest.MockedFunction<typeof dnd.getCatalogCounts>;
+const mockGetPacks = dnd.getPacks as jest.MockedFunction<typeof dnd.getPacks>;
+
+// TAV-CODEX-SOURCE-PICKER-NPC: usePacksList fetches once per mount. Every
+// codex test pre-dates the picker, so default it to a resolved empty list
+// (packsStatus:'ok', All-only) unless a test overrides it — never leaves it
+// unmocked-pending (that would hang usePacksList in 'loading' forever).
+beforeEach(() => {
+  mockGetPacks.mockReset().mockResolvedValue([]);
+});
 
 const LEON: User = { id: 1, username: 'leon', email: null };
 
@@ -190,10 +201,12 @@ beforeEach(() => {
 
 // ── Rail / tabs ───────────────────────────────────────────────────────────────
 
-it('renders all 7 content-type tabs with counts from the manifest', async () => {
+it('renders all 11 content-type tabs with counts from the manifest', async () => {
+  // TAV-CODEX-SOURCE-PICKER-NPC: rail grew from 7 to 11 kinds (Subclasses,
+  // Feats, NPCs, Adventures added; default landing kind stays Spells).
   renderCodex();
   const tabs = await screen.findAllByRole('tab');
-  expect(tabs).toHaveLength(7);
+  expect(tabs).toHaveLength(11);
   expect(screen.getByRole('tab', { name: /spells/i })).toHaveAttribute('aria-selected', 'true');
   await waitFor(() => {
     expect(within(screen.getByRole('tab', { name: /spells/i })).getByText('2')).toBeInTheDocument();
@@ -303,7 +316,13 @@ it('switching to Monsters fetches type=monster and renders a full stat block', a
   // Actions
   expect(screen.getByText(/scimitar/i)).toBeInTheDocument();
 
-  expect(mockGetCatalog).toHaveBeenCalledWith('dnd5e', { type: 'monster', limit: 500 }, expect.anything());
+  // TAV-CODEX-SOURCE-PICKER-NPC: background paging always sends an explicit
+  // `offset` (0 for the first page); `pack` is omitted entirely for "All sources".
+  expect(mockGetCatalog).toHaveBeenCalledWith(
+    'dnd5e',
+    { type: 'monster', limit: 500, offset: 0 },
+    expect.anything(),
+  );
 });
 
 it('switching tabs clears the previously selected entry', async () => {
@@ -321,17 +340,26 @@ it('switching tabs clears the previously selected entry', async () => {
 // ── Keyboard navigation ───────────────────────────────────────────────────────
 
 it('ArrowDown on the rail moves the active tab (roving tabindex)', async () => {
+  // TAV-CODEX-SOURCE-PICKER-NPC: rail reorder — Spells' next neighbor is now
+  // Items (…, Feats, Spells, Items, Conditions, Monsters, NPCs, Adventures),
+  // not Monsters.
   renderCodex();
   await screen.findAllByRole('tab');
   const spellsTab = screen.getByRole('tab', { name: /spells/i });
   expect(spellsTab).toHaveAttribute('tabindex', '0');
   fireEvent.keyDown(spellsTab, { key: 'ArrowDown' });
-  const monstersTab = screen.getByRole('tab', { name: /monsters/i });
-  expect(monstersTab).toHaveAttribute('aria-selected', 'true');
-  expect(monstersTab).toHaveAttribute('tabindex', '0');
+  const itemsTab = screen.getByRole('tab', { name: /items/i });
+  expect(itemsTab).toHaveAttribute('aria-selected', 'true');
+  expect(itemsTab).toHaveAttribute('tabindex', '0');
   expect(spellsTab).toHaveAttribute('tabindex', '-1');
-  // Let the monster-tab fetch this triggered settle before the test ends.
-  await screen.findByRole('option', { name: /goblin/i });
+  // Let the item-tab fetch this triggered settle before the test ends.
+  await waitFor(() => {
+    expect(mockGetCatalog).toHaveBeenCalledWith(
+      'dnd5e',
+      { type: 'item', limit: 500, offset: 0 },
+      expect.anything(),
+    );
+  });
 });
 
 it('ArrowDown + Enter in the listbox selects the focused row', async () => {

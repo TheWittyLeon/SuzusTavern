@@ -13,6 +13,8 @@ import type {
   BindCharacterResult,
   CatalogCounts,
   CatalogResponse,
+  ContentPack,
+  PacksResponse,
   Character,
   CharacterCreateRequest,
   CharacterCreated,
@@ -152,6 +154,9 @@ export const levelUpCharacter = (
  *     (every key one of the 6 full ability names; values sum to exactly 2;
  *     at most 2 distinct abilities)
  *   - asi, feat instead -> {"mode": "feat", "feat": "<slug>"}
+ *   - skills (ORACLE-CANDIDATE-1, 2026-09-08 — a class's own skill
+ *     proficiency pick, queued once at creation as "skills:1") ->
+ *     {"picks": ["<skill>", ...]}, exactly `choice.count` entries
  *
  * Same wire-shape bug class as levelUpCharacter/equipItem: the engine's
  * route always `return _ok({"message": message})` on success — never the
@@ -164,7 +169,8 @@ export const levelUpCharacter = (
  * route's docstring for the full set (choice_not_found, invalid_subclass,
  * already_chosen, not_owner, unsupported_choice_type, invalid_asi,
  * ability_cap_exceeded, unknown_feat, feat_prereq_unmet,
- * feat_already_taken -> 400; save_failed -> 500; not_found -> 404).
+ * feat_already_taken, invalid_skills_choice, duplicate_option,
+ * unknown_option -> 400; save_failed -> 500; not_found -> 404).
  */
 export const resolveLevelChoice = (
   characterId: string,
@@ -1679,6 +1685,17 @@ export interface CatalogOpts {
    * call.
    */
   user?: string;
+  /**
+   * TAV-CODEX-SOURCE-PICKER-NPC — a SINGLE content pack id, distinct from
+   * the legacy plural `packs` above. The BFF only strips `user`/`packs`
+   * (case-insensitively) on non-admin paths — `pack` is a different key and
+   * passes through untouched. It is NOT trusted as-is: the engine validates
+   * it server-side against the calling actor's visible-pack set (GET
+   * /catalog/packs) before scoping, so it can only narrow visibility, never
+   * widen it. A value outside the actor's visible set yields an empty item
+   * list, never that pack's rows.
+   */
+  pack?: string;
   limit?: number;
   offset?: number;
 }
@@ -1697,6 +1714,7 @@ export const getCatalog = (
   if (opts.type) q.set('type', opts.type);
   if (opts.packs) q.set('packs', opts.packs);
   if (opts.user) q.set('user', opts.user);
+  if (opts.pack) q.set('pack', opts.pack);
   if (opts.limit != null) q.set('limit', String(opts.limit));
   if (opts.offset != null) q.set('offset', String(opts.offset));
   return apiCall<CatalogResponse>(`/api/dnd/catalog?${q.toString()}`, {
@@ -1714,16 +1732,38 @@ export const getCatalog = (
  */
 export const getCatalogCounts = (
   system: string,
-  opts: Pick<CatalogOpts, 'packs' | 'user'> = {},
+  opts: Pick<CatalogOpts, 'packs' | 'user' | 'pack'> = {},
   signal?: AbortSignal,
 ): Promise<CatalogCounts> => {
   const q = new URLSearchParams({ system });
   if (opts.packs) q.set('packs', opts.packs);
   if (opts.user) q.set('user', opts.user);
+  if (opts.pack) q.set('pack', opts.pack);
   return apiCall<CatalogCounts>(`/api/dnd/catalog?${q.toString()}`, {
     method: 'GET',
     signal,
   });
+};
+
+/**
+ * List the actor's visible content packs from GET /api/dnd/catalog/packs
+ * (TAV-CODEX-SOURCE-PICKER-NPC). RLS-filtered server-side — never returns a
+ * pack the caller can't see, and never carries `owner_username` (SEC-6);
+ * `is_owner` is the only ownership signal. Powers the codex's source picker.
+ * Throws ApiError on failure — callers degrade to an "All sources only" view
+ * (see usePacksList.ts).
+ */
+export const getPacks = (
+  system: string,
+  signal?: AbortSignal,
+): Promise<ContentPack[]> => {
+  const q = new URLSearchParams({ system });
+  // Kage-CR #14: use the canonical PacksResponse type instead of an
+  // ad-hoc inline shape that happened to describe the same thing.
+  return apiCall<PacksResponse>(
+    `/api/dnd/catalog/packs?${q.toString()}`,
+    { method: 'GET', signal },
+  ).then((res) => res.packs ?? []);
 };
 
 /** List available game systems from GET /api/dnd/systems. */

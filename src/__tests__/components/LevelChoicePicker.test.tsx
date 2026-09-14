@@ -255,7 +255,7 @@ describe('LevelChoicePicker — subclass choice', () => {
     // Off-class options (Wizard's Evocation) must never appear for a Fighter.
     expect(screen.queryByRole('radio', { name: 'School of Evocation' })).not.toBeInTheDocument();
 
-    expect(mockGetCatalog).toHaveBeenCalledWith('dnd5e', { type: 'subclass' }, expect.anything());
+    expect(mockGetCatalog).toHaveBeenCalledWith('dnd5e', { type: 'subclass', limit: 500 }, expect.anything());
   });
 
   it('renders the card title as a real heading and labels the radiogroup by it (Iro MINOR-1/2)', async () => {
@@ -725,7 +725,10 @@ describe('LevelChoicePicker — ASI: feat mode busy-latch + loading-state confir
 
 describe('LevelChoicePicker — subclass: catalog failure, case-insensitive filter, empty seed set', () => {
   it('a catalog fetch failure shows an error and renders no confirm affordance — never crashes', async () => {
-    mockGetCatalog.mockImplementationOnce(() => Promise.reject(new Error('network down')));
+    // Both the class-catalog and subclass-catalog fetches (Kage-CR round 2:
+    // resolved in parallel via Promise.all) reject — either one failing
+    // fails the whole load.
+    mockGetCatalog.mockImplementation(() => Promise.reject(new Error('network down')));
     renderPicker([SUBCLASS_CHOICE]);
 
     const errorMsg = await screen.findByText(/couldn.?t load archetype options/i);
@@ -738,25 +741,36 @@ describe('LevelChoicePicker — subclass: catalog failure, case-insensitive filt
   });
 
   it('FIXED (Iro SERIOUS-4/DEFECT-2): a catalog fetch failure offers a Retry that re-fetches', async () => {
+    // Kage-CR round 2: loadOptions now issues TWO concurrent getCatalog
+    // calls per attempt (class, then subclass) — queue a once-rejection for
+    // each so the FIRST attempt's pair both fail; the retry's pair falls
+    // through to the default (successful) mock.
+    mockGetCatalog.mockImplementationOnce(() => Promise.reject(new Error('network down')));
     mockGetCatalog.mockImplementationOnce(() => Promise.reject(new Error('network down')));
     renderPicker([SUBCLASS_CHOICE]);
 
     await screen.findByText(/couldn.?t load archetype options/i);
-    expect(mockGetCatalog).toHaveBeenCalledTimes(1);
+    expect(mockGetCatalog).toHaveBeenCalledTimes(2);
 
     fireEvent.click(screen.getByRole('button', { name: /retry/i }));
 
     // The retry uses the default (successful) mock — options render.
     expect(await screen.findByRole('radio', { name: 'Champion' })).toBeInTheDocument();
-    expect(mockGetCatalog).toHaveBeenCalledTimes(2);
+    expect(mockGetCatalog).toHaveBeenCalledTimes(4);
   });
 
   it('filters the class match case-insensitively (engine may send any casing)', async () => {
-    mockGetCatalog.mockImplementationOnce((_s: string, opts: { type?: string }) => {
-      if (opts?.type !== 'subclass') return Promise.resolve(catalogResponse([]));
-      return Promise.resolve(
-        catalogResponse([catalogItem('champion', 'Champion', { class: 'FIGHTER' })]),
-      );
+    // No class-catalog row resolves ('Fighter' isn't seeded there in this
+    // fixture) — exercises subclassesForClass's own case-insensitive
+    // fallback compare against the raw name.
+    mockGetCatalog.mockImplementation((_s: string, opts: { type?: string }) => {
+      if (opts?.type === 'class') return Promise.resolve(catalogResponse([]));
+      if (opts?.type === 'subclass') {
+        return Promise.resolve(
+          catalogResponse([catalogItem('champion', 'Champion', { class: 'FIGHTER' })]),
+        );
+      }
+      return Promise.resolve(catalogResponse([]));
     });
     renderPicker([SUBCLASS_CHOICE]);
 
@@ -772,7 +786,9 @@ describe('LevelChoicePicker — subclass: catalog failure, case-insensitive filt
      *
      * Every SRD class is a single word, which is the ONLY reason the old code
      * held; this is the first multi-word class. Reproduced in the browser on
-     * dev as tav-test-1, 2026-08-21. */
+     * dev as tav-test-1, 2026-08-21. No class-catalog row resolves here
+     * either (Kage-CR round 2) — this exercises the raw-name FALLBACK path,
+     * which still needs to bridge ordinary multi-word names correctly. */
     const KI_CHOICE: PendingLevelChoice = {
       id: 'subclass:1',
       type: 'subclass',
@@ -780,17 +796,20 @@ describe('LevelChoicePicker — subclass: catalog failure, case-insensitive filt
       class: 'Ki Warrior',
       label: 'Choose your Ki Warrior archetype',
     };
-    mockGetCatalog.mockImplementationOnce((_s: string, opts: { type?: string }) => {
-      if (opts?.type !== 'subclass') return Promise.resolve(catalogResponse([]));
-      return Promise.resolve(
-        catalogResponse([
-          catalogItem('turtle-school', 'Turtle School', { class: 'ki-warrior' }),
-          catalogItem('crane-school', 'Crane School', { class: 'ki-warrior' }),
-          // A different class's row must still be excluded — without this the
-          // test would also pass if the filter were simply removed.
-          catalogItem('champion', 'Champion', { class: 'fighter' }),
-        ]),
-      );
+    mockGetCatalog.mockImplementation((_s: string, opts: { type?: string }) => {
+      if (opts?.type === 'class') return Promise.resolve(catalogResponse([]));
+      if (opts?.type === 'subclass') {
+        return Promise.resolve(
+          catalogResponse([
+            catalogItem('turtle-school', 'Turtle School', { class: 'ki-warrior' }),
+            catalogItem('crane-school', 'Crane School', { class: 'ki-warrior' }),
+            // A different class's row must still be excluded — without this the
+            // test would also pass if the filter were simply removed.
+            catalogItem('champion', 'Champion', { class: 'fighter' }),
+          ]),
+        );
+      }
+      return Promise.resolve(catalogResponse([]));
     });
     renderPicker([KI_CHOICE]);
 
@@ -801,11 +820,229 @@ describe('LevelChoicePicker — subclass: catalog failure, case-insensitive filt
   });
 
   it('shows "no archetypes seeded" and renders no confirm button when the filtered set is empty', async () => {
-    mockGetCatalog.mockImplementationOnce(() => Promise.resolve(catalogResponse([])));
+    mockGetCatalog.mockImplementation(() => Promise.resolve(catalogResponse([])));
     renderPicker([SUBCLASS_CHOICE]);
 
     expect(await screen.findByText(/no archetypes are seeded for fighter yet/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /confirm/i })).not.toBeInTheDocument();
+  });
+
+  // Kage-CR round 2: the fetch order is now class-first (resolve the real
+  // slug before filtering), not name-first-with-a-conditional-fallback —
+  // BOTH getCatalog calls fire on every card render, unconditionally. One
+  // extra request per render is the accepted cost of never risking a
+  // false-positive name match serving another class's archetypes.
+  it('always fetches BOTH the class and subclass catalogs (class-row resolution first)', async () => {
+    renderPicker([SUBCLASS_CHOICE]);
+    expect(await screen.findByRole('radio', { name: 'Champion' })).toBeInTheDocument();
+    expect(mockGetCatalog).toHaveBeenCalledTimes(2);
+    expect(mockGetCatalog).toHaveBeenCalledWith('dnd5e', { type: 'class' }, expect.anything());
+    expect(mockGetCatalog).toHaveBeenCalledWith('dnd5e', { type: 'subclass', limit: 500 }, expect.anything());
+  });
+
+  // Kage-CR round 2: catches the mutation "loadOptions just returns
+  // subclassRes.items" — which survived all 80 pre-existing tests, since
+  // none of them exercised "class row unresolved AND the subclass catalog
+  // is non-empty but contains no match for this class". A private/scoped-
+  // away class (its own row invisible to this session) must still fail
+  // CLOSED to the empty state, never leak another class's unfiltered rows.
+  it('FAIL-CLOSED: a class row that never resolves (private pack scoped away) renders the empty state, not an unfiltered subclass list', async () => {
+    const KI_CHOICE: PendingLevelChoice = {
+      id: 'subclass:1',
+      type: 'subclass',
+      level: 1,
+      class: 'Ki Warrior',
+      label: 'Choose your Ki Warrior archetype',
+    };
+    mockGetCatalog.mockImplementation((_s: string, opts: { type?: string }) => {
+      // Scoped away — the class's own row never resolves.
+      if (opts?.type === 'class') return Promise.resolve(catalogResponse([]));
+      // Non-empty, but every row is Fighter/Wizard's — none tagged
+      // 'ki-warrior'. A `return subclassRes.items` mutation would render
+      // these; the correct fallback filter must exclude all of them.
+      if (opts?.type === 'subclass') return Promise.resolve(catalogResponse(SUBCLASS_ITEMS));
+      return Promise.resolve(catalogResponse([]));
+    });
+    renderPicker([KI_CHOICE]);
+
+    expect(await screen.findByText(/no archetypes are seeded for ki warrior yet/i)).toBeInTheDocument();
+    expect(screen.queryByRole('radio')).not.toBeInTheDocument();
+  });
+
+  // TAV-FT-SUBCLASS-SLUG-PREFIX (2026-09-07): the class's SLUG carries a
+  // prefix its display NAME doesn't ("Speed Chassis (Sonic)" -> `sonic-
+  // speed`, NekoNova-DnDEngine `scripts/seed_data/leon-sonic-5e/10-classes.
+  // json`) — the same shape as the Fairy Tail casters, hit here at level 3
+  // instead of level 1. `choice.class`/`sheet.char_class` are both display
+  // names on the wire (this card has no slug in scope), so the class-row
+  // lookup is the ONLY comparison that can resolve it.
+  it('REGRESSION (TAV-FT-SUBCLASS-SLUG-PREFIX): a class slug with a prefix the name lacks resolves via the class-catalog lookup', async () => {
+    const SONIC_CHOICE: PendingLevelChoice = {
+      id: 'subclass:3',
+      type: 'subclass',
+      level: 3,
+      class: 'Speed Chassis (Sonic)',
+      label: 'Choose your Speed Chassis (Sonic) archetype',
+    };
+    mockGetCatalog.mockImplementation((_s: string, opts: { type?: string }) => {
+      if (opts?.type === 'class') {
+        return Promise.resolve(
+          catalogResponse([
+            { slug: 'sonic-speed', name: 'Speed Chassis (Sonic)', content_type: 'class', source_type: 'homebrew', data: {} },
+          ]),
+        );
+      }
+      if (opts?.type === 'subclass') {
+        return Promise.resolve(
+          catalogResponse([...SUBCLASS_ITEMS, catalogItem('blur-style', 'Blur Style', { class: 'sonic-speed' })]),
+        );
+      }
+      return Promise.resolve(catalogResponse([]));
+    });
+    renderPicker([SONIC_CHOICE]);
+
+    expect(await screen.findByRole('radio', { name: 'Blur Style' })).toBeInTheDocument();
+    // Off-class rows (Fighter's Champion etc.) must still be excluded.
+    expect(screen.queryByRole('radio', { name: 'Champion' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/no archetypes are seeded/i)).not.toBeInTheDocument();
+    expect(mockGetCatalog).toHaveBeenCalledWith('dnd5e', { type: 'class' }, expect.anything());
+  });
+});
+
+describe('LevelChoicePicker — R62/TAV-SUBCLASS-LEVEL-OVERRIDE: per-subclass gate on the level-up card', () => {
+  // The engine now queues this choice at the class's EFFECTIVE level (1,
+  // because two Re:Zero archetypes declare their own subclass_level:1),
+  // even though the Rogue chassis's own plain subclass_level is 3 — exactly
+  // what `PendingLevelChoice.level` carries per the engine contract.
+  const ROGUE_RZ_CHOICE: PendingLevelChoice = {
+    id: 'subclass:1',
+    type: 'subclass',
+    level: 1,
+    class: 'Rogue',
+    label: 'Choose your Rogue archetype',
+  };
+
+  // Kage-CR (2026-09-10): the wire ALSO carries effective_subclass_level:1
+  // here (min-across-subclasses — two Re:Zero archetypes below declare 1) —
+  // without it on this fixture, a mutation that swaps the card's per-option
+  // fallback to `effective_subclass_level ?? subclass_level` would silently
+  // land on the SAME 3 (since effective_subclass_level was absent) and every
+  // test below would stay green regardless of which field the code actually
+  // reads. Present here so that mutation is provably caught.
+  const ROGUE_CLASS_ROW: CatalogItem = {
+    slug: 'rogue',
+    name: 'Rogue',
+    content_type: 'class',
+    source_type: 'srd',
+    data: { subclass_level: 3, effective_subclass_level: 1 },
+  };
+
+  const ROGUE_SUBCLASS_ITEMS: CatalogItem[] = [
+    catalogItem('thief', 'Thief', { class: 'rogue' }), // no override -> falls back to 3
+    catalogItem('assassin', 'Assassin', { class: 'rogue' }),
+    catalogItem('sloth', 'Sloth', { class: 'rogue', subclass_level: 1 }),
+    catalogItem('gluttony', 'Gluttony', { class: 'rogue', subclass_level: 1 }),
+  ];
+
+  function mockRogueCatalog() {
+    mockGetCatalog.mockImplementation((_s: string, opts: { type?: string }) => {
+      if (opts?.type === 'class') return Promise.resolve(catalogResponse([ROGUE_CLASS_ROW]));
+      if (opts?.type === 'subclass') return Promise.resolve(catalogResponse(ROGUE_SUBCLASS_ITEMS));
+      return Promise.resolve(catalogResponse([]));
+    });
+  }
+
+  // Kage-CR trap (2026-09-10): the per-option gate must read each row's OWN
+  // subclass_level, falling back to the CLASS's PLAIN subclass_level (3),
+  // NEVER the class's effective_subclass_level (1) — the wrong fallback
+  // would render Thief/Assassin as pickable at level 1 too, and the engine
+  // would refuse each one with subclass_level_not_reached.
+  it('at level 1: only the Re:Zero archetypes (own subclass_level:1) are offered; the SRD ones are NOT selectable', async () => {
+    mockRogueCatalog();
+    renderPicker([ROGUE_RZ_CHOICE], { level: 1 });
+
+    expect(await screen.findByRole('radio', { name: 'Sloth' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Gluttony' })).toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: 'Thief' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: 'Assassin' })).not.toBeInTheDocument();
+  });
+
+  it('"unlocks at level N" copy names the SRD chassis\'s own plain gate (3), not the class\'s effective level (1)', async () => {
+    mockRogueCatalog();
+    renderPicker([ROGUE_RZ_CHOICE], { level: 1 });
+    await screen.findByRole('radio', { name: 'Sloth' });
+
+    expect(
+      await screen.findByText(/more archetypes unlock at level 3/i),
+    ).toBeInTheDocument();
+  });
+
+  it('at level 3: the SRD archetypes are now ALSO offered, alongside the already-unlocked Re:Zero ones', async () => {
+    mockRogueCatalog();
+    renderPicker([ROGUE_RZ_CHOICE], { level: 3 });
+
+    expect(await screen.findByRole('radio', { name: 'Thief' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Assassin' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Sloth' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Gluttony' })).toBeInTheDocument();
+    expect(screen.queryByText(/unlock at level/i)).not.toBeInTheDocument();
+  });
+
+  it('an enriched pending choice (choice.options already resolved server-side) is authoritative — no catalog fetch at all', async () => {
+    const ENRICHED_CHOICE: PendingLevelChoice = {
+      ...ROGUE_RZ_CHOICE,
+      options: [
+        { slug: 'sloth', name: 'Sloth', level: 1 },
+        { slug: 'thief', name: 'Thief', level: 3 },
+      ],
+    };
+    renderPicker([ENRICHED_CHOICE], { level: 1 });
+
+    expect(await screen.findByRole('radio', { name: 'Sloth' })).toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: 'Thief' })).not.toBeInTheDocument();
+    expect(mockGetCatalog).not.toHaveBeenCalled();
+  });
+
+  // Kage-CR (2026-09-10): the engine's OWN skills:1 enrichment shipped bare
+  // strings in an earlier build (see normalizeSkillOption's doc comment) —
+  // if a subclass enrichment ever does the same, every entry fails the
+  // object-shape filter and `enriched` comes back empty even though
+  // `choice.options` was non-empty. Treating that as "zero archetypes
+  // exist" would render the false "No archetypes are seeded" content-bug
+  // message this repo has hit three times already; it must fall through to
+  // the ordinary fetch-and-derive path instead.
+  it('an enriched choice.options of BARE STRINGS (no usable slug/name) falls through to the fetch path, not "no archetypes"', async () => {
+    mockRogueCatalog();
+    const BARE_STRING_CHOICE: PendingLevelChoice = {
+      ...ROGUE_RZ_CHOICE,
+      options: ['sloth', 'gluttony'] as unknown as PendingLevelChoice['options'],
+    };
+    renderPicker([BARE_STRING_CHOICE], { level: 1 });
+
+    expect(await screen.findByRole('radio', { name: 'Sloth' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Gluttony' })).toBeInTheDocument();
+    expect(screen.queryByText(/no archetypes are seeded/i)).not.toBeInTheDocument();
+    expect(mockGetCatalog).toHaveBeenCalledWith('dnd5e', { type: 'class' }, expect.anything());
+    expect(mockGetCatalog).toHaveBeenCalledWith(
+      'dnd5e',
+      { type: 'subclass', limit: 500 },
+      expect.anything(),
+    );
+  });
+
+  it('no override signal (choice.level === the class\'s plain subclass_level): every scoped option renders unfiltered, byte-identical to before this ruling', async () => {
+    mockGetCatalog.mockImplementation((_s: string, opts: { type?: string }) => {
+      if (opts?.type === 'class') return Promise.resolve(catalogResponse([ROGUE_CLASS_ROW]));
+      if (opts?.type === 'subclass') return Promise.resolve(catalogResponse(ROGUE_SUBCLASS_ITEMS));
+      return Promise.resolve(catalogResponse([]));
+    });
+    const NO_OVERRIDE_CHOICE: PendingLevelChoice = { ...ROGUE_RZ_CHOICE, level: 3 };
+    renderPicker([NO_OVERRIDE_CHOICE], { level: 3 });
+
+    expect(await screen.findByRole('radio', { name: 'Thief' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Assassin' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Sloth' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Gluttony' })).toBeInTheDocument();
   });
 });
 
@@ -1418,7 +1655,7 @@ describe('feat-mode fetch does not abort itself', () => {
   });
 });
 
-describe('LevelChoicePicker — FEAT-PREREQ-UX (prereq-unmet feats disabled inline)', () => {
+describe('LevelChoicePicker — ENGINE-FEAT-ELIGIBILITY-DATA (Kage-CR, 2026-09-10): eligible/why_not off the wire, never re-evaluated', () => {
   // The real wire Grappler row DOES carry prerequisites (5e-bits abbreviated
   // ability names — scripts/import_srd.py::transform_feat emits ["STR"]);
   // the base FEAT_ITEMS fixture's data:{} models a prereq-less feat, which is
@@ -1440,26 +1677,57 @@ describe('LevelChoicePicker — FEAT-PREREQ-UX (prereq-unmet feats disabled inli
     });
   }
 
-  it('an unmet feat renders disabled with the requirement inline, is never auto-selected, arrow-nav skips it, and Confirm stays disabled', async () => {
-    mockFeatCatalog();
-    renderPicker([ASI_CHOICE], {
-      ability_scores: { ...BASE_SHEET.ability_scores, strength: ability(9, -1) },
+  // The engine's own eligibility verdict rides on the pending choice's
+  // `options` (AsiFeatOption[]) — the SAME shape feature_choice/skills
+  // choices already use. No catalog fetch, no re-derivation.
+  const ASI_CHOICE_STR8_INELIGIBLE = {
+    ...ASI_CHOICE,
+    options: [
+      { slug: 'grappler', name: 'Grappler', eligible: false, why_not: ['Requires Strength 13 or higher'] },
+    ],
+  };
+  const ASI_CHOICE_STR13_ELIGIBLE = {
+    ...ASI_CHOICE,
+    options: [{ slug: 'grappler', name: 'Grappler', eligible: true, why_not: [] }],
+  };
+  // No `eligible`/`why_not` keys at all on this one entry — a malformed or
+  // pre-migration individual row. Fallback default: eligible.
+  const ASI_CHOICE_ABSENT_VERDICT = {
+    ...ASI_CHOICE,
+    options: [{ slug: 'grappler', name: 'Grappler' }],
+  };
+  // Kage-CR (2026-09-10): eligible:false with why_not:[] — the
+  // feat_already_taken shape (see AsiFeatOption's own doc comment) — with
+  // this slug NOT in sheet.feats, simulating a stale local read that never
+  // reaches the alreadyTaken filter. Must still disable with SOME reason,
+  // never a bare disabled radio with no description at all.
+  const ASI_CHOICE_INELIGIBLE_NO_REASON = {
+    ...ASI_CHOICE,
+    options: [{ slug: 'grappler', name: 'Grappler', eligible: false, why_not: [] }],
+  };
+
+  it('STR-8: an ineligible feat renders disabled with its why_not reason as an ACCESSIBLE DESCRIPTION (not folded into the name), is never auto-selected, arrow-nav skips it, and Confirm stays disabled', async () => {
+    renderPicker([ASI_CHOICE_STR8_INELIGIBLE], {
+      ability_scores: { ...BASE_SHEET.ability_scores, strength: ability(8, -1) },
     });
     fireEvent.click(screen.getByRole('radio', { name: 'Take a feat' }));
 
-    // Requirement is part of the option's own text — screen-reader users
-    // hear the "why" with the name, not just "dimmed, unavailable".
-    const opt = await screen.findByRole('radio', { name: /Grappler — requires STR 13/i });
+    // The accessible NAME is just "Grappler" — WCAG 3.3.1: the reason is a
+    // DESCRIPTION (aria-describedby), never smuggled into the option's name.
+    const opt = await screen.findByRole('radio', { name: 'Grappler' });
     expect(opt).toBeDisabled();
     expect(opt).toHaveAttribute('aria-checked', 'false');
+    expect(opt).toHaveAccessibleDescription(/Requires Strength 13 or higher/i);
+    // No catalog fetch at all — the engine's own verdict is authoritative.
+    expect(mockGetCatalog).not.toHaveBeenCalled();
 
-    // Every offered feat unmet → the steering hint renders.
+    // Every offered feat ineligible → the steering hint renders.
     expect(
       screen.getByText(/doesn’t meet any offered feat’s prerequisites/i),
     ).toBeInTheDocument();
 
-    // Arrow movement SELECTS in a radio group — it must skip unmet options
-    // rather than arm a pick the engine can only refuse.
+    // Arrow movement SELECTS in a radio group — it must skip ineligible
+    // options rather than arm a pick the engine can only refuse.
     fireEvent.keyDown(screen.getByRole('radiogroup', { name: 'Feat (level 4)' }), {
       key: 'ArrowRight',
     });
@@ -1469,38 +1737,64 @@ describe('LevelChoicePicker — FEAT-PREREQ-UX (prereq-unmet feats disabled inli
     expect(mockResolve).not.toHaveBeenCalled();
   });
 
-  it('Kage r2-3 pin: a full-sentence prereq the ENGINE does not enforce stays ENABLED here too (exact-match mirror, no substring)', async () => {
-    // The engine normalizes the whole string and requires exact membership
-    // in ABILITIES — "Strength 13 or higher" is NOT enforced server-side, so
-    // the client must not block it with an invented threshold (the
-    // CONTENT-BREADTH bulk-import shape). Red if the .includes substring
-    // match ever comes back.
-    mockGetCatalog.mockImplementation((_system: string, opts: { type?: string }) =>
-      Promise.resolve(
-        catalogResponse(
-          opts?.type === 'feat'
-            ? [
-                {
-                  slug: 'grappler',
-                  name: 'Grappler',
-                  content_type: 'feat',
-                  source_type: 'srd',
-                  data: { prerequisites: ['Strength 13 or higher'] },
-                },
-              ]
-            : SUBCLASS_ITEMS,
-        ),
-      ),
-    );
+  it('STR-13: the same feat, eligible:true off the wire, renders enabled, auto-selected, and resolvable', async () => {
+    renderPicker([ASI_CHOICE_STR13_ELIGIBLE], {
+      ability_scores: { ...BASE_SHEET.ability_scores, strength: ability(13, 1) },
+    });
+    fireEvent.click(screen.getByRole('radio', { name: 'Take a feat' }));
+    const opt = await screen.findByRole('radio', { name: 'Grappler' });
+    expect(opt).toBeEnabled();
+    expect(opt).toHaveAttribute('aria-checked', 'true'); // auto-selected
+    expect(opt).not.toHaveAttribute('aria-describedby');
+    expect(mockGetCatalog).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /confirm feat/i }));
+    await flush();
+    expect(mockResolve).toHaveBeenCalledWith('cid-1', 'leon', 'asi:4', {
+      mode: 'feat',
+      feat: 'grappler',
+    });
+  });
+
+  it('Kage-CR: eligible:false with why_not:[] (already-held shape, stale sheet.feats) still disables with a GENERIC description, never a bare aria-describedby={null}', async () => {
+    renderPicker([ASI_CHOICE_INELIGIBLE_NO_REASON], {
+      ability_scores: { ...BASE_SHEET.ability_scores, strength: ability(16, 3) },
+    });
+    fireEvent.click(screen.getByRole('radio', { name: 'Take a feat' }));
+
+    const opt = await screen.findByRole('radio', { name: 'Grappler' });
+    expect(opt).toBeDisabled();
+    expect(opt).toHaveAttribute('aria-checked', 'false');
+    expect(opt).toHaveAccessibleDescription(/Not available for this character/i);
+  });
+
+  it('an option with NO eligible key at all renders enabled — never fail closed on an absent verdict', async () => {
+    renderPicker([ASI_CHOICE_ABSENT_VERDICT], {
+      ability_scores: { ...BASE_SHEET.ability_scores, strength: ability(8, -1) },
+    });
+    fireEvent.click(screen.getByRole('radio', { name: 'Take a feat' }));
+    const opt = await screen.findByRole('radio', { name: 'Grappler' });
+    expect(opt).toBeEnabled();
+    expect(opt).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('FALLBACK (pre-flag engine, choice carries no options at all): a legacy prerequisites array is never re-evaluated client-side — renders enabled regardless of ability score', async () => {
+    // The array-shape evaluator this fix retires used to disable Grappler
+    // here for a STR-9 character; the durable fix is that NOTHING client-
+    // side computes eligibility from a feat row's raw prerequisites at all
+    // — the engine's own resolve is the real (and only) gate in this
+    // degrade path.
+    mockFeatCatalog();
     renderPicker([ASI_CHOICE], {
       ability_scores: { ...BASE_SHEET.ability_scores, strength: ability(9, -1) },
     });
     fireEvent.click(screen.getByRole('radio', { name: 'Take a feat' }));
     const opt = await screen.findByRole('radio', { name: 'Grappler' });
-    expect(opt).toBeEnabled(); // no invented "requires STR 13" block
+    expect(opt).toBeEnabled();
+    expect(mockGetCatalog).toHaveBeenCalledWith('dnd5e', { type: 'feat', limit: 500 }, expect.anything());
   });
 
-  it('the same feat with the prereq met stays enabled, auto-selected, and resolvable', async () => {
+  it('FALLBACK: the same feat with the prereq met stays enabled, auto-selected, and resolvable', async () => {
     mockFeatCatalog();
     renderPicker([ASI_CHOICE]); // BASE_SHEET: STR 16 — met
 
@@ -1885,5 +2179,141 @@ describe('LevelChoicePicker — Kage I3 swap disclosure', () => {
     renderPicker([noCount], swapSheet());
     expect(screen.getByText(/menu isn’t available right now/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /confirm eldritch invocations/i })).toBeDisabled();
+  });
+});
+
+describe('LevelChoicePicker — skills choice (ORACLE-CANDIDATE-1, 2026-09-08)', () => {
+  function skillsChoice(over: Partial<PendingLevelChoice> = {}): PendingLevelChoice {
+    return {
+      id: 'skills:1',
+      type: 'skills',
+      level: 1,
+      class: 'Fighter',
+      label: 'Choose 2 class skills',
+      count: 2,
+      options: [
+        { slug: 'athletics', name: 'Athletics' },
+        { slug: 'perception', name: 'Perception' },
+        { slug: 'stealth', name: 'Stealth' },
+      ],
+      ...over,
+    };
+  }
+
+  it('renders the menu from the choice entry itself (no fetch), gates Confirm on exactly `count` picks, and resolves with {picks}', async () => {
+    const { onResolved } = renderPicker([skillsChoice()]);
+
+    // No fetch — the options ride on the pending entry (sheet enrichment).
+    expect(mockGetCatalog).not.toHaveBeenCalled();
+    expect(mockGetAvailableSpells).not.toHaveBeenCalled();
+
+    const confirm = screen.getByRole('button', { name: /confirm choose 2 class skills/i });
+    expect(confirm).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Athletics' }));
+    expect(confirm).toBeDisabled(); // 1 of 2
+    fireEvent.click(screen.getByRole('button', { name: 'Perception' }));
+    expect(confirm).toBeEnabled();
+
+    fireEvent.click(confirm);
+    await flush();
+    expect(mockResolve).toHaveBeenCalledWith('cid-1', 'leon', 'skills:1', {
+      picks: expect.arrayContaining(['athletics', 'perception']),
+    });
+    expect(onResolved).toHaveBeenCalled();
+  });
+
+  it('enforces the pick cap — the third option disables once two are chosen', () => {
+    renderPicker([skillsChoice()]);
+    fireEvent.click(screen.getByRole('button', { name: 'Athletics' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Perception' }));
+    expect(screen.getByRole('button', { name: 'Stealth' })).toBeDisabled();
+    // Toggle one back off frees the cap.
+    fireEvent.click(screen.getByRole('button', { name: 'Athletics' }));
+    expect(screen.getByRole('button', { name: 'Stealth' })).toBeEnabled();
+  });
+
+  // Kage-CR follow-up (2026-09-08), suggestion 2: same TAV-A11Y-CAP-HINT
+  // mechanism as the wizard's RungStep/SkillsStep (third instance) — a
+  // capped, disabled option must reference a hidden hint explaining why,
+  // since native `disabled` drops it from the Tab order.
+  it('a capped option references the hidden cap hint; an unpicked option below cap does not', () => {
+    renderPicker([skillsChoice()]);
+    const athletics = screen.getByRole('button', { name: 'Athletics' });
+    const stealth = screen.getByRole('button', { name: 'Stealth' });
+    // Below cap: nothing is disabled, so nothing references the hint.
+    expect(stealth).not.toHaveAttribute('aria-describedby');
+    fireEvent.click(athletics);
+    fireEvent.click(screen.getByRole('button', { name: 'Perception' }));
+    // At cap: the now-disabled Stealth option references the hidden hint.
+    expect(stealth).toHaveAttribute('aria-describedby', expect.stringContaining('cap-hint'));
+    expect(
+      document.getElementById(stealth.getAttribute('aria-describedby')!)?.textContent,
+    ).toMatch(/You.ve chosen all 2 skills — deselect one to pick another/i);
+  });
+
+  it('TOLERANCE (coordinator note, 2026-09-08): a bare skill-slug string per option renders and resolves identically to {slug, name}', async () => {
+    renderPicker([skillsChoice({ options: ['athletics', 'perception', 'stealth'] as never })]);
+    // Bare string is humanized for display.
+    const athletics = screen.getByRole('button', { name: 'Athletics' });
+    fireEvent.click(athletics);
+    fireEvent.click(screen.getByRole('button', { name: 'Perception' }));
+    fireEvent.click(screen.getByRole('button', { name: /confirm choose 2 class skills/i }));
+    await flush();
+    expect(mockResolve).toHaveBeenCalledWith('cid-1', 'leon', 'skills:1', {
+      picks: expect.arrayContaining(['athletics', 'perception']),
+    });
+  });
+
+  it('missing options (enrichment absent) is an honest dead-end — message shown, Confirm disabled, resolve never attempted', () => {
+    renderPicker([skillsChoice({ options: undefined })]);
+    expect(
+      screen.getByText(/no skill options are available right now/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /confirm choose 2 class skills/i }),
+    ).toBeDisabled();
+    expect(mockResolve).not.toHaveBeenCalled();
+  });
+
+  it('a count-less (malformed) entry is a dead end, not confirmable at zero picks (m6 precedent)', () => {
+    renderPicker([skillsChoice({ count: undefined })]);
+    expect(
+      screen.getByText(/no skill options are available right now/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /confirm choose 2 class skills/i }),
+    ).toBeDisabled();
+  });
+
+  it('a resolve failure surfaces the curated refusal copy and releases the busy latch', async () => {
+    const err = Object.assign(new Error('[DnD] Bad shape.'), {
+      status: 400,
+      body: { data: { reason: 'invalid_skills_choice' } },
+    });
+    mockResolve.mockRejectedValueOnce(err);
+    renderPicker([skillsChoice()]);
+    fireEvent.click(screen.getByRole('button', { name: 'Athletics' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Perception' }));
+    const confirm = screen.getByRole('button', { name: /confirm choose 2 class skills/i });
+    fireEvent.click(confirm);
+    await flush();
+    expect(
+      screen.getByText(/that selection doesn.t match the expected shape/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/\[DnD\]/)).not.toBeInTheDocument();
+    // Busy latch released — Confirm is clickable again (still enabled, 2/2 picked).
+    expect(confirm).toBeEnabled();
+  });
+
+  it('a same-tick double click only resolves once (busy latch)', async () => {
+    renderPicker([skillsChoice()]);
+    fireEvent.click(screen.getByRole('button', { name: 'Athletics' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Perception' }));
+    const confirm = screen.getByRole('button', { name: /confirm choose 2 class skills/i });
+    fireEvent.click(confirm);
+    fireEvent.click(confirm);
+    await flush();
+    expect(mockResolve).toHaveBeenCalledTimes(1);
   });
 });

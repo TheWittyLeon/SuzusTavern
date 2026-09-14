@@ -21,7 +21,10 @@
  * regardless). This component itself only checks `pending_choices` is
  * non-empty; it renders nothing otherwise.
  *
- * Three choice `type`s exist today (engine's `_queue_level_choices`):
+ * Several choice `type`s exist today (engine's `_queue_level_choices`) —
+ * this comment predates two of them (`feature_choice`/INVOC and `skills`/
+ * ORACLE-CANDIDATE-1, see their own FeatureChoiceCard/SkillsChoiceCard doc
+ * comments below for what they added):
  *   - `subclass` — pick an archetype. No `options` array ships on the
  *     pending-choice record itself (just {id,type,level,class,label}), so
  *     the options come from GET /api/dnd/catalog?type=subclass, filtered
@@ -81,7 +84,7 @@
  * documented follow-up, same treatment as DDX-16's warlock-invocations
  * "eligible menu, not yet chosen" placeholder.
  */
-import { useEffect, useId, useRef, useState } from 'react';
+import { Fragment, useEffect, useId, useRef, useState } from 'react';
 import Button from '@/components/Button';
 import SpellInfoPopover from '@/components/SpellInfoPopover';
 import { useToast } from '@/components/Toast';
@@ -92,11 +95,19 @@ import {
   learnSpell,
   resolveLevelChoice,
 } from '@/lib/api/dnd';
-import { ABILITIES, slugifyName, type AbilityKey } from '@/lib/dnd/helpers';
+import {
+  ABILITIES,
+  normalizeSkillOptions,
+  radioStepIndex,
+  slugifyName,
+  type AbilityKey,
+} from '@/lib/dnd/helpers';
+import { subclassesForClass, subclassOwnLevel } from '@/lib/dnd/catalog';
 import type {
   ApiError,
   AvailableSpellEntry,
   AvailableSpellsResult,
+  CatalogClassData,
   CatalogItem,
   CharacterSheet,
   FeatureChoiceOption,
@@ -121,6 +132,11 @@ function refusalReason(e: ApiError): string | undefined {
 const RESOLVE_REFUSAL_COPY: Record<string, string> = {
   choice_not_found: 'That choice is no longer pending — reload to see the current state.',
   invalid_subclass: "That archetype isn't available for this class.",
+  // R62/TAV-SUBCLASS-LEVEL-OVERRIDE: the per-subclass gate this card mirrors
+  // client-side (subclassOwnLevel) — kept as a real refusal message in case
+  // a stale option (e.g. an enriched pending choice from before a level-up)
+  // still gets clicked, never just "try again in a moment".
+  subclass_level_not_reached: "That archetype hasn't unlocked yet.",
   already_chosen: 'A subclass has already been chosen.',
   not_owner: "That's not your character.",
   unsupported_choice_type: "Suzu doesn't have a picker for that choice type yet.",
@@ -145,6 +161,11 @@ const RESOLVE_REFUSAL_COPY: Record<string, string> = {
   // one, live-broken from prod night until it was caught days later).
   subclass_required: 'Choose your archetype first — this menu depends on it.',
   wrong_subclass: 'That option belongs to a different archetype.',
+  // ORACLE-CANDIDATE-1 (2026-09-08) — `_resolve_skills_choice`'s own
+  // refusal reason not already covered above (unknown_option/
+  // duplicate_option are shared verbatim; their existing copy above is
+  // generic enough to read correctly for a skill pick too).
+  invalid_skills_choice: "That selection doesn't match the expected shape.",
 };
 
 function resolveErrorMessage(err: unknown): string {
@@ -154,66 +175,115 @@ function resolveErrorMessage(err: unknown): string {
   return RESOLVE_REFUSAL_COPY[reason ?? ''] ?? fallback;
 }
 
-// SRD ASI feat slugs the engine will actually grant through this mechanic
-// today (NekoNova-DnDEngine engine/commands/character_msm.py::
-// _ASI_ELIGIBLE_FEATS). Manually mirrored here — there is no eligibility flag
-// on the catalog wire (same "no catalog endpoint exposes the real rule" gap
-// as conditions.ts's DND_CONDITIONS mirror of engine/rules.py::CONDITIONS).
-// A catalog `feat` row outside this set (e.g. the PF2e-shaped `power-attack`
-// row the engine's own docstring calls out) always refuses with
-// `unknown_feat` server-side even if offered here, so it's filtered out
-// rather than offered as a guaranteed dead end. Extend only when the
-// engine's own allowlist grows.
+// ENGINE-FEAT-ELIGIBILITY-DATA (Kage-CR, 2026-09-10) — FALLBACK ONLY. The
+// engine now ships the real per-character eligibility verdict directly on
+// the pending `asi` choice's own `options` (`AsiFeatOption[]` — see its doc
+// comment in lib/api/types.ts): `feats/loadOptions` below reads THAT when
+// present, in which case this set is never consulted at all (the server has
+// already filtered to every `acquisition: "asi"` feat, not just one slug).
+// This hardcoded set — the SRD feat the pre-flag engine granted through this
+// mechanic today (NekoNova-DnDEngine's retired `_ASI_ELIGIBLE_FEATS`) — only
+// still matters for a backend that hasn't deployed the flag yet, where the
+// pending choice carries no `options` at all: the degrade-path the design's
+// own "never fail closed on an absent verdict" rule calls for, not a second
+// copy of the engine's real allowlist. Extend only if that fallback path
+// ever needs to widen (it shouldn't, once every environment has the flag).
 const ASI_ELIGIBLE_FEAT_SLUGS = new Set<string>(['grappler']);
 
-// FEAT-PREREQ-UX: client mirror of the engine's best-effort feat-prereq
-// check (_resolve_asi_feat): a `prerequisites` entry naming an ability (the
-// wire carries 5e-bits' abbreviated names, e.g. "STR" for Grappler) requires
-// a score of 13+ in that ability. Only ability minimums are understood, and
-// the threshold is the same hardcoded 13 — deliberately, so the disabled
-// state here always agrees with the `feat_prereq_unmet` refusal the engine
-// would return for the same pick. Returns the unmet requirements as display
-// strings ("STR 13"), empty when the character qualifies.
-function unmetFeatPrereqs(item: CatalogItem, sheet: CharacterSheet): string[] {
-  const raw = (item.data as { prerequisites?: unknown }).prerequisites;
-  const prereqs = Array.isArray(raw) ? raw : [];
-  const unmet: string[] = [];
-  for (const entry of prereqs) {
-    const text = String(entry ?? '')
-      .trim()
-      .toLowerCase();
-    // Kage I4 (INVOC r1): EXACT match only — the engine normalizes the
-    // whole string and requires exact membership in ABILITIES, so a
-    // full-sentence prereq ("Strength 13 or higher") is NOT enforced
-    // server-side. A substring match here would block a feat the engine
-    // allows, with a threshold this client invented. Mirror = exact.
-    const ability = ABILITIES.find(
-      (a) => text === a.abbr.toLowerCase() || text === a.key,
-    );
-    if (ability && (sheet.ability_scores[ability.key]?.score ?? 10) < 13) {
-      unmet.push(`${ability.abbr} 13`);
-    }
+/**
+ * ENGINE-FEAT-ELIGIBILITY-DATA (Kage-CR, 2026-09-10) — the normalized shape
+ * both feat sources (the engine's own enriched `AsiFeatOption[]`, and the
+ * fallback catalog fetch below) collapse into for rendering. Retires
+ * `unmetFeatPrereqs`, which parsed `data.prerequisites` as a bare array of
+ * ability abbreviations — the engine's structured `{require, display}`
+ * grammar (`engine/feat_prereqs.py`) made that shape read `Array.isArray ===
+ * false` and silently return `[]` unmet for EVERY feat, rendering an
+ * ineligible one (Grappler at STR 8) as checked/eligible with no
+ * disclosure — a client mirror of an engine rule (design-durability red
+ * flag) that had already drifted from what it mirrored. `eligible`/`whyNot`
+ * are ALWAYS the engine's own verdict when available, never re-derived here.
+ */
+interface FeatPickOption {
+  slug: string;
+  name: string;
+  /** Fallback-default `true` — "never fail closed on an absent verdict":
+   *  a pre-flag engine (no `options` on the choice at all) or a malformed
+   *  individual entry (missing `eligible` key) both render as pickable,
+   *  same as today's behaviour; the resolver's own 400 is still the real
+   *  backstop either way. */
+  eligible: boolean;
+  /** The engine's own unmet-predicate text, one entry per failing
+   *  requirement. Can be `[]` even when `eligible` is false (an
+   *  already-held non-repeatable feat's `feat_already_taken` refusal
+   *  carries no predicate text) — that case is filtered out entirely by
+   *  the existing `alreadyTaken` check before it ever reaches here. */
+  whyNot: string[];
+  /** FALLBACK PATH ONLY — the feat row's own author-written
+   *  `prerequisites.display` strings, shown as supplementary flavor copy
+   *  underneath the feat name. NEVER used to compute `eligible`/`whyNot` —
+   *  display text is not a rule. Empty for every entry sourced from the
+   *  engine's own enriched `options` (that path already carries the real
+   *  verdict, so no supplementary copy is needed). */
+  displayHints: string[];
+}
+
+/** The engine's enriched `AsiFeatOption[]` (or a defensively-shaped
+ *  equivalent), normalized to `FeatPickOption[]`. Returns `null` when
+ *  `raw` isn't a usable array of feat-shaped objects at all — the caller's
+ *  signal to fall through to the catalog-fetch path, same "authoritative
+ *  when present, degrade otherwise" discipline as `subclassesForClass`'s
+ *  siblings elsewhere in this file. */
+function normalizeAsiFeatOptions(raw: unknown): FeatPickOption[] | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const out: FeatPickOption[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue;
+    const slug = (entry as { slug?: unknown }).slug;
+    const name = (entry as { name?: unknown }).name;
+    if (typeof slug !== 'string' || !slug || typeof name !== 'string' || !name) continue;
+    const rawEligible = (entry as { eligible?: unknown }).eligible;
+    const rawWhyNot = (entry as { why_not?: unknown }).why_not;
+    out.push({
+      slug,
+      name,
+      // Fallback-default true when the key is absent or not a boolean —
+      // never fail closed on an absent verdict.
+      eligible: typeof rawEligible === 'boolean' ? rawEligible : true,
+      whyNot: Array.isArray(rawWhyNot)
+        ? rawWhyNot.filter((s): s is string => typeof s === 'string' && s.length > 0)
+        : [],
+      displayHints: [],
+    });
   }
-  return unmet;
+  return out.length > 0 ? out : null;
+}
+
+/**
+ * FALLBACK PATH ONLY (ENGINE-FEAT-ELIGIBILITY-DATA) — a feat catalog row's
+ * own `data.prerequisites.display` when the row has already migrated to the
+ * structured `{require, display}` shape (`engine/feat_prereqs.py`'s
+ * `is_legacy_shape` returns false for it). Author-written flavor text,
+ * read verbatim and NEVER used to compute eligibility — that would be
+ * exactly the re-derivation this fix removes. Returns `[]` for the legacy
+ * array shape, an absent key, or anything malformed; never throws.
+ */
+function extractPrerequisiteDisplay(item: CatalogItem): string[] {
+  const spec = (item.data as { prerequisites?: unknown }).prerequisites;
+  if (!spec || typeof spec !== 'object' || Array.isArray(spec)) return [];
+  const display = (spec as { display?: unknown }).display;
+  if (!Array.isArray(display)) return [];
+  return display.filter((s): s is string => typeof s === 'string' && s.length > 0);
 }
 
 const SYSTEM = 'dnd5e';
 
-/** A11Y (Iro CRITICAL-1): roving-tabindex radiogroup arrow-key nav, mirrors
- *  SpellbookPanel.tsx's tablist onKeyDown (:362-388) — Up/Left move to the
- *  previous option, Down/Right to the next (both wrap), Home/End jump to the
- *  ends. Arrow-key movement ALSO selects (native radio-group semantics), so
- *  callers select + refocus together. Returns null for any other key so the
- *  caller can no-op without calling preventDefault. */
-function radioStepIndex(key: string, idx: number, length: number): number | null {
-  if (length === 0) return null;
-  const from = idx < 0 ? 0 : idx;
-  if (key === 'ArrowRight' || key === 'ArrowDown') return (from + 1) % length;
-  if (key === 'ArrowLeft' || key === 'ArrowUp') return (from - 1 + length) % length;
-  if (key === 'Home') return 0;
-  if (key === 'End') return length - 1;
-  return null;
-}
+// radioStepIndex moved to lib/dnd/helpers.ts (TAV-WIZARD-HOMEBREW-CASTERS) —
+// a single canonical copy for every CUSTOM role="radio" button-group in this
+// file (Subclass/ASI/feat below). The creation wizard's own Subclass step
+// does NOT need it: its cards are native <input type="radio"> (the
+// optCard/optGrid pattern Race/Class/Background already use), which get
+// arrow-key roving for free from the browser — adding this helper on top
+// would double-handle the keypress.
 
 export interface LevelChoicePickerProps {
   characterId: string;
@@ -316,9 +386,21 @@ export default function LevelChoicePicker({
             />
           );
         }
+        if (choice.type === 'skills') {
+          return (
+            <SkillsChoiceCard
+              key={choice.id}
+              characterId={characterId}
+              username={username}
+              sheet={sheet}
+              choice={choice}
+              onResolved={handleChildResolved}
+            />
+          );
+        }
         // unsupported_choice_type — the engine queues only subclass/asi/
-        // spell/feature_choice today; this is forward-compat scaffolding,
-        // not a live path.
+        // spell/feature_choice/skills today; this is forward-compat
+        // scaffolding, not a live path.
         return (
           <div key={choice.id} className={styles.card}>
             {/* TAV-SHEET-HEADING-ORDER: h3 — nested under "Pending choices"
@@ -342,6 +424,25 @@ interface ChoiceCardProps {
   onResolved: (updated: CharacterSheet) => void;
 }
 
+/**
+ * R62/TAV-SUBCLASS-LEVEL-OVERRIDE — minimal display shape for one offerable-
+ * or-locked subclass on this card. `level` is the row's own gate level
+ * (`subclassOwnLevel`'s result, or whatever an enriched pending choice
+ * shipped verbatim); undefined only when no override signal exists anywhere
+ * (pre-ruling engine, or the class row didn't resolve) — see loadOptions'
+ * own comment for why that degrades to "every scoped option is offerable",
+ * byte-identical to before this ruling.
+ */
+interface SubclassCardOption {
+  slug: string;
+  name: string;
+  level?: number;
+}
+
+function toCardOption(item: CatalogItem, level?: number): SubclassCardOption {
+  return { slug: item.slug, name: item.name, level };
+}
+
 function SubclassChoiceCard({
   characterId,
   username,
@@ -352,7 +453,12 @@ function SubclassChoiceCard({
   const { toast } = useToast();
   const headingId = useId();
   const charClass = choice.class || sheet.char_class;
-  const [options, setOptions] = useState<CatalogItem[] | null>(null);
+  // R62/TAV-SUBCLASS-LEVEL-OVERRIDE — `options` is what's actually offerable
+  // (pickable) right now; `lockedOptions` is the complement (own gate level
+  // above the character's current level) — same split as the creation
+  // wizard's SubclassStep, one derivation shared via `subclassOwnLevel`.
+  const [options, setOptions] = useState<SubclassCardOption[] | null>(null);
+  const [lockedOptions, setLockedOptions] = useState<SubclassCardOption[]>([]);
   const [loadState, setLoadState] = useState<'loading' | 'ok' | 'error'>('loading');
   // A11Y/QA (SERIOUS-4, DEFECT-2): bump to retry a failed catalog fetch via
   // an effect-dep counter. This is THE canonical retry shape for every fetch
@@ -371,26 +477,139 @@ function SubclassChoiceCard({
   const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   useEffect(() => {
+    // R62/TAV-SUBCLASS-LEVEL-OVERRIDE — an enriched pending choice (options
+    // already resolved server-side, same wire idiom `feature_choice`/
+    // `skills` choices already use — see PendingLevelChoice.options' own
+    // doc comment) is AUTHORITATIVE: obs #168's discipline applies here too
+    // — never re-derive a filter client-side when the wire already shipped
+    // the answer. No fetch needed at all in this branch.
+    //
+    // Kage-CR (2026-09-10): only object entries ({slug, name[, level]})
+    // count as a valid enrichment — a BARE STRING (the shape the engine's
+    // skills:1 enrichment shipped in an earlier build, per normalizeSkillOption's
+    // own doc comment) has no `.slug`/`.name` property and is filtered out,
+    // so `enriched` can legitimately end up empty even though
+    // `choice.options` was non-empty. Falling through to the fetch path
+    // below in THAT case (instead of treating zero valid entries as "zero
+    // archetypes exist") is what avoids the exact "No archetypes are
+    // seeded" false content-bug message this repo has now hit three times
+    // on other wire-shape mismatches.
+    if (Array.isArray(choice.options) && choice.options.length > 0) {
+      const enriched = (
+        choice.options as Array<{ slug?: unknown; name?: unknown; level?: unknown }>
+      )
+        .filter((o) => typeof o?.slug === 'string' && typeof o?.name === 'string')
+        .map(
+          (o): SubclassCardOption => ({
+            slug: o.slug as string,
+            name: o.name as string,
+            level: typeof o.level === 'number' ? o.level : undefined,
+          }),
+        );
+      if (enriched.length > 0) {
+        const unlocked = enriched.filter((o) => o.level === undefined || o.level <= sheet.level);
+        const locked = enriched.filter((o) => o.level !== undefined && o.level > sheet.level);
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setOptions(unlocked);
+        setLockedOptions(locked);
+        setSelectedSlug((prev) => prev || unlocked[0]?.slug || '');
+        setLoadState('ok');
+        return;
+      }
+      // Every entry was malformed/unusable (e.g. bare strings) — fall
+      // through to the fetch-and-derive path below rather than rendering
+      // an empty result.
+    }
+
     const ac = new AbortController();
     // Canonical fetch-on-mount pattern (React docs "Fetching data" example).
     // There's no external store to subscribe to here.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+     
     setLoadState('loading');
-    getCatalog(SYSTEM, { type: 'subclass' }, ac.signal)
-      .then((res) => {
-        // TAV-SUBCLASS-CLASSKEY-MISMATCH: `charClass` is a DISPLAY name
-        // ("Ki Warrior") while a subclass row's `data.class` is a SLUG
-        // ("ki-warrior"), so a bare lowercase compare matched nothing and the
-        // card claimed "No archetypes are seeded" for a class with six. Every
-        // SRD class is one word, which is the only reason this held until the
-        // first multi-word class arrived. Slugify BOTH sides — see
-        // `slugifyName`'s note; it mirrors the engine's `_slugify` exactly.
-        const wanted = slugifyName(charClass);
-        const filtered = res.items.filter(
-          (item) => slugifyName(String((item.data as { class?: string }).class ?? '')) === wanted,
-        );
-        setOptions(filtered);
-        setSelectedSlug((prev) => prev || filtered[0]?.slug || '');
+
+    // TAV-SUBCLASS-CLASSKEY-MISMATCH: `charClass` is a DISPLAY name
+    // ("Ki Warrior") while a subclass row's `data.class` is a SLUG
+    // ("ki-warrior"), so a bare lowercase compare matched nothing and the
+    // card claimed "No archetypes are seeded" for a class with six. Every
+    // SRD class is one word, which is the only reason this held until the
+    // first multi-word class arrived. subclassesForClass slugifies BOTH
+    // sides (lib/dnd/catalog.ts) — shared with the creation wizard's own
+    // Subclass step (TAV-WIZARD-HOMEBREW-CASTERS) rather than forked.
+    //
+    // TAV-FT-SUBCLASS-SLUG-PREFIX (2026-09-07) sequel: slugifying the name
+    // can't bridge a slug that carries a PREFIX the name doesn't ("Caster
+    // (Fairy Tail)" -> `ft-caster`) — see slugifyName's own doc comment.
+    // Unlike the creation wizard, this card has no class SLUG in scope —
+    // `choice.class`/`sheet.char_class` are both display names on the wire
+    // (PendingLevelChoice's own doc comment; CharacterSheet carries no
+    // class-slug field at all). Kage-CR round 2: resolve the class ROW
+    // FIRST via a name match against the class catalog (mirrors the
+    // engine's own `_resolve` step 2), and use ITS slug to filter — a
+    // name-first order (try the raw name, only look the class up on an
+    // empty result) would silently serve another class's archetypes the
+    // moment two class names ever slugified to the same string, because a
+    // false-positive name match on the WRONG class's rows would never even
+    // trigger the fallback lookup. One class-catalog fetch per card render
+    // is the accepted cost of closing that gap. A class row that never
+    // resolves (e.g. a private pack scoped away from this session) degrades
+    // to the old raw-name compare — still correct for every SRD/no-prefix
+    // class, and fails CLOSED (empty) rather than returning an unfiltered
+    // subclass list for anything else.
+    //
+    // R62/TAV-SUBCLASS-LEVEL-OVERRIDE: partitioning is a SEPARATE concern
+    // from that resolution — it only ever compares against `classSubclassLevel`
+    // (the resolved class row's PLAIN `data.subclass_level`, NEVER its
+    // `effective_subclass_level` — see subclassOwnLevel's doc comment for
+    // why: the effective value is already the min across every visible
+    // subclass, so using it as every non-declaring row's own floor would
+    // render an SRD rogue's own archetypes as pickable at level 1 too, and
+    // the engine would refuse each one with `subclass_level_not_reached`,
+    // Kage-CR's exact trap). Only partitions when the pending choice fired
+    // EARLIER than that plain level (`choice.level < classSubclassLevel`) —
+    // absent that signal (no override anywhere, or the class row never
+    // resolved) every scoped option is offered unfiltered, byte-identical
+    // to today.
+    async function loadOptions(): Promise<{
+      unlocked: SubclassCardOption[];
+      locked: SubclassCardOption[];
+    }> {
+      const [classRes, subclassRes] = await Promise.all([
+        getCatalog(SYSTEM, { type: 'class' }, ac.signal),
+        getCatalog(SYSTEM, { type: 'subclass', limit: 500 }, ac.signal),
+      ]);
+      const classRow = classRes.items.find((c) => slugifyName(c.name) === slugifyName(charClass));
+      const scoped = classRow
+        ? subclassesForClass(subclassRes.items, classRow.slug)
+        : subclassesForClass(subclassRes.items, charClass);
+      const classSubclassLevel = classRow
+        ? (classRow.data as CatalogClassData).subclass_level
+        : undefined;
+      // Assumption named (Kage-CR, 2026-09-10): `>=` treats a RISE
+      // (choice.level above the class's plain level) the same as "no
+      // override" — R62 only ever pulls the effective level DOWN (a min
+      // across subclasses), so choice.level > classSubclassLevel isn't a
+      // real case this ruling produces; `>=` is deliberately permissive
+      // there rather than a stricter `!==`.
+      if (typeof classSubclassLevel !== 'number' || choice.level >= classSubclassLevel) {
+        return { unlocked: scoped.map((item) => toCardOption(item)), locked: [] };
+      }
+      const unlocked: SubclassCardOption[] = [];
+      const locked: SubclassCardOption[] = [];
+      for (const item of scoped) {
+        const level = subclassOwnLevel(item, classSubclassLevel);
+        const opt = toCardOption(item, level);
+        if (typeof level === 'number' && level <= sheet.level) unlocked.push(opt);
+        else locked.push(opt);
+      }
+      return { unlocked, locked };
+    }
+
+    loadOptions()
+      .then(({ unlocked, locked }) => {
+        if (ac.signal.aborted) return;
+        setOptions(unlocked);
+        setLockedOptions(locked);
+        setSelectedSlug((prev) => prev || unlocked[0]?.slug || '');
         setLoadState('ok');
       })
       .catch(() => {
@@ -400,7 +619,20 @@ function SubclassChoiceCard({
         setLoadState('error');
       });
     return () => ac.abort();
-  }, [charClass, loadKey]);
+    // Kage-CR (2026-09-10): the deps are the three PRIMITIVES this effect
+    // actually needs to re-run for — `charClass`/`loadKey` are the
+    // existing retry/class-change triggers, `sheet.level` only changes on
+    // a real level-up. `choice.options`/`choice.level` (read above, in the
+    // enrichment check and loadOptions' own gate) are deliberately NOT
+    // deps: `sheet` — and therefore every `choice` object inside its
+    // `pending_choices`, including ones whose OWN data didn't change — gets
+    // a brand-new reference on every post-resolve refetch, including one
+    // triggered by resolving a SIBLING pending choice entirely. Depending
+    // on `choice.options`/`choice.level` directly would re-run the whole
+    // enrichment-check-then-maybe-fetch effect on every one of those,
+    // never on anything this card actually cares about changing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [charClass, loadKey, sheet.level]);
 
   async function handleResolve() {
     if (busyRef.current || !selectedSlug) return;
@@ -453,7 +685,17 @@ function SubclassChoiceCard({
           </Button>
         </p>
       )}
-      {loadState === 'ok' && options && options.length === 0 && (
+      {/* R62/TAV-SUBCLASS-LEVEL-OVERRIDE: seeded, but every one of them sits
+          above the character's current level — nothing to pick THIS visit
+          (mirrors the creation wizard's own SubclassStep state table). */}
+      {loadState === 'ok' && options && options.length === 0 && lockedOptions.length > 0 && (
+        <p className={styles.emptyRow} aria-live="polite" aria-atomic="true">
+          {charClass}&rsquo;s remaining archetypes unlock at level{' '}
+          {Math.min(...lockedOptions.map((o) => o.level ?? Infinity))} — check back once{' '}
+          {sheet.name} gets there.
+        </p>
+      )}
+      {loadState === 'ok' && options && options.length === 0 && lockedOptions.length === 0 && (
         <p className={styles.emptyRow} aria-live="polite" aria-atomic="true">
           No archetypes are seeded for {charClass} yet.
         </p>
@@ -503,6 +745,16 @@ function SubclassChoiceCard({
           >
             {busy ? '…' : 'Confirm archetype'}
           </Button>
+          {/* R62/TAV-SUBCLASS-LEVEL-OVERRIDE: an early-unlocking archetype
+              (e.g. Re:Zero at 1) can render alongside a still-locked one
+              (e.g. an SRD rogue's own, gated at 3) — say so, so the menu
+              doesn't read as the FULL roster. */}
+          {lockedOptions.length > 0 && (
+            <p className={styles.emptyRow} aria-live="polite" aria-atomic="true">
+              {lockedOptions.length === 1 ? 'One more archetype unlocks' : 'More archetypes unlock'}{' '}
+              at level {Math.min(...lockedOptions.map((o) => o.level ?? Infinity))}.
+            </p>
+          )}
         </>
       )}
     </div>
@@ -516,7 +768,7 @@ function AsiChoiceCard({ characterId, username, sheet, choice, onResolved }: Cho
   const headingId = useId();
   const [mode, setMode] = useState<'increase' | 'feat'>('increase');
   const [allocations, setAllocations] = useState<Partial<Record<AbilityKey, number>>>({});
-  const [feats, setFeats] = useState<CatalogItem[] | null>(null);
+  const [feats, setFeats] = useState<FeatPickOption[] | null>(null);
   const [featLoadState, setFeatLoadState] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle');
   // LVL-FEAT-SELF-ABORT fix: retry via an effect-dep counter (the
   // SubclassChoiceCard/SpellChoiceCard convention), NOT by resetting
@@ -548,25 +800,47 @@ function AsiChoiceCard({ characterId, username, sheet, choice, onResolved }: Cho
     // entry / retry-key bump / taken-feats change, exactly the counter
     // pattern the sibling cards use.
     if (mode !== 'feat') return;
+    const alreadyTaken = new Set((sheet.feats ?? []).map((f) => f.slug));
+
+    // ENGINE-FEAT-ELIGIBILITY-DATA (Kage-CR): the pending choice's own
+    // `options` already carries the engine's per-character verdict — same
+    // obs #168 discipline as every other enriched-options read in this
+    // file (SubclassChoiceCard/SkillsChoiceCard): trust it outright, no
+    // catalog fetch, no client-side re-evaluation.
+    const enriched = normalizeAsiFeatOptions(choice.options)?.filter(
+      (f) => !alreadyTaken.has(f.slug),
+    );
+    if (enriched && enriched.length > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setFeats(enriched);
+      // FEAT-PREREQ-UX: auto-select the first feat the character actually
+      // QUALIFIES for — never an ineligible one (those render disabled,
+      // and pre-selecting one would arm a Confirm that can only refuse).
+      setSelectedFeat((prev) => prev || enriched.find((f) => f.eligible)?.slug || '');
+      setFeatLoadState('ok');
+      return;
+    }
+
+    // FALLBACK — no enriched verdict on this choice at all (pre-flag
+    // engine): the OLD catalog-fetch path, degraded to "every offered feat
+    // is eligible" (never fail closed on an absent verdict). A feat row's
+    // own `prerequisites.display` (when the structured shape is already
+    // migrated) rides along as supplementary, non-gating copy only.
     const ac = new AbortController();
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setFeatLoadState('loading');
-    getCatalog(SYSTEM, { type: 'feat' }, ac.signal)
+    getCatalog(SYSTEM, { type: 'feat', limit: 500 }, ac.signal)
       .then((res) => {
-        const alreadyTaken = new Set((sheet.feats ?? []).map((f) => f.slug));
-        const eligible = res.items.filter(
-          (item) => ASI_ELIGIBLE_FEAT_SLUGS.has(item.slug) && !alreadyTaken.has(item.slug),
-        );
+        const eligible: FeatPickOption[] = res.items
+          .filter((item) => ASI_ELIGIBLE_FEAT_SLUGS.has(item.slug) && !alreadyTaken.has(item.slug))
+          .map((item) => ({
+            slug: item.slug,
+            name: item.name,
+            eligible: true,
+            whyNot: [],
+            displayHints: extractPrerequisiteDisplay(item),
+          }));
         setFeats(eligible);
-        // FEAT-PREREQ-UX: auto-select the first feat the character actually
-        // QUALIFIES for — never a prereq-unmet one (those render disabled,
-        // and pre-selecting one would arm a Confirm that can only refuse).
-        setSelectedFeat(
-          (prev) =>
-            prev ||
-            eligible.find((f) => unmetFeatPrereqs(f, sheet).length === 0)?.slug ||
-            '',
-        );
+        setSelectedFeat((prev) => prev || eligible[0]?.slug || '');
         setFeatLoadState('ok');
       })
       .catch(() => {
@@ -575,6 +849,15 @@ function AsiChoiceCard({ characterId, username, sheet, choice, onResolved }: Cho
         setFeatLoadState('error');
       });
     return () => ac.abort();
+    // choice.options is read above (enriched branch) but intentionally
+    // excluded — `sheet`, and therefore every `choice` object inside its
+    // `pending_choices` (including this one), gets a brand-new reference on
+    // ANY sibling pending choice's resolve, not just a change relevant to
+    // THIS card; re-running on every one of those would reset `selectedFeat`
+    // out from under an in-progress pick. `sheet.feats` is depended on
+    // directly since it's the one piece that must be current (an
+    // already-taken feat must never re-appear after this card's own resolve).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, featLoadKey, sheet.feats]);
 
   // QA (Miko DEFECT-1): switching ASI mode must not leave a stale allocation
@@ -640,12 +923,13 @@ function AsiChoiceCard({ characterId, username, sheet, choice, onResolved }: Cho
       successMessage = `${sheet.name}'s Ability Score Improvement: ${allocationNames}.`;
     } else {
       if (!selectedFeat) return;
-      // FEAT-PREREQ-UX backstop: the unmet options are disabled and skipped
-      // by arrow-nav, so this should be unreachable — but a stale selection
-      // (e.g. scores changed under us via a sibling ASI card) must never
+      // FEAT-PREREQ-UX backstop: ineligible options are disabled and
+      // skipped by arrow-nav, so this should be unreachable — but a stale
+      // selection (e.g. the engine's verdict changed under us via a
+      // sibling ASI card, or the character's scores moved) must never
       // submit a pick the engine will refuse.
       const chosen = feats?.find((f) => f.slug === selectedFeat);
-      if (!chosen || unmetFeatPrereqs(chosen, sheet).length > 0) return;
+      if (!chosen || !chosen.eligible) return;
       selection = { mode: 'feat', feat: selectedFeat };
       successMessage = `${sheet.name} takes the ${chosen.name} feat!`;
     }
@@ -809,7 +1093,7 @@ function AsiChoiceCard({ characterId, username, sheet, choice, onResolved }: Cho
                 role="radiogroup"
                 aria-label={`Feat (level ${choice.level})`}
                 onKeyDown={(e) => {
-                  // FEAT-PREREQ-UX: arrow-nav must skip prereq-unmet feats —
+                  // FEAT-PREREQ-UX: arrow-nav must skip ineligible feats —
                   // they're disabled below, and arrow movement SELECTS in a
                   // radio group, so stepping onto one would arm a pick the
                   // engine can only refuse. Walk until an enabled option is
@@ -818,7 +1102,7 @@ function AsiChoiceCard({ characterId, username, sheet, choice, onResolved }: Cho
                   for (let step = 0; step < feats.length; step += 1) {
                     const next = radioStepIndex(e.key, idx, feats.length);
                     if (next === null) return;
-                    if (unmetFeatPrereqs(feats[next], sheet).length === 0) {
+                    if (feats[next].eligible) {
                       e.preventDefault();
                       setSelectedFeat(feats[next].slug);
                       featRefs.current[next]?.focus();
@@ -826,42 +1110,74 @@ function AsiChoiceCard({ characterId, username, sheet, choice, onResolved }: Cho
                     }
                     idx = next;
                   }
-                  e.preventDefault(); // every option unmet — nothing to move to
+                  e.preventDefault(); // every option ineligible — nothing to move to
                 }}
               >
                 {feats.map((f, i) => {
-                  // FEAT-PREREQ-UX: a feat the character can't take renders
-                  // disabled with the requirement inline — the old behavior
-                  // offered it as the ONLY option and let the (correct)
-                  // refusal toast be the first hint.
-                  const unmet = unmetFeatPrereqs(f, sheet);
+                  // ENGINE-FEAT-ELIGIBILITY-DATA (Kage-CR): an ineligible
+                  // feat renders disabled, with its `why_not` reason as a
+                  // SIBLING description (not folded into the accessible
+                  // NAME — mirrors SpellsStep's own descId/aria-describedby
+                  // split) so a screen reader announces "Grappler" as the
+                  // option and "requires Strength 13 or higher" as why it's
+                  // disabled, same relationship the Skills/Rung/Spells
+                  // cap-hint pattern already establishes elsewhere in this
+                  // repo. Still Tab/arrow-reachable via the radiogroup's own
+                  // roving-tabindex nav above; only native `disabled` (not
+                  // aria-disabled) removes it from sequential Tab order,
+                  // same accepted trade-off the cap-hint precedent makes.
+                  // Kage-CR (2026-09-10): keyed on `!f.eligible` ALONE —
+                  // an already-held non-repeatable feat's `feat_already_
+                  // taken` refusal carries `why_not: []` (see AsiFeatOption's
+                  // own doc comment), and a stale `sheet.feats` read could
+                  // let one slip past the `alreadyTaken` filter above.
+                  // Gating the id on `whyNot.length > 0` too left that
+                  // option disabled with `aria-describedby={null}` and no
+                  // reason at all — every ineligible option now gets a
+                  // description, generic when the engine sent no specific
+                  // text.
+                  const reasonId = !f.eligible ? `${headingId}-feat-reason-${i}` : undefined;
                   return (
-                    <button
-                      key={f.slug}
-                      ref={(el) => {
-                        featRefs.current[i] = el;
-                      }}
-                      type="button"
-                      role="radio"
-                      aria-checked={selectedFeat === f.slug}
-                      tabIndex={selectedFeat === f.slug ? 0 : -1}
-                      className={
-                        selectedFeat === f.slug
-                          ? `${styles.option} ${styles.optionOn}`
-                          : styles.option
-                      }
-                      disabled={busy || unmet.length > 0}
-                      onClick={() => setSelectedFeat(f.slug)}
-                    >
-                      {f.name}
-                      {unmet.length > 0 && (
-                        <span className={styles.prereqNote}> — requires {unmet.join(', ')}</span>
+                    <Fragment key={f.slug}>
+                      <button
+                        ref={(el) => {
+                          featRefs.current[i] = el;
+                        }}
+                        type="button"
+                        role="radio"
+                        aria-checked={selectedFeat === f.slug}
+                        aria-describedby={reasonId}
+                        tabIndex={selectedFeat === f.slug ? 0 : -1}
+                        className={
+                          selectedFeat === f.slug
+                            ? `${styles.option} ${styles.optionOn}`
+                            : styles.option
+                        }
+                        disabled={busy || !f.eligible}
+                        onClick={() => setSelectedFeat(f.slug)}
+                      >
+                        {f.name}
+                      </button>
+                      {reasonId && (
+                        <span id={reasonId} className={styles.prereqNote}>
+                          {f.whyNot.length > 0
+                            ? `— requires ${f.whyNot.join(', ')}`
+                            : '— Not available for this character.'}
+                        </span>
                       )}
-                    </button>
+                      {/* FALLBACK PATH ONLY — supplementary flavor text, never
+                          gating; the enriched path never populates this. */}
+                      {f.displayHints.length > 0 && (
+                        <span className={styles.prereqNote}>
+                          {' '}
+                          ({f.displayHints.join(', ')})
+                        </span>
+                      )}
+                    </Fragment>
                   );
                 })}
               </div>
-              {feats.every((f) => unmetFeatPrereqs(f, sheet).length > 0) && (
+              {feats.every((f) => !f.eligible) && (
                 <p className={styles.hint} aria-live="polite" aria-atomic="true">
                   {sheet.name} doesn&rsquo;t meet any offered feat&rsquo;s prerequisites —
                   choose an ability increase instead.
@@ -1185,7 +1501,11 @@ function FeatureChoiceCard({ characterId, username, sheet, choice, onResolved }:
   const { toast } = useToast();
   const headingId = useId();
   const cap = choice.count ?? 0;
-  const options = choice.options ?? [];
+  // ORACLE-CANDIDATE-1: `choice.options` widened to `FeatureChoiceOption[] |
+  // string[]` to also cover `type: 'skills'` (SkillsChoiceCard below) — this
+  // card only ever renders for `type === 'feature_choice'`, whose own
+  // enrichment always ships objects, never bare strings.
+  const options = (choice.options as FeatureChoiceOption[] | undefined) ?? [];
   const menuLabel = choice.menu_label ?? 'options';
   /* True while the character still OWES an archetype pick. Distinguishes "this
      menu is empty because you haven't chosen a School yet" from "this menu is
@@ -1457,6 +1777,164 @@ function FeatureChoiceCard({ characterId, username, sheet, choice, onResolved }:
         variant="primary"
         size="default"
         aria-label={`Confirm ${menuLabel} (level ${choice.level})`}
+        aria-busy={busy}
+        disabled={!canConfirm}
+        onClick={() => void handleResolve()}
+      >
+        {busy ? '…' : 'Confirm'}
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * ORACLE-CANDIDATE-1 (2026-09-08) — `skills` choice: a class's own skill
+ * proficiency pick (`class_proficiencies`'s `skill_choices`/`skill_count`).
+ * Queued ONLY at creation (`skills:1`, level 1 always — see the engine's
+ * `_queue_level_choices` doc comment), so the creation wizard's own Skills
+ * step (`character/new/page.tsx`) is the primary surface — this card exists
+ * for the character that reaches level-up with it STILL pending: a
+ * pre-ORACLE-CANDIDATE-1 character (rebuild re-queues it, same
+ * REBUILD_OWNED_KEYS convention `proficient_skills` already follows), or a
+ * creation flow that left it unresolved (a setup-issue callout).
+ *
+ * No fetch, same as FeatureChoiceCard: `choice.options` rides on the
+ * pending-choice entry itself, enriched at sheet-read time — `{slug, name}`
+ * objects (sibling-shaped with `feature_choice`'s own `FeatureChoiceOption[]`
+ * but minimal: no `level`/`description`/`subclass`), already excluding
+ * whatever is on `sheet.proficient_skills` (the RAW "duplicate skill lets
+ * you pick another from the class list" rule, applied server-side).
+ * `normalizeSkillOptions` (lib/dnd/helpers.ts) ALSO tolerates a bare
+ * skill-slug string per option, so this renders correctly against either
+ * deploy ordering of this repo and NekoNova-DnDEngine — see its own doc
+ * comment. No description text ships per option, so this uses the same
+ * toggle-button idiom as FeatureChoiceCard's `optionButton` but without the
+ * SpellInfoPopover wrap.
+ */
+function SkillsChoiceCard({ characterId, username, sheet, choice, onResolved }: ChoiceCardProps) {
+  const { toast } = useToast();
+  const headingId = useId();
+  const cap = choice.count ?? 0;
+  // ORACLE-CANDIDATE-1 (coordinator note, 2026-09-08, on Kage-CR's engine
+  // review): the engine ships `{slug, name}` objects here (sibling-shaped
+  // with feature_choice), but normalizeSkillOptions ALSO tolerates a bare
+  // skill-slug string — so this card renders correctly against either
+  // deploy ordering of this repo and NekoNova-DnDEngine.
+  const options = normalizeSkillOptions(choice.options);
+  const pickHintId = `${headingId}-picks`;
+  // Iro-A11y CRITICAL-1 precedent (TAV-A11Y-CAP-HINT -- third instance,
+  // mirrors the wizard's RungStep `rung-cap-hint`/SkillsStep `skills-cap-
+  // hint` exactly, Kage-CR follow-up 2026-09-08): native `disabled` drops a
+  // capped option out of the Tab order, so the reason has to be discoverable
+  // another way for a keyboard/switch user.
+  const capHintId = `${headingId}-cap-hint`;
+
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  /** Synchronous double-submit latch — same useRef pattern as the sibling cards. */
+  const busyRef = useRef(false);
+
+  function togglePick(skill: string) {
+    if (busy) return;
+    const next = new Set(picked);
+    if (next.has(skill)) {
+      next.delete(skill);
+    } else if (next.size < cap) {
+      next.add(skill);
+    }
+    setPicked(next);
+  }
+
+  // cap >= 1 pairs with the render-side dead-end below (Kage m6 precedent on
+  // FeatureChoiceCard): a malformed count-less entry must never be
+  // confirmable at zero picks.
+  const canConfirm = !busy && options.length > 0 && cap >= 1 && picked.size === cap;
+
+  async function handleResolve() {
+    if (busyRef.current || !canConfirm) return;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      try {
+        await resolveLevelChoice(characterId, username, choice.id, {
+          picks: Array.from(picked),
+        });
+      } catch (err) {
+        toast({ message: resolveErrorMessage(err), tone: 'error' });
+        return;
+      }
+      try {
+        const after = await getCharacterSheet(characterId, username);
+        onResolved(after);
+        // Prefer the engine's own curated `name` (via `options`, not a
+        // re-humanized slug) — same "server copy wins" discipline as
+        // FeatureChoiceCard's success toast above.
+        const names = options
+          .filter((o) => picked.has(o.slug))
+          .map((o) => o.name)
+          .join(', ');
+        toast({ message: `${sheet.name} gains proficiency in ${names}!`, tone: 'success' });
+      } catch {
+        toast({
+          message: "Couldn't refresh your sheet — reload to see the result.",
+          tone: 'warn',
+        });
+      }
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className={styles.card} aria-busy={busy}>
+      {/* TAV-SHEET-HEADING-ORDER: h3 — nested under "Pending choices" (h2). */}
+      <h3 id={headingId} className={styles.cardLabel}>
+        {choice.label}
+      </h3>
+      {options.length === 0 || cap < 1 ? (
+        <p className={styles.emptyRow} aria-live="polite" aria-atomic="true">
+          No skill options are available right now — reload the sheet to try again.
+        </p>
+      ) : (
+        <>
+          <p id={pickHintId} className={styles.hint} aria-live="polite" aria-atomic="true">
+            {picked.size} of {cap} chosen
+          </p>
+          <p id={capHintId} className="sr-only">
+            {picked.size >= cap ? (
+              <>You&rsquo;ve chosen all {cap} skill{cap === 1 ? '' : 's'} — deselect one to pick another.</>
+            ) : (
+              <>
+                {picked.size} of {cap} skills chosen — pick {cap - picked.size} more.
+              </>
+            )}
+          </p>
+          <div className={styles.optionRow} role="group" aria-labelledby={pickHintId}>
+            {options.map((o) => {
+              const isOn = picked.has(o.slug);
+              const atCap = !isOn && picked.size >= cap;
+              return (
+                <button
+                  key={o.slug}
+                  type="button"
+                  aria-pressed={isOn}
+                  aria-describedby={atCap ? capHintId : undefined}
+                  className={isOn ? `${styles.option} ${styles.optionOn}` : styles.option}
+                  disabled={busy || atCap}
+                  onClick={() => togglePick(o.slug)}
+                >
+                  {o.name}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+      <Button
+        variant="primary"
+        size="default"
+        aria-label={`Confirm ${choice.label}`}
         aria-busy={busy}
         disabled={!canConfirm}
         onClick={() => void handleResolve()}

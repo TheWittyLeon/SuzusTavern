@@ -21,6 +21,7 @@ export type IconName =
   | 'Send'
   | 'Power'
   | 'Eye'
+  | 'EyeOff'
   | 'Plus'
   | 'Users'
   | 'Mic'
@@ -94,6 +95,10 @@ export const ICON_PATHS: Record<IconName, string> = {
   Send: '<path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7Z"/>',
   Power: '<path d="M12 3v9"/><path d="M5.6 7.6a8 8 0 1 0 12.8 0"/>',
   Eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',
+  // TAV-CODEX-SOURCE-PICKER-NPC (Aoi-UI §Changed #4): Eye's paths plus a
+  // diagonal stroke — the DM-only disclosure's "never read aloud" glyph.
+  EyeOff:
+    '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/><path d="M3 3l18 18"/>',
   Plus: '<path d="M12 5v14M5 12h14"/>',
   Users:
     '<circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0"/><circle cx="17" cy="9" r="2"/><path d="M15 20a4 4 0 0 1 6-3"/>',

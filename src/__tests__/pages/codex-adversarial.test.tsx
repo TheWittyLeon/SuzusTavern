@@ -21,6 +21,7 @@ import '@testing-library/jest-dom';
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 jest.mock('../../lib/api/auth', () => ({
@@ -35,6 +36,7 @@ jest.mock('../../lib/api/auth', () => ({
 jest.mock('../../lib/api/dnd', () => ({
   getCatalog: jest.fn(),
   getCatalogCounts: jest.fn(),
+  getPacks: jest.fn(),
 }));
 
 import * as dnd from '../../lib/api/dnd';
@@ -46,6 +48,15 @@ import type { CatalogItem, User } from '../../lib/api/types';
 
 const mockGetCatalog = dnd.getCatalog as jest.MockedFunction<typeof dnd.getCatalog>;
 const mockGetCatalogCounts = dnd.getCatalogCounts as jest.MockedFunction<typeof dnd.getCatalogCounts>;
+const mockGetPacks = dnd.getPacks as jest.MockedFunction<typeof dnd.getPacks>;
+
+// TAV-CODEX-SOURCE-PICKER-NPC: usePacksList fetches once per mount. Every
+// codex test pre-dates the picker, so default it to a resolved empty list
+// (packsStatus:'ok', All-only) unless a test overrides it — never leaves it
+// unmocked-pending (that would hang usePacksList in 'loading' forever).
+beforeEach(() => {
+  mockGetPacks.mockReset().mockResolvedValue([]);
+});
 
 const LEON: User = { id: 1, username: 'leon', email: null };
 
@@ -451,14 +462,14 @@ describe('shape tolerance across the under-tested kinds', () => {
 
     it('the row degrades gracefully today (JSX skips the undefined child — control, not the defect)', async () => {
       renderCodex();
-      fireEvent.click(await screen.findByRole('tab', { name: /classes/i }));
+      fireEvent.click(await screen.findByRole('tab', { name: /^classes\b/i }));
       const row = await screen.findByRole('option', { name: /half class/i });
       expect(within(row).queryByText('dundefined')).not.toBeInTheDocument();
     });
 
     it('the detail drawer does not render the literal text "dundefined"', async () => {
       renderCodex();
-      fireEvent.click(await screen.findByRole('tab', { name: /classes/i }));
+      fireEvent.click(await screen.findByRole('tab', { name: /^classes\b/i }));
       const row = await screen.findByRole('option', { name: /half class/i });
       fireEvent.click(row);
       await screen.findByRole('heading', { level: 2, name: /half class/i });

@@ -90,6 +90,41 @@ test('a 404 surfaces an "already gone" error and does not crash', async () => {
   expect(await screen.findByText(/already gone/i)).toBeInTheDocument();
 });
 
+// ENGINE-PARTICIPANT-FK-CHECK-CONTRADICTION (2026-09-10, NekoNova-DnDEngine
+// fix/participant-fk-cascade @ e5b14b5): the engine's new delete refusal
+// when the character is seated in an active encounter — reaches the Tavern
+// intact through the proxy (dnd_characters.py forwards `message`).
+test('a 409 character_in_active_combat surfaces the engine\'s own message via role="alert", and the character stays listed', async () => {
+  const err = Object.assign(new Error('conflict'), {
+    status: 409,
+    code: '409',
+    body: {
+      success: false,
+      message:
+        'Character is seated in an active encounter (#42); end the fight before deleting.',
+      data: { reason: 'character_in_active_combat' },
+    },
+  });
+  mockDelete.mockRejectedValue(err);
+  const { onChanged, onDeleted } = renderButton();
+
+  fireEvent.click(screen.getByRole('button', { name: /delete aria/i }));
+  fireEvent.click(screen.getByRole('button', { name: /move to trash/i }));
+
+  // The engine's own message is the source of truth — never a curated
+  // paraphrase — and lands in the toast's role="alert" surface (not
+  // colour-only).
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent(
+    /Character is seated in an active encounter \(#42\); end the fight before deleting\./i,
+  );
+
+  // Nothing was mutated — the character was never removed from the caller's
+  // list, and no navigate-away fires.
+  expect(onChanged).not.toHaveBeenCalled();
+  expect(onDeleted).not.toHaveBeenCalled();
+});
+
 test('a failed Undo (restore) surfaces the "stays in trash 7 days" message', async () => {
   mockDelete.mockResolvedValue({ message: 'trashed' });
   mockRestore.mockRejectedValue(new Error('network'));

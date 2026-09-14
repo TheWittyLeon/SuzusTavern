@@ -8,12 +8,14 @@
 import type { IconName } from '@/components/Icon';
 import type { PillTone } from '@/components/Pill';
 import type {
+  AdventureSummary,
   CatalogConditionData,
   CatalogEquipmentData,
   CatalogItem,
   CatalogMonsterAction,
   CatalogMonsterData,
   CatalogSpellData,
+  ContentPack,
 } from '@/lib/api/types';
 
 // ── Content types shown in the Codex ─────────────────────────────────────────
@@ -25,7 +27,24 @@ export type CodexKind =
   | 'race'
   | 'class'
   | 'background'
-  | 'condition';
+  | 'condition'
+  // TAV-CODEX-SOURCE-PICKER-NPC (D6/FR-15) — four new rail kinds.
+  | 'npc'
+  | 'feat'
+  | 'subclass'
+  | 'adventure';
+
+/**
+ * TAV-CODEX-SOURCE-PICKER-NPC — the codex's single-select source filter.
+ * `undefined` (or an empty string) means "All sources" — no `pack` query
+ * param sent. A specific value is a `pack_id` from GET /catalog/packs,
+ * validated server-side (never trusted client-side beyond "does this appear
+ * in the packs list I was just given" — see usePacksList.ts / page.tsx).
+ * Client-only concept — not part of the wire contract (Sora-Arch's `pack` is
+ * the wire param name; this is what the UI carries between the picker, the
+ * URL, and useCodexCatalog).
+ */
+export type CodexSource = string | undefined;
 
 export interface CodexKindMeta {
   kind: CodexKind;
@@ -44,16 +63,31 @@ export interface CodexKindMeta {
   tone: PillTone;
 }
 
-// Order here is the tab order (Spells, Monsters, Items, Races, Classes,
-// Backgrounds, Conditions — DDX-21 scope, in that sequence).
+// Order here is the tab order. TAV-CODEX-SOURCE-PICKER-NPC (Aoi-UI §Rail,
+// coordinator-confirmed 2026-09-06): Classes, Subclasses, Races,
+// Backgrounds, Feats, Spells, Items, Conditions, Monsters, NPCs, Adventures
+// — a visible reorder of the original 7 (Class 5th->1st, Spell 1st->6th,
+// Monster 2nd->9th). The DEFAULT landing kind is a separate concern (page.tsx
+// `useState<CodexKind>('spell')`) and stays Spells per the coordinator's
+// ruling — this array only controls rail position/Home-End endpoints, not
+// which tab is active on load.
+//
+// Tone reuse, not new hues (Aoi §Changed #2): Subclasses reuses `accent`
+// (pairs with Classes — parent/child read); NPCs reuses `cool` (pairs with
+// Races — both "people" kinds). Both tones are already Iro-audited; a new
+// hue would need a fresh 4-vibe contrast pass.
 export const CODEX_KINDS: CodexKindMeta[] = [
-  { kind: 'spell', label: 'Spells', noun: 'spell', nounPlural: 'spells', icon: 'Magic', tone: 'lav' },
-  { kind: 'monster', label: 'Monsters', noun: 'monster', nounPlural: 'monsters', icon: 'Skull', tone: 'bad' },
-  { kind: 'item', label: 'Items', noun: 'item', nounPlural: 'items', icon: 'Potion', tone: 'warm' },
-  { kind: 'race', label: 'Races', noun: 'race', nounPlural: 'races', icon: 'Users', tone: 'cool' },
   { kind: 'class', label: 'Classes', noun: 'class', nounPlural: 'classes', icon: 'Sword', tone: 'accent' },
+  { kind: 'subclass', label: 'Subclasses', noun: 'subclass', nounPlural: 'subclasses', icon: 'Quill', tone: 'accent' },
+  { kind: 'race', label: 'Races', noun: 'race', nounPlural: 'races', icon: 'Users', tone: 'cool' },
   { kind: 'background', label: 'Backgrounds', noun: 'background', nounPlural: 'backgrounds', icon: 'Scroll', tone: 'crit' },
+  { kind: 'feat', label: 'Feats', noun: 'feat', nounPlural: 'feats', icon: 'Crit', tone: 'good' },
+  { kind: 'spell', label: 'Spells', noun: 'spell', nounPlural: 'spells', icon: 'Magic', tone: 'lav' },
+  { kind: 'item', label: 'Items', noun: 'item', nounPlural: 'items', icon: 'Potion', tone: 'warm' },
   { kind: 'condition', label: 'Conditions', noun: 'condition', nounPlural: 'conditions', icon: 'Sparkle', tone: 'warn' },
+  { kind: 'monster', label: 'Monsters', noun: 'monster', nounPlural: 'monsters', icon: 'Skull', tone: 'bad' },
+  { kind: 'npc', label: 'NPCs', noun: 'NPC', nounPlural: 'NPCs', icon: 'Crown', tone: 'cool' },
+  { kind: 'adventure', label: 'Adventures', noun: 'adventure', nounPlural: 'adventures', icon: 'Map', tone: 'muted' },
 ];
 
 export const CODEX_KIND_META: Record<CodexKind, CodexKindMeta> = CODEX_KINDS.reduce(
@@ -221,4 +255,75 @@ export function conditionHasData(d: CatalogConditionData): boolean {
 export function matchesSearch(item: CatalogItem, query: string): boolean {
   if (!query.trim()) return true;
   return item.name.toLowerCase().includes(query.trim().toLowerCase());
+}
+
+// ── Adventure display helpers (TAV-CODEX-SOURCE-PICKER-NPC) ──────────────────
+//
+// FR-6/FR-22 + Sora-Arch A5: the engine's adventure projection is an
+// allowlist-by-construction jsonb_build_object over exactly {subtitle,
+// level_range, length, content_rating, tags} — no scenes, no
+// gm_description, ever. Mirrors src/app/modules/page.tsx's toCatalogItem():
+// the engine puts this `summary` block at the TOP LEVEL of the catalog row,
+// not nested under `.data` (CatalogItem['data'] predates the adventure kind
+// — see that file's comment). Reading it any other way silently renders
+// nothing; this is the one place that shape is decoded for the codex.
+
+/** Extracts the allowlisted adventure summary from a raw catalog row (adventure
+ *  content_type). Never reads `scenes`/`gm_description` even if a
+ *  maliciously/accidentally over-stuffed payload carried them (FR-22). */
+export function adventureSummary(item: CatalogItem): AdventureSummary {
+  const raw = item as unknown as Record<string, unknown>;
+  const summary = (raw['summary'] as Record<string, unknown> | undefined) ?? {};
+  return {
+    subtitle: summary['subtitle'] as string | undefined,
+    level_range: summary['level_range'] as { min: number; max: number } | undefined,
+    length: summary['length'] as string | undefined,
+    content_rating: summary['content_rating'] as string | undefined,
+    tags: summary['tags'] as string[] | undefined,
+  };
+}
+
+export function adventureLevelRangeLabel(lr?: { min: number; max: number }): string {
+  if (!lr) return '—';
+  if (lr.min === lr.max) return `Lv ${lr.min}`;
+  return `Lv ${lr.min}–${lr.max}`;
+}
+
+export function adventureLengthLabel(len?: string): string {
+  if (!len) return '—';
+  return len.replace(/_/g, ' ');
+}
+
+// ── Source picker grouping (TAV-CODEX-SOURCE-PICKER-NPC, D2/FR-12) ───────────
+
+export interface GroupedPacks {
+  /** kind='srd' packs — rendered flat (Aoi assumes exactly one). */
+  srd: ContentPack[];
+  /** kind='nekonova' packs — rendered flat (Aoi assumes exactly one). */
+  suzu: ContentPack[];
+  /** kind='homebrew' packs — rendered under a "Homebrew" group heading, alphabetical. */
+  homebrew: ContentPack[];
+  /** Anything else (kind='licensed' or a future kind) — not in Aoi's
+   *  spec'd groups, but a generic catalog feature must not silently drop a
+   *  visible pack the actor is entitled to. Grouped under "Other", alphabetical. */
+  other: ContentPack[];
+}
+
+function byDisplayName(a: ContentPack, b: ContentPack): number {
+  return a.display_name.localeCompare(b.display_name);
+}
+
+/** Buckets the packs-list response into the picker's display groups
+ *  (All sources / SRD / Suzu's / Homebrew, in that order — D2). */
+export function groupPacksBySource(packs: ContentPack[]): GroupedPacks {
+  const grouped: GroupedPacks = { srd: [], suzu: [], homebrew: [], other: [] };
+  for (const p of packs) {
+    if (p.kind === 'srd') grouped.srd.push(p);
+    else if (p.kind === 'nekonova') grouped.suzu.push(p);
+    else if (p.kind === 'homebrew') grouped.homebrew.push(p);
+    else grouped.other.push(p);
+  }
+  grouped.homebrew.sort(byDisplayName);
+  grouped.other.sort(byDisplayName);
+  return grouped;
 }

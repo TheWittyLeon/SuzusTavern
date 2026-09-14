@@ -84,9 +84,21 @@ jest.mock('../../lib/dnd/useCatalog', () => ({
   useCatalog: () => catalogOverride,
 }));
 
+// TAV-JEST-FLAKE-WIZARD-COMMENTARY (Kage-CR, 2026-09-10): a SYNCHRONOUS-
+// throw mock, not an async generator — see character-new-spells.test.tsx's
+// own mock for the full root-cause writeup. useWizardCommentary's detached
+// async IIFE calls setStreaming(false) after `for await` drains the stream;
+// even an EMPTY async generator takes >=1 microtask tick to settle, landing
+// outside any act() boundary this file's fireEvent calls establish, which
+// this shape's sibling files proved flaky under worker contention. A plain
+// function that throws synchronously fails the for-await loop's iterable
+// expression BEFORE any `await` is reached, so the hook's try/catch +
+// setStreaming(false) complete on the SAME synchronous tick — no dangling
+// microtask, ever. Observably identical (the hook's own catch{} swallows
+// either shape; text stays '', streaming ends false).
 jest.mock('../../lib/stream', () => ({
-  streamNarration: jest.fn(async function* () {
-    /* no chunks -> deterministic fallback line */
+  streamNarration: jest.fn(() => {
+    throw new Error('streamNarration disabled in this test file — deterministic fallback only');
   }),
 }));
 

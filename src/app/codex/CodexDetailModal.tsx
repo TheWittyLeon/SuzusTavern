@@ -36,9 +36,17 @@ export interface CodexDetailModalProps {
   item: CatalogItem | null;
   kind: CodexKind;
   onClose: () => void;
+  /**
+   * TAV-CODEX-SOURCE-PICKER-NPC (Kage-CR #4): the NPC drawer's client-side
+   * stat_ref join result — this modal is the ONLY reachable NPC detail
+   * surface below 1280px (the desktop `.drawer` is display:none there), so
+   * without this prop an NPC opened on a narrow viewport/mobile modal would
+   * never show its linked monster's stat block at all.
+   */
+  resolvedMonster?: CatalogItem;
 }
 
-export default function CodexDetailModal({ open, item, kind, onClose }: CodexDetailModalProps) {
+export default function CodexDetailModal({ open, item, kind, onClose, resolvedMonster }: CodexDetailModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
@@ -118,7 +126,7 @@ export default function CodexDetailModal({ open, item, kind, onClose }: CodexDet
         >
           <Icon name="Close" size={14} aria-hidden />
         </Button>
-        <CodexDetail item={item} kind={kind} headingId={headingId} />
+        <CodexDetail item={item} kind={kind} headingId={headingId} resolvedMonster={resolvedMonster} />
       </div>
     </div>,
     document.body,

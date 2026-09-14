@@ -431,6 +431,55 @@ export interface FeatureChoiceOption {
   name: string;
   level: number;
   description?: string;
+  /** TAV-WIZARD-HOMEBREW-CASTERS — present only when the option is scoped to
+   *  one archetype (engine's `class_feature_choice_options_all`: emitted
+   *  ONLY when declared, absent means class-wide). Slugified on the wire
+   *  the same way a subclass row's own slug is. */
+  subclass?: string;
+}
+
+/** ORACLE-CANDIDATE-1 (2026-09-08) — one option on a `skills:1` (or a later
+ *  level's `skills:N`) pending choice's `options` array — the engine's
+ *  enrichment there ships this shape (sibling to FeatureChoiceOption, but
+ *  minimal: no `level`/`description`/`subclass`, since a skill pick has none
+ *  of those). Defined here (not lib/dnd/helpers.ts) because this file has no
+ *  imports of its own and helpers.ts already imports FROM here — keeping the
+ *  wire shape's canonical definition on the import-leaf side avoids a cycle. */
+export interface SkillChoiceOption {
+  slug: string;
+  name: string;
+}
+
+/** ENGINE-FEAT-ELIGIBILITY-DATA (2026-09-10) — one option on an `asi`
+ *  pending choice's `options` array, in FEAT mode: the engine's own
+ *  eligibility verdict for THIS character, computed by the SAME
+ *  `rules_catalog.feat_selectable_for` the ASI resolver's accept path
+ *  calls (`engine/commands/character_msm.py`'s sheet-read `pending_choices`
+ *  enrichment, gated on `feature_flags.feat_prereqs_enabled()`) — so
+ *  "offered" and "accepted" cannot diverge. `eligible`/`why_not` ride
+ *  together: `why_not` is `[]` when `eligible` is true, and a non-empty
+ *  human-readable (or the `"prerequisite_unstructured"` code) string per
+ *  UNMET predicate when false — EXCEPT for an already-held non-repeatable
+ *  feat, whose `why_not` is `[]` even though `eligible` is false (the
+ *  engine's own `feat_already_taken` refusal carries no predicate text;
+ *  consumers must not assume a false `eligible` always pairs with a
+ *  non-empty `why_not`).
+ *
+ *  Both fields are OPTIONAL on this type, not because the engine ever
+ *  omits them once it enriches an entry at all, but so a consumer's
+ *  fallback-on-absence read (`entry.eligible ?? true`) type-checks against
+ *  a pre-upgrade backend that queued the choice with no enrichment
+ *  whatsoever (`options` absent from the whole entry, not just this
+ *  field) — see LevelChoicePicker's AsiChoiceCard for the one place this
+ *  is read; the client MUST NEVER re-derive `eligible`/`why_not` from a
+ *  feat row's own raw `data.prerequisites` (that grammar belongs to
+ *  `engine/feat_prereqs.py` alone — see its own module docstring for why a
+ *  second evaluator drifts). */
+export interface AsiFeatOption {
+  slug: string;
+  name: string;
+  eligible?: boolean;
+  why_not?: string[];
 }
 
 export interface PendingLevelChoice {
@@ -460,8 +509,25 @@ export interface PendingLevelChoice {
   /** INVOC — the full option menu, enriched onto the pending entry at
    *  SHEET READ time (display + client-side pre-validation only; the
    *  resolver re-validates server-side). Absent on a pre-upgrade backend
-   *  that queued the choice without enrichment. */
-  options?: FeatureChoiceOption[];
+   *  that queued the choice without enrichment.
+   *
+   *  Shape depends on `type`: `FeatureChoiceOption[]` for `feature_choice`
+   *  (INVOC). ORACLE-CANDIDATE-1 (2026-09-08) reuses this same wire field
+   *  for `type === 'skills'` — the engine's enrichment there
+   *  (`get_character_sheet_data`'s pending_choices loop, NekoNova-DnDEngine
+   *  engine/commands/character_msm.py) ships `{slug, name}` objects
+   *  (sibling-shaped with `feature_choice`, per Kage-CR's review of that
+   *  commit), already excluding whatever is on `proficient_skills`
+   *  (background grants) — `SkillChoiceOption[]` below, NOT the fuller
+   *  `FeatureChoiceOption` (no `level`/`description`/`subclass`). A bare
+   *  `string[]` is ALSO accepted client-side (lib/dnd/helpers.ts's
+   *  `normalizeSkillOptions` tolerance adapter) so neither deploy ordering
+   *  between this repo and the engine ever strands a character on a shape
+   *  it can't render. ENGINE-FEAT-ELIGIBILITY-DATA (2026-09-10) reuses this
+   *  SAME field a third time for `type === 'asi'` entries in FEAT mode:
+   *  `AsiFeatOption[]` — see its own doc comment. Consumers narrow by
+   *  `choice.type`. */
+  options?: FeatureChoiceOption[] | SkillChoiceOption[] | AsiFeatOption[] | string[];
 }
 
 /** INVOC: one resolved menu group on the sheet — the character's CHOSEN
@@ -1206,6 +1272,18 @@ export interface CatalogClassData {
   skill_choices?: string[];
   skill_count?: number;
   subclass_level?: number;
+  /** R62/TAV-SUBCLASS-LEVEL-OVERRIDE — the effective archetype-pick level,
+   *  distinct from `subclass_level` above (which stays the class's own
+   *  plain declaration, unchanged). The engine's
+   *  `class_effective_subclass_level_for_wire` (NekoNova-DnDEngine
+   *  `rules_catalog.py`) computes this as the MIN over the class row's own
+   *  `subclass_level` and every subclass row visible to the caller that
+   *  declares its own (e.g. Re:Zero's archetypes at 1 pull an SRD rogue's
+   *  chassis, `subclass_level:3`, down to `effective_subclass_level:1`).
+   *  Absent on an engine that predates this ruling — every reader falls
+   *  back to `subclass_level`, so a pre-upgrade backend renders byte-
+   *  identical to today. */
+  effective_subclass_level?: number;
   spellcasting_ability?: string | null;
   /** TAV-CLASS-STAT-GUIDANCE — the class's Unarmored Defense ability
    *  (barbarian → constitution, monk → wisdom, homebrew-declared), flat
@@ -1213,6 +1291,71 @@ export interface CatalogClassData {
    *  class has no unarmored defense. */
   unarmored_defense_ability?: string | null;
   level1_features?: string[];
+  /** TAV-WIZARD-HOMEBREW-CASTERS — the class's spellcasting profile, RAW off
+   *  the catalog row's `data.spellcasting` block (NekoNova-DnDEngine
+   *  `scripts/import_srd.py::build_classes` / `engine/rules_catalog.py::
+   *  _spellcasting_profile_from_row`) — `null` for an explicit non-caster
+   *  (v2 row), `undefined`/absent for a v1 row with no opinion either way.
+   *  Two independent axes fold in here: REPERTOIRE (`is_prepared_caster`/
+   *  `prepares_from_spellbook` — known vs. prepared vs. spellbook) and
+   *  RESOURCE (`casting_model` — slots vs. points, display-only). See
+   *  `casterKindFromSpellcasting` (lib/dnd/helpers.ts) for the derivation. */
+  spellcasting?: CatalogSpellcastingBlock | null;
+  /** TAV-WIZARD-HOMEBREW-CASTERS — the class's choose-N feature menus, RAW
+   *  off `data.feature_choices` (a LIST — real homebrew classes carry
+   *  several parallel menus; the wizard only ever reads the FIRST, mirroring
+   *  `rules_catalog.class_feature_choice`'s own "first menu" contract).
+   *  Absent/empty for a class with no such menu (every SRD class except
+   *  warlock, whose level-1 `known` is 0 anyway). */
+  feature_choices?: CatalogFeatureChoiceBlock[];
+}
+
+/** TAV-WIZARD-HOMEBREW-CASTERS — one class row's `data.spellcasting` block,
+ *  read RAW (not the engine's resolved `SpellcastingProfile` — this is the
+ *  authored content shape `scripts/import_srd.py::build_classes` writes and
+ *  `engine/rules_catalog.py::_spellcasting_profile_from_row` reads back).
+ *  `progression` is a NAMED curve ("full"/"half"/"third"/"pact") — a
+ *  "half"/"third" class (paladin/ranger; Eldritch Knight/Arcane Trickster)
+ *  has an EMPTY level-1 slot table (`engine/progressions.py`:
+ *  HALF_CASTER[1] === {}), so it is not a creation-time caster even though
+ *  the block is present — see `casterKindFromSpellcasting`'s progression
+ *  gate. */
+export interface CatalogSpellcastingBlock {
+  ability?: string | null;
+  progression?: string | null;
+  /** "slots" | "points" | null — a per-class HB-P2 override; null means
+   *  "follow the campaign setting", which resolves to "slots" at creation
+   *  (no campaign is bound yet — `engine/spells_dispatch.py::
+   *  resolve_casting_model`'s own default). */
+  casting_model?: 'slots' | 'points' | null;
+  /** What the class calls its points pool ("Chakra", "Magic Power", "Ki") —
+   *  display-only, meaningful only when `casting_model === 'points'`. */
+  points_label?: string | null;
+  is_prepared_caster?: boolean;
+  prepares_from_spellbook?: boolean;
+  pact_magic?: boolean;
+  slot_refresh?: string;
+  cantrips_known?: Record<string, number>;
+  spells_known?: Record<string, number> | null;
+  prepared_formula?: string | null;
+}
+
+/** TAV-WIZARD-HOMEBREW-CASTERS — one entry of a class row's `data.
+ *  feature_choices` list (engine's `_feature_choices_block` /
+ *  `class_feature_choices`). `known` is keyed by character level (string,
+ *  since it rides on jsonb) — `known["1"]` is the level-1 rung-menu pick
+ *  count the creation wizard gates its Rung step on. `options` (when
+ *  present) rides the FULL unfiltered menu, including archetype-tagged
+ *  entries — the wizard filters client-side by `option.subclass` once an
+ *  archetype is chosen (§3 of the design). `freeform` mirrors Leon's
+ *  2026-08-23 ruling (`engine/feature_picks.py`) — absent/false means the
+ *  menu is level-up-only (no client-side apply attempted at creation). */
+export interface CatalogFeatureChoiceBlock {
+  label: string;
+  known?: Record<string, number>;
+  freeform?: boolean;
+  option_prefix?: string;
+  options?: FeatureChoiceOption[];
 }
 
 /** Mechanical data shape for a background catalog item. */
@@ -1251,6 +1394,17 @@ export interface CatalogMonsterAction {
   is_legendary?: boolean;
 }
 
+/**
+ * TAV-CODEX-SOURCE-PICKER-NPC — owner/admin-only sub-object. Present ONLY
+ * when the viewer owns the pack (or is an admin) — its ABSENCE is the
+ * signal, never render an empty DM-only block. Keys are open-ended by
+ * design: the engine sends the complement of the NPC wire allowlist (or,
+ * for monsters, a small fixed blocklist — see CatalogMonsterData.dm_only).
+ * Never persisted client-side beyond the component's mount (no
+ * localStorage/sessionStorage) — see useCodexCatalog.ts.
+ */
+export type DmOnly = Record<string, unknown>;
+
 /** Mechanical data shape for a monster catalog item — the full stat block (DDX-21). */
 export interface CatalogMonsterData {
   size?: string;
@@ -1270,6 +1424,88 @@ export interface CatalogMonsterData {
   damage_resistances?: string[];
   damage_immunities?: string[];
   condition_immunities?: string[];
+  /** TAV-CODEX-SOURCE-PICKER-NPC — owner/admin only: `tactics` + `hidden_truth`.
+   *  Absent for every other reader — the codex's Monster tab shows full
+   *  mechanics to everyone (Monster-Manual posture), this is the one gated bit. */
+  dm_only?: DmOnly;
+}
+
+/**
+ * Mechanical data shape for an NPC catalog item — `data` for content_type ===
+ * 'npc' (TAV-CODEX-SOURCE-PICKER-NPC). Field list is the engine's
+ * `_NPC_WIRE_FIELDS` narrator-projection allowlist (everyone gets these);
+ * `dm_only` is the owner/admin-only complement — see DmOnly's doc comment.
+ * `stat_ref` is NOT resolved server-side (no `resolve` param, no
+ * `stat_block` wire field, ~49% dangle) — the codex resolves it client-side
+ * by joining against the cached monster page for the same source, keyed by
+ * `stat_ref.split(':')[2]` (the slug). `summary_for_grounding` is
+ * narrator-internal — never rendered.
+ */
+export interface CatalogNpcData {
+  name: string;
+  role?: string;
+  motivation?: string;
+  key_lines?: string[];
+  appearance?: string;
+  location?: string;
+  stat_ref?: string;
+  lineage?: string;
+  height_ft?: string;
+  aliases?: string[];
+  summary_for_grounding?: string;
+  aura_signature?: string;
+  form_state?: string;
+  power_tier_cue?: string;
+  affiliation?: string;
+  rank_cue?: string;
+  dm_only?: DmOnly;
+}
+
+/**
+ * Mechanical data shape for a feat catalog item — `data` for content_type
+ * === 'feat' (TAV-CODEX-SOURCE-PICKER-NPC, D6). `[PROVISIONAL]` per Aoi-UI
+ * §4 — the brief gave no field list; feats flow through the engine's
+ * generic, unprojected `list_catalog` path (FR-7), so these are the fields
+ * the codex's minimal Feat renderer currently reads, not an engine-pinned
+ * contract.
+ */
+export interface CatalogFeatData {
+  prerequisite?: string;
+  ability_score_increase?: string;
+  description?: string;
+}
+
+/**
+ * Mechanical data shape for a subclass catalog item — `data` for
+ * content_type === 'subclass' (TAV-CODEX-SOURCE-PICKER-NPC, D6).
+ * `[PROVISIONAL]` per Aoi-UI §4, same caveat as CatalogFeatData above.
+ */
+export interface CatalogSubclassData {
+  parent_class?: string;
+  /** TAV-WIZARD-HOMEBREW-CASTERS — the ACTUAL wire field the engine emits.
+   *  For SRD rows (`scripts/import_srd.py`'s `_lc(s, "class", "name")`)
+   *  this is a lowercased class NAME, not a slug — harmless for SRD since
+   *  every class name is one word and slugifies to its own slug anyway.
+   *  TAV-FT-SUBCLASS-SLUG-PREFIX (2026-09-07): homebrew packs are hand-
+   *  authored with the class's real SLUG here instead (verified in
+   *  NekoNova-DnDEngine `scripts/seed_data/leon-fairytail-5e/20-subclasses-
+   *  *.json`, e.g. `"class": "ft-caster"`) — a prefixed slug `slugifyName`
+   *  cannot derive from the display name ("Caster (Fairy Tail)"), which is
+   *  why every filter reading this field must compare against the class's
+   *  own slug, not its name (see `subclassesForClass`'s doc comment).
+   *  `parent_class` above has no live producer verified in this repo; kept
+   *  as-is for CodexDetail's existing display read, not removed here. */
+  class?: string;
+  /** R62/TAV-SUBCLASS-LEVEL-OVERRIDE — this ROW's own archetype-pick level
+   *  override (e.g. Re:Zero's archetypes declare `1`). Absent means "no
+   *  override — use the owning class's plain `subclass_level`", per
+   *  `rules_catalog.class_effective_subclass_level_for_wire`'s own
+   *  per-row fallback; see `subclassOwnLevel` (lib/dnd/catalog.ts) for the
+   *  one shared derivation both the creation wizard and LevelChoicePicker
+   *  read this through. */
+  subclass_level?: number;
+  features?: string[];
+  description?: string;
 }
 
 /** Mechanical data shape for an item (equipment) catalog item (DDX-21).
@@ -1304,6 +1540,9 @@ export type CatalogItemData =
   | CatalogMonsterData
   | CatalogEquipmentData
   | CatalogConditionData
+  | CatalogNpcData
+  | CatalogFeatData
+  | CatalogSubclassData
   | Record<string, unknown>;
 
 export interface CatalogItem {
@@ -1331,6 +1570,29 @@ export interface CatalogResponse {
 export interface CatalogCounts {
   counts: Record<string, number>;
   content_type: null;
+}
+
+// ── DnD: catalog packs (TAV-CODEX-SOURCE-PICKER-NPC, GET /catalog/packs) ─────
+//
+// RLS-filtered — the engine only ever returns packs the calling actor can see
+// (public srd/nekonova always; homebrew only for the owner or an admin;
+// entitled per the existing entitlement guard). `owner_username` is
+// deliberately NOT on the wire (SEC-6) — `is_owner` is the only ownership
+// signal a client ever receives.
+
+export interface ContentPack {
+  pack_id: string;
+  display_name: string;
+  precedence: number;
+  system_id: string;
+  kind: 'srd' | 'nekonova' | 'homebrew' | 'licensed';
+  visibility: 'public' | 'unlisted' | 'private' | 'entitled';
+  is_owner: boolean;
+}
+
+export interface PacksResponse {
+  system: string;
+  packs: ContentPack[];
 }
 
 // ── DnD: systems (S2.4 — GET /api/dnd/systems) ───────────────────────────────
