@@ -37,6 +37,8 @@ import {
   itemCostLabel,
   itemDescription,
   itemWeightLabel,
+  PHYSIQUE_SKIN_KIND_DEFAULT_LABEL,
+  physiqueHairLabel,
   raceSpeedLabel,
   sourceBadge,
   spellComponentsLabel,
@@ -292,6 +294,25 @@ function ConditionDetail({ d }: { d: CatalogConditionData }) {
 // ── NPC detail (TAV-CODEX-SOURCE-PICKER-NPC, D4/FR-17/FR-18) ────────────────
 
 function NpcDetail({ d, monster }: { d: CatalogNpcData; monster: CatalogItem | undefined }) {
+  // PHYSIQUE-000 (Aoi-UI §1): every physique atom is independently optional —
+  // each cell below is only added when its own atom is present, in the exact
+  // order Aoi's spec lists (Height/Lineage unchanged, then Build/Hair/Eyes/
+  // Skin). `weight_kg`/`measurements` never appear here (Kuro-Sec F3,
+  // owner-only) — they're rendered by dmOnlyFields() inside the DM-only
+  // block below instead.
+  const physique = d.physique;
+  const hairLabel = physique ? physiqueHairLabel(physique) : '';
+  const hasAppearanceContent = Boolean(
+    d.height_ft ||
+      d.lineage ||
+      d.appearance ||
+      physique?.build ||
+      hairLabel ||
+      physique?.eye_color ||
+      physique?.skin ||
+      physique?.outfit ||
+      physique?.tell,
+  );
   return (
     <>
       {d.aliases && d.aliases.length > 0 && (
@@ -309,15 +330,50 @@ function NpcDetail({ d, monster }: { d: CatalogNpcData; monster: CatalogItem | u
           {d.motivation && <p>{d.motivation}</p>}
         </Section>
       )}
-      {(d.height_ft || d.lineage || d.appearance) && (
+      {hasAppearanceContent && (
         <Section label="Appearance">
           <StatsGrid
             stats={[
               ...(d.height_ft ? [{ k: 'Height', v: d.height_ft }] : []),
               ...(d.lineage ? [{ k: 'Lineage', v: d.lineage }] : []),
+              ...(physique?.build ? [{ k: 'Build', v: physique.build }] : []),
+              ...(hairLabel ? [{ k: 'Hair', v: hairLabel }] : []),
+              ...(physique?.eye_color ? [{ k: 'Eyes', v: physique.eye_color }] : []),
+              // The muted Pill suffix is omitted for the skin_kind default
+              // (Aoi-UI §1) — never a hardcoded per-species branch, purely
+              // "is skin_kind the default value or not".
+              ...(physique?.skin
+                ? [
+                    {
+                      k: 'Skin',
+                      v:
+                        physique.skin_kind &&
+                        physique.skin_kind !== PHYSIQUE_SKIN_KIND_DEFAULT_LABEL ? (
+                          <>
+                            {physique.skin} <Pill tone="muted">{physique.skin_kind}</Pill>
+                          </>
+                        ) : (
+                          physique.skin
+                        ),
+                    },
+                  ]
+                : []),
             ]}
           />
           {d.appearance && <p>{d.appearance}</p>}
+          {physique?.outfit && <p>{physique.outfit}</p>}
+          {physique?.tell && <p>{physique.tell}</p>}
+        </Section>
+      )}
+      {physique?.marks && physique.marks.length > 0 && (
+        <Section label="Marks">
+          <div className={styles.tagList}>
+            {physique.marks.map((m) => (
+              <Pill key={m} tone="muted">
+                {m}
+              </Pill>
+            ))}
+          </div>
         </Section>
       )}
       {(d.aura_signature || d.form_state || d.power_tier_cue) && (

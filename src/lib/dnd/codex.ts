@@ -14,6 +14,7 @@ import type {
   CatalogItem,
   CatalogMonsterAction,
   CatalogMonsterData,
+  CatalogPhysique,
   CatalogSpellData,
   ContentPack,
 } from '@/lib/api/types';
@@ -204,6 +205,29 @@ export function monsterSensesLabel(d: CatalogMonsterData): string {
     .map(([k, v]) => `${k.replace(/_/g, ' ')} ${v}`);
   return parts.length ? parts.join(', ') : '—';
 }
+
+/**
+ * PHYSIQUE-000 (Aoi-UI §1) — combines `physique.hair_style` + `hair_color`
+ * into the single "Hair" grid row her spec calls for, e.g. "short, spiky in
+ * every direction; bright sun-blond". Either atom alone renders on its own
+ * (no dangling "; "); both absent returns '' so the caller can omit the cell
+ * entirely (the pattern every other cell here uses — no atom, no cell).
+ */
+export function physiqueHairLabel(p: CatalogPhysique): string {
+  return [p.hair_style, p.hair_color].filter((v): v is string => Boolean(v)).join('; ');
+}
+
+/**
+ * PHYSIQUE-000 (Kage-CR review, 2026-09-13) — "skin" is the free-text
+ * `skin_kind` atom's "nothing special" convention value, declared once for
+ * documentation at `NekoNova-DnDEngine/engine/data/physique_policy.json`'s
+ * `skin_kind_default` key. This repo cannot import that JSON file directly
+ * (a separate service, reached only over HTTP), so this is a named,
+ * grep-able copy of the same convention rather than the bare inline literal
+ * `CodexDetail.tsx` used to carry — `core/dm_narrator.py` in ProjectNekoNova
+ * holds the third copy under the equivalent name.
+ */
+export const PHYSIQUE_SKIN_KIND_DEFAULT_LABEL = 'skin';
 
 export function monsterCrLabel(cr: number | string | undefined): string {
   if (cr === undefined || cr === null) return '—';

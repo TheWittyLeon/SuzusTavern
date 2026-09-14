@@ -12,6 +12,7 @@ import type {
   CatalogItem,
   CatalogMonsterAction,
   CatalogMonsterData,
+  CatalogPhysique,
   CatalogSpellData,
 } from '../../lib/api/types';
 import {
@@ -26,12 +27,34 @@ import {
   monsterCrLabel,
   monsterSensesLabel,
   monsterSpeedLabel,
+  physiqueHairLabel,
   raceSpeedLabel,
   sourceBadge,
   spellComponentsLabel,
   spellLevelLabel,
   toneVar,
 } from '../../lib/dnd/codex';
+
+// ── physiqueHairLabel (PHYSIQUE-000, Aoi-UI §1) ─────────────────────────────
+
+describe('physiqueHairLabel', () => {
+  it('combines hair_style + hair_color with "; " when both are present', () => {
+    const p: CatalogPhysique = { hair_style: 'short, spiky in every direction', hair_color: 'bright sun-blond' };
+    expect(physiqueHairLabel(p)).toBe('short, spiky in every direction; bright sun-blond');
+  });
+
+  it('renders hair_style alone with no dangling separator', () => {
+    expect(physiqueHairLabel({ hair_style: 'a long braid' })).toBe('a long braid');
+  });
+
+  it('renders hair_color alone with no dangling separator', () => {
+    expect(physiqueHairLabel({ hair_color: 'silver' })).toBe('silver');
+  });
+
+  it('returns empty string when neither atom is present, so the caller omits the cell', () => {
+    expect(physiqueHairLabel({})).toBe('');
+  });
+});
 
 // ── monsterCrLabel ────────────────────────────────────────────────────────────
 
