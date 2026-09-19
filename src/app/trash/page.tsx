@@ -219,12 +219,16 @@ export default function TrashPage() {
   // LeaveCampaignButton's `inFlightRef` and `charInFlightRef` just above —
   // added explicitly per the B2 handoff's double-submit requirement.
   const sessionInFlightRef = useRef(false);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    // Re-arm on (re)mount — StrictMode's dev-only mount→unmount→remount
+    // otherwise leaves this `false` forever after the first cleanup runs,
+    // silently dropping every `setState` gated on it (UIA-0919-003, same
+    // shape as the lobby page's fix).
+    mountedRef.current = true;
+    return () => {
       mountedRef.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
 
   const load = useCallback(
     async (signal?: AbortSignal) => {

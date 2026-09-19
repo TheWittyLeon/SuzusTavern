@@ -180,12 +180,15 @@ export default function LobbyPage() {
 
   const username = user?.username ?? null;
   const mountedRef = useRef(true);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    // Re-arm on (re)mount — StrictMode's dev-only mount→unmount→remount
+    // otherwise leaves this `false` forever after the first cleanup runs,
+    // silently dropping every `setState` gated on it (UIA-0919-003).
+    mountedRef.current = true;
+    return () => {
       mountedRef.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
 
   // Fetch the current user's characters so the join picker can auto-bind.
   useEffect(() => {
