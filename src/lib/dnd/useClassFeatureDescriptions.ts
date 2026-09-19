@@ -17,17 +17,19 @@
 // (`getCatalog(SYSTEM, { type: 'class' })`) — no new API surface, just a
 // second reader of the same response shape.
 //
-// UIA-0919-001: `CatalogClassData.features` (lib/api/types.ts) is the
-// canonical type for this same row shape — reused here instead of a second,
-// narrower local declaration (a bare string entry is possible on the wire
-// too, per that field's own doc comment; skipped below same as a malformed
-// object entry, never rendered as "[object Object]").
+// UIA-0919-001 (Kage-CR follow-up): reuses `normalizeFeatureEntries`
+// (lib/dnd/codex.ts) — the SAME normalizer CodexDetail.tsx's readers of this
+// field family go through — instead of a second, narrower ad hoc parser.
+// The boundary input (`data`, the raw catalog row) is `unknown` all the way
+// down to the normalizer; this file never casts it to the trusted
+// `CatalogFeatureEntry` shape, since that is exactly the wire-vs-type
+// mismatch UIA-0919-001 exists to guard against.
 
 'use client';
 
 import { useEffect, useState } from 'react';
 import { getCatalog } from '@/lib/api/dnd';
-import type { CatalogFeatureEntry } from '@/lib/api/types';
+import { normalizeFeatureEntries } from '@/lib/dnd/codex';
 
 const SYSTEM = 'dnd5e';
 
@@ -39,16 +41,14 @@ export type ClassFeatureDescriptionsStatus = 'idle' | 'loading' | 'ok' | 'error'
 function descriptionsFromCatalogData(data: unknown): ClassFeatureDescriptions {
   const rows = (data as { features?: unknown } | null | undefined)?.features;
   const out: ClassFeatureDescriptions = {};
-  if (!Array.isArray(rows)) return out;
-  for (const row of rows as (string | CatalogFeatureEntry)[]) {
-    if (typeof row === 'string') continue; // bare-string entries carry no description to index.
-    const name = typeof row?.name === 'string' ? row.name : null;
-    const description = typeof row?.description === 'string' ? row.description : '';
+  for (const entry of normalizeFeatureEntries(rows)) {
     // First occurrence wins — a name repeated across levels (e.g. Ability
     // Score Improvement) carries identical text at every level in practice;
     // if a future row ever disagreed, the earliest (lowest-level) text is
-    // the more conservative choice to surface.
-    if (name && description && !(name in out)) out[name] = description;
+    // the more conservative choice to surface. A bare-string entry (no
+    // `description`) simply has nothing to index — normalizeFeatureEntries
+    // already excludes it from contributing here.
+    if (entry.description && !(entry.name in out)) out[entry.name] = entry.description;
   }
   return out;
 }

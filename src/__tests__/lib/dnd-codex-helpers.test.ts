@@ -9,7 +9,6 @@
  */
 import type {
   CatalogEquipmentData,
-  CatalogFeatureEntry,
   CatalogItem,
   CatalogMonsterAction,
   CatalogMonsterData,
@@ -19,6 +18,7 @@ import type {
 import {
   CODEX_KINDS,
   conditionHasData,
+  featureEntryLabel,
   itemCostLabel,
   itemDescription,
   itemWeightLabel,
@@ -136,77 +136,135 @@ describe('raceSpeedLabel', () => {
   });
 });
 
-// ── normalizeFeatureEntries — UIA-0919-001 crash-fix guard ───────────────────
+// ── normalizeFeatureEntries / featureEntryLabel — UIA-0919-001 crash-fix guard ─
 //
 // A homebrew subclass/class/race row's feature/trait list may carry bare
-// display strings (SRD convention) or structured `{level, name, description}`
-// objects (homebrew convention) — see CatalogFeatureEntry's doc comment in
-// lib/api/types.ts. SubclassDetail used to map the raw array straight onto
-// `<Pill key={f}>{f}</Pill>`, which crashed React on the object shape
-// ("Objects are not valid as a React child") and produced duplicate
-// `[object Object]` keys even before the crash. This is the one shared
-// normalizer every reader of that field family goes through instead.
+// display strings or structured `{level, name, description}` objects — see
+// CatalogFeatureEntry's doc comment in lib/api/types.ts for exactly which
+// fields are write-time enforced to one shape vs. wide open. SubclassDetail
+// used to map the raw array straight onto `<Pill key={f}>{f}</Pill>`, which
+// crashed React on the object shape ("Objects are not valid as a React
+// child") and produced duplicate `[object Object]` keys even before the
+// crash. normalizeFeatureEntries is TOTAL over `unknown` (Kage-CR, UIA-0919-
+// 001 QA gate, two follow-up passes): a non-array FIELD (`features: "Wind
+// Palm"`, `features: {...}`) returns `[]` instead of throwing at
+// `entries.forEach`, and a malformed ELEMENT (null, a number, an
+// object with no usable name, an object-valued level/description) is
+// skipped rather than read. Cleaning (this function) and labelling
+// (`featureEntryLabel`) are separate.
 
 describe('normalizeFeatureEntries', () => {
-  it('returns [] for undefined and for an empty array', () => {
+  it('returns [] for a non-array field: undefined, null, an empty array, a bare string, or a bare object', () => {
     expect(normalizeFeatureEntries(undefined)).toEqual([]);
+    expect(normalizeFeatureEntries(null)).toEqual([]);
     expect(normalizeFeatureEntries([])).toEqual([]);
+    // Kage-CR jsdom probe: `features: "Wind Palm"` — a whole field authored
+    // as a bare string instead of an array — used to throw at
+    // `entries.forEach` (strings have no `.forEach`).
+    expect(() => normalizeFeatureEntries('Wind Palm')).not.toThrow();
+    expect(normalizeFeatureEntries('Wind Palm')).toEqual([]);
+    // Kage-CR jsdom probe: `features: {...}` — a whole field authored as a
+    // bare object — used to throw the same way (plain objects have no
+    // `.forEach` either).
+    expect(() => normalizeFeatureEntries({ name: 'Wind Palm' })).not.toThrow();
+    expect(normalizeFeatureEntries({ name: 'Wind Palm' })).toEqual([]);
   });
 
-  it('passes bare strings through as the label, with no description', () => {
+  it('passes bare strings through as the name, with no level or description', () => {
     const result = normalizeFeatureEntries(['Evocation Savant', 'Sculpt Spells']);
     expect(result).toEqual([
-      { key: '0-Evocation Savant', label: 'Evocation Savant' },
-      { key: '1-Sculpt Spells', label: 'Sculpt Spells' },
+      { key: '0-Evocation Savant', name: 'Evocation Savant' },
+      { key: '1-Sculpt Spells', name: 'Sculpt Spells' },
     ]);
   });
 
-  it('formats a structured entry as "Lv N · Name" and carries the description', () => {
-    const entry: CatalogFeatureEntry = {
+  it('trims a bare string, and skips it entirely if it is blank/whitespace-only', () => {
+    const result = normalizeFeatureEntries(['  Padded Name  ', '   ', '']);
+    expect(result).toEqual([{ key: '0-Padded Name', name: 'Padded Name' }]);
+  });
+
+  it('keeps a structured entry’s level and description, trimming the name', () => {
+    const entry = {
       level: 1,
-      name: 'Wind Palm (Airspace Signature)',
+      name: '  Wind Palm (Airspace Signature)  ',
       description: 'Your Magic’s signature — free, at-will.',
     };
     expect(normalizeFeatureEntries([entry])).toEqual([
       {
         key: '0-Wind Palm (Airspace Signature)',
-        label: 'Lv 1 · Wind Palm (Airspace Signature)',
+        name: 'Wind Palm (Airspace Signature)',
+        level: 1,
         description: entry.description,
       },
     ]);
   });
 
-  it('renders the bare name (no "Lv" prefix) when level is absent from a structured entry', () => {
-    const entry: CatalogFeatureEntry = { name: 'Turncoat’s Nerve', description: 'Advantage on saves.' };
-    expect(normalizeFeatureEntries([entry])[0].label).toBe('Turncoat’s Nerve');
+  it('omits level and description entirely (not null/NaN) when either is absent', () => {
+    const result = normalizeFeatureEntries([{ name: 'Turncoat’s Nerve' }]);
+    expect(result).toEqual([{ key: '0-Turncoat’s Nerve', name: 'Turncoat’s Nerve' }]);
+    expect('level' in result[0]).toBe(false);
+    expect('description' in result[0]).toBe(false);
+  });
+
+  it('accepts a numeric-STRING level ("3") and parses it to a number', () => {
+    const result = normalizeFeatureEntries([{ name: 'Rung II', level: '3' }]);
+    expect(result[0].level).toBe(3);
+    expect(typeof result[0].level).toBe('number');
+  });
+
+  // Kage-CR BLOCKING #1: an object-valued `level` used to render literally
+  // as "Lv [object Object]" (a plain template literal has no type check).
+  // An object-valued `description`, a non-finite level (NaN/Infinity), and
+  // a non-numeric string level are the same family of "not actually a
+  // usable value" wire garbage — every one must be OMITTED, not stringified.
+  it('omits level entirely when it is an object, NaN, Infinity, or a non-numeric string — never stringifies it', () => {
+    for (const badLevel of [{ nested: true }, NaN, Infinity, -Infinity, 'not-a-number', [], true]) {
+      const result = normalizeFeatureEntries([{ name: 'Foo', level: badLevel as unknown }]);
+      expect(result).toEqual([{ key: '0-Foo', name: 'Foo' }]);
+    }
+  });
+
+  it('omits description entirely when it is not a string (never renders `title="[object Object]"`)', () => {
+    const result = normalizeFeatureEntries([{ name: 'Foo', description: { nested: true } as unknown }]);
+    expect(result).toEqual([{ key: '0-Foo', name: 'Foo' }]);
+  });
+
+  it('treats a blank/whitespace-only description the same as absent', () => {
+    const result = normalizeFeatureEntries([{ name: 'Foo', description: '   ' }]);
+    expect('description' in result[0]).toBe(false);
   });
 
   it('never throws on a mixed array of strings and objects, and produces stable, unique keys even when a name repeats across levels', () => {
-    const asi: CatalogFeatureEntry = { level: 4, name: 'Ability Score Improvement' };
-    const asiAgain: CatalogFeatureEntry = { level: 8, name: 'Ability Score Improvement' };
+    const asi = { level: 4, name: 'Ability Score Improvement' };
+    const asiAgain = { level: 8, name: 'Ability Score Improvement' };
     let result: ReturnType<typeof normalizeFeatureEntries> = [];
     expect(() => {
       result = normalizeFeatureEntries(['Magic', asi, asiAgain]);
     }).not.toThrow();
     const keys = result.map((r) => r.key);
     expect(new Set(keys).size).toBe(keys.length);
-    expect(result[1].label).toBe('Lv 4 · Ability Score Improvement');
-    expect(result[2].label).toBe('Lv 8 · Ability Score Improvement');
+    expect(featureEntryLabel(result[1])).toBe('Level 4 · Ability Score Improvement');
+    expect(featureEntryLabel(result[2])).toBe('Level 8 · Ability Score Improvement');
   });
 
-  it('never returns an object as `label` or `description` — every field is a string or undefined', () => {
+  it('never returns an object as `name` or `description` — every field is a string, a finite number, or absent (Kage-CR BLOCKING #1 fixture: an object-valued level AND an object-valued description on the same entry)', () => {
     const entries = normalizeFeatureEntries([
       'bare',
       { name: 'structured', level: 3, description: 'text' },
+      { name: 'garbage-fields', level: { nested: true }, description: { nested: true } },
     ]);
     for (const e of entries) {
-      expect(typeof e.label).toBe('string');
+      expect(typeof e.name).toBe('string');
+      expect(e.level === undefined || (typeof e.level === 'number' && Number.isFinite(e.level))).toBe(true);
       expect(e.description === undefined || typeof e.description === 'string').toBe(true);
     }
+    // The garbage-fields entry survives (it has a usable name) but with
+    // both bad fields dropped rather than stringified.
+    expect(entries).toContainEqual({ key: '2-garbage-fields', name: 'garbage-fields' });
   });
 
   it('Miko-QA: treats a literal `null` field value (not just `undefined`/omitted) the same as an empty list — jsonb APIs commonly send explicit null rather than omitting a key', () => {
-    expect(normalizeFeatureEntries(null as unknown as undefined)).toEqual([]);
+    expect(normalizeFeatureEntries(null)).toEqual([]);
   });
 
   // Miko-QA DEFECT, fixed (Ren-Dev, UIA-0919-001 follow-up): a `null` (or
@@ -218,24 +276,35 @@ describe('normalizeFeatureEntries', () => {
   // (reading 'level')`, because `typeof null === 'object'` sent it down the
   // "structured entry" branch instead of the string branch. Same bug class
   // UIA-0919-001 closed at the field level, one level deeper (array
-  // element). Was `test.failing` (Miko-QA); now a normal passing `it` now
-  // that `normalizeFeatureEntries` skips any element that is neither a
-  // non-empty string nor an object with a usable string `name`. See the
-  // render-level repro in codex-detail-minimal.test.tsx for the user-facing
-  // symptom (a homebrew SubclassDetail crashing exactly like the original
-  // bug report).
-  it('a null/undefined ELEMENT inside the array is skipped, not thrown on — the surviving entries still render', () => {
+  // element).
+  it('a null/undefined/number/no-name-object ELEMENT inside the array is skipped, not thrown on — the surviving entries still render', () => {
     let result: ReturnType<typeof normalizeFeatureEntries> = [];
     expect(() => {
       result = normalizeFeatureEntries([
         'Fighting Style',
-        null as unknown as string,
-        undefined as unknown as string,
-        42 as unknown as string,
-        { level: 2, description: 'no name' } as unknown as CatalogFeatureEntry,
+        null,
+        undefined,
+        42,
+        { level: 2, description: 'no name' },
+        [1, 2, 3],
       ]);
     }).not.toThrow();
-    expect(result).toEqual([{ key: '0-Fighting Style', label: 'Fighting Style' }]);
+    expect(result).toEqual([{ key: '0-Fighting Style', name: 'Fighting Style' }]);
+  });
+});
+
+// ── featureEntryLabel — Kage-CR a11y finding ──────────────────────────────────
+//
+// "Level 3", never the abbreviation "Lv 3" — a screen reader spells an
+// unfamiliar abbreviation letter-by-letter ("L V three").
+
+describe('featureEntryLabel', () => {
+  it('renders "Level N · Name" (the word "Level", not "Lv") when a level is present', () => {
+    expect(featureEntryLabel({ key: 'k', name: 'Wind Palm', level: 3 })).toBe('Level 3 · Wind Palm');
+  });
+
+  it('renders the bare name when level is absent', () => {
+    expect(featureEntryLabel({ key: 'k', name: 'Turncoat’s Nerve' })).toBe('Turncoat’s Nerve');
   });
 });
 

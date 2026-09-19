@@ -11,7 +11,6 @@ import type {
   AdventureSummary,
   CatalogConditionData,
   CatalogEquipmentData,
-  CatalogFeatureEntry,
   CatalogItem,
   CatalogMonsterAction,
   CatalogMonsterData,
@@ -277,19 +276,17 @@ export function conditionHasData(d: CatalogConditionData): boolean {
 // ── Feature/trait entry normalization (UIA-0919-001) ─────────────────────────
 //
 // One authored feature/trait row can arrive on the wire as a bare display
-// string (the SRD-import convention) OR a structured `{level, name,
-// description}` object (the hand-authored homebrew convention) — see
-// `CatalogFeatureEntry`'s doc comment in lib/api/types.ts for the verified
-// wire evidence. `SubclassDetail` used to `.map((f) => <Pill key={f}>{f}</Pill>)`
-// straight off the raw array, which both threw ("Objects are not valid as a
-// React child") on the object shape AND produced ten identical
-// `[object Object]` React keys even before the crash. Every reader of this
-// field family (subclass/class features, race traits, race subrace traits)
-// goes through this ONE normalizer rather than re-deriving its own
-// string-vs-object guard per field — the mirror rule: one shape, one
-// converter, reused everywhere it appears, so the next field sharing this
-// convention (or the next homebrew pack using the richer shape) needs no
-// code change here.
+// string OR a structured `{level, name, description}` object — see
+// `CatalogFeatureEntry`'s doc comment in lib/api/types.ts for exactly which
+// of the three fields sharing this shape are write-time ENFORCED to one
+// shape or the other, and which are wide open. `SubclassDetail` used to
+// `.map((f) => <Pill key={f}>{f}</Pill>)` straight off the raw array, which
+// both threw ("Objects are not valid as a React child") on the object shape
+// AND produced ten identical `[object Object]` React keys even before the
+// crash. Every reader of this field family (subclass/class features, race
+// traits, race subrace traits, `useClassFeatureDescriptions.ts`'s sheet
+// annotator) goes through this ONE normalizer rather than re-deriving its
+// own string-vs-object guard per field.
 
 export interface NormalizedFeatureEntry {
   /** Stable, unique React list key. Positional (not name-only) because a
@@ -298,48 +295,100 @@ export interface NormalizedFeatureEntry {
    *  keying on name alone would silently dedupe/collide exactly like the
    *  bug's raw `key={f}` did. */
   key: string;
-  /** "Lv 3 · Feature name" when a level is present, else the bare name. */
-  label: string;
-  /** Rules text, when present — callers may surface it as a title tooltip
-   *  or an expandable; never the ONLY copy of the fact (this is supplementary
-   *  detail, not load-bearing content). */
+  /** Cleaned display name — trimmed, always non-empty (an entry that
+   *  resolves to an empty name is skipped by the normalizer entirely). */
+  name: string;
+  /** Only ever a finite number here — see `normalizeFeatureEntries`'s
+   *  numeric-string tolerance. */
+  level?: number;
+  /** Rules text, when present. Callers with a `description` render it as
+   *  VISIBLE text (Kage-CR a11y finding: `title` on a non-focusable span
+   *  reaches mouse-hover users only, and for a homebrew subclass this is
+   *  the ONLY copy of the rules text) — never the sole carrier behind a
+   *  hover-only affordance. */
   description?: string;
 }
 
+/** "Level 3 · Feature name" when a level is present, else the bare name.
+ *  Cleaning (this function's input shape) and labelling (this function) are
+ *  deliberately separate: every caller builds its own display text off the
+ *  same clean `{name, level?, description?}` instead of each re-deriving a
+ *  format string. Spells out "Level", never abbreviates to "Lv" — a screen
+ *  reader spells an unfamiliar abbreviation letter-by-letter ("L V three"),
+ *  per Kage-CR's a11y finding. */
+export function featureEntryLabel(entry: NormalizedFeatureEntry): string {
+  return entry.level != null ? `Level ${entry.level} · ${entry.name}` : entry.name;
+}
+
+/** Accepts a finite `number`, or a string that parses to one (`"3"` — a
+ *  jsonb author quoting a number is a plausible mistake, not a shape this
+ *  normalizer should crash or render garbage on) — everything else
+ *  (an object, an array, `NaN`/`Infinity`, a non-numeric string, `null`)
+ *  returns `undefined` so the entry renders with no level rather than
+ *  "Level [object Object]" or "Level NaN". */
+function parseFiniteLevel(raw: unknown): number | undefined {
+  if (typeof raw === 'number') return Number.isFinite(raw) ? raw : undefined;
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (trimmed.length === 0) return undefined;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
 /**
- * Normalizes a feature/trait list that may mix bare strings and structured
- * `CatalogFeatureEntry` objects into a uniform, safely-renderable shape.
- * `undefined`/empty input returns `[]` (matches every other list helper in
- * this file — callers gate the whole Section on `.length > 0`).
+ * Normalizes a feature/trait list into a uniform, safely-renderable shape —
+ * `{key, name, level?, description?}` per surviving entry.
+ * `featureEntryLabel()` builds display text off the result; this function's
+ * only job is turning an untrusted wire value into clean data.
  *
- * Total over whatever a hand-authored homebrew JSON file actually contains,
- * not just the declared element type: a stray `null`/`undefined` entry (a
- * plausible trailing-comma-fix or leftover placeholder in an array) is
- * skipped rather than crashing. `typeof null === 'object'` — checking
- * "not a string" is NOT the same as "safe to read `.name`/`.level` off it",
- * which is exactly how this normalizer's own first version still crashed one
- * level down from the field-level bug it was built to fix (Miko-QA,
- * UIA-0919-001 follow-up). The same "no usable name" skip also covers a
- * number, an array, or an object whose `name` is missing/not a string —
- * every shape that is neither a non-empty display string nor a genuine
- * `CatalogFeatureEntry`.
+ * TOTAL over `unknown`, not `(string | CatalogFeatureEntry)[] | undefined` —
+ * deliberately wider than the type most callers pass, because a
+ * hand-authored homebrew content row has no engine-side schema for most of
+ * the fields that carry this shape (see `CatalogSubclassData.features` /
+ * `CatalogRaceData.traits`'s own doc comments) and can arrive as ANYTHING:
+ * not just a bare string or a well-formed object, but a bare string or
+ * object at the FIELD level (`features: "Wind Palm"`, `features: {...}`,
+ * which used to throw at `entries.forEach` itself, before any element was
+ * even reached), or a stray `null`/`undefined`/number ELEMENT inside an
+ * otherwise-normal array, or an object-valued `level`/`description` on an
+ * otherwise-fine entry (which used to render literally as
+ * "Level [object Object]" / `title="[object Object]"` — Kage-CR, jsdom
+ * probe). Guards, in order: not an array -> `[]`; per element, a string is
+ * trimmed and kept unless empty; anything else must be a non-null,
+ * non-array object with a `name` that trims to a non-empty string, or it is
+ * skipped; `level` is kept only via `parseFiniteLevel`; `description` is
+ * kept only when it is a non-blank string. This is the SAME bug class
+ * UIA-0919-001 exists to close, generalized to every axis a hand-authored
+ * JSON value can go wrong on, not just the one shape a previous pass
+ * happened to catch (Kage-CR, UIA-0919-001 QA gate, two follow-up passes).
  */
-export function normalizeFeatureEntries(
-  entries: (string | CatalogFeatureEntry)[] | undefined,
-): NormalizedFeatureEntry[] {
-  if (!entries || entries.length === 0) return [];
+export function normalizeFeatureEntries(entries: unknown): NormalizedFeatureEntry[] {
+  if (!Array.isArray(entries)) return [];
   const out: NormalizedFeatureEntry[] = [];
   entries.forEach((entry, i) => {
     if (typeof entry === 'string') {
-      if (entry.length === 0) return;
-      out.push({ key: `${i}-${entry}`, label: entry });
+      const name = entry.trim();
+      if (name.length === 0) return;
+      out.push({ key: `${i}-${name}`, name });
       return;
     }
-    if (entry == null || typeof entry !== 'object' || typeof entry.name !== 'string' || entry.name.length === 0) {
-      return;
-    }
-    const label = entry.level != null ? `Lv ${entry.level} · ${entry.name}` : entry.name;
-    out.push({ key: `${i}-${entry.name}`, label, description: entry.description });
+    if (entry == null || typeof entry !== 'object' || Array.isArray(entry)) return;
+    const raw = entry as Record<string, unknown>;
+    const name = typeof raw.name === 'string' ? raw.name.trim() : '';
+    if (name.length === 0) return;
+    const level = parseFiniteLevel(raw.level);
+    const description =
+      typeof raw.description === 'string' && raw.description.trim().length > 0
+        ? raw.description
+        : undefined;
+    out.push({
+      key: `${i}-${name}`,
+      name,
+      ...(level !== undefined ? { level } : {}),
+      ...(description !== undefined ? { description } : {}),
+    });
   });
   return out;
 }

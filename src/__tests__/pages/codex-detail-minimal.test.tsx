@@ -132,9 +132,26 @@ describe('Subclass detail (minimal)', () => {
     expect(screen.getByText(/rung v\b/i)).toBeInTheDocument();
   });
 
-  it('UIA-0919-001: prefixes the level onto the label ("Lv 3 · ...") for a structured feature entry', () => {
+  it('UIA-0919-001: prefixes the level onto the name ("Level 3 · ...", never the abbreviation "Lv") for a structured feature entry', () => {
     render(<CodexDetail item={AIRSPACE_MAGIC} kind="subclass" />);
-    expect(screen.getByText(/^Lv 3 · Airspace Magic — Rung II$/)).toBeInTheDocument();
+    expect(screen.getByText(/^Level 3 · Airspace Magic — Rung II$/)).toBeInTheDocument();
+    expect(screen.queryByText(/Lv 3/)).not.toBeInTheDocument();
+  });
+
+  // Kage-CR a11y finding: `title` on a non-focusable span reaches mouse
+  // users only, and for a homebrew subclass the description is the ONLY
+  // copy of the rules text anywhere on the wire — it must render as visible
+  // text, not hide behind a hover-only attribute.
+  it('Kage-CR a11y: a feature’s description renders as VISIBLE text, not only inside a hover-only title attribute', () => {
+    const { container } = render(<CodexDetail item={AIRSPACE_MAGIC} kind="subclass" />);
+    // getByText only matches real DOM text content — a description that
+    // existed ONLY as `title="..."` would fail this assertion even though a
+    // mouse-hover tooltip would still show it, which is exactly the gap
+    // this finding closed.
+    expect(screen.getByText('Free, at-will.')).toBeInTheDocument();
+    expect(screen.getByText('Choose ONE (3 MP each).')).toBeInTheDocument();
+    // And no hover-only duplicate was left behind for any element.
+    expect(container.querySelectorAll('[title]')).toHaveLength(0);
   });
 
   it('UIA-0919-001: never renders the literal string "[object Object]" anywhere for an object-shaped feature list', () => {
@@ -184,6 +201,46 @@ describe('Subclass detail (minimal)', () => {
     ).not.toThrow();
     expect(screen.getByText(/wind palm \(airspace signature\)/i)).toBeInTheDocument();
   });
+
+  // Kage-CR BLOCKING #1 (jsdom probe): `features` authored as a bare STRING
+  // instead of an array — a hand-authored homebrew JSON typo, e.g. a
+  // trailing comma dropped turning `["Wind Palm"]` into `"Wind Palm"` — used
+  // to throw at `entries.forEach` (strings have no `.forEach`) before any
+  // element was even reached. The Section itself is simply omitted (an
+  // empty normalized list), same degrade as no `features` key at all.
+  it('UIA-0919-001 / Kage-CR: a subclass row with `features` authored as a bare STRING (not an array) does not crash the /codex route', () => {
+    const AIRSPACE_MAGIC_STRING_FEATURES: CatalogItem = {
+      ...AIRSPACE_MAGIC,
+      slug: 'airspace-magic-string-features',
+      data: {
+        ...(AIRSPACE_MAGIC.data as Record<string, unknown>),
+        features: 'Wind Palm',
+      },
+    };
+    expect(() =>
+      render(<CodexDetail item={AIRSPACE_MAGIC_STRING_FEATURES} kind="subclass" />),
+    ).not.toThrow();
+    expect(screen.queryByText(/no description recorded for this subclass/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/airspace magic \(erigor/i)).toBeInTheDocument();
+    expect(screen.queryByText('Features')).not.toBeInTheDocument();
+  });
+
+  // Kage-CR BLOCKING #1 (verbatim jsdom probe): `features: {…}` — the whole
+  // field authored as a bare object instead of an array.
+  it('UIA-0919-001 / Kage-CR: a subclass row with `features` authored as a bare OBJECT (not an array) does not crash the /codex route', () => {
+    const AIRSPACE_MAGIC_OBJECT_FEATURES: CatalogItem = {
+      ...AIRSPACE_MAGIC,
+      slug: 'airspace-magic-object-features',
+      data: {
+        ...(AIRSPACE_MAGIC.data as Record<string, unknown>),
+        features: { name: 'Wind Palm' },
+      },
+    };
+    expect(() =>
+      render(<CodexDetail item={AIRSPACE_MAGIC_OBJECT_FEATURES} kind="subclass" />),
+    ).not.toThrow();
+    expect(screen.queryByText('Features')).not.toBeInTheDocument();
+  });
 });
 
 describe('Class detail level1_features (UIA-0919-001 defensive widen)', () => {
@@ -208,7 +265,7 @@ describe('Class detail level1_features (UIA-0919-001 defensive widen)', () => {
     expect(screen.getByText('Second Wind')).toBeInTheDocument();
   });
 
-  it('does not throw and formats "Lv N · name" if a future homebrew class ever authors level1_features as structured objects', () => {
+  it('does not throw and formats "Level N · name" (visible description) if a future homebrew class ever authors level1_features as structured objects', () => {
     const HOMEBREW_CLASS: CatalogItem = {
       slug: 'ft-caster',
       name: 'Caster (Fairy Tail)',
@@ -220,7 +277,20 @@ describe('Class detail level1_features (UIA-0919-001 defensive widen)', () => {
       },
     };
     expect(() => render(<CodexDetail item={HOMEBREW_CLASS} kind="class" />)).not.toThrow();
-    expect(screen.getByText('Lv 1 · Magic')).toBeInTheDocument();
+    expect(screen.getByText('Level 1 · Magic')).toBeInTheDocument();
+    expect(screen.getByText('You commit to ONE Magic.')).toBeInTheDocument();
+  });
+
+  it('does not throw when the whole `level1_features` field is authored as a bare string (Kage-CR jsdom probe shape)', () => {
+    const MALFORMED_CLASS: CatalogItem = {
+      slug: 'malformed',
+      name: 'Malformed',
+      content_type: 'class',
+      source_type: 'homebrew',
+      data: { hit_die: 8, level1_features: 'Fighting Style' },
+    };
+    expect(() => render(<CodexDetail item={MALFORMED_CLASS} kind="class" />)).not.toThrow();
+    expect(screen.queryByText('Level 1 features')).not.toBeInTheDocument();
   });
 });
 
@@ -242,14 +312,15 @@ describe('Race detail traits (UIA-0919-001 defensive widen)', () => {
     },
   };
 
-  it('renders plain-string race traits and subrace traits unchanged', () => {
+  it('renders plain-string race traits and subrace traits unchanged (as Pills, no description to show)', () => {
     render(<CodexDetail item={HUMAN} kind="race" />);
     expect(screen.getByText('Versatile')).toBeInTheDocument();
     expect(screen.getByText('First Generation')).toBeInTheDocument();
-    expect(screen.getByText('Dragon-raised, Feast (+2 MP per meal)')).toBeInTheDocument();
+    expect(screen.getByText('Dragon-raised')).toBeInTheDocument();
+    expect(screen.getByText('Feast (+2 MP per meal)')).toBeInTheDocument();
   });
 
-  it('does not throw and formats structured entries if a future homebrew race authors traits as objects', () => {
+  it('does not throw and formats structured entries with a VISIBLE description if a future homebrew race authors traits as objects', () => {
     const HOMEBREW_RACE: CatalogItem = {
       slug: 'kekkei-genkai',
       name: 'Kekkei Genkai',
@@ -267,8 +338,53 @@ describe('Race detail traits (UIA-0919-001 defensive widen)', () => {
       },
     };
     expect(() => render(<CodexDetail item={HOMEBREW_RACE} kind="race" />)).not.toThrow();
-    expect(screen.getByText('Lv 15 · Bloodline Awakening')).toBeInTheDocument();
+    expect(screen.getByText('Level 15 · Bloodline Awakening')).toBeInTheDocument();
+    expect(screen.getByText('DM-gated.')).toBeInTheDocument();
     expect(screen.getByText('Sharingan')).toBeInTheDocument();
+    expect(screen.getByText('DM-tracked.')).toBeInTheDocument();
+  });
+
+  // Kage-CR BLOCKING #1 (verbatim jsdom probe): `traits: "Darkvision"` — the
+  // whole field authored as a bare string instead of an array.
+  it('does not throw when `traits` is authored as a bare STRING (Kage-CR jsdom probe: traits: "Darkvision")', () => {
+    const MALFORMED_RACE: CatalogItem = {
+      slug: 'malformed-string-traits',
+      name: 'Malformed String Traits',
+      content_type: 'race',
+      source_type: 'homebrew',
+      data: { ability_bonus: {}, traits: 'Darkvision' },
+    };
+    expect(() => render(<CodexDetail item={MALFORMED_RACE} kind="race" />)).not.toThrow();
+    expect(screen.queryByText('Traits')).not.toBeInTheDocument();
+  });
+
+  it('does not throw when `traits` is authored as a bare OBJECT (Kage-CR jsdom probe shape)', () => {
+    const MALFORMED_RACE: CatalogItem = {
+      slug: 'malformed-object-traits',
+      name: 'Malformed Object Traits',
+      content_type: 'race',
+      source_type: 'homebrew',
+      data: { ability_bonus: {}, traits: { name: 'Darkvision' } },
+    };
+    expect(() => render(<CodexDetail item={MALFORMED_RACE} kind="race" />)).not.toThrow();
+    expect(screen.queryByText('Traits')).not.toBeInTheDocument();
+  });
+
+  // Same probe, one level deeper: a SUBRACE's own `traits` field authored as
+  // a bare string — the nested loop calls the same normalizer per subrace.
+  it('does not throw when a SUBRACE’s own `traits` is authored as a bare STRING', () => {
+    const MALFORMED_SUBRACE: CatalogItem = {
+      slug: 'malformed-subrace-traits',
+      name: 'Malformed Subrace Traits',
+      content_type: 'race',
+      source_type: 'homebrew',
+      data: {
+        ability_bonus: {},
+        subraces: { Variant: { ability_bonus: {}, traits: 'Darkvision' } },
+      },
+    };
+    expect(() => render(<CodexDetail item={MALFORMED_SUBRACE} kind="race" />)).not.toThrow();
+    expect(screen.getByText('Variant')).toBeInTheDocument();
   });
 });
 

@@ -26,6 +26,7 @@ import type {
   CatalogClassData,
   CatalogBackgroundData,
   CatalogSubclassData,
+  CatalogSubraceData,
   FeatureChoiceOption,
 } from '@/lib/api/types';
 
@@ -268,11 +269,13 @@ export function catalogItemToRace(item: CatalogItem): WizardRace {
   const deco = RACE_DECORATION[item.slug] ?? { icon: 'Users' as IconName, sub: '' };
   const bonuses = (d.ability_bonus ?? {}) as Partial<Record<AbilityKey, number>>;
   const subraces: WizardSubrace[] = Object.entries(d.subraces ?? {}).map(([name, raw]) => {
-    const sub = (raw ?? {}) as {
-      ability_bonus?: Partial<Record<string, number>>;
-      speed?: number;
-      skill_proficiencies?: unknown;
-    };
+    // UIA-0919-001 (Kage-CR follow-up): `raw` is already `CatalogSubraceData`
+    // (lib/api/types.ts) — one contract for this row shape, no second
+    // narrower inline cast here. `?? {}` alone (not a reshaped cast) is kept
+    // in case a malformed row maps a subrace name to `null` — every field
+    // below is already optional, so an empty object degrades identically to
+    // a genuinely bare subrace entry.
+    const sub: CatalogSubraceData = raw ?? {};
     const subBonuses = (sub.ability_bonus ?? {}) as Partial<Record<AbilityKey, number>>;
     return {
       name,

@@ -1241,25 +1241,37 @@ export interface CombatMessageResult {
 // ── DnD: catalog (S2.4 — GET /api/dnd/catalog) ───────────────────────────────
 
 /**
- * UIA-0919-001: one authored feature/trait entry off a hand-written homebrew
- * row. `list_catalog`'s `data` column is a raw jsonb passthrough (engine
+ * One authored feature/trait entry off a hand-written homebrew row (or the
+ * engine's own class-row shape) — `{name, level?, description?}`.
+ * `list_catalog`'s `data` column is a raw jsonb passthrough (engine
  * `msm_repo.py` — no per-content-type reshaping except a race-only subrace
- * merge), so the SAME logical field ("this class/subclass/race's named
- * mechanical bullet points") ships in TWO conventions depending on who
- * authored the row: the SRD importer writes bare display strings
- * (`class.level1_features`, `race.traits`), while hand-authored homebrew
- * packs write structured objects with a level and rules text (verified in
- * NekoNova-DnDEngine `scripts/seed_data/leon-fairytail-5e/20-subclasses-
- * g1.json`'s `airspace-magic` row, and `10-classes.json`'s `ft-caster.data.
- * features` — same shape, no `level` on a monster's own `data.traits`, which
- * is the same family again). `CodexDetail.tsx`'s `SubclassDetail` used to
- * assume the SRD shape unconditionally and crashed the whole /codex route
- * ("Objects are not valid as a React child") the first time a homebrew
- * subclass was selected, with 10 duplicate `[object Object]` React keys
- * alongside it. Every reader of this field family normalizes through
- * `normalizeFeatureEntries` (lib/dnd/codex.ts) instead of mapping the raw
- * array directly, so the next homebrew pack (or a third field sharing this
- * convention) needs a data row, never a code change.
+ * merge). Only ONE of the three fields that carry this shape has an
+ * ENFORCED write-time JSON Schema: NekoNova-DnDEngine migration 028
+ * (`db/migrations/msm/028_content_schemas_class_subclass.sql`)'s
+ * `content_schemas.class` entry requires `features.items` to be `object`
+ * (see `CatalogClassData.features`'s own doc comment). The other two —
+ * `CatalogSubclassData.features` and every race's `traits` — are NOT: that
+ * migration's own header states the subclass schema deliberately omits
+ * `features` ("do NOT appear in either schema on purpose — neither exists
+ * on any row yet") and `race` has no `content_schemas` entry at all ("a
+ * content_type with NO entry in content_schemas ... is completely
+ * unaffected"). `CodexDetail.tsx`'s `SubclassDetail` used to assume every
+ * entry was a bare string and crashed the whole /codex route ("Objects are
+ * not valid as a React child") the first time a homebrew subclass was
+ * selected (verified real shape: NekoNova-DnDEngine
+ * `scripts/seed_data/leon-fairytail-5e/20-subclasses-g1.json`'s
+ * `airspace-magic` row), with 10 duplicate `[object Object]` React keys
+ * alongside it — a REAL SRD subclass row carries no `features` key at all
+ * (`scripts/import_srd.py::transform_subclass` emits only `{class,
+ * subclass_flavor, description}`), so there was never an "SRD writes plain
+ * strings" convention for that one field to contrast with.
+ * `normalizeFeatureEntries` (lib/dnd/codex.ts) is the one normalizer every
+ * reader of this whole field family goes through — it accepts `unknown`,
+ * not this type, because IT is the boundary that turns whatever the wire
+ * actually sent into this shape, including a non-array field or a
+ * null/malformed element (Kage-CR, UIA-0919-001 QA gate, two follow-up
+ * passes) — this type describes the CLEAN output, not what is safe to
+ * assume about the raw wire value.
  */
 export interface CatalogFeatureEntry {
   name: string;
@@ -1269,9 +1281,22 @@ export interface CatalogFeatureEntry {
 
 /** One entry of a race's `data.subraces` map (keyed by display name — e.g.
  *  "Wood Elf"). `ability_bonus` is an OFFSET applied on top of the parent
- *  race's own spread (`apply_racial_bonuses`), never a replacement. */
+ *  race's own spread (`apply_racial_bonuses`), never a replacement.
+ *  `speed`/`skill_proficiencies` mirror the wizard's own local shape
+ *  (`lib/dnd/catalog.ts::catalogItemToRace`, TAV-CREATE-SUBRACE-ASI-PICKER /
+ *  RACE-SKILLS-STAMP) — declared here instead of a second inline cast there,
+ *  so there is one contract for this row shape (Kage-CR, UIA-0919-001
+ *  follow-up). */
 export interface CatalogSubraceData {
   ability_bonus?: Partial<Record<string, number>>;
+  /** Only present when this subrace overrides the base race's speed (e.g.
+   *  Wood Elf 35 ft). */
+  speed?: number;
+  /** A subrace's OWN skill-proficiency grant, additive with the base race's
+   *  (union, never override — no real 5e subrace removes its base race's
+   *  grant). Empty for every subrace seeded today (verified live on
+   *  suzu_dnd_dev, 2026-09-08). */
+  skill_proficiencies?: string[];
   traits?: (string | CatalogFeatureEntry)[];
   description?: string;
 }
@@ -1281,12 +1306,19 @@ export interface CatalogRaceData {
   ability_bonus: Partial<Record<string, number>>;
   size?: string;
   speed?: number;
-  /** UIA-0919-001: see `CatalogFeatureEntry` — every homebrew race pack seen
-   *  to date authors this as bare strings, but the SAME field name carries
-   *  structured `{name, description}` objects on the sibling `class.features`
-   *  / `subclass.features` / `monster.traits` fields, so this is typed to the
-   *  shared union defensively rather than re-litigating the same crash the
-   *  day a homebrew race author reaches for the richer shape. */
+  /** NO enforced schema: migration 028 (NekoNova-DnDEngine
+   *  `db/migrations/msm/028_content_schemas_class_subclass.sql`) added
+   *  `content_schemas` entries for `class`/`subclass` only — its own header:
+   *  "a content_type with NO entry in content_schemas (every type except
+   *  class/subclass, as of this migration) is completely unaffected". A race
+   *  row's `traits` is therefore never shape-checked at write time. Every
+   *  homebrew race pack seen to date authors this as bare strings, but the
+   *  SAME field name carries structured `{name, description}` objects on the
+   *  ENFORCED `class.features` shape and the unenforced `subclass.features`
+   *  / monster `traits` — kept as the defensive union rather than
+   *  re-litigating the same crash the day a homebrew race author reaches
+   *  for the richer shape. `normalizeFeatureEntries` guards the render-time
+   *  boundary regardless of what this type declares. */
   traits?: (string | CatalogFeatureEntry)[];
   languages?: string[];
   proficiencies?: string[];
@@ -1332,23 +1364,37 @@ export interface CatalogClassData {
    *  convenience key stamped by the engine's catalog route. Absent when the
    *  class has no unarmored defense. */
   unarmored_defense_ability?: string | null;
-  /** UIA-0919-001: see `CatalogFeatureEntry` — every SRD/homebrew class row
-   *  seen to date authors this as bare feature-name strings, but it names
-   *  the exact same features `features` (below) describes in full, so it's
-   *  typed to the shared union defensively rather than re-litigating the
-   *  same crash if a future pack ever authors it richer. */
-  level1_features?: (string | CatalogFeatureEntry)[];
-  /** UIA-0919-001 — the class row's OWN `data.features` (schema v2), RAW off
-   *  the catalog row, distinct from `level1_features` above: `level1_features`
-   *  is the level-1 subset of feature NAMES, `features` is the full
-   *  level-by-level list with rules text for every level (verified in
-   *  NekoNova-DnDEngine `scripts/seed_data/leon-fairytail-5e/10-classes.json`
-   *  — `useClassFeatureDescriptions.ts` already reads this to annotate the
-   *  sheet's Features list, keyed by name). Not rendered by the Codex today
-   *  (ClassDetail shows `level1_features` only); typed here so that reader
+  /** ENFORCED by the engine's write-time class content schema (migration
+   *  028, `db/migrations/msm/028_content_schemas_class_subclass.sql` —
+   *  `content_schemas.class.properties.level1_features ==
+   *  {"type":"array","items":{"type":"string"}}`, and `level1_features` is
+   *  in that schema's `required` list). Checked by
+   *  `engine.msm_repo._validate_content_write` on every class-row write
+   *  (both `upsert_content` and the draft-promotion path;
+   *  `engine/content_schemas.py::validate_content_data`) — a class row whose
+   *  `level1_features` entry isn't a string cannot be written at all. Typed
+   *  as a plain `string[]` rather than the defensive union used elsewhere
+   *  in this family; `normalizeFeatureEntries` still guards at render time
+   *  regardless (a row written before this migration applied, or against a
+   *  database missing it, is still a possible wire value). */
+  level1_features?: string[];
+  /** ENFORCED by the SAME schema — `features.items ==
+   *  {"type":"object"}`, also `required`. A class row's `features` can
+   *  therefore never be a bare string on a schema-validated write;
+   *  `CatalogFeatureEntry` is this app's own shape for that object
+   *  (name/level/description) — the JSON Schema itself only pins "is an
+   *  object", not those specific keys, so `normalizeFeatureEntries` is
+   *  still the boundary that guards a malformed or pre-migration object
+   *  (verified real shape: NekoNova-DnDEngine
+   *  `scripts/import_srd.py::_feature()` / `10-classes.json`'s
+   *  `ft-caster.data.features`). Distinct from `level1_features` above:
+   *  that field is the level-1 SUBSET of feature NAMES only, `features` is
+   *  the full level-by-level list with rules text for every level. Not
+   *  rendered by the Codex's `ClassDetail` today (which shows
+   *  `level1_features` only); typed here so `useClassFeatureDescriptions.ts`
    *  and any future Codex reader share one canonical shape instead of a
    *  second ad hoc declaration. */
-  features?: (string | CatalogFeatureEntry)[];
+  features?: CatalogFeatureEntry[];
   /** TAV-WIZARD-HOMEBREW-CASTERS — the class's spellcasting profile, RAW off
    *  the catalog row's `data.spellcasting` block (NekoNova-DnDEngine
    *  `scripts/import_srd.py::build_classes` / `engine/rules_catalog.py::
@@ -1621,11 +1667,27 @@ export interface CatalogSubclassData {
    *  one shared derivation both the creation wizard and LevelChoicePicker
    *  read this through. */
   subclass_level?: number;
-  /** UIA-0919-001: see `CatalogFeatureEntry`'s doc comment — this is the
-   *  field that actually crashed (a homebrew subclass row's `features` is
-   *  `{level, name, description}[]`; SRD rows carry plain strings). Never
-   *  map this directly onto a `<Pill key={f}>` — go through
-   *  `normalizeFeatureEntries` (lib/dnd/codex.ts). */
+  /** NO enforced schema for this field: migration 028
+   *  (`db/migrations/msm/028_content_schemas_class_subclass.sql`)'s
+   *  `subclass` JSON Schema requires only `class` and types
+   *  `subclass_flavor`/`description` — `features` is not declared in its
+   *  `properties` at all, and the migration's own header says so on
+   *  purpose ("subclass `features` (added later) do NOT appear in either
+   *  schema on purpose — neither exists on any row yet"). `additionalProperties:
+   *  true` lets a subclass row carry ANY shape here unchecked, which is
+   *  exactly what a hand-authored homebrew pack does — verified
+   *  `{level, name, description}` objects (NekoNova-DnDEngine
+   *  `scripts/seed_data/leon-fairytail-5e/20-subclasses-g1.json`'s
+   *  `airspace-magic` row) crashed `CodexDetail.tsx`'s `SubclassDetail`,
+   *  which mapped the raw array straight onto `<Pill key={f}>`. A REAL SRD
+   *  subclass row carries no `features` key at all
+   *  (`scripts/import_srd.py::transform_subclass` emits only `{class,
+   *  subclass_flavor, description}` + optional `resource_grants`) — there
+   *  was never an "SRD writes plain strings" convention for this field to
+   *  contrast with; kept as the defensive union purely because nothing
+   *  enforces either shape here. Never map this directly onto a
+   *  `<Pill key={f}>` — go through `normalizeFeatureEntries`
+   *  (lib/dnd/codex.ts). */
   features?: (string | CatalogFeatureEntry)[];
   description?: string;
 }
