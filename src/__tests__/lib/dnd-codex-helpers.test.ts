@@ -209,28 +209,33 @@ describe('normalizeFeatureEntries', () => {
     expect(normalizeFeatureEntries(null as unknown as undefined)).toEqual([]);
   });
 
-  // Miko-QA DEFECT (reported to Ren-Dev, NOT fixed here — QA does not touch
-  // production code): a `null` (or `undefined`) ELEMENT *inside* an
-  // otherwise-normal entries array — e.g. `['Fighting Style', null]`, which a
-  // hand-authored homebrew JSON file can produce via a stray trailing-comma
-  // fix or a placeholder left in an array — reaches the `entry.level`/
-  // `entry.name` property reads in the non-string branch and throws
-  // `TypeError: Cannot read properties of null (reading 'level')`, because
-  // `typeof null === 'object'` sends it down the "structured entry" branch
-  // instead of the string branch. This is the SAME bug class UIA-0919-001
-  // exists to close (a malformed homebrew row crashing the whole /codex
-  // route) — the field-level fix does not close the element-level version of
-  // it. `test.failing` marks this as a KNOWN, disclosed gap: this test
-  // currently fails (throws) confirming the defect is real and reproducible;
-  // it will start reporting as an unexpected pass (turning the suite red) the
-  // moment someone fixes it, which is the intended nudge to update this to a
-  // normal passing `it` at that point. See the render-level repro in
-  // codex-detail-minimal.test.tsx for the user-facing symptom (a homebrew
-  // SubclassDetail crashing exactly like the original bug report).
-  test.failing('a null/undefined ELEMENT inside the array does not crash the normalizer (KNOWN GAP, not fixed by this diff)', () => {
-    expect(() =>
-      normalizeFeatureEntries(['Fighting Style', null as unknown as string]),
-    ).not.toThrow();
+  // Miko-QA DEFECT, fixed (Ren-Dev, UIA-0919-001 follow-up): a `null` (or
+  // `undefined`) ELEMENT *inside* an otherwise-normal entries array — e.g.
+  // `['Fighting Style', null]`, which a hand-authored homebrew JSON file can
+  // produce via a stray trailing-comma fix or a placeholder left in an array
+  // — used to reach the `entry.level`/`entry.name` property reads in the
+  // non-string branch and throw `TypeError: Cannot read properties of null
+  // (reading 'level')`, because `typeof null === 'object'` sent it down the
+  // "structured entry" branch instead of the string branch. Same bug class
+  // UIA-0919-001 closed at the field level, one level deeper (array
+  // element). Was `test.failing` (Miko-QA); now a normal passing `it` now
+  // that `normalizeFeatureEntries` skips any element that is neither a
+  // non-empty string nor an object with a usable string `name`. See the
+  // render-level repro in codex-detail-minimal.test.tsx for the user-facing
+  // symptom (a homebrew SubclassDetail crashing exactly like the original
+  // bug report).
+  it('a null/undefined ELEMENT inside the array is skipped, not thrown on — the surviving entries still render', () => {
+    let result: ReturnType<typeof normalizeFeatureEntries> = [];
+    expect(() => {
+      result = normalizeFeatureEntries([
+        'Fighting Style',
+        null as unknown as string,
+        undefined as unknown as string,
+        42 as unknown as string,
+        { level: 2, description: 'no name' } as unknown as CatalogFeatureEntry,
+      ]);
+    }).not.toThrow();
+    expect(result).toEqual([{ key: '0-Fighting Style', label: 'Fighting Style' }]);
   });
 });
 

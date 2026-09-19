@@ -157,21 +157,20 @@ describe('Subclass detail (minimal)', () => {
     expect(screen.getByRole('option', { name: /airspace magic/i })).toBeInTheDocument();
   });
 
-  // Miko-QA DEFECT (reported to Ren-Dev, NOT fixed here): normalizeFeatureEntries
-  // (lib/dnd/codex.ts) throws on a `null`/`undefined` ELEMENT inside an
-  // otherwise-normal features array (typeof null === 'object' sends it down
-  // the structured-entry branch, then `entry.level`/`entry.name` throws) — see
+  // Miko-QA DEFECT, fixed (Ren-Dev, UIA-0919-001 follow-up): normalizeFeatureEntries
+  // (lib/dnd/codex.ts) used to throw on a `null`/`undefined` ELEMENT inside an
+  // otherwise-normal features array (typeof null === 'object' sent it down
+  // the structured-entry branch, then `entry.level`/`entry.name` threw) — see
   // the unit-level repro + full writeup in dnd-codex-helpers.test.ts. This is
   // the RENDER-LEVEL consequence: a homebrew subclass row with a stray null
   // in its features array (a plausible hand-authored-JSON mistake — the exact
   // kind of malformed homebrew content UIA-0919-001 exists to tolerate)
-  // reproduces the ORIGINAL bug's user-facing symptom — the whole /codex
-  // route crashing — via a different trigger than the one this diff fixed.
-  // No ErrorBoundary wraps CodexDetail (grepped, none found), so this is not
-  // contained to the row. `test.failing`: currently fails (throws),
-  // confirming the gap is real; flips to an unexpected pass (reds the suite)
-  // once fixed, which is the intended signal to promote this to a plain `it`.
-  test.failing('UIA-0919-001 KNOWN GAP: a null element inside a homebrew subclass features array does not crash the /codex route', () => {
+  // reproduced the ORIGINAL bug's user-facing symptom — the whole /codex
+  // route crashing — via a different trigger than the one the first pass
+  // fixed. No ErrorBoundary wraps CodexDetail (grepped, none found), so this
+  // was not contained to the row. Was `test.failing` (Miko-QA); now a normal
+  // passing `it` now that the null element is skipped instead of read.
+  it('UIA-0919-001: a null element inside a homebrew subclass features array does not crash the /codex route, and the real features still render', () => {
     const AIRSPACE_MAGIC_WITH_NULL_ELEMENT: CatalogItem = {
       ...AIRSPACE_MAGIC,
       slug: 'airspace-magic-malformed',
@@ -183,6 +182,7 @@ describe('Subclass detail (minimal)', () => {
     expect(() =>
       render(<CodexDetail item={AIRSPACE_MAGIC_WITH_NULL_ELEMENT} kind="subclass" />),
     ).not.toThrow();
+    expect(screen.getByText(/wind palm \(airspace signature\)/i)).toBeInTheDocument();
   });
 });
 

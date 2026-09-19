@@ -311,18 +311,37 @@ export interface NormalizedFeatureEntry {
  * `CatalogFeatureEntry` objects into a uniform, safely-renderable shape.
  * `undefined`/empty input returns `[]` (matches every other list helper in
  * this file — callers gate the whole Section on `.length > 0`).
+ *
+ * Total over whatever a hand-authored homebrew JSON file actually contains,
+ * not just the declared element type: a stray `null`/`undefined` entry (a
+ * plausible trailing-comma-fix or leftover placeholder in an array) is
+ * skipped rather than crashing. `typeof null === 'object'` — checking
+ * "not a string" is NOT the same as "safe to read `.name`/`.level` off it",
+ * which is exactly how this normalizer's own first version still crashed one
+ * level down from the field-level bug it was built to fix (Miko-QA,
+ * UIA-0919-001 follow-up). The same "no usable name" skip also covers a
+ * number, an array, or an object whose `name` is missing/not a string —
+ * every shape that is neither a non-empty display string nor a genuine
+ * `CatalogFeatureEntry`.
  */
 export function normalizeFeatureEntries(
   entries: (string | CatalogFeatureEntry)[] | undefined,
 ): NormalizedFeatureEntry[] {
   if (!entries || entries.length === 0) return [];
-  return entries.map((entry, i) => {
+  const out: NormalizedFeatureEntry[] = [];
+  entries.forEach((entry, i) => {
     if (typeof entry === 'string') {
-      return { key: `${i}-${entry}`, label: entry };
+      if (entry.length === 0) return;
+      out.push({ key: `${i}-${entry}`, label: entry });
+      return;
+    }
+    if (entry == null || typeof entry !== 'object' || typeof entry.name !== 'string' || entry.name.length === 0) {
+      return;
     }
     const label = entry.level != null ? `Lv ${entry.level} · ${entry.name}` : entry.name;
-    return { key: `${i}-${entry.name}`, label, description: entry.description };
+    out.push({ key: `${i}-${entry.name}`, label, description: entry.description });
   });
+  return out;
 }
 
 // ── Generic ────────────────────────────────────────────────────────────────────
