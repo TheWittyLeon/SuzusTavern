@@ -320,3 +320,51 @@ it('JOIN-REASONS: an unmapped/opaque failure still gets honest fallback copy', a
   });
   expect(await screen.findByText(/couldn't join that table/i)).toBeInTheDocument();
 });
+
+// ── UIA-0919-003: skeleton stuck forever after StrictMode double-invoke ─────
+// `mountedRef` was set to `false` on effect cleanup but never re-armed to
+// `true` on the following mount. React StrictMode's dev-only
+// mount→cleanup→mount double-invoke leaves it permanently `false`, so
+// `load()`'s `setSessions` call is silently dropped and the page never
+// leaves its loading state — reproduced live via in-app navigation
+// (a document load skips StrictMode's extra pass and always worked).
+describe('React.StrictMode double-invoke (UIA-0919-003)', () => {
+  it('resolves to real session cards, not a permanent skeleton', async () => {
+    mockListSessions.mockResolvedValue([suzuTable]);
+    render(
+      <React.StrictMode>
+        <ToastProvider>
+          <ThemeProvider>
+            <AuthProvider initialUser={LEON} initialMaybeAuthed={false}>
+              <LobbyPage />
+            </AuthProvider>
+          </ThemeProvider>
+        </ToastProvider>
+      </React.StrictMode>,
+    );
+
+    await waitFor(() => expect(screen.getByText(/hollow tide/i)).toBeInTheDocument());
+    expect(screen.getByText(/^1 table$/i)).toBeInTheDocument();
+    // The "…" placeholder and skeleton rows are what the bug left stuck.
+    expect(screen.queryByText('…')).not.toBeInTheDocument();
+    expect(document.querySelectorAll('[data-component="Skeleton"]')).toHaveLength(0);
+  });
+
+  it('resolves to the empty state, not a permanent skeleton, when there are no tables', async () => {
+    mockListSessions.mockResolvedValue([]);
+    render(
+      <React.StrictMode>
+        <ToastProvider>
+          <ThemeProvider>
+            <AuthProvider initialUser={LEON} initialMaybeAuthed={false}>
+              <LobbyPage />
+            </AuthProvider>
+          </ThemeProvider>
+        </ToastProvider>
+      </React.StrictMode>,
+    );
+
+    await waitFor(() => expect(screen.getByText(/no tables running yet/i)).toBeInTheDocument());
+    expect(document.querySelectorAll('[data-component="Skeleton"]')).toHaveLength(0);
+  });
+});

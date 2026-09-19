@@ -732,3 +732,48 @@ describe('Trash — no user', () => {
     await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login'));
   });
 });
+
+// ── UIA-0919-003: skeleton stuck forever after StrictMode double-invoke ─────
+// Same shape as the lobby page's bug: `mountedRef` flipped to `false` on
+// cleanup but was never re-armed to `true` on the next mount, so React
+// StrictMode's dev-only mount→cleanup→mount double-invoke permanently
+// dropped `setCharacters`/`setSessions` and left the trash page rendering
+// skeleton rows forever (18 skeleton nodes observed live, UIA-0919-003).
+describe('React.StrictMode double-invoke (UIA-0919-003)', () => {
+  it('resolves to real rows, not a permanent skeleton', async () => {
+    mockListTrashed.mockResolvedValue([VELKA, BRENN]);
+    render(
+      <React.StrictMode>
+        <ToastProvider>
+          <ThemeProvider>
+            <AuthProvider initialUser={ALICE} initialMaybeAuthed={false}>
+              <TrashPage />
+            </AuthProvider>
+          </ThemeProvider>
+        </ToastProvider>
+      </React.StrictMode>,
+    );
+
+    await waitFor(() => expect(screen.getByText('Velka')).toBeInTheDocument());
+    expect(screen.getByText('Brennan')).toBeInTheDocument();
+    expect(document.querySelectorAll('[data-component="Skeleton"]')).toHaveLength(0);
+  });
+
+  it('resolves to the empty state, not a permanent skeleton, when the trash is empty', async () => {
+    mockListTrashed.mockResolvedValue([]);
+    render(
+      <React.StrictMode>
+        <ToastProvider>
+          <ThemeProvider>
+            <AuthProvider initialUser={ALICE} initialMaybeAuthed={false}>
+              <TrashPage />
+            </AuthProvider>
+          </ThemeProvider>
+        </ToastProvider>
+      </React.StrictMode>,
+    );
+
+    await waitFor(() => expect(screen.getByText(/your trash is empty/i)).toBeInTheDocument());
+    expect(document.querySelectorAll('[data-component="Skeleton"]')).toHaveLength(0);
+  });
+});
