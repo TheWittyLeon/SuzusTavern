@@ -799,11 +799,39 @@
 }
 .reviewHero {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  /* UIA-0919-002 (Kage-CR round 2, finding #4): the identity column used to be
+     a bare `minmax(0, 1fr)`, so the (auto-width) avatar + (auto-width) stats
+     columns claimed space FIRST and the name column could be squeezed to
+     ~0px whenever the two auto columns' combined content was wide — the same
+     collapsing-column shape as the truncation bug below, just on a sibling
+     column of the same card. `minmax(12rem, 1fr)` is an intrinsic floor: CSS
+     Grid always honors a track's stated minimum before growing a sibling
+     `auto` track, so the name is guaranteed >=12rem whenever this 3-column
+     row is in effect, regardless of how many/how long the stats are. Only
+     safe once the ≤780px breakpoint below hands the stats row its own full
+     width instead of sharing this one — see that rule for why 780. */
+  grid-template-columns: auto minmax(12rem, 1fr) auto;
   gap: var(--density-gap);
   align-items: center;
 }
-@media (max-width: 620px) {
+@media (max-width: 780px) {
+  /* UIA-0919-002 (Kage-CR round 2, finding #4, real-Chrome harness):
+     originally ≤620px. The 12rem name-column floor above is only safe once
+     stats has an ENTIRE card width to itself — sharing a row with an
+     84px avatar + a guaranteed 12rem (192px) name leaves too little for even
+     one unbreakable speed segment ("climb 30 ft.") once the persistent
+     220/200px rail column (present at every width > 720px, see .layout
+     above) also eats into the card's width. Measured directly: at 721px
+     (rail 200px + this card) the stats row had 117px left — not enough for
+     "burrow 15 ft." — which the harness caught as real horizontal clipping
+     despite passing every other check. The rail stays exactly 200px from
+     721px up to 1080px, so the arithmetic doesn't improve again until
+     roughly card-width >= avatar(84) + name-floor(192) + 2 gaps(32) + a
+     readable stats width (~150px) + the rail/body/card overhead measured
+     above (~300px) — approx. 758px viewport; 780px keeps a safety margin.
+     Below it, stats reverts to its own full-width row (no shared-row
+     squeeze possible) exactly like the narrower widths already did — no
+     identity minimum needed here since there's no competing auto column. */
   .reviewHero {
     grid-template-columns: auto minmax(0, 1fr);
   }
@@ -839,23 +867,51 @@
   color: var(--ink-3);
   font-size: 13px;
 }
+/* UIA-0919-002, reworked after Kage-CR round 2 (measured, real-Chrome
+   findings — see character-create-review-stats-css.test.ts):
+   - The ACTUAL root cause of the original 1-glyph truncation was never just
+     the grid track math: `<dd>` carries a 40px user-agent
+     `margin-inline-start` that globals.css never resets (the sheet's
+     `.idStat dd { margin: 0 }` equivalent was never copied here), so at
+     390px each ~52px track kept only ~12px for the value after the margin
+     ate the rest. `.reviewStatValue` resets it below.
+   - A first rework used ONE flex layout only below 480px and kept
+     `repeat(5, auto)` grid above it — two layouts for one row is a second
+     path (and the same truncation reproduced at 721/768/800/1081-1100,
+     every width where the layout gains a column and the main area
+     narrows). This is now ONE `display:flex; flex-wrap:wrap` layout at
+     every width, mirroring the sheet's `.idStats` (which has no
+     truncation/overflow bug) instead of switching shape at a breakpoint.
+   - A compound multi-mode speed ("30 ft., climb 30 ft., burrow 15 ft.",
+     11 races on dev) is built by the shared `raceSpeedLabel` formatter as
+     ONE string — a claim in an earlier version of this comment that it
+     "just wraps sooner" was wrong: a single nowrap run cannot wrap at all,
+     and it overflowed the card at 481-1180px once the old ellipsis safety
+     net was removed. `withNonBreakingModeSpaces` (page.tsx) replaces the
+     space WITHIN each mode with a non-breaking space before render, kept
+     local to this page rather than the shared formatter so
+     dnd-codex-helpers.test.ts's exact-string assertions on
+     raceSpeedLabel/monsterSpeedLabel stay untouched — every other consumer
+     (Codex, MonsterStatBlock, the character sheet) renders the formatter's
+     plain output unchanged. `.reviewStatValue` stays `white-space: normal`
+     so the row can still break at the (now the ONLY breakable) space
+     between modes, never inside one. */
 .reviewStats {
-  display: grid;
-  grid-template-columns: repeat(5, auto);
-  gap: 10px;
-}
-@media (max-width: 480px) {
-  .reviewStats {
-    grid-template-columns: repeat(5, 1fr);
-  }
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 20px;
 }
 .reviewStat {
   text-align: center;
-  /* UIR2-TAV-27 (Iro-A11y MINOR-1): min-width:0 lets the 1fr grid track shrink
-     below the SPD value's unbreakable min-content width, so the nowrap value
-     below degrades to an ellipsis instead of overflowing the row at 320px /
-     200%+ zoom (WCAG 1.4.10 Reflow). */
-  min-width: 0;
+  /* Deliberately no min-width override here. A flex item's automatic
+     minimum size defaults to its min-content size, which is exactly what
+     protects a short value ("18", "+2") from ever being squeezed narrower
+     than its own glyphs, while still letting a compound speed value shrink
+     down to its widest SINGLE mode (its actual min-content, thanks to the
+     non-breaking spaces above) and wrap the rest onto another line instead
+     of overflowing the card. `min-width: 0` here would defeat exactly that
+     protection — this is the earlier truncation bug's shape again, just one
+     property over. */
 }
 .reviewStatValue {
   display: block;
@@ -863,13 +919,18 @@
   font-size: 20px;
   line-height: 1.1;
   color: var(--ink);
-  /* UIR2-TAV-27: at the 480px repeat(5, 1fr) breakpoint above, each stat
-     cell is only ~60-70px wide — narrower than a two-word value like "30 ft"
-     naturally sets, so it wrapped mid-value ("30" / "ft") without nowrap.
-     overflow+ellipsis is the reflow safety net (Iro-A11y MINOR-1). */
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* The `<dd>` UA default (Kage-CR round 2, finding #1) — unreset, it ate
+     most of a narrow track's width on its own, independent of the grid/flex
+     math above. */
+  margin: 0;
+  /* `normal`, not `nowrap`: a compound speed value must be able to break
+     between modes (see the file-level comment above) — the non-breaking
+     spaces `withNonBreakingModeSpaces` inserts are what stop it breaking
+     mid-mode, not this property. Never pair this rule with
+     overflow:hidden/text-overflow:ellipsis again: that combination is
+     exactly what silently truncated real character stats to one glyph in
+     UIA-0919-002. */
+  white-space: normal;
 }
 
 .reviewCols {
