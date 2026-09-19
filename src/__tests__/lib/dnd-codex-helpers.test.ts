@@ -204,6 +204,34 @@ describe('normalizeFeatureEntries', () => {
       expect(e.description === undefined || typeof e.description === 'string').toBe(true);
     }
   });
+
+  it('Miko-QA: treats a literal `null` field value (not just `undefined`/omitted) the same as an empty list — jsonb APIs commonly send explicit null rather than omitting a key', () => {
+    expect(normalizeFeatureEntries(null as unknown as undefined)).toEqual([]);
+  });
+
+  // Miko-QA DEFECT (reported to Ren-Dev, NOT fixed here — QA does not touch
+  // production code): a `null` (or `undefined`) ELEMENT *inside* an
+  // otherwise-normal entries array — e.g. `['Fighting Style', null]`, which a
+  // hand-authored homebrew JSON file can produce via a stray trailing-comma
+  // fix or a placeholder left in an array — reaches the `entry.level`/
+  // `entry.name` property reads in the non-string branch and throws
+  // `TypeError: Cannot read properties of null (reading 'level')`, because
+  // `typeof null === 'object'` sends it down the "structured entry" branch
+  // instead of the string branch. This is the SAME bug class UIA-0919-001
+  // exists to close (a malformed homebrew row crashing the whole /codex
+  // route) — the field-level fix does not close the element-level version of
+  // it. `test.failing` marks this as a KNOWN, disclosed gap: this test
+  // currently fails (throws) confirming the defect is real and reproducible;
+  // it will start reporting as an unexpected pass (turning the suite red) the
+  // moment someone fixes it, which is the intended nudge to update this to a
+  // normal passing `it` at that point. See the render-level repro in
+  // codex-detail-minimal.test.tsx for the user-facing symptom (a homebrew
+  // SubclassDetail crashing exactly like the original bug report).
+  test.failing('a null/undefined ELEMENT inside the array does not crash the normalizer (KNOWN GAP, not fixed by this diff)', () => {
+    expect(() =>
+      normalizeFeatureEntries(['Fighting Style', null as unknown as string]),
+    ).not.toThrow();
+  });
 });
 
 describe('monsterSensesLabel', () => {

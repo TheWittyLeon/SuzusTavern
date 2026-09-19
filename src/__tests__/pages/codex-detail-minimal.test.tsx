@@ -156,6 +156,34 @@ describe('Subclass detail (minimal)', () => {
     expect(() => row(AIRSPACE_MAGIC, 'subclass')).not.toThrow();
     expect(screen.getByRole('option', { name: /airspace magic/i })).toBeInTheDocument();
   });
+
+  // Miko-QA DEFECT (reported to Ren-Dev, NOT fixed here): normalizeFeatureEntries
+  // (lib/dnd/codex.ts) throws on a `null`/`undefined` ELEMENT inside an
+  // otherwise-normal features array (typeof null === 'object' sends it down
+  // the structured-entry branch, then `entry.level`/`entry.name` throws) — see
+  // the unit-level repro + full writeup in dnd-codex-helpers.test.ts. This is
+  // the RENDER-LEVEL consequence: a homebrew subclass row with a stray null
+  // in its features array (a plausible hand-authored-JSON mistake — the exact
+  // kind of malformed homebrew content UIA-0919-001 exists to tolerate)
+  // reproduces the ORIGINAL bug's user-facing symptom — the whole /codex
+  // route crashing — via a different trigger than the one this diff fixed.
+  // No ErrorBoundary wraps CodexDetail (grepped, none found), so this is not
+  // contained to the row. `test.failing`: currently fails (throws),
+  // confirming the gap is real; flips to an unexpected pass (reds the suite)
+  // once fixed, which is the intended signal to promote this to a plain `it`.
+  test.failing('UIA-0919-001 KNOWN GAP: a null element inside a homebrew subclass features array does not crash the /codex route', () => {
+    const AIRSPACE_MAGIC_WITH_NULL_ELEMENT: CatalogItem = {
+      ...AIRSPACE_MAGIC,
+      slug: 'airspace-magic-malformed',
+      data: {
+        ...AIRSPACE_MAGIC.data,
+        features: [...(AIRSPACE_MAGIC.data as { features: unknown[] }).features, null],
+      },
+    };
+    expect(() =>
+      render(<CodexDetail item={AIRSPACE_MAGIC_WITH_NULL_ELEMENT} kind="subclass" />),
+    ).not.toThrow();
+  });
 });
 
 describe('Class detail level1_features (UIA-0919-001 defensive widen)', () => {
