@@ -3302,6 +3302,40 @@ function EquipmentStep({
 }
 
 // ── Step: Review ──────────────────────────────────────────────────────────────
+/**
+ * UIA-0919-002 (Kage-CR round 2, finding #2): a compound multi-mode speed
+ * (`raceSpeedLabel`/`speedEntriesLabel` join modes with ", ", e.g.
+ * "30 ft., climb 30 ft., burrow 15 ft." — 11 races on dev have one) is ONE
+ * string with regular spaces throughout, so a single nowrap run cannot wrap
+ * at all and a wrappable one can break mid-mode ("fly" / "30 ft.") — both
+ * regress WCAG 1.4.10 reflow, one as overflow, one as an ugly break.
+ *
+ * Replaces the space WITHIN each ", "-separated mode with a non-breaking
+ * space, leaving the separator itself (a real space) as the only breakable
+ * point — the row can wrap BETWEEN modes but never inside one. Generic over
+ * the "comma-joined list of space-containing segments" shape (not a
+ * SPD-specific branch), so it's a no-op for every other stat here (none of
+ * HP/AC/INIT/PROF ever contain a space) and would apply equally to any
+ * future compound value with the same shape.
+ *
+ * Deliberately local to this page's render step, not `raceSpeedLabel` /
+ * `speedEntriesLabel` in lib/dnd/codex.ts: those are asserted against with
+ * exact-string `.toBe()` unit tests (dnd-codex-helpers.test.ts) and rendered
+ * by four other consumers (Codex, MonsterStatBlock, MemberSheetPanel, the
+ * character sheet) that never reported this bug — RTL's default text
+ * normalizer treats a non-breaking space as equivalent to a regular space
+ * (`\s` matches U+00A0), so this is invisible to every existing assertion on
+ * the review card's own rendered text, but changing the shared formatter's
+ * actual return value would still be a needless, unreviewed behavior change
+ * for those other four call sites.
+ */
+function withNonBreakingModeSpaces(value: string): string {
+  return value
+    .split(', ')
+    .map((mode) => mode.replace(/ /g, ' '))
+    .join(', ');
+}
+
 function ReviewStep({
   name,
   onName,
@@ -3378,7 +3412,9 @@ function ReviewStep({
     // MLP fly/swim speeds) can still arrive on the wire despite that type —
     // raceSpeedLabel is deliberately typed to accept `unknown` and always
     // reduces to a string, so this can never render "[object Object] ft".
-    { label: 'SPD', value: raceSpeedLabel(derived.speed) },
+    // UIA-0919-002: wrapped so a compound multi-mode value can break BETWEEN
+    // modes but never inside one (see withNonBreakingModeSpaces above).
+    { label: 'SPD', value: withNonBreakingModeSpaces(raceSpeedLabel(derived.speed)) },
   ];
 
   return (
