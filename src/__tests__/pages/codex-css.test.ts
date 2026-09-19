@@ -71,7 +71,7 @@ describe('Codex.module.css — .rail is vertical everywhere, sticky only in mult
     expect(cssContent).not.toContain('position: static;');
   });
 
-  it('the ≤860px .body grid collapse (stacks the 3-column grid to 1) is untouched and separate from the rail override', () => {
+  it('the ≤860px .body grid collapse (stacks the 3-column grid to 1) is untouched and contains no .rail rule', () => {
     const bodyMediaIdx = cssContent.indexOf('@media (max-width: 860px)');
     expect(bodyMediaIdx).toBeGreaterThan(-1);
     const block = cssContent.slice(bodyMediaIdx, cssContent.indexOf('\n}', bodyMediaIdx) + 2);

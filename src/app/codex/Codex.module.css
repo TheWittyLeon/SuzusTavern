@@ -297,9 +297,9 @@
   scroll-padding-block: var(--focus-ring-clearance);
 }
 /* The listbox keeps real DOM focus, but its active-descendant row carries
-   the visible indicator (.rows:focus .rowFocused below). Its own global ring would sit
-   outside .list's overflow:hidden and get clipped there, and it would
-   double up with the row's ring anyway. onFocus in page.tsx scrolls the
+   the visible indicator (.rows:focus .rowFocused below). Its own global
+   ring would sit outside .list's overflow:hidden and get clipped there, and
+   it would double up with the row's ring anyway. onFocus in page.tsx scrolls the
    active row into view, so an indicator is always on screen. */
 .rows:focus-visible {
   outline: none;
