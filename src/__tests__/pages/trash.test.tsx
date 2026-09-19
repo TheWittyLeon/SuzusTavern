@@ -777,3 +777,54 @@ describe('React.StrictMode double-invoke (UIA-0919-003)', () => {
     expect(document.querySelectorAll('[data-component="Skeleton"]')).toHaveLength(0);
   });
 });
+
+// ── UIA-0919-003 sibling coverage: a REAL (non-StrictMode) unmount ─────────
+// Miko-QA honesty note (mutation-checked, not just asserted): I expected this
+// to be the sharpest test of `mountedRef` (the restore flow has NO
+// AbortController — every post-await `setCharacters`/`setRestoringId`/
+// `.focus()` call is gated on `mountedRef.current` alone), but it does NOT
+// actually discriminate a regression in the cleanup's
+// `mountedRef.current = false` line. Verified by deleting that line (leaving
+// the ref permanently `true` after unmount) and re-running this exact test:
+// still green. Root cause: React 19 silently no-ops any setState dispatched
+// against a fiber whose root has already been unmounted via
+// `render(...).unmount()` — no warning, no error, regardless of what the
+// app-level ref says (same finding as the lobby-page sibling test; confirmed
+// there too, independently, via its own AbortController). What this test
+// DOES still prove: resolving an in-flight restore after a genuine unmount
+// raises no exception and logs no OTHER console.error — a real regression
+// class (e.g. a future edit that dereferences a stale ref unsafely in the
+// continuation) would still be caught here. The StrictMode describe block
+// above is the ONLY test in this file that actually exercises the re-arm fix.
+describe('Real unmount (not StrictMode) during an in-flight restore settles quietly — no-throw smoke test, NOT a mountedRef regression guard (see comment)', () => {
+  it('unmounting while a character restore is in flight, then resolving, throws nothing and logs no console.error', async () => {
+    mockListTrashed.mockResolvedValue([VELKA]);
+    let unblock!: () => void;
+    mockRestore.mockReturnValueOnce(
+      new Promise<{ message: string }>((res) => {
+        unblock = () => res({ message: 'restored' });
+      }),
+    );
+
+    const { unmount } = renderTrash(ALICE);
+    fireEvent.click(await screen.findByRole('button', { name: /restore velka/i }));
+    const confirmBtn = await screen.findByRole('button', { name: 'Restore' });
+    await act(async () => {
+      fireEvent.click(confirmBtn);
+    });
+
+    // The restore is now in flight (mockRestore's promise is still pending) —
+    // tear the whole page down before it resolves.
+    unmount();
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    await act(async () => {
+      unblock();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(errorSpy).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+});
