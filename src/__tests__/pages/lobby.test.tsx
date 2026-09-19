@@ -368,3 +368,45 @@ describe('React.StrictMode double-invoke (UIA-0919-003)', () => {
     expect(document.querySelectorAll('[data-component="Skeleton"]')).toHaveLength(0);
   });
 });
+
+// ── UIA-0919-003 sibling coverage: a REAL (non-StrictMode) unmount ─────────
+// Miko-QA honesty note (mutation-checked, not just asserted): this does
+// NOT discriminate a regression in the cleanup's `mountedRef.current = false`
+// line the way the StrictMode tests above discriminate the re-arm line.
+// Verified empirically: (1) React 19 no longer warns at all on a setState
+// after a real `unmount()` — a bare probe component confirmed zero
+// console.error calls regardless of any app-level guard — and (2) `load()`'s
+// own AbortController independently blocks `setSessions` via `signal.aborted`
+// even with `mountedRef` mutated to stay `true` forever. Deleting the
+// cleanup's `mountedRef.current = false` line and re-running this exact test
+// left it green. What this test DOES still prove, and is worth keeping for:
+// resolving both in-flight fetches after a genuine unmount raises no
+// exception and produces no OTHER console.error — a real regression class
+// (e.g. a future refactor that dereferences something unsafely in the
+// `.then()` continuation) would still be caught here. The StrictMode
+// describe block above is the ONLY test in this file that actually exercises
+// the re-arm fix; do not read this one as covering the same line.
+describe('Real unmount (not StrictMode) settles quietly — no-throw smoke test, NOT a mountedRef regression guard (see comment)', () => {
+  it('unmounting mid-load, then resolving both the sessions and characters fetches afterward, throws nothing and logs no console.error', async () => {
+    let resolveSessions!: (v: Session[]) => void;
+    let resolveChars!: (v: Character[]) => void;
+    mockListSessions.mockReturnValue(new Promise<Session[]>((res) => { resolveSessions = res; }));
+    mockListChars.mockReturnValue(new Promise<Character[]>((res) => { resolveChars = res; }));
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const { unmount } = renderLobby();
+    // Both fetches are in flight (mounted, loading) before we tear it down.
+    unmount();
+
+    await act(async () => {
+      resolveSessions([suzuTable]);
+      resolveChars([CHAR_A]);
+      // Flush the microtask queue so both `.then()` continuations run.
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(errorSpy).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+});
