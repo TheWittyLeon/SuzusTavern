@@ -5,22 +5,25 @@
  * src/__tests__/globals-css.test.ts — CSS Modules are identity-mocked under
  * Jest and jsdom does not compute real layout/cascade, so neither the sticky
  * rail's actual background paint nor its actual `flex-direction` at a given
- * viewport width is observable from a component test.
+ * viewport width is observable from a component test. The geometry itself is
+ * measured live by tools/ui-audit's probes (slab, ink-clip), which run on
+ * every capture.
  *
- * History: DDX21-2 (fix pass 2) made the rail's background opaque
- * (--card-solid) and fixed a cascade-order bug so a ≤860px override could
- * actually apply. Fix pass 3 (Aoi-UI live-browser re-verify, 2026-07-05) then
- * REVERTED that ≤860px override entirely: at ~800px it wrapped the per-kind
- * subfilter control onto the same visual row as the last tab ("Conditions"),
- * and its `position: static` made the rail non-sticky — self-defeating the
- * DDX21-2 opaque/sticky fix. The rail is now vertical + sticky + opaque at
- * ALL widths; this suite guards that "vertical-always" contract instead of
- * the old cascade-order one.
+ * History: DDX21-2 made the rail opaque (--card-solid) so list content could
+ * not bleed through it once sticky. Fix pass 3 (2026-07-05) reverted a ≤860px
+ * horizontal reflow that wrapped the subfilter onto the tab row, and kept the
+ * rail vertical + sticky + opaque at all widths. CODEX-RAIL-SLAB (2026-09-18)
+ * removed the fill: it painted a lighter slab over the aurora in every
+ * palette and occluded nothing (multi-column never sticks; single column's
+ * content-visibility rows paint over the rail regardless). The single-column
+ * rail now scrolls away instead of pinning 550px of a phone screen. It stays
+ * vertical at all widths; that is the part of fix pass 3 this suite still
+ * guards.
  */
 import fs from 'fs';
 import path from 'path';
 
-describe('Codex.module.css — .rail is vertical + sticky + opaque at ALL widths (DDX21-1 fix pass 3 revert)', () => {
+describe('Codex.module.css — .rail is vertical everywhere, sticky only in multi-column, never an opaque slab (CODEX-RAIL-SLAB)', () => {
   let cssContent: string;
 
   beforeAll(() => {
@@ -30,41 +33,88 @@ describe('Codex.module.css — .rail is vertical + sticky + opaque at ALL widths
     );
   });
 
-  /** The base (unconditional) `.rail { ... }` rule block, as raw text. */
-  function baseRailBlock(): string {
-    const start = cssContent.indexOf('.rail {');
-    expect(start).toBeGreaterThan(-1);
-    const end = cssContent.indexOf('\n}', start);
-    return cssContent.slice(start, end);
+  /** Every `.rail { ... }` rule block (base + @media overrides), as raw text. */
+  function railBlocks(): { idx: number; text: string }[] {
+    const out: { idx: number; text: string }[] = [];
+    for (let i = cssContent.indexOf('.rail {'); i !== -1; i = cssContent.indexOf('.rail {', i + 1)) {
+      out.push({ idx: i, text: cssContent.slice(i, cssContent.indexOf('}', i)) });
+    }
+    return out;
   }
 
-  it('the base .rail rule is sticky, a column flex container, and opaque (--card-solid) — unconditionally, not inside any @media block', () => {
-    const railBlock = baseRailBlock();
-    expect(railBlock).toContain('position: sticky');
-    expect(railBlock).toContain('flex-direction: column');
-    expect(railBlock).toContain('background: var(--card-solid)');
+  it('the base .rail rule is a sticky column flex container', () => {
+    const [base] = railBlocks();
+    expect(base.text).toContain('position: sticky');
+    expect(base.text).toContain('flex-direction: column');
   });
 
-  it('never reflows .rail to horizontal/non-sticky at any breakpoint', () => {
-    // Regression guard for the fix-pass-3 revert: a ≤860px override used to
-    // flip .rail to `flex-direction: row` + `position: static`, which (a)
-    // wrapped the subfilter control onto the tab row and (b) made the rail
-    // non-sticky, defeating DDX21-2's own fix. Neither declaration should
-    // exist anywhere in the stylesheet as actual CSS now (matched with the
-    // trailing `;` so this doesn't false-positive on the prose explaining the
-    // revert in the comment above, which mentions both phrases without one).
+  it('no .rail rule paints a background at any width (the design system .comp-rail has none; the plane shows through)', () => {
+    for (const { text } of railBlocks()) {
+      expect(text).not.toMatch(/background(-color)?\s*:/);
+    }
+  });
+
+  it('never reflows .rail to horizontal at any breakpoint (fix pass 3 guard)', () => {
+    // A ≤860px override once flipped .rail to `flex-direction: row`, which
+    // wrapped the subfilter control onto the tab row. Matched with the
+    // trailing `;` so prose in comments cannot false-positive.
     expect(cssContent).not.toContain('flex-direction: row;');
-    expect(cssContent).not.toContain('position: static;');
   });
 
-  it('the ≤860px .body grid collapse (unrelated to rail orientation — stacks the 3-column grid to 1) is untouched', () => {
+  it('single column (≤860px) un-sticks the rail via an override declared AFTER the base rule', () => {
+    const blocks = railBlocks();
+    expect(blocks.length).toBeGreaterThanOrEqual(2);
+    const override = blocks[blocks.length - 1];
+    expect(override.idx).toBeGreaterThan(blocks[0].idx);
+    expect(override.text).toContain('position: static');
+    const mediaIdx = cssContent.lastIndexOf('@media', override.idx);
+    expect(cssContent.slice(mediaIdx, override.idx)).toContain('@media (max-width: 860px)');
+  });
+
+  it('the ≤860px .body grid collapse (stacks the 3-column grid to 1) is untouched and separate from the rail override', () => {
     const bodyMediaIdx = cssContent.indexOf('@media (max-width: 860px)');
     expect(bodyMediaIdx).toBeGreaterThan(-1);
     const block = cssContent.slice(bodyMediaIdx, cssContent.indexOf('\n}', bodyMediaIdx) + 2);
     expect(block).toContain('.body');
     expect(block).toContain('grid-template-columns: 1fr');
-    // And that block must NOT also be the (now-removed) .rail override.
     expect(block).not.toContain('.rail');
+  });
+});
+
+describe('Codex.module.css — row rings are never clipped by the list scroller (CODEX-RING-CLIP)', () => {
+  let cssContent: string;
+  let globals: string;
+
+  beforeAll(() => {
+    cssContent = fs.readFileSync(path.resolve(process.cwd(), 'src/app/codex/Codex.module.css'), 'utf8');
+    globals = fs.readFileSync(path.resolve(process.cwd(), 'src/app/globals.css'), 'utf8');
+  });
+
+  function ruleBlock(selector: string): string {
+    const start = cssContent.indexOf(`${selector} {`);
+    expect(start).toBeGreaterThan(-1);
+    return cssContent.slice(start, cssContent.indexOf('\n}', start));
+  }
+
+  it('the clearance token is DERIVED from ring width + offset, never a hand-summed literal', () => {
+    expect(globals).toMatch(/--focus-ring-clearance:\s*calc\(var\(--focus-ring-width\) \+ var\(--focus-ring-offset\)\)/);
+  });
+
+  it('.rows reserves the full ring extent on all four sides, and as scroll-padding for scrollIntoView', () => {
+    const rows = ruleBlock('.rows');
+    expect(rows).toMatch(/\n\s*padding: var\(--focus-ring-clearance\);/);
+    expect(rows).toContain('scroll-padding-block: var(--focus-ring-clearance)');
+  });
+
+  it('the virtual-focus ring draws only while the listbox has keyboard focus (no ring on row 0 at rest)', () => {
+    expect(cssContent).not.toMatch(/(^|\n)\.rowFocused \{/);
+    const gated = ruleBlock('.rows:focus-visible .rowFocused');
+    expect(gated).toContain('outline: var(--focus-ring-width) solid var(--accent)');
+    expect(gated).toContain('outline-offset: var(--focus-ring-offset)');
+  });
+
+  it('the listbox container draws no ring of its own (it would be clipped by .list and double the row ring)', () => {
+    expect(ruleBlock('.rows:focus-visible')).toContain('outline: none');
   });
 });
 

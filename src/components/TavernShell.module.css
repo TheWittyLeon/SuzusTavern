@@ -18,8 +18,8 @@
      breathing room should track density. */
   padding: 0 var(--density-pad);
   border-bottom: 1px solid var(--line);
-  background: color-mix(in oklab, var(--card) 86%, transparent);
-  backdrop-filter: blur(20px);
+  background: var(--veil);
+  backdrop-filter: var(--veil-blur);
 }
 
 .brand {

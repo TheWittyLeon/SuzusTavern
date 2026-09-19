@@ -758,6 +758,20 @@ function CodexPageInner() {
               tabIndex={0}
               aria-activedescendant={optionId(filtered[focusedIdx]?.slug ?? '')}
               onKeyDown={onListboxKeyDown}
+              // CODEX-RING-CLIP: the active row's ring is the listbox's only
+              // focus indicator (Codex.module.css .rows:focus-visible), so it
+              // must be on screen when focus arrives by keyboard. Keyboard
+              // focus only: on a mouse press this would scroll between
+              // mousedown and click and land the click on another row.
+              onFocus={(e) => {
+                let keyboard = false;
+                try {
+                  keyboard = e.currentTarget.matches(':focus-visible');
+                } catch {
+                  // selector unsupported (old engine / test DOM): skip the scroll
+                }
+                if (keyboard) scrollRowIntoView(focusedIdx);
+              }}
             >
               {filtered.map((item, i) => (
                 <CodexRow
