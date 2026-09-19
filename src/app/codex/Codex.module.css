@@ -88,8 +88,9 @@
    the per-kind subfilter control onto the same visual row as the last tab
    ("Conditions"), reading as if it belonged to the wrong tab; and
    `position: static` there made the rail non-sticky, defeating the very
-   compactness rationale the horizontal layout was for. Vertical + sticky +
-   opaque now applies at ALL widths — see aria-orientation="vertical"
+   compactness rationale the horizontal layout was for. Vertical at ALL
+   widths (fill and stickiness later revisited in CODEX-RAIL-SLAB, .rail
+   below) — see aria-orientation="vertical"
    (unconditional) and onRailKeyDown (Up/Down only) in page.tsx. A deliberate
    "compact mobile tabs" single-row horizontal scroller is a real future
    option but is a separate UX decision, not this revert. */
@@ -106,32 +107,32 @@
 }
 
 /* CODEX-RAIL-SLAB (2026-09-18): the rail has no background, matching the
-   design system's .comp-rail. DDX21-2 had painted it --card-solid (= --bg-2)
-   at every width so list content couldn't bleed through the stuck rail. That
-   fill showed as a lighter slab over the --bg + aurora plane in all four
-   palettes, and it did no occluding at any width:
+   design system's .comp-rail. DDX21-2 had painted it --card-solid (an opaque
+   surface a step off --bg) at every width so list content couldn't bleed
+   through the stuck rail. That fill showed as a slab over the --bg + aurora
+   plane in every palette, and it did no occluding at any width:
    - Multi-column: the list scrolls inside its own column (UIR2-TAV-6), and
      the page scrolls less than the rail's offset, so the rail never sticks.
    - Single column: the rows are content-visibility:auto (UIR2-TAV-6), which
      makes each one a stacking context, so they paint over a sticky rail that
      comes earlier in the DOM, opaque fill or not. Measured on dev at 390x844,
      the rail is 550px tall, so pinning it hides two-thirds of the screen
-     anyway. It scrolls away instead (below). If something must ever stick
-     over scrolling content here, occlude it with --veil (globals.css), not
-     an opaque surface token. */
+     anyway. It stays static there. If something must ever stick over
+     scrolling content here, occlude it with --veil (globals.css), not an
+     opaque surface token.
+   Sticky is guarded by min-width rather than undone by a max-width override,
+   the same order-independent shape as CharacterCreate.module.css's .rail:
+   the two conditions can't overlap, so source order can't matter. Still
+   vertical at every width (the fix pass 3 guard above). */
 .rail {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  position: sticky;
-  top: 0;
 }
-/* Declared after the base rule so it wins at equal specificity (the cascade-
-   order class DDX21 fix pass 2 hit). Still vertical: this changes stickiness
-   only, not the horizontal reflow fix pass 3 reverted. */
-@media (max-width: 860px) {
+@media (min-width: 861px) {
   .rail {
-    position: static;
+    position: sticky;
+    top: 0;
   }
 }
 .railItem {
@@ -296,7 +297,7 @@
   scroll-padding-block: var(--focus-ring-clearance);
 }
 /* The listbox keeps real DOM focus, but its active-descendant row carries
-   the visible indicator (.rowFocused below). Its own global ring would sit
+   the visible indicator (.rows:focus .rowFocused below). Its own global ring would sit
    outside .list's overflow:hidden and get clipped there, and it would
    double up with the row's ring anyway. onFocus in page.tsx scrolls the
    active row into view, so an indicator is always on screen. */
@@ -358,11 +359,13 @@
 }
 /* aria-activedescendant "virtual focus" ring — the listbox itself holds real
    DOM focus, so this is the only visible focus indicator for keyboard users.
-   Gated on the listbox's :focus-visible (CODEX-RING-CLIP): focusedIdx always
-   has a value (0 on load), so an ungated class drew the ring on the first row
-   with nothing focused, and on a mouse click where .rowOn already marks the
-   selection. */
-.rows:focus-visible .rowFocused {
+   Gated on the listbox's :focus (CODEX-RING-CLIP): focusedIdx always has a
+   value (0 on load), so an ungated class drew the ring on row 0 with nothing
+   focused. Not :focus-visible: after a mouse click Firefox keeps the listbox
+   non-focus-visible even once the user starts arrowing, which would leave the
+   moving active row with no indicator at all (WCAG 2.4.7; Kage-CR, measured
+   in Firefox). */
+.rows:focus .rowFocused {
   outline: var(--focus-ring-width) solid var(--accent);
   outline-offset: var(--focus-ring-offset);
 }

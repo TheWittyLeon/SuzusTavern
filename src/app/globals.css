@@ -389,9 +389,10 @@
   --density-gap: 16px;
 
   /* Focus-ring geometry, read by the global :focus-visible rule and the Codex
-     row ring. debt: 34 component-drawn rings (16 files) still restate the
-     2px/2px literals. ceiling: harmless while the ring stays 2px/2px.
-     until: the ring geometry changes, or ink-clip flags one of them.
+     row ring.
+     debt: 34 component-drawn rings (16 files) still restate the 2px/2px literals.
+     ceiling: harmless while the ring stays 2px/2px.
+     until: the ring geometry changes, or TAV-SHELL-NAV-RING-CLIP is picked up.
      An outward ring is ink OUTSIDE its element, so a
      clipping ancestor (any overflow other than visible) must leave
      --focus-ring-clearance as padding on every side a child can touch, plus

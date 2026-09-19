@@ -316,7 +316,7 @@ function CodexPageInner() {
   // A11Y CRITICAL-1: track the viewport breakpoint that changes *behavior*
   // (not just CSS) — below 1280px the drawer becomes a modal. (The rail's
   // tablist was briefly also behavior-switched below 860px; reverted to
-  // vertical-always — see Codex.module.css's .rail comment and
+  // vertical-always — see Codex.module.css's DDX-21 fix pass 3 comment and
   // onRailKeyDown below.)
   const isNarrowDrawer = useMediaQuery(NARROW_DRAWER_QUERY);
 
@@ -507,7 +507,7 @@ function CodexPageInner() {
   };
 
   // Rail: vertical tablist, always (DDX-21 fix pass 3: reverted the ≤860px
-  // horizontal reflow — see Codex.module.css's .rail comment for why). Roving
+  // horizontal reflow — see Codex.module.css's fix pass 3 comment for why). Roving
   // tabindex + Up/Down is the APG vertical-tabs pattern; no Left/Right, since
   // there's no horizontal state left to drive. A11Y MAJOR-8: Home/End jump to
   // the first/last tab.
@@ -759,7 +759,7 @@ function CodexPageInner() {
               aria-activedescendant={optionId(filtered[focusedIdx]?.slug ?? '')}
               onKeyDown={onListboxKeyDown}
               // CODEX-RING-CLIP: the active row's ring is the listbox's only
-              // focus indicator (Codex.module.css .rows:focus-visible), so it
+              // focus indicator (Codex.module.css .rows:focus .rowFocused), so it
               // must be on screen when focus arrives by keyboard. Keyboard
               // focus only: on a mouse press this would scroll between
               // mousedown and click and land the click on another row.

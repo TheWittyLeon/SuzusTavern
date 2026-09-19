@@ -58,10 +58,10 @@
    source order can no longer matter either way. Below 721px, .rail's
    `position` is simply never set (initial value: static) — correct for
    the single-column layout, where the rail is a stacked block above
-   .main, not a sidebar beside scrolling content. Do NOT copy
-   Codex.module.css's history here — that component's rail deliberately
-   stays sticky at every width (a different UX intent, a persistent nav
-   rail); this one does not. */
+   .main, not a sidebar beside scrolling content. Codex.module.css's rail
+   uses this same min-width-guarded shape since CODEX-RAIL-SLAB
+   (2026-09-18); do not copy its older history, where the rail stayed sticky
+   at every width. */
 @media (min-width: 721px) {
   .rail {
     position: sticky;

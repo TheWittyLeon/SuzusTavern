@@ -15,15 +15,16 @@
  * rail vertical + sticky + opaque at all widths. CODEX-RAIL-SLAB (2026-09-18)
  * removed the fill: it painted a lighter slab over the aurora in every
  * palette and occluded nothing (multi-column never sticks; single column's
- * content-visibility rows paint over the rail regardless). The single-column
- * rail now scrolls away instead of pinning 550px of a phone screen. It stays
- * vertical at all widths; that is the part of fix pass 3 this suite still
- * guards.
+ * content-visibility rows paint over the rail regardless). Sticky is now
+ * guarded by min-width (order-independent, like CharacterCreate's rail), so
+ * the single-column rail scrolls away instead of pinning 550px of a phone
+ * screen. It stays vertical at all widths; that is the part of fix pass 3
+ * this suite still guards.
  */
 import fs from 'fs';
 import path from 'path';
 
-describe('Codex.module.css — .rail is vertical everywhere, sticky only in multi-column, never an opaque slab (CODEX-RAIL-SLAB)', () => {
+describe('Codex.module.css — .rail is vertical everywhere, sticky only in multi-column (min-width guard), never an opaque slab (CODEX-RAIL-SLAB)', () => {
   let cssContent: string;
 
   beforeAll(() => {
@@ -42,10 +43,10 @@ describe('Codex.module.css — .rail is vertical everywhere, sticky only in mult
     return out;
   }
 
-  it('the base .rail rule is a sticky column flex container', () => {
+  it('the base .rail rule is a column flex container and sets no position (so no source-order override is needed below 861px)', () => {
     const [base] = railBlocks();
-    expect(base.text).toContain('position: sticky');
     expect(base.text).toContain('flex-direction: column');
+    expect(base.text).not.toMatch(/position\s*:/);
   });
 
   it('no .rail rule paints a background at any width (the design system .comp-rail has none; the plane shows through)', () => {
@@ -61,14 +62,13 @@ describe('Codex.module.css — .rail is vertical everywhere, sticky only in mult
     expect(cssContent).not.toContain('flex-direction: row;');
   });
 
-  it('single column (≤860px) un-sticks the rail via an override declared AFTER the base rule', () => {
-    const blocks = railBlocks();
-    expect(blocks.length).toBeGreaterThanOrEqual(2);
-    const override = blocks[blocks.length - 1];
-    expect(override.idx).toBeGreaterThan(blocks[0].idx);
-    expect(override.text).toContain('position: static');
-    const mediaIdx = cssContent.lastIndexOf('@media', override.idx);
-    expect(cssContent.slice(mediaIdx, override.idx)).toContain('@media (max-width: 860px)');
+  it('sticky lives ONLY inside @media (min-width: 861px) — mutually exclusive with the ≤860px single-column layout, so source order cannot matter', () => {
+    const sticky = railBlocks().filter((b) => b.text.includes('position: sticky'));
+    expect(sticky).toHaveLength(1);
+    const mediaIdx = cssContent.lastIndexOf('@media', sticky[0].idx);
+    expect(cssContent.slice(mediaIdx, sticky[0].idx)).toContain('@media (min-width: 861px)');
+    // No max-width override un-sticking it (the order-dependent shape).
+    expect(cssContent).not.toContain('position: static;');
   });
 
   it('the ≤860px .body grid collapse (stacks the 3-column grid to 1) is untouched and separate from the rail override', () => {
@@ -106,9 +106,12 @@ describe('Codex.module.css — row rings are never clipped by the list scroller 
     expect(rows).toContain('scroll-padding-block: var(--focus-ring-clearance)');
   });
 
-  it('the virtual-focus ring draws only while the listbox has keyboard focus (no ring on row 0 at rest)', () => {
+  it('the virtual-focus ring draws only while the listbox has focus (no ring on row 0 at rest), gated on :focus not :focus-visible', () => {
     expect(cssContent).not.toMatch(/(^|\n)\.rowFocused \{/);
-    const gated = ruleBlock('.rows:focus-visible .rowFocused');
+    // :focus-visible stays false in Firefox after a mouse click even while the
+    // user arrows through the list, so gating on it hides the only indicator.
+    expect(cssContent).not.toContain('.rows:focus-visible .rowFocused');
+    const gated = ruleBlock('.rows:focus .rowFocused');
     expect(gated).toContain('outline: var(--focus-ring-width) solid var(--accent)');
     expect(gated).toContain('outline-offset: var(--focus-ring-offset)');
   });

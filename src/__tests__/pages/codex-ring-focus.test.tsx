@@ -1,7 +1,7 @@
 /**
  * Coverage for CODEX-RING-CLIP's onFocus handler on the Codex listbox
  * (page.tsx, commit 11c4000). The virtual-focus ring (Codex.module.css
- * `.rows:focus-visible .rowFocused`) is the listbox's only visible focus
+ * `.rows:focus .rowFocused`) is the listbox's only visible focus
  * indicator, so when real DOM focus lands on `.rows` by KEYBOARD, the active
  * row must be scrolled into view. It must NOT scroll on a mouse-driven focus
  * (e.g. clicking a row calls `listboxRef.current.focus()` internally) — the
