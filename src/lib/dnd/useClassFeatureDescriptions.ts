@@ -16,11 +16,18 @@
 // Same fetch call `useCatalog.ts` already makes for the creation wizard
 // (`getCatalog(SYSTEM, { type: 'class' })`) — no new API surface, just a
 // second reader of the same response shape.
+//
+// UIA-0919-001: `CatalogClassData.features` (lib/api/types.ts) is the
+// canonical type for this same row shape — reused here instead of a second,
+// narrower local declaration (a bare string entry is possible on the wire
+// too, per that field's own doc comment; skipped below same as a malformed
+// object entry, never rendered as "[object Object]").
 
 'use client';
 
 import { useEffect, useState } from 'react';
 import { getCatalog } from '@/lib/api/dnd';
+import type { CatalogFeatureEntry } from '@/lib/api/types';
 
 const SYSTEM = 'dnd5e';
 
@@ -29,16 +36,12 @@ export type ClassFeatureDescriptions = Record<string, string>;
 
 export type ClassFeatureDescriptionsStatus = 'idle' | 'loading' | 'ok' | 'error';
 
-interface RawFeatureRow {
-  name?: unknown;
-  description?: unknown;
-}
-
 function descriptionsFromCatalogData(data: unknown): ClassFeatureDescriptions {
   const rows = (data as { features?: unknown } | null | undefined)?.features;
   const out: ClassFeatureDescriptions = {};
   if (!Array.isArray(rows)) return out;
-  for (const row of rows as RawFeatureRow[]) {
+  for (const row of rows as (string | CatalogFeatureEntry)[]) {
+    if (typeof row === 'string') continue; // bare-string entries carry no description to index.
     const name = typeof row?.name === 'string' ? row.name : null;
     const description = typeof row?.description === 'string' ? row.description : '';
     // First occurrence wins — a name repeated across levels (e.g. Ability

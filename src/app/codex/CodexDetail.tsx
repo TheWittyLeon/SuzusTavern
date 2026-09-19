@@ -37,6 +37,7 @@ import {
   itemCostLabel,
   itemDescription,
   itemWeightLabel,
+  normalizeFeatureEntries,
   PHYSIQUE_SKIN_KIND_DEFAULT_LABEL,
   physiqueHairLabel,
   raceSpeedLabel,
@@ -135,6 +136,12 @@ function ItemDetail({ d }: { d: CatalogEquipmentData }) {
 
 function RaceDetail({ d }: { d: CatalogRaceData }) {
   const bonuses = Object.entries(d.ability_bonus ?? {}).filter(([, v]) => v);
+  // UIA-0919-001: `d.traits` may be bare strings (SRD) or structured
+  // `{level, name, description}` objects (homebrew) — see
+  // CatalogFeatureEntry's doc comment. normalizeFeatureEntries is the one
+  // shared converter for this whole field family (also used below for each
+  // subrace's own `traits`, and by ClassDetail/SubclassDetail).
+  const traits = normalizeFeatureEntries(d.traits);
   return (
     <>
       <StatsGrid
@@ -160,12 +167,12 @@ function RaceDetail({ d }: { d: CatalogRaceData }) {
           </div>
         </Section>
       )}
-      {d.traits && d.traits.length > 0 && (
+      {traits.length > 0 && (
         <Section label="Traits">
           <div className={styles.tagList}>
-            {d.traits.map((t) => (
-              <Pill key={t} tone="muted">
-                {t}
+            {traits.map((t) => (
+              <Pill key={t.key} tone="muted" title={t.description}>
+                {t.label}
               </Pill>
             ))}
           </div>
@@ -184,12 +191,16 @@ function RaceDetail({ d }: { d: CatalogRaceData }) {
       {d.subraces && Object.keys(d.subraces).length > 0 && (
         <Section label="Subraces">
           {Object.entries(d.subraces).map(([name, sub]) => {
-            const s = sub as { traits?: string[]; ability_bonus?: Record<string, number> };
+            // UIA-0919-001: same string-or-object convention as the race's
+            // own top-level `traits` above — normalize before joining, never
+            // `.join(', ')` the raw array (that path used to render a
+            // literal "[object Object]" for a homebrew subrace).
+            const subTraits = normalizeFeatureEntries(sub.traits);
             return (
               <div key={name} className={styles.subcard}>
                 <p className={styles.subcardTitle}>{name}</p>
-                {s.traits && s.traits.length > 0 && (
-                  <p className={styles.actionDesc}>{s.traits.join(', ')}</p>
+                {subTraits.length > 0 && (
+                  <p className={styles.actionDesc}>{subTraits.map((t) => t.label).join(', ')}</p>
                 )}
               </div>
             );
@@ -201,6 +212,10 @@ function RaceDetail({ d }: { d: CatalogRaceData }) {
 }
 
 function ClassDetail({ d }: { d: CatalogClassData }) {
+  // UIA-0919-001: see RaceDetail's identical comment — `level1_features` is
+  // string[] on every class row on file today, typed defensively against the
+  // same convention `features`/subclass `features` already use.
+  const level1Features = normalizeFeatureEntries(d.level1_features);
   return (
     <>
       <StatsGrid
@@ -238,12 +253,12 @@ function ClassDetail({ d }: { d: CatalogClassData }) {
           <p>{d.skill_choices.map((s) => s.replace(/_/g, ' ')).join(', ')}</p>
         </Section>
       )}
-      {d.level1_features && d.level1_features.length > 0 && (
+      {level1Features.length > 0 && (
         <Section label="Level 1 features">
           <div className={styles.tagList}>
-            {d.level1_features.map((f) => (
-              <Pill key={f} tone="muted">
-                {f}
+            {level1Features.map((f) => (
+              <Pill key={f.key} tone="muted" title={f.description}>
+                {f.label}
               </Pill>
             ))}
           </div>
@@ -443,6 +458,14 @@ function FeatDetail({ d }: { d: CatalogFeatData }) {
 }
 
 function SubclassDetail({ d }: { d: CatalogSubclassData }) {
+  // UIA-0919-001 (root cause): a homebrew subclass's `features` is
+  // `{level, name, description}[]` (e.g. leon-fairytail-5e's "Airspace
+  // Magic"), not the SRD convention's bare `string[]` — mapping the raw
+  // array straight onto `<Pill key={f}>{f}</Pill>` both crashed ("Objects
+  // are not valid as a React child") and produced ten duplicate
+  // `[object Object]` React keys. normalizeFeatureEntries handles both
+  // shapes uniformly with stable, unique keys.
+  const features = normalizeFeatureEntries(d.features);
   return (
     <>
       <StatsGrid
@@ -451,12 +474,12 @@ function SubclassDetail({ d }: { d: CatalogSubclassData }) {
           { k: 'Unlocks at level', v: d.subclass_level != null ? String(d.subclass_level) : '—' },
         ]}
       />
-      {d.features && d.features.length > 0 && (
+      {features.length > 0 && (
         <Section label="Features">
           <div className={styles.tagList}>
-            {d.features.map((f) => (
-              <Pill key={f} tone="muted">
-                {f}
+            {features.map((f) => (
+              <Pill key={f.key} tone="muted" title={f.description}>
+                {f.label}
               </Pill>
             ))}
           </div>

@@ -98,6 +98,150 @@ describe('Subclass detail (minimal)', () => {
     row(SCHOOL_OF_EVOCATION, 'subclass');
     expect(screen.getByText('Wizard')).toBeInTheDocument();
   });
+
+  // UIA-0919-001 regression: selecting a homebrew subclass whose `features`
+  // are structured `{level, name, description}` objects (verified wire shape
+  // — NekoNova-DnDEngine scripts/seed_data/leon-fairytail-5e/20-subclasses-
+  // g1.json's "airspace-magic" row) used to crash the whole /codex route
+  // with "Objects are not valid as a React child", preceded by 10 duplicate
+  // `[object Object]` key warnings.
+  const AIRSPACE_MAGIC: CatalogItem = {
+    slug: 'airspace-magic',
+    name: 'Airspace Magic',
+    content_type: 'subclass',
+    source_type: 'homebrew',
+    data: {
+      class: 'ft-caster',
+      subclass_level: 1,
+      description: 'Airspace Magic (Erigor’s Wind). Caster chassis.',
+      features: [
+        { level: 1, name: 'Wind Palm (Airspace Signature)', description: 'Free, at-will.' },
+        { level: 1, name: 'Airspace Magic — Rung I', description: 'Choose ONE (2 MP each).' },
+        { level: 3, name: 'Airspace Magic — Rung II', description: 'Choose ONE (3 MP each).' },
+        { level: 5, name: 'Airspace Magic — Rung III', description: 'Choose ONE (5 MP each).' },
+        { level: 11, name: 'Airspace Magic — Rung IV', description: 'Choose ONE (9 MP each).' },
+        { level: 18, name: 'Airspace Magic — Rung V', description: 'Choose ONE (13 MP each).' },
+      ],
+    },
+  };
+
+  it('UIA-0919-001: renders a homebrew subclass with OBJECT features without throwing, showing every feature name', () => {
+    expect(() => render(<CodexDetail item={AIRSPACE_MAGIC} kind="subclass" />)).not.toThrow();
+    expect(screen.getByText(/wind palm \(airspace signature\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/rung i\b/i)).toBeInTheDocument();
+    expect(screen.getByText(/rung v\b/i)).toBeInTheDocument();
+  });
+
+  it('UIA-0919-001: prefixes the level onto the label ("Lv 3 · ...") for a structured feature entry', () => {
+    render(<CodexDetail item={AIRSPACE_MAGIC} kind="subclass" />);
+    expect(screen.getByText(/^Lv 3 · Airspace Magic — Rung II$/)).toBeInTheDocument();
+  });
+
+  it('UIA-0919-001: never renders the literal string "[object Object]" anywhere for an object-shaped feature list', () => {
+    render(<CodexDetail item={AIRSPACE_MAGIC} kind="subclass" />);
+    expect(screen.queryByText(/\[object Object\]/)).not.toBeInTheDocument();
+  });
+
+  it('UIA-0919-001: does not warn about duplicate/non-unique React keys for the object-features list', () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    render(<CodexDetail item={AIRSPACE_MAGIC} kind="subclass" />);
+    const keyWarnings = errorSpy.mock.calls.filter((args) =>
+      String(args[0] ?? '').match(/same key|unique "key" prop|encountered two children/i),
+    );
+    expect(keyWarnings).toHaveLength(0);
+    errorSpy.mockRestore();
+  });
+
+  it('UIA-0919-001: row also survives the object-features shape (the row never reads `features` at all)', () => {
+    expect(() => row(AIRSPACE_MAGIC, 'subclass')).not.toThrow();
+    expect(screen.getByRole('option', { name: /airspace magic/i })).toBeInTheDocument();
+  });
+});
+
+describe('Class detail level1_features (UIA-0919-001 defensive widen)', () => {
+  // level1_features has only ever shipped as bare strings on the real wire —
+  // this proves the SRD shape keeps rendering byte-identical, AND that the
+  // same normalizer this bug introduced tolerates an object entry without
+  // crashing if a future homebrew pack ever authors one that way.
+  const FIGHTER: CatalogItem = {
+    slug: 'fighter',
+    name: 'Fighter',
+    content_type: 'class',
+    source_type: 'srd',
+    data: {
+      hit_die: 10,
+      level1_features: ['Fighting Style', 'Second Wind'],
+    },
+  };
+
+  it('renders plain-string level1_features unchanged', () => {
+    render(<CodexDetail item={FIGHTER} kind="class" />);
+    expect(screen.getByText('Fighting Style')).toBeInTheDocument();
+    expect(screen.getByText('Second Wind')).toBeInTheDocument();
+  });
+
+  it('does not throw and formats "Lv N · name" if a future homebrew class ever authors level1_features as structured objects', () => {
+    const HOMEBREW_CLASS: CatalogItem = {
+      slug: 'ft-caster',
+      name: 'Caster (Fairy Tail)',
+      content_type: 'class',
+      source_type: 'homebrew',
+      data: {
+        hit_die: 8,
+        level1_features: [{ level: 1, name: 'Magic', description: 'You commit to ONE Magic.' }],
+      },
+    };
+    expect(() => render(<CodexDetail item={HOMEBREW_CLASS} kind="class" />)).not.toThrow();
+    expect(screen.getByText('Lv 1 · Magic')).toBeInTheDocument();
+  });
+});
+
+describe('Race detail traits (UIA-0919-001 defensive widen)', () => {
+  const HUMAN: CatalogItem = {
+    slug: 'ft-human',
+    name: 'Human (Fiore)',
+    content_type: 'race',
+    source_type: 'homebrew',
+    data: {
+      ability_bonus: { charisma: 1 },
+      traits: ['Versatile', 'Request-Board Haggling (Persuasion)'],
+      subraces: {
+        'First Generation': {
+          ability_bonus: {},
+          traits: ['Dragon-raised', 'Feast (+2 MP per meal)'],
+        },
+      },
+    },
+  };
+
+  it('renders plain-string race traits and subrace traits unchanged', () => {
+    render(<CodexDetail item={HUMAN} kind="race" />);
+    expect(screen.getByText('Versatile')).toBeInTheDocument();
+    expect(screen.getByText('First Generation')).toBeInTheDocument();
+    expect(screen.getByText('Dragon-raised, Feast (+2 MP per meal)')).toBeInTheDocument();
+  });
+
+  it('does not throw and formats structured entries if a future homebrew race authors traits as objects', () => {
+    const HOMEBREW_RACE: CatalogItem = {
+      slug: 'kekkei-genkai',
+      name: 'Kekkei Genkai',
+      content_type: 'race',
+      source_type: 'homebrew',
+      data: {
+        ability_bonus: { dexterity: 2 },
+        traits: [{ level: 15, name: 'Bloodline Awakening', description: 'DM-gated.' }],
+        subraces: {
+          Uchiha: {
+            ability_bonus: { dexterity: 2 },
+            traits: [{ name: 'Sharingan', description: 'DM-tracked.' }],
+          },
+        },
+      },
+    };
+    expect(() => render(<CodexDetail item={HOMEBREW_RACE} kind="race" />)).not.toThrow();
+    expect(screen.getByText('Lv 15 · Bloodline Awakening')).toBeInTheDocument();
+    expect(screen.getByText('Sharingan')).toBeInTheDocument();
+  });
 });
 
 describe('Adventure detail (FR-6/FR-22 — allowlist-only, never scenes/gm_description)', () => {

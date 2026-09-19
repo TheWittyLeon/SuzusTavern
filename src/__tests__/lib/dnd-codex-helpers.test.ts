@@ -9,6 +9,7 @@
  */
 import type {
   CatalogEquipmentData,
+  CatalogFeatureEntry,
   CatalogItem,
   CatalogMonsterAction,
   CatalogMonsterData,
@@ -27,6 +28,7 @@ import {
   monsterCrLabel,
   monsterSensesLabel,
   monsterSpeedLabel,
+  normalizeFeatureEntries,
   physiqueHairLabel,
   raceSpeedLabel,
   sourceBadge,
@@ -131,6 +133,76 @@ describe('raceSpeedLabel', () => {
     expect(() => raceSpeedLabel({ walk: 10, swim: 40 })).not.toThrow();
     expect(() => raceSpeedLabel('fast' as unknown)).not.toThrow();
     expect(raceSpeedLabel('fast' as unknown)).toBe('—');
+  });
+});
+
+// ── normalizeFeatureEntries — UIA-0919-001 crash-fix guard ───────────────────
+//
+// A homebrew subclass/class/race row's feature/trait list may carry bare
+// display strings (SRD convention) or structured `{level, name, description}`
+// objects (homebrew convention) — see CatalogFeatureEntry's doc comment in
+// lib/api/types.ts. SubclassDetail used to map the raw array straight onto
+// `<Pill key={f}>{f}</Pill>`, which crashed React on the object shape
+// ("Objects are not valid as a React child") and produced duplicate
+// `[object Object]` keys even before the crash. This is the one shared
+// normalizer every reader of that field family goes through instead.
+
+describe('normalizeFeatureEntries', () => {
+  it('returns [] for undefined and for an empty array', () => {
+    expect(normalizeFeatureEntries(undefined)).toEqual([]);
+    expect(normalizeFeatureEntries([])).toEqual([]);
+  });
+
+  it('passes bare strings through as the label, with no description', () => {
+    const result = normalizeFeatureEntries(['Evocation Savant', 'Sculpt Spells']);
+    expect(result).toEqual([
+      { key: '0-Evocation Savant', label: 'Evocation Savant' },
+      { key: '1-Sculpt Spells', label: 'Sculpt Spells' },
+    ]);
+  });
+
+  it('formats a structured entry as "Lv N · Name" and carries the description', () => {
+    const entry: CatalogFeatureEntry = {
+      level: 1,
+      name: 'Wind Palm (Airspace Signature)',
+      description: 'Your Magic’s signature — free, at-will.',
+    };
+    expect(normalizeFeatureEntries([entry])).toEqual([
+      {
+        key: '0-Wind Palm (Airspace Signature)',
+        label: 'Lv 1 · Wind Palm (Airspace Signature)',
+        description: entry.description,
+      },
+    ]);
+  });
+
+  it('renders the bare name (no "Lv" prefix) when level is absent from a structured entry', () => {
+    const entry: CatalogFeatureEntry = { name: 'Turncoat’s Nerve', description: 'Advantage on saves.' };
+    expect(normalizeFeatureEntries([entry])[0].label).toBe('Turncoat’s Nerve');
+  });
+
+  it('never throws on a mixed array of strings and objects, and produces stable, unique keys even when a name repeats across levels', () => {
+    const asi: CatalogFeatureEntry = { level: 4, name: 'Ability Score Improvement' };
+    const asiAgain: CatalogFeatureEntry = { level: 8, name: 'Ability Score Improvement' };
+    let result: ReturnType<typeof normalizeFeatureEntries> = [];
+    expect(() => {
+      result = normalizeFeatureEntries(['Magic', asi, asiAgain]);
+    }).not.toThrow();
+    const keys = result.map((r) => r.key);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(result[1].label).toBe('Lv 4 · Ability Score Improvement');
+    expect(result[2].label).toBe('Lv 8 · Ability Score Improvement');
+  });
+
+  it('never returns an object as `label` or `description` — every field is a string or undefined', () => {
+    const entries = normalizeFeatureEntries([
+      'bare',
+      { name: 'structured', level: 3, description: 'text' },
+    ]);
+    for (const e of entries) {
+      expect(typeof e.label).toBe('string');
+      expect(e.description === undefined || typeof e.description === 'string').toBe(true);
+    }
   });
 });
 

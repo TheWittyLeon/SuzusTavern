@@ -11,6 +11,7 @@ import type {
   AdventureSummary,
   CatalogConditionData,
   CatalogEquipmentData,
+  CatalogFeatureEntry,
   CatalogItem,
   CatalogMonsterAction,
   CatalogMonsterData,
@@ -271,6 +272,57 @@ export function itemDescription(d: CatalogEquipmentData): string {
 
 export function conditionHasData(d: CatalogConditionData): boolean {
   return Object.keys(d ?? {}).length > 0;
+}
+
+// ── Feature/trait entry normalization (UIA-0919-001) ─────────────────────────
+//
+// One authored feature/trait row can arrive on the wire as a bare display
+// string (the SRD-import convention) OR a structured `{level, name,
+// description}` object (the hand-authored homebrew convention) — see
+// `CatalogFeatureEntry`'s doc comment in lib/api/types.ts for the verified
+// wire evidence. `SubclassDetail` used to `.map((f) => <Pill key={f}>{f}</Pill>)`
+// straight off the raw array, which both threw ("Objects are not valid as a
+// React child") on the object shape AND produced ten identical
+// `[object Object]` React keys even before the crash. Every reader of this
+// field family (subclass/class features, race traits, race subrace traits)
+// goes through this ONE normalizer rather than re-deriving its own
+// string-vs-object guard per field — the mirror rule: one shape, one
+// converter, reused everywhere it appears, so the next field sharing this
+// convention (or the next homebrew pack using the richer shape) needs no
+// code change here.
+
+export interface NormalizedFeatureEntry {
+  /** Stable, unique React list key. Positional (not name-only) because a
+   *  name CAN legitimately repeat across levels within one entries array
+   *  (e.g. a class's "Ability Score Improvement" at levels 4/8/12/16/19) —
+   *  keying on name alone would silently dedupe/collide exactly like the
+   *  bug's raw `key={f}` did. */
+  key: string;
+  /** "Lv 3 · Feature name" when a level is present, else the bare name. */
+  label: string;
+  /** Rules text, when present — callers may surface it as a title tooltip
+   *  or an expandable; never the ONLY copy of the fact (this is supplementary
+   *  detail, not load-bearing content). */
+  description?: string;
+}
+
+/**
+ * Normalizes a feature/trait list that may mix bare strings and structured
+ * `CatalogFeatureEntry` objects into a uniform, safely-renderable shape.
+ * `undefined`/empty input returns `[]` (matches every other list helper in
+ * this file — callers gate the whole Section on `.length > 0`).
+ */
+export function normalizeFeatureEntries(
+  entries: (string | CatalogFeatureEntry)[] | undefined,
+): NormalizedFeatureEntry[] {
+  if (!entries || entries.length === 0) return [];
+  return entries.map((entry, i) => {
+    if (typeof entry === 'string') {
+      return { key: `${i}-${entry}`, label: entry };
+    }
+    const label = entry.level != null ? `Lv ${entry.level} · ${entry.name}` : entry.name;
+    return { key: `${i}-${entry.name}`, label, description: entry.description };
+  });
 }
 
 // ── Generic ────────────────────────────────────────────────────────────────────

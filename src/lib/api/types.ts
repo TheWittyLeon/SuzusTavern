@@ -1240,16 +1240,58 @@ export interface CombatMessageResult {
 
 // ── DnD: catalog (S2.4 — GET /api/dnd/catalog) ───────────────────────────────
 
+/**
+ * UIA-0919-001: one authored feature/trait entry off a hand-written homebrew
+ * row. `list_catalog`'s `data` column is a raw jsonb passthrough (engine
+ * `msm_repo.py` — no per-content-type reshaping except a race-only subrace
+ * merge), so the SAME logical field ("this class/subclass/race's named
+ * mechanical bullet points") ships in TWO conventions depending on who
+ * authored the row: the SRD importer writes bare display strings
+ * (`class.level1_features`, `race.traits`), while hand-authored homebrew
+ * packs write structured objects with a level and rules text (verified in
+ * NekoNova-DnDEngine `scripts/seed_data/leon-fairytail-5e/20-subclasses-
+ * g1.json`'s `airspace-magic` row, and `10-classes.json`'s `ft-caster.data.
+ * features` — same shape, no `level` on a monster's own `data.traits`, which
+ * is the same family again). `CodexDetail.tsx`'s `SubclassDetail` used to
+ * assume the SRD shape unconditionally and crashed the whole /codex route
+ * ("Objects are not valid as a React child") the first time a homebrew
+ * subclass was selected, with 10 duplicate `[object Object]` React keys
+ * alongside it. Every reader of this field family normalizes through
+ * `normalizeFeatureEntries` (lib/dnd/codex.ts) instead of mapping the raw
+ * array directly, so the next homebrew pack (or a third field sharing this
+ * convention) needs a data row, never a code change.
+ */
+export interface CatalogFeatureEntry {
+  name: string;
+  level?: number;
+  description?: string;
+}
+
+/** One entry of a race's `data.subraces` map (keyed by display name — e.g.
+ *  "Wood Elf"). `ability_bonus` is an OFFSET applied on top of the parent
+ *  race's own spread (`apply_racial_bonuses`), never a replacement. */
+export interface CatalogSubraceData {
+  ability_bonus?: Partial<Record<string, number>>;
+  traits?: (string | CatalogFeatureEntry)[];
+  description?: string;
+}
+
 /** Mechanical data shape for a race catalog item. */
 export interface CatalogRaceData {
   ability_bonus: Partial<Record<string, number>>;
   size?: string;
   speed?: number;
-  traits?: string[];
+  /** UIA-0919-001: see `CatalogFeatureEntry` — every homebrew race pack seen
+   *  to date authors this as bare strings, but the SAME field name carries
+   *  structured `{name, description}` objects on the sibling `class.features`
+   *  / `subclass.features` / `monster.traits` fields, so this is typed to the
+   *  shared union defensively rather than re-litigating the same crash the
+   *  day a homebrew race author reaches for the richer shape. */
+  traits?: (string | CatalogFeatureEntry)[];
   languages?: string[];
   proficiencies?: string[];
   skill_proficiencies?: string[];
-  subraces?: Record<string, unknown>;
+  subraces?: Record<string, CatalogSubraceData>;
   /** Whether picking a subrace is MANDATORY. Absent/true = mandatory, which
    *  is correct for every SRD race carrying subraces. Set false where the
    *  base race is playable on its own and the subrace is a variant — Dragon
@@ -1290,7 +1332,23 @@ export interface CatalogClassData {
    *  convenience key stamped by the engine's catalog route. Absent when the
    *  class has no unarmored defense. */
   unarmored_defense_ability?: string | null;
-  level1_features?: string[];
+  /** UIA-0919-001: see `CatalogFeatureEntry` — every SRD/homebrew class row
+   *  seen to date authors this as bare feature-name strings, but it names
+   *  the exact same features `features` (below) describes in full, so it's
+   *  typed to the shared union defensively rather than re-litigating the
+   *  same crash if a future pack ever authors it richer. */
+  level1_features?: (string | CatalogFeatureEntry)[];
+  /** UIA-0919-001 — the class row's OWN `data.features` (schema v2), RAW off
+   *  the catalog row, distinct from `level1_features` above: `level1_features`
+   *  is the level-1 subset of feature NAMES, `features` is the full
+   *  level-by-level list with rules text for every level (verified in
+   *  NekoNova-DnDEngine `scripts/seed_data/leon-fairytail-5e/10-classes.json`
+   *  — `useClassFeatureDescriptions.ts` already reads this to annotate the
+   *  sheet's Features list, keyed by name). Not rendered by the Codex today
+   *  (ClassDetail shows `level1_features` only); typed here so that reader
+   *  and any future Codex reader share one canonical shape instead of a
+   *  second ad hoc declaration. */
+  features?: (string | CatalogFeatureEntry)[];
   /** TAV-WIZARD-HOMEBREW-CASTERS — the class's spellcasting profile, RAW off
    *  the catalog row's `data.spellcasting` block (NekoNova-DnDEngine
    *  `scripts/import_srd.py::build_classes` / `engine/rules_catalog.py::
@@ -1563,7 +1621,12 @@ export interface CatalogSubclassData {
    *  one shared derivation both the creation wizard and LevelChoicePicker
    *  read this through. */
   subclass_level?: number;
-  features?: string[];
+  /** UIA-0919-001: see `CatalogFeatureEntry`'s doc comment — this is the
+   *  field that actually crashed (a homebrew subclass row's `features` is
+   *  `{level, name, description}[]`; SRD rows carry plain strings). Never
+   *  map this directly onto a `<Pill key={f}>` — go through
+   *  `normalizeFeatureEntries` (lib/dnd/codex.ts). */
+  features?: (string | CatalogFeatureEntry)[];
   description?: string;
 }
 
