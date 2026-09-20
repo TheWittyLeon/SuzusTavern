@@ -527,20 +527,40 @@ a { color: inherit; text-decoration: none; }
   content: '';
   position: absolute; inset: 0 -10%;
   background: var(--grad-aurora);
+  /* Restores the composition: all three radials in --grad-aurora are
+     positioned as percentages of the background layer's own box, and that
+     box used to be 20% taller (inset:-10% top+bottom) before UIA-0919-021's
+     first fix flushed it to 100%. Sizing the background layer itself back up
+     to the old canvas (100% 120%) re-resolves those percentage positions
+     against the same proportions as before — most visibly the `at 50% 100%`
+     glow — without re-inflating the ELEMENT's own box, which is what drove
+     the scroll bug. Kage-CR measured this drops the whole-page composition
+     mean ΔE from the pre-fix render to 0.22 (was 1.5-2.4/255) with the
+     scroll residual still 0 at every animation frame. */
+  background-size: 100% 120%;
+  background-position: 50% 50%;
   z-index: -1;
   pointer-events: none;
   filter: blur(20px);
   animation: aurora-drift 24s ease-in-out infinite alternate;
 }
-/* Invariant (UIA-0919-021 follow-up): with inset:0 -10% the box's top/bottom
-   edges sit flush with .aurora, so scale(S) alone re-extends it by (S-1)/2 of
-   its own height past each edge — that's what a vertical translate has to
-   cancel. The upward translateY here must be at least (scale - 1) / 2 (as a
-   fraction of height) or the animated layer pushes the bottom edge past the
-   box again and reopens the scroll-past-content bug, just while drifting
-   instead of at rest. scale(1.05) needs >= 2.5%; -2% under-cancelled it by
-   0.5% of page height (measured with reduced motion off, since that's the
-   only way this animation ever runs).  */
+/* Invariant (UIA-0919-021 follow-up, tightened after Kage-CR review): with
+   inset:0 -10% the box's top/bottom edges sit flush with .aurora, so
+   scale(S) alone re-extends it by (S-1)/2 of its own height past each edge.
+   The upward translateY here must EQUAL (scale - 1) / 2 (as a fraction of
+   height) — not merely be at least that much — because both directions of
+   error are bugs:
+     - too little (e.g. -2% against scale(1.05), which needs -2.5%) leaves
+       the bottom edge past the box, re-extending the scrollable document —
+       the original bug, smaller, and only while the layer is drifting
+       (this is the gap UIA-0919-021 actually shipped with).
+     - too much (e.g. -4% against scale(1.05)) overshoots: the bottom edge
+       lifts ABOVE the box, uncovering a strip of plain background under the
+       gradient (measured: 46px uncovered on a 3044px page, 143px on 9544px)
+       even though the scroll residual is still 0.
+   Enforced by the invariant test in globals-css.test.ts, which parses this
+   keyframe's own translateY/scale and recomputes the relation — it does not
+   assert a literal, so it stays correct if either number is retuned. */
 @keyframes aurora-drift {
   0%   { transform: translate(0, 0) scale(1); }
   100% { transform: translate(2%, -2.5%) scale(1.05); }
