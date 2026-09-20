@@ -206,3 +206,45 @@ describe('A11Y-BUTTON-BORDER-CONTRAST: flagged buttons use --line-strong, not th
     expect(safetyBlock).not.toContain('border: 1px solid var(--line);')
   })
 })
+
+describe('UIA-0919-021 cont.: aurora-drift keyframe cancels its own scale exactly', () => {
+  // .aurora::before sits flush with .aurora (inset: 0 -10%), so scale(S)
+  // alone re-extends the layer's bottom edge by (S-1)/2 of its own height.
+  // The keyframe's upward translateY has to exactly cancel that, in EITHER
+  // direction of error: too little re-extends the scrollable document
+  // (the original bug); too much uncovers a strip of plain background under
+  // the gradient. This recomputes the relation from the keyframe's own
+  // transform values rather than asserting a literal string, so it stays
+  // correct if the drift's scale or translate is ever retuned, and it fails
+  // the moment the two drift apart again.
+  let cssContent: string
+
+  beforeAll(() => {
+    cssContent = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/app/globals.css'),
+      'utf8'
+    )
+  })
+
+  function parseDriftEndKeyframe(css: string): { translateUpFraction: number; scale: number } {
+    const kfBlock = css.match(/@keyframes aurora-drift\s*\{([\s\S]*?)\n\}/)?.[1]
+    if (!kfBlock) throw new Error('Could not find @keyframes aurora-drift')
+    const endRule = kfBlock.match(/100%\s*\{\s*transform:\s*([^;]+);/)?.[1]
+    if (!endRule) throw new Error('Could not find the 100% rule in aurora-drift')
+    const m = endRule.match(/translate\(\s*(-?[\d.]+)%\s*,\s*(-?[\d.]+)%\s*\)\s*scale\(\s*([\d.]+)\s*\)/)
+    if (!m) throw new Error(`Could not parse translate()/scale() from: ${endRule}`)
+    return {
+      // translateY is negative (upward); express as a positive "how much
+      // was translated up" fraction of the element's own height, so it's
+      // directly comparable to the scale-driven extension below.
+      translateUpFraction: -Number(m[2]) / 100,
+      scale: Number(m[3]),
+    }
+  }
+
+  it('translateUp at the 100% keyframe equals (scale - 1) / 2', () => {
+    const { translateUpFraction, scale } = parseDriftEndKeyframe(cssContent)
+    const expected = (scale - 1) / 2
+    expect(translateUpFraction).toBeCloseTo(expected, 6)
+  })
+})
