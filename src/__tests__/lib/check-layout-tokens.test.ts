@@ -17,13 +17,14 @@
  * just the detection regex in isolation.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 const ROOT = process.cwd();
 const REGIONS_DIR = path.join(ROOT, 'src/app/play/[sessionId]/regions');
 const FIXTURE = path.join(REGIONS_DIR, 'zzz-check-layout-tokens-fixture.module.css');
 const SCRIPT = path.join(ROOT, 'scripts/check-layout-tokens.mjs');
+const DRAWER_CSS = path.join(ROOT, 'src/components/Drawer.module.css');
 
 function runScript(): { status: number; output: string } {
   try {
@@ -91,5 +92,28 @@ describe('check-layout-tokens.mjs', () => {
     );
     const { status } = runScript();
     expect(status).toBe(0);
+  });
+
+  describe('I8 (2026-09-21 re-review) — Rule 2 checks Drawer.module.css independently of Play.module.css', () => {
+    let originalDrawerCss: string;
+
+    beforeEach(() => {
+      originalDrawerCss = readFileSync(DRAWER_CSS, 'utf8');
+    });
+
+    afterEach(() => {
+      writeFileSync(DRAWER_CSS, originalDrawerCss);
+    });
+
+    it('catches Drawer.module.css\'s @media literal drifting (881 -> 961) while Play.module.css and breakpoints.ts stay at 880 -- the exact scenario the pre-fix script exited 0 on (Kage-CR measured Chromium losing the desktop drawer chrome at 900px under that drift)', () => {
+      const mutated = originalDrawerCss.replace('@media (min-width: 881px)', '@media (min-width: 961px)');
+      expect(mutated).not.toBe(originalDrawerCss); // fixture sanity: the replace must have actually matched something
+      writeFileSync(DRAWER_CSS, mutated);
+
+      const { status, output } = runScript();
+      expect(status).toBe(1);
+      expect(output).toContain('src/components/Drawer.module.css');
+      expect(output).toMatch(/no @media rule near 880px found/);
+    });
   });
 });

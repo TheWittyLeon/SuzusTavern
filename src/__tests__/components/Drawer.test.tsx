@@ -111,7 +111,15 @@ describe('Drawer — open=true, visible=true (the desktop dialog)', () => {
 });
 
 describe('Drawer — I1: open=true, visible=false (the state that must not produce a hidden dialog)', () => {
+  // Kage-CR round-2 re-review (2026-09-21): this state deliberately triggers
+  // a dev-only console.warn (see Drawer.tsx). Stub it in EVERY test in this
+  // block, not just the one that asserts on it — two of the three used to
+  // render this state with the real console.warn still wired up, printing
+  // the warning into test output on every run.
   const originalWarn = console.warn;
+  beforeEach(() => {
+    console.warn = jest.fn();
+  });
   afterEach(() => {
     console.warn = originalWarn;
   });
@@ -129,7 +137,6 @@ describe('Drawer — I1: open=true, visible=false (the state that must not produ
   });
 
   it('warns in development so the inconsistent call site is visible', () => {
-    console.warn = jest.fn();
     renderDrawer({ open: true, visible: false });
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('open=true but visible=false'));
   });

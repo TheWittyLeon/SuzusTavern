@@ -102,14 +102,23 @@ export default function Drawer({
   // so `open=true, visible=false` can never produce a hidden-but-dialog
   // DOM state.
   const isVisible = open || visible;
-  if (process.env.NODE_ENV !== 'production' && open && !visible) {
-     
-    console.warn(
-      `Drawer id="${id}": open=true but visible=false — treating as visible ` +
-        `(open implies presence). Pass visible={open} (or visible={true}) ` +
-        'at the call site to make this explicit.',
-    );
-  }
+
+  // Kage-CR round-2 re-review (2026-09-21): the inconsistent-props warning
+  // used to live directly in the render body, which is (a) an impure side
+  // effect during render (fires on every render pass, twice under
+  // StrictMode's intentional double-invoke) and (b) outside React's own
+  // "effects are for side effects" convention every other side effect in
+  // this file already follows. Moved into an effect so it fires once per
+  // actual commit of the inconsistent state, not once per render pass.
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'production' && open && !visible) {
+      console.warn(
+        `Drawer id="${id}": open=true but visible=false — treating as visible ` +
+          `(open implies presence). Pass visible={open} (or visible={true}) ` +
+          'at the call site to make this explicit.',
+      );
+    }
+  }, [id, open, visible]);
 
   // Focus management on open/close — remember whatever was focused before
   // opening, focus the drawer's close button after paint, restore focus on

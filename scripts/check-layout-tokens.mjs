@@ -37,8 +37,12 @@
  * Rule 2 — breakpoint drift. `src/lib/breakpoints.ts`'s
  * PLAY_PHONE_MAX_WIDTH is the one source of truth for /play's 880px
  * breakpoint; CSS can't read a custom property inside an `@media` feature
- * query, so Play.module.css still carries the literal. This rule fails if
- * that literal ever drifts from breakpoints.ts's own number.
+ * query, so every file in DRIFT_CHECK_FILES still carries the literal
+ * independently. This rule fails if ANY of them drifts from
+ * breakpoints.ts's own number — checked per file, not as a combined set
+ * (Kage-CR I8, 2026-09-21 re-review: this used to check only
+ * Play.module.css, so Drawer.module.css's own copy of the same literal —
+ * the one the C1 fix hangs off — could drift silently).
  *
  * Run: npm run lint:layout-tokens
  */
@@ -144,9 +148,24 @@ for (const file of scopeFiles()) {
   }
 }
 
-// Rule 2 — breakpoint drift, independent of SCOPE_GLOBS (breakpoints.ts and
-// Play.module.css both already exist; this is a drift check, not a
+// Rule 2 — breakpoint drift, independent of SCOPE_GLOBS (these files and
+// breakpoints.ts all already exist; this is a drift check, not a
 // retrofit-discipline check, so it is safe to run unconditionally).
+//
+// Kage-CR I8 (2026-09-21 re-review): this used to check ONLY
+// Play.module.css. Drawer.module.css:57's `@media (min-width: 881px)` —
+// the literal this branch introduced, and the one the C1 fix hangs off —
+// sat outside the guard entirely: drifting it to 961 while leaving
+// breakpoints.ts and Play.module.css at 880 exited 0 clean, while Chromium
+// at 900px silently lost the drawer's desktop chrome (position: static,
+// x=0, w=900 instead of the 380px slide-over). DRIFT_CHECK_FILES is every
+// file whose own `@media` literal must independently match
+// PLAY_PHONE_MAX_WIDTH — checked PER FILE, not as a combined set, so one
+// file drifting while another still matches cannot hide behind the other.
+const DRIFT_CHECK_FILES = [
+  'src/app/play/[sessionId]/Play.module.css',
+  'src/components/Drawer.module.css',
+];
 const drift = [];
 const breakpointsSrc = readFileSync(join(ROOT, 'src/lib/breakpoints.ts'), 'utf8');
 const constMatch = /PLAY_PHONE_MAX_WIDTH\s*=\s*(\d+)/.exec(breakpointsSrc);
@@ -154,16 +173,17 @@ if (!constMatch) {
   drift.push({ file: 'src/lib/breakpoints.ts', issue: 'PLAY_PHONE_MAX_WIDTH constant not found — did it get renamed?' });
 } else {
   const expected = constMatch[1];
-  const playCssPath = join(ROOT, "src/app/play/[sessionId]/Play.module.css");
-  if (existsSync(playCssPath)) {
-    const playCss = readFileSync(playCssPath, 'utf8');
-    const mediaWidths = [...playCss.matchAll(/@media\s*\(\s*(?:min|max)-width:\s*(\d+)px\s*\)/g)]
+  for (const relPath of DRIFT_CHECK_FILES) {
+    const cssPath = join(ROOT, relPath);
+    if (!existsSync(cssPath)) continue;
+    const css = readFileSync(cssPath, 'utf8');
+    const mediaWidths = [...css.matchAll(/@media\s*\(\s*(?:min|max)-width:\s*(\d+)px\s*\)/g)]
       .map((m) => m[1])
       .filter((w) => Number(w) === Number(expected) || Math.abs(Number(w) - Number(expected)) === 1); // 880/881 pair
     if (mediaWidths.length === 0) {
       drift.push({
-        file: 'Play.module.css',
-        issue: `no @media rule near ${expected}px found — breakpoints.ts says PLAY_PHONE_MAX_WIDTH=${expected} but Play.module.css's own literal has drifted (or been removed)`,
+        file: relPath,
+        issue: `no @media rule near ${expected}px found — breakpoints.ts says PLAY_PHONE_MAX_WIDTH=${expected} but ${relPath}'s own literal has drifted (or been removed)`,
       });
     }
   }
