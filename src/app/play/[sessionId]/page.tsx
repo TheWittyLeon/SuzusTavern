@@ -104,7 +104,6 @@ import type {
   SeriesCompletionPointer,
   SeriesNextAdventure,
 } from '@/lib/api/types';
-import RebindCharacterButton from '@/components/RebindCharacterButton';
 import type { QuickCheck, RollTrigger } from '@/components/DiceTray';
 import Icon from '@/components/Icon';
 import Pill from '@/components/Pill';
@@ -113,8 +112,6 @@ import NarratorStrip from '@/components/NarratorStrip';
 import CastSpellPanel from '@/components/CastSpellPanel';
 import SessionRecap from '@/components/SessionRecap';
 import ChatLog, { type ChatLogHandle, type LogRow } from '@/components/ChatLog';
-import PartyPanel from '@/components/PartyPanel';
-import InitiativeTracker from '@/components/InitiativeTracker';
 import DiceTray, { type Advantage } from '@/components/DiceTray';
 import Composer, {
   type ComposeMode,
@@ -125,6 +122,7 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 import Drawer from '@/components/Drawer';
 import SafetyBanner from './regions/SafetyBanner';
 import { SessionControls, DmCombatControls } from './regions/TableControls';
+import PartyStrip from './regions/PartyStrip';
 import JournalPane, { JOURNAL_HEADING_ID } from '@/components/JournalPane';
 import MemberSheetPanel, { MEMBER_SHEET_HEADING_ID } from '@/components/MemberSheetPanel';
 import NextPartOffer from '@/components/NextPartOffer';
@@ -5301,83 +5299,58 @@ export default function PlayPage() {
               });
           }}
         />
-        <PartyPanel
+        {/* TAV-PLAY-SHELL step 3: region extracted verbatim to
+            regions/PartyStrip.tsx (PartyPanel + rebind affordances +
+            InitiativeTracker, decomposition plan §2.3 "survives as-is"). */}
+        <PartyStrip
           participants={participants}
           selfUsername={username}
           combatState={combatState}
           onSelectMember={onSelectMember}
+          isDm={isDm}
+          sessionId={sessionId}
+          combatIsActive={combatIsActive}
+          sessionLocked={sessionLocked}
+          onRebindChanged={() => {
+            void (async () => {
+              // Kage T-IMP-1: `session` does not need re-fetching here. The
+              // engine reads campaign_members fresh on each combat action,
+              // so only the participants list (for party panel display) and
+              // myCharacterIdStr (for per-user turn resolution) need to be
+              // refreshed.
+              const updated = await getParticipants(sessionId).catch(() => null);
+              if (updated) {
+                setParticipants(updated);
+                const self = updated.find(
+                  (q) => q.username.toLowerCase() === (username ?? '').toLowerCase(),
+                );
+                const newCharId =
+                  self?.character?.character_id != null
+                    ? String(self.character.character_id)
+                    : null;
+                setMyCharacterIdStr(newCharId);
+                // Miko additional: mySheet was left stale on rebind — it's
+                // populated once on load and only otherwise refreshed by
+                // CastSpellPanel's own onSheetChanged after a cast. Without
+                // refetching here, a rebind to a DIFFERENT character
+                // out-of-combat leaves mySheet (spell_slots etc.) pointing
+                // at the PREVIOUS character until some unrelated mutation
+                // happens to refresh it. Refetch via the same
+                // getCharacterSheet call the load path uses.
+                if (newCharId) {
+                  const sheet = await getCharacterSheet(newCharId, username ?? '').catch(
+                    () => null,
+                  );
+                  setMySheet(sheet);
+                } else {
+                  setMySheet(null);
+                }
+              }
+            })();
+          }}
+          round={round}
+          selfPcId={selfPcId}
         />
-        {/* B2-4: rebind affordances — one "Change character" button per party row.
-            Self sees their own row's button always; DM sees all rows. */}
-        {participants.length > 0 && (
-          <div className={styles.rebindSection}>
-            {participants.map((p) => {
-              // Non-DM players only see the button on their own row.
-              const isSelf = p.username.toLowerCase() === (username ?? '').toLowerCase();
-              if (!isSelf && !isDm) return null;
-              return (
-                <div key={p.username} className={styles.rebindRow}>
-                  <span className={styles.rebindName}>{p.character?.name ?? p.username}</span>
-                  <RebindCharacterButton
-                    sessionId={sessionId}
-                    targetUsername={p.username}
-                    selfUsername={username ?? ''}
-                    isDm={isDm}
-                    combatActive={combatIsActive && combatState?.state === 'active'}
-                    // DDX-25 R2 (D2-D4): a paused/ended session must not allow
-                    // a rebind either — mirrors every other player-action gate
-                    // above (Composer, combat rail, skill check, Move on,
-                    // DiceTray) which all now extend `sessionLocked`.
-                    sessionLocked={sessionLocked}
-                    onChanged={async () => {
-                      // Kage T-IMP-1: `session` does not need re-fetching here. The engine
-                      // reads campaign_members fresh on each combat action, so only the
-                      // participants list (for party panel display) and myCharacterIdStr
-                      // (for per-user turn resolution) need to be refreshed.
-                      const updated = await getParticipants(sessionId).catch(() => null);
-                      if (updated) {
-                        setParticipants(updated);
-                        const self = updated.find(
-                          (q) => q.username.toLowerCase() === (username ?? '').toLowerCase(),
-                        );
-                        const newCharId =
-                          self?.character?.character_id != null
-                            ? String(self.character.character_id)
-                            : null;
-                        setMyCharacterIdStr(newCharId);
-                        // Miko additional: mySheet was left stale on rebind — it's
-                        // populated once on load (~line 584) and only otherwise
-                        // refreshed by CastSpellPanel's own onSheetChanged after a
-                        // cast. Without refetching here, a rebind to a DIFFERENT
-                        // character out-of-combat leaves mySheet (spell_slots etc.)
-                        // pointing at the PREVIOUS character until some unrelated
-                        // mutation happens to refresh it — CastSpellPanel could
-                        // offer the wrong slots once combat starts. Refetch via the
-                        // same getCharacterSheet call the load path uses.
-                        if (newCharId) {
-                          const sheet = await getCharacterSheet(newCharId, username ?? '').catch(
-                            () => null,
-                          );
-                          setMySheet(sheet);
-                        } else {
-                          setMySheet(null);
-                        }
-                      }
-                    }}
-                  />
-                </div>
-              );
-            })}
-          </div>
-        )}
-        {/* ADV-7/8: structured tracker when combatState available; legacy shim otherwise. */}
-        {combatState && combatState.participants.length > 0 ? (
-          <InitiativeTracker
-            participants={combatState.participants}
-            round={round}
-            selfParticipantId={selfPcId}
-          />
-        ) : null}
       </aside>
 
       {/* CENTRE — narrator + log + composer */}
