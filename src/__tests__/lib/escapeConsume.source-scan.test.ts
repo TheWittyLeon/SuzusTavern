@@ -40,6 +40,12 @@ const SCANNED_FILES = [
   'src/components/Composer.tsx',
   'src/components/DmOverrideModal.tsx',
   'src/components/ConfirmDialog.tsx',
+  // TAV-PLAY-SHELL step 2: Drawer now owns the Journal/member-sheet
+  // drawers' own Esc handling (moved out of page.tsx's onJournalKeyDown/
+  // onMemberSheetKeyDown) — added per the decomposition plan's own A7
+  // instruction to update this list at every extraction step, not let the
+  // scan silently stop covering moved code.
+  'src/components/Drawer.tsx',
 ];
 
 const ESCAPE_COMPARISON_RE = /key\s*(===|!==)\s*'Escape'/g;

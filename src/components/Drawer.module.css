@@ -1,0 +1,86 @@
+/* TAV-PLAY-SHELL step 2 — Drawer primitive. Geometry copied verbatim from
+   the two hand-rolled drawers it replaces (Play.module.css's old
+   `.journalDrawer`/`.journalScrim` and `.memberSheetDrawer`/
+   `.memberSheetScrim`, which were themselves byte-for-byte identical except
+   for the >880px gate) so this step changes zero pixels. */
+
+.drawer {
+  position: fixed;
+  top: var(--env-banner-h, 0px);
+  right: 0;
+  z-index: 900;
+  height: calc(100dvh - var(--env-banner-h, 0px));
+  width: min(380px, 90vw);
+  padding: var(--density-pad);
+  overflow-y: auto;
+  background: var(--bg-2);
+  border-left: 1px solid var(--line);
+  box-shadow: var(--shadow-pop);
+  transform: translateX(100%);
+  transition: transform var(--dur) var(--ease);
+}
+
+.drawerOpen {
+  transform: none;
+}
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 899;
+  background: var(--scrim-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawer {
+    transition: none;
+  }
+}
+
+/* mobileTabFallback=true variant (the Journal drawer today): identical
+   geometry, but scoped to >880px so below that width this drawer hands off
+   to an in-flow mobile-tab pane instead of staying a fixed overlay — the
+   caller's own `className` prop (e.g. Play.module.css's
+   `.showJournal .journalPane`) owns that in-flow layout; see Drawer.tsx's
+   own doc comment on `mobileTabFallback` for the full reasoning.
+
+   Duplicated rather than composed with `.drawer` above: CSS custom
+   properties can't gate an `@media` feature query, so a
+   `.drawer.mobileGate` compound selector would still need this exact block
+   written out again inside the media query below 880px to UNDO the
+   unconditional version's fixed positioning — that undo (position:static,
+   width:auto, etc.) is an approximation of "no rule applied at all", not
+   the same thing. Duplicating the ~12 declarations here, ONE time, in the
+   SAME file as the base rule (so the two can never drift ~40 lines apart
+   the way `.journalDrawer`/`.memberSheetDrawer` had, unnoticed, before this
+   step) is the more faithful trade. */
+@media (min-width: 881px) {
+  .drawerMobileFallback {
+    position: fixed;
+    top: var(--env-banner-h, 0px);
+    right: 0;
+    z-index: 900;
+    height: calc(100dvh - var(--env-banner-h, 0px));
+    width: min(380px, 90vw);
+    padding: var(--density-pad);
+    overflow-y: auto;
+    background: var(--bg-2);
+    border-left: 1px solid var(--line);
+    box-shadow: var(--shadow-pop);
+    transform: translateX(100%);
+    transition: transform var(--dur) var(--ease);
+  }
+
+  .scrimMobileFallback {
+    position: fixed;
+    inset: 0;
+    z-index: 899;
+    background: var(--scrim-soft);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawerMobileFallback {
+    transition: none;
+  }
+}

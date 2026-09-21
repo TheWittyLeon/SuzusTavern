@@ -924,92 +924,14 @@
   border: none;
 }
 
-/* ── DDX-22: Journal pane — right-edge slide-over drawer (desktop only).
-   Only the WRAPPER differs by breakpoint; <JournalPane>'s own markup is
-   identical either way. Scoped to >880px so mobile (which uses the shared
-   .journalPane grid-area collapse in the mobile media query below instead)
-   never sees this fixed/transform chrome at all — no override-fighting
-   between the two breakpoints' rules.
-   `top`/`height` subtract --env-banner-h (set on <html> by layout.tsx; 0px
-   on prod) so the dev/local EnvBanner strip never gets covered by — or lets
-   this drawer overflow past — the actual available viewport (the exact
-   fixed-height-ignores-the-banner trap .grid's own height already guards
-   against, see the top of this file). */
-@media (min-width: 881px) {
-  .journalDrawer {
-    position: fixed;
-    top: var(--env-banner-h, 0px);
-    right: 0;
-    z-index: 900;
-    height: calc(100dvh - var(--env-banner-h, 0px));
-    width: min(380px, 90vw);
-    padding: var(--density-pad);
-    overflow-y: auto;
-    background: var(--bg-2);
-    border-left: 1px solid var(--line);
-    box-shadow: var(--shadow-pop);
-    transform: translateX(100%);
-    transition: transform var(--dur) var(--ease);
-  }
-
-  .journalDrawerOpen {
-    transform: none;
-  }
-
-  .journalScrim {
-    position: fixed;
-    inset: 0;
-    z-index: 899;
-    background: var(--scrim-soft);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .journalDrawer {
-    transition: none;
-  }
-}
-
-/* ── TAV-PARTY-INLINE-SHEET: member-sheet drawer ──────────────────────────────
-   Same right-edge slide-over shape as .journalDrawer above, but NOT gated to
-   >880px — unlike the Journal there is no separate mobile-tab presentation
-   for this drawer to hand off to, so it stays the fixed overlay at every
-   viewport width (width: min(380px, 90vw) already collapses gracefully on a
-   narrow phone). `top`/`height` subtract --env-banner-h for the same reason
-   as .journalDrawer (never let the dev/local EnvBanner strip get covered by —
-   or let this drawer overflow past — the actual available viewport). */
-.memberSheetDrawer {
-  position: fixed;
-  top: var(--env-banner-h, 0px);
-  right: 0;
-  z-index: 900;
-  height: calc(100dvh - var(--env-banner-h, 0px));
-  width: min(380px, 90vw);
-  padding: var(--density-pad);
-  overflow-y: auto;
-  background: var(--bg-2);
-  border-left: 1px solid var(--line);
-  box-shadow: var(--shadow-pop);
-  transform: translateX(100%);
-  transition: transform var(--dur) var(--ease);
-}
-
-.memberSheetDrawerOpen {
-  transform: none;
-}
-
-.memberSheetScrim {
-  position: fixed;
-  inset: 0;
-  z-index: 899;
-  background: var(--scrim-soft);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .memberSheetDrawer {
-    transition: none;
-  }
-}
+/* TAV-PLAY-SHELL step 2: the Journal-pane and member-sheet drawer geometry
+   that used to live here (.journalDrawer/.journalDrawerOpen/.journalScrim,
+   .memberSheetDrawer/.memberSheetDrawerOpen/.memberSheetScrim — themselves
+   byte-for-byte identical except for the >880px gate) moved to
+   src/components/Drawer.module.css's .drawer/.drawerMobileFallback variants,
+   consolidated behind the shared <Drawer> primitive. `.journalPane` below
+   (the mobile in-flow pane layout) is unchanged — Drawer's `mobileTabFallback`
+   prop is what hands off to it below the breakpoint. */
 
 /* ── mobile: single column, tab-switch story ↔ scene ── */
 @media (max-width: 880px) {

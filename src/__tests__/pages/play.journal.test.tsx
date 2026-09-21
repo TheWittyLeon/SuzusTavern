@@ -220,7 +220,7 @@ describe('Journal — desktop drawer', () => {
   });
 
   it('clicking the scrim closes the drawer', async () => {
-    const { container } = render(<PlayPage />);
+    render(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     const toggle = screen.getByRole('button', { name: 'Open journal' });
@@ -232,9 +232,13 @@ describe('Journal — desktop drawer', () => {
     fireEvent.click(toggle);
     await screen.findByRole('button', { name: 'Close journal' });
 
-    const scrim = container.querySelector('[class*="journalScrim"]');
-    expect(scrim).not.toBeNull();
-    fireEvent.click(scrim as Element);
+    // TAV-PLAY-SHELL step 2: the scrim has no accessible role/name (bare
+    // click-catcher), so it's located by data-testid rather than a CSS
+    // Module class-name substring — the scrim now belongs to the shared
+    // <Drawer> primitive (src/components/Drawer.tsx), which does not use
+    // the old `journalScrim` class name this test used to match on.
+    const scrim = screen.getByTestId('play-pane-journal-scrim');
+    fireEvent.click(scrim);
 
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
   });
