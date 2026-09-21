@@ -123,6 +123,7 @@ import SafetyBanner from './regions/SafetyBanner';
 import { SessionControls, DmCombatControls } from './regions/TableControls';
 import PartyStrip from './regions/PartyStrip';
 import SceneStage from './regions/SceneStage';
+import Offers from './regions/Offers';
 import JournalPane, { JOURNAL_HEADING_ID } from '@/components/JournalPane';
 import MemberSheetPanel, { MEMBER_SHEET_HEADING_ID } from '@/components/MemberSheetPanel';
 import NextPartOffer from '@/components/NextPartOffer';
@@ -221,11 +222,8 @@ const GROUNDING_INVALIDATING_KINDS = new Set([
  * an unrecognised/absent reason falls back to the max_attempts line, same
  * fallback convention as the engine's own `complication_line`.
  */
-const CHECK_LOCK_REASON_COPY: Record<string, string> = {
-  nat1: 'A critical failure closed this approach.',
-  fail_by_5: 'A decisive failure closed this approach.',
-  max_attempts: 'Out of attempts.',
-};
+// CHECK_LOCK_REASON_COPY moved to regions/Offers.tsx (TAV-PLAY-SHELL step 3)
+// — its only consumer.
 
 /**
  * DDX-26 — scan a batch of raw session events (any order, any kind) for the
@@ -298,7 +296,10 @@ function buildReadAloudBlock(g: GroundingData): string {
 }
 
 /** Title-case an engine skill slug ('sleight_of_hand' -> 'Sleight Of Hand'). */
-function titleCaseSkill(skill: string): string {
+// Exported for regions/Offers.tsx (TAV-PLAY-SHELL step 3) — used elsewhere
+// in this file too (narration copy, toast text), so it stays here rather
+// than moving with the JSX that also uses it.
+export function titleCaseSkill(skill: string): string {
   return skill
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (c) => c.toUpperCase());
@@ -5735,196 +5736,32 @@ export default function PlayPage() {
         />
 
 
-        {/* P1-PLAYFIX §3.3.3 (S2.4): authored skill-check affordances — shown
-            whenever the current scene has authored checks and no combat is
-            active (see availableChecks above). D1a: no longer gated behind a
-            narrator invite — every authored check for the scene is a
-            player-invoked button; the one Suzu invited this turn is just
-            highlighted (isOffered below), not exclusively shown. When a
-            scene offers two skills for one outcome (e.g. Stealth OR Survival),
-            both render as alternative buttons; either resolves the beat.
-            Iro Ship 2 MINOR-2: role="group" + aria-label mirrors the existing
-            .outcomeChooser group pattern above. */}
-        {availableChecks.length > 0 && (
-          <div ref={checkWrapRef} className={styles.checkWrap} role="group" aria-label="Skill check">
-            <div className={styles.checkLabel}>Skill check</div>
-            {availableChecks.map((c) => {
-              // Iro MINOR-1: a scene authoring two checks with the same skill
-              // (different DC) collided on `c.skill` alone for key/noteId/
-              // offeredId. Key by skill+dc — stable and unique per authored
-              // check within a scene.
-              const checkKey = `${c.skill}-${c.dc}`;
-              // Iro Ship 2 MAJOR-1: `note` was only reachable via native title=
-              // (not reliably announced by AT, invisible on touch). Mirror the
-              // outcomeChooser's sr-only + aria-describedby pattern instead.
-              const noteId = c.note ? `check-note-${checkKey}` : undefined;
-              // P1-PLAYFIX-2 §A.5/§A.6 — highlight the check Suzu invited this
-              // turn. A second sr-only span (not color alone) carries the
-              // invite to screen readers; toast() already announced it once
-              // via aria-live when the offer landed (see narrate()).
-              const isOffered = c.skill === offeredCheckSkill;
-              const offeredId = isOffered ? `check-offered-${checkKey}` : undefined;
-              // Check Retry + Fail-Forward (2026-07-28 design section 7.1):
-              // locked checks stay in the list -- disabled, with the reason
-              // available to screen readers. Absent `state` (pre-CHECK-RETRY
-              // server) leaves isLocked/isLastAttempt both false, so nothing
-              // here changes for a flag-OFF server.
-              const isLocked = c.state === 'locked';
-              // Miko-QA Finding 5 (2026-07-28): require state === 'available'
-              // explicitly, not just !isLocked -- a partial/malformed wire
-              // payload (attempts_used/max_attempts present, `state` absent)
-              // must not render "last attempt" just because it also isn't
-              // literally 'locked'.
-              const isLastAttempt =
-                c.state === 'available' &&
-                c.max_attempts != null &&
-                c.attempts_used != null &&
-                c.attempts_used > 0 &&
-                c.max_attempts - c.attempts_used === 1;
-              const lockReasonId = isLocked ? `check-locked-${checkKey}` : undefined;
-              const lockReasonText = isLocked
-                ? (CHECK_LOCK_REASON_COPY[c.lock_reason ?? ''] ?? CHECK_LOCK_REASON_COPY.max_attempts)
-                : undefined;
-              const describedBy =
-                [offeredId, noteId, lockReasonId].filter(Boolean).join(' ') || undefined;
-              return (
-                <button
-                  key={checkKey}
-                  type="button"
-                  className={`${styles.checkBtn} ${isOffered && !isLocked ? styles.checkBtnOffered : ''} ${isLocked ? styles.checkBtnLocked : ''}`}
-                  onClick={() => {
-                    // Iro-A11y MAJOR-3/MAJOR-4 (2026-07-28): `isLocked` is
-                    // deliberately NOT in the native `disabled` prop below
-                    // (a locked check must stay Tab-reachable so its
-                    // sr-only close reason is announced) -- the click is
-                    // guarded here in JS instead of by the browser.
-                    if (isLocked) return;
-                    void onAttemptCheck(c.skill);
-                  }}
-                  disabled={checkBusy || talking || sessionLocked}
-                  aria-busy={checkBusy || talking}
-                  aria-disabled={isLocked || checkBusy || talking || sessionLocked}
-                  aria-describedby={describedBy}
-                  title={c.note}
-                >
-                  <Icon name="Check" size={13} aria-hidden />
-                  {/* Iro Ship 2 MINOR-1: comma reads better in AT/TTS than parens. */}
-                  {isLocked
-                    ? `${titleCaseSkill(c.skill)}, DC ${c.dc} — closed`
-                    : `Attempt ${titleCaseSkill(c.skill)}, DC ${c.dc}${isLastAttempt ? ' — last attempt' : ''}`}
-                  {isOffered && (
-                    <span id={offeredId} className="sr-only">Suzu invited this check.</span>
-                  )}
-                  {c.note && (
-                    <span id={noteId} className="sr-only">{c.note}</span>
-                  )}
-                  {isLocked && (
-                    <span id={lockReasonId} className="sr-only">{lockReasonText}</span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        )}
+        {/* TAV-PLAY-SHELL step 3: region extracted verbatim to
+            regions/Offers.tsx -- the CANONICAL side-panel group (checks +
+            freeform-offer + transitions). The aria-hidden duplicate above
+            the composer stays here untouched (its own comment: "does not
+            replace it") -- unifying the two is step 4's job. State/refs/
+            handlers stay in page.tsx. */}
+        <Offers
+          availableChecks={availableChecks}
+          offeredCheckSkill={offeredCheckSkill}
+          checkBusy={checkBusy}
+          talking={talking}
+          sessionLocked={sessionLocked}
+          onAttemptCheck={(skill) => void onAttemptCheck(skill)}
+          checkWrapRef={checkWrapRef}
+          freeformOfferedCheck={freeformOfferedCheck}
+          freeformCheckRef={freeformCheckRef}
+          rollBusy={rollBusy}
+          combatBusy={combatBusy}
+          onRoll={(trigger) => void onRoll(trigger)}
+          availableTransitions={availableTransitions}
+          adventureComplete={adventureComplete}
+          transitionWrapRef={transitionWrapRef}
+          sceneAdvanceBusy={sceneAdvanceBusy}
+          onMoveOn={(to) => void onMoveOn(to)}
+        />
 
-        {/* Phase 4 (Sora-Arch design §4 Fork 3; Miko-QA "the sleeper bug"
-            fix — the single most important new client-side assertion in the
-            whole plan) — a skill Suzu invited this turn that is NOT one of
-            this scene's AUTHORED checks (a freeform/unauthored offer). The
-            .checkWrap group above only ever renders `availableChecks`
-            (grounding.checks) — silently dropping this offer instead of
-            surfacing SOME affordance is exactly the bug this fixes. Routes
-            through `onRoll` — the SAME quickChecks/postRoll → engine
-            `/roll (kind=skill)` primitive used elsewhere on this page, NOT
-            `onAttemptCheck` (`/check`, which 400s `no_such_check` for
-            anything unauthored) — always-available, server-authoritative,
-            no client-supplied DC. Deliberately NOT gated on combat state,
-            mirroring the generic quick-checks panel below (also
-            always-available) — Package B's own combat gate on the
-            AUTHORED checks above is untouched.
-
-            Iro-A11y MAJOR-1: when this scene ALSO has authored checks
-            (availableChecks.length > 0), the authored .checkWrap group below
-            renders back-to-back with this one — two adjacent
-            role="group" blocks would collide on the exact same accessible
-            name ("Skill check") without the skill-specific suffix here. The
-            offeredCheckSkill/freeformOfferedCheck mutual-exclusivity only
-            keeps the two OFFER states apart from each other; it says
-            nothing about `availableChecks`, so this is a real, reachable
-            case (exactly the scenario this phase targets), not a
-            theoretical one. Visible `.checkLabel` text stays the generic
-            "Skill check" for sighted users — only the accessible name
-            differs. */}
-        {freeformOfferedCheck && (
-          <div
-            ref={freeformCheckRef}
-            className={styles.checkWrap}
-            role="group"
-            aria-label={`Skill check: ${titleCaseSkill(freeformOfferedCheck)}`}
-          >
-            <div className={styles.checkLabel}>Skill check</div>
-            <button
-              type="button"
-              className={`${styles.checkBtn} ${styles.checkBtnOffered}`}
-              onClick={() =>
-                void onRoll({
-                  kind: 'check',
-                  skill: freeformOfferedCheck,
-                  label: titleCaseSkill(freeformOfferedCheck),
-                })
-              }
-              disabled={rollBusy || talking || combatBusy || sessionLocked}
-              aria-busy={rollBusy || talking}
-              aria-disabled={rollBusy || talking || combatBusy || sessionLocked}
-            >
-              <Icon name="Check" size={13} aria-hidden />
-              {`Attempt ${titleCaseSkill(freeformOfferedCheck)}`}
-              <span className="sr-only">Suzu invited this check.</span>
-            </button>
-          </div>
-        )}
-
-        {/* ADV-7T: "Move on" affordance — shown only when transitions are available
-            and no combat is active.
-            Iro Ship 2 MINOR-2: role="group" + aria-label mirrors the existing
-            .outcomeChooser group pattern above.
-            TAV-SLICE-END-ADVANCE-NULL / Kage-CR item 4: once a terminal
-            advance has landed (adventureComplete), this affordance is gone
-            entirely — there is nothing left to move on TO, and re-rendering
-            it would let a second click post another /advance indefinitely. */}
-        {availableTransitions.length > 0 && !adventureComplete && (
-          <div
-            ref={transitionWrapRef}
-            className={styles.moveOnWrap}
-            role="group"
-            aria-label="Scene transition"
-          >
-            <div className={styles.moveOnLabel}>Scene transition</div>
-            {availableTransitions.map((t, i) => (
-              <button
-                // t.to is NOT unique — an adventure can author two exits to the
-                // same target scene (different labels), which collided under a
-                // bare key={t.to} (React "two children with the same key"
-                // warning, risking a dropped/duplicated exit button). Composite
-                // with the label + index guarantees uniqueness.
-                key={`${t.to}-${t.label ?? ''}-${i}`}
-                type="button"
-                className={styles.moveOnBtn}
-                onClick={() => void onMoveOn(t.to)}
-                disabled={sceneAdvanceBusy || talking || sessionLocked}
-                aria-busy={sceneAdvanceBusy || talking}
-                aria-disabled={sceneAdvanceBusy || talking || sessionLocked}
-              >
-                <Icon name="Compass" size={13} aria-hidden />
-                {/* TAV-SLICE-END-ADVANCE-NULL: an unlabelled terminal
-                    (`to: null`) exit must never render the literal string
-                    "Move on → null" — fall back to neutral completion copy
-                    instead. An authored `label` always wins either way. */}
-                {t.label ?? (t.to === null ? 'Conclude the adventure' : `Move on → ${t.to}`)}
-              </button>
-            ))}
-          </div>
-        )}
 
         {/* T4p2: completion next-part offer (design doc §6.4) — mounts in the
             gap the "Move on" affordance above leaves once adventureComplete
