@@ -4,7 +4,7 @@ import type { RefObject } from 'react';
 import type { SceneCheck, SceneTransition } from '@/lib/api/types';
 import type { RollTrigger } from '@/components/DiceTray';
 import Icon from '@/components/Icon';
-import { titleCaseSkill } from '../page';
+import { titleCaseSkill } from '../format';
 import styles from '../Play.module.css';
 
 /**

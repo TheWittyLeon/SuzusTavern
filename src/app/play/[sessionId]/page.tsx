@@ -125,6 +125,7 @@ import SceneStage from './regions/SceneStage';
 import Offers from './regions/Offers';
 import StoryLog from './regions/StoryLog';
 import { SessionHead, TopBar } from './regions/TopBar';
+import { titleCaseSkill } from './format';
 import JournalPane, { JOURNAL_HEADING_ID } from '@/components/JournalPane';
 import MemberSheetPanel, { MEMBER_SHEET_HEADING_ID } from '@/components/MemberSheetPanel';
 import NextPartOffer from '@/components/NextPartOffer';
@@ -296,15 +297,8 @@ function buildReadAloudBlock(g: GroundingData): string {
   return lines.filter(Boolean).join('\n');
 }
 
-/** Title-case an engine skill slug ('sleight_of_hand' -> 'Sleight Of Hand'). */
-// Exported for regions/Offers.tsx (TAV-PLAY-SHELL step 3) — used elsewhere
-// in this file too (narration copy, toast text), so it stays here rather
-// than moving with the JSX that also uses it.
-export function titleCaseSkill(skill: string): string {
-  return skill
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-}
+// titleCaseSkill moved to ./format.ts (Kage-CR C2, 2026-09-21 review) — a
+// leaf region importing it from here was a circular/upward dependency.
 
 /**
  * TAV-COMBAT-VERB-NO-MECHANICS — render the scene's creature names into the
