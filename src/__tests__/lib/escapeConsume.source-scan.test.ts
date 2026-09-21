@@ -34,7 +34,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const SCANNED_FILES = [
-  'src/app/play/[sessionId]/page.tsx',
+  // TAV-PLAY-SHELL step 3 (SceneStage): page.tsx's LAST local consumeEscape
+  // call (the outcome chooser) moved out this step, alongside the drawers
+  // (step 2, -> Drawer.tsx) and the Award-XP form (step 3, -> TableControls
+  // .tsx) before it. page.tsx's only remaining Escape-related code is the
+  // documented negated-form `key !== 'Escape'` document-level Award-XP
+  // fallback (escapeConsume.ts's own module doc) — not an overlay's own
+  // handler, so it is not required to call consumeEscape, and the "every
+  // scanned file calls consumeEscape" guard below would false-positive on
+  // it now. Removed from this list for that reason, not because page.tsx
+  // stopped mattering — if a future step adds a NEW raw overlay Escape
+  // handler directly in page.tsx, re-add it here (the per-extraction-step
+  // discipline this list exists for, per the decomposition plan's A7).
   'src/components/DmNarrationPanel.tsx',
   'src/components/RebindCharacterButton.tsx',
   'src/components/Composer.tsx',
@@ -46,6 +57,9 @@ const SCANNED_FILES = [
   // instruction to update this list at every extraction step, not let the
   // scan silently stop covering moved code.
   'src/components/Drawer.tsx',
+  // TAV-PLAY-SHELL step 3 (SceneStage): the outcome chooser's consumeEscape
+  // call moved here with the combat-note/outcome-chooser ternary.
+  'src/app/play/[sessionId]/regions/SceneStage.tsx',
   // TAV-PLAY-SHELL step 3: the Award-XP form's consumeEscape call moved
   // here with SessionControls.
   'src/app/play/[sessionId]/regions/TableControls.tsx',

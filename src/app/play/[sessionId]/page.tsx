@@ -80,7 +80,6 @@ import { matchCombatIntent, matchKeywordIntent } from '@/lib/dnd/intentFastPath'
 import { DURABLE_GENERATION_ENABLED } from '@/lib/config';
 import { mintTurnKey, saveTurnKey, clearTurnKey } from '@/lib/turnKey';
 import { shouldClearAbortedStreamRow } from '@/lib/streamRowOwnership';
-import { consumeEscape } from '@/lib/a11y/escapeConsume';
 import {
   reconcileDurableEvents,
   applyReconcileResult,
@@ -123,6 +122,7 @@ import Drawer from '@/components/Drawer';
 import SafetyBanner from './regions/SafetyBanner';
 import { SessionControls, DmCombatControls } from './regions/TableControls';
 import PartyStrip from './regions/PartyStrip';
+import SceneStage from './regions/SceneStage';
 import JournalPane, { JOURNAL_HEADING_ID } from '@/components/JournalPane';
 import MemberSheetPanel, { MEMBER_SHEET_HEADING_ID } from '@/components/MemberSheetPanel';
 import NextPartOffer from '@/components/NextPartOffer';
@@ -5706,240 +5706,34 @@ export default function PlayPage() {
         className={`${styles.pane} ${styles.right}`}
         aria-label="Scene"
       >
-        {/* FIX-8 (MEDIUM-1): aria-label surfaces the scene name to AT so the
-            "Scene" kicker (now aria-hidden) doesn't duplicate it on screen readers.
-            Scene name rendered as <p> (block element) so AT pauses between the
-            name and objective.
-            Iro Ship 2 CRITICAL-1: tabIndex={-1} + ref makes this a programmatic
-            focus anchor — refocusSceneHeadIfStranded() lands here when a
-            resolved check / taken transition unmounts the control the user
-            was just on. */}
-        <div
-          ref={sceneHeadRef}
-          tabIndex={-1}
-          className={styles.sceneHead}
-          aria-label={grounding?.scene_name ? `Scene: ${grounding.scene_name}` : 'Scene'}
-        >
-          <span className={styles.kicker} aria-hidden>Scene</span>
-          {grounding?.scene_name && (
-            <p className={styles.sceneName}>{grounding.scene_name}</p>
-          )}
-          {/* A1 — surface the current objective below the scene name (free win). */}
-          {grounding?.objective && (
-            <span className={styles.sceneObjective}>{grounding.objective}</span>
-          )}
-        </div>
-        <div className={styles.scenePlaceholder}>
-          <Icon name="Map" size={22} aria-hidden />
-          <span>The tactical map arrives in a later sprint. Suzu narrates the scene above.</span>
-        </div>
+        {/* TAV-PLAY-SHELL step 3: region extracted verbatim to
+            regions/SceneStage.tsx -- placeholder content only (plan §5 step 3),
+            not the real §4 stage design. Scene head + .scenePlaceholder +
+            the combat-note/outcome-chooser/"Stand and fight" ternary --
+            today's stand-in for "what's happening on stage". State/refs/
+            handlers stay in page.tsx. */}
+        <SceneStage
+          sceneName={grounding?.scene_name ?? null}
+          objective={grounding?.objective ?? null}
+          sceneHeadRef={sceneHeadRef}
+          combatIsActive={combatIsActive}
+          activeEncounterId={activeEncounterId}
+          sceneHasEncounter={sceneHasEncounter}
+          combatBusy={combatBusy}
+          endCombatBtnRef={endCombatBtnRef}
+          outcomeChooserOpen={outcomeChooserOpen}
+          setOutcomeChooserOpen={setOutcomeChooserOpen}
+          lastOpenerRef={lastOpenerRef}
+          allHostilesDown={allHostilesDown}
+          anyMonsterDown={anyMonsterDown}
+          onEndCombat={(key) => void onEndCombat(key)}
+          beginCombatRef={beginCombatRef}
+          onBeginEncounter={beginEncounter}
+          talking={talking}
+          sessionLocked={sessionLocked}
+          rollBusy={rollBusy}
+        />
 
-        {/* Active combat: show combat note + B3-1 outcome chooser. */}
-        {combatIsActive ? (
-          <>
-            <div className={styles.combatNote} role="status" aria-live="polite">
-              <Icon name="Sword" size={13} aria-hidden /> In combat · use the action rail in the composer
-              {/* B3-1: "End" opens the outcome chooser. Tora MAJOR-2: ref so focus
-                  returns here when the chooser is dismissed via Escape. */}
-              <button
-                ref={endCombatBtnRef}
-                type="button"
-                className={styles.endCombatBtn}
-                onClick={(e) => {
-                  lastOpenerRef.current = e.currentTarget;
-                  setOutcomeChooserOpen((v) => !v);
-                }}
-                disabled={combatBusy}
-                aria-busy={combatBusy}
-                aria-haspopup="true"
-                aria-expanded={outcomeChooserOpen}
-                aria-label="End combat — choose outcome"
-              >
-                End
-              </button>
-            </div>
-            {/* F3/COMBAT-NO-AUTO-RESOLVE: advisory-only prompt (never auto-
-                resolves — the DM still picks victory/defeat/retreat/etc.).
-                Opens the SAME outcome chooser as the "End" button above;
-                never disables Dodge/Dash/End-Turn (those live in the
-                composer's action rail, entirely untouched by this banner). */}
-            {allHostilesDown && (
-              <div className={styles.autoResolvePrompt} role="status" aria-live="polite">
-                <Icon name="Skull" size={13} aria-hidden /> All enemies are down.
-                <button
-                  type="button"
-                  className={styles.autoResolvePromptBtn}
-                  onClick={(e) => {
-                    lastOpenerRef.current = e.currentTarget;
-                    setOutcomeChooserOpen(true);
-                  }}
-                  disabled={combatBusy}
-                  aria-busy={combatBusy}
-                  // Deliberately distinct wording from the "End" button's own
-                  // "End combat — choose outcome" aria-label above (not just
-                  // decoration — a shared "End combat" substring would make
-                  // the two controls indistinguishable by accessible name to
-                  // a screen-reader user tabbing through, and ambiguous to
-                  // any `getByRole('button', {name: /End combat/i})`-style
-                  // query, same failure mode either way).
-                  aria-label="All enemies are down — wrap up the fight and choose an outcome"
-                >
-                  Wrap up
-                </button>
-              </div>
-            )}
-            {/* B3-1: outcome chooser popover */}
-            {outcomeChooserOpen && (
-              <div
-                className={styles.outcomeChooser}
-                role="group"
-                aria-label="Choose combat outcome"
-                // Tora MAJOR-2: Escape closes the chooser and returns focus
-                // to the trigger. TAV-A11Y-USE-ESCAPE-CONSUME-HOOK (was a
-                // hand-rolled UIR2-TAV-11 r2 fix): stopPropagation is
-                // unconditional; only the actual close stays gated on
-                // `!combatBusy`.
-                onKeyDown={(e) =>
-                  consumeEscape(e, {
-                    onClose: () => setOutcomeChooserOpen(false),
-                    canClose: !combatBusy,
-                    // Iro MAJOR-1: refocus whichever control actually opened the
-                    // chooser ("End" or "Wrap up"), falling back to endCombatBtnRef
-                    // if it was somehow opened without going through an onClick.
-                    onRefocus: () => (lastOpenerRef.current ?? endCombatBtnRef.current)?.focus(),
-                  })
-                }
-              >
-                <div className={styles.outcomeChooserLabel}>How does this fight end?</div>
-                {(
-                  [
-                    {
-                      key: 'victory' as EndCombatOutcome,
-                      label: 'Victory',
-                      sub: 'You finished the foes.',
-                      disabled: !anyMonsterDown,
-                      disabledTip: 'No enemies are down yet.',
-                    },
-                    {
-                      key: 'retreat' as EndCombatOutcome,
-                      label: 'Retreat',
-                      sub: 'Fall back; you live to fight again.',
-                      disabled: false,
-                      disabledTip: undefined,
-                    },
-                    {
-                      key: 'parley' as EndCombatOutcome,
-                      label: 'Parley',
-                      sub: 'Talk it out.',
-                      disabled: false,
-                      disabledTip: undefined,
-                    },
-                    {
-                      key: 'flee' as EndCombatOutcome,
-                      label: 'Flee',
-                      sub: 'Run; consequences possible.',
-                      disabled: false,
-                      disabledTip: undefined,
-                    },
-                    {
-                      key: 'unresolved' as EndCombatOutcome,
-                      label: 'Unresolved',
-                      sub: 'End the fight without a verdict.',
-                      disabled: false,
-                      disabledTip: undefined,
-                    },
-                  ] as {
-                    key: EndCombatOutcome;
-                    label: string;
-                    sub: string;
-                    disabled: boolean;
-                    disabledTip?: string;
-                  }[]
-                ).map(({ key, label, sub, disabled, disabledTip }) => {
-                  // Iro HIGH-2: each disabled option gets a visually-hidden description
-                  // so the reason is conveyed to AT (title= is not reliably read).
-                  const tipId = disabledTip ? `outcome-tip-${key}` : undefined;
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      className={styles.outcomeOption}
-                      onClick={() => void onEndCombat(key)}
-                      disabled={combatBusy || disabled}
-                      aria-disabled={disabled || combatBusy}
-                      aria-describedby={disabled && tipId ? tipId : undefined}
-                    >
-                      <span className={styles.outcomeLabel}>{label}</span>
-                      <span className={styles.outcomeSub}>{sub}</span>
-                      {/* Iro HIGH-2: sr-only description for disabled state (title= only
-                          is not reliably announced by AT). */}
-                      {disabled && disabledTip && (
-                        <span id={tipId} className="sr-only">{disabledTip}</span>
-                      )}
-                    </button>
-                  );
-                })}
-                <button
-                  type="button"
-                  className={styles.outcomeCancel}
-                  onClick={() => {
-                    setOutcomeChooserOpen(false);
-                    // Iro MAJOR-1: same opener-aware refocus as the Escape path above.
-                    (lastOpenerRef.current ?? endCombatBtnRef.current)?.focus();
-                  }}
-                  disabled={combatBusy}
-                >
-                  Cancel
-                </button>
-              </div>
-            )}
-          </>
-        ) : activeEncounterId ? (
-          // Between fights but encounter_id still set — shouldn't happen post-fix.
-          <div className={styles.combatNote} role="status" aria-live="polite">
-            <Icon name="Sword" size={13} aria-hidden /> Combat ended
-          </div>
-        ) : !combatId && sceneHasEncounter ? (
-          // No combat at all, AND the current scene has an authored combat
-          // encounter (`sceneHasEncounter`): offer to begin it. 2026-07-23
-          // pre-flight playthrough nit (backlog "TAVERN PLAY-UI NITS") — this
-          // button used to render on EVERY non-combat scene, so clicking it
-          // on a scene with no authored encounter always 400'd
-          // ("No encounter available for the current scene.", surfaced by
-          // the catch below). Now the button is simply absent for those
-          // scenes — the flee checks and scene-transition affordances
-          // elsewhere in this pane already cover them, no placeholder
-          // needed. Phase 4 Package B (Sora-Arch design §3 Fork 2) relabels
-          // the SAME button "Stand and fight" so the moment reads as a
-          // fight-or-flee choice rather than a generic "start a fight"
-          // invite — no longer copy-only now that sceneHasEncounter also
-          // gates the button's existence (in practice the button can now
-          // only ever render with the "Stand and fight" label; the
-          // "Begin an encounter" branch is kept as-is, unreachable, to keep
-          // this fix to the two changes it was scoped to). `beginEncounter`'s
-          // own logic/gating is still completely unchanged. Also disabled
-          // while narration/session/other rolls are busy (talking/
-          // sessionLocked/rollBusy), matching the sibling action rail below —
-          // previously only `combatBusy` gated it, so a click could race an
-          // in-flight narration and 409 on the durable turn-key guard.
-          // Iro-A11y MINOR-1/MINOR-2: aria-busy is the adjudicated sibling
-          // convention (own-busy-ref || talking; sessionLocked/rollBusy
-          // deliberately excluded — those are OTHER things being busy, not
-          // this control); aria-disabled mirrors `disabled` byte-for-byte,
-          // same pairing as checkBtn/moveOnBtn/the freeform check button.
-          <button
-            ref={beginCombatRef}
-            type="button"
-            className={styles.beginCombat}
-            onClick={beginEncounter}
-            disabled={talking || combatBusy || sessionLocked || rollBusy}
-            aria-busy={combatBusy || talking}
-            aria-disabled={talking || combatBusy || sessionLocked || rollBusy}
-          >
-            <Icon name="Sword" size={14} aria-hidden />{' '}
-            {sceneHasEncounter ? 'Stand and fight' : 'Begin an encounter'}
-          </button>
-        ) : null}
 
         {/* P1-PLAYFIX §3.3.3 (S2.4): authored skill-check affordances — shown
             whenever the current scene has authored checks and no combat is
