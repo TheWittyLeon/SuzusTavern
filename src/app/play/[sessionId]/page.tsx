@@ -110,7 +110,7 @@ import PageSkeleton from '@/components/PageSkeleton';
 import NarratorStrip from '@/components/NarratorStrip';
 import CastSpellPanel from '@/components/CastSpellPanel';
 import SessionRecap from '@/components/SessionRecap';
-import ChatLog, { type ChatLogHandle, type LogRow } from '@/components/ChatLog';
+import { type ChatLogHandle, type LogRow } from '@/components/ChatLog';
 import DiceTray, { type Advantage } from '@/components/DiceTray';
 import Composer, {
   type ComposeMode,
@@ -124,6 +124,7 @@ import { SessionControls, DmCombatControls } from './regions/TableControls';
 import PartyStrip from './regions/PartyStrip';
 import SceneStage from './regions/SceneStage';
 import Offers from './regions/Offers';
+import StoryLog from './regions/StoryLog';
 import JournalPane, { JOURNAL_HEADING_ID } from '@/components/JournalPane';
 import MemberSheetPanel, { MEMBER_SHEET_HEADING_ID } from '@/components/MemberSheetPanel';
 import NextPartOffer from '@/components/NextPartOffer';
@@ -5388,7 +5389,7 @@ export default function PlayPage() {
             />
           )}
         </div>
-        <ChatLog
+        <StoryLog
           ref={chatLogRef}
           rows={log}
           thinking={thinking || resumeThinking}
