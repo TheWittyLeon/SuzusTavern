@@ -12,7 +12,14 @@
  *   step 1 (this commit): mechanism wired into `npm run lint`, scope empty
  *     until there is play-shell-owned CSS to check.
  *   step 2: src/components/Drawer.module.css joins SCOPE_GLOBS.
- *   step 3: src/app/play/[sessionId]/regions/*.module.css joins it.
+ *   step 3: `regions/*.module.css` is in SCOPE_GLOBS but, as of step 3's own
+ *     close, MATCHES ZERO FILES — every region imports `../Play.module.css`
+ *     directly rather than owning a stylesheet, so this entry is a no-op
+ *     today (Miko-QA, 2026-09-21 review round). `npm run lint` passing does
+ *     NOT mean the regions are clean; it means only Drawer's ~15 lines were
+ *     ever actually checked. Do not cite a green run here as evidence for
+ *     the regions in a closure note. Starts pulling weight the day a region
+ *     gets its own `.module.css`.
  *   step 6 (decomposition plan §3.5 Guard 3, deferred there deliberately —
  *     a guard with one preset has one tenant, the mirror-rule failure):
  *     a second rule rejects `grid-template-areas` / `grid-template-columns`
@@ -76,40 +83,65 @@ function scopeFiles() {
   return out;
 }
 
-const SPACING_PROP_LINE = /^\s*(padding|padding-top|padding-right|padding-bottom|padding-left|margin|margin-top|margin-right|margin-bottom|margin-left|gap|row-gap|column-gap|top|right|bottom|left|inset)\s*:\s*([^;]+);/;
-const TYPE_PROP_LINE = /^\s*(font-size|line-height)\s*:\s*([^;]+);/;
-const PXNUM = /(-?\d+(?:\.\d+)?)px/g;
+// Kage-CR I3 / Miko-QA (2026-09-21 review): the original per-LINE, `^`-anchored
+// regexes missed any declaration sharing a line with its selector (or with
+// another declaration) entirely, and the shared PXNUM regex carried the `/g`
+// flag into `.test()` calls reused across every line — `lastIndex` persists
+// across `/g` `.test()` calls on the SAME RegExp object, so a match on one
+// line silently broke detection on a later, shorter line (verified: Kage's
+// injected `margin-top: 8px` and `font-size: 13px` both slipped through).
+// Fix, properly: scan the WHOLE stripped text with `matchAll` (which owns its
+// own iteration state — no shared-object `lastIndex` to leak between
+// declarations) instead of splitting into lines first, and derive the line
+// number from the match's character offset. This also fixes the same-line
+// gap for free, since detection no longer depends on where line breaks fall.
+const SPACING_PROPS = new Set([
+  'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+  'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
+  'gap', 'row-gap', 'column-gap', 'top', 'right', 'bottom', 'left', 'inset',
+]);
+const TYPE_PROPS = new Set(['font-size', 'line-height']);
+// Boundary before the property name excludes it matching mid-identifier
+// (e.g. a custom property `--my-top: 5px` must NOT match on `top`) —
+// require start-of-text, `{`, `;`, or whitespace immediately before it.
+const DECL_RE = /(?:^|[{;\s])(padding|padding-top|padding-right|padding-bottom|padding-left|margin|margin-top|margin-right|margin-bottom|margin-left|gap|row-gap|column-gap|top|right|bottom|left|inset|font-size|line-height)\s*:\s*([^;{}]+);/g;
+const PXNUM = /-?\d+(?:\.\d+)?px/; // no /g — used with .test() only, must not carry lastIndex across calls
 const ALLOWED_VAR = /var\(\s*--(space-\d|text-(xs|sm|base|lg|xl|2xl)|leading-(tight|normal))\b/;
+
+function lineNumberAt(text, offset) {
+  return text.slice(0, offset).split('\n').length;
+}
 
 const offenders = [];
 
 for (const file of scopeFiles()) {
   const raw = readFileSync(file, 'utf8');
-  const rawLines = raw.split('\n');
-  const codeLines = stripComments(raw).split('\n');
+  const stripped = stripComments(raw);
 
-  codeLines.forEach((line, i) => {
-    const spacing = SPACING_PROP_LINE.exec(line);
-    const type = TYPE_PROP_LINE.exec(line);
-    const decl = spacing || type;
-    if (!decl) return;
+  for (const m of stripped.matchAll(DECL_RE)) {
+    const prop = m[1];
+    const value = m[2];
+    const isSpacing = SPACING_PROPS.has(prop);
+    const isType = TYPE_PROPS.has(prop);
+    if (!isSpacing && !isType) continue;
 
-    const value = decl[2];
     // A literal that only ever appears as a var() fallback is not a token escape.
     const withoutFallbacks = value.replace(/var\(\s*--[^,)]+,[^)]*\)/g, '');
-    if (!PXNUM.test(withoutFallbacks)) return;
-    if (ALLOWED_VAR.test(value)) return; // already token-driven, with a raw fallback only
+    if (!PXNUM.test(withoutFallbacks)) continue;
+    if (ALLOWED_VAR.test(value)) continue; // already token-driven, with a raw fallback only
 
-    const context = rawLines.slice(Math.max(0, i - 10), i + 1).join('\n');
-    if (context.includes(EXEMPT)) return;
+    const lineNo = lineNumberAt(stripped, m.index);
+    const rawLines = raw.split('\n');
+    const context = rawLines.slice(Math.max(0, lineNo - 11), lineNo).join('\n');
+    if (context.includes(EXEMPT)) continue;
 
     offenders.push({
       file: relative(ROOT, file),
-      line: i + 1,
-      text: rawLines[i].trim(),
-      kind: spacing ? 'spacing' : 'type',
+      line: lineNo,
+      text: rawLines[lineNo - 1]?.trim() ?? m[0].trim(),
+      kind: isSpacing ? 'spacing' : 'type',
     });
-  });
+  }
 }
 
 // Rule 2 — breakpoint drift, independent of SCOPE_GLOBS (breakpoints.ts and
