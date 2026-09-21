@@ -127,6 +127,7 @@ import Composer, {
 import DmNarrationPanel from '@/components/DmNarrationPanel';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Drawer from '@/components/Drawer';
+import SafetyBanner from './regions/SafetyBanner';
 import JournalPane, { JOURNAL_HEADING_ID } from '@/components/JournalPane';
 import MemberSheetPanel, { MEMBER_SHEET_HEADING_ID } from '@/components/MemberSheetPanel';
 import NextPartOffer from '@/components/NextPartOffer';
@@ -5215,66 +5216,25 @@ export default function PlayPage() {
         </button>
       </div>
 
-      {/* DDX-26 — durable, cross-client X-card banner.
-          Iro CRITICAL-1: HOISTED here, as a sibling of .mobileTabs directly
-          inside the top-level .grid (its own "banner" grid-area — see
-          Play.module.css), so it renders on EVERY mobile tab + desktop
-          regardless of `mobileView`. It used to live inside <main
-          id="play-pane-story"> (.center), which is display:none on mobile
-          unless the Story tab is active — so a participant on another tab
-          (INCLUDING THE RAISER, whose X-card button lives in the Scene pane)
-          got no banner and no SR announcement at all.
-          Iro MAJOR-1/MINOR-1: the wrapper is PERMANENTLY mounted with
-          role="status" + aria-live="polite" + aria-atomic="true" — only the
-          CHILDREN (text + Dismiss button) toggle in/out. Some AT skip an
-          announcement when the whole live region is inserted with text
-          already in place; a stable, always-present region + content churn
-          is the reliable pattern (mirrors ToastViewport in Toast.tsx). The
-          `:empty` rule in Play.module.css collapses it to zero footprint
-          without display:none/visibility:hidden (both of which would also
-          remove it from the a11y tree, defeating the point).
-          Iro MAJOR-2: tabIndex={-1} + ref makes this wrapper a stable
-          refocus anchor (mirrors sceneHeadRef/endCombatBtnRef) — Dismiss
-          refocuses here before its own button unmounts, so focus never
-          drops to <body>.
-          Discreet by design: aria-live="polite" (not assertive — must not
-          interrupt), state conveyed by TEXT never color alone. Anonymous to
-          players; the DM additionally sees the raiser (never leaked to a
-          non-DM client — isDm is the same gate DmNarrationPanel/session
-          controls already use). Per-client dismiss only hides THIS raise
-          (see xCardActive's seq-keyed comment above) — the event itself is
-          permanent in the transcript via eventToLogRow's 'x_card' case. */}
-      <div
-        ref={xCardBannerRef}
-        tabIndex={-1}
-        className={styles.xCardBanner}
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-      >
-        {xCardActive && xCardEvent && (
-          <>
-            <span className={styles.xCardBannerText}>
-              A safety signal was raised — the table eases off.
-              {isDm && xCardEvent.actor ? ` X-card raised by ${xCardEvent.actor}.` : ''}
-            </span>
-            <button
-              type="button"
-              className={styles.xCardBannerDismiss}
-              onClick={() => {
-                // Iro MAJOR-2: refocus BEFORE this button unmounts (setting
-                // dismissedXCardSeq re-renders xCardActive to false, dropping
-                // this button) — otherwise the browser force-blurs to <body>.
-                xCardBannerRef.current?.focus({ preventScroll: true });
-                setDismissedXCardSeq(xCardEvent.seq);
-              }}
-              aria-label="Dismiss safety signal banner"
-            >
-              Dismiss
-            </button>
-          </>
-        )}
-      </div>
+      {/* TAV-PLAY-SHELL step 3: region extracted verbatim to
+          regions/SafetyBanner.tsx — see its own doc comment for the DDX-26/
+          Iro CRITICAL-1/MAJOR-1/MAJOR-2 history (hoisted here as a sibling
+          of .mobileTabs, own "banner" grid-area, permanently mounted,
+          stable refocus anchor). State/refs/the refocus-before-unmount
+          sequencing all stay here in page.tsx. */}
+      <SafetyBanner
+        active={xCardActive}
+        event={xCardEvent}
+        isDm={isDm}
+        bannerRef={xCardBannerRef}
+        onDismiss={() => {
+          // Iro MAJOR-2: refocus BEFORE this button unmounts (setting
+          // dismissedXCardSeq re-renders xCardActive to false, dropping
+          // this button) — otherwise the browser force-blurs to <body>.
+          xCardBannerRef.current?.focus({ preventScroll: true });
+          if (xCardEvent) setDismissedXCardSeq(xCardEvent.seq);
+        }}
+      />
 
       {/* LEFT — party + initiative */}
       {/* TAV-PLAY-LANDMARKS: stable landmark name so AT landmark navigation
