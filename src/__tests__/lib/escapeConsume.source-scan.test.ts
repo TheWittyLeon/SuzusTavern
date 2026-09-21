@@ -34,18 +34,22 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const SCANNED_FILES = [
-  // TAV-PLAY-SHELL step 3 (SceneStage): page.tsx's LAST local consumeEscape
-  // call (the outcome chooser) moved out this step, alongside the drawers
-  // (step 2, -> Drawer.tsx) and the Award-XP form (step 3, -> TableControls
-  // .tsx) before it. page.tsx's only remaining Escape-related code is the
-  // documented negated-form `key !== 'Escape'` document-level Award-XP
-  // fallback (escapeConsume.ts's own module doc) — not an overlay's own
-  // handler, so it is not required to call consumeEscape, and the "every
-  // scanned file calls consumeEscape" guard below would false-positive on
-  // it now. Removed from this list for that reason, not because page.tsx
-  // stopped mattering — if a future step adds a NEW raw overlay Escape
-  // handler directly in page.tsx, re-add it here (the per-extraction-step
-  // discipline this list exists for, per the decomposition plan's A7).
+  // TAV-PLAY-SHELL step 3: page.tsx belongs here for the SAME reason it
+  // always did — it is the file most likely to gain a new overlay across
+  // the remaining eight steps, and a raw `if (e.key === 'Escape')` added
+  // there must still be caught by the per-file check below. Kage-CR I2 /
+  // Miko-QA (2026-09-21 review round): a prior pass REMOVED page.tsx from
+  // this list entirely because its last local `consumeEscape(` call moved
+  // out this step, leaving only the documented negated-form fallback — but
+  // removing the FILE also deleted its per-file `it()` block, the
+  // load-bearing half that catches a NEW raw comparison. Proven: injecting
+  // a raw `if (e.key === 'Escape') { onClose(); }` into page.tsx was
+  // missed 9/9 by the source-scan suite with page.tsx removed, vs 2
+  // failures with it present (both Kage's and Miko's independent
+  // reproductions). Restored here; see VACUITY_CHECK_EXEMPT below for the
+  // narrower, correct fix to the ACTUAL problem (the vacuity check
+  // false-positiving on a file with zero real === comparisons).
+  'src/app/play/[sessionId]/page.tsx',
   'src/components/DmNarrationPanel.tsx',
   'src/components/RebindCharacterButton.tsx',
   'src/components/Composer.tsx',
@@ -64,6 +68,23 @@ const SCANNED_FILES = [
   // here with SessionControls.
   'src/app/play/[sessionId]/regions/TableControls.tsx',
 ];
+
+/**
+ * Files exempt from the "every scanned file calls consumeEscape at least
+ * once" vacuity guard (below) ONLY — they stay in SCANNED_FILES and are
+ * still fully subject to the per-file no-raw-comparison-bypasses-the-helper
+ * check above. This is deliberately a SEPARATE, narrower list, not a reason
+ * to drop a file out of SCANNED_FILES entirely (that was I2's mistake).
+ *
+ * page.tsx: as of TAV-PLAY-SHELL step 3, its last local `consumeEscape(`
+ * call (the outcome chooser) has moved to a region; its only remaining
+ * Escape-related code is the documented negated-form `key !== 'Escape'`
+ * document-level Award-XP fallback, which by design does not call
+ * consumeEscape (it is not an overlay's own handler). If a future step
+ * adds a real overlay Escape handler back into page.tsx directly, remove
+ * it from THIS list (not from SCANNED_FILES, which it should never leave).
+ */
+const VACUITY_CHECK_EXEMPT = new Set(['src/app/play/[sessionId]/page.tsx']);
 
 const ESCAPE_COMPARISON_RE = /key\s*(===|!==)\s*'Escape'/g;
 
@@ -193,8 +214,9 @@ describe('TAV-A11Y-USE-ESCAPE-CONSUME-HOOK — no raw Escape handler bypasses th
     });
   }
 
-  it('every scanned file actually calls consumeEscape at least once, as REAL code not just a comment (the suite above would pass vacuously if a call site were deleted instead of refactored)', () => {
+  it('every scanned file actually calls consumeEscape at least once, as REAL code not just a comment (the suite above would pass vacuously if a call site were deleted instead of refactored) -- except VACUITY_CHECK_EXEMPT, which is still fully covered by the per-file loop above', () => {
     for (const relPath of SCANNED_FILES) {
+      if (VACUITY_CHECK_EXEMPT.has(relPath)) continue;
       const stripped = stripComments(readRaw(relPath));
       expect(stripped).toMatch(/consumeEscape\(/);
     }
