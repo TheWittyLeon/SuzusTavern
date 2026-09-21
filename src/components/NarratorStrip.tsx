@@ -53,6 +53,13 @@ export interface NarratorStripProps {
   initiativeOrder?: string[];
   /** Right-aligned status pill(s), e.g. round/exploring indicator. */
   status?: ReactNode;
+  /** TAV-PLAY-SHELL region contract (Kage-CR/Miko-QA I4, 2026-09-21 review):
+   *  purely additive passthrough onto the root `<div role="status">` so a
+   *  caller (regions/TopBar.tsx) can attach the standard `data-region`
+   *  marker without this component owning any play-shell-specific
+   *  knowledge. Optional, no default — every other caller/test is
+   *  unaffected. */
+  'data-region'?: string;
 }
 
 export default function NarratorStrip({
@@ -64,6 +71,7 @@ export default function NarratorStrip({
   turnStatusText,
   initiativeOrder,
   status,
+  'data-region': dataRegion,
 }: NarratorStripProps) {
   const combatParts = combatActive
     ? [
@@ -112,6 +120,7 @@ export default function NarratorStrip({
       role="status"
       aria-live={combatActive ? 'off' : 'polite'}
       aria-atomic="true"
+      data-region={dataRegion}
     >
       <SuzuDM size={56} glow={false} talking={talking} />
       <div className={styles.dialog}>

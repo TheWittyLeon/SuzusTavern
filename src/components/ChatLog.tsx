@@ -134,6 +134,13 @@ export interface ChatLogProps {
    *  behaviour), so every pre-existing caller/test that doesn't pass it
    *  keeps rendering exactly as before. */
   participants?: Participant[];
+  /** TAV-PLAY-SHELL region contract (Kage-CR/Miko-QA I4, 2026-09-21 review):
+   *  purely additive passthrough onto the root `<div role="log">` so a
+   *  caller (regions/StoryLog.tsx) can attach the standard `data-region`
+   *  marker without this component owning any play-shell-specific
+   *  knowledge. Optional, no default — every other caller/test is
+   *  unaffected. */
+  'data-region'?: string;
 }
 
 /** Imperative handle so the play screen can re-pin the log after a mobile
@@ -143,7 +150,13 @@ export interface ChatLogHandle {
 }
 
 const ChatLog = forwardRef<ChatLogHandle, ChatLogProps>(function ChatLog(
-  { rows, thinking = false, thinkingLabel = 'Suzu is composing…', participants = [] },
+  {
+    rows,
+    thinking = false,
+    thinkingLabel = 'Suzu is composing…',
+    participants = [],
+    'data-region': dataRegion,
+  },
   handleRef,
 ) {
   const ref = useRef<HTMLDivElement>(null);
@@ -194,6 +207,7 @@ const ChatLog = forwardRef<ChatLogHandle, ChatLogProps>(function ChatLog(
       role="log"
       aria-live="polite"
       aria-label="Story log"
+      data-region={dataRegion}
       // TAV-19: focusable so keyboard users (no pointer) can scroll the
       // transcript — it previously had a scroll ref but no tab stop at all.
       // Focus ring is the :focus-visible rule in ChatLog.module.css below.

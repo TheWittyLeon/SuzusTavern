@@ -26,6 +26,17 @@ import styles from '../Play.module.css';
  * file is where both live, called twice from page.tsx at their existing
  * positions.
  *
+ * I4 (Kage-CR/Miko-QA, 2026-09-21 review): the two exports used to share
+ * ONE `data-region="tableControls"` value — inert today, but Miko's
+ * sharper read: step 6's Guard 2 ("the same set of data-region ids is
+ * mounted every time"), if implemented as a naive id Set, cannot
+ * distinguish "both present" from "one of the two vanished" when two
+ * INDEPENDENTLY gated nodes (isDm vs isHumanDM&&combatIsActive&&...) share
+ * an id — either could vanish on its own without the other, and a Set
+ * comparison would see the same total either way. Split into
+ * `tableControlsSession` / `tableControlsDm` — distinct, independently
+ * trackable, matching that they really are two independent conditions.
+ *
  * Deliberately does NOT include CastSpellPanel, even though the
  * decomposition plan's §2.3 region table lists it alongside these five —
  * checked the actual gate (`(isDmPlayingOwnPc || !isHumanDM) && ...`) and
@@ -91,7 +102,7 @@ export function SessionControls({
       className={styles.sessionControls}
       role="group"
       aria-label="Session controls"
-      data-region="tableControls"
+      data-region="tableControlsSession"
     >
       <div className={styles.sessionControlsLabel}>Session</div>
       <div className={styles.sessionControlsBtns}>
@@ -262,7 +273,7 @@ export function DmCombatControls({
 }: DmCombatControlsProps) {
   if (!(isHumanDM && combatIsActive && combatState && combatId)) return null;
   return (
-    <div role="group" aria-label="DM controls" className={styles.dmControlsGroup} data-region="tableControls">
+    <div role="group" aria-label="DM controls" className={styles.dmControlsGroup} data-region="tableControlsDm">
       {/* S5.3 + S5.4: monster control panel — human DM seat only, during active combat. */}
       <DmNarrationPanel
         combatId={combatId}

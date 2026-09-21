@@ -18,13 +18,29 @@ import styles from '../Play.module.css';
  * this file is where both live, called from their existing positions.
  *
  * SuzuPresence (this step's other named region, "wraps SuzuDM") is NOT
- * created here: `/play` does not render `<SuzuDM>` anywhere today (grep
- * confirmed) — the plan's own description ("minus its Suzu slot") already
- * says NarratorStrip has no Suzu content to extract either. There is no
- * existing JSX to move, and inventing an empty wrapper around a component
- * `/play` never renders would be new code, not a move, and a component
- * with zero current callers — flag for whoever adds Suzu's presence to
- * `/play` (step 9, "Suzu's moods", or earlier).
+ * created here. Correction to this comment's own earlier claim (caught
+ * while wiring the I4 data-region fix below): NarratorStrip DOES render
+ * `<SuzuDM size={56} glow={false} talking={talking} />` internally
+ * (NarratorStrip.tsx:116) — "/play does not render <SuzuDM> anywhere
+ * today" was wrong as a claim about the RENDERED TREE, even though it was
+ * true of page.tsx's own JSX (grep only checked page.tsx directly). The
+ * decision stands for the right reason instead: the plan explicitly
+ * categorizes NarratorStrip as "wrapped, not edited" and SuzuDM as
+ * "as-is (no edit) ... until step 9" (§2.3) — pulling SuzuDM out of
+ * NarratorStrip to give SuzuPresence something of its own to wrap would
+ * mean EDITING NarratorStrip's internals, which is out of step 3's scope
+ * regardless of the Suzu-presence question. "Minus its Suzu slot" is
+ * TopBar's own future responsibility split (Suzu becomes NarratorStrip's
+ * neighbor, not TopBar's concern), not an instruction to act now — flagged
+ * for step 9 or whoever designs the extraction.
+ *
+ * I4 (Kage-CR/Miko-QA, 2026-09-21 review): SessionHead and TopBar used to
+ * share ONE `data-region="topBar"` value across two DOM nodes — inert
+ * today, but Miko's sharper read: step 6's Guard 2 ("the same set of
+ * data-region ids is mounted every time"), if implemented as a naive id
+ * Set, cannot distinguish "both present" from "one vanished" when two
+ * unrelated nodes share an id. Split into `topBarSession` /
+ * `topBarStatus` — distinct, independently trackable.
  */
 
 export interface SessionHeadProps {
@@ -37,7 +53,7 @@ export interface SessionHeadProps {
  *  direct child of the party `<aside>`, exactly where it lives today. */
 export function SessionHead({ title, journalOpen, onToggleJournal }: SessionHeadProps) {
   return (
-    <div className={styles.sessionHead} data-region="topBar">
+    <div className={styles.sessionHead} data-region="topBarSession">
       <Link href="/lobby" className={styles.back} aria-label="Leave session">
         <Icon name="Chevron" size={14} style={{ transform: 'rotate(180deg)' }} />
       </Link>
@@ -105,9 +121,10 @@ export function TopBar({
       turnStatusText={turnStatusText}
       initiativeOrder={initiativeOrder}
       status={status}
+      data-region="topBarStatus"
     />
   ) : (
-    <div className={styles.aiOffStatus} role="status" aria-live="polite" data-region="topBar">
+    <div className={styles.aiOffStatus} role="status" aria-live="polite" data-region="topBarStatus">
       {statusPill}
     </div>
   );
