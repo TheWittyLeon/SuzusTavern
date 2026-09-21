@@ -375,6 +375,32 @@
      scope this phase). */
   --font-narration: var(--font-display);
 
+  /* TAV-PLAY-SHELL step 1 — type scale. Measured, not invented: a scan of
+     every `font-size:` declaration across all 71 *.css files (461
+     occurrences, 23 distinct values) found the UI running small and
+     clustered — 11-13px alone is 68% of all font-size usage (11px x74,
+     12px x107, 13px x132), with 9-10px for kickers/labels (x49) and a thin
+     14-22px tail for emphasis/headings. Each step below sits ON a real
+     cluster rather than an invented round number:
+       xs   -> the 9-10px label/kicker cluster
+       sm   -> the 11-12px secondary-text cluster
+       base -> 13px, the single most-used exact value in the codebase
+       lg   -> the 14-16px emphasis cluster (16px doubles as the universal
+               1rem anchor)
+       xl   -> the 18-20px heading cluster
+       2xl  -> the 22-32px display/hero cluster
+     Line-heights mirror the same measurement (92 `line-height:` values):
+     a tight cluster at 1.1-1.2 (headings) and a dominant reading cluster
+     at 1.4-1.55 (body/prose — the Story log's own readability concern). */
+  --text-xs:   10px;
+  --text-sm:   12px;
+  --text-base: 13px;
+  --text-lg:   16px;
+  --text-xl:   20px;
+  --text-2xl:  28px;
+  --leading-tight:  1.15;
+  --leading-normal: 1.5;
+
   /* HEARTHLIGHT-NEW: decouples headline weight from the font stack so a
      future vibe can go heavier/lighter without swapping fonts. Shared
      default here (not per-vibe) — hearthlight itself doesn't need a
@@ -387,6 +413,31 @@
 
   --density-pad: 22px;
   --density-gap: 16px;
+
+  /* TAV-PLAY-SHELL step 1 — spacing scale for everything --density-pad/gap
+     doesn't cover: fixed inline gaps (icon-to-label, chip padding, button
+     rows) that CLAUDE.md's own density-wiring rule says stay literal px
+     because they're sized to their glyph, not the page's breathing room.
+     --density-* already owns CONTAINER-level breathing room (compact 10-14,
+     cozy 16-22, airy 24-30) — this scale is not a second version of that,
+     it is the token vocabulary for the "stays literal" tier the rule
+     carves out today.
+     Measured, not invented: every `padding`/`margin`/`gap`/inset px value
+     across all 71 *.css files (953 occurrences, 26 distinct values) —
+     2-16px in steps of 2 is 85% of all usage (811/953) with every one of
+     those 8 values individually common (47-243 occurrences each); the
+     remaining 15% is an 18-40px long tail with no single value over 30
+     occurrences. Eight steps, one real cluster, one arithmetic
+     progression — not a doubling scale that would leave 6/10/14/18px (a
+     combined 372 occurrences) with no token at all. */
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 6px;
+  --space-4: 8px;
+  --space-5: 10px;
+  --space-6: 12px;
+  --space-7: 14px;
+  --space-8: 16px;
 
   /* Focus-ring geometry, read by the global :focus-visible rule and the Codex
      row ring.

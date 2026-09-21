@@ -248,3 +248,62 @@ describe('UIA-0919-021 cont.: aurora-drift keyframe cancels its own scale exactl
     expect(translateUpFraction).toBeCloseTo(expected, 6)
   })
 })
+
+describe('TAV-PLAY-SHELL step 1 — spacing/type scale tokens', () => {
+  let cssContent: string
+
+  beforeAll(() => {
+    cssContent = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/app/globals.css'),
+      'utf8'
+    )
+  })
+
+  it('declares the 8-step spacing scale, in order, 2px per step from 2 to 16', () => {
+    for (let i = 1; i <= 8; i++) {
+      expect(cssContent).toContain(`--space-${i}: ${i * 2}px;`)
+    }
+    // Not a 9th step yet — the scale is exactly 8 steps (plan §5 step 1).
+    expect(cssContent).not.toContain('--space-9:')
+  })
+
+  it('declares the 6-step type scale with the measured values', () => {
+    expect(cssContent).toContain('--text-xs:   10px;')
+    expect(cssContent).toContain('--text-sm:   12px;')
+    expect(cssContent).toContain('--text-base: 13px;')
+    expect(cssContent).toContain('--text-lg:   16px;')
+    expect(cssContent).toContain('--text-xl:   20px;')
+    expect(cssContent).toContain('--text-2xl:  28px;')
+  })
+
+  it('declares the two line-height tokens the type scale references', () => {
+    expect(cssContent).toContain('--leading-tight:  1.15;')
+    expect(cssContent).toContain('--leading-normal: 1.5;')
+  })
+
+  it('the spacing/type scale lives in the shared structural :root block, not inside a per-vibe [data-vibe] block', () => {
+    // Brace-depth match the :root {...} that immediately follows the
+    // "Shared structural tokens" banner comment, so this proves the tokens
+    // are inside THAT ONE rule — not merely "somewhere after the comment",
+    // which a naive slice-to-EOF would also satisfy for tokens accidentally
+    // placed in a later [data-vibe=...] override.
+    const bannerIdx = cssContent.indexOf('Shared structural tokens')
+    expect(bannerIdx).toBeGreaterThan(-1)
+    const rootStart = cssContent.indexOf(':root', bannerIdx)
+    const braceStart = cssContent.indexOf('{', rootStart)
+    let depth = 0
+    let braceEnd = -1
+    for (let i = braceStart; i < cssContent.length; i++) {
+      if (cssContent[i] === '{') depth++
+      else if (cssContent[i] === '}') {
+        depth--
+        if (depth === 0) { braceEnd = i; break }
+      }
+    }
+    expect(braceEnd).toBeGreaterThan(-1)
+    const structuralBlock = cssContent.slice(braceStart, braceEnd + 1)
+    expect(structuralBlock).toContain('--space-1: 2px;')
+    expect(structuralBlock).toContain('--text-xs:   10px;')
+    expect(structuralBlock.indexOf('[data-vibe=')).toBe(-1)
+  })
+})
