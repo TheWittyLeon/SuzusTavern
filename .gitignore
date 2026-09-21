@@ -42,3 +42,6 @@ next-env.d.ts
 
 # graphify (rebuildable; .graphifyignore stays tracked)
 graphify-out/
+
+# local worktree root (agent lanes)
+.worktrees/
