@@ -26,6 +26,11 @@ import styles from '../Play.module.css';
  * file is where both live, called twice from page.tsx at their existing
  * positions.
  *
+ * debt: two named exports standing in for one region (SessionControls +
+ * DmCombatControls, split across two DOM parents). ceiling: fine as long
+ * as nothing but page.tsx calls either export directly. until: step 10
+ * lands (TableControls becomes a layer, D1) — collapse to one component.
+ *
  * I4 (Kage-CR/Miko-QA, 2026-09-21 review): the two exports used to share
  * ONE `data-region="tableControls"` value — inert today, but Miko's
  * sharper read: step 6's Guard 2 ("the same set of data-region ids is

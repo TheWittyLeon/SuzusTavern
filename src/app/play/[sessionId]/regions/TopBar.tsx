@@ -41,6 +41,12 @@ import styles from '../Play.module.css';
  * Set, cannot distinguish "both present" from "one vanished" when two
  * unrelated nodes share an id. Split into `topBarSession` /
  * `topBarStatus` — distinct, independently trackable.
+ *
+ * debt: two named exports standing in for one region (SessionHead +
+ * TopBar, split across two DOM parents). ceiling: fine as long as nothing
+ * but page.tsx calls either export directly. until: step 6 lands (the
+ * preset shell) — TopBar becomes the single top-of-grid region and owns
+ * both pieces.
  */
 
 export interface SessionHeadProps {
