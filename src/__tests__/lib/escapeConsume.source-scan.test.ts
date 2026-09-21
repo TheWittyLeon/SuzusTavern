@@ -46,6 +46,9 @@ const SCANNED_FILES = [
   // instruction to update this list at every extraction step, not let the
   // scan silently stop covering moved code.
   'src/components/Drawer.tsx',
+  // TAV-PLAY-SHELL step 3: the Award-XP form's consumeEscape call moved
+  // here with SessionControls.
+  'src/app/play/[sessionId]/regions/TableControls.tsx',
 ];
 
 const ESCAPE_COMPARISON_RE = /key\s*(===|!==)\s*'Escape'/g;

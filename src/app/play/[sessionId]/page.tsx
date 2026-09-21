@@ -111,9 +111,6 @@ import Pill from '@/components/Pill';
 import PageSkeleton from '@/components/PageSkeleton';
 import NarratorStrip from '@/components/NarratorStrip';
 import CastSpellPanel from '@/components/CastSpellPanel';
-import ConditionsPanel from '@/components/ConditionsPanel';
-import GrantCurrencyPanel from '@/components/GrantCurrencyPanel';
-import CampaignFloorPanel from '@/components/CampaignFloorPanel';
 import SessionRecap from '@/components/SessionRecap';
 import ChatLog, { type ChatLogHandle, type LogRow } from '@/components/ChatLog';
 import PartyPanel from '@/components/PartyPanel';
@@ -124,10 +121,10 @@ import Composer, {
   type CombatAction,
   type CombatTarget,
 } from '@/components/Composer';
-import DmNarrationPanel from '@/components/DmNarrationPanel';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Drawer from '@/components/Drawer';
 import SafetyBanner from './regions/SafetyBanner';
+import { SessionControls, DmCombatControls } from './regions/TableControls';
 import JournalPane, { JOURNAL_HEADING_ID } from '@/components/JournalPane';
 import MemberSheetPanel, { MEMBER_SHEET_HEADING_ID } from '@/components/MemberSheetPanel';
 import NextPartOffer from '@/components/NextPartOffer';
@@ -5271,167 +5268,39 @@ export default function PlayPage() {
             <Icon name="Lantern" size={16} aria-hidden />
           </button>
         </div>
-        {/* DDX-25: DM-only session lifecycle controls (Pause/Resume, End,
-            Award XP). Reuses the isDm gate computed above (B2-4) — the same
-            gate DmNarrationPanel/the rebind buttons already use — so non-DM
-            players never see this group. Kept in its own "Session controls"
-            group, visually and semantically distinct from the combat outcome
-            chooser (right pane, styles.outcomeChooser): session lifecycle and
-            a single fight's outcome are different concepts and must not be
-            confused. */}
-        {isDm && (
-          <div
-            className={styles.sessionControls}
-            role="group"
-            aria-label="Session controls"
-          >
-            <div className={styles.sessionControlsLabel}>Session</div>
-            <div className={styles.sessionControlsBtns}>
-              <button
-                type="button"
-                className={styles.sessionControlBtn}
-                onClick={() => void onTogglePause()}
-                disabled={sessionActionBusy !== null || isEnded}
-                aria-busy={sessionActionBusy === 'pause' || sessionActionBusy === 'resume'}
-              >
-                <Icon name="Pulse" size={13} aria-hidden />
-                {sessionActionBusy === 'pause'
-                  ? 'Pausing…'
-                  : sessionActionBusy === 'resume'
-                    ? 'Resuming…'
-                    : isPaused
-                      ? 'Resume'
-                      : 'Pause'}
-              </button>
-              <button
-                type="button"
-                className={`${styles.sessionControlBtn} ${styles.sessionControlBtnDanger}`}
-                onClick={() => setEndSessionConfirmOpen(true)}
-                disabled={sessionActionBusy !== null || isEnded}
-              >
-                <Icon name="Power" size={13} aria-hidden />
-                End session
-              </button>
-              <button
-                ref={xpToggleBtnRef}
-                type="button"
-                className={styles.sessionControlBtn}
-                onClick={() => setXpFormOpen((v) => !v)}
-                disabled={sessionActionBusy !== null || isEnded}
-                aria-haspopup="true"
-                aria-expanded={xpFormOpen}
-              >
-                <Icon name="Sparkle" size={13} aria-hidden />
-                Award XP
-              </button>
-            </div>
-            {xpFormOpen && (
-              <form
-                className={styles.xpForm}
-                aria-label="Award session XP"
-                // TAV-A11Y-USE-ESCAPE-CONSUME-HOOK (was a hand-rolled
-                // Miko-QA gate Finding 2 / UIR2-TAV-11 r2 fix):
-                // stopPropagation is unconditional; only the actual dismiss
-                // stays gated on sessionActionBusy==='xp' (an in-flight
-                // award shouldn't be dismissable mid-request).
-                onKeyDown={(e) =>
-                  consumeEscape(e, {
-                    onClose: () => setXpFormOpen(false),
-                    canClose: sessionActionBusy !== 'xp',
-                    onRefocus: () => xpToggleBtnRef.current?.focus(),
-                  })
-                }
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void onAwardXp();
-                }}
-              >
-                <label className={`label ${styles.xpLabel}`} htmlFor="xp-amount-input">
-                  XP amount
-                </label>
-                <input
-                  id="xp-amount-input"
-                  className="input"
-                  type="number"
-                  min={1}
-                  step={1}
-                  inputMode="numeric"
-                  value={xpAmount}
-                  disabled={sessionActionBusy === 'xp'}
-                  onChange={(e) => setXpAmount(e.target.value)}
-                />
-                <label className={`label ${styles.xpLabel}`} htmlFor="xp-reason-input">
-                  Reason (optional)
-                </label>
-                <input
-                  id="xp-reason-input"
-                  className="input"
-                  type="text"
-                  value={xpReason}
-                  disabled={sessionActionBusy === 'xp'}
-                  onChange={(e) => setXpReason(e.target.value)}
-                />
-                <div className={styles.xpFormBtns}>
-                  <button
-                    type="submit"
-                    className={styles.sessionControlBtn}
-                    disabled={sessionActionBusy === 'xp' || !xpAmountValid}
-                    aria-busy={sessionActionBusy === 'xp'}
-                  >
-                    {sessionActionBusy === 'xp' ? 'Awarding…' : 'Award'}
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.sessionControlBtn}
-                    disabled={sessionActionBusy === 'xp'}
-                    onClick={() => {
-                      setXpFormOpen(false);
-                      xpToggleBtnRef.current?.focus();
-                    }}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            )}
-            {/* T12 (DDX-23t): DM grants gold to a chosen party member's
-                character. Session-scoped, not combat-scoped — sits in this
-                same isDm "Session controls" group as Award XP (not gated on
-                isHumanDM/combatIsActive like ConditionsPanel, since granting
-                gold is a session-economy action available to any DM seat).
-                Self-contained (own busy-latch/toast), renders nothing when
-                no participant has a bound character yet. */}
-            <GrantCurrencyPanel
-              sessionId={sessionId}
-              participants={participants}
-              disabled={sessionActionBusy !== null || isEnded}
-            />
-            {/* LVL-1 (T5): floor display/edit + "Apply floor now". Peer of
-                GrantCurrencyPanel — same isDm gate, same disabled
-                expression, self-contained panel. onChanged refetches the
-                session (new starting_level on the summary) AND the roster
-                (leveled members' PartyPanel badges) — mirrors the
-                end-session handler's paired refetch. */}
-            <CampaignFloorPanel
-              sessionId={sessionId}
-              // Kage n5: isDm implies a resolved username, but '' would be
-              // the wrong wire shape (engine Field(min_length=1) → 422, not
-              // a clean _err) — send the real value, never a fallback.
-              username={username as string}
-              participants={participants}
-              startingLevel={session?.starting_level ?? 1}
-              disabled={sessionActionBusy !== null || isEnded}
-              onChanged={() => {
-                void refreshSessionAfterAction();
-                getParticipants(sessionId)
-                  .then(setParticipants)
-                  .catch(() => {
-                    /* non-fatal — roster refreshes on the next poll */
-                  });
-              }}
-            />
-          </div>
-        )}
+        {/* TAV-PLAY-SHELL step 3: region extracted verbatim to
+            regions/TableControls.tsx's SessionControls export (DDX-25 DM-only
+            session lifecycle controls + GrantCurrencyPanel + CampaignFloorPanel).
+            State/refs/handlers stay in page.tsx. */}
+        <SessionControls
+          isDm={isDm}
+          sessionActionBusy={sessionActionBusy}
+          isEnded={isEnded}
+          isPaused={isPaused}
+          onTogglePause={() => void onTogglePause()}
+          onEndSessionRequest={() => setEndSessionConfirmOpen(true)}
+          xpToggleBtnRef={xpToggleBtnRef}
+          xpFormOpen={xpFormOpen}
+          setXpFormOpen={setXpFormOpen}
+          xpAmount={xpAmount}
+          setXpAmount={setXpAmount}
+          xpReason={xpReason}
+          setXpReason={setXpReason}
+          xpAmountValid={xpAmountValid}
+          onAwardXp={() => void onAwardXp()}
+          sessionId={sessionId}
+          participants={participants}
+          username={username}
+          startingLevel={session?.starting_level ?? 1}
+          onCampaignFloorChanged={() => {
+            void refreshSessionAfterAction();
+            getParticipants(sessionId)
+              .then(setParticipants)
+              .catch(() => {
+                /* non-fatal — roster refreshes on the next poll */
+              });
+          }}
+        />
         <PartyPanel
           participants={participants}
           selfUsername={username}
@@ -5608,71 +5477,39 @@ export default function PlayPage() {
             Your character has died.
           </div>
         )}
-        {/* Tora MAJOR-1: DmNarrationPanel + ConditionsPanel are the DM-side
-            controls; wrapped in one labeled group so AT users browsing by
-            landmark/group get a "DM" vs "your character" cue now that both
-            rails can co-render for a solo human-DM playing their own PC
-            (TAV-SOLO-DM-CAST-RAIL). This wrapper is a single flex child of
-            `.center`, so `.center`'s own gap no longer applies between the two
-            panels — `.dmControlsGroup` restores it (Kage). Each panel still
-            carries its own visible kicker ("Monster control"/"Conditions");
-            this only adds the outer semantic grouping + restored spacing. */}
-        {isHumanDM && combatIsActive && combatState && combatId && (
-          <div role="group" aria-label="DM controls" className={styles.dmControlsGroup}>
-            {/* S5.3 + S5.4: monster control panel — human DM seat only, during active combat. */}
-            <DmNarrationPanel
-              combatId={combatId}
-              combatState={combatState}
-              sessionId={sessionId}
-              dmUsername={session?.dm_username ?? username ?? ''}
-              overridePlayerVisible={session?.dm_override_player_visible ?? true}
-              panelRef={dmPanelAnchorRef}
-              localTurnActionRef={localTurnActionRef}
-              onMessage={(text) =>
-                appendLog({ who: 'Suzu', kind: 'system', text })
-              }
-              onOverrideMessage={(text) =>
-                appendLog({
-                  who: `DM (${session?.dm_username ?? username ?? 'DM'})`,
-                  kind: 'dm_override',
-                  text: `DM ruled: ${text}`,
-                })
-              }
-              onStateUpdate={(newState) => {
+        {/* TAV-PLAY-SHELL step 3: region extracted verbatim to
+            regions/TableControls.tsx's DmCombatControls export (Tora MAJOR-1
+            DM-side combat controls: DmNarrationPanel + ConditionsPanel).
+            State/refs/handlers stay in page.tsx. */}
+        <DmCombatControls
+          isHumanDM={isHumanDM}
+          combatIsActive={combatIsActive}
+          combatState={combatState}
+          combatId={combatId}
+          sessionId={sessionId}
+          dmUsername={session?.dm_username ?? username ?? ''}
+          overridePlayerVisible={session?.dm_override_player_visible ?? true}
+          dmPanelAnchorRef={dmPanelAnchorRef}
+          localTurnActionRef={localTurnActionRef}
+          appendLog={appendLog}
+          onCombatStateUpdate={(newState) => {
+            stateSeqRef.current += 1;
+            setCombatState(newState);
+          }}
+          onCombatStateRefresh={() => {
+            if (!combatId) return;
+            void (async () => {
+              const cs = await getCombatState(combatId).catch(() => null);
+              if (cs) {
                 stateSeqRef.current += 1;
-                setCombatState(newState);
-              }}
-              onStateRefresh={async () => {
-                if (!combatId) return;
-                const cs = await getCombatState(combatId).catch(() => null);
-                if (cs) {
-                  stateSeqRef.current += 1;
-                  setCombatState(cs);
-                }
-              }}
-            />
-            {/* T7 (DDX-17e): condition apply/remove — human DM seat only, during
-                active combat. Mounts alongside DmNarrationPanel (both DM-only,
-                not mutually exclusive with it — a DM can drive a monster's turn
-                AND apply/remove a condition). Chips themselves render for every
-                client via InitiativeTracker; this panel is the mutate surface. */}
-            <ConditionsPanel
-              combatId={combatId}
-              dmUsername={session?.dm_username ?? username ?? ''}
-              participants={combatState.participants}
-              disabled={combatBusy || sessionLocked}
-              onApplied={(text) => appendLog({ who: 'Suzu', kind: 'system', text })}
-              onStateRefresh={async () => {
-                const cs = await getCombatState(combatId).catch(() => null);
-                if (cs) {
-                  stateSeqRef.current += 1;
-                  setCombatState(cs);
-                }
-              }}
-              onBusyChange={setCombatBusy}
-            />
-          </div>
-        )}
+                setCombatState(cs);
+              }
+            })();
+          }}
+          combatBusy={combatBusy}
+          sessionLocked={sessionLocked}
+          onCombatBusyChange={setCombatBusy}
+        />
         {/* T6 (DDX-12): cast-in-combat picker — bound caster only, during active
             combat. Mirrors DmNarrationPanel's mount gate immediately above (same
             spot in the layout, mutually exclusive: a human DM sees the monster
