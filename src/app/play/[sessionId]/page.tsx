@@ -107,7 +107,6 @@ import type { QuickCheck, RollTrigger } from '@/components/DiceTray';
 import Icon from '@/components/Icon';
 import Pill from '@/components/Pill';
 import PageSkeleton from '@/components/PageSkeleton';
-import NarratorStrip from '@/components/NarratorStrip';
 import CastSpellPanel from '@/components/CastSpellPanel';
 import SessionRecap from '@/components/SessionRecap';
 import { type ChatLogHandle, type LogRow } from '@/components/ChatLog';
@@ -125,6 +124,7 @@ import PartyStrip from './regions/PartyStrip';
 import SceneStage from './regions/SceneStage';
 import Offers from './regions/Offers';
 import StoryLog from './regions/StoryLog';
+import { SessionHead, TopBar } from './regions/TopBar';
 import JournalPane, { JOURNAL_HEADING_ID } from '@/components/JournalPane';
 import MemberSheetPanel, { MEMBER_SHEET_HEADING_ID } from '@/components/MemberSheetPanel';
 import NextPartOffer from '@/components/NextPartOffer';
@@ -5242,32 +5242,13 @@ export default function PlayPage() {
         className={`${styles.pane} ${styles.left}`}
         aria-label="Party and initiative"
       >
-        <div className={styles.sessionHead}>
-          <Link href="/lobby" className={styles.back} aria-label="Leave session">
-            <Icon name="Chevron" size={14} style={{ transform: 'rotate(180deg)' }} />
-          </Link>
-          <div>
-            <div className={styles.kicker}>Session</div>
-            <div className={styles.sessionTitle}>{title}</div>
-          </div>
-          {/* DDX-22: Journal drawer toggle — visible to every seat (not
-              isDm-gated like .sessionControls below; the journal is a
-              per-player surface, not a DM tool). Desktop-only in practice:
-              the drawer chrome it opens is media-gated to >880px, so this
-              button simply has no visual effect at mobile widths (the 4th
-              mobile tab above is how the journal is reached there). */}
-          <button
-            type="button"
-            className={styles.journalToggleBtn}
-            onClick={() => setJournalOpen((v) => !v)}
-            aria-haspopup="dialog"
-            aria-expanded={journalOpen}
-            aria-controls="play-pane-journal"
-            aria-label="Open journal"
-          >
-            <Icon name="Lantern" size={16} aria-hidden />
-          </button>
-        </div>
+        {/* TAV-PLAY-SHELL step 3: region extracted verbatim to
+            regions/TopBar.tsx's SessionHead export. */}
+        <SessionHead
+          title={title}
+          journalOpen={journalOpen}
+          onToggleJournal={() => setJournalOpen((v) => !v)}
+        />
         {/* TAV-PLAY-SHELL step 3: region extracted verbatim to
             regions/TableControls.tsx's SessionControls export (DDX-25 DM-only
             session lifecycle controls + GrantCurrencyPanel + CampaignFloorPanel).
@@ -5357,26 +5338,21 @@ export default function PlayPage() {
 
       {/* CENTRE — narrator + log + composer */}
       <main id="play-pane-story" className={`${styles.pane} ${styles.center}`}>
-        {/* S5.5: NarratorStrip (now a scene/combat status banner — see the
-            component's own doc comment) hidden when ai_assist_level='off'.
-            When hidden, the combat status pill is surfaced inline so turn/round info
-            remains visible. */}
-        {showSuzuPanel ? (
-          <NarratorStrip
-            talking={talking}
-            sceneName={grounding?.scene_name ?? null}
-            objective={grounding?.objective ?? null}
-            combatActive={combatIsActive}
-            round={round}
-            turnStatusText={turnStatusText}
-            initiativeOrder={narratorInitiativeOrder}
-            status={narratorStatusPill}
-          />
-        ) : (
-          <div className={styles.aiOffStatus} role="status" aria-live="polite">
-            {statusPill}
-          </div>
-        )}
+        {/* TAV-PLAY-SHELL step 3: region extracted verbatim to
+            regions/TopBar.tsx's TopBar export (S5.5 NarratorStrip / aiOffStatus
+            fallback). */}
+        <TopBar
+          showSuzuPanel={showSuzuPanel}
+          talking={talking}
+          sceneName={grounding?.scene_name ?? null}
+          objective={grounding?.objective ?? null}
+          combatActive={combatIsActive}
+          round={round}
+          turnStatusText={turnStatusText}
+          initiativeOrder={narratorInitiativeOrder}
+          status={narratorStatusPill}
+          statusPill={statusPill}
+        />
         {/* FIX-8 (MEDIUM-2): aria-label on the live region so AT announces the
             context ("Session recap") before reading the content changes. */}
         <div aria-live="polite" aria-label="Session recap">
