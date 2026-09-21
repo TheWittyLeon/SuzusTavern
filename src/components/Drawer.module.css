@@ -71,6 +71,20 @@
     transition: transform var(--dur) var(--ease);
   }
 
+  /* Kage-CR C1 (2026-09-21): `.drawerOpen{transform:none}` above is
+     specificity (0,1,0), same as `.drawerMobileFallback`'s own
+     `transform: translateX(100%)` immediately above — a media query adds
+     no specificity, so this is a same-specificity tie, and THIS rule
+     (later in source order) was winning even when `.drawerOpen` was also
+     present, leaving the Journal drawer permanently off-screen at ≥881px.
+     A compound selector here (0,2,0) always wins regardless of source
+     order, and it lives directly beside the geometry it resets so the two
+     cannot separate again the way `.drawerOpen` alone (declared once,
+     40 lines away) already did. */
+  .drawerMobileFallback.drawerOpen {
+    transform: none;
+  }
+
   .scrimMobileFallback {
     position: fixed;
     inset: 0;
