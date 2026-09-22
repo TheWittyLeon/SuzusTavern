@@ -121,6 +121,7 @@ import StoryLog from './regions/StoryLog';
 import { SessionHead, TopBar } from './regions/TopBar';
 import { titleCaseSkill, POLL_INTERVAL_MS } from './format';
 import { useSessionLifecycle } from './hooks/useSessionLifecycle';
+import { useMyCharacter } from './hooks/useMyCharacter';
 import JournalPane, { JOURNAL_HEADING_ID } from '@/components/JournalPane';
 import MemberSheetPanel, { MEMBER_SHEET_HEADING_ID } from '@/components/MemberSheetPanel';
 import NextPartOffer from '@/components/NextPartOffer';
@@ -353,6 +354,13 @@ export default function PlayPage() {
     isDm, isHumanDM, isPaused, isEnded, sessionLocked, aiOff,
     refreshSessionAfterAction, onTogglePause, onConfirmEndSession, onAwardXp,
   } = useSessionLifecycle(sessionId);
+
+  // TAV-PLAY-SHELL step 5, hook 2 of ~9: the bound character's id + sheet.
+  // Still-thin hook (state only, see its own file) -- every setter call
+  // site (mount effect, rebind handler, CastSpellPanel's onSheetChanged)
+  // stays in page.tsx unchanged, same identifiers via destructuring.
+  const { myCharacterIdStr, setMyCharacterIdStr, mySheet, setMySheet, noCharToastFiredRef } =
+    useMyCharacter();
   const [log, setLog] = useState<LogRow[]>([]);
   // TAV-NARRATION-DECOUPLE (2026-07-25): `narratorText` used to feed the top
   // NarratorStrip with the live-streaming narration; removed when the strip
@@ -448,16 +456,6 @@ export default function PlayPage() {
   // offer and clears both at the top of every new beat.
   const [freeformOfferedCheck, setFreeformOfferedCheck] = useState<string | null>(null);
 
-  // B1-4: the logged-in user's bound character_id (stringified) for per-user
-  // turn resolution. Populated from the participants endpoint on load + on rebind.
-  const [myCharacterIdStr, setMyCharacterIdStr] = useState<string | null>(null);
-
-  // T6 (DDX-12): the bound character's own sheet, needed for CastSpellPanel
-  // (is_spellcaster gate + spell_slots for the upcast range / live pips).
-  // Populated by the same getCharacterSheet call that already builds
-  // quickChecks below; refreshed by CastSpellPanel itself after a successful
-  // cast (onSheetChanged), mirroring SpellSlotsPanel's onChanged contract.
-  const [mySheet, setMySheet] = useState<CharacterSheet | null>(null);
 
   // TAV-PARTY-INLINE-SHEET: clicking a party card used to navigate to
   // /character/[id], reloading the whole session — this instead opens the
@@ -499,9 +497,6 @@ export default function PlayPage() {
   // the composer can be used, so a persisted row and its future live-append
   // counterpart never coexist in the same mount.
   const rehydratedRef = useRef(false);
-
-  // B1-4: fire-once "no character bound" toast when combat becomes active.
-  const noCharToastFiredRef = useRef(false);
 
   // DDX-08 / T3: highest session-event `seq` already rendered into the log
   // (set once by rehydration, then advanced by the dice-roll events poll
@@ -2019,7 +2014,9 @@ export default function PlayPage() {
   );
 
   // B1-4: fire-once toast when combat becomes active and the user has no bound
-  // character (they can observe but not act).
+  // character (they can observe but not act). debt: stays in page.tsx, not
+  // useMyCharacter -- it also reads useCombat's combatState.state. ceiling:
+  // no additional cross-concern read added. until: useCombat is extracted.
   useEffect(() => {
     if (
       combatState?.state === 'active' &&
@@ -2032,7 +2029,11 @@ export default function PlayPage() {
         message: 'You have no bound character — you can watch but not act.',
       });
     }
-  }, [combatState?.state, myCharacterIdStr, toast]);
+    // noCharToastFiredRef is the useRef object useMyCharacter's own useRef
+    // call returns -- referentially stable across renders like any ref,
+    // listed explicitly because the linter can't prove that through an
+    // intermediate hook (same as the XP-guard effect above).
+  }, [combatState?.state, myCharacterIdStr, toast, noCharToastFiredRef]);
 
   // ── cleanup streams on unmount ───────────────────────────────────────────────
   // pollIntervalRef is owned by the combatId effect above — its cleanup already
