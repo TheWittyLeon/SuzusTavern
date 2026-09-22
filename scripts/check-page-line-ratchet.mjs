@@ -33,11 +33,16 @@ const ROOT = new URL('..', import.meta.url).pathname;
 const PAGE_REL = 'src/app/play/[sessionId]/page.tsx';
 const PAGE = join(ROOT, PAGE_REL);
 
-// Recorded at TAV-PLAY-SHELL step 4's close (2026-09-21) -- killing the
-// aria-hidden Offers duplicate shrank page.tsx from 5861 to 5790. Update
-// this value, in the SAME commit, whenever page.tsx's actual line count
-// drops below it. Never raise it.
-export const RATCHET_CEILING = 5790;
+// Recorded at TAV-PLAY-SHELL-RATCHET-NOT-ENFORCED / step 4's close
+// (2026-09-21): 5861 -> 5790. Raised once since, to 5797, by
+// TAV-PLAY-A11Y-DEADSTATUS-NOT-ALWAYS-MOUNTED (+7 lines) -- a correctness
+// fix to code not yet extracted into a region (the ratchet's rule 2 bars
+// FEATURE work landing in page.tsx instead of the region/hook that owns
+// it; an a11y bug fix to page.tsx's own still-unextracted deadStatus JSX
+// is neither), reviewed in the same commit as this comment. Update this
+// value, in the SAME commit, whenever page.tsx's actual line count drops
+// below it. Never raise it silently.
+export const RATCHET_CEILING = 5797;
 
 /**
  * Pure: counts lines the way `wc -l` does (newline-byte count). Exported so

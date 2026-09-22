@@ -5416,12 +5416,19 @@ export default function PlayPage() {
             §4.2, previously dropped): a dead PC never becomes the active-turn
             participant again, so this can't reuse the turnStatusText live
             region above — it needs its own always-checked gate keyed on the
-            viewer's own roster entry, independent of whose turn it is. */}
-        {combatIsActive && isMyPcDead && (
-          <div role="status" aria-live="polite" aria-atomic="true" className={styles.deadStatus}>
-            Your character has died.
-          </div>
-        )}
+            viewer's own roster entry, independent of whose turn it is.
+            TAV-PLAY-A11Y-DEADSTATUS-NOT-ALWAYS-MOUNTED: the wrapper used to
+            be gated on `combatIsActive && isMyPcDead` too (not just its
+            text), which dropped the live region itself the instant combat
+            ended while isMyPcDead stayed true — a "mount whenever
+            combatIsActive" fix would still do that (Iro-A11y). Matches
+            .durableRetryRow's actual pattern below instead: the wrapper
+            mounts unconditionally; only the CONTENT is gated. Empty text
+            collapses to zero footprint via .deadStatus:empty in
+            Play.module.css. */}
+        <div role="status" aria-live="polite" aria-atomic="true" className={styles.deadStatus}>
+          {combatIsActive && isMyPcDead ? 'Your character has died.' : null}
+        </div>
         {/* TAV-PLAY-SHELL step 3: region extracted verbatim to
             regions/TableControls.tsx's DmCombatControls export (Tora MAJOR-1
             DM-side combat controls: DmNarrationPanel + ConditionsPanel).

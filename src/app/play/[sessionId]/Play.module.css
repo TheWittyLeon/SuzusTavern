@@ -842,6 +842,16 @@
   flex-shrink: 0;
 }
 
+/* TAV-PLAY-A11Y-DEADSTATUS-NOT-ALWAYS-MOUNTED: the wrapper now mounts
+   unconditionally (page.tsx) with only its text content gated, matching
+   .durableRetryRow below -- same :empty collapse approach as that row and
+   the xCard banner (A1/A2: never display:none/visibility:hidden, both of
+   which pull a live region out of the a11y tree). */
+.deadStatus:empty {
+  padding: 0;
+  border: none;
+}
+
 /* ── DDX-20 §4d/§9: retry-after-failed row (flag-ON only) ──
    Iro MINOR-1: flex-wrap + text-align:center so the message + button don't
    clip under text-only browser zoom (mirrors the reflow requirement every

@@ -15,7 +15,7 @@
  * rather than imported — test files in this repo are self-contained.
  */
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import type { CombatState, GroundingData, Participant, Session } from '@/lib/api/types';
 
@@ -205,20 +205,45 @@ describe('deadStatus (A2) — "Your character has died." row', () => {
     expect(container.querySelector('.deadStatus')).not.toBeNull();
   });
 
-  // TAV-PLAY-A11Y-DEADSTATUS-NOT-ALWAYS-MOUNTED (Backlog, filed at step 0
-  // closure): page.tsx:5733 gates the WHOLE wrapper on
+  // TAV-PLAY-A11Y-DEADSTATUS-NOT-ALWAYS-MOUNTED (fixed, TAV-PLAY-SHELL lane
+  // 1 item 4): page.tsx used to gate the WHOLE wrapper on
   // `combatIsActive && isMyPcDead`, not just its text — unlike
-  // .durableRetryRow below, which gates only its CHILDREN. The plan's A2 row
-  // describes both regions as following "the same pattern"; only one of
-  // them actually does. Do not fix in step 0 (Job 3 instruction) — this
-  // documents the gap so step 2 doesn't silently carry it into Drawer/
-  // region extraction as if it were the correct shape to copy.
-  it.failing('stays mounted (empty) when my PC is alive, matching .durableRetryRow\'s pattern — TAV-PLAY-A11Y-DEADSTATUS-NOT-ALWAYS-MOUNTED', async () => {
+  // .durableRetryRow below, which gates only its CHILDREN. Now matches that
+  // pattern: the wrapper mounts unconditionally, only the text is gated.
+  it('stays mounted (empty) when my PC is alive, matching .durableRetryRow\'s pattern — TAV-PLAY-A11Y-DEADSTATUS-NOT-ALWAYS-MOUNTED', async () => {
     mGetCombatState.mockResolvedValue(COMBAT_STATE_ALIVE);
     const { container } = render(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await screen.findAllByRole('button', { name: /Attack/i });
-    expect(container.querySelector('.deadStatus')).not.toBeNull();
+    const row = container.querySelector('.deadStatus');
+    expect(row).not.toBeNull();
+    expect(row).toHaveAttribute('role', 'status');
+    expect(row?.textContent).toBe('');
+  });
+
+  // Iro-A11y (2026-09-21 review): the naive fix ("mount whenever
+  // combatIsActive") still drops the live region the instant combat ends
+  // while isMyPcDead stays true — an AT user who had the row in their
+  // virtual buffer would lose the region's very existence, not just its
+  // announcement. This fixture starts with combat ALREADY ended
+  // (state: 'ended', so combatIsActive is false) while the participant
+  // row still shows the PC dead — the exact state a "gate the wrapper on
+  // combatIsActive" fix would render nothing for, but the correct
+  // "mount unconditionally" fix still renders (empty).
+  it('stays mounted (empty) once combat has ended even though my PC is (still) dead -- proves "gate the wrapper on combatIsActive" is not the fix', async () => {
+    mGetCombatState.mockResolvedValue({ ...COMBAT_STATE_MY_PC_DEAD, state: 'ended' });
+    const { container } = render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+
+    await waitFor(() => {
+      const row = container.querySelector('.deadStatus');
+      expect(row).not.toBeNull();
+      expect(row).toHaveAttribute('role', 'status');
+      expect(row?.textContent).toBe('');
+    });
+    // Sanity: this scenario really is combat-inactive, not a fixture bug --
+    // an active-combat control (Attack) must be absent.
+    expect(screen.queryByRole('button', { name: /Attack/i })).not.toBeInTheDocument();
   });
 });
 
