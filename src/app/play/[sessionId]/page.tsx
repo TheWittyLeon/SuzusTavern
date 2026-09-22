@@ -58,11 +58,6 @@ import {
   getSessionEventsRaw,
   getSessionEventsPage,
   postSessionEvent,
-  // DDX-25: DM-only session lifecycle controls (pause/resume/end/xp award).
-  pauseSession,
-  resumeSession,
-  endSession,
-  awardSessionXp,
   resolveCheck,
   rollInitiative,
   monsterTurn,
@@ -92,7 +87,6 @@ import type {
   CharacterSheet,
   CombatState,
   EndCombatOutcome,
-  EndSessionLevelUp,
   EngineSessionEvent,
   GroundingData,
   OfferedCheck,
@@ -125,7 +119,8 @@ import SceneStage from './regions/SceneStage';
 import Offers from './regions/Offers';
 import StoryLog from './regions/StoryLog';
 import { SessionHead, TopBar } from './regions/TopBar';
-import { titleCaseSkill } from './format';
+import { titleCaseSkill, POLL_INTERVAL_MS } from './format';
+import { useSessionLifecycle } from './hooks/useSessionLifecycle';
 import JournalPane, { JOURNAL_HEADING_ID } from '@/components/JournalPane';
 import MemberSheetPanel, { MEMBER_SHEET_HEADING_ID } from '@/components/MemberSheetPanel';
 import NextPartOffer from '@/components/NextPartOffer';
@@ -156,9 +151,6 @@ const STRUCTURAL_EVENT_KINDS = new Set([
   'rebind',
   'opening_narrated',
 ]);
-
-/** Poll interval in milliseconds. */
-const POLL_INTERVAL_MS = 4000;
 
 /**
  * DDX-20 §4d (Miko-QA finding c) — the poll-only failure-detection grace
@@ -330,55 +322,6 @@ function isSessionLocked(s: Session | null | undefined): boolean {
   return s?.status === 'paused' || s?.status === 'ended';
 }
 
-/**
- * DDX-25 R3: order-independent structural equality for two session
- * snapshots. Used by the session-status poll below to decide whether a
- * freshly-fetched snapshot actually differs from what's already in state —
- * a no-op tick (nothing changed server-side) must not hand the tree a fresh
- * `session` object identity (see the poll's own comment for why that matters).
- * `Session` carries arbitrary engine passthrough fields (`[k: string]:
- * unknown`), so comparing a hand-picked subset (status, xp_pool, ...) risks
- * silently missing a field the UI later starts to depend on; comparing the
- * whole snapshot doesn't have that failure mode.
- */
-export function sessionsEqual(
-  a: Session | null | undefined,
-  b: Session | null | undefined,
-): boolean {
-  if (a === b) return true;
-  if (!a || !b) return false;
-  return stableKey(a) === stableKey(b);
-}
-
-/** JSON.stringify with object keys sorted at every level, so the same
- * logical value never compares as "different" purely because the engine (or
- * JS) happened to emit its keys in a different order. Inputs here are always
- * JSON-shaped (parsed HTTP responses / plain state) — no cycles, functions,
- * or Dates. */
-function stableKey(v: unknown): string {
-  if (Array.isArray(v)) return `[${v.map(stableKey).join(',')}]`;
-  if (v && typeof v === 'object') {
-    const keys = Object.keys(v as Record<string, unknown>).sort();
-    return `{${keys
-      .map((k) => `${JSON.stringify(k)}:${stableKey((v as Record<string, unknown>)[k])}`)
-      .join(',')}}`;
-  }
-  return JSON.stringify(v);
-}
-
-/**
- * F5/LEVELUP-NO-MOMENT: build the end-session toast's level-up clause from
- * `POST /sessions/{id}/end`'s `data.level_ups` echo. Returns `null` when
- * nobody leveled (empty/absent — degrades gracefully, no clause appended).
- */
-function levelUpsSummary(levelUps: EndSessionLevelUp[]): string | null {
-  const parts = levelUps
-    .filter((l): l is EndSessionLevelUp & { name: string } => !!l.name)
-    .map((l) => `${l.name} (now level ${l.new_level ?? '?'})`);
-  if (parts.length === 0) return null;
-  return `Level up: ${parts.join(', ')} — see the party panel to choose new features.`;
-}
-
 export default function PlayPage() {
   const params = useParams<{ sessionId: string }>();
   const sessionId = typeof params?.sessionId === 'string' ? params.sessionId : '';
@@ -387,10 +330,29 @@ export default function PlayPage() {
   const { toast } = useToast();
   const reduced = useReducedMotion();
 
-  const [session, setSession] = useState<Session | null>(null);
-  const [participants, setParticipants] = useState<Participant[]>([]);
-  const [state, setState] = useState<'loading' | 'ok' | 'error' | 'notfound'>('loading');
-
+  // TAV-PLAY-SHELL step 5, hook 1 of ~9 (decomposition plan §2.2): session
+  // lifecycle (session/participants/page-load state, DM session controls,
+  // the session-status poll, and every value/handler derived purely from
+  // session/username) now lives in useSessionLifecycle. Same identifiers as
+  // before, still destructured here -- every downstream reference in this
+  // file (JSX, other effects/handlers) is unchanged.
+  const {
+    session, setSession, participants, setParticipants, state, setState,
+    sessionActionBusy, endSessionConfirmOpen, setEndSessionConfirmOpen,
+    xpFormOpen, setXpFormOpen, xpAmount, setXpAmount, xpReason, setXpReason,
+    xpAmountValid, xpToggleBtnRef,
+    // aiLevel is intentionally NOT destructured here -- nothing in page.tsx
+    // reads the bare value (only aiOff, derived from it inside the hook).
+    // It stays part of the hook's return (decomposition plan §2.2 lists it
+    // as one of this hook's "crosses out" values) for useNarration/useCombat
+    // to read once THEY are extracted and can consume it from context
+    // instead of each re-deriving session.ai_assist_level locally (the
+    // three still-local `const aiLevel = session.ai_assist_level` reads
+    // inside narrate()/narrateDurable()/narrateDurableBeat() below are
+    // that future work's extraction target, unrelated to this destructure).
+    isDm, isHumanDM, isPaused, isEnded, sessionLocked, aiOff,
+    refreshSessionAfterAction, onTogglePause, onConfirmEndSession, onAwardXp,
+  } = useSessionLifecycle(sessionId);
   const [log, setLog] = useState<LogRow[]>([]);
   // TAV-NARRATION-DECOUPLE (2026-07-25): `narratorText` used to feed the top
   // NarratorStrip with the live-streaming narration; removed when the strip
@@ -521,18 +483,6 @@ export default function PlayPage() {
 
   // B3-1: outcome chooser state (null = chooser closed).
   const [outcomeChooserOpen, setOutcomeChooserOpen] = useState(false);
-
-  // DDX-25: DM-only session lifecycle controls (pause/resume/end/xp award).
-  // One shared busy flag (not 4 booleans) disables all 3 controls together
-  // while any one is in flight — mirrors the single `combatBusy` flag already
-  // used for combat mutations above.
-  const [sessionActionBusy, setSessionActionBusy] = useState<
-    'pause' | 'resume' | 'end' | 'xp' | null
-  >(null);
-  const [endSessionConfirmOpen, setEndSessionConfirmOpen] = useState(false);
-  const [xpFormOpen, setXpFormOpen] = useState(false);
-  const [xpAmount, setXpAmount] = useState('');
-  const [xpReason, setXpReason] = useState('');
 
   // A2 — real quick-checks derived from the bound character's sheet.
   // null = not yet resolved; [] = DM-only (no character bound) or fetch failed.
@@ -725,30 +675,6 @@ export default function PlayPage() {
   // stays as the fallback (e.g. if the chooser is ever opened programmatically).
   const lastOpenerRef = useRef<HTMLButtonElement | null>(null);
 
-  // DDX-25: ref for the "Award XP" trigger so focus returns to it when the
-  // inline award form is dismissed via Escape (mirrors endCombatBtnRef).
-  const xpToggleBtnRef = useRef<HTMLButtonElement>(null);
-
-  // DDX-25 R2 (D5): synchronous latch mirroring combatBusyRef/checkBusyRef/
-  // sceneAdvanceBusyRef above — `sessionActionBusy` (React state) only
-  // disables the UI after a re-render, leaving a window where two clicks in
-  // the same event-loop tick both fire the mutation. All three DM
-  // session-lifecycle actions (pause/resume, end, award XP) share this one
-  // ref, mirroring how they already share the one `sessionActionBusy` state
-  // value declared above.
-  const sessionActionBusyRef = useRef(false);
-
-  // DDX-25 R2 (D1): interval handle for the session-status poll (separate
-  // from pollIntervalRef, which is the combat-state poll's — the two run on
-  // independent lifetimes: this one starts once the session has loaded and
-  // keeps running until the session ends; the combat one only runs while a
-  // combat is active).
-  const sessionPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // Mirror of `session` kept in sync via an effect so the session-status poll
-  // callback can read the current status without being a dep of the poll
-  // effect (mirrors combatStateRef's role for the combat-state poll below).
-  const sessionRef = useRef<Session | null>(null);
-
   // DDX-08 / T3: interval handle for the dice-roll events poll (separate
   // lifetime again — starts as soon as the session is loaded and runs for
   // the whole session, independent of combat/session-status polling).
@@ -809,14 +735,6 @@ export default function PlayPage() {
   useEffect(() => {
     combatStateRef.current = combatState;
   }, [combatState]);
-
-  // DDX-25 R2 (D1): keep sessionRef in sync for the same reason — the
-  // session-status poll effect below reads it without being a dep, so the
-  // interval isn't reset every time `session` updates (which happens on
-  // every poll tick itself, plus every DM mutation's own refetch).
-  useEffect(() => {
-    sessionRef.current = session;
-  }, [session]);
 
   const appendLog = useCallback((row: Omit<LogRow, 'id' | 'ts'>) => {
     setLog((prev) => [...prev, { id: `r${(idRef.current += 1)}`, ts: nowStamp(), ...row }]);
@@ -1157,6 +1075,10 @@ export default function PlayPage() {
   );
 
   // ── load session + party ────────────────────────────────────────────────────
+  // debt: mount effect stays here, not in useSessionLifecycle -- it also
+  // seeds grounding/log/journal (useScene/useTranscript's concerns) in one
+  // atomic sequence 553 tests pin the ordering of. ceiling: no additional
+  // concern folded in. until: useMyCharacter/useScene/useTranscript exist.
   useEffect(() => {
     if (!username || !sessionId) return;
     const ctrl = new AbortController();
@@ -1480,72 +1402,6 @@ export default function PlayPage() {
       }
     };
   }, [combatId]);
-
-  // ── session status poll (~4-5s, foregrounded) ───────────────────────────────
-  // D1 (DDX-25 R2): session status (active/paused/ended) is server truth and,
-  // before this, was only ever fetched once on mount plus after the acting
-  // DM's own mutation (refreshSessionAfterAction) — a pause/resume/end was
-  // therefore invisible to every OTHER open tab (a player's tab, or a second
-  // DM tab) until a manual reload, which defeats the point of pausing.
-  // Mirrors the combat-state poll immediately above: same cadence, same
-  // document.hidden gate, same ref-mirror-so-the-callback-doesn't-reset-the-
-  // interval shape, same non-fatal poll-error handling.
-  //
-  // No stateSeqRef-style monotone guard here (unlike the combat poll): a
-  // combat mutation response carries fresher inline state that a
-  // concurrently-in-flight (and thus stale) poll response must not clobber.
-  // Session status has no such inline-fresher-response case — every consumer
-  // (this poll AND every mutation handler's own refreshSessionAfterAction)
-  // reads the exact same GET /sessions/{id}, so whichever call resolves last
-  // is, by definition, the most current server truth. Refetch-wins is
-  // correct here; there's no local optimistic write for a "stale" poll
-  // response to stomp.
-  //
-  // Deps: [sessionId, state] only — session field changes (status, xp_pool,
-  // ...) must NOT reset the interval; sessionRef lets the callback read the
-  // current status (to know when to stop) without being a dep. `state`
-  // (loading/ok/error/notfound) is set exactly once, in the mount effect
-  // above, so including it only delays the first interval start until the
-  // session has actually loaded — it never causes a later reset.
-  //
-  // NOTE: a targeted precursor to DDX-20's unified events poll — kept simple
-  // and self-contained (own interval, own ref) so DDX-20 can later absorb it.
-  //
-  // DDX-25 R3: setSession(s) is now gated on sessionsEqual(s, sessionRef.current)
-  // rather than called unconditionally. Before this fix, EVERY tick — even a
-  // pure no-op one where nothing changed server-side — replaced `session`
-  // with a freshly-deserialized object, so `session` got a new identity every
-  // ~4s regardless. SessionRecap's effects depended on the whole `session`
-  // object, so they re-fired on every tick and re-issued a REAL LLM-backed
-  // "previously on" narration request indefinitely (live-observed: 20+
-  // repeated recap requests per viewer, scaling with concurrent viewers). A
-  // genuine status/xp_pool/dm_mode/... change still differs under
-  // sessionsEqual (whole-object structural compare), so cross-tab
-  // convergence on pause/resume/end (D1, ADV-4) is unaffected.
-  useEffect(() => {
-    if (!sessionId || state !== 'ok') return;
-
-    const poll = async () => {
-      if (document.hidden) return;
-      // Stop polling once the session has ended — nothing left to converge on.
-      if (sessionRef.current?.status === 'ended') return;
-      try {
-        const s = await getSession(sessionId);
-        if (!sessionsEqual(s, sessionRef.current)) setSession(s);
-      } catch {
-        // Poll errors are non-fatal — the next tick will retry.
-      }
-    };
-
-    sessionPollIntervalRef.current = setInterval(poll, POLL_INTERVAL_MS);
-
-    return () => {
-      if (sessionPollIntervalRef.current) {
-        clearInterval(sessionPollIntervalRef.current);
-        sessionPollIntervalRef.current = null;
-      }
-    };
-  }, [sessionId, state]);
 
   // ── dice-roll events poll (4s, foregrounded) ────────────────────────────────
   // DDX-08 / T3: dice rolls are server-authoritative (POST /roll persists a
@@ -4181,152 +4037,6 @@ export default function PlayPage() {
     }
   }, [combatId, username, appendLog, handleSceneAdvance, refreshGrounding, playOutcomeLine, toast]);
 
-  /**
-   * DDX-25: refetch the session after any lifecycle mutation (pause/resume/
-   * end/xp). The engine's pause/resume/end/xp routes resolve to only
-   * `{message: string}` (see the dnd.ts wrapper comment), never the updated
-   * Session, so a plain GET is the only way to observe the new status/
-   * xp_pool — mirrors the rebind flow's `getParticipants` re-fetch above.
-   *
-   * D8 (DDX-25 R2): this swallows its own failure (`.catch(() => null)`) by
-   * design — every caller's mutation already succeeded server-side by the
-   * time this runs, so a failed refetch must not surface as an error toast
-   * for an action that, in fact, worked. The tradeoff: on a refetch failure,
-   * the acting tab briefly shows a success toast without the paused
-   * banner/composer-disable reflecting it yet. Left as-is rather than
-   * retried inline — the D1 session-status poll (added alongside this fix)
-   * corrects it within one cycle (~4-5s) without extra retry logic here.
-   */
-  const refreshSessionAfterAction = useCallback(async () => {
-    const s = await getSession(sessionId).catch(() => null);
-    if (s) setSession(s);
-  }, [sessionId]);
-
-  /**
-   * DDX-25: Pause ⇄ Resume toggle. DM-only — enforced at the render site via
-   * the same `isDm` gate every other DM-only control in this file already
-   * uses (B2-4).
-   */
-  const onTogglePause = useCallback(async () => {
-    // DDX-25 R2 (D5): sessionActionBusyRef closes the synchronous double-tap
-    // window that `sessionActionBusy` (React state) can't — mirrors
-    // combatBusyRef/checkBusyRef/sceneAdvanceBusyRef elsewhere in this file.
-    if (!session || !username || sessionActionBusy || sessionActionBusyRef.current) return;
-    sessionActionBusyRef.current = true;
-    const pausing = session.status !== 'paused';
-    setSessionActionBusy(pausing ? 'pause' : 'resume');
-    try {
-      if (pausing) {
-        await pauseSession(sessionId, { username, channel: session.channel });
-      } else {
-        await resumeSession(sessionId, { username, channel: session.channel });
-      }
-      await refreshSessionAfterAction();
-      toast({ tone: 'success', message: pausing ? 'Session paused.' : 'Session resumed.' });
-    } catch {
-      // D7: the engine may be refusing because the true state already moved
-      // (e.g. a 404 "already paused/not active") — refetch so a stale label
-      // ("Pause" shown when the session is in fact already paused) self-
-      // corrects instead of lingering until a manual reload or the next D1
-      // poll tick.
-      await refreshSessionAfterAction();
-      toast({
-        tone: 'error',
-        message: pausing
-          ? 'Could not pause the session. Try again in a moment.'
-          : 'Could not resume the session. Try again in a moment.',
-      });
-    } finally {
-      setSessionActionBusy(null);
-      sessionActionBusyRef.current = false;
-    }
-  }, [session, username, sessionId, sessionActionBusy, refreshSessionAfterAction, toast]);
-
-  /** DDX-25: End session — semi-destructive, confirmed via ConfirmDialog. */
-  const onConfirmEndSession = useCallback(async () => {
-    // DDX-25 R2 (D5): see onTogglePause's comment above — same synchronous
-    // ref-guard, now also closing the gap this handler previously had no
-    // busy-guard of ANY kind (not even the React-state one).
-    if (!session || !username || sessionActionBusyRef.current) return;
-    sessionActionBusyRef.current = true;
-    setSessionActionBusy('end');
-    try {
-      const result = await endSession(sessionId, { username, channel: session.channel });
-      await refreshSessionAfterAction();
-      // F5/LEVELUP-NO-MOMENT (D3 — END-SESSION-ONLY scope): refetch the
-      // roster so a leveled-up character's stale level in PartyPanel is
-      // corrected. Deliberately scoped to THIS handler, not folded into the
-      // shared refreshSessionAfterAction above (which ALSO runs on pause/
-      // resume/award-XP, where a party refetch would be unnecessary chatter
-      // every time — see play.ddx25-session-controls's own regression pin on
-      // those handlers' getParticipants call count). Non-fatal on failure:
-      // the roster just stays stale until a future natural refresh; the
-      // "Session ended." toast below still fires either way (the session DID
-      // end) — never a double-toast for this secondary read.
-      try {
-        const party = await getParticipants(sessionId);
-        setParticipants(party);
-      } catch {
-        // Swallowed — see comment above.
-      }
-      const summary = levelUpsSummary(result.level_ups ?? []);
-      toast({
-        tone: 'success',
-        message: summary ? `Session ended. ${summary}` : 'Session ended.',
-      });
-    } catch {
-      toast({ tone: 'error', message: 'Could not end the session. Try again in a moment.' });
-    } finally {
-      setSessionActionBusy(null);
-      setEndSessionConfirmOpen(false);
-      sessionActionBusyRef.current = false;
-    }
-  }, [session, username, sessionId, refreshSessionAfterAction, toast]);
-
-  /**
-   * DDX-25: Award XP — a session-level party pool (`session.xp_pool`), NOT
-   * per-character. The engine's cmd_xp adds `amount` straight to the pool
-   * (engine/commands/session_commands.py); the pool is only split across
-   * participants when the session later ends (cmd_endsession's
-   * xp_per_player). `reason` is optional free text logged with the award.
-   * Amount is floored at 1 (not 0) client-side — the engine's own cmd_xp
-   * rejects <= 0 with a plain-text refusal that doesn't cleanly surface as
-   * an HTTP error, so this avoids that ambiguous edge entirely.
-   */
-  const onAwardXp = useCallback(async () => {
-    // DDX-25 R2 (D5): ref-guard first (see onTogglePause's comment) — this is
-    // the highest-priority instance of the gap: the engine's xp_pool write is
-    // unconditionally additive (`xp_pool += amount`, no idempotency guard), so
-    // a double-fire here GUARANTEES a double award, unlike pause/resume's
-    // conditional-UPDATE self-heal.
-    if (!session || !username || sessionActionBusyRef.current) return;
-    const amount = Math.trunc(Number(xpAmount));
-    if (!Number.isFinite(amount) || amount <= 0) {
-      toast({ tone: 'error', message: 'Enter a whole number greater than zero.' });
-      return;
-    }
-    sessionActionBusyRef.current = true;
-    setSessionActionBusy('xp');
-    try {
-      await awardSessionXp(sessionId, {
-        username,
-        channel: session.channel,
-        amount,
-        reason: xpReason.trim() || undefined,
-      });
-      await refreshSessionAfterAction();
-      toast({ tone: 'success', message: `Awarded ${amount} XP to the party pool.` });
-      setXpFormOpen(false);
-      setXpAmount('');
-      setXpReason('');
-    } catch {
-      toast({ tone: 'error', message: 'Could not award XP. Try again in a moment.' });
-    } finally {
-      setSessionActionBusy(null);
-      sessionActionBusyRef.current = false;
-    }
-  }, [session, username, sessionId, xpAmount, xpReason, refreshSessionAfterAction, toast]);
-
   // UIR2-TAV-11: the xpForm's own onKeyDown only fires while focus is inside
   // the form's DOM subtree (a native keydown that starts there and bubbles
   // stops before reaching document once that handler calls
@@ -4366,6 +4076,10 @@ export default function PlayPage() {
   // still correct) but is no longer load-bearing for the invariant — if a
   // new Escape-handling overlay is ever added under /play and follows the
   // consume-your-own-Escape pattern, it does NOT need to be added here.
+  // debt: stays here instead of moving into useSessionLifecycle -- it also
+  // reads useCombat's outcomeChooserOpen and the journal drawer's
+  // journalOpen, neither of which this hook owns. ceiling: no additional
+  // cross-concern read added. until: useCombat and the journal drawer's own hook exist.
   useEffect(() => {
     if (!xpFormOpen) return;
     const onDocumentKeyDown = (e: KeyboardEvent) => {
@@ -4380,7 +4094,14 @@ export default function PlayPage() {
     };
     document.addEventListener('keydown', onDocumentKeyDown);
     return () => document.removeEventListener('keydown', onDocumentKeyDown);
-  }, [xpFormOpen, outcomeChooserOpen, endSessionConfirmOpen, journalOpen, sessionActionBusy]);
+    // setXpFormOpen/xpToggleBtnRef are the useState setter / useRef object
+    // useSessionLifecycle's OWN useState/useRef calls return -- both stable
+    // across renders exactly like a locally-declared one, but the
+    // exhaustive-deps rule can no longer prove that once they're returned
+    // through an intermediate hook, so they're listed explicitly (TAV-PLAY-
+    // SHELL step 5 hook 1; behaviour-neutral, both are referentially
+    // stable).
+  }, [xpFormOpen, outcomeChooserOpen, endSessionConfirmOpen, journalOpen, sessionActionBusy, setXpFormOpen, xpToggleBtnRef]);
 
   // Auto-drive monster turns. Whenever combat is active and the current turn
   // belongs to a living NPC, run that monster's turn — looping through all
@@ -5020,16 +4741,6 @@ export default function PlayPage() {
         .filter((name): name is string => !!name)
     : [];
 
-  // B2-4: is the logged-in user the session DM?
-  const isDm = !!(session?.dm_username && username &&
-    session.dm_username.toLowerCase() === username.toLowerCase());
-
-  // S5.2: human DM = DM seat + dm_mode 'human'. When true:
-  //   - composer modes swap to ['DM Narration', 'OOC']
-  //   - AI narrate() path is gated off (early return in narrate())
-  //   - DmNarrationPanel renders in the centre pane during combat
-  const isHumanDM = isDm && session?.dm_mode === 'human';
-
   // TAV-SOLO-DM-CAST-RAIL: a solo-table human DM who ALSO has a bound
   // character (the GM-PC pattern) keeps their DM controls (DmNarrationPanel /
   // ConditionsPanel below stay gated on isHumanDM alone) but additionally
@@ -5052,12 +4763,6 @@ export default function PlayPage() {
     (latestNarrationSeq == null || xCardEvent.seq > latestNarrationSeq) &&
     xCardEvent.seq > (dismissedXCardSeq ?? -1);
 
-  // DDX-25: session lifecycle status, read directly from the server-loaded
-  // session (same "no stale snapshot" rule as aiLevel below) — status can now
-  // change via the session controls without a full page reload.
-  const isPaused = session?.status === 'paused';
-  const isEnded = session?.status === 'ended';
-
   // DDX-20 §9 — "Resuming Suzu's turn…" resume affordance. Reuses the SAME
   // thinking waveform row as the shipped narrate() path (distinct copy),
   // shown ONLY when there is a known in-flight job (mount/reload discovery
@@ -5068,24 +4773,7 @@ export default function PlayPage() {
   // the genuinely-passive discovery case). Always false when the flag is off
   // (activeJob is never set on the flag-OFF path).
   const resumeThinking = DURABLE_GENERATION_ENABLED && !talking && activeJob != null;
-  // A paused OR ended session shouldn't accept ANY player action — gates the
-  // composer, combat action rail, skill-check, move-on, dice-tray, rebind (all
-  // further down) and the DM-side monster auto-driver (via isSessionLocked).
-  const sessionLocked = isPaused || isEnded;
-  // DDX-25: inline validation for the Award XP form's submit button — the
-  // engine's own cmd_xp rejects <= 0 with a plain-text refusal, so the floor
-  // is set at 1 client-side rather than relying on that ambiguous edge.
-  const xpAmountNum = Math.trunc(Number(xpAmount));
-  const xpAmountValid = xpAmount.trim() !== '' && Number.isFinite(xpAmountNum) && xpAmountNum > 0;
 
-  // S5.5: AI assist level read directly from server-loaded session (no stale snapshot).
-  // 'off'    → hide ALL AI surfaces; no LLM calls (NarratorStrip, auto-narration, etc.)
-  // 'assist' → no auto-fire; AI available only on explicit DM invocation (future affordance).
-  // 'full'   → standard AI path unchanged.
-  // Read directly from session.ai_assist_level every render cycle — NOT a useState copy.
-  const aiLevel = session?.ai_assist_level ?? 'full';
-  // True when AI surfaces should be hidden entirely from the UI.
-  const aiOff = aiLevel === 'off';
   // Show Suzu commentary panel when AI is active ('full' or 'assist').
   // For 'assist': the strip renders but auto-narration is suppressed in narrate().
   const showSuzuPanel = !aiOff;

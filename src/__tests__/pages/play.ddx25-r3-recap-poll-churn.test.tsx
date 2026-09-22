@@ -104,7 +104,12 @@ jest.mock('../../lib/stream', () => ({
   streamDmNarration: (...args: Parameters<AnyFn>) => mockStreamDmNarration(...args),
 }));
 
-import PlayPage, { sessionsEqual } from '@/app/play/[sessionId]/page';
+import PlayPage from '@/app/play/[sessionId]/page';
+// TAV-PLAY-SHELL step 5: sessionsEqual moved to format.ts (useSessionLifecycle
+// and page.tsx's other not-yet-extracted polls both need it; importing it
+// FROM page.tsx would be the same circular/inverted dependency Kage-CR C2
+// fixed for titleCaseSkill) — this import follows it, behaviour unchanged.
+import { sessionsEqual } from '@/app/play/[sessionId]/format';
 import type { Session, Participant } from '@/lib/api/types';
 
 const BASE_SESSION: Session = {

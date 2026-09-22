@@ -33,16 +33,16 @@ const ROOT = new URL('..', import.meta.url).pathname;
 const PAGE_REL = 'src/app/play/[sessionId]/page.tsx';
 const PAGE = join(ROOT, PAGE_REL);
 
-// Recorded at TAV-PLAY-SHELL-RATCHET-NOT-ENFORCED / step 4's close
-// (2026-09-21): 5861 -> 5790. Raised once since, to 5797, by
-// TAV-PLAY-A11Y-DEADSTATUS-NOT-ALWAYS-MOUNTED (+7 lines) -- a correctness
-// fix to code not yet extracted into a region (the ratchet's rule 2 bars
-// FEATURE work landing in page.tsx instead of the region/hook that owns
-// it; an a11y bug fix to page.tsx's own still-unextracted deadStatus JSX
-// is neither), reviewed in the same commit as this comment. Update this
-// value, in the SAME commit, whenever page.tsx's actual line count drops
-// below it. Never raise it silently.
-export const RATCHET_CEILING = 5797;
+// History: 5861 (ratchet's own close, step 4 start) -> 5790 (step 4: killed
+// the aria-hidden Offers duplicate) -> 5797 (TAV-PLAY-A11Y-DEADSTATUS-NOT-
+// ALWAYS-MOUNTED, +7 lines, justified in that commit) -> 5477 (step 5 hook 1:
+// useSessionLifecycle extracted) -> 5485 (+8 lines: the two `debt:` markers
+// design-durability.md requires at the mount effect and the XP-form
+// Escape-guard effect, documenting why they stay in page.tsx rather than
+// moving into the hook -- protocol-required, reviewed in the same commit).
+// Update this value, in the SAME commit, whenever page.tsx's actual line
+// count drops below it. Never raise it silently.
+export const RATCHET_CEILING = 5485;
 
 /**
  * Pure: counts lines the way `wc -l` does (newline-byte count). Exported so
