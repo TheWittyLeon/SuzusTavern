@@ -38,10 +38,13 @@ const PAGE = join(ROOT, PAGE_REL);
 // ALWAYS-MOUNTED, +7 lines, justified in that commit) -> 5477 (step 5 hook 1:
 // useSessionLifecycle) -> 5485 (+8: two debt: markers) -> 5486 (step 5 hook 2:
 // useMyCharacter, net +1) -> 5415 (step 5 hook 3: useSafety extracted --
-// state + onRaiseXCard handler + xCardActive derivation moved).
+// state + onRaiseXCard handler + xCardActive derivation moved) -> 5416
+// (+1: hook 2's debt: marker was malformed -- "debt:" mid-sentence instead
+// of starting its own comment line, so tools/debt-harvest.py silently never
+// saw it at all, not even as [no-trigger] -- reflowed onto its own line).
 // Update this value, in the SAME commit, whenever page.tsx's actual line
 // count drops below it. Never raise it silently.
-export const RATCHET_CEILING = 5415;
+export const RATCHET_CEILING = 5416;
 
 /**
  * Pure: counts lines the way `wc -l` does (newline-byte count). Exported so

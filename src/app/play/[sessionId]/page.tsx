@@ -2000,10 +2000,11 @@ export default function PlayPage() {
     [username, mySheet],
   );
 
-  // B1-4: fire-once toast when combat becomes active and the user has no bound
-  // character (they can observe but not act). debt: stays in page.tsx, not
-  // useMyCharacter -- it also reads useCombat's combatState.state. ceiling:
-  // no additional cross-concern read added. until: useCombat is extracted.
+  // B1-4: fire-once toast when combat becomes active and the user has no
+  // bound character (they can observe but not act).
+  // debt: stays in page.tsx, not useMyCharacter -- it also reads
+  // useCombat's combatState.state. ceiling: no additional cross-concern
+  // read added. until: useCombat is extracted.
   useEffect(() => {
     if (
       combatState?.state === 'active' &&
