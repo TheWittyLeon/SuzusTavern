@@ -36,15 +36,12 @@ const PAGE = join(ROOT, PAGE_REL);
 // History: 5861 (ratchet's own close, step 4 start) -> 5790 (step 4: killed
 // the aria-hidden Offers duplicate) -> 5797 (TAV-PLAY-A11Y-DEADSTATUS-NOT-
 // ALWAYS-MOUNTED, +7 lines, justified in that commit) -> 5477 (step 5 hook 1:
-// useSessionLifecycle extracted) -> 5485 (+8 lines: the two `debt:` markers
-// design-durability.md requires at the mount effect and the XP-form
-// Escape-guard effect) -> 5486 (step 5 hook 2: useMyCharacter extracted --
-// only 13 lines of state to remove, offset by its own hook-call block +
-// a third debt: marker at the no-character-toast effect, net +1; reviewed
-// in the same commit).
+// useSessionLifecycle) -> 5485 (+8: two debt: markers) -> 5486 (step 5 hook 2:
+// useMyCharacter, net +1) -> 5415 (step 5 hook 3: useSafety extracted --
+// state + onRaiseXCard handler + xCardActive derivation moved).
 // Update this value, in the SAME commit, whenever page.tsx's actual line
 // count drops below it. Never raise it silently.
-export const RATCHET_CEILING = 5486;
+export const RATCHET_CEILING = 5415;
 
 /**
  * Pure: counts lines the way `wc -l` does (newline-byte count). Exported so

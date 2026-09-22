@@ -67,7 +67,6 @@ import {
   endTurn as combatEndTurn,
   rollDeathSave as combatDeathSave,
   postRoll,
-  postXCard,
 } from '@/lib/api/dnd';
 import { streamDmNarration, postDmTurn, subscribeDmJob } from '@/lib/stream';
 import { eventToLogRow, formatEventTimestamp as formatOpeningTimestamp } from '@/lib/rehydration';
@@ -122,6 +121,7 @@ import { SessionHead, TopBar } from './regions/TopBar';
 import { titleCaseSkill, POLL_INTERVAL_MS } from './format';
 import { useSessionLifecycle } from './hooks/useSessionLifecycle';
 import { useMyCharacter } from './hooks/useMyCharacter';
+import { useSafety } from './hooks/useSafety';
 import JournalPane, { JOURNAL_HEADING_ID } from '@/components/JournalPane';
 import MemberSheetPanel, { MEMBER_SHEET_HEADING_ID } from '@/components/MemberSheetPanel';
 import NextPartOffer from '@/components/NextPartOffer';
@@ -361,6 +361,21 @@ export default function PlayPage() {
   // stays in page.tsx unchanged, same identifiers via destructuring.
   const { myCharacterIdStr, setMyCharacterIdStr, mySheet, setMySheet, noCharToastFiredRef } =
     useMyCharacter();
+
+  // TAV-PLAY-SHELL step 5, hook 3 of ~9: the DDX-26 X-card safety signal.
+  // The unified events poll's several setXCardEvent/setLatestNarrationSeq
+  // calls (below, not yet its own hook) and the SafetyBanner JSX + its
+  // inline onDismiss handler (render only) stay in page.tsx, reading these
+  // same identifiers via destructuring. latestNarrationSeq/dismissedXCardSeq
+  // (the bare VALUES) are intentionally NOT destructured -- page.tsx only
+  // ever needed their setters plus xCardActive, which the hook already
+  // derives from them internally; both stay in the hook's return type for
+  // API-pairing consistency with their setters (aiLevel's precedent, hook 1).
+  const {
+    xCardEvent, setXCardEvent, setLatestNarrationSeq,
+    setDismissedXCardSeq, xCardBusy, xCardBannerRef,
+    xCardActive, onRaiseXCard,
+  } = useSafety(session);
   const [log, setLog] = useState<LogRow[]>([]);
   // TAV-NARRATION-DECOUPLE (2026-07-25): `narratorText` used to feed the top
   // NarratorStrip with the live-streaming narration; removed when the strip
@@ -603,34 +618,6 @@ export default function PlayPage() {
   // `dice_roll` event), so a same-tick double-click must not fire it twice.
   const rollBusyRef = useRef(false);
   const [rollBusy, setRollBusy] = useState(false);
-
-  // DDX-26 — durable X-card tracking, derived from the SAME events poll as
-  // dice rolls (no new poll). `xCardEvent` pairs seq+actor so a batch never
-  // attributes the wrong raiser (see scanXCardTracking above). Both this and
-  // `latestNarrationSeq` are updated via the functional setState form
-  // (`setXCardEvent((prev) => ...)`), which always reads the CURRENT
-  // committed state at update time — the poll effect's deps are [sessionId,
-  // state] (mirrors the dice-roll poll's own reasoning), so a plain closure
-  // read of these values inside `poll()` would be stale; the functional
-  // updater sidesteps that without needing a ref-mirror.
-  const [xCardEvent, setXCardEvent] = useState<{ seq: number; actor?: string } | null>(null);
-  const [latestNarrationSeq, setLatestNarrationSeq] = useState<number | null>(null);
-  // Per-client dismiss, keyed to the seq it was raised for the seat's active
-  // banner (dismisses only unnamed on the exact raise) — a NEW x_card (higher
-  // seq) is a different raise and re-shows regardless of this value.
-  const [dismissedXCardSeq, setDismissedXCardSeq] = useState<number | null>(null);
-  // Synchronous double-submit latch for the X-card button (mirrors
-  // rollBusyRef) — raising is a real server write (persists an `x_card`
-  // event); a same-tick double-click must not fire it twice.
-  const xCardBusyRef = useRef(false);
-  const [xCardBusy, setXCardBusy] = useState(false);
-  // Iro MAJOR-2: the banner wrapper is a PERMANENT, always-mounted anchor
-  // (see the render below — only its children toggle) so it's stable
-  // regardless of `mobileView`, mirroring the sceneHeadRef/endCombatBtnRef
-  // refocus convention above. Dismiss unmounts the focused Dismiss button;
-  // refocusing this wrapper (tabIndex={-1}) before that unmount lands focus
-  // here instead of dropping it to <body>.
-  const xCardBannerRef = useRef<HTMLDivElement>(null);
 
   // DDX-20 §4d/§9 (Iro MAJOR-1) — same permanently-mounted tabIndex={-1}
   // refocus-anchor pattern as xCardBannerRef above: onRetryFailedTurn
@@ -3277,50 +3264,6 @@ export default function PlayPage() {
     [session, username, advantage, talking, combatBusy, narrate, narrateDurableBeat, toast],
   );
 
-  // ── safety: X-card (DDX-26) ──────────────────────────────────────────────
-  // Durable, cross-client safety signal. Deliberately NOT gated on
-  // sessionLocked/talking — a safety tool must stay reachable regardless of
-  // table state. xCardBusyRef: synchronous double-submit latch (mirrors
-  // rollBusyRef) — this is a real server write (persists an `x_card` event),
-  // so a same-tick double-click must not fire it twice.
-  const onRaiseXCard = useCallback(async () => {
-    if (!session || xCardBusyRef.current) return;
-    xCardBusyRef.current = true;
-    setXCardBusy(true);
-    try {
-      const result = await postXCard(session.session_id);
-      // Optimistic local banner — the events poll above will also observe
-      // this same event (durable truth) and converge every other open tab,
-      // exactly like a dice roll converges via the same poll.
-      // Kage IMPORTANT-1: the engine (and the BFF passthrough) nests the
-      // event under `.event` — read seq/actor from there, never off the
-      // top-level result, or this optimistic banner silently never fires.
-      const seq = result?.event?.seq;
-      if (seq != null) {
-        const xCard = { seq, actor: result?.event?.actor ?? username ?? undefined };
-        setXCardEvent((prev) => (!prev || xCard.seq > prev.seq ? xCard : prev));
-      }
-      // UIR2-TAV-25 (CSS/overlap part): no success toast here. The
-      // full-width, permanently-mounted xCardBanner set above already shows
-      // "A safety signal was raised — the table eases off." the instant
-      // xCardEvent updates — a second, DIFFERENT-toned corner toast saying
-      // nearly the same thing was redundant AND is what caused the reported
-      // overlap: the global Toast viewport is position:fixed bottom-right
-      // (Toast.module.css), which sits directly over this pane's Safety
-      // block/X-card button at desktop widths, and (being on its own 5s
-      // timer, decoupled from xCardEvent/dismissedXCardSeq) could still be
-      // visibly present after the raiser had already dismissed the banner —
-      // reading as "persists after dismissed". The banner is the single
-      // source of truth for this signal now; only a genuine failure (below)
-      // still needs a one-off toast, since no banner event exists to show.
-    } catch {
-      toast({ tone: 'error', message: 'Could not raise the X-card — try again.' });
-    } finally {
-      xCardBusyRef.current = false;
-      setXCardBusy(false);
-    }
-  }, [session, username, toast]);
-
   // ── scene advance (ADV-7T / CUI-12) ─────────────────────────────────────────
 
   /**
@@ -4749,20 +4692,6 @@ export default function PlayPage() {
   // they can drive their own PC. Turn-gating (isPlayerTurn, further down)
   // already keys off myCharacterIdStr — it's unaffected by this flag.
   const isDmPlayingOwnPc = isHumanDM && !!myCharacterIdStr && !!mySheet;
-
-  // DDX-26 — X-card banner active-state: the raised signal is still the
-  // newest "beat" on the table (no later narration beat has superseded it)
-  // AND this client hasn't already dismissed THIS specific raise (dismissal
-  // is keyed to seq, so a fresh higher-seq x_card always re-shows even if a
-  // stale one was dismissed — this is what fixes UIR2-TAV-25's
-  // persists-after-dismiss bug: the old client-local toast had no seq to key
-  // off at all). Mirrors the engine's own soft-redirect auto-clear: once
-  // `latestNarrationSeq` overtakes the raise, the table has "eased off" and
-  // the banner steps aside on its own, no dismiss required.
-  const xCardActive =
-    xCardEvent != null &&
-    (latestNarrationSeq == null || xCardEvent.seq > latestNarrationSeq) &&
-    xCardEvent.seq > (dismissedXCardSeq ?? -1);
 
   // DDX-20 §9 — "Resuming Suzu's turn…" resume affordance. Reuses the SAME
   // thinking waveform row as the shipped narrate() path (distinct copy),
