@@ -10,13 +10,11 @@ import styles from '../Play.module.css';
 /**
  * TAV-PLAY-SHELL step 3 — pure region extraction (decomposition plan §2.3:
  * "Offers ... replaces the .checkWrap group AND its aria-hidden duplicate —
- * one component, two placements"). This step only extracts the CANONICAL
- * side-panel group (checks + freeform-offer + transitions) — the
- * aria-hidden duplicate above the composer stays in page.tsx, untouched,
- * exactly as its own comment already states ("The side-panel .checkWrap
- * group is left completely as-is — this does not replace it"). Unifying
- * the two into "one component, two placements" is step 4's job ("Kill the
- * aria-hidden duplicate"), not this one.
+ * one component, two placements"). Step 3 only extracted the CANONICAL
+ * side-panel group (checks + freeform-offer + transitions); the
+ * aria-hidden, composer-adjacent duplicate (TAV-CHECK-DISCOVERABILITY /
+ * Phase-1 #6) stayed in page.tsx, untouched, until step 4 deleted it.
+ * This component is now the SOLE placement — one component, one place.
  */
 
 const CHECK_LOCK_REASON_COPY: Record<string, string> = {

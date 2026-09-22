@@ -150,10 +150,10 @@ beforeEach(() => {
   streamOnce();
 });
 
-// ── item 20: resolved -> absent from BOTH render surfaces ───────────────────
+// ── item 20: resolved -> absent from the canonical check group ─────────────
 
 describe('item 20 — a resolved check is fully hidden', () => {
-  it('is absent from both the canonical .checkWrap group and the composer chip row', async () => {
+  it('is absent from the canonical .checkWrap group, and the (now-deleted, TAV-PLAY-SHELL step 4) composer chip row never mounts', async () => {
     mGetGrounding.mockResolvedValue(
       grounding([
         {
@@ -172,10 +172,11 @@ describe('item 20 — a resolved check is fully hidden', () => {
     await waitFor(() => {
       expect(screen.queryByRole('button', { name: /Survival/i })).not.toBeInTheDocument();
     });
-    // The composer chip row is aria-hidden -- queryByRole above already
-    // proves the canonical group is gone; this proves the WHOLE chip
-    // wrapper never mounted either (both surfaces derive from the same
-    // filtered availableChecks memo).
+    // TAV-PLAY-SHELL step 4 deleted the aria-hidden composer-adjacent
+    // duplicate entirely (A13: there is now only one placement), so this
+    // selector is permanently absent regardless of `state` -- kept as a
+    // regression guard against that duplicate ever coming back resolved-
+    // and-visible.
     expect(container.querySelector('[class*="checkChipsWrap"]')).toBeNull();
   });
 });

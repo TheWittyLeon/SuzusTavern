@@ -383,69 +383,17 @@
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 25%, transparent);
 }
 
-/* ── TAV-CHECK-DISCOVERABILITY (Phase-1 #6): composer-adjacent check chips ──
-   A compact, horizontal-chip DUPLICATE of .checkWrap/.checkBtn above (same
-   authored checks, same handler — see page.tsx), placed right above the
-   composer instead of the right Scene panel so the affordance sits in the
-   player's eyeline while they're reading narration/typing. Chips, not
-   full-width rows, so it doesn't crowd the composer; wraps on narrow
-   widths instead of overflowing. min-height 36px clears WCAG 2.5.8's 24px
-   pointer-target floor while staying visibly compact. */
-.checkChipsWrap {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
-.checkChipsLabel {
-  font-size: 9px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  margin-right: 2px;
-}
-
-.checkChip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 36px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in oklab, var(--warn) 40%, transparent);
-  background: color-mix(in oklab, var(--warn) 10%, transparent);
-  color: var(--ink);
-  font-size: 12px;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.checkChip:hover:not(:disabled) {
-  background: color-mix(in oklab, var(--warn) 18%, transparent);
-}
-
-.checkChip:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* Same "Suzu invited this" cue as .checkBtnOffered — border+shadow, not
-   color alone. */
-.checkChipOffered {
-  border: 2px solid var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 25%, transparent);
-}
-
 /* Check Retry + Fail-Forward (2026-07-28 design §7.1) — a locked check stays
    in the list (never removed, unlike resolved), always rendered `disabled`.
-   Shared by both .checkBtn (canonical) and .checkChip (composer-adjacent
-   duplicate) — applied alongside either base class. Swaps the warm --warn
-   "you can attempt this" tint for a muted --bad "this is closed" one;
-   native :disabled already supplies the opacity/cursor treatment, so this
-   layer only recolours border/background. Placed after .checkBtn/.checkChip
-   above so source-order gives it precedence at equal specificity. */
+   Applied alongside .checkBtn. Swaps the warm --warn "you can attempt this"
+   tint for a muted --bad "this is closed" one; native :disabled already
+   supplies the opacity/cursor treatment, so this layer only recolours
+   border/background. Placed after .checkBtn above so source-order gives it
+   precedence at equal specificity.
+   TAV-PLAY-SHELL step 4: this class used to also apply to .checkChip, the
+   aria-hidden composer-adjacent duplicate of this same group -- deleted
+   along with .checkChipsWrap/.checkChipsLabel/.checkChip/.checkChipOffered
+   (A13: there is now only one placement). */
 .checkBtnLocked {
   border-color: color-mix(in oklab, var(--bad) 40%, transparent);
   background: color-mix(in oklab, var(--bad) 8%, transparent);

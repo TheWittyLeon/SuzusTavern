@@ -33,12 +33,11 @@ const ROOT = new URL('..', import.meta.url).pathname;
 const PAGE_REL = 'src/app/play/[sessionId]/page.tsx';
 const PAGE = join(ROOT, PAGE_REL);
 
-// Recorded at TAV-PLAY-SHELL-RATCHET-NOT-ENFORCED's close (2026-09-21),
-// which is also step 4's (the aria-hidden Offers duplicate) starting
-// value — nothing has shrunk page.tsx since this ceiling was set. Update
+// Recorded at TAV-PLAY-SHELL step 4's close (2026-09-21) -- killing the
+// aria-hidden Offers duplicate shrank page.tsx from 5861 to 5790. Update
 // this value, in the SAME commit, whenever page.tsx's actual line count
 // drops below it. Never raise it.
-export const RATCHET_CEILING = 5861;
+export const RATCHET_CEILING = 5790;
 
 /**
  * Pure: counts lines the way `wc -l` does (newline-byte count). Exported so

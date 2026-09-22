@@ -5531,80 +5531,6 @@ export default function PlayPage() {
             )}
           </div>
         )}
-        {/* TAV-CHECK-DISCOVERABILITY (Phase-1 #6, Leon "option A"): the SAME
-            `availableChecks` the right Scene panel's `.checkWrap` group
-            renders (P1-PLAYFIX §3.3.3 above), surfaced a SECOND time right
-            above the composer. During play the player is looking at the
-            narration/composer, not the right-side panel, so the authored
-            "Attempt {skill}" buttons live there get missed — this is purely
-            a more-discoverable second PLACEMENT of the identical
-            affordance: same `onAttemptCheck` handler, same
-            checkBusy/talking/sessionLocked disabled gate, same
-            `availableChecks` (including its combat-active gate in the
-            useMemo above — untouched here; the flee-checks-during-combat
-            question is deferred to Phase 4). The side-panel `.checkWrap`
-            group is left completely as-is — this does not replace it.
-            A11Y: `aria-hidden` on the wrapper + `tabIndex={-1}` on every
-            chip keep screen-reader/keyboard users on the ONE canonical
-            `.checkWrap` group instead of hitting "Attempt Survival, DC 15"
-            twice in the tab order for the exact same action — sighted/
-            mouse/touch users still see and can click these chips fine,
-            since aria-hidden only affects the accessibility tree, not
-            visual rendering or pointer events. */}
-        {availableChecks.length > 0 && (
-          <div className={styles.checkChipsWrap} aria-hidden="true">
-            <span className={styles.checkChipsLabel}>Available checks</span>
-            {availableChecks.map((c) => {
-              const isOffered = c.skill === offeredCheckSkill;
-              // Check Retry + Fail-Forward (2026-07-28 design section 7.1):
-              // same locked/last-attempt derivation as the canonical
-              // .checkWrap group below -- this row is aria-hidden (a
-              // sighted/mouse-only duplicate placement), so no sr-only
-              // reason span here; disabled + the visible label change are
-              // still needed for sighted/touch users.
-              const isLocked = c.state === 'locked';
-              // Miko-QA Finding 5 (2026-07-28): require state === 'available'
-              // explicitly, not just !isLocked -- a partial/malformed wire
-              // payload (attempts_used/max_attempts present, `state` absent)
-              // must not render "last attempt" just because it also isn't
-              // literally 'locked'.
-              const isLastAttempt =
-                c.state === 'available' &&
-                c.max_attempts != null &&
-                c.attempts_used != null &&
-                c.attempts_used > 0 &&
-                c.max_attempts - c.attempts_used === 1;
-              return (
-                <button
-                  key={`check-chip-${c.skill}-${c.dc}`}
-                  type="button"
-                  tabIndex={-1}
-                  className={`${styles.checkChip} ${isOffered && !isLocked ? styles.checkChipOffered : ''} ${isLocked ? styles.checkBtnLocked : ''}`}
-                  onClick={() => {
-                    // Iro-A11y MAJOR-3/MAJOR-4 mirror: this row is already
-                    // tabIndex={-1} + aria-hidden (excluded from keyboard/AT
-                    // entirely), so the Tab-reachability half of the fix
-                    // doesn't apply here -- but `isLocked` still needs to
-                    // come out of native `disabled` for the SAME visual
-                    // contrast reason (the generic :disabled opacity rule
-                    // applies to sighted MOUSE users regardless of
-                    // aria-hidden), which means the click needs the same JS
-                    // guard a removed native `disabled` no longer provides.
-                    if (isLocked) return;
-                    void onAttemptCheck(c.skill);
-                  }}
-                  disabled={checkBusy || talking || sessionLocked}
-                  title={c.note}
-                >
-                  <Icon name="Check" size={12} aria-hidden />
-                  {isLocked
-                    ? `${titleCaseSkill(c.skill)}, DC ${c.dc} — closed`
-                    : `Attempt ${titleCaseSkill(c.skill)}, DC ${c.dc}${isLastAttempt ? ' — last attempt' : ''}`}
-                </button>
-              );
-            })}
-          </div>
-        )}
         <Composer
           value={msg}
           onChange={setMsg}
@@ -5708,11 +5634,14 @@ export default function PlayPage() {
 
 
         {/* TAV-PLAY-SHELL step 3: region extracted verbatim to
-            regions/Offers.tsx -- the CANONICAL side-panel group (checks +
-            freeform-offer + transitions). The aria-hidden duplicate above
-            the composer stays here untouched (its own comment: "does not
-            replace it") -- unifying the two is step 4's job. State/refs/
-            handlers stay in page.tsx. */}
+            regions/Offers.tsx (checks + freeform-offer + transitions).
+            State/refs/handlers stay in page.tsx.
+            TAV-PLAY-SHELL step 4: this is now the SOLE placement -- the
+            aria-hidden, tabIndex={-1} composer-adjacent duplicate that used
+            to render directly above (a second, sighted/mouse-only copy of
+            the same buttons, added for TAV-CHECK-DISCOVERABILITY / Phase-1
+            #6) is deleted. Invariant A13 no longer reads "both exist,
+            exactly one is reachable" -- there is only one. */}
         <Offers
           availableChecks={availableChecks}
           offeredCheckSkill={offeredCheckSkill}
