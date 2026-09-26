@@ -32,6 +32,15 @@ export interface Env {
    * Set via NEXT_PUBLIC_DEPLOY_ENV in docker-compose env (homelab).
    */
   DEPLOY_ENV: 'prod' | 'dev' | 'local';  // NEXT_PUBLIC_DEPLOY_ENV
+  /**
+   * Whether the Codex nav tab / route is enabled. Defaults to `!IS_PROD`
+   * (on in dev/test, off in prod) — a var-unset build is byte-identical to
+   * pre-flag behaviour. Explicit override via NEXT_PUBLIC_CODEX_ENABLED lets
+   * a deploy turn the Codex on in production WITHOUT flipping IS_PROD, which
+   * also gates the admin/dnd-proxy Bearer-fallback security interlocks (see
+   * config.ts's CODEX_ENABLED doc comment for the full rationale).
+   */
+  CODEX_ENABLED: boolean;         // NEXT_PUBLIC_CODEX_ENABLED
 }
 
 /** Parse a boolean-ish env var. Returns undefined when unset/empty. */
@@ -87,6 +96,13 @@ function loadEnv(): Env {
     : rawDeployEnv === 'local' ? 'local'
     : 'prod';
 
+  // Codex nav/route flag — defaults to !isProd (on in dev/test, off in prod);
+  // an explicit NEXT_PUBLIC_CODEX_ENABLED overrides that default either way.
+  // Referenced as a static `process.env.NEXT_PUBLIC_x` literal (not a dynamic
+  // lookup) so Next inlines the build-time value into the client bundle —
+  // same requirement as every other NEXT_PUBLIC_* read in this file.
+  const codexEnabled = parseBool(process.env.NEXT_PUBLIC_CODEX_ENABLED) ?? !isProd;
+
   return Object.freeze({
     NEKANOVA_URL: requirePublic(process.env.NEXT_PUBLIC_NEKANOVA_URL, 'NEXT_PUBLIC_NEKANOVA_URL', 'http://localhost:8080'),
     AUTH_API_URL: requireServer(process.env.AUTH_API_URL, 'AUTH_API_URL', 'http://localhost:5000'),
@@ -94,6 +110,7 @@ function loadEnv(): Env {
     IS_PROD: isProd,
     COOKIE_SECURE: cookieSecure,
     DEPLOY_ENV,
+    CODEX_ENABLED: codexEnabled,
   });
 }
 

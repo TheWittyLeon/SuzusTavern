@@ -21,16 +21,19 @@ export const OAUTH_ENABLED = false;
  * the other not-yet-shipped tabs, and the /codex route itself redirects to
  * /dashboard — so it cannot be reached by direct URL either.
  *
- * Rides env.ts's IS_PROD (NODE_ENV) signal rather than DEPLOY_ENV: DEPLOY_ENV
- * is only ever populated via NEXT_PUBLIC_DEPLOY_ENV in .env.local, which
- * Next's own env loader (@next/env) deliberately skips whenever
- * NODE_ENV==='test' — so a DEPLOY_ENV-based gate would read 'prod' (disabled)
- * inside every jest run. IS_PROD is false for `next dev`, false for the jest
- * suite (NODE_ENV=test), and true only for an actual production build/server
- * — exactly "off in prod, on everywhere else" with no extra env config
- * required for the local dev stack or CI.
+ * Sourced from env.ts's CODEX_ENABLED, which defaults to `!IS_PROD` (off in
+ * prod, on everywhere else — same "no extra env config needed for dev/CI"
+ * behaviour this flag always had) but can be explicitly overridden via the
+ * NEXT_PUBLIC_CODEX_ENABLED build var. This is deliberately a SEPARATE flag
+ * from IS_PROD rather than a re-read of it: IS_PROD also gates three
+ * security interlocks (the dev-only Authorization-header Bearer fallback in
+ * the admin/auth, admin/flags, and dnd proxy BFF routes) that must keep
+ * refusing a bare header in production regardless of whether the Codex is
+ * turned on there. Flipping IS_PROD to enable the Codex would silently
+ * reopen those interlocks — this flag lets ops turn the Codex on in prod
+ * (e.g. NEXT_PUBLIC_CODEX_ENABLED=true at build time) without touching them.
  */
-export const CODEX_ENABLED = !env.IS_PROD;
+export const CODEX_ENABLED = env.CODEX_ENABLED;
 
 /**
  * DDX-20 — durable server-side generation + unified events poll.

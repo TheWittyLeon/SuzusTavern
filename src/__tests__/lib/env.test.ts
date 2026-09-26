@@ -152,4 +152,65 @@ describe('env.ts', () => {
       expect(loadCookieSecure()).toBe(false);
     });
   });
+
+  describe('CODEX_ENABLED', () => {
+    function loadEnvFresh(): { CODEX_ENABLED: boolean; IS_PROD: boolean } {
+      process.env.NEXT_PUBLIC_NEKANOVA_URL = 'http://neko:8080';
+      process.env.AUTH_API_URL = 'http://auth:5000';
+      jest.resetModules();
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      return (require('../../lib/env') as { env: { CODEX_ENABLED: boolean; IS_PROD: boolean } }).env;
+    }
+
+    afterEach(() => {
+      delete process.env.NEXT_PUBLIC_CODEX_ENABLED;
+    });
+
+    it('defaults to !IS_PROD when NEXT_PUBLIC_CODEX_ENABLED is unset', () => {
+      setNodeEnv('production');
+      delete process.env.NEXT_PUBLIC_CODEX_ENABLED;
+      expect(loadEnvFresh().CODEX_ENABLED).toBe(false);
+
+      setNodeEnv('development');
+      delete process.env.NEXT_PUBLIC_CODEX_ENABLED;
+      expect(loadEnvFresh().CODEX_ENABLED).toBe(true);
+    });
+
+    it('explicit "true" overrides the production default — on even under NODE_ENV=production', () => {
+      setNodeEnv('production');
+      process.env.NEXT_PUBLIC_CODEX_ENABLED = 'true';
+      expect(loadEnvFresh().CODEX_ENABLED).toBe(true);
+    });
+
+    it('explicit "false" overrides the development default — off even under NODE_ENV=development', () => {
+      setNodeEnv('development');
+      process.env.NEXT_PUBLIC_CODEX_ENABLED = 'false';
+      expect(loadEnvFresh().CODEX_ENABLED).toBe(false);
+    });
+
+    it.each(['1', 'yes', 'TRUE'])('parses truthy %s', (v) => {
+      setNodeEnv('production');
+      process.env.NEXT_PUBLIC_CODEX_ENABLED = v;
+      expect(loadEnvFresh().CODEX_ENABLED).toBe(true);
+    });
+
+    it.each(['0', 'no', 'FALSE'])('parses falsy %s', (v) => {
+      setNodeEnv('development');
+      process.env.NEXT_PUBLIC_CODEX_ENABLED = v;
+      expect(loadEnvFresh().CODEX_ENABLED).toBe(false);
+    });
+
+    // Pin: the whole point of splitting this off IS_PROD is that turning the
+    // Codex on in prod must NEVER also affect IS_PROD, which independently
+    // gates the admin/dnd-proxy Bearer-fallback security interlocks (see
+    // config.ts's CODEX_ENABLED doc comment, and the route-level pin in
+    // src/__tests__/api/codex-flag-prod-isolation.test.ts).
+    it('setting NEXT_PUBLIC_CODEX_ENABLED=true under NODE_ENV=production leaves IS_PROD true', () => {
+      setNodeEnv('production');
+      process.env.NEXT_PUBLIC_CODEX_ENABLED = 'true';
+      const loaded = loadEnvFresh();
+      expect(loaded.CODEX_ENABLED).toBe(true);
+      expect(loaded.IS_PROD).toBe(true);
+    });
+  });
 });
