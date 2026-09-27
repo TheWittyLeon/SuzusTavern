@@ -34,6 +34,7 @@ describe('config.ts', () => {
     setNodeEnv(originalNodeEnv ?? 'test');
     delete process.env.NEXT_PUBLIC_NEKANOVA_URL;
     delete process.env.AUTH_API_URL;
+    delete process.env.NEXT_PUBLIC_CODEX_ENABLED;
     jest.resetModules();
   });
 
@@ -65,7 +66,7 @@ describe('config.ts', () => {
       expect(CODEX_ENABLED).toBe(false);
     });
 
-    it('tracks env.IS_PROD exactly (inverse)', () => {
+    it('tracks env.IS_PROD exactly (inverse) when NEXT_PUBLIC_CODEX_ENABLED is unset', () => {
       setNodeEnv('production');
       process.env.NEXT_PUBLIC_NEKANOVA_URL = 'http://neko:8080';
       process.env.AUTH_API_URL = 'http://auth:5000';
@@ -76,6 +77,30 @@ describe('config.ts', () => {
       const { CODEX_ENABLED } = require('../../lib/config') as { CODEX_ENABLED: boolean };
       expect(env.IS_PROD).toBe(true);
       expect(CODEX_ENABLED).toBe(!env.IS_PROD);
+    });
+
+    it('is true in production when NEXT_PUBLIC_CODEX_ENABLED=true (the prod rollout case)', () => {
+      setNodeEnv('production');
+      process.env.NEXT_PUBLIC_NEKANOVA_URL = 'http://neko:8080';
+      process.env.AUTH_API_URL = 'http://auth:5000';
+      process.env.NEXT_PUBLIC_CODEX_ENABLED = 'true';
+      jest.resetModules();
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { env } = require('../../lib/env') as { env: { IS_PROD: boolean } };
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { CODEX_ENABLED } = require('../../lib/config') as { CODEX_ENABLED: boolean };
+      // The whole point: CODEX_ENABLED flips on WITHOUT IS_PROD flipping off.
+      expect(env.IS_PROD).toBe(true);
+      expect(CODEX_ENABLED).toBe(true);
+    });
+
+    it('is false in development when NEXT_PUBLIC_CODEX_ENABLED=false (explicit opt-out)', () => {
+      setNodeEnv('development');
+      process.env.NEXT_PUBLIC_CODEX_ENABLED = 'false';
+      jest.resetModules();
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { CODEX_ENABLED } = require('../../lib/config') as { CODEX_ENABLED: boolean };
+      expect(CODEX_ENABLED).toBe(false);
     });
   });
 

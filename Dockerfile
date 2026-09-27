@@ -23,8 +23,12 @@ COPY . .
 # Bake homelab defaults; override at runtime via compose `environment:`.
 ARG NEXT_PUBLIC_NEKANOVA_URL=http://10.69.69.43:8080
 ARG AUTH_API_URL=http://10.69.69.43:5555
+# Off by default — see src/lib/env.ts / src/lib/config.ts for why this rides
+# its own flag instead of NODE_ENV/IS_PROD.
+ARG NEXT_PUBLIC_CODEX_ENABLED=false
 ENV NEXT_PUBLIC_NEKANOVA_URL=$NEXT_PUBLIC_NEKANOVA_URL
 ENV AUTH_API_URL=$AUTH_API_URL
+ENV NEXT_PUBLIC_CODEX_ENABLED=$NEXT_PUBLIC_CODEX_ENABLED
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
