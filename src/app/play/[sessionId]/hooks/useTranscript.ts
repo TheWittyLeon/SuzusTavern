@@ -27,18 +27,18 @@
  * is a pure `setLog` + `idRef` bump, the stream-row writers only touch
  * `streamRowIdRef`/`idRef`/`setLog`, and the three ledgers
  * (`lastEventSeqRef`/`renderedSeqsRef`/`pendingByKeyRef`) are plain mutable
- * state that the CALLER's poll effect (page.tsx today, `useSessionEvents`
- * at A4) reads/writes by identity, not by session. Same kind of documented
- * deviation as `useMyCharacter`'s own header (deliberately thin, no dead
- * parameters).
+ * state that the CALLER's poll effect (`useSessionEvents`, Amendment A row
+ * 11, A4) reads/writes by identity, not by session, taking them as plain
+ * `handlers` fields. Same kind of documented deviation as
+ * `useMyCharacter`'s own header (deliberately thin, no dead parameters).
  *
  * Deliberately does NOT own: `narrationAbort`/`revealRef` (useNarration
  * territory, A5 — they read/write streaming state this hook doesn't touch),
  * `journalEvents`/`journalSeenSeqsRef` (the journal drawer's OWN, separate
  * ledger — see that ref's own comment in page.tsx on why it can't reuse
- * `renderedSeqsRef`), and the mount effect / unified durable events poll
- * that call into this hook's setters (both still in page.tsx — see the
- * mount effect's own `debt:` marker).
+ * `renderedSeqsRef`), and the mount effect (still in page.tsx) / unified
+ * durable events poll (`useSessionEvents.ts`, A4) that call into this
+ * hook's setters — see the mount effect's own `debt:` marker.
  */
 import {
   useCallback,

@@ -26,24 +26,22 @@
  * by Amendment A §A.6 naming it explicitly for THAT hook, not a general
  * rule). `toast` is likewise self-derived via `useToast()`, same reason.
  *
- * Deliberately does NOT own the unified durable events poll (still inline
- * in page.tsx, `useSessionEvents` territory, not yet extracted — composes
- * LAST per Amendment A row 11 and "the poll never imports a sibling
- * hook"). That poll's flag-OFF branch renders `dice_roll`/`x_card` rows
- * and is what a roll's own result lands through (`onRoll` never appends a
- * row locally).
+ * Deliberately does NOT own the unified durable events poll — that is
+ * `useSessionEvents` (Amendment A row 11, A4), composed LAST per "the poll
+ * never imports a sibling hook". That poll's flag-OFF branch renders
+ * `dice_roll`/`x_card` rows and is what a roll's own result lands through
+ * (`onRoll` never appends a row locally).
  *
  * Kage-CR A6 IMPORTANT-1 (2026-09-28): this hook used to also own
- * `diceRollPollIntervalRef` — the interval handle for the still-inline
- * poll's `setInterval`/`clearInterval`. That was the exact inverse of
- * Amendment A §A.3 edge R4's principle ("`useSessionEvents` owns the
- * interval, not the ledger"): grep confirmed the ref had no reader or
- * writer anywhere in this file, only in the poll's own closure — a
- * "declared field with no reader" one hop removed (the field IS read, just
- * never by the hook that declared it). Resolved outright rather than
- * deferred: `useDice` no longer declares or returns it, and the poll now
- * owns a plain effect-local interval id (see page.tsx's poll effect / this
- * repo's `useSessionEvents.ts` once A4 lands).
+ * `diceRollPollIntervalRef` — the interval handle for the poll's
+ * `setInterval`/`clearInterval`. That was the exact inverse of Amendment A
+ * §A.3 edge R4's principle ("`useSessionEvents` owns the interval, not the
+ * ledger"): grep confirmed the ref had no reader or writer anywhere in
+ * this file, only in the poll's own closure — a "declared field with no
+ * reader" one hop removed (the field IS read, just never by the hook that
+ * declared it). Resolved outright rather than deferred (A4 commit 0):
+ * `useDice` no longer declares or returns it, and the poll now owns a
+ * plain effect-local interval id — see `hooks/useSessionEvents.ts`.
  *
  * Deliberately does NOT own the sheet-fetch/quick-checks-BUILDING logic
  * (still inside page.tsx's mount effect, its own `debt:` marker) — that

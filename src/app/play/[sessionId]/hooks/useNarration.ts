@@ -48,15 +48,18 @@
  * `useCombatActions`' deviation — that deviation was justified by its own
  * header for a reason specific to that hook, not a general rule).
  *
- * Deliberately does NOT own: the mount-load effect and the unified durable
- * events poll (both still in page.tsx, `useSessionEvents` territory, A4) —
- * both call `subscribeToJob` and write `talking`/`thinking`/`activeJob`/
- * `jobFailed`/`subscribedJobIdRef`/`turnKeyRef`/`pollFailureGraceRef`
- * through this hook's returned setters/refs, unchanged in every respect
- * except where those values now come from. `onRoll` (plan §1.6, `useDice`
- * territory, A6) reads `talking`/`narrate`/`narrateDurableBeat` the same
- * way. `narrationAbort` is exported for exactly one external reader: the
- * poll's own SSE-tail grace-timeout cleanup (page.tsx, still there).
+ * Deliberately does NOT own: the mount-load effect (still in page.tsx) and
+ * the unified durable events poll (`useSessionEvents`, Amendment A row 11,
+ * A4) — both call `subscribeToJob` and write `talking`/`thinking`/
+ * `activeJob`/`jobFailed`/`subscribedJobIdRef`/`turnKeyRef`/
+ * `pollFailureGraceRef` through this hook's returned setters/refs,
+ * unchanged in every respect except where those values now come from (the
+ * mount effect still calls them directly; the poll takes them as plain
+ * `handlers` fields, composed last so it never imports this hook). `onRoll`
+ * (plan §1.6, `useDice` territory, A6) reads `talking`/`narrate`/
+ * `narrateDurableBeat` the same way. `narrationAbort` is exported for
+ * exactly one external reader: the poll's own SSE-tail grace-timeout
+ * cleanup, now in `hooks/useSessionEvents.ts`.
  *
  * `narrationAbort`/`revealRef`'s unmount-cleanup effect moves here bodily —
  * it is now the FIRST effect this component tree registers (this hook
@@ -124,8 +127,8 @@ export interface UseNarrationResult {
   // IMPORTANT-3 caught for `combatStateRef`/`pollIntervalRef`, closed by
   // A3 commit 0b the same way: drop from the interface/return, add each
   // back in the commit that adds its first reader. `setActiveJob` IS kept
-  // — it has two real external readers (page.tsx's still-inline mount
-  // effect and unified events poll, `useSessionEvents` territory, A4).
+  // — it has real external readers in the unified events poll
+  // (`useSessionEvents`, Amendment A row 11, A4).
   setActiveJob: Dispatch<SetStateAction<PendingGeneration | null>>;
   jobFailed: boolean;
   setJobFailed: Dispatch<SetStateAction<boolean>>;
@@ -231,8 +234,8 @@ export function useNarration(
   const lastDurableTurnRef = useRef<{ message: string; mode: ComposeMode } | null>(null);
   // DDX-20 Pass 2 — true when the most recent durable beat this client was
   // watching (its own, or one it subscribed to) ended in an SSE `error`
-  // event, OR the poll-only failure detector (page.tsx, useSessionEvents
-  // territory) declared it dead. Drives the retry affordance (§4d / §9).
+  // event, OR the poll-only failure detector (`useSessionEvents.ts`)
+  // declared it dead. Drives the retry affordance (§4d / §9).
   const [jobFailed, setJobFailed] = useState(false);
   // DDX-20 Pass 2 (Miko-QA finding c) — poll-only failure-detection grace
   // counter for THIS client's own in-flight turn_key (see

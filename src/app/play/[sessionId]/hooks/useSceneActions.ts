@@ -289,9 +289,9 @@ export function useSceneActions(
         // F4/CHECK-DOUBLE-RENDER: seed the durable reconcile ledger with this
         // check's own event_seq BEFORE the next poll tick can observe the
         // same check_resolved event and re-append it. Flag-gated:
-        // renderedSeqsRef is only ever read from pollDurable (useSessionEvents
-        // territory, not yet extracted), reachable only when
-        // DURABLE_GENERATION_ENABLED.
+        // renderedSeqsRef is only ever read from pollDurable
+        // (`hooks/useSessionEvents.ts`, Amendment A row 11, A4), reachable
+        // only when DURABLE_GENERATION_ENABLED.
         if (DURABLE_GENERATION_ENABLED && result.event_seq != null) {
           renderedSeqsRef.current.add(result.event_seq);
         }

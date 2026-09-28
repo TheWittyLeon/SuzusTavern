@@ -15,13 +15,12 @@
  * table is illustrative, not a literal contract.
  *
  * Deliberately does NOT own: the unified events poll's several
- * `setXCardEvent`/`setLatestNarrationSeq` calls (that poll's `events`
- * dependency is `useSessionEvents`, hook 7 -- not yet extracted; those
- * call sites stay in page.tsx and keep calling this hook's returned
- * setters, same pattern as hook 1/2's mount-effect/no-char-toast
- * markers), and the SafetyBanner JSX + its inline onDismiss handler
- * (render, not state -- SafetyBanner is already its own region, extracted
- * in step 3).
+ * `setXCardEvent`/`setLatestNarrationSeq` calls -- that poll is
+ * `useSessionEvents` (Amendment A §A.2 row 11, A4), composed LAST and
+ * taking this hook's setters as plain `handlers` fields, not by reading
+ * this hook's state -- and the SafetyBanner JSX + its inline onDismiss
+ * handler (render, not state -- SafetyBanner is already its own region,
+ * extracted in step 3).
  */
 import { useCallback, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from 'react';
 import { useAuth } from '@/lib/auth/AuthProvider';

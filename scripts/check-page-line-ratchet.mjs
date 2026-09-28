@@ -89,10 +89,26 @@ const PAGE = join(ROOT, PAGE_REL);
 // or wrote it; the still-inline poll now owns a plain effect-local interval
 // id instead of a ref) and the 5 stale useScene-attributed provenance
 // comments inside the poll's [960,1470] range corrected to useSceneState/
-// useSceneActions. Net -1.
+// useSceneActions. Net -1.) -> 2163 (A4, Amendment A §A.2 row 11: the
+// unified durable events poll + its flag-OFF legacy sibling extracted into
+// `useSessionEvents(sessionId, state, handlers)`, composed LAST (after
+// useCombatActions). One named `handlers` object (27 fields: 10 refs, 11
+// setters, 6 stable callbacks -- not positional params, per Kage's A6
+// MD9 finding that same-shaped positional args survive a tsc-silent swap).
+// GROUNDING_INVALIDATING_KINDS/POLL_FAILURE_GRACE_TICKS/
+// parseOfferedCheckPayload moved with it (single consumer); scanXCardTracking
+// (+ NARRATION_BEAT_KINDS) moved to format.ts instead (the mount effect's
+// rehydration branch is a second consumer). Zero sibling-hook imports, zero
+// new ref-mirrors -- Kage's own A6 measurement confirmed the poll's 227 code
+// lines read zero sibling STATE values, so the handler-callback fan-out
+// needed no mirror. Net -614 (the 620-line extraction net of +6 for
+// correcting eight stale cross-file "…below"/"…destructure above"
+// provenance comments the poll's departure left pointing at nothing, in
+// this and sibling hook files), the largest single extraction in the
+// series.
 // Update this value, in the SAME commit, whenever page.tsx's actual line
 // count drops below it. Never raise it silently.
-export const RATCHET_CEILING = 2783;
+export const RATCHET_CEILING = 2169;
 
 /**
  * Pure: counts lines the way `wc -l` does (newline-byte count). Exported so

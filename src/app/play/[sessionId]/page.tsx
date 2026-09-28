@@ -50,20 +50,13 @@ import {
   getParticipants,
   getSession,
   getSessionEventsRaw,
-  getSessionEventsPage,
 } from '@/lib/api/dnd';
 import { eventToLogRow, formatEventTimestamp as formatOpeningTimestamp } from '@/lib/rehydration';
 import { matchCombatIntent, matchKeywordIntent } from '@/lib/dnd/intentFastPath';
 import { DURABLE_GENERATION_ENABLED } from '@/lib/config';
-import { clearTurnKey } from '@/lib/turnKey';
-import {
-  reconcileDurableEvents,
-  applyReconcileResult,
-} from '@/lib/dnd/reconcileEvents';
 import type {
   CharacterSheet,
   EngineSessionEvent,
-  OfferedCheck,
   Participant,
 } from '@/lib/api/types';
 import type { QuickCheck } from '@/components/DiceTray';
@@ -84,7 +77,7 @@ import SceneStage from './regions/SceneStage';
 import Offers from './regions/Offers';
 import StoryLog from './regions/StoryLog';
 import { SessionHead, TopBar } from './regions/TopBar';
-import { POLL_INTERVAL_MS, buildReadAloudBlock } from './format';
+import { buildReadAloudBlock, scanXCardTracking } from './format';
 import { useSessionLifecycle } from './hooks/useSessionLifecycle';
 import { useMyCharacter } from './hooks/useMyCharacter';
 import { useSafety } from './hooks/useSafety';
@@ -95,6 +88,7 @@ import { useNarration } from './hooks/useNarration';
 import { useDice } from './hooks/useDice';
 import { useSceneActions } from './hooks/useSceneActions';
 import { useCombatActions } from './hooks/useCombatActions';
+import { useSessionEvents } from './hooks/useSessionEvents';
 import JournalPane, { JOURNAL_HEADING_ID } from '@/components/JournalPane';
 import MemberSheetPanel, { MEMBER_SHEET_HEADING_ID } from '@/components/MemberSheetPanel';
 import NextPartOffer from '@/components/NextPartOffer';
@@ -114,64 +108,6 @@ const PREFERRED_QUICK_CHECK_NAMES = [
 ];
 
 /**
- * DDX-20 §4d (Miko-QA finding c) — the poll-only failure-detection grace
- * window: consecutive poll ticks a client's OWN in-flight turn_key may go
- * unreflected in `pending_generation` (with no narration seq > trigger_seq
- * having landed) before it's treated as a died-silently job (Redis TTL
- * eviction, runner crash, or an SSE tail that closed without an error
- * frame — a proxy idle-timeout truncation, a backgrounded tab pausing the
- * EventSource). 2 ticks (~8s at the poll cadence above) absorbs ordinary
- * poll/commit timing lag without meaningfully delaying real-failure
- * detection for a beat that typically completes well within that window.
- */
-const POLL_FAILURE_GRACE_TICKS = 2;
-
-
-/**
- * DDX-26 — event kinds that count as a "narration beat" for the X-card
- * banner's auto-ease-off. Mirrors the engine's own soft-redirect auto-clear
- * EXACTLY (Kage IMPORTANT-2): the engine only clears soft_redirect on
- * 'dm_narration'/'narration' — NOT on 'player_action'. A player_action event
- * persists up front, before Suzu's narration streams back, so counting it
- * here would ease the banner off for the whole streaming turn (or
- * indefinitely on an abandoned turn) while the engine is still steering, and
- * could clear the banner on an ESCALATING player action — the opposite of
- * "the table eased off". Once the table has actually moved on to a new
- * narration beat, the banner steps aside on its own (no dismiss required) —
- * the raised signal is still permanent in the durable log (eventToLogRow's
- * 'x_card' case), only the live banner clears.
- */
-const NARRATION_BEAT_KINDS = new Set(['dm_narration', 'narration']);
-
-/**
- * Session-event kinds that can change scene affordances (available checks,
- * transitions/gated exits) and therefore require a `grounding` re-fetch when
- * they arrive over the `/events` poll.
- *
- * - `scene_advance` — the server-side cursor moved to a new scene.
- * - `beat_resolved` / `beat_done` / `beat_override` — the STRUCT-006 beat ledger
- *   changed. The beat classifier resolves required beats AFTER the narration
- *   turn is delivered (deliberate — see the durable poll effect), and resolving
- *   the last unmet required beat opens a previously-hidden anti-skip gate: a new
- *   exit + its check appear in grounding WITHOUT the cursor advancing. Without a
- *   re-fetch on these, a classifier-opened gate stays invisible until a manual
- *   page reload. All three are written `visibility="table"` by the engine, so
- *   they reach this feed. Both the durable and the flag-OFF/SSE poll branches
- *   share this predicate so the two paths can't drift.
- */
-const GROUNDING_INVALIDATING_KINDS = new Set([
-  'scene_advance',
-  'beat_resolved',
-  'beat_done',
-  'beat_override',
-  // Check Retry + Fail-Forward (2026-07-28 design section 7.4): a
-  // resolved/locked check changes this scene's check rail. Without this, a
-  // second client at the same table keeps showing a check as available
-  // after another player already resolved it, and eats a 409 on click.
-  'check_resolved',
-]);
-
-/**
  * Check Retry + Fail-Forward (2026-07-28 design section 7.1) — human-facing
  * copy for a locked check's sr-only reason span. Keyed by `SceneCheck.lock_reason`;
  * an unrecognised/absent reason falls back to the max_attempts line, same
@@ -180,60 +116,18 @@ const GROUNDING_INVALIDATING_KINDS = new Set([
 // CHECK_LOCK_REASON_COPY moved to regions/Offers.tsx (TAV-PLAY-SHELL step 3)
 // — its only consumer.
 
-/**
- * DDX-26 — scan a batch of raw session events (any order, any kind) for the
- * highest-seq 'x_card' event and the highest-seq narration-beat event. Pure,
- * shared by both the mount-time rehydration path (full history) and the
- * recurring events poll (only the newly-observed slice) so "what's active"
- * is computed identically regardless of which path fed it. Seq+actor are
- * returned as one pair (never two independently-tracked values) so a batch
- * containing multiple x_card events always attributes the actor belonging
- * to the highest seq, never a stale one from an earlier raise in the batch.
- */
-function scanXCardTracking(events: EngineSessionEvent[]): {
-  xCard: { seq: number; actor?: string } | null;
-  narrationSeq: number | null;
-} {
-  let xCard: { seq: number; actor?: string } | null = null;
-  let narrationSeq: number | null = null;
-  for (const e of events) {
-    const seq = e.seq ?? 0;
-    if (e.kind === 'x_card') {
-      if (!xCard || seq > xCard.seq) xCard = { seq, actor: e.actor };
-    } else if (e.kind && NARRATION_BEAT_KINDS.has(e.kind)) {
-      if (narrationSeq == null || seq > narrationSeq) narrationSeq = seq;
-    }
-  }
-  return { xCard, narrationSeq };
-}
+// POLL_FAILURE_GRACE_TICKS/GROUNDING_INVALIDATING_KINDS/parseOfferedCheckPayload
+// moved into hooks/useSessionEvents.ts (TAV-PLAY-SHELL step 5 hook 11,
+// Amendment A §A.2 row 11, A4) -- the poll was their only reader. scanXCardTracking
+// (+ its NARRATION_BEAT_KINDS constant) moved to ./format.ts instead, not
+// into the hook -- this file's own mount-effect rehydration branch still
+// calls it too, so it can't live in either single-consumer file (same
+// "shared by two files" reason as buildReadAloudBlock/isSessionLocked below).
 
 // nowStamp moved to ./format.ts (TAV-PLAY-SHELL A3, useTranscript's own
 // reason — see that file's header) -- shared by useTranscript's writers and
 // useNarration's narrate()/narrateDurable()/onSendDmNarration (A5). No
 // remaining reader in this file -- not imported here.
-
-/**
- * Phase 4 (Sora-Arch design §4 Fork 3) — parse an `offered_check` payload off
- * a durable `narration`/`dm_narration` session event's `data` (the field the
- * completed-job payload carries per the locked wire contract:
- * `{skill, dc: int|null, note: str|null}`). This is the durable-poll
- * counterpart to src/lib/stream.ts's identical SSE-side parsing — same
- * defensive posture: any missing/malformed shape simply returns null
- * (presence is a bonus, never a requirement), so a pre-Phase-4 engine/proxy
- * that doesn't send this field yet degrades to "no offer", never a crash.
- */
-function parseOfferedCheckPayload(
-  data: Record<string, unknown> | null | undefined,
-): OfferedCheck | null {
-  const raw = data?.['offered_check'];
-  if (!raw || typeof raw !== 'object') return null;
-  const r = raw as Record<string, unknown>;
-  const skill = r['skill'];
-  if (typeof skill !== 'string') return null;
-  const dc = typeof r['dc'] === 'number' ? (r['dc'] as number) : undefined;
-  const note = typeof r['note'] === 'string' ? (r['note'] as string) : undefined;
-  return { skill, ...(dc !== undefined ? { dc } : {}), ...(note !== undefined ? { note } : {}) };
-}
 
 // buildReadAloudBlock moved to ./format.ts (TAV-PLAY-SHELL step 5 hook 4,
 // same Kage-CR C2 reason as titleCaseSkill below) — useScene's `openScene`
@@ -308,9 +202,10 @@ export default function PlayPage() {
 
   // TAV-PLAY-SHELL step 5, hook 3 of ~9: the DDX-26 X-card safety signal.
   // The unified events poll's several setXCardEvent/setLatestNarrationSeq
-  // calls (below, not yet its own hook) and the SafetyBanner JSX + its
-  // inline onDismiss handler (render only) stay in page.tsx, reading these
-  // same identifiers via destructuring. latestNarrationSeq/dismissedXCardSeq
+  // calls now live in `useSessionEvents` (A4), reading these same setters
+  // as plain `handlers` fields. The SafetyBanner JSX + its inline onDismiss
+  // handler (render only) stay in page.tsx, reading these same identifiers
+  // via destructuring. latestNarrationSeq/dismissedXCardSeq
   // (the bare VALUES) are intentionally NOT destructured -- page.tsx only
   // ever needed their setters plus xCardActive, which the hook already
   // derives from them internally; both stay in the hook's return type for
@@ -464,7 +359,8 @@ export default function PlayPage() {
   //
   // DDX-20 F9+Recap Post-Review Fix (Kage-CR IMPORTANT / Miko-QA MEDIUM,
   // fold commit) — a SEPARATE ledger for journalEvents' own merge-by-seq
-  // dedup (pollDurable below). Cannot reuse renderedSeqsRef: that one tracks
+  // dedup (`useSessionEvents.ts`'s `pollDurable`, A4). Cannot reuse
+  // renderedSeqsRef: that one tracks
   // the TRANSCRIPT log (reconcileDurableEvents' rule 1), a different array
   // with a different lifecycle from journalEvents (DDX-22's raw event feed,
   // covering every kind the transcript doesn't render too — recap,
@@ -473,8 +369,9 @@ export default function PlayPage() {
   // mirrors reconcileDurableEvents' own rule 1, which is intra-tick safe for
   // the same reason: it checks-and-adds one event at a time instead of
   // computing a static "seen" snapshot once per tick. A missing `seq`
-  // normalizes to the shared key `0` (see pollDurable for the justification)
-  // rather than being treated as unconditionally unique.
+  // normalizes to the shared key `0` (see `useSessionEvents.ts`'s
+  // `pollDurable` for the justification) rather than being treated as
+  // unconditionally unique.
   //
   // Invariant (Kage-CR SUGGESTION, this pass): journalEvents and this ref
   // must stay in lockstep on every path reachable while
@@ -517,9 +414,9 @@ export default function PlayPage() {
   // Kage-CR A6 IMPORTANT-1: diceRollPollIntervalRef briefly lived on
   // useDice's return, which inverted Amendment A §A.3 edge R4's principle
   // ("useSessionEvents owns the interval, not the ledger") -- useDice
-  // neither read nor wrote it. Resolved outright, not deferred: the poll
-  // effect further down (still inline in page.tsx, `useSessionEvents`
-  // territory, A4) now owns a plain effect-local interval id instead.
+  // neither read nor wrote it. Resolved outright, not deferred (A4 commit
+  // 0): the poll effect, now in `hooks/useSessionEvents.ts`, owns a plain
+  // effect-local interval id instead.
 
   // sceneHeadRef/checkWrapRef/transitionWrapRef/freeformCheckRef moved into
   // useScene (TAV-PLAY-SHELL step 5 hook 4) — see the useScene() call below.
@@ -563,11 +460,12 @@ export default function PlayPage() {
 
   // TAV-PLAY-SHELL step 5, hook 6 of ~9 (Amendment A §A.2 row 6): scene
   // state (grounding, checks, transitions). Called here (right after
-  // useCombatState's destructure above) so the mount-load effect and the
-  // unified durable events poll further down can keep reading this hook's
-  // setGrounding/diffAndExplainResolvedChecks/openScene/
-  // refocusSceneHeadIfStranded/applyOfferedCheckSignal/checkWrapRef by the
-  // same names, unchanged.
+  // useCombatState's destructure above) so the mount-load effect further
+  // down can keep reading this hook's setGrounding/
+  // diffAndExplainResolvedChecks/openScene/refocusSceneHeadIfStranded/
+  // applyOfferedCheckSignal/checkWrapRef by the same names, unchanged --
+  // and so `useSessionEvents` (A4, composed last) can take the same six as
+  // plain `handlers` fields.
   //
   // Amendment A §A.1: the one derived boolean useSceneState reads off
   // combat's state -- `combatEngaged` comes straight from useCombatState's
@@ -700,9 +598,10 @@ export default function PlayPage() {
         // Post-review fix (Kage-CR IMPORTANT / Miko-QA MEDIUM, fold commit)
         // — journalSeenSeqsRef is seeded from this same sorted list so
         // pollDurable's first tick has something to dedup against instead of
-        // starting from an empty set (see pollDurable below). Flag-gated
-        // (Kage-CR SUGGESTION, this pass) — journalSeenSeqsRef is only ever
-        // read from pollDurable, itself reachable only when
+        // starting from an empty set (see `useSessionEvents.ts`'s
+        // `pollDurable`, A4). Flag-gated (Kage-CR SUGGESTION, this pass) —
+        // journalSeenSeqsRef is only ever read from pollDurable, itself
+        // reachable only when
         // DURABLE_GENERATION_ENABLED is true, so seeding it flag-OFF would
         // be behaviourally inert (see the invariant note on the ref's own
         // declaration above); gated explicitly anyway to match
@@ -763,9 +662,10 @@ export default function PlayPage() {
           }
           setLog(rows);
           rehydratedRef.current = true;
-          // DDX-08 / T3: the events poll below only appends seq > this —
-          // every rehydrated row (including any past dice_roll) is already
-          // in `rows`, so start the poll's watermark at the newest seq seen.
+          // DDX-08 / T3: the events poll (`useSessionEvents.ts`, A4) only
+          // appends seq > this — every rehydrated row (including any past
+          // dice_roll) is already in `rows`, so start the poll's watermark
+          // at the newest seq seen.
           lastEventSeqRef.current = sorted.reduce((m, e) => Math.max(m, e.seq ?? 0), 0);
 
           // DDX-20 F9+Recap Design §2.2 — arm the durable reconcile ledger's
@@ -935,539 +835,6 @@ export default function PlayPage() {
   // (TAV-PLAY-SHELL step 5 hook 5a) — same deps ([combatId] only), same
   // load-bearing comment, unchanged, in that hook's own file now.
 
-  // ── dice-roll events poll (4s, foregrounded) ────────────────────────────────
-  // DDX-08 / T3: dice rolls are server-authoritative (POST /roll persists a
-  // `dice_roll` session event, DDX-07) — this poll is what makes a roll
-  // triggered on ANY client (including this one; onRoll never appends a row
-  // locally) show up on EVERY client watching the session, without a reload.
-  // Mirrors the session-status poll immediately above: same cadence, same
-  // document.hidden gate, same cleanup-on-unmount shape.
-  //
-  // The engine's GET /events has no "since seq" filter, so every tick refetches
-  // the full (capped) event list and appends only rows with seq strictly
-  // greater than lastEventSeqRef.current (set once by rehydration, advanced
-  // here after each tick). Only `dice_roll` and `x_card` (DDX-26) events are
-  // rendered as ROWS by this poll — other kinds (player_action/narration/...)
-  // are already reflected through their own optimistic-append/streaming paths
-  // and are intentionally left to a future unified events poll (DDX-20) to
-  // avoid duplicating rows for the client that originated them.
-  //
-  // DDX-26: this same tick also feeds `newOnes` (every kind, not just the
-  // rendered ones) to scanXCardTracking so the X-card banner's active-state
-  // (xCardEvent / latestNarrationSeq) converges on every open client — the
-  // raiser's own tab included, since the raise handler only sets an
-  // optimistic local value and relies on this poll for the durable/cross-tab
-  // truth, exactly like onRoll relies on this poll for dice_roll rows.
-  useEffect(() => {
-    if (!sessionId || state !== 'ok') return;
-
-    // DDX-20 (flag-ON only) — the unified events poll. Replaces the
-    // full-refetch-and-filter legacy poll with the `since_seq` cursor
-    // (Technical Design §2.2) and reconciles EVERY kind (not just
-    // dice_roll/x_card) through the ledger (§3.2) so an originating client
-    // never double-renders and a reload reconstructs purely from the poll.
-    // Loops forward while `has_more` is true (cold-start / large-backlog
-    // catch-up), same cursor-loop shape as the design's §6 mobile-parity
-    // note. Never called on the flag-OFF path — see the early-return guard
-    // in `poll` below, which is the ENTIRE flag-off diff to this effect.
-    const pollDurable = async () => {
-      try {
-        let sinceSeq = lastEventSeqRef.current;
-        let page = await getSessionEventsPage(sessionId, sinceSeq);
-        let allNewEvents: EngineSessionEvent[] = [...page.events];
-        let maxSeq = page.max_seq;
-        let guard = 0;
-        while (page.has_more && guard < 25) {
-          guard += 1;
-          const pageMax = page.events.reduce((m, e) => Math.max(m, e.seq ?? 0), sinceSeq);
-          if (pageMax <= sinceSeq) break; // no forward progress — avoid an infinite loop
-          sinceSeq = pageMax;
-          page = await getSessionEventsPage(sessionId, sinceSeq);
-          allNewEvents = allNewEvents.concat(page.events);
-          maxSeq = Math.max(maxSeq, page.max_seq);
-        }
-
-        if (allNewEvents.length > 0) {
-          // DDX-20 F9+Recap Design §2.4 — merge-by-seq, NOT a blind append.
-          // This comment used to claim "the cursor read only ever returns
-          // rows this client hasn't seen yet, so appending is correct here"
-          // — that assumption doesn't hold in general (Kage-CR SUGGESTION,
-          // this pass — reworded to lead with the permanent reason instead
-          // of a "not yet deployed" framing that would read as stale the day
-          // it ships): Tavern and the NekoNova proxy deploy independently,
-          // so a flag-ON Tavern build can always meet a proxy that drops
-          // `since_seq` (ProjectNekoNova/api/routes/dnd_sessions.py) before
-          // it reaches the engine, no matter what lands upstream — this
-          // defense is permanent, not contingent on any one deploy. (That
-          // drop IS fixed upstream in ProjectNekoNova `be4db8a`
-          // (`feature/ddx-20-p1b-durable-runner`), not yet merged to main or
-          // deployed as of this pass — cross-repo, filed separately, not
-          // fixed here — but whether it ships doesn't change whether Tavern
-          // needs this defense.) So `allNewEvents` is the FULL session
-          // history on EVERY poll tick under today's proxy. A blind
-          // `[...prev, ...allNewEvents]` append therefore re-added the whole
-          // history every ~4s: unbounded journalEvents growth, duplicate
-          // React keys in deriveRecapHistory (`recap-${seq}`), and a fresh
-          // array identity every tick even when nothing changed. This runs
-          // BEFORE reconcileDurableEvents below, so the §2.2 ledger seed
-          // above does NOT cover it — journalEvents needs its own dedup.
-          // Same "don't trust the network" posture as §2.2: correct
-          // regardless of what the wire actually returns.
-          //
-          // Post-review fix (Kage-CR IMPORTANT / Miko-QA MEDIUM, fold
-          // commit) — the dedup used to build `seen` ONCE from `prev` and
-          // never update it while filtering `allNewEvents`, so it only
-          // deduped ACROSS ticks, never WITHIN one: the has_more catch-up
-          // loop above reproduces exactly that when the wire drops
-          // `since_seq` (an identical page gets refetched and concat'd onto
-          // `allNewEvents` before this runs). Separately, `e.seq == null`
-          // used to short-circuit straight to "fresh", so a malformed/
-          // legacy no-seq event bypassed dedup ENTIRELY and re-appended
-          // every tick, unbounded, for as long as the session stayed
-          // mounted — worse than the has_more case, which at least
-          // self-limits after 2 fetches. Fixed by mirroring
-          // reconcileDurableEvents' own rule 1 (reconcileEvents.ts):
-          // check-and-add one key at a time via journalSeenSeqsRef (seeded
-          // at mount alongside journalEvents, above) instead of computing a
-          // static snapshot once per tick.
-          //
-          // Seq normalizes via `?? 0` (matching reconcileEvents.ts:151 and
-          // lastEventSeqRef's own convention above), not treated as
-          // unconditionally unique when missing. Trade-off, stated plainly
-          // (Kage-CR SUGGESTION, this pass — corrected from a "window"
-          // framing that understated the blast radius): key `0` is poisoned
-          // for the WHOLE MOUNT once anything claims it, not just within one
-          // poll batch — and the poisoning event can come from the
-          // rehydration seed above (journalSeenSeqsRef's mount-time `?? 0`
-          // normalization of the rehydrated history) just as easily as from
-          // a later poll tick, so every LATER genuinely-distinct null-seq
-          // event is dropped for the rest of the session once that happens,
-          // not merely within a shared batch. Accepted because (a) this is
-          // dormant BY CONSTRUCTION, not just "hasn't happened yet":
-          // `msm.session_events.seq` is `bigint NOT NULL`
-          // (NekoNova-DnDEngine db/migrations/msm/001_schema.sql:415), its
-          // sole writer `_log_session_event_locked`
-          // (engine/msm_repo.py:1498-1568, whose own inline comment states
-          // it is "the SOLE assigner of msm.session_events.seq") always
-          // computes
-          // `seq` inline via `COALESCE(MAX(seq), 0) + 1`, the legacy
-          // fallback synthesizes a 1-based seq from row order, and the
-          // NekoNova proxy only ever filters whole events — it never
-          // rewrites fields — so neither engine path can structurally emit
-          // a null seq, and (b) the alternative (today's pre-fix behavior:
-          // null-seq events exempt from dedup entirely) is the strictly
-          // worse, ACTUALLY-reachable bug this fixes.
-          //
-          // console.debug hoisted above setJournalEvents (Kage-CR
-          // SUGGESTION) — state updaters must stay pure; React 19
-          // StrictMode double-invokes them to catch exactly this, and would
-          // have double-logged in dev. `journalFresh` is computed here (a
-          // plain, already-decided array) so the updater below only ever
-          // does a deterministic append + sort — no Set mutation, no
-          // logging, safe to double-invoke.
-          const journalFresh: EngineSessionEvent[] = [];
-          for (const e of allNewEvents) {
-            const key = e.seq ?? 0;
-            if (journalSeenSeqsRef.current.has(key)) continue;
-            journalSeenSeqsRef.current.add(key);
-            journalFresh.push(e);
-          }
-          // §10 observability — the live tell for the NekoNova since_seq
-          // drop (fresh 0, fetched N on every tick with no real new
-          // activity); flips to fetched:0 the day that hop is fixed. Now
-          // also catches the null-seq variant above (Kage-CR SUGGESTION —
-          // previously silent for it: a null-seq event always counted as
-          // "fresh" under the old filter, so fetched and fresh stayed
-          // numerically equal even on a 100%-redundant tick, and the has_more
-          // duplicate case never shrank `fresh` either since `seen` was never
-          // updated intra-batch). Masked: counts only, never prose/mechanics.
-          if (journalFresh.length < allNewEvents.length) {
-            console.debug('poll_page_redundant', {
-              fetched: allNewEvents.length,
-              fresh: journalFresh.length,
-            });
-          }
-          if (journalFresh.length > 0) {
-            setJournalEvents((prev) =>
-              [...prev, ...journalFresh].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0)),
-            );
-          }
-
-          // Scene panel objective / quick-checks AND gated exits/checks are
-          // driven by `grounding` state. On the DURABLE path a scene_advance is
-          // discovered HERE (via this poll), not through narrate()'s SSE
-          // `sceneAdvancedSignal` — so without this refetch the Scene card lags
-          // on the previous scene after the runner advances the cursor
-          // server-side (the transcript shows the transition beat, but the
-          // objective/quick-checks stay stale).
-          //
-          // STRUCT-006 (2026-07-24): the beat classifier resolves required
-          // beats AFTER the narration turn is delivered (deliberate — grounding
-          // hides gated exits, so no INTENT on the turn that opens a gate could
-          // ever name that exit; zero added player latency). It writes
-          // beat_resolved (source=classifier) / beat_done / beat_override
-          // session events (all visibility="table", so they reach this feed),
-          // and resolving the last unmet required beat opens a previously-hidden
-          // anti-skip gate: a new exit + its check appear in grounding.
-          // scene_advance alone did NOT cover this — the gate opens WITHOUT the
-          // cursor moving — so a classifier-opened gate stayed invisible until a
-          // manual page reload (the one thing that materially breaks the
-          // feel-check). Re-fetching on the beat-ledger kinds too surfaces it
-          // within one poll cycle (~4s).
-          //
-          // Keyed on `journalFresh` (seq-deduped) not `allNewEvents`, so it
-          // fires ONCE per resolve rather than every tick under the NekoNova
-          // `since_seq`-drop full-history refetch. Inlined (not
-          // useSceneState's `refreshGrounding()`) because that helper always
-          // calls setGrounding+diffAndExplainResolvedChecks unconditionally
-          // — this tick may only have an `offerThisTick` with
-          // `invalidatesGrounding` false, and must NOT touch grounding
-          // state at all in that case.
-          const invalidatesGrounding = journalFresh.some(
-            (e) => e.kind != null && GROUNDING_INVALIDATING_KINDS.has(e.kind),
-          );
-
-          // Phase 4 (Sora-Arch design §4 Fork 3; Miko-QA "the sleeper bug"
-          // fix, the single most important new client-side assertion in the
-          // whole plan) — durable-poll parity for `offered_check`.
-          // narrate()'s SSE path already surfaces this (src/lib/stream.ts);
-          // the durable poll never read it at all, so a completed job's
-          // check offer sat silently on the wire, unrendered. Only the
-          // HIGHEST-seq narration/dm_narration event THIS TICK decides the
-          // outcome — mirrors narrate() clearing offeredCheckSkill/
-          // freeformOfferedCheck at the top of EVERY beat, then only
-          // re-setting one at the bottom if THAT beat offered one: an older
-          // beat's stale offer must never win over a newer beat's "no
-          // offer" just because both landed in the same catch-up batch
-          // (e.g. a backgrounded tab resuming several beats at once).
-          let latestNarrationEvent: EngineSessionEvent | null = null;
-          for (const e of journalFresh) {
-            if (e.kind !== 'narration' && e.kind !== 'dm_narration') continue;
-            if (!latestNarrationEvent || (e.seq ?? 0) > (latestNarrationEvent.seq ?? 0)) {
-              latestNarrationEvent = e;
-            }
-          }
-          const offerThisTick = latestNarrationEvent
-            ? parseOfferedCheckPayload(latestNarrationEvent.data)
-            : undefined; // no NEW narration beat this tick at all — leave offer state untouched
-
-          if (invalidatesGrounding || offerThisTick) {
-            // Iro MAJOR-1 parity: validate the offer against CURRENT
-            // grounding, never the closure's `grounding` (this poll, like
-            // narrate(), treats it as unreliable — see the effect's own
-            // convention of always refetching fresh below).
-            getGrounding(sessionId)
-              .then((g) => {
-                if (invalidatesGrounding) {
-                  // Tora-Gesture CRITICAL-1 (2026-07-28): this setGrounding
-                  // can unmount the check the player currently has focus on
-                  // (another table member resolved/locked it, or a
-                  // STRUCT-006 classifier did via roleplay -- no click on
-                  // THIS client at all), stranding focus on <body> with no
-                  // recovery. Same rescue onAttemptCheck's own click path
-                  // already uses (useSceneActions.ts) -- capture
-                  // synchronously right before the state update that may
-                  // unmount, refocus after. `refocusSceneHeadIfStranded`/
-                  // `setGrounding`/`diffAndExplainResolvedChecks`/
-                  // `checkWrapRef` all come from useSceneState's destructure
-                  // above (TAV-PLAY-SHELL step 5 hook 6) -- stable across
-                  // renders, so deliberately NOT added to this effect's own
-                  // deps array (kept consistent with the surrounding
-                  // omissions this effect's own deps comment documents).
-                  const hadFocusInCheckWrap =
-                    checkWrapRef.current?.contains(document.activeElement) ?? false;
-                  setGrounding(g);
-                  diffAndExplainResolvedChecks(g);
-                  refocusSceneHeadIfStranded(hadFocusInCheckWrap);
-                }
-                if (offerThisTick) applyOfferedCheckSignal(offerThisTick, g);
-              })
-              .catch(() => {});
-          }
-          if (latestNarrationEvent && !offerThisTick) {
-            // A new beat landed this tick and offered nothing — clear any
-            // stale highlight from an earlier beat (mirrors narrate()'s
-            // per-beat clear at the top of the SSE function).
-            setOfferedCheckSkill(null);
-            setFreeformOfferedCheck(null);
-          }
-
-          // §10 observability (Kage-CR low suggestion) — snapshot which
-          // beat-origin ledger keys are still awaiting narration BEFORE
-          // reconciling, so we can log `beat_narration_reconciled` for any
-          // that resolve (deleted from the ledger) this tick. Masked: no
-          // mechanics/prose, just seq + the turn_key correlation id.
-          const beatKeysAwaitingBefore = [...pendingByKeyRef.current.entries()]
-            .filter(([, e]) => e.origin === 'beat' && e.awaitingNarration)
-            .map(([key]) => key);
-
-          const result = reconcileDurableEvents(
-            allNewEvents,
-            renderedSeqsRef.current,
-            pendingByKeyRef.current,
-            (id) => logRef.current.find((r) => r.id === id),
-          );
-          if (result.appended.length > 0 || result.stamped.length > 0) {
-            setLog((prev) => applyReconcileResult(prev, result));
-          }
-          for (const key of beatKeysAwaitingBefore) {
-            if (!pendingByKeyRef.current.has(key)) {
-              console.debug('beat_narration_reconciled', { seq: result.maxSeqSeen, turn_key: key });
-            }
-          }
-          const { xCard, narrationSeq } = scanXCardTracking(allNewEvents);
-          if (xCard) {
-            setXCardEvent((prev) => (!prev || xCard.seq > prev.seq ? xCard : prev));
-          }
-          if (narrationSeq != null) {
-            setLatestNarrationSeq((prev) =>
-              prev == null || narrationSeq > prev ? narrationSeq : prev,
-            );
-          }
-        }
-
-        lastEventSeqRef.current = Math.max(lastEventSeqRef.current, maxSeq, sinceSeq);
-
-        // §2.2/§4b — surface pending_generation as real state (Pass 2 —
-        // drives the resume/busy affordance). Masked observability per §10:
-        // never log data.text/prose, only the correlation id + seq.
-        // Kage #5: only touch state when job_id/status actually changed —
-        // otherwise every ~4s tick constructs a NEW object (even when the
-        // job is unchanged) and forces a re-render for nothing, mirroring
-        // the same no-op-guard discipline the flag-OFF session-status poll
-        // already applies via sessionsEqual().
-        const pending = page.pending_generation;
-        setActiveJob((prev) => {
-          if (prev === pending) return prev;
-          if (
-            prev &&
-            pending &&
-            prev.job_id === pending.job_id &&
-            prev.status === pending.status &&
-            prev.trigger_seq === pending.trigger_seq
-          ) {
-            return prev;
-          }
-          return pending;
-        });
-
-        // §4b — stateless poll-discovery, the primary resume mechanism:
-        // subscribe (never POST) to an in-flight job this client is not
-        // already tailing. Covers three cases uniformly via the
-        // subscribedJobIdRef guard: (1) a fresh mount/reload discovering
-        // another client's (or this tab's own PRIOR reload's) turn — the
-        // "don't-re-POST" rule; (2) this client's own just-created job,
-        // where narrateDurable already set subscribedJobIdRef before this
-        // tick runs, so the guard correctly no-ops here; (3) the 409-busy
-        // pivot's own subscribe, same no-op guard.
-        if (pending && pending.job_id !== subscribedJobIdRef.current) {
-          console.debug('turn_resumed_from_pending', {
-            job_id: pending.job_id,
-            trigger_seq: pending.trigger_seq,
-          });
-          // origin: 'composer' — a stateless poll-resume genuinely cannot
-          // tell whether the discovered job was a composer turn or a
-          // synthetic beat (no server-side marker exists, and this client's
-          // own lastDurableTurnRef/turnKeyRef are reset across a reload
-          // anyway). Defaulting to 'composer' preserves pre-fix behavior
-          // here (out of Finding 1's scope, which is the explicit
-          // narrateDurable/narrateDurableBeat call sites below) — worst case
-          // on a genuine beat-job SSE error post-reload is a Retry banner
-          // whose click no-ops (onRetryFailedTurn already guards on a null
-          // lastDurableTurnRef), not a wrong-content resubmit.
-          // precreateRow: false (TAV-NARRATION-DECOUPLE Phase 2) — deliberately
-          // scoped OFF this stateless resume path: the narration may already
-          // exist server-side by the time a reload discovers the job, so
-          // pre-creating an anchor here risks racing a same-tick append.
-          // Resume pop-in stays possible but is rare/accepted (design §11).
-          void subscribeToJob(
-            pending.job_id,
-            pending.turn_key,
-            pending.trigger_seq,
-            'composer',
-            false,
-          );
-        } else if (!pending) {
-          subscribedJobIdRef.current = null;
-        }
-
-        // §4c turn_key lifecycle — clear once THIS client's own in-flight
-        // turn resolved (reconcileDurableEvents' rules 2/3 above removed its
-        // ledger entry once the narration seq was observed).
-        if (turnKeyRef.current && !pendingByKeyRef.current.has(turnKeyRef.current)) {
-          clearTurnKey(sessionId);
-          turnKeyRef.current = null;
-          pollFailureGraceRef.current = null;
-          // TAV-COMPOSING (Phase 1, 2026-07-26) — this turn's own ledger
-          // entry is gone, so the beat resolved via the poll's reconciliation
-          // (rule 3 sub-case a/b) BEFORE (or without) subscribeToJob's tail
-          // ever clearing the indicator itself (e.g. the poll replaced a
-          // precreated anchor before the first SSE chunk). Scoped to
-          // `turnKeyRef` — the composer's own current turn — so it never
-          // clears a DIFFERENT, still-in-flight beat's indicator; a beat's
-          // own tail always self-clears at its SSE end (:973-ish) regardless.
-          setThinking(false);
-          setTalking(false);
-        }
-
-        // §4d, mechanism 2 (Miko-QA finding c) — poll-only failure detection.
-        // Only meaningful while THIS client still owns an unresolved turn
-        // (the completion branch just above already handles the success
-        // case). If `pending_generation` doesn't reflect our turn_key this
-        // tick, count it; once that streak reaches POLL_FAILURE_GRACE_TICKS
-        // with STILL no narration having landed, treat the job as dead —
-        // same cleanup + retry affordance as subscribeToJob's SSE-error path.
-        // This is what catches a job that died where NO client is actively
-        // holding its SSE tail to observe an `error` frame (reload after a
-        // silent failure, a tab backgrounded long enough for the browser to
-        // pause/kill the EventSource, a proxy idle-timeout truncation).
-        if (turnKeyRef.current && pendingByKeyRef.current.has(turnKeyRef.current)) {
-          const ownTurnKey = turnKeyRef.current;
-          if (pending?.turn_key === ownTurnKey) {
-            // Confirmed alive this tick — reset the grace counter.
-            pollFailureGraceRef.current = { turnKey: ownTurnKey, nullTicks: 0 };
-          } else {
-            const grace =
-              pollFailureGraceRef.current?.turnKey === ownTurnKey
-                ? pollFailureGraceRef.current
-                : { turnKey: ownTurnKey, nullTicks: 0 };
-            grace.nullTicks += 1;
-            pollFailureGraceRef.current = grace;
-
-            if (grace.nullTicks >= POLL_FAILURE_GRACE_TICKS) {
-              console.debug('turn_failed_poll_grace', { turn_key: ownTurnKey });
-              // Abort a live SSE tail if one is still (uselessly) open for
-              // this job — mirrors subscribeToJob's own cleanup.
-              if (subscribedJobIdRef.current) {
-                narrationAbort.current?.abort();
-                subscribedJobIdRef.current = null;
-              }
-              pendingByKeyRef.current.delete(ownTurnKey);
-              clearTurnKey(sessionId);
-              turnKeyRef.current = null;
-              pollFailureGraceRef.current = null;
-              clearStreamNarration(true);
-              setTalking(false);
-              setThinking(false);
-              setActiveJob(null);
-              setJobFailed(true);
-              appendLog({
-                who: 'Suzu',
-                kind: 'system',
-                text: 'Suzu stepped away for a moment. Try again.',
-              });
-            }
-          }
-        } else if (pollFailureGraceRef.current && pollFailureGraceRef.current.turnKey !== turnKeyRef.current) {
-          // Stale counter from a resolved/abandoned turn — drop it so a
-          // future turn starts its own grace count from zero.
-          pollFailureGraceRef.current = null;
-        }
-      } catch {
-        // Poll errors are non-fatal — the next tick will retry (same
-        // convention as the flag-OFF branch below).
-      }
-    };
-
-    const poll = async () => {
-      if (document.hidden) return;
-      if (DURABLE_GENERATION_ENABLED) {
-        await pollDurable();
-        return;
-      }
-      try {
-        const events = await getSessionEventsRaw(sessionId);
-        if (!events || events.length === 0) return;
-        const newOnes = events
-          .filter((e) => (e.seq ?? 0) > lastEventSeqRef.current)
-          .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
-        if (newOnes.length === 0) return;
-        // Miko poll-churn fix: this used to run BEFORE the newOnes.length
-        // guard above, so a fresh (but content-identical) array from
-        // getSessionEventsRaw re-rendered the whole page + re-ran all 3
-        // JournalPane derivations on EVERY 4s tick forever, even when
-        // nothing new happened. Mirrors the sibling session-status poll's
-        // own sessionsEqual no-op guard: only touch state when something
-        // actually changed. The mount-time rehydration effect already seeds
-        // journalEvents once on load — this only keeps it current on ticks
-        // that have real new activity.
-        setJournalEvents([...events].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0)));
-        const rows = newOnes
-          .filter((e) => e.kind === 'dice_roll' || e.kind === 'x_card')
-          .map(eventToLogRow)
-          .filter((r): r is LogRow => r !== null);
-        if (rows.length > 0) {
-          setLog((prev) => [...prev, ...rows]);
-        }
-        const { xCard, narrationSeq } = scanXCardTracking(newOnes);
-        if (xCard) {
-          setXCardEvent((prev) => (!prev || xCard.seq > prev.seq ? xCard : prev));
-        }
-        if (narrationSeq != null) {
-          setLatestNarrationSeq((prev) =>
-            prev == null || narrationSeq > prev ? narrationSeq : prev,
-          );
-        }
-        // STRUCT-006 (2026-07-24): mirror the durable poll's grounding
-        // invalidation. On the flag-OFF/SSE path the beat classifier still runs
-        // post-delivery (narration.py background thread + buffered) and writes
-        // beat_resolved, so a classifier-opened gate would otherwise stay hidden
-        // until reload here too. scene_advance normally reaches grounding via
-        // narrate()'s sceneAdvancedSignal, but re-fetching on it here as well is
-        // idempotent and also catches a cross-client advance this tab didn't
-        // originate. `newOnes` is seq-deduped, so this fires once per change.
-        if (newOnes.some((e) => e.kind != null && GROUNDING_INVALIDATING_KINDS.has(e.kind))) {
-          getGrounding(sessionId)
-            .then((g) => {
-              // Tora-Gesture CRITICAL-1 (2026-07-28): SSE/flag-off mirror of
-              // the durable poll's identical fix above -- capture focus
-              // synchronously right before the state update that may
-              // unmount a focused check (poll-driven removal, no click on
-              // THIS client), refocus the scene heading after.
-              // `setGrounding`/`diffAndExplainResolvedChecks`/
-              // `refocusSceneHeadIfStranded`/`checkWrapRef` all come from
-              // useSceneState's destructure above (TAV-PLAY-SHELL step 5
-              // hook 6) -- deliberately not listed in this effect's own deps
-              // array, same reasoning as the durable-poll branch above.
-              const hadFocusInCheckWrap =
-                checkWrapRef.current?.contains(document.activeElement) ?? false;
-              setGrounding(g);
-              diffAndExplainResolvedChecks(g);
-              refocusSceneHeadIfStranded(hadFocusInCheckWrap);
-            })
-            .catch(() => {});
-        }
-        lastEventSeqRef.current = newOnes.reduce(
-          (m, e) => Math.max(m, e.seq ?? 0),
-          lastEventSeqRef.current,
-        );
-      } catch {
-        // Poll errors are non-fatal — the next tick will retry.
-      }
-    };
-
-    // Kage-CR A6 IMPORTANT-1: an effect-local interval id, not a ref --
-    // nothing outside this effect's own closure ever read the old
-    // diceRollPollIntervalRef (grep-confirmed), so a plain local is exactly
-    // equivalent and correctly scopes the handle to the poll that owns it.
-    const intervalId = setInterval(poll, POLL_INTERVAL_MS);
-    return () => clearInterval(intervalId);
-    // DDX-20 Pass 2: `subscribeToJob`/`appendLog`/`clearStreamNarration` are
-    // listed (all `[]`-stable useCallbacks, so this never resets the
-    // interval in practice) — matches this effect's existing convention of
-    // NOT listing the many plain imported functions it also calls
-    // (getSessionEventsPage, eventToLogRow, scanXCardTracking,
-    // reconcileDurableEvents, applyReconcileResult) since those aren't
-    // component-scoped values ESLint tracks the same way.
-    //
-    // Phase 4: `applyOfferedCheckSignal` (used by `pollDurable` above) is
-    // deliberately omitted too — it comes from useSceneState's destructure
-    // above (TAV-PLAY-SHELL step 5 hook 6), same "stable, not worth
-    // listing" reasoning as `getGrounding`/`diffAndExplainResolvedChecks`/
-    // `refocusSceneHeadIfStranded` immediately above.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, state, subscribeToJob, appendLog, clearStreamNarration]);
-
   // Re-pin the chat to the latest line when returning to the Story view.
   // chatLogRef listed (TAV-PLAY-SHELL A3): now sourced from useTranscript's
   // destructure, so exhaustive-deps can no longer prove it's a stable ref
@@ -1606,6 +973,25 @@ export default function PlayPage() {
     refreshGrounding, sceneHeadRef, composerRailAnchorRef, dmPanelAnchorRef,
     localTurnActionRef,
   );
+
+  // TAV-PLAY-SHELL step 5, hook 11 of ~9 (decomposition plan §2.2, amended
+  // by Amendment A §A.2 row 11) -- the unified durable events poll (+ its
+  // flag-OFF legacy sibling). Composed LAST, after useCombatActions -- see
+  // hooks/useSessionEvents.ts's own header for the full scope, the "one
+  // named object, not positional params" reasoning, and why it is the one
+  // hook in this series that takes handler callbacks instead of reading a
+  // sibling hook's state.
+  useSessionEvents(sessionId, state, {
+    lastEventSeqRef, renderedSeqsRef, pendingByKeyRef, logRef, setLog, appendLog,
+    clearStreamNarration,
+    checkWrapRef, setGrounding, diffAndExplainResolvedChecks,
+    refocusSceneHeadIfStranded, applyOfferedCheckSignal, setOfferedCheckSkill,
+    setFreeformOfferedCheck,
+    setActiveJob, setJobFailed, setThinking, setTalking, subscribedJobIdRef,
+    turnKeyRef, pollFailureGraceRef, narrationAbort, subscribeToJob,
+    setXCardEvent, setLatestNarrationSeq,
+    journalSeenSeqsRef, setJournalEvents,
+  });
 
   // UIR2-TAV-11: the xpForm's own onKeyDown only fires while focus is inside
   // the form's DOM subtree (a native keydown that starts there and bubbles

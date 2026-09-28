@@ -32,8 +32,16 @@
  * page.tsx's own narrate()/narrateDurable() (not yet extracted, A5), which
  * write `setLog` directly rather than through `appendLog` and therefore
  * need the same stamp a second place.
+ *
+ * A4 (`useSessionEvents`, Amendment A §A.2's AMENDED row 11): `scanXCardTracking`
+ * (+ its `NARRATION_BEAT_KINDS` constant) moved here too — page.tsx's mount
+ * effect (rehydration branch) and the new `hooks/useSessionEvents.ts` poll
+ * both need it, and it can't live in either file alone without one importing
+ * the other (the same circular-dependency shape C2 fixed, and exactly what
+ * "the poll never imports a sibling hook" (decomposition plan §2.2) rules
+ * out for `useSessionEvents.ts` reaching into page.tsx).
  */
-import type { CombatState, GroundingData, Session } from '@/lib/api/types';
+import type { CombatState, EngineSessionEvent, GroundingData, Session } from '@/lib/api/types';
 
 /** Title-case an engine skill slug ('sleight_of_hand' -> 'Sleight Of Hand'). */
 export function titleCaseSkill(skill: string): string {
@@ -91,6 +99,49 @@ export function isSessionLocked(s: Session | null | undefined): boolean {
  *  have always used — keep them identical. */
 export function isCombatEngaged(combatState: CombatState | null): boolean {
   return combatState?.state === 'active';
+}
+
+/**
+ * DDX-26 — event kinds that count as a "narration beat" for the X-card
+ * banner's auto-ease-off. Mirrors the engine's own soft-redirect auto-clear
+ * EXACTLY (Kage IMPORTANT-2): the engine only clears soft_redirect on
+ * 'dm_narration'/'narration' — NOT on 'player_action'. A player_action event
+ * persists up front, before Suzu's narration streams back, so counting it
+ * here would ease the banner off for the whole streaming turn (or
+ * indefinitely on an abandoned turn) while the engine is still steering, and
+ * could clear the banner on an ESCALATING player action — the opposite of
+ * "the table eased off". Once the table has actually moved on to a new
+ * narration beat, the banner steps aside on its own (no dismiss required) —
+ * the raised signal is still permanent in the durable log (eventToLogRow's
+ * 'x_card' case), only the live banner clears.
+ */
+const NARRATION_BEAT_KINDS = new Set(['dm_narration', 'narration']);
+
+/**
+ * DDX-26 — scan a batch of raw session events (any order, any kind) for the
+ * highest-seq 'x_card' event and the highest-seq narration-beat event. Pure,
+ * shared by both the mount-time rehydration path (full history) and the
+ * recurring events poll (only the newly-observed slice) so "what's active"
+ * is computed identically regardless of which path fed it. Seq+actor are
+ * returned as one pair (never two independently-tracked values) so a batch
+ * containing multiple x_card events always attributes the actor belonging
+ * to the highest seq, never a stale one from an earlier raise in the batch.
+ */
+export function scanXCardTracking(events: EngineSessionEvent[]): {
+  xCard: { seq: number; actor?: string } | null;
+  narrationSeq: number | null;
+} {
+  let xCard: { seq: number; actor?: string } | null = null;
+  let narrationSeq: number | null = null;
+  for (const e of events) {
+    const seq = e.seq ?? 0;
+    if (e.kind === 'x_card') {
+      if (!xCard || seq > xCard.seq) xCard = { seq, actor: e.actor };
+    } else if (e.kind && NARRATION_BEAT_KINDS.has(e.kind)) {
+      if (narrationSeq == null || seq > narrationSeq) narrationSeq = seq;
+    }
+  }
+  return { xCard, narrationSeq };
 }
 
 /**
