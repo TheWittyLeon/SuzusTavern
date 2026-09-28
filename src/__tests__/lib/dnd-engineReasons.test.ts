@@ -146,6 +146,18 @@ describe('engineReasons — contract: map keys against the engine vocabulary', (
       // exception as `actor_required` above: a real refusal that can land on
       // ANY proxied route, just never from the engine itself.
       'upstream_non_json',
+      // ENGINE-MOVEMENT-PLAYER-VISIBLE-COORDS design §5 — the move verb's
+      // reason vocabulary, curated ahead of the verb shipping (design step 6
+      // runs before step 5 / B8 in the loop). Traced to the design table,
+      // not invented: `no_space`, `invalid_destination`,
+      // `no_movement_remaining`, `unreachable`. NOT yet in
+      // ENGINE_COMBAT_REASON_STATUS_KEYS above on purpose — that array is
+      // re-derived from the LIVE engine dict, and these four aren't in it
+      // until B8 lands `POST /combat/{id}/move`.
+      'no_space',
+      'invalid_destination',
+      'no_movement_remaining',
+      'unreachable',
     ]);
     const unjustified = Object.keys(COMBAT_REFUSAL_REASON_MAP).filter((k) => !justified.has(k));
     expect(unjustified).toEqual([]);
@@ -338,6 +350,81 @@ describe('engineReasons — wire shape: actor_required 401 through the REAL prox
       reasonMap: CAST_REFUSAL_REASON_MAP,
     });
     expect(message).toBe("Couldn't verify who you are. Try reloading — if it keeps happening, the sign-in service may be down.");
+  });
+});
+
+// ── ENGINE-MOVEMENT-PLAYER-VISIBLE-COORDS design §5 — the move verb's four
+// new refusal codes, curated ahead of the verb shipping (design step 6, this
+// batch; the verb itself is step 5 / loop item B8, not yet built). Design
+// table (§5): not_your_turn (existing, no new entry — asserted separately
+// below) / no_space / invalid_destination / no_movement_remaining /
+// unreachable. Copy sourced from the Aoi-UI tactical-map spec, §4/§7 and the
+// mockup's Show-3 refusal panel — see engineReasons.ts's own comment for the
+// per-key sourcing.
+describe('engineReasons — movement move-refusal codes (design §5, B8 pending)', () => {
+  const MOVEMENT_CODES = ['no_space', 'invalid_destination', 'no_movement_remaining', 'unreachable'] as const;
+
+  it('all four new codes are present in COMBAT_REFUSAL_REASON_MAP with non-empty copy', () => {
+    for (const key of MOVEMENT_CODES) {
+      expect(COMBAT_REFUSAL_REASON_MAP).toHaveProperty(key);
+      expect(typeof COMBAT_REFUSAL_REASON_MAP[key]).toBe('string');
+      expect(COMBAT_REFUSAL_REASON_MAP[key].trim().length).toBeGreaterThan(0);
+    }
+  });
+
+  it('the move verb reuses the existing not_your_turn code — no duplicate/second entry', () => {
+    // Design §5 lists not_your_turn as "existing code, existing check" among
+    // the move verb's refusals. Prove the map still has exactly one entry
+    // for it and it's the pre-existing copy, not a movement-specific fork.
+    expect(COMBAT_REFUSAL_REASON_MAP.not_your_turn).toBe("It's not your turn.");
+  });
+
+  it('invalid_destination and unreachable copy matches the Aoi-UI spec verbatim', () => {
+    // Design Pass v1 (Aoi-UI) §4: 'Same slot handles `invalid_destination`
+    // ("You can't move there — it's blocked or occupied") and `unreachable`
+    // ("There's no path there")'.
+    expect(COMBAT_REFUSAL_REASON_MAP.invalid_destination).toBe(
+      "You can't move there — it's blocked or occupied.",
+    );
+    expect(COMBAT_REFUSAL_REASON_MAP.unreachable).toBe("There's no path there.");
+  });
+
+  it('no_movement_remaining names the fix (end turn or Dash), matching the spec\'s mockup framing', () => {
+    expect(COMBAT_REFUSAL_REASON_MAP.no_movement_remaining).toMatch(/movement/i);
+    expect(COMBAT_REFUSAL_REASON_MAP.no_movement_remaining).toMatch(/dash/i);
+  });
+
+  it('no_space names the real cause (no board) rather than a generic refusal', () => {
+    expect(COMBAT_REFUSAL_REASON_MAP.no_space).toMatch(/map|grid|board/i);
+  });
+
+  it('the move verb refusal shape reaches engineErrorMessage exactly like attack/dodge/dash — no_movement_remaining example', () => {
+    const err = proxyCombatError(400, '[Combat] Bren has no movement remaining.', {
+      reason: 'no_movement_remaining',
+      state: { combat_id: 'c1', round: 2 },
+    });
+    const message = engineErrorMessage(err, {
+      fallback: "That combat action didn't go through.",
+      reasonMap: COMBAT_REFUSAL_REASON_MAP,
+    });
+    expect(message).toBe(COMBAT_REFUSAL_REASON_MAP.no_movement_remaining);
+    expect(message).not.toBe("That combat action didn't go through.");
+  });
+
+  it('adding the four movement codes did not widen the fallback path — an unmapped code still falls through honestly', () => {
+    // Regression proof that curating four new keys didn't turn the map into
+    // a wildcard: a plausible BUT NOT ACTUALLY CURATED fifth movement-shaped
+    // code still resolves to the caller's own fallback string, same as the
+    // pre-existing "unknown/future reason code" behaviour this file already
+    // pins below for the general case.
+    const err = proxyCombatError(400, 'Some future movement refusal nobody mapped yet.', {
+      reason: 'occupied_by_ally_no_swap',
+    });
+    const message = engineErrorMessage(err, {
+      fallback: "That combat action didn't go through.",
+      reasonMap: COMBAT_REFUSAL_REASON_MAP,
+    });
+    expect(message).toBe("That combat action didn't go through.");
   });
 });
 

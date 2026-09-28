@@ -1059,6 +1059,84 @@ export interface CombatDeathSaves {
   is_dead: boolean;
 }
 
+// ── DnD: positioning / tactical map (ENGINE-MOVEMENT-PLAYER-VISIBLE-COORDS,
+// design step 6 — `SuzusTavern/.worktrees/movement-s6-0928`) ───────────────
+// Source of truth: `ENGINE-MOVEMENT-PLAYER-VISIBLE-COORDS — Design
+// (Sora-Arch)` §2.1 (authored content schema) / §4.3 (the PROJECTED wire
+// shape below, which is what `build_combat_state` actually emits — a
+// strict subset of §2.1's authoring schema, not a copy of it).
+//
+// `space.start` (party seat pool) and `monsters[].start_at` (per-monster
+// spawn assignment) are DM-only AUTHORING fields — used once, at spawn
+// time, to seed each participant's `at` — and are never reprojected here.
+// They live on the raw scene/encounter block behind the existing GM-only
+// projections (design §3.1) and have no member on any type below. Typing
+// either onto a player-visible interface would be the exact leak §0.1/§4.2
+// already catalogue for `grid`/`terrain`.
+
+/**
+ * Space kind registry — **square only** in 1.0 (design M6/§1.2: a second
+ * adapter with zero tenants is the mirror-rule failure the design explicitly
+ * declines to ship speculatively). A future kind (`hex`, `zones`, …) adds a
+ * member to this union AND its own coordinate/feature shape alongside
+ * `SpaceCoordinate` below — mirroring `engine/space.py`'s `SPACE_KINDS`
+ * registry (the engine-side source of truth this type must never drift
+ * from). Do not add a kind here ahead of the engine registering its adapter.
+ */
+export type SpaceKind = 'square';
+
+/**
+ * Opaque per-`space.kind` coordinate (design §1.3, §4.3: "opaque — `[6,6]`
+ * for square, `"courtyard"` for zones … a Pydantic model that typed it as
+ * `List[int]` would be the content literal wearing a schema"). `square` is
+ * the only kind shipped in 1.0, so it resolves to a 0-indexed `[x, y]` pair,
+ * origin top-left (design §2.1) today — Tavern code must not assume this
+ * shape survives a future non-square kind; a `zones` board's coordinate
+ * would be a zone-id string, requiring this alias to become a union.
+ */
+export type SpaceCoordinate = [number, number];
+
+/**
+ * `cell.unit` is **ft-only** in 1.0. `SquareSpace.cost` (engine/space.py)
+ * already returns feet with no in-code conversion (Kage-CR B1+B2
+ * IMPORTANT-1 fix, 2026-09-28) — a non-`'ft'` value would silently mis-scale
+ * every movement budget on this wire, so the type is narrowed to match the
+ * engine's own validator constraint rather than left as `string`.
+ */
+export interface SpaceCellSize {
+  value: number;
+  unit: 'ft';
+}
+
+/** A decorative map marker (e.g. a brazier, crates) — no mechanical reader
+ *  in 1.0 (design §2.1); `at` is a list because one feature can span
+ *  multiple cells. */
+export interface SpaceFeature {
+  id: string;
+  kind: string;
+  label: string;
+  at: SpaceCoordinate[];
+}
+
+/**
+ * The instantiated tactical-map board, player-visible outside the DM/non-DM
+ * gate (design §3.1, §4.1 hop 1). `null`/absent when the encounter authored
+ * no `space` — theatre-of-mind, today's behaviour exactly, not a mode
+ * (design §5). This is the §4.3 PROJECTED shape: no `start` key (spawn-time
+ * only, see the header note above).
+ */
+export interface CombatSpace {
+  kind: SpaceKind;
+  /** square/hex only — a future `zones` kind would omit width/height. */
+  width: number;
+  height: number;
+  cell: SpaceCellSize;
+  /** Cells no token may occupy — authoritative; the tactical map's
+   *  client-side reach-overlay mirror excludes these too (Aoi-UI design §4). */
+  blocked: SpaceCoordinate[];
+  features: SpaceFeature[];
+}
+
 /** One participant in the turn order. */
 export interface CombatParticipantState {
   participant_id: string;
@@ -1095,12 +1173,38 @@ export interface CombatParticipantState {
    *  test fixtures that construct literals keep compiling — same convention
    *  as condition_durations above; absent is treated as "available". */
   action_available?: boolean;
+  /** DDX-06, same shape/rationale as `action_available` above (unconditional
+   *  on every participant entry, `engine/combat.py::build_combat_state`,
+   *  confirmed 2026-09-28 against `main:engine/combat.py` — flat sibling key
+   *  on the same `entry` dict, not nested). Optional for the identical
+   *  fixture-blast-radius reason; absent is treated as "available". Needed
+   *  by the docked sheet (play-shell step 7) and the tactical map (Aoi-UI
+   *  C2 pass) to grey out an already-spent bonus action. */
+  bonus_action_available?: boolean;
+  /** DDX-06 — see `bonus_action_available` above; same sourcing, same
+   *  optionality rationale, same consumers. */
+  reaction_available?: boolean;
   /** PC-only; absent on monster entries. */
   death_saves?: CombatDeathSaves;
   /** Monster-only: AI tactic text from encounter meta. */
   tactics?: string;
   /** Monster-only: descriptive position string. */
   position?: string;
+  /** Player-visible token position (design §4.3/§6 step 6) — outside the
+   *  DM-only branch, unlike `tactics`/`position` above; deliberately a
+   *  DIFFERENT field from `position`, never the same one renamed (design
+   *  §1.3: reusing the name would collide two fields with opposite
+   *  visibility on one wire). `null` when unplaced: no `space` authored, a
+   *  legacy/pre-feature row, or more seated PCs than `space.start.party`
+   *  cells (design Addendum §A.4). Optional for the same fixture-blast-radius
+   *  reason as `condition_durations`/`action_available` above — the engine
+   *  always sends the key once `SUZU_DND_POSITIONING` is on. */
+  at?: SpaceCoordinate | null;
+  /** Player-visible remaining movement budget, in `space.cell.unit` (ft-only
+   *  in 1.0) — design §4.3/§6 step 6. `null` when the encounter has no
+   *  `space` (theatre-of-mind; movement is narrated, not budgeted). Optional
+   *  for the same reason as `at` above. */
+  movement_remaining?: number | null;
 }
 
 /** Side-effect summary of the most recent mutating call. */
@@ -1155,6 +1259,10 @@ export interface CombatState {
   /** Ordered participant ids (mirrors CombatSession.initiative_order). */
   initiative: string[];
   participants: CombatParticipantState[];
+  /** The instantiated tactical-map board, player-visible (design §4.3/§6
+   *  step 6). `null`/absent when the encounter authored no `space`, or
+   *  `SUZU_DND_POSITIONING` is off. See `CombatSpace`. */
+  space?: CombatSpace | null;
   /** DM-only; absent for players. See `TerrainNotes`. */
   terrain?: TerrainNotes | null;
   encounter_id?: string | null;

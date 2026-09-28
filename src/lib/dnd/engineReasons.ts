@@ -201,6 +201,34 @@ export const COMBAT_REFUSAL_REASON_MAP: Record<string, string> = {
   // has NO live emitter — grep finds only the docstring. Kept so the absence
   // reads as verified rather than overlooked; harmless if it never fires.
   no_character_bound: 'No character is bound to this session.',
+
+  // ── movement (ENGINE-MOVEMENT-PLAYER-VISIBLE-COORDS design §5) ──────────
+  // Curated AHEAD of the engine, deliberately: these four are the move
+  // verb's (`POST /combat/{id}/move`) reason vocabulary as the design fixes
+  // it, but the verb itself (design step 5 / loop item B8) hasn't shipped
+  // yet — this is step 6, the Tavern wire types, run in parallel per the
+  // design's own step 6 note ("touches no file the play-shell extraction
+  // track owns … the two tracks do not collide"). `not_your_turn` is the
+  // fifth code the verb reuses and needs no new entry — it's already above.
+  // Copy sourced from the Aoi-UI tactical-map spec (design pass v1, §4/§7 +
+  // the mockup's Show-3 refusal panel), not invented here:
+  //   - `invalid_destination` / `unreachable`: the spec's own example copy,
+  //     verbatim ("You can't move there — it's blocked or occupied" /
+  //     "There's no path there").
+  //   - `no_movement_remaining`: the spec's mockup example names a specific
+  //     character and remaining-ft count ("Bren has 0 ft remaining…") —
+  //     that's illustrative, not literal curated copy (this map has no
+  //     per-call templating, same as every other entry here), so the shape
+  //     is kept but the specifics are generalised.
+  //   - `no_space`: the spec states this "only fires if a client bug
+  //     renders Move on a theatre-of-mind encounter — defensive, not
+  //     expected" and gives no exact string; copy here names the real cause
+  //     (no board to move on) since a player seeing this at all means
+  //     something upstream already went wrong.
+  no_space: "This encounter isn't played on a map — movement happens through the story, not a grid.",
+  invalid_destination: "You can't move there — it's blocked or occupied.",
+  no_movement_remaining: "You don't have enough movement left — try again next turn, or Dash.",
+  unreachable: "There's no path there.",
 };
 
 /**
