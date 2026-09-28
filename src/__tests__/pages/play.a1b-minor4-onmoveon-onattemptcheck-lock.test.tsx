@@ -1,4 +1,19 @@
 /**
+ * A5 / Kage-CR IMPORTANT-5 (routed to A6 commit 0, 2026-09-28) — the
+ * sibling clause of the exact same `if` statement MINOR-4 below closed for
+ * `isSessionLocked`: the `talking` gate on `onMoveOn`
+ * (`hooks/useSceneActions.ts:172`) and `onAttemptCheck` (`:274`) is
+ * unpinned. Mutation (pass `false` instead of `talking` at the call site)
+ * leaves the whole suite green — pre-existing, predates A5, unworsened by
+ * it. What it guards: Amendment A §A.1 fact 2 — a "Move on"/"Attempt"
+ * landing while the opening stream is in flight leaves `opening_narrated`
+ * unwritten, so the opening re-fires on the next mount (the FIX-2 race).
+ * Reuses this file's existing direct-handler-call harness (see MINOR-4's
+ * doc block below for why `fireEvent` on the disabled button can't work),
+ * with `talking` driven to true via a real in-flight beat (the composer
+ * send below never resolves its streamDmNarration generator) rather than
+ * `isSessionLocked` — a genuinely different gate, same shape.
+ *
  * A1b / Kage-CR MINOR-4, exact ask (see 2026-09-28 QA session on
  * `feature/play-shell-a1b-prep-0928`) — the two consumers Kage's review
  * text names by line number, verbatim:
@@ -45,7 +60,7 @@
  * with no DOM/click/disabled involved at all.
  */
 import React from 'react';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import type { OffersProps } from '@/app/play/[sessionId]/regions/Offers';
 
@@ -127,10 +142,14 @@ jest.mock('../../lib/api/dnd', () => ({
   putSessionNotes: jest.fn(() => Promise.resolve({ body: '', updated_at: '2026-01-01T00:00:00Z' })),
 }));
 
+const mockStreamDmNarration = jest.fn<AsyncGenerator<unknown>, unknown[]>(
+  async function* mockStream(): AsyncGenerator<unknown> {
+    // yields nothing by default — overridden per-test for the talking-gate
+    // cases below, which need a beat that stays in flight.
+  },
+);
 jest.mock('../../lib/stream', () => ({
-  streamDmNarration: jest.fn(async function* mockStream(): AsyncGenerator<unknown> {
-    // yields nothing
-  }),
+  streamDmNarration: (...args: Parameters<AnyFn>) => mockStreamDmNarration(...args),
 }));
 
 import PlayPage from '@/app/play/[sessionId]/page';
@@ -152,6 +171,14 @@ const PARTICIPANTS: Participant[] = [
   { username: 'bob', is_dm: false, character: null },
 ];
 
+// IMPORTANT-5: unlike PAUSED_SESSION, this session is NOT locked
+// (`isSessionLocked` reads `status`) — `talking` must be the ONLY thing
+// refusing onMoveOn/onAttemptCheck below, isolated from MINOR-4's gate.
+const ACTIVE_SESSION: Session = {
+  ...PAUSED_SESSION,
+  status: 'active',
+};
+
 function setup() {
   jest.clearAllMocks();
   capturedOffersProps = null;
@@ -167,6 +194,18 @@ function setup() {
   mockGetGrounding.mockResolvedValue({
     transitions: [{ to: 'forest_clearing', label: 'Head to the clearing' }],
     checks: [{ skill: 'perception', dc: 12 }],
+  });
+}
+
+function setupActiveTalking() {
+  setup();
+  mockGetSession.mockResolvedValue(ACTIVE_SESSION);
+  // A beat that sets `talking=true` synchronously (narrate()'s own
+  // discipline) and never resolves — mirrors re-QA(1)'s "still pending"
+  // technique (play.ddx20-pass3-miko-reqa.test.tsx) so `talking` stays true
+  // for the whole test, isolated from any `done`/`error` cleanup timing.
+  mockStreamDmNarration.mockImplementation(async function* () {
+    await new Promise(() => {});
   });
 }
 
@@ -206,6 +245,53 @@ describe('A1b MINOR-4 — onMoveOn / onAttemptCheck isSessionLocked gate, invoke
     setup();
     render(<PlayPage />);
     await screen.findByRole('button', { name: /Attempt Perception, DC 12/i });
+
+    expect(capturedOffersProps).not.toBeNull();
+    await act(async () => {
+      capturedOffersProps!.onAttemptCheck('perception');
+    });
+    await flush();
+
+    expect(mockResolveCheck).not.toHaveBeenCalled();
+  });
+});
+
+describe('A5 IMPORTANT-5 — onMoveOn / onAttemptCheck talking gate, invoked directly', () => {
+  it('onMoveOn (useSceneActions.ts:172) refuses to advance the scene while a beat is talking, called directly (not through the disabled button)', async () => {
+    setupActiveTalking();
+    render(<PlayPage />);
+    await screen.findByRole('button', { name: /Head to the clearing/i });
+
+    // Drive talking=true via a REAL in-flight beat (composer send), not a
+    // stub — the same discipline MINOR-4's own header insists on for
+    // isSessionLocked.
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: 'I look around.' } });
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' });
+    });
+    await flush();
+
+    expect(capturedOffersProps).not.toBeNull();
+    await act(async () => {
+      capturedOffersProps!.onMoveOn('forest_clearing');
+    });
+    await flush();
+
+    expect(mockAdvanceScene).not.toHaveBeenCalled();
+  });
+
+  it('onAttemptCheck (useSceneActions.ts:274) refuses to resolve a check while a beat is talking, called directly (not through the disabled button)', async () => {
+    setupActiveTalking();
+    render(<PlayPage />);
+    await screen.findByRole('button', { name: /Attempt Perception, DC 12/i });
+
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: 'I look around.' } });
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' });
+    });
+    await flush();
 
     expect(capturedOffersProps).not.toBeNull();
     await act(async () => {

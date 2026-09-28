@@ -116,13 +116,21 @@ export interface UseNarrationResult {
   setTalking: Dispatch<SetStateAction<boolean>>;
   thinking: boolean;
   setThinking: Dispatch<SetStateAction<boolean>>;
-  activeJob: PendingGeneration | null;
+  // Kage-CR A5 IMPORTANT-3 (routed to A6 commit 0): `activeJob` (the bare
+  // value), `lastDurableTurnRef` and `revealText` were exported with zero
+  // readers outside this file (grepped; the only other hits anywhere in
+  // src/ are provenance comments saying these moved here, never a real
+  // read) — the same "declared field with no reader" shape A2's
+  // IMPORTANT-3 caught for `combatStateRef`/`pollIntervalRef`, closed by
+  // A3 commit 0b the same way: drop from the interface/return, add each
+  // back in the commit that adds its first reader. `setActiveJob` IS kept
+  // — it has two real external readers (page.tsx's still-inline mount
+  // effect and unified events poll, `useSessionEvents` territory, A4).
   setActiveJob: Dispatch<SetStateAction<PendingGeneration | null>>;
   jobFailed: boolean;
   setJobFailed: Dispatch<SetStateAction<boolean>>;
   subscribedJobIdRef: MutableRefObject<string | null>;
   turnKeyRef: MutableRefObject<string | null>;
-  lastDurableTurnRef: MutableRefObject<{ message: string; mode: ComposeMode } | null>;
   pollFailureGraceRef: MutableRefObject<{ turnKey: string; nullTicks: number } | null>;
   durableRetryRowRef: MutableRefObject<HTMLDivElement | null>;
   narrationAbort: MutableRefObject<AbortController | null>;
@@ -134,7 +142,6 @@ export interface UseNarrationResult {
     origin: 'composer' | 'beat',
     precreateRow: boolean,
   ) => Promise<void>;
-  revealText: (full: string) => void;
   narrate: NarrateFn;
   narrateDurable: (playerMessage: string, beatMode: ComposeMode) => Promise<void>;
   narrateDurableBeat: NarrateDurableBeatFn;
@@ -1022,19 +1029,16 @@ export function useNarration(
     setTalking,
     thinking,
     setThinking,
-    activeJob,
     setActiveJob,
     jobFailed,
     setJobFailed,
     subscribedJobIdRef,
     turnKeyRef,
-    lastDurableTurnRef,
     pollFailureGraceRef,
     durableRetryRowRef,
     narrationAbort,
     resumeThinking,
     subscribeToJob,
-    revealText,
     narrate,
     narrateDurable,
     narrateDurableBeat,
