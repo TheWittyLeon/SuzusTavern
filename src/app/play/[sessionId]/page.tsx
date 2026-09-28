@@ -45,8 +45,6 @@ import { useToast } from '@/components/Toast';
 import { useReducedMotion } from '@/lib/useReducedMotion';
 import { sessionTitle } from '@/lib/format';
 import {
-  advanceScene,
-  C3_GROUNDING_FIELD,
   combatFromScene,
   endCombat,
   getCombatState,
@@ -54,11 +52,9 @@ import {
   getGrounding,
   getParticipants,
   getSession,
-  getSessionEvents,
   getSessionEventsRaw,
   getSessionEventsPage,
   postSessionEvent,
-  resolveCheck,
   rollInitiative,
   monsterTurn,
   attack as combatAttack,
@@ -79,7 +75,7 @@ import {
   applyReconcileResult,
   type PendingTurnEntry,
 } from '@/lib/dnd/reconcileEvents';
-import { engineErrorMessage, extractReason, isApiError } from '@/lib/dnd/engineError';
+import { engineErrorMessage } from '@/lib/dnd/engineError';
 import { COMBAT_REFUSAL_REASON_MAP } from '@/lib/dnd/engineReasons';
 import { isLivingTargetableFoe } from '@/lib/dnd/combatTargets';
 import type {
@@ -91,10 +87,7 @@ import type {
   OfferedCheck,
   Participant,
   PendingGeneration,
-  SceneCheck,
   Session,
-  SeriesCompletionPointer,
-  SeriesNextAdventure,
 } from '@/lib/api/types';
 import type { QuickCheck, RollTrigger } from '@/components/DiceTray';
 import Icon from '@/components/Icon';
@@ -118,10 +111,11 @@ import SceneStage from './regions/SceneStage';
 import Offers from './regions/Offers';
 import StoryLog from './regions/StoryLog';
 import { SessionHead, TopBar } from './regions/TopBar';
-import { titleCaseSkill, POLL_INTERVAL_MS } from './format';
+import { POLL_INTERVAL_MS, isSessionLocked, buildReadAloudBlock } from './format';
 import { useSessionLifecycle } from './hooks/useSessionLifecycle';
 import { useMyCharacter } from './hooks/useMyCharacter';
 import { useSafety } from './hooks/useSafety';
+import { useScene, type NarrateFn, type NarrateDurableBeatFn } from './hooks/useScene';
 import JournalPane, { JOURNAL_HEADING_ID } from '@/components/JournalPane';
 import MemberSheetPanel, { MEMBER_SHEET_HEADING_ID } from '@/components/MemberSheetPanel';
 import NextPartOffer from '@/components/NextPartOffer';
@@ -139,19 +133,6 @@ const PREFERRED_QUICK_CHECK_NAMES = [
   'investigation',
   'persuasion',
 ];
-
-/** A1 — structural event kinds that indicate the scene hasn't started yet.
- * These are session/character SETUP events, not fiction — their presence must
- * NOT suppress the read-aloud opening. The engine emits `rebind` when a
- * character is bound/re-bound to a campaign (there is no `character_bound`
- * kind); both are listed so the gate matches engine reality regardless. */
-const STRUCTURAL_EVENT_KINDS = new Set([
-  'session_start',
-  'session_created',
-  'character_bound',
-  'rebind',
-  'opening_narrated',
-]);
 
 /**
  * DDX-20 §4d (Miko-QA finding c) — the poll-only failure-detection grace
@@ -274,21 +255,10 @@ function parseOfferedCheckPayload(
   return { skill, ...(dc !== undefined ? { dc } : {}), ...(note !== undefined ? { note } : {}) };
 }
 
-/**
- * P1-READALOUD: Build the verbatim read-aloud block text from grounding data.
- * Matches the authored structure the AI-off path used to produce (§3.2 of the
- * design doc), now shared by all session types (AI-on, AI-off, human-DM).
- * Pure function — no side effects.
- */
-function buildReadAloudBlock(g: GroundingData): string {
-  const lines: string[] = [];
-  if (g.adventure_title) lines.push(`— ${g.adventure_title} —`);
-  if (g.hook) lines.push(g.hook);
-  if (g.scene_name) lines.push(`\nScene: ${g.scene_name}`);
-  if (g.boxed_text) lines.push(g.boxed_text);
-  if (g.objective) lines.push(`\nObjective: ${g.objective}`);
-  return lines.filter(Boolean).join('\n');
-}
+// buildReadAloudBlock moved to ./format.ts (TAV-PLAY-SHELL step 5 hook 4,
+// same Kage-CR C2 reason as titleCaseSkill below) — useScene's `openScene`
+// needs it and this file's own mount-effect rehydration branch still does
+// too, so it can't live in either file alone.
 
 // titleCaseSkill moved to ./format.ts (Kage-CR C2, 2026-09-21 review) — a
 // leaf region importing it from here was a circular/upward dependency.
@@ -309,19 +279,10 @@ function listCreatureNames(names: readonly string[]): string {
   return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
 }
 
-/**
- * DDX-25 R2 (D2-D4): true once the session has been paused or ended — no
- * further player action should be accepted. Extracted as a module-level pure
- * function (rather than only the render-scope `isPaused`/`isEnded`/
- * `sessionLocked` consts further down, which every player-action JSX gate
- * below still uses directly) so the callbacks declared earlier in this
- * component (onRoll, onMoveOn, onAttemptCheck) can reference the check too —
- * those are created before the render-scope consts are declared, so closing
- * over the later consts directly would be a temporal-dead-zone hazard.
- */
-function isSessionLocked(s: Session | null | undefined): boolean {
-  return s?.status === 'paused' || s?.status === 'ended';
-}
+// isSessionLocked moved to ./format.ts (TAV-PLAY-SHELL step 5 hook 4, same
+// Kage-CR C2 reason as titleCaseSkill above) — useScene's onMoveOn/
+// onAttemptCheck need it and this file's own onRoll/monster-auto-driver
+// (not yet extracted) still do too.
 
 export default function PlayPage() {
   const params = useParams<{ sessionId: string }>();
@@ -426,51 +387,9 @@ export default function PlayPage() {
   // Iro MEDIUM-2: persistent turn-status text so one mounted live region mutates
   // in place instead of two regions mounting/unmounting on every poll cycle.
 
-  // Grounding for the "Move on" affordance (ADV-7T).
-  const [grounding, setGrounding] = useState<GroundingData | null>(null);
-  const [sceneAdvanceBusy, setSceneAdvanceBusy] = useState(false);
-  // TAV-SLICE-END-ADVANCE-NULL / Kage-CR item 4: a terminal advance
-  // (to_scene: null / completed: true) has no further "Move on" affordance —
-  // latch this so a second click can't post another /advance (and narrate
-  // another "adventure concludes" beat) indefinitely. Session-lifetime only;
-  // a reload naturally resets it (the engine's own `progress.completed` is
-  // the durable source of truth — this is just a UI repeat-guard).
-  const [adventureComplete, setAdventureComplete] = useState(false);
-  // T4p2: the /advance completion payload's series next-pointer (design doc
-  // §6.4) — RENDER-ONLY addition, not a new interaction. Populated (never
-  // required) alongside adventureComplete above; NextPartOffer degrades to
-  // rendering nothing when this stays null (not in a series, or the field
-  // is absent on an older engine/SUZU_DND_SERIES off). One series entry is
-  // rendered — the first, matching `next_adventure`'s own single-series
-  // flatten rule (design doc §6.4's "why next_adventure also exists").
-  const [completionSeries, setCompletionSeries] = useState<{
-    series: SeriesCompletionPointer;
-    next: SeriesNextAdventure | null;
-  } | null>(null);
-
-  // P1-PLAYFIX (S2.4) — busy flag for the check-affordance row (Attempt: Survival, etc.).
-  const [checkBusy, setCheckBusy] = useState(false);
-
-  // P1-PLAYFIX-2 §A.5/§A.6 — the skill the server invited this turn (present
-  // once the SSE payload carries an `offeredCheck`; forward-compatible, see
-  // dnd.ts/types.ts). Cleared at the start of every new narrate() beat so a
-  // stale offer never lingers past the turn it was made on. NEVER drives an
-  // auto-roll — it only makes the matching "Attempt {skill}" button hard to miss.
-  const [offeredCheckSkill, setOfferedCheckSkill] = useState<string | null>(null);
-
-  // Phase 4 (Sora-Arch design §4 Fork 3; Miko-QA "the sleeper bug" fix) — a
-  // skill Suzu invited this turn that is NOT one of the current scene's
-  // AUTHORED checks (grounding.checks) — a freeform/unauthored offer. The
-  // pre-Phase-4 client validated every offer against `availableChecks` and
-  // silently DROPPED anything outside it; this state instead routes such an
-  // offer to a dedicated "Attempt {skill}" affordance that rolls via the
-  // always-available quickChecks/postRoll -> engine `/roll (kind=skill)`
-  // primitive (never `/check`, which 400s `no_such_check` for anything
-  // unauthored). Mutually exclusive with `offeredCheckSkill` above — see
-  // `applyOfferedCheckSignal` below, which sets exactly one of the two per
-  // offer and clears both at the top of every new beat.
-  const [freeformOfferedCheck, setFreeformOfferedCheck] = useState<string | null>(null);
-
+  // grounding/sceneAdvanceBusy/adventureComplete/completionSeries/checkBusy/
+  // offeredCheckSkill/freeformOfferedCheck moved into useScene (TAV-PLAY-SHELL
+  // step 5 hook 4) -- see the useScene() call below, right after appendLog.
 
   // TAV-PARTY-INLINE-SHEET: clicking a party card used to navigate to
   // /character/[id], reloading the whole session — this instead opens the
@@ -501,11 +420,8 @@ export default function PlayPage() {
   // null = not yet resolved; [] = DM-only (no character bound) or fetch failed.
   const [quickChecks, setQuickChecks] = useState<QuickCheck[] | null>(null);
 
-  // A1 — fire-once gate: ensures the opening beat only streams once per mount
-  // even under React StrictMode's double-invoke. The durable server-side event
-  // is the canonical guard; this ref prevents a second fire within the same
-  // component lifetime (e.g. StrictMode double-effect).
-  const openingFiredRef = useRef(false);
+  // openingFiredRef moved into useScene (owns checkShouldOpen/openScene, its
+  // only reader/writer).
 
   // PLAY-PERSIST §7: guards against a second rehydration within one mount
   // (e.g. a stray effect re-run). Rehydration runs once, synchronously before
@@ -662,19 +578,9 @@ export default function PlayPage() {
   // the whole session, independent of combat/session-status polling).
   const diceRollPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Iro Ship 2 CRITICAL-1: a resolved check / taken transition unmounts the
-  // just-clicked button once `refreshGrounding()` recomputes availableChecks /
-  // availableTransitions, dropping focus to <body> with no announcement.
-  // `sceneHeadRef` is a stable, always-mounted anchor (mirrors the
-  // `endCombatBtnRef` refocus pattern above); the wrap refs let each handler
-  // capture "did this click originate inside my group" before the unmount.
-  const sceneHeadRef = useRef<HTMLDivElement>(null);
-  const checkWrapRef = useRef<HTMLDivElement>(null);
-  const transitionWrapRef = useRef<HTMLDivElement>(null);
-  // Phase 4 (Miko-QA "the sleeper bug" fix) — scroll anchor for the freeform
-  // "Attempt {skill}" affordance (see `freeformOfferedCheck` below), mirrors
-  // `checkWrapRef`'s identical role for the authored checks group.
-  const freeformCheckRef = useRef<HTMLDivElement>(null);
+  // sceneHeadRef/checkWrapRef/transitionWrapRef/freeformCheckRef moved into
+  // useScene (TAV-PLAY-SHELL step 5 hook 4) — see the useScene() call below.
+
   // TAV-COMBAT-VERB-NO-MECHANICS — the "Stand and fight" button itself. The
   // guard's whole contract is refuse-AND-PROMPT: withholding the turn is only
   // half of it, so on a refusal we move focus onto the control the refusal
@@ -721,6 +627,40 @@ export default function PlayPage() {
   const appendLog = useCallback((row: Omit<LogRow, 'id' | 'ts'>) => {
     setLog((prev) => [...prev, { id: `r${(idRef.current += 1)}`, ts: nowStamp(), ...row }]);
   }, []);
+
+  // TAV-PLAY-SHELL step 5, hook 4 of ~9: scene state (grounding, checks,
+  // transitions) + onMoveOn/onAttemptCheck/handleSceneAdvance. Called here
+  // (right after appendLog, well before narrate/narrateDurableBeat below) so
+  // the mount-load effect and the unified durable events poll further down
+  // can keep reading this hook's setGrounding/diffAndExplainResolvedChecks/
+  // openScene/refocusSceneHeadIfStranded/applyOfferedCheckSignal/checkWrapRef
+  // by the same names, unchanged.
+  //
+  // onMoveOn/onAttemptCheck/handleSceneAdvance need narrate/narrateDurableBeat
+  // (useNarration, hook 8), which are declared FAR below this call -- the
+  // mount effect above needs useScene's setGrounding/openScene before either
+  // narration function exists, so useScene can't move down to sit after
+  // them. narrateRef/narrateDurableBeatRef are stable refs kept current by
+  // the sync effects right after narrate/narrateDurableBeat's own
+  // declarations, mirroring this file's existing combatStateRef/logRef
+  // "latest value without a dep" idiom, applied to functions.
+  // debt: narrate/narrateDurableBeat threaded via ref mirror, not directly.
+  // ceiling: no additional ref-mirrors for other not-yet-extracted concerns.
+  // until: useNarration is extracted and threaded through directly.
+  const narrateRef = useRef<NarrateFn>(() => {});
+  const narrateDurableBeatRef = useRef<NarrateDurableBeatFn>(() => {});
+  const {
+    grounding, setGrounding, sceneAdvanceBusy, adventureComplete, completionSeries,
+    checkBusy, offeredCheckSkill, setOfferedCheckSkill, freeformOfferedCheck,
+    setFreeformOfferedCheck, sceneHeadRef, checkWrapRef, transitionWrapRef,
+    freeformCheckRef, sceneHasEncounter, availableTransitions, availableChecks,
+    diffAndExplainResolvedChecks, refreshGrounding, playArrivalLine,
+    playRescueTransitionLine, playOutcomeLine, refocusSceneHeadIfStranded,
+    applyOfferedCheckSignal, openScene, handleSceneAdvance, onMoveOn, onAttemptCheck,
+  } = useScene(
+    sessionId, session, combatState, talking, advantage, appendLog,
+    narrateRef, narrateDurableBeatRef, renderedSeqsRef,
+  );
 
   // DM-STREAM: while a narration streams, mirror it into a LIVE bottom-of-chat
   // row that grows token-by-token (so the reader sees Suzu narrate inline in the
@@ -1094,11 +1034,8 @@ export default function PlayPage() {
           // see an empty "prev" and wrongly treat a genuine transition (one
           // that happened between mount and that first tick) as an
           // unseen-before check, silently dropping the explanation.
-          // Forward-reference-safe: diffAndExplainResolvedChecks is
-          // declared later in this component, but this async closure only
-          // executes after the whole component body has finished
-          // evaluating for this render (same pattern as `openScene`'s own
-          // documented forward reference near this same mount effect).
+          // diffAndExplainResolvedChecks comes from useScene's destructure
+          // above (TAV-PLAY-SHELL step 5 hook 4) -- called here unchanged.
           diffAndExplainResolvedChecks(g);
         }
         setParticipants(party);
@@ -1319,8 +1256,8 @@ export default function PlayPage() {
 
         // A1 — Opening scene trigger. Non-blocking: fire-and-forget so the
         // player can interact while the opening streams in the background.
-        // openScene is a useCallback declared below; this effect runs post-mount
-        // (after the component body executes) so the forward reference is safe.
+        // openScene comes from useScene's destructure above (TAV-PLAY-SHELL
+        // step 5 hook 4).
         if (g && !ctrl.signal.aborted) {
            
           void openScene(s, g, sessionId, ctrl.signal);
@@ -1568,8 +1505,11 @@ export default function PlayPage() {
           // Keyed on `journalFresh` (seq-deduped) not `allNewEvents`, so it
           // fires ONCE per resolve rather than every tick under the NekoNova
           // `since_seq`-drop full-history refetch. Inlined (not
-          // refreshGrounding()) because that useCallback is declared below this
-          // effect — referencing it in the dep array would hit its TDZ.
+          // useScene's `refreshGrounding()`) because that helper always
+          // calls setGrounding+diffAndExplainResolvedChecks unconditionally
+          // — this tick may only have an `offerThisTick` with
+          // `invalidatesGrounding` false, and must NOT touch grounding
+          // state at all in that case.
           const invalidatesGrounding = journalFresh.some(
             (e) => e.kind != null && GROUNDING_INVALIDATING_KINDS.has(e.kind),
           );
@@ -1612,21 +1552,18 @@ export default function PlayPage() {
                   // STRUCT-006 classifier did via roleplay -- no click on
                   // THIS client at all), stranding focus on <body> with no
                   // recovery. Same rescue onAttemptCheck's own click path
-                  // already uses (page.tsx ~L3366+) -- capture synchronously
+                  // already uses (useScene.ts) -- capture synchronously
                   // right before the state update that may unmount, refocus
-                  // after. `refocusSceneHeadIfStranded` is declared BELOW
-                  // this effect in source, same safe forward-reference shape
-                  // `applyOfferedCheckSignal` on the next line already uses
-                  // (this closure only runs long after the whole component
-                  // body -- and its consts -- have finished evaluating for
-                  // this render; NOT safe to add to this effect's own deps
-                  // array, see that array's existing TDZ comment).
+                  // after. `refocusSceneHeadIfStranded`/`setGrounding`/
+                  // `diffAndExplainResolvedChecks`/`checkWrapRef` all come
+                  // from useScene's destructure above (TAV-PLAY-SHELL step 5
+                  // hook 4) -- stable across renders, so deliberately NOT
+                  // added to this effect's own deps array (kept consistent
+                  // with the surrounding omissions this effect's own deps
+                  // comment documents).
                   const hadFocusInCheckWrap =
                     checkWrapRef.current?.contains(document.activeElement) ?? false;
                   setGrounding(g);
-                  // Iro-A11y MAJOR-1: same forward-reference-safe shape as
-                  // refocusSceneHeadIfStranded just below -- see
-                  // diffAndExplainResolvedChecks's own declaration comment.
                   diffAndExplainResolvedChecks(g);
                   refocusSceneHeadIfStranded(hadFocusInCheckWrap);
                 }
@@ -1873,16 +1810,15 @@ export default function PlayPage() {
               // the durable poll's identical fix above -- capture focus
               // synchronously right before the state update that may
               // unmount a focused check (poll-driven removal, no click on
-              // THIS client), refocus the scene heading after. Same
-              // deliberate deps-array omission as `refocusSceneHeadIfStranded`
-              // would trigger the same TDZ this effect's own deps-array
-              // comment documents for `applyOfferedCheckSignal` -- safe to
-              // call from inside this closure, not safe to list as a dep.
+              // THIS client), refocus the scene heading after.
+              // `setGrounding`/`diffAndExplainResolvedChecks`/
+              // `refocusSceneHeadIfStranded`/`checkWrapRef` all come from
+              // useScene's destructure above (TAV-PLAY-SHELL step 5 hook 4)
+              // -- deliberately not listed in this effect's own deps array,
+              // same reasoning as the durable-poll branch above.
               const hadFocusInCheckWrap =
                 checkWrapRef.current?.contains(document.activeElement) ?? false;
               setGrounding(g);
-              // Iro-A11y MAJOR-1: same forward-reference-safe shape as
-              // refocusSceneHeadIfStranded just below.
               diffAndExplainResolvedChecks(g);
               refocusSceneHeadIfStranded(hadFocusInCheckWrap);
             })
@@ -1914,10 +1850,10 @@ export default function PlayPage() {
     // component-scoped values ESLint tracks the same way.
     //
     // Phase 4: `applyOfferedCheckSignal` (used by `pollDurable` above) is
-    // deliberately omitted too — it's declared BELOW this effect in source
-    // (same forward-reference shape as `openScene`'s own omission near the
-    // mount effect above), so listing it here would hit the same dep-array
-    // TDZ this comment already documents for `refreshGrounding`.
+    // deliberately omitted too — it comes from useScene's destructure above
+    // (TAV-PLAY-SHELL step 5 hook 4), same "stable, not worth listing"
+    // reasoning as `getGrounding`/`diffAndExplainResolvedChecks`/
+    // `refocusSceneHeadIfStranded` immediately above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, state, subscribeToJob, appendLog, clearStreamNarration]);
 
@@ -2083,310 +2019,13 @@ export default function PlayPage() {
     [reduced, upsertStreamNarration],
   );
 
-  /**
-   * Refetch grounding after a scene advance so the Scene card updates.
-   *
-   * Defined ahead of `narrate` (moved up from its original spot just below
-   * the scene-advance handlers) so `narrate` can call it directly when a
-   * beat's SSE response carries a `sceneAdvanced` signal (P1-PLAYFIX-2 §A.5/§A.7).
-   *
-   * Iro MAJOR-1: returns the freshly-fetched grounding so callers that need
-   * to validate against CURRENT state right after a refresh (e.g. narrate()'s
-   * offered_check check) don't have to rely on the `grounding` closure value,
-   * which is stale until the next render commits this call's setGrounding().
-   */
-  // Check Retry + Fail-Forward (2026-07-28 design) — Iro-A11y MAJOR-1:
-  // disappearance-explanation for a check resolved by someone OTHER than
-  // this client's own click (a table-mate's action, or a STRUCT-006
-  // classifier resolving the gating flag through roleplay -- no click on
-  // THIS client at all). The acting client's own resolution gets the toast
-  // + SILENT log row (onAttemptCheck, MAJOR-2, below); every OTHER client
-  // only sees the check silently vanish from the rail unless this fires.
-  // Keyed `${skill}-${dc}`, mirroring the engine's own check_key
-  // convention (minus scene_id -- these refs are scene-scoped and reset on
-  // scene change instead, see below).
-  const lastDiffedSceneIdRef = useRef<string | null | undefined>(undefined);
-  const prevCheckStatesRef = useRef<Map<string, string | undefined>>(new Map());
-  const explainedResolvedKeysRef = useRef<Set<string>>(new Set());
-  const ownResolvedCheckKeysRef = useRef<Set<string>>(new Set());
+  // diffAndExplainResolvedChecks/refreshGrounding/playArrivalLine/
+  // playRescueTransitionLine/playOutcomeLine/refocusSceneHeadIfStranded/
+  // applyOfferedCheckSignal (+ their scene-scoped refs) moved into useScene
+  // (TAV-PLAY-SHELL step 5 hook 4) -- see the useScene() call above, right
+  // after appendLog. `narrate` below reads them by the same names, from
+  // that call's destructure.
 
-  const diffAndExplainResolvedChecks = useCallback(
-    (g: GroundingData | null | undefined) => {
-      const sceneId = g?.scene_id ?? null;
-      if (sceneId !== lastDiffedSceneIdRef.current) {
-        // Scene changed (or this is the very first call this mount) --
-        // a check sharing the SAME skill+dc key in a DIFFERENT scene is a
-        // different authored check entirely; start every ref fresh so
-        // nothing carries over across the boundary. This also means the
-        // very first diff of a fresh scene never spuriously "explains" a
-        // check that was already resolved before this client ever looked
-        // -- an empty prevCheckStatesRef means nothing counts as a
-        // transition on that first pass (see `wasSeenBefore` below).
-        lastDiffedSceneIdRef.current = sceneId;
-        prevCheckStatesRef.current = new Map();
-        explainedResolvedKeysRef.current = new Set();
-        ownResolvedCheckKeysRef.current = new Set();
-      }
-
-      const prev = prevCheckStatesRef.current;
-      const next = new Map<string, string | undefined>();
-      for (const c of g?.checks ?? []) {
-        if (!c || typeof c.skill !== 'string') continue;
-        const key = `${c.skill}-${c.dc}`;
-        next.set(key, c.state);
-        const wasSeenBefore = prev.has(key);
-        const wasResolved = prev.get(key) === 'resolved';
-        const isResolved = c.state === 'resolved';
-        // Double-append guard: `explainedResolvedKeysRef` is checked AND
-        // set synchronously in the same pass as the transition check, so
-        // even if two grounding fetches raced (both reading the same
-        // pre-update `prev`), only the first to actually execute this loop
-        // body can win the append -- diffAndExplainResolvedChecks itself
-        // never awaits mid-diff, so the two calls can't interleave.
-        if (
-          isResolved &&
-          !wasResolved &&
-          wasSeenBefore &&
-          !ownResolvedCheckKeysRef.current.has(key) &&
-          !explainedResolvedKeysRef.current.has(key)
-        ) {
-          explainedResolvedKeysRef.current.add(key);
-          appendLog({
-            who: 'Suzu',
-            kind: 'system',
-            text: `✦ The ${titleCaseSkill(c.skill)} approach resolves.`,
-          });
-        }
-      }
-      prevCheckStatesRef.current = next;
-    },
-    [appendLog],
-  );
-
-  const refreshGrounding = useCallback(async (): Promise<GroundingData | null> => {
-    if (!sessionId) return null;
-    const g = await getGrounding(sessionId).catch(() => null);
-    setGrounding(g);
-    diffAndExplainResolvedChecks(g);
-    return g;
-  }, [sessionId, diffAndExplainResolvedChecks]);
-
-  /**
-   * DM-ARRIVAL-NARRATION — the last scene an arrival line was played for.
-   *
-   * Two independent code paths refresh grounding after an advance (onMoveOn,
-   * and narrate()'s `sceneAdvancedSignal`), and the durable events poll can
-   * refetch on the same transition, so the naive version double-plays the
-   * line. Keyed on the SCENE rather than latched once per mount on purpose:
-   * a genuine re-entry into a scene later in the session is a real arrival and
-   * should play again — only the same seam replayed back-to-back is suppressed.
-   */
-  const lastArrivalSceneRef = useRef<string | null>(null);
-
-  /**
-   * DM-ARRIVAL-NARRATION — play the destination scene's authored arrival line,
-   * deterministically. Returns true when it actually rendered one.
-   *
-   * WHY THIS EXISTS: the beat that CAUSES a scene advance is grounded on the
-   * scene being LEFT. On the server-INTENT path the narration is generated
-   * before the advance decision even exists, so the 2026-07-29 feel-check's
-   * "I keep running towards the light" narrated the chase — correctly — while
-   * the scene card had already flipped to The Keeper of the Wood. The journey
-   * prose was never the bug; the ARRIVAL was missing, and no prompt tuning can
-   * add it after the fact. So the arrival is authored content played verbatim,
-   * with no model call: it cannot be displaced, cannot hallucinate, and costs
-   * nothing at a seam where the session is already paying 65-156s a turn.
-   *
-   * Rendered as Suzu narration rather than `read_aloud`: that label is the
-   * session-OPENING scene-set register (the full boxed_text block). An arrival
-   * line is a narration beat that happens to be authored, and the player has
-   * no reason to be shown the difference.
-   *
-   * Takes the grounding EXPLICITLY (never the `grounding` closure) — every
-   * caller has just awaited refreshGrounding(), and setGrounding() is async,
-   * so the closure value is still the scene we just left.
-   *
-   * KNOWN GAP, deliberate: the durable events poll is NOT a caller. It
-   * refetches grounding for several reasons that are not advances (a
-   * classifier-opened beat gate on the SAME scene, most of all), so calling
-   * this from there would fire an arrival line mid-scene the first time any of
-   * them happened. `DURABLE_GENERATION_ENABLED` is false, so narrate()'s SSE
-   * signal and onMoveOn are the live advance paths and this is currently
-   * complete; whoever flips that flag must add an advance-specific call there
-   * (keyed on the scene_advance event, not on `invalidatesGrounding`).
-   */
-  const playArrivalLine = useCallback(
-    (g: GroundingData | null): boolean => {
-      const line = g?.arrival_line;
-      const sceneId = g?.scene_id;
-      if (typeof line !== 'string' || !line.trim()) return false;
-      if (sceneId && lastArrivalSceneRef.current === sceneId) return false;
-      lastArrivalSceneRef.current = sceneId ?? null;
-      appendLog({ who: 'Suzu', kind: 'narration', text: line });
-      return true;
-    },
-    [appendLog],
-  );
-
-  /**
-   * Contract C3 (COMBAT-UX-FOLLOW-UP-1: rescue narration jarring, pinned
-   * 2026-08-11) — the deterministic scripted rescue-transition line, built
-   * on the SAME "authored content played verbatim" pattern as
-   * `playArrivalLine` just above (the Backlog names it explicitly: "the
-   * arrival-line pattern").
-   *
-   * STATUS CORRECTION (2026-08-18, Kage-CR review): this used to say WF-A's
-   * engine mechanism "has not shipped yet ... currently INERT by
-   * construction". That was true as of the 2026-08-12 pass; it is stale now.
-   * WF-O-OUTCOMELINE (engine, 2026-08-16) retired the scene-level
-   * `C3_GROUNDING_FIELD` authoring key entirely — the validator no longer
-   * accepts it, and no content authors it — in favour of a per-outcome
-   * `outcome_line` delivered directly on the combat-mutation response (see
-   * `playOutcomeLine` below and `CombatMessageResult.outcome_line`'s doc
-   * comment in `src/lib/api/types.ts`). So this function is now
-   * PERMANENTLY inert on the engine side, not temporarily inert pending a
-   * ship — kept only so a stray/legacy authored key degrades to a silent
-   * no-op instead of a crash. `playOutcomeLine` is the live equivalent.
-   *
-   * Bridges the gap `COMBAT-UX-FOLLOW-UP-1` describes: the DM's prose
-   * currently continues the fight straight into the destination scene with
-   * no acknowledgement of HOW the party got there (a rescue, not a walk),
-   * which is a different narrative beat than "arriving" and is therefore
-   * played as its OWN log row — it does not replace or gate
-   * `playArrivalLine`; both may render for the same transition.
-   *
-   * Validator/consumer contract (client side of it): non-empty, ≤400 chars
-   * (mirrors `opening_lines`'/`arrival_line`'s own engine-side ceiling — this
-   * component re-checks it because C3 has no shipped engine validator yet to
-   * rely on), and an explicit `null` degrades to absent exactly like
-   * `arrival_line` (handled upstream in `normalizeGrounding`'s `typeof
-   * === 'string'` guard, not re-checked here).
-   */
-  const lastRescueLineSceneRef = useRef<string | null>(null);
-  const playRescueTransitionLine = useCallback(
-    (g: GroundingData | null): boolean => {
-      const line = g?.[C3_GROUNDING_FIELD];
-      const sceneId = g?.scene_id;
-      if (typeof line !== 'string' || !line.trim()) return false;
-      // Kage SUGG-3 (2026-08-12): an over-ceiling authored line is dropped
-      // SILENTLY below — from the author's seat "the feature just doesn't
-      // appear", with nothing in the console pointing at why. Warn, scoped to
-      // the actual length-drop branch only (not the absent/blank cases above,
-      // which are the ordinary "no rescue line authored" path, not a defect).
-      if (line.length > 400) {
-        console.warn(
-          `[C3] rescue-transition line for scene "${sceneId ?? 'unknown'}" is ${line.length} chars (ceiling 400) — dropped, not rendered.`,
-        );
-        return false;
-      }
-      if (sceneId && lastRescueLineSceneRef.current === sceneId) return false;
-      lastRescueLineSceneRef.current = sceneId ?? null;
-      appendLog({ who: 'Suzu', kind: 'narration', text: line });
-      return true;
-    },
-    [appendLog],
-  );
-
-  /**
-   * WF-O-OUTCOMELINE (engine, 2026-08-16) — play the engine's authored
-   * `outcome_line` verbatim, as Suzu narration, when the combat mutation
-   * response carries one. `apply_encounter_outcome` resolves this line
-   * server-side BEFORE the advance_to fork, so it can be present even when
-   * the outcome has NO scene shift at all (T1, Kage-CR review 2026-08-18):
-   * on the shipping `everfree_flight` encounter, `flee` and `victory` both
-   * author an `outcome_line` but have `advance_to: None` — gating this
-   * behind `scene_advance` truthiness silently dropped 2 of that
-   * encounter's 3 authored lines. Callers therefore invoke this
-   * independently of whether a scene actually advanced (see `onCombatAction`
-   * / `onEndCombat` / the monster-turn effect for the no-advance path, and
-   * `handleSceneAdvance` for the advance path).
-   *
-   * Same ≤400-char defense-in-depth ceiling as `playArrivalLine`/
-   * `playRescueTransitionLine` (the engine's own validator enforces it too —
-   * this is belt-and-braces, matching the sibling functions' rationale).
-   * Deliberately does NOT dedupe by scene id the way `playArrivalLine` does:
-   * an `outcome_line` describes a specific EVENT (this roll's resolution),
-   * not a place, so there is no "re-entering the same scene" case to
-   * suppress the way there is for an arrival line.
-   */
-  const playOutcomeLine = useCallback(
-    (outcomeLine: string | null | undefined, sceneLabel?: string): boolean => {
-      if (typeof outcomeLine !== 'string' || !outcomeLine.trim()) return false;
-      if (outcomeLine.length > 400) {
-        console.warn(
-          `[outcome_line] transition line${sceneLabel ? ` for scene "${sceneLabel}"` : ''} is ${outcomeLine.length} chars (ceiling 400) — dropped, not rendered.`,
-        );
-        return false;
-      }
-      appendLog({ who: 'Suzu', kind: 'narration', text: outcomeLine });
-      return true;
-    },
-    [appendLog],
-  );
-
-  /**
-   * Iro Ship 2 CRITICAL-1 — refocus the scene heading if a `refreshGrounding()`
-   * refresh unmounted the button the user was just on, stranding focus on
-   * <body>. `hadFocusInGroup` MUST be captured synchronously by the caller
-   * BEFORE any await (the browser focuses a clicked button synchronously, so
-   * that's the only reliable moment to know which group had focus).
-   * The stranding check itself runs inside a rAF so it observes the DOM
-   * *after* React's commit — checking immediately after an `await` can race
-   * the commit and false-negative. Only acts if focus actually landed on
-   * <body> (i.e. was truly dropped) — if the user had already tabbed
-   * elsewhere in the interim, activeElement is that element, not <body>, and
-   * we leave it alone.
-   *
-   * Defined ahead of `narrate` (P1-PLAYFIX-2 gate fix, Iro CRITICAL-1) so
-   * narrate() can call it directly after its own sceneAdvanced-triggered
-   * refreshGrounding(), mirroring onMoveOn/onAttemptCheck below.
-   */
-  const refocusSceneHeadIfStranded = useCallback((hadFocusInGroup: boolean) => {
-    if (!hadFocusInGroup) return;
-    requestAnimationFrame(() => {
-      if (document.activeElement === document.body) {
-        sceneHeadRef.current?.focus();
-      }
-    });
-  }, []);
-
-  /**
-   * Phase 4 (Sora-Arch design §4 Fork 3; Miko-QA "the sleeper bug" fix) —
-   * surface an `offered_check` signal from EITHER narration path: the
-   * legacy/flag-OFF SSE beat (`narrate()`, below) or the durable
-   * session-events poll (`pollDurable`, defined further UP in this
-   * component — a genuine forward reference, safe because that effect only
-   * INVOKES this closure well after the whole component body has finished
-   * executing for this render; see the `openScene` comment near the mount
-   * effect above for the identical established pattern). NEVER auto-rolls —
-   * only makes the matching "Attempt {skill}" affordance impossible to
-   * miss: either the authored highlighted chip (`offeredCheckSkill`), or —
-   * the sleeper-bug fix — a dedicated freeform "Attempt {skill}" button
-   * (`freeformOfferedCheck`) when the offered skill isn't one of THIS
-   * scene's authored checks. The two are mutually exclusive; this function
-   * is the ONLY writer of either, so every call sets exactly one and clears
-   * the other.
-   */
-  const applyOfferedCheckSignal = useCallback(
-    (signal: OfferedCheck, currentGrounding: GroundingData | null) => {
-      const isAuthoredCheck = (currentGrounding?.checks ?? []).some(
-        (c) => c.skill === signal.skill,
-      );
-      setOfferedCheckSkill(isAuthoredCheck ? signal.skill : null);
-      setFreeformOfferedCheck(isAuthoredCheck ? null : signal.skill);
-      toast({
-        tone: 'info',
-        message: `Suzu invites a ${titleCaseSkill(signal.skill)} check — the Attempt button is ready when you are.`,
-        duration: 8000,
-      });
-      requestAnimationFrame(() => {
-        (isAuthoredCheck ? checkWrapRef : freeformCheckRef).current?.scrollIntoView({
-          block: 'nearest',
-        });
-      });
-    },
-    [toast],
-  );
 
   /**
    * Stream one DM-narration beat; `mechanics` empty = pure roleplay beat.
@@ -2691,8 +2330,28 @@ export default function PlayPage() {
       applyOfferedCheckSignal,
       playArrivalLine,
       playRescueTransitionLine,
+      // checkWrapRef/transitionWrapRef (hadFocusInCheckWrap/
+      // hadFocusInTransitionWrap above) and setOfferedCheckSkill/
+      // setFreeformOfferedCheck (the top-of-beat clear) all come from
+      // useScene's destructure now (TAV-PLAY-SHELL step 5 hook 4) --
+      // stable across renders same as before, but the linter can no longer
+      // prove that from a local useRef/useState call, so listed explicitly
+      // (same fix hook 2's own extraction needed for noCharToastFiredRef).
+      checkWrapRef,
+      transitionWrapRef,
+      setOfferedCheckSkill,
+      setFreeformOfferedCheck,
     ],
   );
+
+  // Keep narrateRef current every render (mirrors combatStateRef/logRef's
+  // own "latest value without a dep" idiom above, applied to a function) —
+  // see the useScene() call's own debt: marker for why useScene's
+  // onMoveOn/onAttemptCheck/handleSceneAdvance read narrate through this ref
+  // instead of directly.
+  useEffect(() => {
+    narrateRef.current = narrate;
+  }, [narrate]);
 
   /**
    * DDX-20 Pass 2 — the flag-ON durable turn path (Client Integration Design
@@ -2985,6 +2644,12 @@ export default function PlayPage() {
     [session, username, sessionId, subscribeToJob],
   );
 
+  // Keep narrateDurableBeatRef current every render — same idiom as
+  // narrateRef above.
+  useEffect(() => {
+    narrateDurableBeatRef.current = narrateDurableBeat;
+  }, [narrateDurableBeat]);
+
   /**
    * DDX-20 Pass 2 (§4d) — retry-after-failed. A `failed` job's turn_key is
    * deduped-forever server-side, so retry MUST mint a NEW one — narrateDurable
@@ -3085,100 +2750,8 @@ export default function PlayPage() {
     }
   }, [msg, sessionId, session, username, dmNarrationPending, appendLog]);
 
-  // ── A1: opening scene ───────────────────────────────────────────────────────
-
-  /**
-   * Gate: should the opening beat fire this mount?
-   * Returns true only when:
-   *   - grounding has a scene_id + boxed_text (there's a scene to open)
-   *   - getSessionEvents returns no `opening_narrated` event
-   *   - AND no non-structural fiction events exist (belt-and-braces)
-   * Returns false on any error (fail safe: don't speculate, render silence).
-   */
-  const checkShouldOpen = useCallback(
-    async (sid: string, g: GroundingData, signal: AbortSignal): Promise<boolean> => {
-      // No authored scene — nothing to open.
-      if (!g.scene_id || !g.boxed_text) return false;
-      // Per-lifetime ref guard catches StrictMode double-invoke within one mount.
-      if (openingFiredRef.current) return false;
-
-      // FIX-4: getSessionEvents now returns null on error (engine unreachable).
-      // Treat null as fail-safe: don't open when we can't confirm the session state.
-      const events = await getSessionEvents(sid, signal);
-      if (events === null) return false; // engine unreachable → fail safe, don't open
-      if (signal.aborted) return false;
-
-      // Durable marker exists: opening already ran.
-      if (events.some((e) => e.event_type === 'opening_narrated')) return false;
-
-      // Belt-and-braces: any non-structural event means play already started.
-      const hasFiction = events.some(
-        (e) => e.event_type && !STRUCTURAL_EVENT_KINDS.has(e.event_type),
-      );
-      if (hasFiction) return false;
-
-      return true;
-    },
-    [],
-  );
-
-  /**
-   * A1 / P1-READALOUD — Open the scene on first load. Fire-and-forget; non-blocking.
-   *
-   * Unified verbatim path (Option A from §3 of the design doc): renders the
-   * authored boxed_text block instantly for ALL session types (AI, AI-off,
-   * human-DM). No LLM call on open. Suzu's narration fires on the player's
-   * first action instead (normal beat via onSend/onRoll).
-   *
-   * Idempotency: guarded by openingFiredRef (in-memory, per-mount) AND the
-   * durable `opening_narrated` session event (survives remounts). The
-   * semantics of opening_narrated shift from "AI opening streamed" to
-   * "read-aloud shown", but the gate mechanic is unchanged.
-   */
-  const openScene = useCallback(
-    async (s: Session, g: GroundingData, sid: string, signal: AbortSignal) => {
-      const shouldOpen = await checkShouldOpen(sid, g, signal);
-      if (!shouldOpen || signal.aborted) return;
-
-      // Latch: prevent a second fire from StrictMode double-invoke or any
-      // concurrent call within the same component lifetime.
-      openingFiredRef.current = true;
-
-      // Step 1 — render the verbatim read-aloud block (authored, byte-identical,
-      // same for every session type). No typewriter; player reads at their pace.
-      appendLog({
-        who: 'Scene',
-        kind: 'read_aloud',
-        text: buildReadAloudBlock(g),
-      });
-
-      // Step 2 — render optional authored NPC opening lines, verbatim, in order.
-      for (const line of g.opening_lines ?? []) {
-        if (signal.aborted) return;
-        appendLog({
-          who: line.speaker_display_name,
-          kind: 'read_aloud_line',
-          text: line.line,
-        });
-      }
-
-      // Step 3 — write durable marker (best-effort, non-fatal on failure).
-      // Semantics: "read-aloud has been shown for this scene opening". The
-      // event kind is unchanged so the engine allowlist stays frozen.
-      if (!signal.aborted) {
-        void postSessionEvent(sid, {
-          kind: 'opening_narrated',
-          data: { scene_id: g.scene_id, source: 'read_aloud_verbatim' },
-        }).catch(() => {/* non-fatal */});
-      }
-
-      // Step 4 — NO AI opening call. The next narrate() fires when the player
-      // sends their first action via onSend / onRoll (existing paths, unchanged).
-      // That call is a normal beat with is_opening=False; Suzu reacts to the
-      // player rather than re-describing the room.
-    },
-    [checkShouldOpen, appendLog],
-  );
+  // checkShouldOpen/openScene moved into useScene (TAV-PLAY-SHELL step 5
+  // hook 4) -- see the useScene() call above, right after appendLog.
 
   // ── dice ────────────────────────────────────────────────────────────────────
   // DDX-08 / T3: rolls are server-authoritative (POST /roll persists a
@@ -3265,362 +2838,9 @@ export default function PlayPage() {
     [session, username, advantage, talking, combatBusy, narrate, narrateDurableBeat, toast],
   );
 
-  // ── scene advance (ADV-7T / CUI-12) ─────────────────────────────────────────
-
-  /**
-   * Handle an ADV-8 auto-advance (scene_advance != null on a combat response).
-   * Surfaced as a system log beat + grounding refresh + DM narration.
-   *
-   * `outcomeLine` (WF-O-OUTCOMELINE, 2026-08-16 engine / 2026-08-18 Tavern) —
-   * the authored line for the SPECIFIC outcome that just resolved (rescue,
-   * victory, flee, ...), delivered as a top-level sibling of `scene_advance`
-   * on the combat-mutation response — see `playOutcomeLine` above.
-   *
-   * T2 (Kage-CR ruling 2026-08-18): `outcomeLine` and the destination's
-   * `arrival_line` STACK, in that order — outcome_line narrates leaving the
-   * old scene (this resolution's authored beat), arrival_line narrates
-   * entering the new one, exactly mirroring `onMoveOn`'s established
-   * `playRescueTransitionLine(g); if (playArrivalLine(g)) return;` pair.
-   * Only `playArrivalLine` gates the synthetic "Scene advance: X → Y.
-   * Narrate the transition." beat below — an EARLIER pass here wrongly made
-   * outcome_line gate the return too, which suppressed the hut's authored
-   * arrival_line on exactly the flight → hut rescue this whole batch exists
-   * to fix. The 2026-08-09 REPLACE ruling was scoped to
-   * arrival-line-vs-SYNTHETIC-beat, never outcome-line-vs-arrival-line. An
-   * over-ceiling/absent outcome_line falls through to `playArrivalLine`
-   * next, not straight to the generic beat.
-   */
-  const handleSceneAdvance = useCallback(
-    async (fromScene: string, toScene: string, outcome?: string, outcomeLine?: string | null) => {
-      const label = outcome ? ` (${outcome})` : '';
-      appendLog({
-        who: 'Suzu',
-        kind: 'system',
-        text: `The scene shifts: ${fromScene} → ${toScene}${label}`,
-      });
-      const freshGrounding = await refreshGrounding();
-      playOutcomeLine(outcomeLine, toScene);
-      if (playArrivalLine(freshGrounding)) return;
-      // Kage #1 / Miko DEFECT-2: this beat only narrates a transition the
-      // caller's own scene_advance already performed server-side — suppress
-      // the server's INTENT classifier from advancing the scene AGAIN.
-      if (DURABLE_GENERATION_ENABLED) {
-        void narrateDurableBeat(
-          'The scene changes.',
-          `Scene advance: ${fromScene} → ${toScene}. Narrate the transition.`,
-          'act',
-          { suppressIntent: true, beat: 'scene_advance' },
-        );
-      } else {
-        void narrate(
-          'The scene changes.',
-          `Scene advance: ${fromScene} → ${toScene}. Narrate the transition.`,
-          'act',
-          { suppressIntent: true },
-        ); // byte-unchanged legacy path
-      }
-    },
-    [appendLog, refreshGrounding, playOutcomeLine, playArrivalLine, narrate, narrateDurableBeat],
-  );
-
-  /** Manual "Move on" button handler (ADV-7T). */
-  // sceneAdvanceBusyRef: separate ref latch for Move on (uses its own state,
-  // not combatBusyRef, since scene advance can coexist with combat logic).
-  const sceneAdvanceBusyRef = useRef(false);
-
-  const onMoveOn = useCallback(
-    async (toScene: string | null) => {
-      if (!session || !username || sceneAdvanceBusyRef.current) return;
-      // FIX-2: guard against clicking Move on while an opening stream is in flight.
-      // Without this, a race between the opening narration and a scene transition
-      // leaves the opening_narrated marker unwritten → re-fires on the next mount.
-      if (talking) return;
-      // DDX-25 R2 (D2): a paused/ended session must not advance the scene —
-      // mirrors the `sessionLocked` gate now applied to this button's
-      // `disabled` prop further down; kept here too as defense-in-depth
-      // (same double-gate convention as the `talking` check just above).
-      if (isSessionLocked(session)) return;
-      // Iro Ship 2 CRITICAL-1: capture BEFORE the await — refreshGrounding()
-      // below may recompute availableTransitions and unmount the clicked
-      // button, so this is the last reliable moment to know it had focus.
-      const hadFocusInTransitionWrap =
-        transitionWrapRef.current?.contains(document.activeElement) ?? false;
-      try {
-        // FIX-3: latch INSIDE the try so the finally always resets them.
-        sceneAdvanceBusyRef.current = true;
-        setSceneAdvanceBusy(true);
-        const result = await advanceScene(session.session_id, { to_scene: toScene });
-        // TAV-SLICE-END-ADVANCE-NULL (engine d41351f): the terminal-transition
-        // shape is `completed: true` (always paired with `to_scene: null`) —
-        // there is no destination scene because the adventure just ended.
-        // Check `completed` directly rather than inferring it solely from
-        // `to_scene === null`; OR both so a future engine revision that sent
-        // one without the other (neither observed today) still degrades to
-        // the completion branch rather than silently rendering the literal
-        // "→ null" it exists to prevent.
-        const isAdventureComplete = result.completed === true || result.to_scene === null;
-        if (isAdventureComplete) {
-          setAdventureComplete(true);
-          // T4p2: render-only — capture the completion payload's series
-          // pointer (design doc §6.4) if the engine sent one. Never gates
-          // or alters any existing branch above/below; a response without
-          // `series` (older engine, SUZU_DND_SERIES off, or genuinely not
-          // in a series) just leaves this null and NextPartOffer renders
-          // nothing.
-          const firstSeries = result.series?.[0];
-          if (firstSeries) {
-            setCompletionSeries({
-              series: firstSeries,
-              next: result.next_adventure ?? null,
-            });
-          }
-        }
-        appendLog({
-          who: 'Suzu',
-          kind: 'system',
-          text: isAdventureComplete
-            // ⚖ neutral placeholder pending a product call on the real
-            // completion copy — chosen here, not litigated by the backlog row.
-            ? 'The adventure is complete.'
-            : `The scene shifts: ${result.from_scene} → ${result.to_scene}`,
-        });
-        const advancedGrounding = await refreshGrounding();
-        refocusSceneHeadIfStranded(hadFocusInTransitionWrap);
-        // DM-ARRIVAL-NARRATION (Leon's ruling 2026-08-09: REPLACE the beat).
-        // When the destination authors an arrival line, it IS the transition
-        // narration and the synthetic beat below is skipped entirely — that
-        // beat's player message is the literal string "We move on.", which no
-        // player said, so there is nothing here for a model to react to that
-        // authored prose does not do better, instantly, at a seam that
-        // otherwise costs a full 65-156s turn. Scenes with no arrival line
-        // fall through to exactly today's behaviour, so nothing authored
-        // before this change moves.
-        // C3 — plays first, same as the server-INTENT path above; does NOT
-        // participate in the "replace the synthetic beat" ruling below (that
-        // is scoped to `arrival_line` specifically), so it never gates the
-        // `return`.
-        playRescueTransitionLine(advancedGrounding);
-        if (playArrivalLine(advancedGrounding)) return;
-        // Kage #1 / Miko DEFECT-2: advanceScene() already moved the
-        // scene server-side — suppress the INTENT classifier from advancing
-        // it a second time off this confirmation beat.
-        const transitionContext = isAdventureComplete
-          ? `Scene advance: ${result.from_scene} → the adventure concludes. Narrate the ending.`
-          : `Scene advance: ${result.from_scene} → ${result.to_scene}. Narrate the transition.`;
-        if (DURABLE_GENERATION_ENABLED) {
-          void narrateDurableBeat(
-            'We move on.',
-            transitionContext,
-            'act',
-            { suppressIntent: true, beat: 'scene_advance' },
-          );
-        } else {
-          void narrate(
-            'We move on.',
-            transitionContext,
-            'act',
-            { suppressIntent: true },
-          ); // byte-unchanged legacy path
-        }
-      } catch (err) {
-        const status = (err as { status?: number } | null)?.status;
-        if (status === 400) {
-          // freeform_session or unknown_scene — quiet info, not a crash.
-          toast({ tone: 'info', message: 'No authored adventure to advance through.' });
-        } else if (status === 503) {
-          toast({ tone: 'info', message: 'Scene advancement is not available right now.' });
-        } else {
-          toast({ tone: 'error', message: 'Could not advance the scene.' });
-        }
-      } finally {
-        sceneAdvanceBusyRef.current = false;
-        setSceneAdvanceBusy(false);
-      }
-    },
-    [
-      session,
-      username,
-      talking,
-      appendLog,
-      refreshGrounding,
-      refocusSceneHeadIfStranded,
-      narrate,
-      narrateDurableBeat,
-      toast,
-      playArrivalLine,
-      playRescueTransitionLine,
-    ],
-  );
-
-  /**
-   * P1-PLAYFIX §3.3.3 (S2.4) — check affordance handler ("Attempt: Survival (DC 12)").
-   * Resolves the authored check via the engine (DC + skill match are engine-side —
-   * the client only names the skill), narrates the real result, then MUST
-   * refreshGrounding() so the client learns any flag/auto-advance from the
-   * refreshed scene state rather than inferring it from the check response.
-   */
-  const checkBusyRef = useRef(false);
-
-  const onAttemptCheck = useCallback(
-    async (skill: string) => {
-      // DDX-25 R2 (D2): isSessionLocked(session) added alongside the existing
-      // talking gate — a paused/ended session must not resolve a check either
-      // (mirrors the `sessionLocked` gate now on this button's disabled prop).
-      if (!session || !username || checkBusyRef.current || talking || isSessionLocked(session)) return;
-      const skillLabel = titleCaseSkill(skill);
-      // Iro Ship 2 CRITICAL-1: capture BEFORE the await — refreshGrounding()
-      // below may recompute availableChecks and unmount the clicked button,
-      // so this is the last reliable moment to know it had focus.
-      const hadFocusInCheckWrap = checkWrapRef.current?.contains(document.activeElement) ?? false;
-      try {
-        checkBusyRef.current = true;
-        setCheckBusy(true);
-        const result = await resolveCheck(session.session_id, {
-          skill,
-          actor_username: username,
-          advantage: advantage === 'adv' ? true : undefined,
-          disadvantage: advantage === 'dis' ? true : undefined,
-        });
-        // F4/CHECK-DOUBLE-RENDER: seed the durable reconcile ledger with this
-        // check's own event_seq BEFORE the next poll tick can observe the
-        // same check_resolved event and re-append it — reconcileDurableEvents'
-        // rule 1 (renderedSeqs.has(seq), reconcileEvents.ts) is what skips
-        // the poll's duplicate once seeded; rule 5 (unconditional append for
-        // check_resolved) is CORRECT for every OTHER client, this optimistic
-        // append is the reason THIS client must pre-seed its own copy of the
-        // dedup set. Flag-gated: renderedSeqsRef is only ever read from
-        // pollDurable, itself reachable only when DURABLE_GENERATION_ENABLED
-        // (see the ref's own declaration comment above) — seeding flag-OFF
-        // would be inert but the dormancy contract is byte-identity, so gate
-        // explicitly rather than relying on "nobody reads it anyway". Graceful
-        // degrade: a null/absent event_seq (should not happen on the real
-        // wire per ResolveCheckResult's own doc, but the type allows it)
-        // simply skips the seed — the optimistic row below still renders
-        // once either way, it just isn't deduped against a future poll
-        // observation of the same event.
-        if (DURABLE_GENERATION_ENABLED && result.event_seq != null) {
-          renderedSeqsRef.current.add(result.event_seq);
-        }
-        appendLog({
-          who: username,
-          kind: 'system',
-          text: result.description,
-          ...(DURABLE_GENERATION_ENABLED && result.event_seq != null
-            ? { seq: result.event_seq }
-            : {}),
-        });
-        // Check Retry + Fail-Forward Iro-A11y MAJOR-1 (2026-07-28): mark this
-        // key as "resolved via my own click" BEFORE refreshGrounding() below
-        // runs the disappearance-explanation diff, so it skips explaining a
-        // resolution *I* just caused -- I get the toast + silent row instead
-        // (below), not the spectator-facing explanation row.
-        if (result.success && result.flag_set.length > 0) {
-          ownResolvedCheckKeysRef.current.add(`${skill}-${result.dc}`);
-        }
-        // refreshGrounding() BEFORE narrate() so the scene card / check row are
-        // already current when Suzu's beat lands (the engine may have set a
-        // flag and/or auto-advanced the scene — never assumed from `result`).
-        await refreshGrounding();
-        refocusSceneHeadIfStranded(hadFocusInCheckWrap);
-        // Check Retry + Fail-Forward (2026-07-28 design section 7.3): the
-        // "zero success signal" half of the cold-open bug report -- a check
-        // that resolves successfully AND sets a flag gets an explicit
-        // payoff. This also doubles as the explanation for why the button
-        // is about to vanish from availableChecks (section 7.2's
-        // hide-resolved a11y mitigation) once refreshGrounding() above
-        // lands, rather than reading as a silent glitch.
-        if (result.success && result.flag_set.length > 0) {
-          toast({ tone: 'success', message: 'The way forward opens.' });
-          // Iro-A11y MAJOR-2 (2026-07-28): `silent: true` keeps this row in
-          // the transcript for sighted/scrollback readers but hides it from
-          // ChatLog's own aria-live region -- without it, the SAME beat
-          // announced through two independent aria-live="polite" regions
-          // (the toast above, and this row) double-announces to a screen
-          // reader. The toast is the one spoken channel for the acting
-          // client; MAJOR-1's disappearance-explanation row (below) is the
-          // spoken channel for everyone else at the table.
-          appendLog({
-            who: username,
-            kind: 'system',
-            text: '✦ The way forward opens.',
-            silent: true,
-          });
-        }
-        // Kage #1 / Miko DEFECT-2: resolveCheck() above already resolved the
-        // check (and any resulting flag/auto-advance) server-side — suppress
-        // the INTENT classifier from acting on this confirmation beat too.
-        if (DURABLE_GENERATION_ENABLED) {
-          void narrateDurableBeat(`I attempt a ${skillLabel} check.`, result.mechanics, 'act', {
-            suppressIntent: true,
-            beat: 'check_confirm',
-          });
-        } else {
-          void narrate(`I attempt a ${skillLabel} check.`, result.mechanics, 'act', {
-            suppressIntent: true,
-          }); // byte-unchanged legacy path
-        }
-      } catch (err) {
-        // F1/CAST-FAIL-SILENT: curated map wins for the known reasons.
-        //
-        // CORRECTION (2026-08-06, Kage-CR #3): this comment used to claim that
-        // an unmapped 4xx refusal "now surfaces the engine's own ready-to-show
-        // message". It does not, and has not since the proxy was written —
-        // `api/routes/dnd_sessions.py::_handle_dnd_error` renames the engine's
-        // `message` to `error`, and `engineErrorMessage`'s tier-2 branch probes
-        // `body.message`. So refusals like 404 "Session not found." or 400
-        // "Unknown skill 'x'." fall to the bare fallback below. Left as-is
-        // rather than papered over with more curated copy: the real fix is
-        // NEKONOVA-PROXY-DROPS-MESSAGE, filed for Leon. See engineReasons.ts
-        // for the per-module breakdown.
-        const fallback = 'Could not resolve that check.';
-        const message = engineErrorMessage(err, {
-          fallback,
-          reasonMap: {
-            no_such_check: `No ${skillLabel} check is available right now.`,
-            freeform_session: 'No authored adventure to check against.',
-            msm_disabled: 'Skill checks are not available right now.',
-            // Check Retry + Fail-Forward (2026-07-28 design section 7.5):
-            // curated copy wins over the engine's own 409 message (which
-            // carries the narration-facing complication prose instead --
-            // see engineError.ts's precedence).
-            check_locked: 'That approach is closed — find another way.',
-            check_resolved: "You've already settled that one.",
-          },
-        });
-        toast({ tone: message === fallback ? 'error' : 'info', message });
-        // Tora-Gesture MAJOR-1 (2026-07-28): a check_locked/check_resolved
-        // 409 means THIS client's grounding is stale relative to the server
-        // -- the button that just refused is still rendered plainly
-        // "available" and stays clickable, inviting an identical re-click/
-        // re-toast with zero self-correction until the next ~4s poll tick.
-        // Self-correct immediately for these two reasons ONLY, mirroring the
-        // success path's own refresh+refocus above -- every other reason
-        // (no_such_check/freeform_session/msm_disabled/unmapped) is a
-        // session- or scene-level refusal, not a per-check staleness
-        // signal, so those keep the current (no-refresh) behaviour.
-        const reason = isApiError(err) ? extractReason(err) : undefined;
-        if (reason === 'check_locked' || reason === 'check_resolved') {
-          await refreshGrounding();
-          refocusSceneHeadIfStranded(hadFocusInCheckWrap);
-        }
-      } finally {
-        checkBusyRef.current = false;
-        setCheckBusy(false);
-      }
-    },
-    [
-      session,
-      username,
-      talking,
-      advantage,
-      appendLog,
-      refreshGrounding,
-      refocusSceneHeadIfStranded,
-      narrate,
-      narrateDurableBeat,
-      toast,
-    ],
-  );
+  // handleSceneAdvance/onMoveOn/onAttemptCheck (+ sceneAdvanceBusyRef/
+  // checkBusyRef) moved into useScene (TAV-PLAY-SHELL step 5 hook 4) -- see
+  // the useScene() call above, right after appendLog.
 
   // ── combat ──────────────────────────────────────────────────────────────────
   /**
@@ -4184,7 +3404,10 @@ export default function PlayPage() {
         sceneHeadRef.current?.focus({ preventScroll: true });
       }
     });
-  }, [combatState, combatId, session, username, myCharacterIdStr]);
+    // sceneHeadRef comes from useScene's destructure (TAV-PLAY-SHELL step 5
+    // hook 4) -- stable across renders, listed because the linter can no
+    // longer prove that from a local useRef call.
+  }, [combatState, combatId, session, username, myCharacterIdStr, sceneHeadRef]);
 
   // ── derived combat UI state ──────────────────────────────────────────────────
 
@@ -4318,8 +3541,10 @@ export default function PlayPage() {
   // pre-flight playthrough nit) — the button no longer mounts at all when
   // this is false. `beginEncounter`'s own logic/gating is still untouched
   // (no `manual` vs `on_enter` branching here either; Package B never
-  // auto-starts).
-  const sceneHasEncounter = grounding?.encounter != null;
+  // auto-starts). `sceneHasEncounter` itself now comes from useScene's
+  // destructure above (TAV-PLAY-SHELL step 5 hook 4) — the two effects
+  // below stay in page.tsx because they also read `combatId`, useCombat's
+  // not-yet-extracted state.
 
   // Iro-A11y MAJOR-2 — the "Begin an encounter"→"Stand and fight" reframe.
   // Originally this swapped the SAME button's text child in place while the
@@ -4351,6 +3576,11 @@ export default function PlayPage() {
   // `grounding.encounter_state` is the flattened
   // `campaign.progress.encounter_state` (see dnd.ts normalizeGrounding),
   // i.e. the same dict the engine hands the narrator.
+  //
+  // `combatEncounterUnstarted`/`sceneCreatureNames` below read `grounding`
+  // (from useScene's destructure above) but stay in page.tsx -- they exist
+  // for the combat-verb guard (plan §1.4, useCombat's own derived values),
+  // not scene's.
   const combatEncounterUnstarted = useMemo(() => {
     const enc = grounding?.encounter;
     if (!enc || typeof enc !== 'object') return false;
@@ -4416,83 +3646,14 @@ export default function PlayPage() {
       });
     }
     beginEncounterVisibleRef.current = nowVisible;
-  }, [combatId, sceneHasEncounter]);
+    // sceneHeadRef: same "stable but linter can't prove it" reason as the
+    // turn-change refocus effect above.
+  }, [combatId, sceneHasEncounter, sceneHeadRef]);
 
-  // P1-PLAYFIX-2 §A.3: memoized (not a plain const) — the new onSend
-  // keyword-fast-path useCallback below depends on this array, and a fresh
-  // array literal every render would recreate onSend every render too.
-  const availableTransitions = useMemo(
-    () =>
-      (combatState?.state !== 'active' && grounding?.transitions)
-        ? grounding.transitions.filter((t) => {
-            // NOTE (TAV-SCENE-TRANSITION-LEAKS-FLAG-SLUG, 2026-08-06): flag
-            // gating is deliberately NOT done here. The engine owns it —
-            // `engine/beats.py::available_transitions` evaluates a transition's
-            // `requires: [flag, ...]` list and `routes/sessions.py` replaces
-            // `current_scene["transitions"]` with that filtered subset before
-            // grounding reaches the wire, so a flag-gated exit never arrives
-            // here at all. A client-side copy would be dead code AND would
-            // diverge from what the narrator sees (Suzu reads the same
-            // server-filtered list). Seed adventures must spell the gate
-            // `requires`, never the dead `requires_flag` key —
-            // tests/test_seed_adventure_authoring.py enforces both.
-            if (!t.requires_encounter_resolved) return true;
-            // If the encounter that gates this transition is resolved, allow it.
-            const enc = grounding.encounter_state as Record<string, { status?: string }> | null;
-            if (!enc) return false;
-            const st = enc[t.requires_encounter_resolved]?.status ?? '';
-            return st.startsWith('resolved_');
-          })
-        : [],
-    [combatState?.state, grounding],
-  );
-
-  // P1-PLAYFIX §3.3.3 (S2.4) — authored skill checks for the current scene.
-  // Same combat gating as "Move on": hidden during active combat (checks are
-  // an exploration-beat affordance). P1-PLAYFIX-2 §A.3: memoized for the same
-  // reason as availableTransitions above.
-  //
-  // D1a (Leon, product decision, 2026-07-19): ALL of the active scene's
-  // authored checks now surface as first-class, player-invoked affordances —
-  // no longer gated behind a narrator invite. A player can proactively
-  // attempt any authored check for the scene without waiting for Suzu to
-  // name it first. The check Suzu DOES invite this turn is still visually +
-  // accessibly highlighted (`isOffered`, in the render loop below) —
-  // `offeredCheckSkill` is now purely a highlight signal, not a visibility
-  // gate. Deduped by skill+dc (a scene could theoretically list the same
-  // check twice) and left in the scene's own authored order — no sort.
-  // Generic quick-checks (separate panel) remain always-available player
-  // agency and are NOT gated here either; the two panels are independent.
-  //
-  // Rehydration (fresh mount / reload mid-scene): grounding.checks comes
-  // straight off the scene's authored data, unlike `offeredCheckSkill`
-  // (ephemeral SSE-only, see src/lib/stream.ts — never written into a
-  // durable session_events row, src/lib/rehydration.ts eventToLogRow) — so
-  // the check buttons render correctly on a bare reload; only the
-  // highlight is lost until Suzu next reasserts an invite.
-  const availableChecks = useMemo(() => {
-    if (combatState?.state === 'active') return [];
-    const raw = grounding?.checks ?? [];
-    const seen = new Set<string>();
-    const deduped: SceneCheck[] = [];
-    for (const c of raw) {
-      // Check Retry + Fail-Forward (2026-07-28 design section 7.1/7.2): a
-      // resolved check is removed from the rail entirely (Leon's pick --
-      // a checkmarked row of dead buttons accumulates into visual debt).
-      // `state` absent (pre-CHECK-RETRY server, flag off) always passes
-      // through unchanged. `locked` deliberately stays in the list --
-      // rendered disabled with a reason below, not hidden ("a vanished
-      // button reads as a bug; a closed door reads as a consequence").
-      // One filter here covers BOTH render surfaces (.checkWrap + the
-      // chip row), since both derive from this same memo.
-      if (c.state === 'resolved') continue;
-      const key = `${c.skill}-${c.dc}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      deduped.push(c);
-    }
-    return deduped;
-  }, [combatState?.state, grounding]);
+  // availableTransitions/availableChecks moved into useScene (TAV-PLAY-SHELL
+  // step 5 hook 4) -- see the useScene() call above, right after appendLog.
+  // The composer's keyword-fast-path below (onSend) reads them by the same
+  // names, from that call's destructure.
 
   // ── composer send ───────────────────────────────────────────────────────────
   /**

@@ -20,8 +20,13 @@
  * `POLL_INTERVAL_MS`, and page.tsx's own combat/dice-roll polls (not yet
  * extracted) keep needing `POLL_INTERVAL_MS` too. Importing either from
  * `../page` would reproduce the exact circular/inverted dependency C2 fixed.
+ *
+ * Hook 4 (`useScene`): `isSessionLocked` and `buildReadAloudBlock` moved
+ * here too, for the same reason — `onMoveOn`/`onAttemptCheck`/`openScene`
+ * need both, and page.tsx's own onRoll/monster-auto-driver (not yet
+ * extracted) keep needing `isSessionLocked`.
  */
-import type { Session } from '@/lib/api/types';
+import type { GroundingData, Session } from '@/lib/api/types';
 
 /** Title-case an engine skill slug ('sleight_of_hand' -> 'Sleight Of Hand'). */
 export function titleCaseSkill(skill: string): string {
@@ -53,6 +58,35 @@ export function sessionsEqual(
   if (a === b) return true;
   if (!a || !b) return false;
   return stableKey(a) === stableKey(b);
+}
+
+/**
+ * DDX-25 R2 (D2-D4): true once the session has been paused or ended — no
+ * further player action should be accepted. A module-level pure function
+ * (rather than only render-scope `isPaused`/`isEnded`/`sessionLocked`
+ * consts, which page.tsx's JSX render-gates still use directly) so callbacks
+ * created earlier in a component's body (e.g. useScene's onMoveOn/
+ * onAttemptCheck) can reference the check without a temporal-dead-zone
+ * hazard from closing over a later render-scope const.
+ */
+export function isSessionLocked(s: Session | null | undefined): boolean {
+  return s?.status === 'paused' || s?.status === 'ended';
+}
+
+/**
+ * P1-READALOUD: Build the verbatim read-aloud block text from grounding data.
+ * Matches the authored structure the AI-off path used to produce (§3.2 of the
+ * design doc), now shared by all session types (AI-on, AI-off, human-DM).
+ * Pure function — no side effects.
+ */
+export function buildReadAloudBlock(g: GroundingData): string {
+  const lines: string[] = [];
+  if (g.adventure_title) lines.push(`— ${g.adventure_title} —`);
+  if (g.hook) lines.push(g.hook);
+  if (g.scene_name) lines.push(`\nScene: ${g.scene_name}`);
+  if (g.boxed_text) lines.push(g.boxed_text);
+  if (g.objective) lines.push(`\nObjective: ${g.objective}`);
+  return lines.filter(Boolean).join('\n');
 }
 
 /** JSON.stringify with object keys sorted at every level, so the same

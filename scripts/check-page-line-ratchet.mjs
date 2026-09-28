@@ -41,10 +41,16 @@ const PAGE = join(ROOT, PAGE_REL);
 // state + onRaiseXCard handler + xCardActive derivation moved) -> 5416
 // (+1: hook 2's debt: marker was malformed -- "debt:" mid-sentence instead
 // of starting its own comment line, so tools/debt-harvest.py silently never
-// saw it at all, not even as [no-trigger] -- reflowed onto its own line).
+// saw it at all, not even as [no-trigger] -- reflowed onto its own line) ->
+// 4577 (step 5 hook 4: useScene extracted -- grounding/checks/transitions
+// state, the check-diff/arrival/rescue/outcome-line helpers, openScene, and
+// onMoveOn/onAttemptCheck/handleSceneAdvance moved; net -839 despite two new
+// ref-mirror sync effects and several exhaustive-deps fixes the extraction
+// introduced, same "linter can no longer prove local-ref stability" pattern
+// as hook 2's own history entry above).
 // Update this value, in the SAME commit, whenever page.tsx's actual line
 // count drops below it. Never raise it silently.
-export const RATCHET_CEILING = 5416;
+export const RATCHET_CEILING = 4577;
 
 /**
  * Pure: counts lines the way `wc -l` does (newline-byte count). Exported so
