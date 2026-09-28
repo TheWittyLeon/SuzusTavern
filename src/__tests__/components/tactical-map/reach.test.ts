@@ -143,4 +143,20 @@ describe('isLegalMoveTarget', () => {
     // ever consulted.
     expect(isLegalMoveTarget(s, [0, 0], [-1, -1], 1000, [])).toBe(false);
   });
+
+  it('Kage-CR D1 CRITICAL-1: never throws when `blocked` is omitted entirely (legal, unstamped content)', () => {
+    const noBlocked = { ...space({ width: 5, height: 5 }) } as { blocked?: unknown };
+    delete noBlocked.blocked;
+    expect(() => isLegalMoveTarget(noBlocked as CombatSpace, [0, 0], [1, 1], 100, [])).not.toThrow();
+    expect(isLegalMoveTarget(noBlocked as CombatSpace, [0, 0], [1, 1], 100, [])).toBe(true);
+  });
+});
+
+describe('reachableCells — Kage-CR D1 CRITICAL-1', () => {
+  it('never throws when `blocked` is omitted entirely, and treats every unoccupied in-bounds cell as reachable', () => {
+    const noBlocked = { ...space({ width: 3, height: 3 }) } as { blocked?: unknown };
+    delete noBlocked.blocked;
+    expect(() => reachableCells(noBlocked as CombatSpace, [0, 0], 100, [])).not.toThrow();
+    expect(reachableCells(noBlocked as CombatSpace, [0, 0], 100, [])).toHaveLength(8);
+  });
 });

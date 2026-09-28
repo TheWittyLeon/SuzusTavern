@@ -58,7 +58,11 @@ export function reachableCells(
   occupied: SpaceCoordinate[],
 ): SpaceCoordinate[] {
   if (movementRemaining <= 0) return [];
-  const blockedSet = new Set(space.blocked.map(coordKey));
+  // Kage-CR D1 CRITICAL-1: `_validate_space` accepts an omitted `blocked`
+  // key and never backfills it (Miko's B3 object-identity re-confirm) — the
+  // engine's own authority for this mirror (`SquareSpace._is_blocked`)
+  // defends with `space.get("blocked") or []`; match it.
+  const blockedSet = new Set((space.blocked ?? []).map(coordKey));
   const occupiedSet = new Set(occupied.map(coordKey));
   const fromKey = coordKey(from);
   const out: SpaceCoordinate[] = [];
@@ -91,7 +95,8 @@ export function isLegalMoveTarget(
   if (!inBounds(space, to)) return false;
   const toKey = coordKey(to);
   if (toKey === coordKey(from)) return false;
-  if (space.blocked.some((b) => coordKey(b) === toKey)) return false;
+  // Kage-CR D1 CRITICAL-1: see reachableCells' matching comment above.
+  if ((space.blocked ?? []).some((b) => coordKey(b) === toKey)) return false;
   if (occupied.some((o) => coordKey(o) === toKey)) return false;
   return chebyshevCost(space, from, to) <= movementRemaining;
 }

@@ -168,7 +168,12 @@ export default function TacticalMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [space, activeAt?.[0], activeAt?.[1], activeParticipantId]);
 
-  if (!space) {
+  // Kage-CR D1 IMPORTANT-1: `space.kind` was never read, so a non-square
+  // board (a future hex/zone kind) silently rendered as a square grid with
+  // a nonsensical Chebyshev overlay. M6 (movement design) is square-only in
+  // 1.0 — fall through to the same theatre-of-mind band `!space` uses
+  // rather than draw a board this mirror doesn't understand.
+  if (!space || space.kind !== 'square') {
     if (participants.length === 0) return null;
     return <TheatreOfMindBand participants={participants} className={className} />;
   }
@@ -235,8 +240,16 @@ export default function TacticalMap({
                 const coord: SpaceCoordinate = [x, y];
                 const key = coordKeyStr(coord);
                 const occupant = placed.find((p) => coordKeyStr(p.at) === key);
-                const blocked = space.blocked.some((b) => coordKeyStr(b) === key);
-                const feature = space.features.find((f) => f.at.some((a) => coordKeyStr(a) === key));
+                // Kage-CR D1 CRITICAL-1: `space.blocked`/`.features` are
+                // legally omittable content (the validator accepts absence
+                // and never backfills `[]` — B3/Miko re-confirmed by object
+                // identity) even though the B6 wire type claims them
+                // always-present. `SquareSpace._is_blocked`, this mirror's
+                // own cited authority, defends with `or []`; match it.
+                const blocked = (space.blocked ?? []).some((b) => coordKeyStr(b) === key);
+                const feature = (space.features ?? []).find((f) =>
+                  f.at.some((a) => coordKeyStr(a) === key),
+                );
                 const inRange = reachSet.has(key);
                 const isDestination = Boolean(
                   destinationCoord && coordKeyStr(destinationCoord) === key,

@@ -176,6 +176,46 @@ describe('TacticalMap — reach robustness on the ACTIVE participant', () => {
     ).not.toThrow();
     expect(screen.queryByText('OffGrid')).not.toBeInTheDocument();
   });
+
+  it('Kage-CR D1 CRITICAL-1: a space with `blocked`/`features` OMITTED (legal, unstamped content — B3/Miko re-confirmed the validator never backfills `[]`) never throws and renders zero blocked cells', () => {
+    // Cast through unknown, mirroring what the wire can actually deliver —
+    // the B6 CombatSpace type claims these arrays always-present, but the
+    // authoring-time validator accepts the key being absent entirely.
+    const rawSpace = {
+      kind: 'square',
+      width: 3,
+      height: 3,
+      cell: { value: 5, unit: 'ft' },
+      // blocked/features deliberately absent
+    } as unknown as CombatSpace;
+    const participants = [makeParticipant({ participant_id: 'p1', name: 'Bren', at: [0, 0] })];
+    let container!: HTMLElement;
+    expect(() => {
+      ({ container } = render(
+        <TacticalMap {...baseProps({ space: rawSpace, participants })} />,
+      ));
+    }).not.toThrow();
+    expect(container.querySelectorAll(`.${styles.cellBlocked}`)).toHaveLength(0);
+    expect(screen.getByRole('grid')).toBeInTheDocument();
+  });
+
+  it('Kage-CR D1 IMPORTANT-1: a non-square `space.kind` falls back to the theatre-of-mind band instead of a wrong grid', () => {
+    // Cast through unknown — SpaceKind is a 'square'-only literal union
+    // today (M6); this simulates the wire actually delivering a future
+    // kind before this mirror has learned to draw it.
+    const hexSpace = {
+      kind: 'hex',
+      width: 3,
+      height: 3,
+      cell: { value: 5, unit: 'ft' },
+      blocked: [],
+      features: [],
+    } as unknown as CombatSpace;
+    const participants = [makeParticipant({ participant_id: 'p1', name: 'Bren', hp_current: 10, hp_max: 10 })];
+    render(<TacticalMap {...baseProps({ space: hexSpace, participants })} />);
+    expect(screen.queryByRole('grid')).not.toBeInTheDocument();
+    expect(screen.getByRole('list', { name: 'Combatants' })).toBeInTheDocument();
+  });
 });
 
 describe('TacticalMap — no second aria-live announcer', () => {
