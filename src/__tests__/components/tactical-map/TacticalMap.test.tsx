@@ -296,9 +296,43 @@ describe('TacticalMap — T3: invisible-but-shown is distinct', () => {
     const token = container.querySelector(`.${styles.token}`);
     expect(token).toHaveClass(styles.tokenInvisible);
     expect(container.querySelector(`.${styles.eyeBadge}`)).toBeInTheDocument();
+    // Kage-CR D1 IMPORTANT-6(b): "invisible" was excluded from
+    // `otherConditions` but NOT from the `worstCondition` call, so an
+    // invisible-ONLY token got both the eye badge AND a redundant
+    // conditionBadge for the same fact. T2 is "one badge per token".
+    expect(container.querySelector(`.${styles.conditionBadge}`)).not.toBeInTheDocument();
     expect(
       screen.getByRole('gridcell', { name: 'Row 2, column 4. Goblin, hostile, invisible. Occupied — can\'t stop here.' }),
     ).toBeInTheDocument();
+  });
+});
+
+describe('TacticalMap — dead creatures (Kage-CR D1 IMPORTANT-8, coordinator decision 3)', () => {
+  it('a dead participant (`is_alive: false`) renders with the distinct tokenDead treatment, never as an ordinary live foe', () => {
+    const participants = [
+      makeParticipant({ participant_id: 'p1', name: 'Bren', at: [0, 0] }),
+      makeParticipant({
+        participant_id: 'p9',
+        name: 'Corpse',
+        is_pc: false,
+        at: [1, 0],
+        hp_current: 0,
+        is_alive: false,
+      }),
+    ];
+    const { container } = render(<TacticalMap {...baseProps({ participants })} />);
+    const tokens = container.querySelectorAll(`.${styles.token}`);
+    const deadToken = Array.from(tokens).find((t) => t.classList.contains(styles.tokenDead));
+    expect(deadToken).toBeDefined();
+    expect(deadToken).toHaveClass(styles.tokenFoe);
+    // Mutually exclusive with "downed" (isDowned requires is_alive).
+    expect(deadToken).not.toHaveClass(styles.tokenDowned);
+  });
+
+  it('a live, undamaged participant never carries the tokenDead class', () => {
+    const participants = [makeParticipant({ participant_id: 'p1', name: 'Bren', at: [0, 0] })];
+    const { container } = render(<TacticalMap {...baseProps({ participants })} />);
+    expect(container.querySelector(`.${styles.tokenDead}`)).not.toBeInTheDocument();
   });
 });
 

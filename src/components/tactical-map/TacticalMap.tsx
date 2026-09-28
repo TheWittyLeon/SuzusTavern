@@ -86,6 +86,60 @@ function tokenInitial(name: string): string {
   return trimmed.length > 0 ? trimmed[0].toUpperCase() : '?';
 }
 
+interface OccupantDescription {
+  cellOccupant: CellOccupant;
+  downed: boolean;
+  dead: boolean;
+  invisible: boolean;
+  worst: string | undefined;
+  otherConditionsFormatted: string | undefined;
+}
+
+/**
+ * Single source of truth for "what is true about this occupant" — used both
+ * per-cell in the board render loop and (D1 decision 4) by the inspector
+ * strip for whichever cell is currently roving-focused. Kept as ONE
+ * function (rather than two near-identical derivations) on purpose: A2's
+ * IMPORTANT-2 finding on this same lane's sibling component is exactly what
+ * a second copy risks.
+ *
+ * T2/Kage-CR D1 IMPORTANT-6(b): "invisible" is filtered out of the
+ * conditions BEFORE `worstCondition` is computed — it has its own eye-badge
+ * disclosure, so without this filter an invisible-only token could show
+ * both the eye badge AND a redundant condition badge for the same fact.
+ */
+function describeOccupant(
+  occupant: CombatParticipantState,
+  viewerParticipantId: string | null | undefined,
+): OccupantDescription {
+  const downed = isDowned(occupant);
+  const dead = !occupant.is_alive;
+  const invisible = occupant.conditions.includes('invisible');
+  const nonInvisibleConditions = occupant.conditions.filter(
+    (c) => c.toLowerCase() !== 'invisible',
+  );
+  const worst = worstCondition(nonInvisibleConditions);
+  const otherConditions = nonInvisibleConditions.map(formatConditionName);
+  const otherConditionsFormatted = otherConditions.length > 0 ? otherConditions.join(', ') : undefined;
+  const isSelf = occupant.participant_id === viewerParticipantId;
+  return {
+    downed,
+    dead,
+    invisible,
+    worst,
+    otherConditionsFormatted,
+    cellOccupant: {
+      name: occupant.name,
+      isSelf,
+      isAlly: occupant.is_pc && !isSelf,
+      hostile: !occupant.is_pc,
+      invisible,
+      dead,
+      otherConditions,
+    },
+  };
+}
+
 export default function TacticalMap({
   space,
   participants,
@@ -263,33 +317,7 @@ export default function TacticalMap({
                 );
                 const { row1, col1 } = toDisplayRowCol(coord);
 
-                let cellOccupant: CellOccupant | undefined;
-                let worst: string | undefined;
-                let otherConditionsFormatted: string | undefined;
-                let downed = false;
-                let invisible = false;
-                if (occupant) {
-                  downed = isDowned(occupant);
-                  invisible = occupant.conditions.includes('invisible');
-                  worst = worstCondition(occupant.conditions);
-                  // T2: the badge shows only the worst condition; the full
-                  // list (minus "invisible", which has its own disclosure)
-                  // is exposed via the cell's accessible name (focus) and
-                  // the token's `title` attribute (tap/hover) below.
-                  const otherConditions = occupant.conditions
-                    .filter((c) => c.toLowerCase() !== 'invisible')
-                    .map(formatConditionName);
-                  otherConditionsFormatted =
-                    otherConditions.length > 0 ? otherConditions.join(', ') : undefined;
-                  cellOccupant = {
-                    name: occupant.name,
-                    isSelf: occupant.participant_id === viewerParticipantId,
-                    isAlly: occupant.is_pc && occupant.participant_id !== viewerParticipantId,
-                    hostile: !occupant.is_pc,
-                    invisible,
-                    otherConditions,
-                  };
-                }
+                const desc = occupant ? describeOccupant(occupant, viewerParticipantId) : undefined;
 
                 return (
                   <div
@@ -303,7 +331,7 @@ export default function TacticalMap({
                     aria-label={cellAccessibleName({
                       row1,
                       col1,
-                      occupant: cellOccupant,
+                      occupant: desc?.cellOccupant,
                       blocked,
                       inRange,
                       costFt: activeAt ? chebyshevCost(space, activeAt, coord) : undefined,
@@ -330,31 +358,32 @@ export default function TacticalMap({
                         {feature.label.slice(0, 1).toUpperCase()}
                       </span>
                     )}
-                    {occupant && (
+                    {occupant && desc && (
                       <span
                         className={[
                           styles.token,
-                          cellOccupant?.isSelf && styles.tokenSelf,
-                          !cellOccupant?.isSelf && cellOccupant?.isAlly && styles.tokenAlly,
-                          cellOccupant?.hostile && styles.tokenFoe,
-                          downed && styles.tokenDowned,
-                          invisible && styles.tokenInvisible,
+                          desc.cellOccupant.isSelf && styles.tokenSelf,
+                          !desc.cellOccupant.isSelf && desc.cellOccupant.isAlly && styles.tokenAlly,
+                          desc.cellOccupant.hostile && styles.tokenFoe,
+                          desc.dead && styles.tokenDead,
+                          !desc.dead && desc.downed && styles.tokenDowned,
+                          desc.invisible && styles.tokenInvisible,
                           occupant.is_active_turn && styles.tokenActive,
                         ]
                           .filter(Boolean)
                           .join(' ')}
                         aria-hidden="true"
-                        title={otherConditionsFormatted}
+                        title={desc.otherConditionsFormatted}
                       >
                         {tokenInitial(occupant.name)}
-                        {invisible && (
+                        {desc.invisible && (
                           <span className={styles.eyeBadge} aria-hidden="true">
                             ◌
                           </span>
                         )}
-                        {worst && (
+                        {desc.worst && (
                           <span className={styles.conditionBadge} aria-hidden="true">
-                            {worst.slice(0, 1).toUpperCase()}
+                            {desc.worst.slice(0, 1).toUpperCase()}
                           </span>
                         )}
                       </span>

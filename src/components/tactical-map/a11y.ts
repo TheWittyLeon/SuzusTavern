@@ -18,6 +18,12 @@ export interface CellOccupant {
   /** Not a PC (a monster). */
   hostile: boolean;
   invisible: boolean;
+  /** `!is_alive` — a corpse, not a threat (Kage-CR D1 IMPORTANT-8's "the
+   *  board shows corpses as threats" applies to screen-reader users too, not
+   *  just the visual grayscale treatment — see TacticalMap.module.css's
+   *  `.tokenDead`). Mutually exclusive with `isDowned` by construction
+   *  (`isDowned` requires `is_alive`). */
+  dead: boolean;
   /** T2 (Leon's ruling): active conditions OTHER than "invisible" (which
    *  already has its own bespoke disclosure above) — the "full list" half
    *  of "worst condition badge only, full list on focus/tap". Exposed here
@@ -89,7 +95,8 @@ export function cellAccessibleName(input: CellNameInput): string {
   if (input.occupant) {
     const relation = input.occupant.isAlly ? 'ally' : 'hostile';
     const invisible = input.occupant.invisible ? ', invisible' : '';
-    return `${location} ${input.occupant.name}, ${relation}${invisible}. Occupied — can't stop here.${conditionsSuffix}`;
+    const dead = input.occupant.dead ? ', dead' : '';
+    return `${location} ${input.occupant.name}, ${relation}${invisible}${dead}. Occupied — can't stop here.${conditionsSuffix}`;
   }
 
   if (input.moveModeActive) {

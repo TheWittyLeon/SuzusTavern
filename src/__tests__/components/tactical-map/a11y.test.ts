@@ -13,7 +13,7 @@ describe('cellAccessibleName', () => {
       cellAccessibleName({
         row1: 5,
         col1: 5,
-        occupant: { name: 'Bren Oakshield', isSelf: true, isAlly: false, hostile: false, invisible: false },
+        occupant: { name: 'Bren Oakshield', isSelf: true, isAlly: false, hostile: false, invisible: false, dead: false },
         blocked: false,
         moveModeActive: true,
       }),
@@ -49,7 +49,7 @@ describe('cellAccessibleName', () => {
       cellAccessibleName({
         row1: 4,
         col1: 3,
-        occupant: { name: 'Sable Nightwhisper', isSelf: false, isAlly: true, hostile: false, invisible: false },
+        occupant: { name: 'Sable Nightwhisper', isSelf: false, isAlly: true, hostile: false, invisible: false, dead: false },
         blocked: false,
         moveModeActive: true,
       }),
@@ -61,11 +61,27 @@ describe('cellAccessibleName', () => {
       cellAccessibleName({
         row1: 4,
         col1: 11,
-        occupant: { name: 'Goblin', isSelf: false, isAlly: false, hostile: true, invisible: true },
+        occupant: { name: 'Goblin', isSelf: false, isAlly: false, hostile: true, invisible: true, dead: false },
         blocked: false,
         moveModeActive: true,
       }),
     ).toBe("Row 4, column 11. Goblin, hostile, invisible. Occupied — can't stop here.");
+  });
+
+  it('names a dead hostile-occupied cell, including the dead disclosure (Kage-CR D1 IMPORTANT-8)', () => {
+    // A screen-reader user gets no benefit from .tokenDead's visual
+    // grayscale treatment — without this, a corpse still reads as an
+    // ordinary live foe to AT, the exact gap the visual fix closed for
+    // sighted users.
+    expect(
+      cellAccessibleName({
+        row1: 2,
+        col1: 2,
+        occupant: { name: 'Goblin', isSelf: false, isAlly: false, hostile: true, invisible: false, dead: true },
+        blocked: false,
+        moveModeActive: true,
+      }),
+    ).toBe("Row 2, column 2. Goblin, hostile, dead. Occupied — can't stop here.");
   });
 
   it('appends a full conditions list (T2 "full list on focus") when the occupant has conditions beyond invisible', () => {
@@ -79,6 +95,7 @@ describe('cellAccessibleName', () => {
           isAlly: true,
           hostile: false,
           invisible: false,
+          dead: false,
           otherConditions: ['Prone', 'Poisoned'],
         },
         blocked: false,
