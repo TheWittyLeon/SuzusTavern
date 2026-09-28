@@ -134,10 +134,16 @@ const PAGE = join(ROOT, PAGE_REL);
 // death-save-row and begin-encounter-button stranding-rescue effects + the
 // begin-encounter rising-edge toast moved into useFocusAnchors. Zero new
 // ref-mirrors, zero DOM/behaviour change (every identifier keeps its
-// pre-extraction name at every JSX call site). Net -156.)
+// pre-extraction name at every JSX call site). Net -156.) -> 2027 (A7
+// commit 0, Kage-CR A7 ruling 1: the XP-escape-guard debt: marker at
+// page.tsx:931 re-worded -- the stated blocker was wrong (ownership, not
+// composition ORDER) and its `until:` had fired without discharging the
+// debt. Re-word only, no move -- +10 comment-only lines, same
+// "deliberate, reviewed, comment-only" category as the +5/+6/+8 entries
+// above. Raised, not lowered, and said why, per this file's own rule.)
 // Update this value, in the SAME commit, whenever page.tsx's actual line
 // count drops below it. Never raise it silently.
-export const RATCHET_CEILING = 2017;
+export const RATCHET_CEILING = 2027;
 
 /**
  * Pure: counts lines the way `wc -l` does (newline-byte count). Exported so
