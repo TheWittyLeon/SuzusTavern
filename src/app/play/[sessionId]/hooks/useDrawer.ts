@@ -21,6 +21,16 @@
  * for this shared cell instead of hand-rolling a third `useState(false)` +
  * `useRef<HTMLButtonElement>(null)` pair — the row a tenth drawer author
  * writes.
+ *
+ * A8 carry item (b) / Kage-CR A7 Suggestion D: `useDrawer` is the first
+ * RUNTIME hook-to-hook import in `hooks/` (every sibling import elsewhere
+ * in this directory is `import type`). That is NOT a breach of §2.2's "the
+ * poll never imports a sibling hook" rule — `useDrawer` is a leaf
+ * PRIMITIVE composed BY its two callers (`useJournalDrawer`,
+ * `useMemberSheetDrawer`), not a SIBLING composed by page.tsx: it has no
+ * effects, reads nothing from outside its own arguments, and so cannot
+ * create a cycle or an ordering constraint the way a sibling-to-sibling
+ * import would.
  */
 import { useRef, useState, type Dispatch, type RefObject, type SetStateAction } from 'react';
 

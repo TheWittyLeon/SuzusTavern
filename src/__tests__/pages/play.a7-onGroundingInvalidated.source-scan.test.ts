@@ -38,21 +38,30 @@ function stripLineComments(src: string): string {
 }
 
 describe('A7 carry item (a) — onGroundingInvalidated captures focus BEFORE setGrounding, in source order', () => {
-  it('the .contains(document.activeElement) capture textually precedes setGrounding( inside onGroundingInvalidated', () => {
+  it('the checkWrapRef.contains(document.activeElement) capture textually precedes setGrounding( inside onGroundingInvalidated', () => {
     const stripped = stripLineComments(readSource());
 
     const fnStart = stripped.indexOf('const onGroundingInvalidated = useCallback(');
     expect(fnStart).toBeGreaterThan(-1);
 
-    // The function body ends at the matching `[diffAndExplainResolvedChecks, refocusSceneHeadIfStranded]`
-    // deps close — find the next top-level `);` after the function starts by
-    // brace-depth matching on parens, scoped to a generous window so a
-    // reformat doesn't silently widen the scan past the function.
-    const windowEnd = stripped.indexOf('\n  return {', fnStart);
-    expect(windowEnd).toBeGreaterThan(fnStart);
+    // A8 carry item (b) / Kage-CR A7 Suggestion A (tightening #1): the
+    // window used to run to the HOOK's own `return {` (195 lines — Kage
+    // measured it), not the callback's own deps-array close. Narrowed to
+    // match the comment's own claim: the function body ends at its
+    // `useCallback` deps array, `[diffAndExplainResolvedChecks,
+    // refocusSceneHeadIfStranded]`.
+    const DEPS_CLOSE = '[diffAndExplainResolvedChecks, refocusSceneHeadIfStranded]';
+    const depsCloseIdx = stripped.indexOf(DEPS_CLOSE, fnStart);
+    expect(depsCloseIdx).toBeGreaterThan(fnStart);
+    const windowEnd = depsCloseIdx + DEPS_CLOSE.length;
     const body = stripped.slice(fnStart, windowEnd);
 
-    const captureIdx = body.indexOf('.contains(document.activeElement)');
+    // A8 carry item (b) / Kage-CR A7 Suggestion A (tightening #2): assert
+    // the capture reads off `checkWrapRef` SPECIFICALLY, not just any
+    // `.contains(document.activeElement)` — the bare substring would also
+    // match a swap-in of `transitionWrapRef` or `freeformCheckRef`.
+    const CAPTURE = 'checkWrapRef.current?.contains(document.activeElement)';
+    const captureIdx = body.indexOf(CAPTURE);
     const setGroundingIdx = body.indexOf('setGrounding(g)');
     const diffIdx = body.indexOf('diffAndExplainResolvedChecks(g)');
     const refocusIdx = body.indexOf('refocusSceneHeadIfStranded(hadFocusInCheckWrap)');

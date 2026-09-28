@@ -138,8 +138,13 @@ const PAGE = join(ROOT, PAGE_REL);
 // refocusSceneHeadIfStranded, duplicated on both the durable and flag-OFF
 // branches) folded into ONE `onGroundingInvalidated` handler owned by
 // useSceneState. Net -1.) -> 2173 (A7 carry item (f): reflowed the
-// XP-escape-guard debt: marker at page.tsx:1034 so its `until:` fits
-// tools/debt-harvest.py's 3-line lookahead uncut -- +5 comment-only lines,
+// XP-escape-guard debt: marker (the 3-overlay guard reading
+// outcomeChooserOpen/journalOpen, ~page.tsx:930s at the time -- A8 carry
+// item (b) / Kage-CR A7 Suggestion B: cited by FEATURE here, not by line,
+// the way the A3/A4 entries above cite features; a hardcoded line number in
+// a historical chain drifts every time a later extraction moves the target)
+// so its `until:` fits tools/debt-harvest.py's 3-line lookahead uncut -- +5
+// comment-only lines,
 // same "deliberate, reviewed, comment-only" category as the +6/+8 entries
 // above. Raised, not lowered, and said why, per this file's own rule.) ->
 // 2017 (A7 proper, decomposition plan §2.2 §1.8/§1.9/§1.13: `useDrawer` x2
@@ -157,9 +162,11 @@ const PAGE = join(ROOT, PAGE_REL);
 // begin-encounter rising-edge toast moved into useFocusAnchors. Zero new
 // ref-mirrors, zero DOM/behaviour change (every identifier keeps its
 // pre-extraction name at every JSX call site). Net -156.) -> 2027 (A7
-// commit 0, Kage-CR A7 ruling 1: the XP-escape-guard debt: marker at
-// page.tsx:931 re-worded -- the stated blocker was wrong (ownership, not
-// composition ORDER) and its `until:` had fired without discharging the
+// commit 0, Kage-CR A7 ruling 1: the SAME XP-escape-guard debt: marker
+// re-worded (A8 carry item (b) / Suggestion B: cited by feature, not line,
+// for the same drift reason as the -> 2173 entry above) -- the stated
+// blocker was wrong (ownership, not composition ORDER) and its `until:` had
+// fired without discharging the
 // debt. Re-word only, no move -- +10 comment-only lines, same
 // "deliberate, reviewed, comment-only" category as the +5/+6/+8 entries
 // above. Raised, not lowered, and said why, per this file's own rule.) ->
