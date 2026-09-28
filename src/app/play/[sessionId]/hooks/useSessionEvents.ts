@@ -227,6 +227,10 @@ export interface UseSessionEventsHandlers {
 
   // page.tsx-local (DDX-22 journal drawer state, plan §1.9) — no owning
   // hook yet; arrives the same way as everything above regardless.
+  //
+  // debt: journalSeenSeqsRef/setJournalEvents have no owning hook.
+  // ceiling: exactly these two fields, arriving as bare handler params.
+  // until: the journal drawer's own hook exists (plan §1.9) and owns both.
   journalSeenSeqsRef: MutableRefObject<Set<number>>;
   setJournalEvents: Dispatch<SetStateAction<EngineSessionEvent[]>>;
 }
