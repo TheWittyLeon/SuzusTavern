@@ -26,8 +26,16 @@ jest.mock('next/navigation', () => ({
   useParams: () => ({ sessionId: 's1' }),
 }));
 
+// Kage-CR A4b IMP-4: an inline `toast: jest.fn()` allocates a fresh
+// function every render, which destabilizes useSceneState's real
+// `useCallback(..., [toast])` (applyOfferedCheckSignal/diffAndExplainResolvedChecks),
+// which tears down and re-arms the poll's 4s interval on nearly every
+// render — the exact IMPORTANT-1-class hazard the poll's own deps-array
+// fix (A4) exists to catch. A module-level mock (Miko-QA's own pattern,
+// e.g. adv6-play-edge.test.tsx) is stable across renders instead.
+const mockToast = jest.fn();
 jest.mock('../../components/Toast', () => ({
-  useToast: () => ({ toast: jest.fn() }),
+  useToast: () => ({ toast: mockToast }),
 }));
 
 jest.mock('../../lib/auth/AuthProvider', () => ({
