@@ -14,7 +14,13 @@
 import React from 'react';
 import { render, screen, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import type { EngineSessionEvent, Participant, Session } from '@/lib/api/types';
+import type {
+  EngineSessionEvent,
+  GroundingData,
+  Participant,
+  SceneCheck,
+  Session,
+} from '@/lib/api/types';
 
 jest.mock('next/navigation', () => ({
   useParams: () => ({ sessionId: 's1' }),
@@ -128,6 +134,22 @@ function checkResolved(seq: number): EngineSessionEvent {
   };
 }
 
+// Tora-Gesture CRITICAL-1 focus-rescue pin below reuses this file's own
+// dm_username/party wiring, so it needs a real grounding shape (checks are
+// keyed by skill/dc, matching Offers.tsx's own read).
+function grounding(checks: SceneCheck[]): GroundingData {
+  return {
+    scene_id: 'scene_a',
+    scene_name: 'Scene A',
+    boxed_text: 'The wood presses close.',
+    objective: 'Find a way through.',
+    transitions: [],
+    checks,
+    flags: {},
+    encounter_state: {},
+  };
+}
+
 async function tick() {
   await act(async () => {
     jest.advanceTimersByTime(4000);
@@ -190,5 +212,76 @@ describe('STRUCT-006 flag-OFF poll — beat_resolved re-fetches grounding', () =
     await tick();
 
     expect(mockGetGrounding.mock.calls.length).toBe(baseline + 1);
+  });
+});
+
+/**
+ * Kage-CR A4 IMPORTANT-2 (2026-09-28) — the Tora-Gesture CRITICAL-1 focus
+ * rescue (capture focus synchronously before `setGrounding`, refocus the
+ * scene head after) is written twice in `useSessionEvents.ts`: once on the
+ * durable branch (`:474-478`, pinned by play.check-retry.tora-focus-
+ * strand.test.tsx, which forces `DURABLE_GENERATION_ENABLED: true`) and once
+ * on THIS file's flag-OFF/live branch (`:730-734`) — the copy that actually
+ * runs in prod (`src/lib/config.ts:63` ships `false`). Deleting the flag-OFF
+ * copy was all-green before this pin (M-C, Kage's mutation). Ported from
+ * play.check-retry.tora-focus-strand.test.tsx:189-261 verbatim in shape,
+ * onto THIS file's flag-OFF harness (`getSessionEventsRaw`, not
+ * `getSessionEventsPage`) rather than a fresh one, per Kage's own routing.
+ */
+describe('Tora-Gesture CRITICAL-1 — poll-driven check removal rescues focus (flag-OFF)', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it('focus is not silently stranded on <body> when a background poll resolves the focused check', async () => {
+    mockGetGrounding.mockResolvedValue(grounding([{ skill: 'survival', dc: 13 }]));
+    const { container } = render(<PlayPage />);
+    await screen.findByText('Test Table');
+    await act(async () => {
+      jest.advanceTimersByTime(200);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const btn = await screen.findByRole('button', { name: /Attempt Survival/i });
+    act(() => btn.focus());
+    expect(btn).toHaveFocus();
+
+    // Someone else at the table resolved it; nobody on THIS client clicked
+    // anything, so the removal is entirely poll-driven.
+    mockGetGrounding.mockResolvedValue(
+      grounding([
+        {
+          skill: 'survival',
+          dc: 13,
+          state: 'resolved',
+          attempts_used: null,
+          max_attempts: null,
+          lock_reason: 'resolved',
+        },
+      ]),
+    );
+    mockGetSessionEventsRaw.mockResolvedValue([checkResolved(7)]);
+
+    await tick();
+    // refocusSceneHeadIfStranded's rescue runs inside a requestAnimationFrame
+    // (deliberate — lets React's commit land first); one more small advance
+    // settles jest's fake-timer rAF queue, mirroring the durable pin's own
+    // extra tick.
+    await act(async () => {
+      jest.advanceTimersByTime(20);
+    });
+
+    // Confirms the poll DID land and DID remove the button (i.e. this isn't
+    // a test-setup failure) before asserting on where focus ended up.
+    expect(screen.queryByRole('button', { name: /Attempt Survival/i })).not.toBeInTheDocument();
+
+    const sceneHead = container.querySelector('[aria-label^="Scene:"]');
+    expect(sceneHead).not.toBeNull();
+
+    // THE ASSERTION UNDER TEST: focus lands on the scene head, not stranded
+    // on <body> — the flag-OFF mirror of tora-focus-strand's durable pin.
+    expect(document.activeElement).toBe(sceneHead);
   });
 });
