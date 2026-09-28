@@ -121,10 +121,23 @@ const PAGE = join(ROOT, PAGE_REL);
 // XP-escape-guard debt: marker at page.tsx:1034 so its `until:` fits
 // tools/debt-harvest.py's 3-line lookahead uncut -- +5 comment-only lines,
 // same "deliberate, reviewed, comment-only" category as the +6/+8 entries
-// above. Raised, not lowered, and said why, per this file's own rule.)
+// above. Raised, not lowered, and said why, per this file's own rule.) ->
+// 2017 (A7 proper, decomposition plan §2.2 §1.8/§1.9/§1.13: `useDrawer` x2
+// (`useMemberSheetDrawer`/`useJournalDrawer`, plan §1.8/§1.9) +
+// `useFocusAnchors` (§1.13) extracted -- journalEvents/journalOpen/
+// journalSeenSeqsRef/journalCloseBtnRef + memberSheetOpen/
+// selectedMemberSheet/-Name/-IsSelf/memberSheetLoading/-Error/
+// memberSheetCloseBtnRef + their close/onSelectMember handlers all moved
+// off page.tsx-local state into the two drawer hooks (also discharging A7
+// carry item (b)'s `debt:` marker on useSessionEvents.ts); endCombatBtnRef/
+// lastOpenerRef/beginCombatRef/composerRailAnchorRef/dmPanelAnchorRef + the
+// death-save-row and begin-encounter-button stranding-rescue effects + the
+// begin-encounter rising-edge toast moved into useFocusAnchors. Zero new
+// ref-mirrors, zero DOM/behaviour change (every identifier keeps its
+// pre-extraction name at every JSX call site). Net -156.)
 // Update this value, in the SAME commit, whenever page.tsx's actual line
 // count drops below it. Never raise it silently.
-export const RATCHET_CEILING = 2173;
+export const RATCHET_CEILING = 2017;
 
 /**
  * Pure: counts lines the way `wc -l` does (newline-byte count). Exported so

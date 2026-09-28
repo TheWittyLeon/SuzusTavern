@@ -54,11 +54,7 @@ import {
 import { eventToLogRow, formatEventTimestamp as formatOpeningTimestamp } from '@/lib/rehydration';
 import { matchCombatIntent, matchKeywordIntent } from '@/lib/dnd/intentFastPath';
 import { DURABLE_GENERATION_ENABLED } from '@/lib/config';
-import type {
-  CharacterSheet,
-  EngineSessionEvent,
-  Participant,
-} from '@/lib/api/types';
+import type { Participant } from '@/lib/api/types';
 import type { QuickCheck } from '@/components/DiceTray';
 import Icon from '@/components/Icon';
 import Pill from '@/components/Pill';
@@ -89,6 +85,9 @@ import { useDice } from './hooks/useDice';
 import { useSceneActions } from './hooks/useSceneActions';
 import { useCombatActions } from './hooks/useCombatActions';
 import { useSessionEvents } from './hooks/useSessionEvents';
+import { useMemberSheetDrawer } from './hooks/useMemberSheetDrawer';
+import { useJournalDrawer, type MobileView } from './hooks/useJournalDrawer';
+import { useFocusAnchors } from './hooks/useFocusAnchors';
 import JournalPane, { JOURNAL_HEADING_ID } from '@/components/JournalPane';
 import MemberSheetPanel, { MEMBER_SHEET_HEADING_ID } from '@/components/MemberSheetPanel';
 import NextPartOffer from '@/components/NextPartOffer';
@@ -262,23 +261,22 @@ export default function PlayPage() {
   const [modeSynced, setModeSynced] = useState(false);
   // advantage moved into useDice (TAV-PLAY-SHELL step 5 hook 8, Amendment A
   // §A.2 row 8, A6) -- see that hook's destructure below.
-  const [mobileView, setMobileView] = useState<'log' | 'party' | 'scene' | 'journal'>('log');
+  //
+  // `mobileView` has no owning hook yet (plan §1.13/step 6, `usePlayLayout`
+  // territory -- not built this pass): the JS is width-blind, panes are
+  // hidden by `display:none` in Play.module.css's own media query, and
+  // nothing else in JS reads the viewport. Stays page.tsx-local; both
+  // useJournalDrawer (below) and the mobile tab bar (JSX) read/write it as
+  // a plain param.
+  const [mobileView, setMobileView] = useState<MobileView>('log');
 
-  // DDX-22: Journal / Memory pane. `journalEvents` mirrors the SAME raw
-  // session-event log rehydration + the dice-roll/events poll already fetch
-  // below (getSessionEventsRaw) — no new poll is added for this. `journalOpen`
-  // is the DESKTOP drawer's own open/closed state; it is intentionally
-  // independent of `mobileView` (the drawer and the mobile tab are two
-  // different presentations of the same always-mounted <aside>, gated apart
-  // by CSS media queries — see Play.module.css).
-  const [journalEvents, setJournalEvents] = useState<EngineSessionEvent[]>([]);
-  const [journalOpen, setJournalOpen] = useState(false);
-  // TAV-PLAY-SHELL step 2: the dialog ref + previously-focused ref both
-  // moved into <Drawer> (Tab-trap query + focus restore are now its own
-  // internal concern) — journalCloseBtnRef stays here because it is ALSO
-  // passed straight through to <JournalPane>, which renders the actual
-  // close <button ref={closeButtonRef}>.
-  const journalCloseBtnRef = useRef<HTMLButtonElement>(null);
+  // TAV-PLAY-SHELL step 5, A7: the journal drawer (plan §1.9). Owns
+  // journalEvents/journalSeenSeqsRef (A7 carry item (b) -- resolves the
+  // `debt:` marker on useSessionEvents.ts's own handlers interface),
+  // open/visible/closeButtonRef (via useDrawer), and the close handler
+  // (which also falls the mobile tab back to Story) -- see that hook's own
+  // header for the full DDX-22 scope.
+  const journalDrawer = useJournalDrawer(mobileView, setMobileView);
 
   // Iro MEDIUM-2: persistent turn-status text so one mounted live region mutates
   // in place instead of two regions mounting/unmounting on every poll cycle.
@@ -287,27 +285,18 @@ export default function PlayPage() {
   // offeredCheckSkill/freeformOfferedCheck moved into useScene (TAV-PLAY-SHELL
   // step 5 hook 4) -- see the useScene() call below, right after appendLog.
 
+  // TAV-PLAY-SHELL step 5, A7: the member-sheet drawer (plan §1.8).
   // TAV-PARTY-INLINE-SHEET: clicking a party card used to navigate to
   // /character/[id], reloading the whole session — this instead opens the
   // selected member's sheet in an inline drawer (mirrors the Journal drawer
-  // below: always-mounted <aside>, gated by `memberSheetOpen`/
-  // `memberSheetVisible`, scrim, focus-trap, Esc via consumeEscape). The
-  // fetched sheet + the clicked row's display name persist across a close
-  // (only cleared on the NEXT selection) so the slide-out transition has a
-  // "from" state to animate, exactly like `journalEvents` above.
-  const [memberSheetOpen, setMemberSheetOpen] = useState(false);
-  const [selectedMemberSheet, setSelectedMemberSheet] = useState<CharacterSheet | null>(null);
-  const [selectedMemberName, setSelectedMemberName] = useState<string | null>(null);
-  // LVL (Aoi gap B): whether the drawer is showing the viewer's OWN sheet —
-  // drives MemberSheetPanel's pending-choices callout (the read-only drawer
-  // can't resolve choices; for your own row it must at least point at the
-  // character page that can).
-  const [selectedMemberIsSelf, setSelectedMemberIsSelf] = useState(false);
-  const [memberSheetLoading, setMemberSheetLoading] = useState(false);
-  const [memberSheetError, setMemberSheetError] = useState(false);
-  // TAV-PLAY-SHELL step 2: dialog ref + previously-focused ref moved into
-  // <Drawer> — see the matching comment on journalCloseBtnRef above.
-  const memberSheetCloseBtnRef = useRef<HTMLButtonElement>(null);
+  // above: always-mounted <aside>, scrim, focus-trap, Esc via
+  // consumeEscape). The fetched sheet + the clicked row's display name
+  // persist across a close (only cleared on the NEXT selection) so the
+  // slide-out transition has a "from" state to animate, exactly like the
+  // journal drawer's own events. See that hook's own header for the full
+  // scope (selectedMemberSheet/-Name/-IsSelf/-Loading/-Error,
+  // onSelectMember, onClose).
+  const memberSheetDrawer = useMemberSheetDrawer(username, mySheet);
 
   // TAV-PLAY-SHELL step 5, hook 5a of ~9 (decomposition plan §2.2, amended by
   // Amendment A §A.2 row 5 / §A.6): combat's state half. Composed ABOVE
@@ -357,35 +346,13 @@ export default function PlayPage() {
   // (TAV-PLAY-SHELL step 5 hook 4, Amendment A §A.2 row 4) -- see that
   // hook's destructure above.
   //
-  // DDX-20 F9+Recap Post-Review Fix (Kage-CR IMPORTANT / Miko-QA MEDIUM,
-  // fold commit) — a SEPARATE ledger for journalEvents' own merge-by-seq
-  // dedup (`useSessionEvents.ts`'s `pollDurable`, A4). Cannot reuse
-  // renderedSeqsRef: that one tracks
-  // the TRANSCRIPT log (reconcileDurableEvents' rule 1), a different array
-  // with a different lifecycle from journalEvents (DDX-22's raw event feed,
-  // covering every kind the transcript doesn't render too — recap,
-  // scene_advance, npcs_introduced). Seeded at mount alongside journalEvents
-  // itself (below); mutated key-by-key AS pollDurable iterates its batch —
-  // mirrors reconcileDurableEvents' own rule 1, which is intra-tick safe for
-  // the same reason: it checks-and-adds one event at a time instead of
-  // computing a static "seen" snapshot once per tick. A missing `seq`
-  // normalizes to the shared key `0` (see `useSessionEvents.ts`'s
-  // `pollDurable` for the justification) rather than being treated as
-  // unconditionally unique.
-  //
-  // Invariant (Kage-CR SUGGESTION, this pass): journalEvents and this ref
-  // must stay in lockstep on every path reachable while
-  // DURABLE_GENERATION_ENABLED is true, or pollDurable's merge-by-seq dedup
-  // silently desyncs from what's actually rendered. Today that's the
-  // mount-time seed (paired in the same `if` block) and pollDurable's own
-  // merge (paired via the check-and-add loop that runs before its
-  // setJournalEvents call). The flag-OFF poll's own setJournalEvents is
-  // exempt ONLY because this ref is never read flag-OFF — not a license to
-  // skip pairing on a future writer that IS reachable flag-ON. No test
-  // asserts this pairing directly (only its observable effect via
-  // pollDurable's dedup counters), so a writer that forgets it would break
-  // dedup silently.
-  const journalSeenSeqsRef = useRef<Set<number>>(new Set());
+  // journalSeenSeqsRef (DDX-20 F9+Recap Post-Review Fix, Kage-CR IMPORTANT /
+  // Miko-QA MEDIUM, fold commit -- the SEPARATE ledger for journalEvents'
+  // own merge-by-seq dedup, `useSessionEvents.ts`'s `pollDurable`, A4) moved
+  // into `useJournalDrawer` (TAV-PLAY-SHELL A7 carry item (b)) -- see that
+  // hook's own header for the full invariant (must stay in lockstep with
+  // journalEvents on every DURABLE_GENERATION_ENABLED-reachable path) and
+  // the journalDrawer destructure above.
   // activeJob/subscribedJobIdRef/turnKeyRef/lastDurableTurnRef/jobFailed/
   // pollFailureGraceRef/durableRetryRowRef/revealRef/narrationAbort all
   // moved into useNarration (TAV-PLAY-SHELL step 5 hook 7, Amendment A
@@ -402,14 +369,12 @@ export default function PlayPage() {
   // (TAV-PLAY-SHELL step 5 hook 4, Amendment A §A.2 row 4) — see that
   // hook's destructure above.
 
-  // Tora MAJOR-2: ref for the "End" trigger button so focus returns to it when
-  // the outcome chooser is closed via Escape.
-  const endCombatBtnRef = useRef<HTMLButtonElement>(null);
-  // Iro MAJOR-1: the outcome chooser now has two openers ("End" and "Wrap
-  // up") — capture whichever one actually opened it so Escape/Cancel refocus
-  // the real opener instead of always the "End" button. `endCombatBtnRef`
-  // stays as the fallback (e.g. if the chooser is ever opened programmatically).
-  const lastOpenerRef = useRef<HTMLButtonElement | null>(null);
+  // endCombatBtnRef/lastOpenerRef/beginCombatRef/composerRailAnchorRef/
+  // dmPanelAnchorRef moved into useFocusAnchors (TAV-PLAY-SHELL A7, plan
+  // §1.13) -- composed below, after useCombatState/useSceneState (whose
+  // isDying/combatId/sceneHasEncounter/sceneHeadRef that hook's own two
+  // rescue effects read as plain params) and before useCombatActions
+  // (which takes composerRailAnchorRef/dmPanelAnchorRef from its return).
 
   // Kage-CR A6 IMPORTANT-1: diceRollPollIntervalRef briefly lived on
   // useDice's return, which inverted Amendment A §A.3 edge R4's principle
@@ -421,23 +386,6 @@ export default function PlayPage() {
   // sceneHeadRef/checkWrapRef/transitionWrapRef/freeformCheckRef moved into
   // useScene (TAV-PLAY-SHELL step 5 hook 4) — see the useScene() call below.
 
-  // TAV-COMBAT-VERB-NO-MECHANICS — the "Stand and fight" button itself. The
-  // guard's whole contract is refuse-AND-PROMPT: withholding the turn is only
-  // half of it, so on a refusal we move focus onto the control the refusal
-  // names. Legitimate change-of-context (it follows the player's own Send
-  // activation, not a focus event), and it is the only thing that makes the
-  // prompt reachable for a keyboard/screen-reader player without hunting.
-  const beginCombatRef = useRef<HTMLButtonElement>(null);
-
-  // Tora MAJOR-2: same stranded-focus problem as above, but at a combat
-  // turn boundary — a rail button (player Attack/Dodge/Dash/End-turn, or DM
-  // per-monster Attack/Skip/Move) that triggers a turn flip becomes
-  // `disabled` and the browser force-blurs it to <body>. These anchor the
-  // newly-enabled rail so `refocusOnTurnFlip` below (mirrors
-  // `refocusSceneHeadIfStranded`'s rAF-after-commit stranding check) can land
-  // focus there instead of forcing a full re-tab. Falls back to sceneHeadRef.
-  const composerRailAnchorRef = useRef<HTMLDivElement>(null);
-  const dmPanelAnchorRef = useRef<HTMLElement>(null);
   // prevActiveParticipantIdRef moved into useCombatActions (TAV-PLAY-SHELL
   // step 5 hook 5b) — private to the turn-change refocus effect it owns,
   // read/written nowhere else.
@@ -484,6 +432,18 @@ export default function PlayPage() {
     diffAndExplainResolvedChecks, refreshGrounding, playOutcomeLine,
     onGroundingInvalidated, applyOfferedCheckSignal, openScene,
   } = sceneState;
+
+  // TAV-PLAY-SHELL step 5, A7 (decomposition plan §2.2/§1.13): focus
+  // anchors. Composed here -- immediately after useCombatState (row 5,
+  // `isDying`/`combatId`) and useSceneState (row 6, `sceneHasEncounter`/
+  // `sceneHeadRef`) are both available, and before useCombatActions (row
+  // 10), which takes `composerRailAnchorRef`/`dmPanelAnchorRef` from this
+  // hook's return as plain params -- see hooks/useFocusAnchors.ts's own
+  // header for the full scope (the 5 stable anchor refs + the two
+  // rAF-after-commit stranding-rescue effects + the adjacent rising-edge
+  // toast, all one cluster in the decomposition plan's §1.13).
+  const { endCombatBtnRef, lastOpenerRef, beginCombatRef, composerRailAnchorRef, dmPanelAnchorRef } =
+    useFocusAnchors(isDying, sceneHasEncounter, combatId, sceneHeadRef);
 
   // TAV-PLAY-SHELL step 5, hook 7 of ~9 (Amendment A §A.2 row 7):
   // narration. Composed BELOW useSceneState (narrate() reads
@@ -608,9 +568,11 @@ export default function PlayPage() {
         // renderedSeqsRef's own gate below rather than relying on "nobody
         // reads it anyway".
         if (sortedRawEvents) {
-          setJournalEvents(sortedRawEvents);
+          journalDrawer.setJournalEvents(sortedRawEvents);
           if (DURABLE_GENERATION_ENABLED) {
-            journalSeenSeqsRef.current = new Set(sortedRawEvents.map((e) => e.seq ?? 0));
+            journalDrawer.journalSeenSeqsRef.current = new Set(
+              sortedRawEvents.map((e) => e.seq ?? 0),
+            );
           }
         }
 
@@ -844,79 +806,13 @@ export default function PlayPage() {
     if (mobileView === 'log') chatLogRef.current?.scrollToBottom('instant');
   }, [mobileView, chatLogRef]);
 
-  // DDX-22 — Journal: true whenever the journal is actually presented to the
-  // user in ANY form (open desktop drawer OR the active mobile tab). Drives
-  // `inert` on the always-mounted <aside> below so a CLOSED-but-still-mounted
-  // desktop drawer (kept mounted purely so its slide-out transition has a
-  // "from" state) is removed from the tab order / a11y tree, while the
-  // mobile tab (governed entirely by CSS, not `journalOpen`) is never
-  // accidentally made inert by the drawer's own closed state.
-  const journalVisible = journalOpen || mobileView === 'journal';
-
-  // "Close" is one unified action regardless of which presentation is active:
-  // on desktop it closes the drawer; on the mobile tab (where there's no
-  // drawer to close) it's the natural "back to the table" affordance,
-  // switching back to Story. Neither branch is a no-op-turned-bug at the
-  // OTHER breakpoint's default state.
-  const closeJournal = useCallback(() => {
-    setJournalOpen(false);
-    setMobileView((v) => (v === 'journal' ? 'log' : v));
-  }, []);
-
-  // TAV-PLAY-SHELL step 2: focus management (remember/restore + focus the
-  // close button on open) and the Esc+Tab-trap keydown handler both moved
-  // into <Drawer> — it owns both internally now, driven by the `open`/
-  // `onClose`/`closeButtonRef` props passed at the JSX call site below.
-
-  // TAV-PARTY-INLINE-SHEET: "close" only flips the open flag — the fetched
-  // sheet/name/error state stay mounted (mirrors closeJournal not clearing
-  // journalEvents) so the drawer's slide-out transition has a "from" state,
-  // and re-opening the SAME member instantly shows their last-loaded sheet
-  // instead of flashing back to loading.
-  const closeMemberSheet = useCallback(() => {
-    setMemberSheetOpen(false);
-    // Kage n3: don't leave the previous selection's self-flag lingering
-    // between opens (always re-set on open, but stale state is stale state).
-    setSelectedMemberIsSelf(false);
-  }, []);
-
-  // TAV-PLAY-SHELL step 2: focus management + Esc/Tab-trap moved into
-  // <Drawer> — see the matching comment above closeJournal.
-
-  // TAV-PARTY-INLINE-SHEET: PartyPanel's card onClick. The viewer's own row
-  // reuses the already-loaded `mySheet` (no extra hop); any other member's
-  // row fetches their sheet fresh via the same getCharacterSheet call the
-  // rebind-onChanged path above already uses. Errors surface inline in the
-  // drawer (MemberSheetPanel's own error branch) rather than a toast — the
-  // drawer is already the "here's what went wrong" surface.
-  const onSelectMember = useCallback(
-    (p: Participant) => {
-      if (!p.character) return;
-      setMemberSheetOpen(true);
-      setSelectedMemberName(p.character.name ?? p.username);
-      const isSelf = p.username.toLowerCase() === (username ?? '').toLowerCase();
-      setSelectedMemberIsSelf(isSelf);
-      if (isSelf && mySheet) {
-        setSelectedMemberSheet(mySheet);
-        setMemberSheetError(false);
-        setMemberSheetLoading(false);
-        return;
-      }
-      setSelectedMemberSheet(null);
-      setMemberSheetError(false);
-      setMemberSheetLoading(true);
-      getCharacterSheet(String(p.character.character_id), username ?? '')
-        .then((sheet) => {
-          setSelectedMemberSheet(sheet);
-          setMemberSheetLoading(false);
-        })
-        .catch(() => {
-          setMemberSheetError(true);
-          setMemberSheetLoading(false);
-        });
-    },
-    [username, mySheet],
-  );
+  // journalVisible/closeJournal moved into useJournalDrawer (TAV-PLAY-SHELL
+  // A7, plan §1.9) -- see the journalDrawer.visible/journalDrawer.onClose
+  // destructure/JSX call sites below. closeMemberSheet/onSelectMember moved
+  // into useMemberSheetDrawer (A7, plan §1.8) -- see
+  // memberSheetDrawer.onClose/memberSheetDrawer.onSelectMember below. Both
+  // hooks' own headers carry the DDX-22/TAV-PARTY-INLINE-SHEET reasoning
+  // this used to document inline here.
 
   // B1-4: fire-once toast when combat becomes active and the user has no
   // bound character (they can observe but not act). Amendment A §A.6: this
@@ -989,7 +885,8 @@ export default function PlayPage() {
     setActiveJob, setJobFailed, onTurnSettled, subscribedJobIdRef,
     turnKeyRef, pollFailureGraceRef, narrationAbort, subscribeToJob,
     setXCardEvent, setLatestNarrationSeq,
-    journalSeenSeqsRef, setJournalEvents,
+    journalSeenSeqsRef: journalDrawer.journalSeenSeqsRef,
+    setJournalEvents: journalDrawer.setJournalEvents,
   });
 
   // UIR2-TAV-11: the xpForm's own onKeyDown only fires while focus is inside
@@ -1046,7 +943,7 @@ export default function PlayPage() {
     if (!xpFormOpen) return;
     const onDocumentKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      if (outcomeChooserOpen || endSessionConfirmOpen || journalOpen) return;
+      if (outcomeChooserOpen || endSessionConfirmOpen || journalDrawer.open) return;
       // Finding 2: mirrors the in-form handler's sessionActionBusy==='xp'
       // guard — an in-flight award shouldn't be dismissable via this
       // fallback path either.
@@ -1063,7 +960,7 @@ export default function PlayPage() {
     // through an intermediate hook, so they're listed explicitly (TAV-PLAY-
     // SHELL step 5 hook 1; behaviour-neutral, both are referentially
     // stable).
-  }, [xpFormOpen, outcomeChooserOpen, endSessionConfirmOpen, journalOpen, sessionActionBusy, setXpFormOpen, xpToggleBtnRef]);
+  }, [xpFormOpen, outcomeChooserOpen, endSessionConfirmOpen, journalDrawer.open, sessionActionBusy, setXpFormOpen, xpToggleBtnRef]);
 
   // ── derived combat UI state ──────────────────────────────────────────────────
   // targetableFoes/isPlayerTurn/isDying/round/anyMonsterDown/allHostilesDown/
@@ -1102,31 +999,10 @@ export default function PlayPage() {
       : null;
   const isMyPcDead = myDeathSaveParticipant?.death_saves?.is_dead === true;
 
-  // TAV-BUSY-DISABLED-FOCUS-PARK (1.7 audit): the "Roll death save" row —
-  // button AND pips — is gated purely on `isDying`, so the roll that SAVES you
-  // unmounts the control you just pressed and drops focus to <body>. Verified
-  // live on .226: a natural 20 revived at 1 HP and focus was stranded.
-  //
-  // The sibling effect above cannot cover this. It is keyed on
-  // `active_participant_id` CHANGING, and a stabilize does not change it —
-  // `make_death_save`'s 20-crit / 3rd-success branch sets current_hp = 1 and
-  // clears the counters WITHOUT advancing the turn. So this is a genuinely
-  // different transition: same participant, `isDying` true -> false.
-  //
-  // Gated on the stranding check alone, deliberately: it can only ever fire
-  // when focus is ALREADY lost, so unlike the turn-change effect it needs no
-  // provenance flag and can never steal focus from anywhere. The rail anchor
-  // survives — only the deathSaveRow child unmounts.
-  const prevIsDyingRef = useRef(false);
-  useEffect(() => {
-    const was = prevIsDyingRef.current;
-    prevIsDyingRef.current = isDying;
-    if (!was || isDying) return;
-    requestAnimationFrame(() => {
-      if (document.activeElement !== document.body) return;
-      composerRailAnchorRef.current?.focus({ preventScroll: true });
-    });
-  }, [isDying]);
+  // TAV-BUSY-DISABLED-FOCUS-PARK's death-save-row rescue (prevIsDyingRef +
+  // its effect) moved into useFocusAnchors (TAV-PLAY-SHELL A7) -- see that
+  // hook's own header/effect for the full reasoning; called above,
+  // immediately after useSceneState.
 
   // Iro MEDIUM-2: derive the turn-status label during render so the single
   // persistent live region (rendered below) updates its text in place. null =
@@ -1234,50 +1110,12 @@ export default function PlayPage() {
       .filter((n): n is string => typeof n === 'string' && n.length > 0);
   }, [grounding]);
 
-  const prevSceneHasEncounterRef = useRef(sceneHasEncounter);
-  useEffect(() => {
-    if (sceneHasEncounter && !prevSceneHasEncounterRef.current && !combatId) {
-      toast({
-        tone: 'warn',
-        message: 'This scene can turn into a fight — "Stand and fight" is ready when you are.',
-      });
-    }
-    prevSceneHasEncounterRef.current = sceneHasEncounter;
-  }, [sceneHasEncounter, combatId, toast]);
-
-  // Iro-A11y CRITICAL-1 — focus-strand on unmount. Making `sceneHasEncounter`
-  // a MOUNT condition (not just a copy signal, see above) means the button
-  // can disappear out from under a focused user: a background poll/grounding
-  // refresh moving the scene to one with no encounter, OR the button's own
-  // successful click (which sets combatId, taking the SAME ternary branch to
-  // `null`), can both unmount it while it may still hold focus. The browser
-  // force-blurs to <body> in that case and nothing recovers it. Unlike
-  // `refocusSceneHeadIfStranded` above (called synchronously from inside a
-  // click handler, which captures `hadFocusInGroup` BEFORE its own state
-  // update because several sibling groups could have had focus), this effect
-  // has no single triggering user gesture to race — poll, click, and scene
-  // advance can all independently flip the button's visibility — so it
-  // instead watches the computed visibility itself and reacts on the
-  // FALLING edge (true -> false), using the same rAF-after-commit +
-  // `document.activeElement === document.body` check to avoid stomping a
-  // user who had already tabbed elsewhere in the interim. Seeded to `false`
-  // so the first render (whatever `sceneHasEncounter` happens to be on
-  // mount) can never satisfy the falling-edge condition — no refocus fires
-  // on initial mount.
-  const beginEncounterVisibleRef = useRef(false);
-  useEffect(() => {
-    const nowVisible = !combatId && sceneHasEncounter;
-    if (beginEncounterVisibleRef.current && !nowVisible) {
-      requestAnimationFrame(() => {
-        if (document.activeElement === document.body) {
-          sceneHeadRef.current?.focus();
-        }
-      });
-    }
-    beginEncounterVisibleRef.current = nowVisible;
-    // sceneHeadRef: same "stable but linter can't prove it" reason as the
-    // turn-change refocus effect above.
-  }, [combatId, sceneHasEncounter, sceneHeadRef]);
+  // The "Begin an encounter"->"Stand and fight" rising-edge toast
+  // (prevSceneHasEncounterRef) and its Iro-A11y CRITICAL-1 falling-edge
+  // focus-strand rescue (beginEncounterVisibleRef) both moved into
+  // useFocusAnchors (TAV-PLAY-SHELL A7) -- see that hook's own header/
+  // effects for the full reasoning; called above, immediately after
+  // useSceneState.
 
   // availableTransitions/availableChecks moved into useScene (TAV-PLAY-SHELL
   // step 5 hook 4) -- see the useScene() call above, right after appendLog.
@@ -1415,6 +1253,12 @@ export default function PlayPage() {
     combatId,
     sceneCreatureNames,
     toast,
+    // beginCombatRef: now comes from useFocusAnchors' return (TAV-PLAY-SHELL
+    // A7) rather than a page.tsx-local useRef() call -- same "linter can no
+    // longer prove local-ref stability through an intermediate hook" pattern
+    // this file's other hook-sourced refs already document (e.g.
+    // chatLogRef, xpToggleBtnRef). Stable across renders either way.
+    beginCombatRef,
   ]);
 
   // NOTE (TAV-PLAY-INPUT-LOCK-NO-FEEDBACK review, 2026-08-01): the composer
@@ -1616,8 +1460,8 @@ export default function PlayPage() {
             regions/TopBar.tsx's SessionHead export. */}
         <SessionHead
           title={title}
-          journalOpen={journalOpen}
-          onToggleJournal={() => setJournalOpen((v) => !v)}
+          journalOpen={journalDrawer.open}
+          onToggleJournal={() => journalDrawer.setOpen((v) => !v)}
         />
         {/* TAV-PLAY-SHELL step 3: region extracted verbatim to
             regions/TableControls.tsx's SessionControls export (DDX-25 DM-only
@@ -1659,7 +1503,7 @@ export default function PlayPage() {
           participants={participants}
           selfUsername={username}
           combatState={combatState}
-          onSelectMember={onSelectMember}
+          onSelectMember={memberSheetDrawer.onSelectMember}
           isDm={isDm}
           sessionId={sessionId}
           combatIsActive={combatIsActive}
@@ -2109,20 +1953,20 @@ export default function PlayPage() {
           layout below the breakpoint). */}
       <Drawer
         id="play-pane-journal"
-        open={journalOpen}
-        visible={journalVisible}
+        open={journalDrawer.open}
+        visible={journalDrawer.visible}
         labelledBy={JOURNAL_HEADING_ID}
-        onClose={closeJournal}
-        closeButtonRef={journalCloseBtnRef}
+        onClose={journalDrawer.onClose}
+        closeButtonRef={journalDrawer.closeButtonRef}
         mobileTabFallback
         className={styles.journalPane}
       >
         <JournalPane
           sessionId={sessionId}
-          events={journalEvents}
+          events={journalDrawer.journalEvents}
           grounding={grounding}
-          onClose={closeJournal}
-          closeButtonRef={journalCloseBtnRef}
+          onClose={journalDrawer.onClose}
+          closeButtonRef={journalDrawer.closeButtonRef}
         />
       </Drawer>
 
@@ -2133,20 +1977,20 @@ export default function PlayPage() {
           viewport width. */}
       <Drawer
         id="play-pane-member-sheet"
-        open={memberSheetOpen}
-        visible={memberSheetOpen}
+        open={memberSheetDrawer.open}
+        visible={memberSheetDrawer.open}
         labelledBy={MEMBER_SHEET_HEADING_ID}
-        onClose={closeMemberSheet}
-        closeButtonRef={memberSheetCloseBtnRef}
+        onClose={memberSheetDrawer.onClose}
+        closeButtonRef={memberSheetDrawer.closeButtonRef}
       >
         <MemberSheetPanel
-          sheet={selectedMemberSheet}
-          loading={memberSheetLoading}
-          error={memberSheetError}
-          memberName={selectedMemberName}
-          isSelf={selectedMemberIsSelf}
-          onClose={closeMemberSheet}
-          closeButtonRef={memberSheetCloseBtnRef}
+          sheet={memberSheetDrawer.selectedMemberSheet}
+          loading={memberSheetDrawer.memberSheetLoading}
+          error={memberSheetDrawer.memberSheetError}
+          memberName={memberSheetDrawer.selectedMemberName}
+          isSelf={memberSheetDrawer.selectedMemberIsSelf}
+          onClose={memberSheetDrawer.onClose}
+          closeButtonRef={memberSheetDrawer.closeButtonRef}
         />
       </Drawer>
 
