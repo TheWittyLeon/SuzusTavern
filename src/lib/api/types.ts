@@ -1186,9 +1186,13 @@ export interface CombatParticipantState {
   reaction_available?: boolean;
   /** PC-only; absent on monster entries. */
   death_saves?: CombatDeathSaves;
-  /** Monster-only: AI tactic text from encounter meta. */
+  /** DM ONLY (engine `reader_is_dm` branch): authored AI tactic text from
+   *  encounter meta. Present only on a DM's payload; never render it for a
+   *  player. */
   tactics?: string;
-  /** Monster-only: descriptive position string. */
+  /** DM ONLY (engine `reader_is_dm` branch): authored free-text placement
+   *  prose ("behind the bar"). NOT the map coordinate: never merge it with
+   *  `at` below (design §1.3 names that merge as the likeliest leak). */
   position?: string;
   /** Player-visible token position (design §4.3/§6 step 6) — outside the
    *  DM-only branch, unlike `tactics`/`position` above; deliberately a
