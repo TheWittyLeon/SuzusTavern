@@ -68,7 +68,9 @@
 import { useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import { getCombatState } from '@/lib/api/dnd';
 import { isLivingTargetableFoe } from '@/lib/dnd/combatTargets';
-import type { CombatTarget } from '@/components/Composer';
+// TAV-PLAY-SHELL step 8: CombatTarget's owner moved from Composer.tsx to the
+// extracted region -- see regions/ActionBar.tsx's own header.
+import type { CombatTarget } from '../regions/ActionBar';
 import type { CombatParticipantState, CombatState, Participant } from '@/lib/api/types';
 import { POLL_INTERVAL_MS, isCombatEngaged } from '../format';
 

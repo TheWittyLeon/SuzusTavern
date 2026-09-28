@@ -73,6 +73,11 @@ const SCANNED_FILES = [
   // this guard BEFORE it mounts into SceneStage, not after — Kage-CR
   // IMPORTANT-3 / Tora-Gesture CRIT-1.
   'src/components/tactical-map/TacticalMap.tsx',
+  // TAV-PLAY-SHELL step 8: the target-picker menu's consumeEscape call moved
+  // here with ActionRail (renamed ActionBar) — decomposition plan §5 step 8
+  // R7 rule: "update SCANNED_FILES in the same PR as every extraction",
+  // same reason SceneStage.tsx/TableControls.tsx were added at step 3.
+  'src/app/play/[sessionId]/regions/ActionBar.tsx',
 ];
 
 /**
@@ -89,8 +94,21 @@ const SCANNED_FILES = [
  * consumeEscape (it is not an overlay's own handler). If a future step
  * adds a real overlay Escape handler back into page.tsx directly, remove
  * it from THIS list (not from SCANNED_FILES, which it should never leave).
+ *
+ * Composer.tsx: as of TAV-PLAY-SHELL step 8, its ONLY Escape-related code
+ * (the target-picker menu's `onMenuKeyDown`, inside the private `ActionRail`
+ * function) moved verbatim to `regions/ActionBar.tsx` (now separately listed
+ * above, non-exempt). Composer.tsx itself has zero Escape comparisons of
+ * either form left — the per-file loop above passes on it vacuously (0
+ * violations because there is nothing to violate), which is correct; this
+ * entry exists so THAT vacuity doesn't also fail the second, stricter test.
+ * If a future change gives Composer.tsx its own Escape handler again
+ * (independent of ActionBar), remove it from THIS list, not SCANNED_FILES.
  */
-const VACUITY_CHECK_EXEMPT = new Set(['src/app/play/[sessionId]/page.tsx']);
+const VACUITY_CHECK_EXEMPT = new Set([
+  'src/app/play/[sessionId]/page.tsx',
+  'src/components/Composer.tsx',
+]);
 
 const ESCAPE_COMPARISON_RE = /key\s*(===|!==)\s*'Escape'/g;
 

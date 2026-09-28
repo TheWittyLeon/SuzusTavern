@@ -71,7 +71,9 @@ import {
 import { DURABLE_GENERATION_ENABLED } from '@/lib/config';
 import { engineErrorMessage } from '@/lib/dnd/engineError';
 import { COMBAT_REFUSAL_REASON_MAP } from '@/lib/dnd/engineReasons';
-import type { CombatAction } from '@/components/Composer';
+// TAV-PLAY-SHELL step 8: CombatAction's owner moved from Composer.tsx to the
+// extracted region -- see regions/ActionBar.tsx's own header.
+import type { CombatAction } from '../regions/ActionBar';
 import type { LogRow } from '@/components/ChatLog';
 import type { CombatState, EndCombatOutcome, Session } from '@/lib/api/types';
 import { isSessionLocked } from '../format';
