@@ -234,6 +234,53 @@ export function useSessionEvents(
   state: PlayPageLoadState,
   handlers: UseSessionEventsHandlers,
 ): void {
+  // Kage-CR A4 IMPORTANT-1 (2026-09-28) — destructured into locals HERE,
+  // once, rather than referenced as `handlers.x` inside the effect below.
+  // `page.tsx` passes a fresh `{...}` object literal on every render
+  // (measured, not assumed — `page.tsx`'s own call site), so `handlers`
+  // itself is never safe to depend on: satisfying exhaustive-deps with
+  // `[handlers]` would tear the 4s interval down and recreate it on every
+  // render, and under streaming re-render pressure (every chunk sets
+  // talking/thinking/log) it would never fire at all. Every field below IS
+  // safe to depend on — each is either a `MutableRefObject` (stable by
+  // construction) or a `[]`-stable `useCallback`/`useState` setter on its
+  // owning hook (verified transitively: `diffAndExplainResolvedChecks`
+  // depends only on `appendLog`, `applyOfferedCheckSignal` only on `toast`,
+  // both themselves `[]`-stable) — so destructuring turns "the object is
+  // new every render" into "every individual value is the same reference
+  // every render", and the effect below can depend on the individual names
+  // directly. This makes the hazard structurally impossible rather than
+  // comment-guarded: there is no `handlers` identifier left in the effect
+  // body for a future edit to add to the deps array by mistake.
+  const {
+    lastEventSeqRef,
+    renderedSeqsRef,
+    pendingByKeyRef,
+    logRef,
+    setLog,
+    appendLog,
+    clearStreamNarration,
+    checkWrapRef,
+    setGrounding,
+    diffAndExplainResolvedChecks,
+    refocusSceneHeadIfStranded,
+    applyOfferedCheckSignal,
+    setOfferedCheckSkill,
+    setFreeformOfferedCheck,
+    setActiveJob,
+    setJobFailed,
+    onTurnSettled,
+    subscribedJobIdRef,
+    turnKeyRef,
+    pollFailureGraceRef,
+    narrationAbort,
+    subscribeToJob,
+    setXCardEvent,
+    setLatestNarrationSeq,
+    journalSeenSeqsRef,
+    setJournalEvents,
+  } = handlers;
+
   // ── dice-roll events poll (4s, foregrounded) ────────────────────────────────
   // DDX-08 / T3: dice rolls are server-authoritative (POST /roll persists a
   // `dice_roll` session event, DDX-07) — this poll is what makes a roll
@@ -244,7 +291,7 @@ export function useSessionEvents(
   //
   // The engine's GET /events has no "since seq" filter, so every tick refetches
   // the full (capped) event list and appends only rows with seq strictly
-  // greater than handlers.lastEventSeqRef.current (set once by rehydration, advanced
+  // greater than lastEventSeqRef.current (set once by rehydration, advanced
   // here after each tick). Only `dice_roll` and `x_card` (DDX-26) events are
   // rendered as ROWS by this poll — other kinds (player_action/narration/...)
   // are already reflected through their own optimistic-append/streaming paths
@@ -271,7 +318,7 @@ export function useSessionEvents(
     // in `poll` below, which is the ENTIRE flag-off diff to this effect.
     const pollDurable = async () => {
       try {
-        let sinceSeq = handlers.lastEventSeqRef.current;
+        let sinceSeq = lastEventSeqRef.current;
         let page = await getSessionEventsPage(sessionId, sinceSeq);
         let allNewEvents: EngineSessionEvent[] = [...page.events];
         let maxSeq = page.max_seq;
@@ -327,19 +374,19 @@ export function useSessionEvents(
           // mounted — worse than the has_more case, which at least
           // self-limits after 2 fetches. Fixed by mirroring
           // reconcileDurableEvents' own rule 1 (reconcileEvents.ts):
-          // check-and-add one key at a time via handlers.journalSeenSeqsRef
+          // check-and-add one key at a time via journalSeenSeqsRef
           // (seeded alongside journalEvents in page.tsx's mount effect)
           // instead of computing a static snapshot once per tick.
           //
           // Seq normalizes via `?? 0` (matching reconcileEvents.ts:151 and
-          // handlers.lastEventSeqRef's own `?? 0` convention, established in
+          // lastEventSeqRef's own `?? 0` convention, established in
           // page.tsx's mount-effect rehydration seed), not treated as
           // unconditionally unique when missing. Trade-off, stated plainly
           // (Kage-CR SUGGESTION, this pass — corrected from a "window"
           // framing that understated the blast radius): key `0` is poisoned
           // for the WHOLE MOUNT once anything claims it, not just within one
           // poll batch — and the poisoning event can come from the
-          // rehydration seed in page.tsx's mount effect (handlers.journalSeenSeqsRef's
+          // rehydration seed in page.tsx's mount effect (journalSeenSeqsRef's
           // mount-time `?? 0` normalization of the rehydrated history) just as easily as from
           // a later poll tick, so every LATER genuinely-distinct null-seq
           // event is dropped for the rest of the session once that happens,
@@ -359,7 +406,7 @@ export function useSessionEvents(
           // null-seq events exempt from dedup entirely) is the strictly
           // worse, ACTUALLY-reachable bug this fixes.
           //
-          // console.debug hoisted above handlers.setJournalEvents (Kage-CR
+          // console.debug hoisted above setJournalEvents (Kage-CR
           // SUGGESTION) — state updaters must stay pure; React 19
           // StrictMode double-invokes them to catch exactly this, and would
           // have double-logged in dev. `journalFresh` is computed here (a
@@ -369,8 +416,8 @@ export function useSessionEvents(
           const journalFresh: EngineSessionEvent[] = [];
           for (const e of allNewEvents) {
             const key = e.seq ?? 0;
-            if (handlers.journalSeenSeqsRef.current.has(key)) continue;
-            handlers.journalSeenSeqsRef.current.add(key);
+            if (journalSeenSeqsRef.current.has(key)) continue;
+            journalSeenSeqsRef.current.add(key);
             journalFresh.push(e);
           }
           // §10 observability — the live tell for the NekoNova since_seq
@@ -389,7 +436,7 @@ export function useSessionEvents(
             });
           }
           if (journalFresh.length > 0) {
-            handlers.setJournalEvents((prev) =>
+            setJournalEvents((prev) =>
               [...prev, ...journalFresh].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0)),
             );
           }
@@ -420,7 +467,7 @@ export function useSessionEvents(
           // fires ONCE per resolve rather than every tick under the NekoNova
           // `since_seq`-drop full-history refetch. Inlined (not
           // useSceneState's `refreshGrounding()`) because that helper always
-          // calls handlers.setGrounding+handlers.diffAndExplainResolvedChecks unconditionally
+          // calls setGrounding+diffAndExplainResolvedChecks unconditionally
           // — this tick may only have an `offerThisTick` with
           // `invalidatesGrounding` false, and must NOT touch grounding
           // state at all in that case.
@@ -478,12 +525,12 @@ export function useSessionEvents(
                   // (kept consistent with the surrounding omissions this
                   // effect's own deps comment documents).
                   const hadFocusInCheckWrap =
-                    handlers.checkWrapRef.current?.contains(document.activeElement) ?? false;
-                  handlers.setGrounding(g);
-                  handlers.diffAndExplainResolvedChecks(g);
-                  handlers.refocusSceneHeadIfStranded(hadFocusInCheckWrap);
+                    checkWrapRef.current?.contains(document.activeElement) ?? false;
+                  setGrounding(g);
+                  diffAndExplainResolvedChecks(g);
+                  refocusSceneHeadIfStranded(hadFocusInCheckWrap);
                 }
-                if (offerThisTick) handlers.applyOfferedCheckSignal(offerThisTick, g);
+                if (offerThisTick) applyOfferedCheckSignal(offerThisTick, g);
               })
               .catch(() => {});
           }
@@ -491,8 +538,8 @@ export function useSessionEvents(
             // A new beat landed this tick and offered nothing — clear any
             // stale highlight from an earlier beat (mirrors narrate()'s
             // per-beat clear at the top of the SSE function).
-            handlers.setOfferedCheckSkill(null);
-            handlers.setFreeformOfferedCheck(null);
+            setOfferedCheckSkill(null);
+            setFreeformOfferedCheck(null);
           }
 
           // §10 observability (Kage-CR low suggestion) — snapshot which
@@ -500,36 +547,36 @@ export function useSessionEvents(
           // reconciling, so we can log `beat_narration_reconciled` for any
           // that resolve (deleted from the ledger) this tick. Masked: no
           // mechanics/prose, just seq + the turn_key correlation id.
-          const beatKeysAwaitingBefore = [...handlers.pendingByKeyRef.current.entries()]
+          const beatKeysAwaitingBefore = [...pendingByKeyRef.current.entries()]
             .filter(([, e]) => e.origin === 'beat' && e.awaitingNarration)
             .map(([key]) => key);
 
           const result = reconcileDurableEvents(
             allNewEvents,
-            handlers.renderedSeqsRef.current,
-            handlers.pendingByKeyRef.current,
-            (id) => handlers.logRef.current.find((r) => r.id === id),
+            renderedSeqsRef.current,
+            pendingByKeyRef.current,
+            (id) => logRef.current.find((r) => r.id === id),
           );
           if (result.appended.length > 0 || result.stamped.length > 0) {
-            handlers.setLog((prev) => applyReconcileResult(prev, result));
+            setLog((prev) => applyReconcileResult(prev, result));
           }
           for (const key of beatKeysAwaitingBefore) {
-            if (!handlers.pendingByKeyRef.current.has(key)) {
+            if (!pendingByKeyRef.current.has(key)) {
               console.debug('beat_narration_reconciled', { seq: result.maxSeqSeen, turn_key: key });
             }
           }
           const { xCard, narrationSeq } = scanXCardTracking(allNewEvents);
           if (xCard) {
-            handlers.setXCardEvent((prev) => (!prev || xCard.seq > prev.seq ? xCard : prev));
+            setXCardEvent((prev) => (!prev || xCard.seq > prev.seq ? xCard : prev));
           }
           if (narrationSeq != null) {
-            handlers.setLatestNarrationSeq((prev) =>
+            setLatestNarrationSeq((prev) =>
               prev == null || narrationSeq > prev ? narrationSeq : prev,
             );
           }
         }
 
-        handlers.lastEventSeqRef.current = Math.max(handlers.lastEventSeqRef.current, maxSeq, sinceSeq);
+        lastEventSeqRef.current = Math.max(lastEventSeqRef.current, maxSeq, sinceSeq);
 
         // §2.2/§4b — surface pending_generation as real state (Pass 2 —
         // drives the resume/busy affordance). Masked observability per §10:
@@ -540,7 +587,7 @@ export function useSessionEvents(
         // the same no-op-guard discipline the flag-OFF session-status poll
         // already applies via sessionsEqual().
         const pending = page.pending_generation;
-        handlers.setActiveJob((prev) => {
+        setActiveJob((prev) => {
           if (prev === pending) return prev;
           if (
             prev &&
@@ -557,13 +604,13 @@ export function useSessionEvents(
         // §4b — stateless poll-discovery, the primary resume mechanism:
         // subscribe (never POST) to an in-flight job this client is not
         // already tailing. Covers three cases uniformly via the
-        // handlers.subscribedJobIdRef guard: (1) a fresh mount/reload discovering
+        // subscribedJobIdRef guard: (1) a fresh mount/reload discovering
         // another client's (or this tab's own PRIOR reload's) turn — the
         // "don't-re-POST" rule; (2) this client's own just-created job,
-        // where narrateDurable already set handlers.subscribedJobIdRef before this
+        // where narrateDurable already set subscribedJobIdRef before this
         // tick runs, so the guard correctly no-ops here; (3) the 409-busy
         // pivot's own subscribe, same no-op guard.
-        if (pending && pending.job_id !== handlers.subscribedJobIdRef.current) {
+        if (pending && pending.job_id !== subscribedJobIdRef.current) {
           console.debug('turn_resumed_from_pending', {
             job_id: pending.job_id,
             trigger_seq: pending.trigger_seq,
@@ -571,7 +618,7 @@ export function useSessionEvents(
           // origin: 'composer' — a stateless poll-resume genuinely cannot
           // tell whether the discovered job was a composer turn or a
           // synthetic beat (no server-side marker exists, and this client's
-          // own lastDurableTurnRef/handlers.turnKeyRef are reset across a reload
+          // own lastDurableTurnRef/turnKeyRef are reset across a reload
           // anyway). Defaulting to 'composer' preserves pre-fix behavior
           // here (out of Finding 1's scope, which is the explicit
           // narrateDurable/narrateDurableBeat call sites below) — worst case
@@ -583,7 +630,7 @@ export function useSessionEvents(
           // exist server-side by the time a reload discovers the job, so
           // pre-creating an anchor here risks racing a same-tick append.
           // Resume pop-in stays possible but is rare/accepted (design §11).
-          void handlers.subscribeToJob(
+          void subscribeToJob(
             pending.job_id,
             pending.turn_key,
             pending.trigger_seq,
@@ -591,25 +638,25 @@ export function useSessionEvents(
             false,
           );
         } else if (!pending) {
-          handlers.subscribedJobIdRef.current = null;
+          subscribedJobIdRef.current = null;
         }
 
         // §4c turn_key lifecycle — clear once THIS client's own in-flight
         // turn resolved (reconcileDurableEvents' rules 2/3 above removed its
         // ledger entry once the narration seq was observed).
-        if (handlers.turnKeyRef.current && !handlers.pendingByKeyRef.current.has(handlers.turnKeyRef.current)) {
+        if (turnKeyRef.current && !pendingByKeyRef.current.has(turnKeyRef.current)) {
           clearTurnKey(sessionId);
-          handlers.turnKeyRef.current = null;
-          handlers.pollFailureGraceRef.current = null;
+          turnKeyRef.current = null;
+          pollFailureGraceRef.current = null;
           // TAV-COMPOSING (Phase 1, 2026-07-26) — this turn's own ledger
           // entry is gone, so the beat resolved via the poll's reconciliation
-          // (rule 3 sub-case a/b) BEFORE (or without) handlers.subscribeToJob's tail
+          // (rule 3 sub-case a/b) BEFORE (or without) subscribeToJob's tail
           // ever clearing the indicator itself (e.g. the poll replaced a
           // precreated anchor before the first SSE chunk). Scoped to
-          // `handlers.turnKeyRef` — the composer's own current turn — so it never
+          // `turnKeyRef` — the composer's own current turn — so it never
           // clears a DIFFERENT, still-in-flight beat's indicator; a beat's
           // own tail always self-clears at its SSE end (:973-ish) regardless.
-          handlers.onTurnSettled();
+          onTurnSettled();
         }
 
         // §4d, mechanism 2 (Miko-QA finding c) — poll-only failure detection.
@@ -618,51 +665,51 @@ export function useSessionEvents(
         // case). If `pending_generation` doesn't reflect our turn_key this
         // tick, count it; once that streak reaches POLL_FAILURE_GRACE_TICKS
         // with STILL no narration having landed, treat the job as dead —
-        // same cleanup + retry affordance as handlers.subscribeToJob's SSE-error path.
+        // same cleanup + retry affordance as subscribeToJob's SSE-error path.
         // This is what catches a job that died where NO client is actively
         // holding its SSE tail to observe an `error` frame (reload after a
         // silent failure, a tab backgrounded long enough for the browser to
         // pause/kill the EventSource, a proxy idle-timeout truncation).
-        if (handlers.turnKeyRef.current && handlers.pendingByKeyRef.current.has(handlers.turnKeyRef.current)) {
-          const ownTurnKey = handlers.turnKeyRef.current;
+        if (turnKeyRef.current && pendingByKeyRef.current.has(turnKeyRef.current)) {
+          const ownTurnKey = turnKeyRef.current;
           if (pending?.turn_key === ownTurnKey) {
             // Confirmed alive this tick — reset the grace counter.
-            handlers.pollFailureGraceRef.current = { turnKey: ownTurnKey, nullTicks: 0 };
+            pollFailureGraceRef.current = { turnKey: ownTurnKey, nullTicks: 0 };
           } else {
             const grace =
-              handlers.pollFailureGraceRef.current?.turnKey === ownTurnKey
-                ? handlers.pollFailureGraceRef.current
+              pollFailureGraceRef.current?.turnKey === ownTurnKey
+                ? pollFailureGraceRef.current
                 : { turnKey: ownTurnKey, nullTicks: 0 };
             grace.nullTicks += 1;
-            handlers.pollFailureGraceRef.current = grace;
+            pollFailureGraceRef.current = grace;
 
             if (grace.nullTicks >= POLL_FAILURE_GRACE_TICKS) {
               console.debug('turn_failed_poll_grace', { turn_key: ownTurnKey });
               // Abort a live SSE tail if one is still (uselessly) open for
-              // this job — mirrors handlers.subscribeToJob's own cleanup.
-              if (handlers.subscribedJobIdRef.current) {
-                handlers.narrationAbort.current?.abort();
-                handlers.subscribedJobIdRef.current = null;
+              // this job — mirrors subscribeToJob's own cleanup.
+              if (subscribedJobIdRef.current) {
+                narrationAbort.current?.abort();
+                subscribedJobIdRef.current = null;
               }
-              handlers.pendingByKeyRef.current.delete(ownTurnKey);
+              pendingByKeyRef.current.delete(ownTurnKey);
               clearTurnKey(sessionId);
-              handlers.turnKeyRef.current = null;
-              handlers.pollFailureGraceRef.current = null;
-              handlers.clearStreamNarration(true);
-              handlers.onTurnSettled();
-              handlers.setActiveJob(null);
-              handlers.setJobFailed(true);
-              handlers.appendLog({
+              turnKeyRef.current = null;
+              pollFailureGraceRef.current = null;
+              clearStreamNarration(true);
+              onTurnSettled();
+              setActiveJob(null);
+              setJobFailed(true);
+              appendLog({
                 who: 'Suzu',
                 kind: 'system',
                 text: 'Suzu stepped away for a moment. Try again.',
               });
             }
           }
-        } else if (handlers.pollFailureGraceRef.current && handlers.pollFailureGraceRef.current.turnKey !== handlers.turnKeyRef.current) {
+        } else if (pollFailureGraceRef.current && pollFailureGraceRef.current.turnKey !== turnKeyRef.current) {
           // Stale counter from a resolved/abandoned turn — drop it so a
           // future turn starts its own grace count from zero.
-          handlers.pollFailureGraceRef.current = null;
+          pollFailureGraceRef.current = null;
         }
       } catch {
         // Poll errors are non-fatal — the next tick will retry (same
@@ -680,7 +727,7 @@ export function useSessionEvents(
         const events = await getSessionEventsRaw(sessionId);
         if (!events || events.length === 0) return;
         const newOnes = events
-          .filter((e) => (e.seq ?? 0) > handlers.lastEventSeqRef.current)
+          .filter((e) => (e.seq ?? 0) > lastEventSeqRef.current)
           .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
         if (newOnes.length === 0) return;
         // Miko poll-churn fix: this used to run BEFORE the newOnes.length
@@ -692,20 +739,20 @@ export function useSessionEvents(
         // actually changed. The mount-time rehydration effect already seeds
         // journalEvents once on load — this only keeps it current on ticks
         // that have real new activity.
-        handlers.setJournalEvents([...events].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0)));
+        setJournalEvents([...events].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0)));
         const rows = newOnes
           .filter((e) => e.kind != null && POLL_RENDERED_KINDS.has(e.kind))
           .map(eventToLogRow)
           .filter((r): r is LogRow => r !== null);
         if (rows.length > 0) {
-          handlers.setLog((prev) => [...prev, ...rows]);
+          setLog((prev) => [...prev, ...rows]);
         }
         const { xCard, narrationSeq } = scanXCardTracking(newOnes);
         if (xCard) {
-          handlers.setXCardEvent((prev) => (!prev || xCard.seq > prev.seq ? xCard : prev));
+          setXCardEvent((prev) => (!prev || xCard.seq > prev.seq ? xCard : prev));
         }
         if (narrationSeq != null) {
-          handlers.setLatestNarrationSeq((prev) =>
+          setLatestNarrationSeq((prev) =>
             prev == null || narrationSeq > prev ? narrationSeq : prev,
           );
         }
@@ -732,16 +779,16 @@ export function useSessionEvents(
               // above -- deliberately not listed in this effect's own deps
               // array, same reasoning as that branch.
               const hadFocusInCheckWrap =
-                handlers.checkWrapRef.current?.contains(document.activeElement) ?? false;
-              handlers.setGrounding(g);
-              handlers.diffAndExplainResolvedChecks(g);
-              handlers.refocusSceneHeadIfStranded(hadFocusInCheckWrap);
+                checkWrapRef.current?.contains(document.activeElement) ?? false;
+              setGrounding(g);
+              diffAndExplainResolvedChecks(g);
+              refocusSceneHeadIfStranded(hadFocusInCheckWrap);
             })
             .catch(() => {});
         }
-        handlers.lastEventSeqRef.current = newOnes.reduce(
+        lastEventSeqRef.current = newOnes.reduce(
           (m, e) => Math.max(m, e.seq ?? 0),
-          handlers.lastEventSeqRef.current,
+          lastEventSeqRef.current,
         );
       } catch {
         // Poll errors are non-fatal — the next tick will retry.
@@ -754,26 +801,54 @@ export function useSessionEvents(
     // equivalent and correctly scopes the handle to the poll that owns it.
     const intervalId = setInterval(poll, POLL_INTERVAL_MS);
     return () => clearInterval(intervalId);
-    // DDX-20 Pass 2: `handlers.subscribeToJob`/`handlers.appendLog`/
-    // `handlers.clearStreamNarration` are listed (all `[]`-stable
-    // useCallbacks on their owning hook, so this never resets the interval
-    // in practice) — matches this effect's existing convention of NOT
-    // listing the many plain imported functions it also calls
-    // (getSessionEventsPage, eventToLogRow, scanXCardTracking,
-    // reconcileDurableEvents, applyReconcileResult) since those aren't
-    // component-scoped values ESLint tracks the same way.
-    //
-    // Phase 4: `handlers.applyOfferedCheckSignal` (used by `pollDurable`
-    // above) is deliberately omitted too — it is useSceneState's (TAV-
-    // PLAY-SHELL step 5 hook 6), arriving as a plain handler param, same
-    // "stable, not worth listing" reasoning as `getGrounding`/
-    // `handlers.diffAndExplainResolvedChecks`/
-    // `handlers.refocusSceneHeadIfStranded` immediately above.
-    //
-    // NEVER add `handlers` itself to this array (Kage-CR A4 IMPORTANT-1):
-    // page.tsx passes a fresh object literal every render, so `[handlers]`
-    // tears down and re-arms the poll on every render and under streaming
-    // re-render pressure the 4s interval never fires. List members only.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, state, handlers.subscribeToJob, handlers.appendLog, handlers.clearStreamNarration]);
+    // Kage-CR A4 IMPORTANT-1, closed at A4b: every field the destructure at
+    // the top of this hook pulled off `handlers` is listed below, in full —
+    // no suppression, no `handlers` object in this array. Before this
+    // commit only three of ~26 fields were listed (the rest omitted behind
+    // an `eslint-disable-next-line` + a "stable, not worth listing"
+    // comment); the comment was correct, but it made the invariant a prose
+    // claim a future edit could violate by adding `[handlers]` and having
+    // the linter accept it (exactly the near-miss IMPORTANT-1 caught: the
+    // naive "just add what eslint asks for" fix passed every gate while
+    // silently stopping the poll). Listing every individual name instead
+    // means the linter is satisfied WITHOUT suppression, so exhaustive-deps
+    // stays a live check on this effect going forward: `handlers` itself no
+    // longer appears in the effect body at all (see the destructure's own
+    // header for why each of these is safe to depend on — refs are stable
+    // by construction, the rest are `[]`-stable `useCallback`/`useState`
+    // setters on their owning hooks). The plain imported functions this
+    // effect also calls (getSessionEventsPage, eventToLogRow,
+    // scanXCardTracking, reconcileDurableEvents, applyReconcileResult)
+    // still aren't listed — those are module-level, not component-scoped
+    // values ESLint tracks the same way, unchanged from before this commit.
+  }, [
+    sessionId,
+    state,
+    lastEventSeqRef,
+    renderedSeqsRef,
+    pendingByKeyRef,
+    logRef,
+    setLog,
+    appendLog,
+    clearStreamNarration,
+    checkWrapRef,
+    setGrounding,
+    diffAndExplainResolvedChecks,
+    refocusSceneHeadIfStranded,
+    applyOfferedCheckSignal,
+    setOfferedCheckSkill,
+    setFreeformOfferedCheck,
+    setActiveJob,
+    setJobFailed,
+    onTurnSettled,
+    subscribedJobIdRef,
+    turnKeyRef,
+    pollFailureGraceRef,
+    narrationAbort,
+    subscribeToJob,
+    setXCardEvent,
+    setLatestNarrationSeq,
+    journalSeenSeqsRef,
+    setJournalEvents,
+  ]);
 }
