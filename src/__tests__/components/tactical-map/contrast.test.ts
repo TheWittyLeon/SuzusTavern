@@ -3,21 +3,27 @@
  * across all 5 palettes with a script, committing the numbers in the test").
  *
  * This IS the script: a self-contained WCAG 2.x relative-luminance/contrast
- * calculator plus the exact token hex values TacticalMap.module.css resolves
- * to under each `data-vibe` palette, asserting every colored text/icon pair
- * this component renders clears its WCAG threshold in ALL 5 palettes.
+ * calculator, fed by `parseGlobalsPalette` reading the REAL per-`data-vibe`
+ * token declarations out of `src/app/globals.css` on disk (same
+ * read-the-file-not-the-browser pattern as
+ * `src/__tests__/lib/escapeConsume.source-scan.test.ts`), asserting every
+ * colored text/icon pair this component renders clears its WCAG threshold
+ * in ALL 5 palettes.
  *
- * WHY hand-mirrored hex, not a live read of globals.css: jsdom does not
- * implement `color-mix()`/CSS custom-property resolution in a way this test
- * harness can query (no real layout engine — see the T4 rewrite in
+ * WHY a text parse, not a live browser resolve: jsdom does not implement
+ * `color-mix()`/CSS custom-property resolution in a way this test harness
+ * can query (no real layout engine — see the T4 rewrite in
  * TacticalMap.test.tsx for the same limitation), so there is no way to ask
  * a browser "what does `var(--bad)` resolve to under
- * `[data-vibe=candlelit]`" from inside Jest. The values below are read
- * directly from `src/app/globals.css` as of this commit.
- *
- * debt: this table hand-copies globals.css's per-palette hex values instead of reading them live. ceiling: exactly the tokens this file uses (on-fill/bad/good/cool/cool-ink/warm/warm-ink/bg-3) across the 5 data-vibe palettes; a 6th palette or a new pair is not covered until added here.
- * until: a jsdom-compatible CSS engine resolves computed color-mix() in tests, or globals.css exposes its palette table as a module this test imports instead of mirroring.
+ * `[data-vibe=candlelit]`" from inside Jest. `parseGlobalsPalette` reads
+ * and resolves the same 9 tokens instead of a human hand-copying them — a
+ * palette edit that breaks a pair now reds this test without anyone
+ * re-syncing a table (the `debt:` this file used to carry is resolved: the
+ * table was the debt, and it no longer exists).
  */
+import fs from 'node:fs';
+import path from 'node:path';
+import { parseGlobalsPalette } from '@/components/tactical-map/paletteContrastParser';
 
 function hexToRgb(hex: string): [number, number, number] {
   const h = hex.replace('#', '');
@@ -65,54 +71,18 @@ function alphaOver(fgHex: string, alpha: number, backdropHex: string): string {
   return `#${out.map((c) => c.toString(16).padStart(2, '0')).join('')}`;
 }
 
-interface Palette {
-  bg3: string;
-  onFill: string;
-  onAccent: string;
-  bad: string;
-  good: string;
-  cool: string;
-  coolInk: string;
-  warm: string;
-  warmInk: string;
-}
-
-// Mirrored from src/app/globals.css, 2026-09-28 (see the `debt:` marker
-// above for the re-sync obligation this creates).
-const PALETTES: Record<string, Palette> = {
-  'dusk-tavern': {
-    bg3: '#221a3a', onFill: '#15101e', onAccent: '#15101e',
-    bad: '#c25353', good: '#6db48a',
-    cool: '#a7c5ec', coolInk: '#a7c5ec',
-    warm: '#f5cba8', warmInk: '#f5cba8',
-  },
-  candlelit: {
-    bg3: '#e0d4be', onFill: '#ffffff', onAccent: '#ffffff',
-    bad: '#a83a3a', good: '#2d6032',
-    cool: '#6b8aaa', coolInk: '#35597a',
-    warm: '#d4a64b', warmInk: '#7a5300',
-  },
-  aetheric: {
-    bg3: '#1a2244', onFill: '#0c0f1e', onAccent: '#0c0f1e',
-    bad: '#ff7a8a', good: '#6dd49a',
-    cool: '#7ee8e2', coolInk: '#7ee8e2',
-    warm: '#ffc792', warmInk: '#ffc792',
-  },
-  'moonlit-grove': {
-    bg3: '#1d2825', onFill: '#0f1614', onAccent: '#0f1614',
-    bad: '#d07a7a', good: '#88c890',
-    cool: '#9cc8e0', coolInk: '#9cc8e0',
-    warm: '#e8c89a', warmInk: '#e8c89a',
-  },
-  hearthlight: {
-    bg3: '#251a33', onFill: '#170f1c', onAccent: '#170f1c',
-    bad: '#d6635f', good: '#63b17f',
-    cool: '#93b8ea', coolInk: '#93b8ea',
-    warm: '#f0b57e', warmInk: '#f0b57e',
-  },
-};
+const GLOBALS_CSS_PATH = path.join(process.cwd(), 'src/app/globals.css');
+const PALETTES = parseGlobalsPalette(fs.readFileSync(GLOBALS_CSS_PATH, 'utf8'));
 
 const PALETTE_NAMES = Object.keys(PALETTES);
+
+describe('parseGlobalsPalette — coverage sanity (protects the loops below from a silent empty parse)', () => {
+  it('finds exactly the 5 known data-vibe palettes in globals.css', () => {
+    expect(PALETTE_NAMES.slice().sort()).toEqual(
+      ['aetheric', 'candlelit', 'dusk-tavern', 'hearthlight', 'moonlit-grove'],
+    );
+  });
+});
 
 describe('TacticalMap contrast — D1 CR#1 coordinator decision 5 (existing tokens only, all 5 palettes)', () => {
   describe('.token glyph (--on-fill) on team fill — large text (>=18.66px bold -> 3:1), TacticalMap.module.css .token font-size: var(--text-xl)', () => {
