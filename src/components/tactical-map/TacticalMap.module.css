@@ -15,11 +15,11 @@
  *   --bg-3            board surface        (mockup --rock)
  *   --line / --line-strong   grid lines / blocked-cell hatch (mockup --line2/--linebold)
  *   --good             ally PC token       (mockup --pc)
- *   --bad / --bad-ink  foe token / refusal text (mockup --foe)
+ *   --bad / --bad-ink  foe token / downed ring / inspector state text (mockup --foe)
  *   --accent / --accent-ink / --on-accent  "you" token + reach overlay (mockup --you/--reach)
- *   --cool             destination outline + invisible-eye badge (mockup --dest/eye)
+ *   --cool / --cool-ink  destination outline + invisible-eye badge (mockup --dest/eye)
  *   --warn             condition badge     (mockup --badge-warn)
- *   --warm             feature/prop marker (mockup --prop)
+ *   --warm / --warm-ink  feature/prop marker (mockup --prop)
  * Consequence: unlike the mockup, this board DOES shift with `data-vibe`
  * today (e.g. it reads light in "candlelit"). No ruling has asked for the
  * fixed-dark device palette yet (design doc §2 says the same); if one does,
@@ -62,11 +62,21 @@
 
 .board {
   display: grid;
+  /* --tm-cell-size is this component's public sizing API: the mount sets it
+     (cascade-settable from any ancestor) to hit R19's per-surface cell size
+     (21x8 Table / 17x7 Story / 13x7 phone, design §4's 29px phone cell) —
+     see .boardScroll's `overflow: auto` above, which is what lets a board
+     wider than the viewport scroll instead of break. Nothing in this file
+     sets it; the 40px fallback below is this component's own default only. */
   grid-template-columns: repeat(var(--tm-cols, 1), var(--tm-cell-size, 40px));
   grid-template-rows: repeat(var(--tm-rows, 1), var(--tm-cell-size, 40px));
+  /* A11Y (Kage-CR D1 green): --line is a decorative hairline (~1.2-1.3:1);
+     globals.css's own guidance reserves it for dividers/cards and asks for
+     --line-strong on anything interactive — these lines belong to
+     role="gridcell" cells with click handlers and a roving tabindex. */
   background-image:
-    linear-gradient(to right, var(--line) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--line) 1px, transparent 1px);
+    linear-gradient(to right, var(--line-strong) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--line-strong) 1px, transparent 1px);
   background-size: var(--tm-cell-size, 40px) var(--tm-cell-size, 40px);
   border-radius: var(--radius-xs);
   position: relative;
@@ -271,15 +281,6 @@
   border-radius: var(--radius-pill);
   white-space: nowrap;
   pointer-events: none;
-}
-
-.refusal {
-  color: var(--bad-ink);
-  background: color-mix(in oklab, var(--bad) 10%, transparent);
-  border: 1px solid color-mix(in oklab, var(--bad) 22%, transparent);
-  border-radius: var(--radius-sm);
-  padding: var(--space-6) var(--space-7);
-  margin: 0;
 }
 
 /* Inspector strip (coordinator decision 4, replaces the old title-only

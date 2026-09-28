@@ -19,33 +19,43 @@
 // for that field, not sourced engine data.
 //
 // debt: condition severity order is a hand-authored constant, not sourced
-// from an engine severity field. ceiling: covers exactly the 21 conditions
-// in engine/rules.py::CONDITIONS / src/lib/conditions.ts::DND_CONDITIONS; an
-// unlisted condition is treated as lowest severity, never throws. until: a
-// conditions content-catalog row (or `ConditionSpec`, movement design §3.3)
-// carries a severity/weight field the engine projects on the wire.
+// from an engine severity field. ceiling: 21 conditions, engine/rules.py
+// ::CONDITIONS / lib/conditions.ts::DND_CONDITIONS; unlisted sorts last.
+// until: a conditions content-catalog row / `ConditionSpec` (movement design §3.3) carries a severity/weight field.
+//
+// Full ceiling detail: covers exactly the 21 conditions in
+// engine/rules.py::CONDITIONS / src/lib/conditions.ts::DND_CONDITIONS; an
+// unlisted condition is treated as lowest severity, never throws.
+//
+// Kage-CR D1 suggestion (2026-09-28): this ranks general LETHALITY, but the
+// badge lives on a MOVEMENT surface — the two axes genuinely disagree
+// (speed-0 and death matter most to "can I still act", not to raw danger
+// tier), and lethality was picked as the tie-break, deliberately, not by
+// default. `exhaustion_6` (death per SRD stacking) sits beside
+// `unconscious`; `exhaustion_5` (speed halved to 0) outranks `grappled`
+// (speed 0, but still able to act); `prone` (half speed to stand, or crawl)
+// outranks `charmed`/`deafened` (no movement cost at all).
 export const CONDITION_SEVERITY_ORDER: readonly string[] = [
   // Removes agency / most likely to be lethal this turn.
   'unconscious',
+  'exhaustion_6',
   'petrified',
   'paralyzed',
   'stunned',
   'incapacitated',
   'restrained',
+  'exhaustion_5',
   'grappled',
   'blinded',
-  // Exhaustion: worse level first (6 = death per SRD stacking rules).
-  'exhaustion_6',
-  'exhaustion_5',
   'exhaustion_4',
   'exhaustion_3',
   'exhaustion_2',
   'exhaustion_1',
   'frightened',
   'poisoned',
+  'prone',
   'charmed',
   'deafened',
-  'prone',
   // "dodge" is not a formal SRD condition (engine/rules.py's own comment) —
   // it's the lowest-severity entry, an intentional self-elected combat
   // state rather than an affliction.

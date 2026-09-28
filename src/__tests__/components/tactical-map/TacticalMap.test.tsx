@@ -7,7 +7,6 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import TacticalMap, { type TacticalMapProps } from '@/components/tactical-map/TacticalMap';
 import styles from '@/components/tactical-map/TacticalMap.module.css';
-import { COMBAT_REFUSAL_REASON_MAP } from '@/lib/dnd/engineReasons';
 import type { CombatParticipantState, CombatSpace } from '@/lib/api/types';
 
 function makeSpace(overrides: Partial<CombatSpace> = {}): CombatSpace {
@@ -52,7 +51,6 @@ function baseProps(overrides: Partial<TacticalMapProps> = {}): TacticalMapProps 
     moveMode: false,
     onMove: jest.fn(),
     onExitMove: jest.fn(),
-    refusalReason: null,
     ...overrides,
   };
 }
@@ -511,24 +509,6 @@ describe('TacticalMap — keyboard flow', () => {
     const cell = screen.getByRole('gridcell', { name: /Current position/ });
     fireEvent.keyDown(cell, { key: 'Escape' });
     expect(onExitMove).not.toHaveBeenCalled();
-  });
-});
-
-describe('TacticalMap — refusal copy', () => {
-  it('renders the curated COMBAT_REFUSAL_REASON_MAP copy for a known reason code', () => {
-    render(<TacticalMap {...baseProps({ refusalReason: 'no_movement_remaining' })} />);
-    expect(screen.getByText(COMBAT_REFUSAL_REASON_MAP.no_movement_remaining)).toBeInTheDocument();
-  });
-
-  it('renders a generic fallback for an unmapped reason code, never the raw code', () => {
-    render(<TacticalMap {...baseProps({ refusalReason: 'some_future_unmapped_code' })} />);
-    expect(screen.queryByText('some_future_unmapped_code')).not.toBeInTheDocument();
-    expect(screen.getByText('The server refused that move.')).toBeInTheDocument();
-  });
-
-  it('renders no banner when refusalReason is absent', () => {
-    const { container } = render(<TacticalMap {...baseProps({ refusalReason: null })} />);
-    expect(container.querySelector(`.${styles.refusal}`)).not.toBeInTheDocument();
   });
 });
 

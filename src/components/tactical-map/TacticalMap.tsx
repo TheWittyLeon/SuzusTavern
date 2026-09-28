@@ -25,9 +25,20 @@
 //      "invisible"; the token still renders at its true `at` (M1).
 //   T4 (phone board centers on the active token each turn) — the
 //      container-scoped scroll effect keyed on `activeParticipantId` below.
+//
+// D1 CR#1 fix round (2026-09-28, coordinator decisions in
+// [[2026-09-27 Tavern 1.0 Drive — Reviews]] "D1 — consolidated fix round"):
+//   1. `refusalReason` deleted — design §4 says the refusal reuses the
+//      shell's EXISTING inline slot ("not a new component"); the mount
+//      wires that slot, not this one.
+//   4. An inspector strip under the board shows the roving-focused (or
+//      tapped — see the cell onClick handler) cell's full occupant detail,
+//      replacing the old `title`-only disclosure that Tora-Gesture found
+//      inert on touch (MAJOR-3).
+//   8. Escape now routes through `consumeEscape` (Tora CRIT-1 = Kage
+//      IMPORTANT-3) — see `src/lib/a11y/escapeConsume.ts`.
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import type { CombatParticipantState, CombatSpace, SpaceCoordinate } from '@/lib/api/types';
-import { COMBAT_REFUSAL_REASON_MAP } from '@/lib/dnd/engineReasons';
 import { consumeEscape } from '@/lib/a11y/escapeConsume';
 import { chebyshevCost, coordsEqual, isLegalMoveTarget, reachableCells } from './reach';
 import { cellAccessibleName, nextFocusCoord, toDisplayRowCol, type CellOccupant } from './a11y';
@@ -67,10 +78,6 @@ export interface TacticalMapProps {
    *  component does not move focus outside its own DOM — the caller is
    *  responsible for returning focus to its Move control (design §5). */
   onExitMove: () => void;
-  /** Machine-readable refusal code from the most recent `/move` 4xx
-   *  (`CombatErrorData.reason`) — mapped to player copy via
-   *  `COMBAT_REFUSAL_REASON_MAP`. `null`/`undefined` renders no banner. */
-  refusalReason?: string | null;
   className?: string;
 }
 
@@ -149,7 +156,6 @@ export default function TacticalMap({
   moveMode,
   onMove,
   onExitMove,
-  refusalReason,
   className,
 }: TacticalMapProps) {
   const cellRefs = useRef(new Map<string, HTMLDivElement>());
@@ -255,10 +261,6 @@ export default function TacticalMap({
     destinationCoord && activeAt
       ? isLegalMoveTarget(space, activeAt, destinationCoord, activeMovementRemaining, occupiedByOthers)
       : false;
-
-  const refusalCopy = refusalReason
-    ? (COMBAT_REFUSAL_REASON_MAP[refusalReason] ?? 'The server refused that move.')
-    : null;
 
   function attemptMove(to: SpaceCoordinate) {
     if (!space || !moveMode || !activeAt) return;
@@ -465,7 +467,6 @@ export default function TacticalMap({
           <span className={styles.inspectorEmpty}>No creature selected.</span>
         )}
       </div>
-      {refusalCopy && <p className={styles.refusal}>{refusalCopy}</p>}
     </div>
   );
 }
