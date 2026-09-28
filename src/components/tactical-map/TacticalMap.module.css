@@ -1,0 +1,242 @@
+/*
+ * TacticalMap — tactical map (#12), design pass v1 (Aoi-UI). Standalone
+ * component styles only; not yet mounted into SceneStage (Lane D scope,
+ * 2026-09-28 runbook).
+ *
+ * TOKEN NOTE (flagged for Aoi-UI / Leon review): the Aoi-UI mockup specifies
+ * a FIXED-DARK "device" palette for the board (--rock/--pc/--foe/--reach/
+ * --you/etc.) that deliberately does NOT respond to `data-vibe` switching —
+ * "analogous to how pass-2 separated page-chrome tokens from in-app device
+ * tokens" (design doc §2, "Theme tokens"). Those device tokens do not exist
+ * in globals.css and this diff is not authorized to add new ones there
+ * (Lane D hard rule: read-only on globals.css; STOP and report a missing
+ * token rather than invent one). Every color below is therefore an EXISTING
+ * globals.css semantic token, chosen for the closest intent match:
+ *   --bg-3            board surface        (mockup --rock)
+ *   --line / --line-strong   grid lines / blocked-cell hatch (mockup --line2/--linebold)
+ *   --good             ally PC token       (mockup --pc)
+ *   --bad / --bad-ink  foe token / refusal text (mockup --foe)
+ *   --accent / --accent-ink / --on-accent  "you" token + reach overlay (mockup --you/--reach)
+ *   --cool             destination outline + invisible-eye badge (mockup --dest/eye)
+ *   --warn             condition badge     (mockup --badge-warn)
+ *   --warm             feature/prop marker (mockup --prop)
+ * Consequence: unlike the mockup, this board DOES shift with `data-vibe`
+ * today (e.g. it reads light in "candlelit"). No ruling has asked for the
+ * fixed-dark device palette yet (design doc §2 says the same); if one does,
+ * that is new tokens for Aoi-UI/Sora-Arch to add to globals.css, not a Lane
+ * D decision.
+ */
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.boardScroll {
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  background: var(--bg-3);
+  padding: var(--space-6);
+  max-width: 100%;
+}
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(var(--tm-cols, 1), var(--tm-cell-size, 40px));
+  grid-template-rows: repeat(var(--tm-rows, 1), var(--tm-cell-size, 40px));
+  background-image:
+    linear-gradient(to right, var(--line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--line) 1px, transparent 1px);
+  background-size: var(--tm-cell-size, 40px) var(--tm-cell-size, 40px);
+  border-radius: var(--radius-xs);
+  position: relative;
+}
+
+/* `display: contents` keeps ARIA row/gridcell nesting (role="grid" >
+   role="row" > role="gridcell") while letting every gridcell participate
+   directly in the parent's CSS Grid tracks — the standard technique for
+   decoupling accessible grid semantics from a flat grid layout. */
+.row {
+  display: contents;
+}
+
+.cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  cursor: default;
+}
+
+.cell:focus-visible {
+  outline: var(--focus-ring-width) solid var(--accent);
+  outline-offset: calc(-1 * var(--focus-ring-width));
+  z-index: 5;
+}
+
+.cellBlocked {
+  background: repeating-linear-gradient(45deg, var(--line-strong) 0 4px, transparent 4px 9px);
+}
+
+.cellInRange {
+  background: color-mix(in oklab, var(--accent) 20%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent) 55%, transparent);
+  cursor: pointer;
+}
+
+.cellDestination {
+  box-shadow: inset 0 0 0 2px var(--cool);
+  border-radius: var(--radius-xs);
+}
+
+.token {
+  position: relative;
+  width: 78%;
+  height: 78%;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 0.85em;
+  color: var(--on-fill);
+  background: var(--ink-3);
+  border: 2px solid var(--line-strong);
+}
+
+.tokenAlly {
+  background: var(--good);
+}
+
+.tokenFoe {
+  background: var(--bad);
+}
+
+.tokenSelf {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: var(--accent-ink);
+}
+
+.tokenDowned {
+  opacity: 0.65;
+  border-style: dashed;
+}
+
+.tokenInvisible {
+  border-style: dashed;
+  opacity: 0.72;
+}
+
+.tokenActive {
+  box-shadow:
+    0 0 0 2px var(--ink),
+    0 0 0 4px color-mix(in oklab, var(--accent) 70%, transparent);
+}
+
+.eyeBadge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--bg-3);
+  color: var(--cool);
+  font-size: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line-strong);
+}
+
+.conditionBadge {
+  position: absolute;
+  bottom: -3px;
+  right: -3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--warn);
+  color: var(--on-fill);
+  font-size: 9px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line-strong);
+}
+
+.feature {
+  width: 70%;
+  height: 70%;
+  border-radius: var(--radius-xs);
+  background: var(--warm);
+  color: var(--on-fill);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75em;
+  font-weight: 700;
+}
+
+.destinationTag {
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--on-accent);
+  background: color-mix(in oklab, var(--cool) 80%, transparent);
+  padding: 1px 4px;
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.refusal {
+  color: var(--bad-ink);
+  background: color-mix(in oklab, var(--bad) 10%, transparent);
+  border: 1px solid color-mix(in oklab, var(--bad) 22%, transparent);
+  border-radius: var(--radius-sm);
+  padding: var(--space-6) var(--space-7);
+  margin: 0;
+}
+
+/* Theatre-of-mind band (design §3, §5 "Show 5" — combat without a `space`). */
+.tomBand {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+  background: var(--bg-3);
+  border-radius: var(--radius-sm);
+  padding: var(--density-pad);
+}
+
+.tomToken {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  padding: var(--space-5) var(--space-7);
+}
+
+.tomTokenActive {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.tomName {
+  font-weight: 600;
+}
+
+.tomHp {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
