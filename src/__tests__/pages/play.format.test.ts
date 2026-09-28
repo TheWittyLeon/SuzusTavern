@@ -12,14 +12,27 @@
  * does not touch or rewrite any existing test (Miko-QA, TAV-PLAY-SHELL A1
  * QA pass).
  */
-import { isSessionLocked, buildReadAloudBlock } from '../../app/play/[sessionId]/format';
-import type { GroundingData, Session } from '../../lib/api/types';
+import { isSessionLocked, buildReadAloudBlock, isCombatEngaged } from '../../app/play/[sessionId]/format';
+import type { CombatState, GroundingData, Session } from '../../lib/api/types';
 
 function makeSession(status: Session['status']): Session {
   return {
     session_id: 'sess-format-1',
     status,
   } as Session;
+}
+
+function makeCombatState(state: CombatState['state']): CombatState {
+  return {
+    combat_id: 'combat-format-1',
+    session_id: 'sess-format-1',
+    round: 1,
+    state,
+    turn_index: 0,
+    active_participant_id: null,
+    initiative: [],
+    participants: [],
+  };
 }
 
 describe('isSessionLocked', () => {
@@ -38,6 +51,29 @@ describe('isSessionLocked', () => {
   it('is false for null/undefined (no session loaded yet)', () => {
     expect(isSessionLocked(null)).toBe(false);
     expect(isSessionLocked(undefined)).toBe(false);
+  });
+});
+
+describe('isCombatEngaged', () => {
+  // A2 commit 0 (Kage-CR A1b IMPORTANT-2, verbatim): "`isCombatEngaged` is
+  // unpinned against the exact `combatIsActive` confusion it exists to
+  // prevent ... replacing its body with `!!combatState && combatState.state
+  // !== 'ended'` (M3) -> all green. The corpus only ever sets `state:
+  // 'active'` or `'ended'` -- zero fixtures for the three states the
+  // predicates disagree on." This table covers all five states plus null so
+  // M3 (the combatIsActive body swap) cannot survive silently again.
+  it.each([
+    ['active', true],
+    ['between_turns', false],
+    ['rolling_initiative', false],
+    ['idle', false],
+    ['ended', false],
+  ] as const)("combat state '%s' -> %s", (state, expected) => {
+    expect(isCombatEngaged(makeCombatState(state))).toBe(expected);
+  });
+
+  it('is false for null (no active combat)', () => {
+    expect(isCombatEngaged(null)).toBe(false);
   });
 });
 

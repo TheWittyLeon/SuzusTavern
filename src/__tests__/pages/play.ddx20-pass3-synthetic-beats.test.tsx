@@ -87,6 +87,10 @@ const mockRollInitiative = jest.fn<Promise<unknown>, unknown[]>(() => Promise.re
 const mockMonsterTurn = jest.fn<Promise<unknown>, unknown[]>(() => Promise.resolve({ message: undefined, state: null }));
 const mockEndTurn = jest.fn<Promise<unknown>, unknown[]>();
 const mockAdvanceScene = jest.fn<Promise<unknown>, unknown[]>();
+// A2 commit 0 (Kage-CR A1b IMPORTANT-1): resolveCheck needed a real handle
+// so the check-confirm beat (useScene.ts:796) can be driven through a real
+// click instead of documented as undriveable.
+const mockResolveCheck = jest.fn<Promise<unknown>, unknown[]>();
 
 jest.mock('../../lib/api/dnd', () => ({
   getSession: (...args: Parameters<AnyFn>) => mockGetSession(...args),
@@ -111,7 +115,7 @@ jest.mock('../../lib/api/dnd', () => ({
   endCombat: jest.fn(),
   advanceScene: (...args: Parameters<AnyFn>) => mockAdvanceScene(...args),
   setFlag: jest.fn(),
-  resolveCheck: jest.fn(),
+  resolveCheck: (...args: Parameters<AnyFn>) => mockResolveCheck(...args),
   getSessionNotes: jest.fn(() => Promise.resolve(null)),
   putSessionNotes: jest.fn(() => Promise.resolve({ body: '', updated_at: '2026-01-01T00:00:00Z' })),
 }));
@@ -256,6 +260,16 @@ const GROUNDING_WITH_TRANSITION: GroundingData = {
   scene_name: 'Cave Mouth',
   boxed_text: 'A dark cave mouth looms before you.',
   transitions: [{ to: 'tunnel', label: 'Enter the tunnel' }],
+};
+
+/** A2 commit 0: a scene offering one authored check, for the check-confirm
+ *  beat (onAttemptCheck / useScene.ts:796). No transitions — keeps the
+ *  "Attempt Perception" button the only affordance in play. */
+const GROUNDING_WITH_CHECK: GroundingData = {
+  scene_id: 'cave_mouth',
+  scene_name: 'Cave Mouth',
+  boxed_text: 'A dark cave mouth looms before you.',
+  checks: [{ skill: 'perception', dc: 12 }],
 };
 
 async function flush() {
@@ -750,28 +764,55 @@ describe('Pass-3 combat→scene sequencing (beat 6 in-flight → beat 2 409) —
   });
 });
 
-describe('Pass-3 synthetic beat #4 (check-confirm) — documented residual gap, NOT silently declared covered', () => {
-  it('documented as undriveable at the time this test was written (offeredCheckSkill gated the "Attempt {skill}" button, and no durable equivalent of the offered_check signal existed on the composer path) — STALE as of D1a (2026-07-19): availableChecks no longer gates visibility on offeredCheckSkill, so "Attempt {skill}" now renders as soon as grounding.checks is non-empty out of combat, driveable through the real composer path under DURABLE_GENERATION_ENABLED=true with no offer at all', () => {
-    // This is a documentation test, not a UI exercise. Left in place
-    // (un-converted) rather than silently deleted, since removing it would
-    // erase the historical record of why beat 4 previously had no
-    // rendered-click coverage. FOLLOW-UP (flagged, not fixed here — out of
-    // scope for the D1a UI change): now that the button is reachable without
-    // an offer, this should become a real integration test exercising
-    // onAttemptCheck's DURABLE_GENERATION_ENABLED branch (narrateDurableBeat
-    // with beat:'check_confirm') via an actual click, same harness shape as
-    // beats 2/3/5/6 above:
-    //
-    //   onAttemptCheck (page.tsx): if (DURABLE_GENERATION_ENABLED) {
-    //     void narrateDurableBeat(`I attempt a ${skillLabel} check.`,
-    //       result.mechanics, 'act', { suppressIntent: true, beat: 'check_confirm' });
-    //   }
-    //
-    // A live-staging exercise (P1b carried gate 6, per the design doc's own
-    // §8 "defers to live staging" note) is still the only way to exercise
-    // the real offer->Attempt->resolve round trip end-to-end once G1/G2
-    // land, independent of this Jest-reachability finding.
-    expect(true).toBe(true);
+describe('Pass-3 synthetic beat #4 (check-confirm) — playerLine/mechanics pinned at the call site', () => {
+  // A2 commit 0 (Kage-CR A1b IMPORTANT-1, verbatim): "the `check_confirm`
+  // call site's payload is unpinned — a `playerLine`/`mechanics` swap
+  // survives the whole suite." Was `expect(true).toBe(true)` doc-test, STALE
+  // as of D1a (2026-07-19): availableChecks no longer gates visibility on
+  // offeredCheckSkill, so "Attempt {skill}" renders as soon as
+  // grounding.checks is non-empty out of combat — the real composer path is
+  // now driveable with no offer at all, same harness shape as beats 2/3/5/6
+  // above. Converted to a real integration test exercising
+  // onAttemptCheck's DURABLE_GENERATION_ENABLED branch (narrateDurableBeat
+  // with beat:'check_confirm') via an actual click.
+  it('clicking "Attempt Perception" posts playerLine (with skillLabel) and mechanics, unswapped, to /dm/turn', async () => {
+    mockGetGrounding.mockResolvedValue(GROUNDING_WITH_CHECK);
+    mockResolveCheck.mockResolvedValue({
+      skill: 'perception',
+      dc: 12,
+      total: 18,
+      success: true,
+      flag_set: [],
+      mechanics: 'Perception check: rolled 15 + 3 = 18. Narrate the outcome.',
+      description: 'Perception check (DC 12): 18 — success.',
+      event_seq: 5,
+    });
+    mockPostDmTurn.mockResolvedValue({
+      job_id: 'job-check-carry',
+      turn_key: 'ignored',
+      status: 'pending',
+      deduped: false,
+    });
+    mockSubscribeDmJob.mockImplementation(async function* () {
+      yield { kind: 'done' };
+    });
+
+    await renderAndOpenScene();
+    const attemptBtn = await screen.findByRole('button', { name: /Attempt Perception, DC 12/i });
+    await act(async () => {
+      fireEvent.click(attemptBtn);
+    });
+    await flush();
+
+    expect(mockPostDmTurn).toHaveBeenCalledTimes(1);
+    // Pins BOTH the argument order (M12 — a playerLine/mechanics swap) and
+    // the interpolated skillLabel (M15 — dropping `${skillLabel}` from the
+    // player line). Either mutation must turn this red.
+    expect(mockPostDmTurn.mock.calls[0][0]).toMatchObject({
+      message: 'I attempt a Perception check.',
+      mechanics: 'Perception check: rolled 15 + 3 = 18. Narrate the outcome.',
+      suppress_intent: true,
+    });
   });
 });
 
