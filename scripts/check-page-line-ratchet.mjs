@@ -24,6 +24,26 @@
  * `content.split('\n').length`, which overcounts by one on any file ending
  * in a trailing newline (the POSIX norm, and true of page.tsx today).
  *
+ * A8 carry item (a) / Kage-CR A7 pre-merge ratchet ruling (2026-09-28): the
+ * metric `main()` enforces is `countCodeLines`, NOT the raw `wc -l` count
+ * above -- `countLines` stays exported (and unit-tested) purely as the
+ * `wc -l`-matching primitive several history entries below cite, but it is
+ * no longer what the gate measures. Kage's own numbers: page.tsx was 2,028
+ * lines of which 949 (47%) were comments/blanks, so a ceiling on the raw
+ * count "can be satisfied by deleting explanation and breached by adding
+ * it -- inverting the incentive precisely in review fix rounds, which are
+ * the rounds where explanation is the deliverable." `countCodeLines` strips
+ * `//` and `/* *\/` comments (string/template-literal aware, same technique
+ * as `src/__tests__/lib/escapeConsume.source-scan.test.ts`'s own
+ * `stripComments`) PLUS whole `{/* ... *\/}` JSX-comment expression
+ * containers (their own `{`/`}` are JSX syntax, not comment syntax, so the
+ * generic stripper alone leaves a brace-only remnant that a naive
+ * `line.trim() === ''` blank-check would not catch), then counts every
+ * line that still has non-whitespace content after both strips. See
+ * `check-page-line-ratchet.test.ts`'s fixture suite for the exact
+ * comments-in / JSX-comments-out / blanks-out / code-in cases this is
+ * measured against.
+ *
  * Run: npm run lint:page-ratchet (wired into `npm run lint`)
  */
 import { readFileSync } from 'node:fs';
@@ -155,19 +175,134 @@ const PAGE = join(ROOT, PAGE_REL);
 // the `-> 2027` entry above and the Reviews note, not in page.tsx. -11
 // returns the ceiling to its pre-round value; the `id` wiring's +1 code
 // line is kept and absorbed by the fold.)
-// Update this value, in the SAME commit, whenever page.tsx's actual line
-// count drops below it. Never raise it silently.
-export const RATCHET_CEILING = 2017;
+// -> 946 CODE LINES (A8 carry item (a), Kage-CR A7 pre-merge ratchet ruling:
+// "make the ratchet count non-comment, non-blank lines ... filed forward,
+// not this round"). The metric itself changes here, not just the number --
+// see this file's header and `countCodeLines` below. Re-baseline: page.tsx
+// was 2,017 raw (`wc -l`) lines / 946 non-comment, non-blank lines at this
+// commit (measured with the SAME `countCodeLines` this ratchet now runs,
+// not estimated) -- the two prior raw-line entries immediately above this
+// one (2,027 -> 2,028 -> 2,017) are the LAST entries in this chain measured
+// in the old unit; every entry from here on is in code lines. No source
+// line moved in this commit -- this is a metric swap plus its re-baseline,
+// not an extraction.
+// Update this value, in the SAME commit, whenever page.tsx's actual
+// non-comment, non-blank line count drops below it. Never raise it
+// silently -- unless the growth is deliberate and reviewed, in which case
+// raise it in the same commit and say why (this file's own rule, restated
+// correctly per the A7 pre-merge ratchet ruling: the runbook's "may only go
+// down" was a paraphrase that was never this file's actual rule).
+export const RATCHET_CEILING = 946;
 
 /**
  * Pure: counts lines the way `wc -l` does (newline-byte count). Exported so
  * tests can check the off-by-one behaviour on strings with/without a
- * trailing newline without touching any file on disk.
+ * trailing newline without touching any file on disk. No longer what
+ * `main()` measures (see `countCodeLines` below and this file's header) --
+ * kept as the `wc -l`-matching primitive the history chain's raw-line
+ * entries above `RATCHET_CEILING` are stated in.
  */
 export function countLines(text) {
   let count = 0;
   for (let i = 0; i < text.length; i += 1) {
     if (text[i] === '\n') count += 1;
+  }
+  return count;
+}
+
+/**
+ * Strips every whole `{/* ... *\/}` JSX-comment expression container,
+ * replacing it with spaces (newlines preserved so line positions never
+ * shift). Matched BEFORE the generic comment stripper below and as its own
+ * pass — a JSX comment's `{`/`}` are JSX syntax, not comment syntax, so
+ * generic block-comment stripping alone would leave a `{  }` remnant on a
+ * line that was semantically ONLY a comment, and a plain `line.trim() ===
+ * ''` blank-check would then (wrongly) count that line as code. Matching
+ * `{` immediately followed by `/*` (mirroring the reverse at the close) is
+ * deliberately narrow: real code that happens to be a bare `{}` block on
+ * its own line (e.g. a closing brace) never starts with `/*` inside it, so
+ * it is never mistaken for a JSX comment.
+ *
+ * Known, accepted imprecision (same class of caveat
+ * escapeConsume.source-scan.test.ts's own stripComments states for itself:
+ * "not a full parser"): a string or template literal containing the exact
+ * text `{/* ... *\/}` would be stripped too. This is a lint/ratchet tool,
+ * not a security boundary, and no line in page.tsx today contains that
+ * substring inside a string — accepted rather than reached for a real
+ * parser, per the mirror rule (no new dependency for what a ~10-line regex
+ * already does correctly for the file this gate actually runs on).
+ */
+function stripJsxComments(text) {
+  return text.replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, (m) => m.replace(/[^\n]/g, ' '));
+}
+
+/**
+ * Strips `//` line comments and `/* *\/` block comments from TS/TSX source,
+ * replacing removed characters with spaces (newlines preserved) so
+ * remaining line positions never shift. String/template-literal aware (a
+ * `//` or `/*` inside a string or template is never mistaken for a comment
+ * start) — same state-machine technique as
+ * `src/__tests__/lib/escapeConsume.source-scan.test.ts`'s own
+ * `stripComments`. Kept as a separate copy rather than an imported shared
+ * module: that file is a test, not a module, and the mirror rule's "no
+ * unrequested abstraction" cuts the other way here too — extracting a
+ * shared module for two current call sites, in two different trees
+ * (scripts/ and src/__tests__/lib/), is exactly the row-vs-code question
+ * this repo already had this exact tradeoff on the OTHER side of.
+ */
+function stripComments(text) {
+  let out = '';
+  let i = 0;
+  const n = text.length;
+  let state = 'code';
+  while (i < n) {
+    const c = text[i];
+    const c2 = i + 1 < n ? text[i + 1] : '';
+    if (state === 'code') {
+      if (c === '/' && c2 === '/') { state = 'line'; out += '  '; i += 2; continue; }
+      if (c === '/' && c2 === '*') { state = 'block'; out += '  '; i += 2; continue; }
+      if (c === "'") { state = 'sq'; out += c; i += 1; continue; }
+      if (c === '"') { state = 'dq'; out += c; i += 1; continue; }
+      if (c === '`') { state = 'tmpl'; out += c; i += 1; continue; }
+      out += c; i += 1; continue;
+    }
+    if (state === 'line') {
+      if (c === '\n') { state = 'code'; out += c; i += 1; continue; }
+      out += ' '; i += 1; continue;
+    }
+    if (state === 'block') {
+      if (c === '*' && c2 === '/') { state = 'code'; out += '  '; i += 2; continue; }
+      out += c === '\n' ? '\n' : ' '; i += 1; continue;
+    }
+    if (state === 'sq' || state === 'dq') {
+      const quote = state === 'sq' ? "'" : '"';
+      if (c === '\\') { out += c + c2; i += 2; continue; }
+      if (c === quote) { state = 'code'; out += c; i += 1; continue; }
+      out += c; i += 1; continue;
+    }
+    // state === 'tmpl'
+    if (c === '\\') { out += c + c2; i += 2; continue; }
+    if (c === '`') { state = 'code'; out += c; i += 1; continue; }
+    out += c; i += 1; continue;
+  }
+  return out;
+}
+
+/**
+ * Pure: the metric `main()` actually enforces (A8 carry item (a)). Strips
+ * JSX comments, then `//`/`/* *\/` comments, then counts every line whose
+ * trimmed remainder is non-empty — i.e. every line with real code on it,
+ * whether or not a comment ALSO shares that line (`const x = 5; // hi`
+ * counts; a line that is only a comment, only whitespace, or only the
+ * `{}` remnant of a stripped JSX comment does not). See
+ * check-page-line-ratchet.test.ts's fixture suite for the four cases this
+ * is measured against.
+ */
+export function countCodeLines(text) {
+  const stripped = stripComments(stripJsxComments(text));
+  let count = 0;
+  for (const line of stripped.split('\n')) {
+    if (line.trim() !== '') count += 1;
   }
   return count;
 }
@@ -209,7 +344,9 @@ export function evaluateRatchet(actualLines, ceiling = RATCHET_CEILING) {
 
 function main() {
   const raw = readFileSync(PAGE, 'utf8');
-  const actual = countLines(raw);
+  // A8 carry item (a): the gate measures countCodeLines (non-comment,
+  // non-blank), not the raw wc -l count -- see this file's header.
+  const actual = countCodeLines(raw);
   const { pass, message } = evaluateRatchet(actual, RATCHET_CEILING);
   if (pass) {
     console.log(message);

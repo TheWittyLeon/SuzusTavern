@@ -23,8 +23,14 @@
  * npm script) actually works, without ever writing to page.tsx.
  */
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { countLines, evaluateRatchet, RATCHET_CEILING } from '../../../scripts/check-page-line-ratchet.mjs';
+import {
+  countLines,
+  countCodeLines,
+  evaluateRatchet,
+  RATCHET_CEILING,
+} from '../../../scripts/check-page-line-ratchet.mjs';
 
 const ROOT = process.cwd();
 const SCRIPT = path.join(ROOT, 'scripts/check-page-line-ratchet.mjs');
@@ -65,6 +71,59 @@ describe('check-page-line-ratchet.mjs', () => {
 
     it('is 0 for an empty string', () => {
       expect(countLines('')).toBe(0);
+    });
+  });
+
+  describe('countCodeLines — A8 carry item (a): non-comment, non-blank lines only (the metric the gate actually enforces)', () => {
+    it('excludes blank lines, // comments, and /* block */ comments; includes real code, even code sharing a line with a trailing comment', () => {
+      const fixture = [
+        'const a = 1;', // 1: code
+        '',              // 2: blank
+        '// a full-line comment',      // 3: comment only
+        'const b = 2; // trailing',    // 4: code (comment on the same line doesn't disqualify it)
+        '/* a block comment on one line */', // 5: comment only
+        '/*',                          // 6-8: multi-line block comment, entirely non-code
+        '   spanning three lines',
+        '*/',
+        '   ',                          // 9: whitespace-only, still blank
+        'const c = 3;',                 // 10: code
+      ].join('\n');
+      expect(countCodeLines(fixture)).toBe(3); // lines 1, 4, 10
+    });
+
+    it('excludes a JSX comment `{/* ... */}` even though its own braces are not comment syntax', () => {
+      const fixture = [
+        '<div>',                    // code
+        '  {/* explanatory JSX comment */}', // JSX-comment-only line: excluded
+        '  <span>{value}</span>',   // code
+        '</div>',                   // code
+      ].join('\n');
+      expect(countCodeLines(fixture)).toBe(3);
+    });
+
+    it('still counts real code that renders alongside a JSX comment on the same line', () => {
+      const fixture = '<div>{/* c */}<span/></div>';
+      expect(countCodeLines(fixture)).toBe(1);
+    });
+
+    it('does not mistake a real, code-only `{}` block (e.g. a bare closing/opening brace pair) for a JSX-comment remnant', () => {
+      const fixture = ['function f() {', '  return;', '}', 'const g = () => {};'].join('\n');
+      expect(countCodeLines(fixture)).toBe(4);
+    });
+
+    it('is 0 for an all-comment, all-blank file', () => {
+      expect(countCodeLines('\n// only a comment\n\n/* and a block */\n')).toBe(0);
+    });
+
+    it('matches the real page.tsx count the ratchet is currently baselined against', () => {
+      // Read-only integration check (same "passes clean today" pattern as
+      // the CLI test above) -- proves the baseline in the history chain
+      // comment was measured with THIS function, not estimated.
+      const raw = readFileSync(
+        path.join(process.cwd(), 'src/app/play/[sessionId]/page.tsx'),
+        'utf8',
+      );
+      expect(countCodeLines(raw)).toBe(RATCHET_CEILING);
     });
   });
 
