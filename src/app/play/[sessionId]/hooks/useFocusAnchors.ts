@@ -18,6 +18,26 @@
  * as plain params, same shape as every other cross-hook ref threaded
  * through that call.
  *
+ * REGISTRATION ORDER (Miko-QA + Kage-CR, A7): extracting these three
+ * effects moved them from mount-effect positions 14-16 of 16 to 6-8 --
+ * they now register BEFORE the mount-load effect, the events poll and both
+ * useCombatActions effects. Registration order IS rAF scheduling order, so
+ * it decides which rescue wins a same-commit focus-strand tie with
+ * useCombatActions' own turn-flip rescue. That is safe, and the reason that
+ * holds LOCALLY is: every one of these rescues is gated on
+ * `document.activeElement === document.body` inside its own rAF, so
+ * whichever fires first wins and the rest are no-ops -- and in the one
+ * plausible collision (a death-save stabilize) both rescues target the same
+ * `composerRailAnchorRef`. Two narrower reasons also hold TODAY but depend
+ * on code this file doesn't own, so don't rely on them: the engine never
+ * advances the turn on a death save (engine/combat.py::make_death_save
+ * touches `active_participant_id` zero times), and the turn-flip rescue
+ * early-returns on `prev == null` (useCombatActions.ts:629), excluding a
+ * fresh encounter's first active-participant assignment. None of these
+ * three effects has a cleanup, so teardown order is a non-issue. A FOURTH
+ * rescue effect added here must keep the stranding gate, or the ordering
+ * stops being harmless.
+ *
  * `dialogRef`/Tab-trap `onKeyDown` are NOT here — those are `<Drawer>`'s
  * own concern (step 2), unrelated to this cluster.
  */
