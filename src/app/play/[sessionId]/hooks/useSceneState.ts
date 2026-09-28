@@ -420,8 +420,8 @@ export function useSceneState(
    * CRITICAL-1 rescue is knowing whether the about-to-be-replaced grounding
    * unmounts a check the user currently has focus on, and that can only be
    * read before the state update that may unmount it. See the source-scan
-   * pin (`useSceneState.onGroundingInvalidated.order.test.ts`) that fails if
-   * this order is ever swapped -- a real-DOM/RTL test cannot catch a swap
+   * pin (`src/__tests__/pages/play.a7-onGroundingInvalidated.source-scan.test.ts`)
+   * that fails if this order is ever swapped -- a real-DOM/RTL test cannot catch a swap
    * here (React 18 batches the state update, so the DOM doesn't change
    * mid-callback either way; Kage-CR A4b Suggestion A measured this
    * directly: probe D, moving the capture after setGrounding, SURVIVED the
