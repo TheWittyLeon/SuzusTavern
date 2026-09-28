@@ -116,9 +116,16 @@ export type NarrateDurableBeatFn = (
 
 export interface UseNarrationResult {
   talking: boolean;
-  setTalking: Dispatch<SetStateAction<boolean>>;
   thinking: boolean;
-  setThinking: Dispatch<SetStateAction<boolean>>;
+  // Kage-CR A4 IMPORTANT-3 (2026-09-28): `setTalking`/`setThinking` used to
+  // be exported raw so `useSessionEvents.ts`'s durable poll could flip them
+  // at turn end (§4c turn_key lifecycle clear, §4d poll-failure-grace forced
+  // cleanup) — two independent capabilities for what both call sites always
+  // use as one sequence, and a swap between them was a provable no-op
+  // (Miko-QA). Replaced by the one transition an external caller actually
+  // needs; see the `onTurnSettled` definition above for the full
+  // state-space enumeration.
+  onTurnSettled: () => void;
   // Kage-CR A5 IMPORTANT-3 (routed to A6 commit 0): `activeJob` (the bare
   // value), `lastDurableTurnRef` and `revealText` were exported with zero
   // readers outside this file (grepped; the only other hits anywhere in
@@ -199,6 +206,40 @@ export function useNarration(
   const [talking, setTalking] = useState(false);
   const [thinking, setThinking] = useState(false);
 
+  /**
+   * Kage-CR A4 IMPORTANT-3 (2026-09-28) — `talking`/`thinking` only ever
+   * reach THREE of their four possible combinations, enumerated against
+   * every call site in this file (not assumed): `(true, true)` on turn
+   * start, `(talking=true, thinking=false)` once the first chunk of a
+   * response is visible ("stop the thinking dots, keep talking"), and
+   * `(false, false)` once the turn settles. `(true, false)` — talking with
+   * no thinking transition ever having happened — is never reachable, so
+   * the twelve two-line `setThinking`/`setTalking` pairs this file used to
+   * write out longhand are really three named transitions. Naming them
+   * makes the unreachable fourth combination unrepresentable instead of
+   * merely unobserved (Miko-QA's own mutation proof: swapping
+   * `setThinking`/`setTalking` at a call site was a PROVABLE no-op given
+   * today's code — exactly the smell this fixes).
+   *
+   * `onTurnSettled` is the only one of the three exported on
+   * `UseNarrationResult`, replacing the bare `setThinking`+`setTalking`
+   * pair `useSessionEvents.ts`'s poll used to receive as two independent
+   * capabilities for what both its call sites (durable and flag-OFF) always
+   * use as one sequence. `beginTurn`/`firstChunkArrived` stay internal —
+   * nothing outside this file starts or narrates a turn.
+   */
+  const beginTurn = useCallback(() => {
+    setTalking(true);
+    setThinking(true);
+  }, []);
+  const firstChunkArrived = useCallback(() => {
+    setThinking(false);
+  }, []);
+  const onTurnSettled = useCallback(() => {
+    setThinking(false);
+    setTalking(false);
+  }, []);
+
   // DDX-20 Pass 2 — the in-flight job surfaced by the poll's
   // `pending_generation` block (Technical Design §2.2), promoted to real
   // state so the resume/busy affordance (§9) can render off it. Drives the
@@ -276,7 +317,7 @@ export function useNarration(
       // reveal the whole beat at once instead of animating it token by token.
       if (reduced) {
         upsertStreamNarration(full);
-        if (full.trim() !== '') setThinking(false);
+        if (full.trim() !== '') firstChunkArrived();
         return;
       }
       const tokens = full.split(/(\s+)/);
@@ -286,14 +327,14 @@ export function useNarration(
         i += 1;
         const shown = tokens.slice(0, i).join('');
         upsertStreamNarration(shown);
-        if (shown.trim() !== '') setThinking(false);
+        if (shown.trim() !== '') firstChunkArrived();
         if (i >= tokens.length && revealRef.current) {
           clearInterval(revealRef.current);
           revealRef.current = null;
         }
       }, 26);
     },
-    [reduced, upsertStreamNarration],
+    [reduced, upsertStreamNarration, firstChunkArrived],
   );
 
   /**
@@ -366,8 +407,7 @@ export function useNarration(
       narrationAbort.current?.abort();
       const ctrl = new AbortController();
       narrationAbort.current = ctrl;
-      setTalking(true);
-      setThinking(true);
+      beginTurn();
       clearStreamNarration(true);
 
       let full = '';
@@ -424,7 +464,7 @@ export function useNarration(
                 const preEntry = pendingByKeyRef.current.get(ledgerKey);
                 if (!preEntry || preEntry.narrationRowId) {
                   pollClaimedNarration = true;
-                  setThinking(false);
+                  firstChunkArrived();
                 }
               }
               // Tora CRITICAL-1 (resurrection race) — same gate as narrate():
@@ -445,7 +485,7 @@ export function useNarration(
                 if (entry && streamRowIdRef.current) {
                   entry.narrationRowId = streamRowIdRef.current;
                 }
-                if (full.trim() !== '') setThinking(false);
+                if (full.trim() !== '') firstChunkArrived();
               }
             }
           } else if (ev.kind === 'error') {
@@ -465,8 +505,7 @@ export function useNarration(
         }
         return;
       }
-      setThinking(false);
-      setTalking(false);
+      onTurnSettled();
       if (subscribedJobIdRef.current === jobId) subscribedJobIdRef.current = null;
 
       if (sawError && !pollClaimedNarration) {
@@ -495,7 +534,17 @@ export function useNarration(
         }
       }
     },
-    [sessionId, clearStreamNarration, upsertStreamNarration, appendLog, pendingByKeyRef, streamRowIdRef],
+    [
+      sessionId,
+      clearStreamNarration,
+      upsertStreamNarration,
+      appendLog,
+      pendingByKeyRef,
+      streamRowIdRef,
+      beginTurn,
+      firstChunkArrived,
+      onTurnSettled,
+    ],
   );
 
   const narrate = useCallback(
@@ -529,8 +578,7 @@ export function useNarration(
       narrationAbort.current?.abort();
       const ctrl = new AbortController();
       narrationAbort.current = ctrl;
-      setTalking(true);
-      setThinking(true);
+      beginTurn();
       // Drop any partial live-narration row left over from an aborted beat
       // so this beat starts a fresh bottom-of-chat row (never overwrites
       // the old).
@@ -592,7 +640,7 @@ export function useNarration(
               if (!ctrl.signal.aborted) {
                 upsertStreamNarration(full);
                 ownStreamRowId = streamRowIdRef.current;
-                if (full.trim() !== '') setThinking(false);
+                if (full.trim() !== '') firstChunkArrived();
               }
             } else {
               // Flag-OFF / buffered path — fake-reveal, driving the chat
@@ -625,8 +673,7 @@ export function useNarration(
         }
         return;
       }
-      setThinking(false);
-      setTalking(false);
+      onTurnSettled();
       if (errored || !full.trim()) {
         // Drop any partial live-streamed row before showing the fallback.
         clearStreamNarration(true);
@@ -716,6 +763,9 @@ export function useNarration(
       setFreeformOfferedCheck,
       logRef,
       streamRowIdRef,
+      beginTurn,
+      firstChunkArrived,
+      onTurnSettled,
     ],
   );
 
@@ -740,8 +790,7 @@ export function useNarration(
 
       // Miko-QA finding (b) — mirrors narrate()'s own pattern: flip
       // talking/thinking SYNCHRONOUSLY, before any await.
-      setTalking(true);
-      setThinking(true);
+      beginTurn();
 
       setJobFailed(false);
       lastDurableTurnRef.current = { message: playerMessage, mode: beatMode };
@@ -783,8 +832,7 @@ export function useNarration(
         turnKeyRef.current = null;
         setMsg(playerMessage);
         // Release the guard set synchronously above.
-        setTalking(false);
-        setThinking(false);
+        onTurnSettled();
         toast({ tone: 'error', message: 'Could not reach Suzu. Your message was not sent.' });
         return;
       }
@@ -824,7 +872,20 @@ export function useNarration(
     // boundary idRef/pendingByKeyRef/setLog already cross (below), so it's
     // listed for the same reason: it's a parameter now, not a closure over
     // a page.tsx-local useState the linter proved stable before A5.
-    [session, username, sessionId, appendLog, subscribeToJob, toast, idRef, pendingByKeyRef, setLog, setMsg],
+    [
+      session,
+      username,
+      sessionId,
+      appendLog,
+      subscribeToJob,
+      toast,
+      idRef,
+      pendingByKeyRef,
+      setLog,
+      setMsg,
+      beginTurn,
+      onTurnSettled,
+    ],
   );
 
   /**
@@ -858,8 +919,7 @@ export function useNarration(
       const aiEligible = session.dm_mode !== 'human' && aiLevel !== 'off' && aiLevel !== 'assist';
       if (!aiEligible) return;
 
-      setTalking(true);
-      setThinking(true);
+      beginTurn();
 
       const turnKey = mintTurnKey();
       saveTurnKey(sessionId, turnKey);
@@ -894,8 +954,7 @@ export function useNarration(
         pendingByKeyRef.current.delete(turnKey);
         clearTurnKey(sessionId);
         turnKeyRef.current = null;
-        setTalking(false);
-        setThinking(false);
+        onTurnSettled();
         return;
       }
 
@@ -924,7 +983,7 @@ export function useNarration(
       });
       void subscribeToJob(handle.job_id, turnKey, undefined, 'beat', true);
     },
-    [session, username, sessionId, subscribeToJob, pendingByKeyRef],
+    [session, username, sessionId, subscribeToJob, pendingByKeyRef, beginTurn, onTurnSettled],
   );
 
   /**
@@ -1029,9 +1088,8 @@ export function useNarration(
 
   return {
     talking,
-    setTalking,
     thinking,
-    setThinking,
+    onTurnSettled,
     setActiveJob,
     jobFailed,
     setJobFailed,

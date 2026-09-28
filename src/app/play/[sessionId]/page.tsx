@@ -498,7 +498,7 @@ export default function PlayPage() {
     msg, setMsg, dmNarrationPending, setDmNarrationPending, setDmNarrationError,
   );
   const {
-    talking, setTalking, thinking, setThinking, setActiveJob,
+    talking, thinking, onTurnSettled, setActiveJob,
     jobFailed, setJobFailed, subscribedJobIdRef, turnKeyRef,
     pollFailureGraceRef, durableRetryRowRef, narrationAbort, resumeThinking,
     subscribeToJob, narrate, narrateDurable, narrateDurableBeat,
@@ -987,7 +987,7 @@ export default function PlayPage() {
     checkWrapRef, setGrounding, diffAndExplainResolvedChecks,
     refocusSceneHeadIfStranded, applyOfferedCheckSignal, setOfferedCheckSkill,
     setFreeformOfferedCheck,
-    setActiveJob, setJobFailed, setThinking, setTalking, subscribedJobIdRef,
+    setActiveJob, setJobFailed, onTurnSettled, subscribedJobIdRef,
     turnKeyRef, pollFailureGraceRef, narrationAbort, subscribeToJob,
     setXCardEvent, setLatestNarrationSeq,
     journalSeenSeqsRef, setJournalEvents,

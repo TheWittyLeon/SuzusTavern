@@ -199,8 +199,14 @@ export interface UseSessionEventsHandlers {
   // useNarration
   setActiveJob: Dispatch<SetStateAction<PendingGeneration | null>>;
   setJobFailed: Dispatch<SetStateAction<boolean>>;
-  setThinking: Dispatch<SetStateAction<boolean>>;
-  setTalking: Dispatch<SetStateAction<boolean>>;
+  // Kage-CR A4 IMPORTANT-3 (2026-09-28) — replaces the raw `setThinking`/
+  // `setTalking` pair: both call sites this poll used them at (§4c turn_key
+  // lifecycle clear, §4d poll-failure-grace forced cleanup) always set them
+  // together to false, and a swap between them was a provable no-op
+  // (Miko-QA's mutation). `useNarration` now owns the one named transition
+  // this poll needs; see that hook's own header for the full three-state
+  // enumeration.
+  onTurnSettled: () => void;
   subscribedJobIdRef: MutableRefObject<string | null>;
   turnKeyRef: MutableRefObject<string | null>;
   pollFailureGraceRef: MutableRefObject<{ turnKey: string; nullTicks: number } | null>;
@@ -603,8 +609,7 @@ export function useSessionEvents(
           // `handlers.turnKeyRef` — the composer's own current turn — so it never
           // clears a DIFFERENT, still-in-flight beat's indicator; a beat's
           // own tail always self-clears at its SSE end (:973-ish) regardless.
-          handlers.setThinking(false);
-          handlers.setTalking(false);
+          handlers.onTurnSettled();
         }
 
         // §4d, mechanism 2 (Miko-QA finding c) — poll-only failure detection.
@@ -644,8 +649,7 @@ export function useSessionEvents(
               handlers.turnKeyRef.current = null;
               handlers.pollFailureGraceRef.current = null;
               handlers.clearStreamNarration(true);
-              handlers.setTalking(false);
-              handlers.setThinking(false);
+              handlers.onTurnSettled();
               handlers.setActiveJob(null);
               handlers.setJobFailed(true);
               handlers.appendLog({
