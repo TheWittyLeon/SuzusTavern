@@ -80,6 +80,26 @@ describe('reachableCells', () => {
     expect(reachableCells(s, [4, 4], 0, [])).toEqual([]);
     expect(reachableCells(s, [4, 4], -5, [])).toEqual([]);
   });
+
+  it('includes a diagonal-corner cell at cell.value 10, and never crosses off the board from a board corner', () => {
+    // Mover sits in the top-left CORNER ([0,0]) of a 5x5 board with a 10ft
+    // cell — the diagonal neighbor [1,1] costs Chebyshev(1,1)=1 x 10 = 10ft,
+    // exactly the budget. This exercises two things at once the plain
+    // chebyshevCost unit tests above don't: (a) cell.value 10 flowing
+    // through the FULL reachableCells legality path (blocked/occupied/
+    // bounds), not just the bare formula; (b) a mover positioned AT a
+    // corner, where three of the eight Chebyshev neighbors ([-1,-1],
+    // [-1,0], [0,-1]) are off-board — the loop only ever iterates
+    // 0..width-1/0..height-1, so an out-of-bounds "neighbor" can never
+    // silently appear in the result.
+    const s = space({ width: 5, height: 5, cell: { value: 10, unit: 'ft' } });
+    const cells = reachableCells(s, [0, 0], 10, []);
+    expect(cells).toContainEqual([1, 1]); // in-bounds diagonal corner, exactly at budget
+    expect(cells).toContainEqual([1, 0]);
+    expect(cells).toContainEqual([0, 1]);
+    expect(cells.every(([x, y]) => x >= 0 && y >= 0)).toBe(true); // no negative coords ever
+    expect(cells).toHaveLength(3); // only the 3 on-board neighbors of a corner cell
+  });
 });
 
 describe('isLegalMoveTarget', () => {
@@ -107,5 +127,20 @@ describe('isLegalMoveTarget', () => {
 
   it('false for the mover\'s own cell', () => {
     expect(isLegalMoveTarget(s, [2, 2], [2, 2], 100, [])).toBe(false);
+  });
+
+  it('true for a diagonal-corner cell at cell.value 10 exactly at budget, false one foot over', () => {
+    const s10 = space({ width: 5, height: 5, cell: { value: 10, unit: 'ft' } });
+    // Chebyshev(1,1) x 10ft = 10ft: exactly at a 10ft budget.
+    expect(isLegalMoveTarget(s10, [0, 0], [1, 1], 10, [])).toBe(true);
+    // One foot short of the same move: refused.
+    expect(isLegalMoveTarget(s10, [0, 0], [1, 1], 9, [])).toBe(false);
+  });
+
+  it('false for a diagonal target off the board from a board corner (negative coordinates)', () => {
+    // A naive Chebyshev formula run on [-1,-1] would compute a real
+    // (falsely legal) cost; the bounds check must reject it before cost is
+    // ever consulted.
+    expect(isLegalMoveTarget(s, [0, 0], [-1, -1], 1000, [])).toBe(false);
   });
 });

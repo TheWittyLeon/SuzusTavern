@@ -135,6 +135,69 @@ describe('TacticalMap — no `space`', () => {
   });
 });
 
+describe('TacticalMap — reach robustness on the ACTIVE participant', () => {
+  it('renders no in-range cells when the active participant\'s movement_remaining is null', () => {
+    const participants = [
+      makeParticipant({ participant_id: 'p1', name: 'Bren', at: [2, 2], movement_remaining: null }),
+    ];
+    const { container } = render(
+      <TacticalMap
+        {...baseProps({ participants, activeParticipantId: 'p1', moveMode: true })}
+      />,
+    );
+    expect(container.querySelectorAll(`.${styles.cellInRange}`)).toHaveLength(0);
+    // No crash: the actor's own token still renders normally.
+    expect(container.querySelector(`.${styles.tokenSelf}`)).toBeInTheDocument();
+  });
+
+  it('does not crash and shows no reach when the active participant is unplaced (`at: null`)', () => {
+    const participants = [
+      makeParticipant({ participant_id: 'p1', name: 'Bren', at: null, movement_remaining: 30 }),
+      makeParticipant({ participant_id: 'p2', name: 'Sable', at: [1, 1] }),
+    ];
+    const { container } = render(
+      <TacticalMap
+        {...baseProps({ participants, activeParticipantId: 'p1', moveMode: true })}
+      />,
+    );
+    expect(container.querySelectorAll(`.${styles.cellInRange}`)).toHaveLength(0);
+    // The grid itself still renders (this is a robustness case, not a
+    // theatre-of-mind fallback — `space` is present).
+    expect(screen.getByRole('grid')).toBeInTheDocument();
+  });
+
+  it('a participant whose `at` is outside the board bounds never renders a token and never throws', () => {
+    const participants = [
+      makeParticipant({ participant_id: 'p1', name: 'Bren', at: [0, 0] }),
+      makeParticipant({ participant_id: 'p9', name: 'OffGrid', at: [99, 99] }),
+    ];
+    expect(() =>
+      render(<TacticalMap {...baseProps({ participants })} />),
+    ).not.toThrow();
+    expect(screen.queryByText('OffGrid')).not.toBeInTheDocument();
+  });
+});
+
+describe('TacticalMap — no second aria-live announcer', () => {
+  it('the rendered board carries no aria-live attribute anywhere in its tree', () => {
+    const participants = [
+      makeParticipant({ participant_id: 'p1', name: 'Bren', at: [2, 2], conditions: ['prone'] }),
+    ];
+    const { container } = render(
+      <TacticalMap {...baseProps({ participants, moveMode: true })} />,
+    );
+    expect(container.querySelectorAll('[aria-live]')).toHaveLength(0);
+  });
+
+  it('the theatre-of-mind band also carries no aria-live attribute anywhere', () => {
+    const participants = [makeParticipant({ participant_id: 'p1', name: 'Bren' })];
+    const { container } = render(
+      <TacticalMap {...baseProps({ space: null, participants })} />,
+    );
+    expect(container.querySelectorAll('[aria-live]')).toHaveLength(0);
+  });
+});
+
 describe('TacticalMap — T1: reach overlay visible to ALL', () => {
   it('shows the ACTIVE participant\'s reach even when the viewer is a different participant', () => {
     const participants = [
@@ -228,7 +291,7 @@ describe('TacticalMap — keyboard flow', () => {
     const onMove = jest.fn();
     const onExitMove = jest.fn();
     const participants = [makeParticipant({ participant_id: 'p1', name: 'Bren', at: [2, 2], movement_remaining: 10 })];
-    render(
+    const { container } = render(
       <TacticalMap
         {...baseProps({ participants, activeParticipantId: 'p1', moveMode: true, onMove, onExitMove })}
       />,
@@ -237,11 +300,15 @@ describe('TacticalMap — keyboard flow', () => {
     // Focus enters the grid at the actor's own cell on Move engage.
     const startCell = screen.getByRole('gridcell', { name: /Bren — you\. Current position\./ });
     expect(startCell).toHaveAttribute('tabindex', '0');
+    // Roving tabindex: across the WHOLE 5x5=25-cell board, exactly one
+    // cell is tabbable at a time — not just the two named cells below.
+    expect(container.querySelectorAll('[role="gridcell"][tabindex="0"]')).toHaveLength(1);
 
     fireEvent.keyDown(startCell, { key: 'ArrowRight' });
     const nextCell = screen.getByRole('gridcell', { name: /Row 3, column 4\./ }); // [3,2] -> row3,col4
     expect(nextCell).toHaveAttribute('tabindex', '0');
     expect(startCell).toHaveAttribute('tabindex', '-1');
+    expect(container.querySelectorAll('[role="gridcell"][tabindex="0"]')).toHaveLength(1);
 
     fireEvent.keyDown(nextCell, { key: 'Enter' });
     expect(onMove).toHaveBeenCalledWith([3, 2]);
