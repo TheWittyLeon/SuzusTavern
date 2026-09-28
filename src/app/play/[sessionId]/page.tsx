@@ -36,13 +36,12 @@
  * "previously on" narration call off session-object identity and re-firing
  * it every ~4s indefinitely — see the poll's own comment and SessionRecap.tsx.
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import { useAuthGate } from '@/lib/auth/useAuthGate';
 import { useToast } from '@/components/Toast';
-import { useReducedMotion } from '@/lib/useReducedMotion';
 import { sessionTitle } from '@/lib/format';
 import {
   getCombatState,
@@ -52,15 +51,12 @@ import {
   getSession,
   getSessionEventsRaw,
   getSessionEventsPage,
-  postSessionEvent,
   postRoll,
 } from '@/lib/api/dnd';
-import { streamDmNarration, postDmTurn, subscribeDmJob } from '@/lib/stream';
 import { eventToLogRow, formatEventTimestamp as formatOpeningTimestamp } from '@/lib/rehydration';
 import { matchCombatIntent, matchKeywordIntent } from '@/lib/dnd/intentFastPath';
 import { DURABLE_GENERATION_ENABLED } from '@/lib/config';
-import { mintTurnKey, saveTurnKey, clearTurnKey } from '@/lib/turnKey';
-import { shouldClearAbortedStreamRow } from '@/lib/streamRowOwnership';
+import { clearTurnKey } from '@/lib/turnKey';
 import {
   reconcileDurableEvents,
   applyReconcileResult,
@@ -68,11 +64,8 @@ import {
 import type {
   CharacterSheet,
   EngineSessionEvent,
-  GroundingData,
   OfferedCheck,
   Participant,
-  PendingGeneration,
-  Session,
 } from '@/lib/api/types';
 import type { QuickCheck, RollTrigger } from '@/components/DiceTray';
 import Icon from '@/components/Icon';
@@ -92,13 +85,15 @@ import SceneStage from './regions/SceneStage';
 import Offers from './regions/Offers';
 import StoryLog from './regions/StoryLog';
 import { SessionHead, TopBar } from './regions/TopBar';
-import { POLL_INTERVAL_MS, isSessionLocked, buildReadAloudBlock, nowStamp } from './format';
+import { POLL_INTERVAL_MS, isSessionLocked, buildReadAloudBlock } from './format';
 import { useSessionLifecycle } from './hooks/useSessionLifecycle';
 import { useMyCharacter } from './hooks/useMyCharacter';
 import { useSafety } from './hooks/useSafety';
 import { useTranscript } from './hooks/useTranscript';
 import { useCombatState } from './hooks/useCombatState';
-import { useScene, type ConfirmBeatFn } from './hooks/useScene';
+import { useSceneState } from './hooks/useSceneState';
+import { useNarration } from './hooks/useNarration';
+import { useSceneActions } from './hooks/useSceneActions';
 import { useCombatActions } from './hooks/useCombatActions';
 import JournalPane, { JOURNAL_HEADING_ID } from '@/components/JournalPane';
 import MemberSheetPanel, { MEMBER_SHEET_HEADING_ID } from '@/components/MemberSheetPanel';
@@ -214,7 +209,8 @@ function scanXCardTracking(events: EngineSessionEvent[]): {
 
 // nowStamp moved to ./format.ts (TAV-PLAY-SHELL A3, useTranscript's own
 // reason — see that file's header) -- shared by useTranscript's writers and
-// this file's own narrate()/narrateDurable() below.
+// useNarration's narrate()/narrateDurable()/onSendDmNarration (A5). No
+// remaining reader in this file -- not imported here.
 
 /**
  * Phase 4 (Sora-Arch design §4 Fork 3) — parse an `offered_check` payload off
@@ -274,7 +270,9 @@ export default function PlayPage() {
   const { user } = useAuth();
   const username = user?.username ?? null;
   const { toast } = useToast();
-  const reduced = useReducedMotion();
+  // reduced (useReducedMotion) moved into useNarration (A5) -- its one
+  // consumer, revealText's fake-typewriter, moved with it. See that hook's
+  // header.
 
   // TAV-PLAY-SHELL step 5, hook 1 of ~9 (decomposition plan §2.2): session
   // lifecycle (session/participants/page-load state, DM session controls,
@@ -327,27 +325,31 @@ export default function PlayPage() {
   // poll ledgers (lastEventSeqRef/renderedSeqsRef/pendingByKeyRef) +
   // idRef/logRef/chatLogRef + the DM-STREAM row writers
   // (upsertStreamNarration/clearStreamNarration/finalizeStreamNarration).
-  // Composed ABOVE useCombatState/useScene (rows 5/6) per Amendment A --
-  // see hooks/useTranscript.ts's own header for the full scope and the
+  // Composed ABOVE useCombatState/useSceneState (rows 5/6) per Amendment A
+  // -- see hooks/useTranscript.ts's own header for the full scope and the
   // signature deviation from §2.2's abridged useTranscript(sessionId).
-  // useScene's appendLog/renderedSeqsRef parameters are unchanged in shape
-  // (Amendment A §A.3 edges R3/R4, both "reorder only") -- they just read
-  // from this hook's return now instead of a page.tsx-local
-  // useState/useRef.
+  // useSceneState's appendLog parameter and useSceneActions' appendLog/
+  // renderedSeqsRef parameters are unchanged in shape (Amendment A §A.3
+  // edges R3/R4, both "reorder only") -- they just read from this hook's
+  // return now instead of a page.tsx-local useState/useRef.
+  // `transcript` (the hook's own return object) is kept alongside the
+  // destructure below -- useNarration takes it as one bundle (A5; same
+  // "many fields, one hook" shape `combatStateResult` already uses for
+  // useCombatActions below).
+  const transcript = useTranscript();
   const {
-    log, setLog, appendLog, idRef, logRef, lastEventSeqRef, renderedSeqsRef,
-    pendingByKeyRef, chatLogRef, streamRowIdRef, upsertStreamNarration,
-    clearStreamNarration, finalizeStreamNarration,
-  } = useTranscript();
+    log, setLog, appendLog, logRef, lastEventSeqRef, renderedSeqsRef,
+    pendingByKeyRef, chatLogRef, clearStreamNarration,
+  } = transcript;
 
   // TAV-NARRATION-DECOUPLE (2026-07-25): `narratorText` used to feed the top
   // NarratorStrip with the live-streaming narration; removed when the strip
   // was repurposed to a scene/combat status banner (ChatLog's
   // upsertStreamNarration/finalizeStreamNarration is now the SOLE live
-  // narration surface — see subscribeToJob/narrate() below and revealText's
-  // own comment).
-  const [talking, setTalking] = useState(false);
-  const [thinking, setThinking] = useState(false);
+  // narration surface — see useNarration.ts's subscribeToJob/narrate()/
+  // revealText).
+  // talking/thinking moved into useNarration (TAV-PLAY-SHELL step 5 hook 7,
+  // Amendment A §A.2 row 7, A5) -- see that hook's destructure above.
 
   const [msg, setMsg] = useState('');
   const [mode, setMode] = useState<ComposeMode>('say');
@@ -481,60 +483,12 @@ export default function PlayPage() {
   // pollDurable's dedup counters), so a writer that forgets it would break
   // dedup silently.
   const journalSeenSeqsRef = useRef<Set<number>>(new Set());
-  // DDX-20 Pass 2 — the in-flight job surfaced by the poll's
-  // `pending_generation` block (Technical Design §2.2), promoted to real
-  // state so the resume/busy affordance (§9) can render off it. Drives the
-  // "Resuming Suzu's turn…" status ONLY when this client is not already
-  // actively streaming its own beat (talking/thinking cover that case) —
-  // see the render gate near the composer below.
-  const [activeJob, setActiveJob] = useState<PendingGeneration | null>(null);
-  // DDX-20 Pass 2 — guards against re-opening the SSE tail for a job this
-  // client is already subscribed to (the poll re-observes the same
-  // `pending_generation` block every ~4s while a beat is in flight; without
-  // this guard each tick would open a fresh SSE connection). Cleared when
-  // the tracked job resolves (subscribeToJob's own completion) or when a
-  // later poll tick sees `pending_generation` go null.
-  const subscribedJobIdRef = useRef<string | null>(null);
-  // DDX-20 Pass 2 — the client-minted turn_key for THIS client's own
-  // currently in-flight turn (§4c lifecycle: set on turn start, cleared once
-  // the poll's reconciliation removes its ledger entry — i.e. the beat's
-  // narration seq has been observed — or on failure/retry). null when no
-  // turn owned by this tab is in flight.
-  //
-  // DDX-20 Pass 3 Finding 3 (Kage-CR SHOULD-FIX, carried not fixed this
-  // pass — see fold commit for rationale) — this is a SINGLE ref shared by
-  // both `narrateDurable` and `narrateDurableBeat`. A beat firing mid-
-  // composer-turn (or vice versa) CLOBBERS whichever turn_key lost the
-  // write race, so the §4d poll-failure-grace dead-job detector below (it
-  // reads `turnKeyRef.current`) may silently stop tracking the turn that
-  // lost the race — a job that dies with no SSE error (backgrounded tab,
-  // proxy idle-timeout) then goes undetected for that turn. The primary
-  // resume mechanism (stateless `pending_generation` poll-discovery, §4b) is
-  // UNAFFECTED — it doesn't read this ref. `turnKey.ts`'s localStorage
-  // persistence is ALSO single-slot (one key per session), so a proper fix
-  // is more than swapping this ref for a Set: the §4c "clear once resolved"
-  // watcher below and the localStorage save/clear calls in both
-  // narrateDurable/narrateDurableBeat would all need to become
-  // multi-key-aware. Deferred as a carried item — not forced into this
-  // fold's scope. `play.ddx20-pass3-synthetic-beats.test.tsx` has a
-  // characterization test locking today's clobber behavior so a future
-  // refactor changes it deliberately, not by accident.
-  const turnKeyRef = useRef<string | null>(null);
-  // DDX-20 Pass 2 — the last composer-submitted (message, mode) this client
-  // originated, kept so a retry-after-failed (§4d) can resubmit the SAME
-  // content under a FRESH turn_key (mintTurnKey() is called fresh on every
-  // narrateDurable() invocation — retry never reuses a turn_key).
-  const lastDurableTurnRef = useRef<{ message: string; mode: ComposeMode } | null>(null);
-  // DDX-20 Pass 2 — true when the most recent durable beat this client was
-  // watching (its own, or one it subscribed to) ended in an SSE `error`
-  // event, OR the poll-only failure detector below (Miko-QA finding c)
-  // declared it dead. Drives the retry affordance (§4d / §9).
-  const [jobFailed, setJobFailed] = useState(false);
-  // DDX-20 Pass 2 (Miko-QA finding c) — poll-only failure-detection grace
-  // counter for THIS client's own in-flight turn_key (see
-  // POLL_FAILURE_GRACE_TICKS). Tracks the turn_key it's counting against so
-  // a brand-new turn never inherits a stale count from a prior one.
-  const pollFailureGraceRef = useRef<{ turnKey: string; nullTicks: number } | null>(null);
+  // activeJob/subscribedJobIdRef/turnKeyRef/lastDurableTurnRef/jobFailed/
+  // pollFailureGraceRef/durableRetryRowRef/revealRef/narrationAbort all
+  // moved into useNarration (TAV-PLAY-SHELL step 5 hook 7, Amendment A
+  // §A.2 row 7, A5) -- see that hook's destructure above and its own file
+  // for the full DDX-20/TAV-S1-ABORT-CLEAR rationale each used to carry
+  // here.
 
   // Synchronous double-submit latch for roll buttons (mirrors checkBusyRef /
   // sceneAdvanceBusyRef) — a roll is a real server write (persists a
@@ -542,21 +496,12 @@ export default function PlayPage() {
   const rollBusyRef = useRef(false);
   const [rollBusy, setRollBusy] = useState(false);
 
-  // DDX-20 §4d/§9 (Iro MAJOR-1) — same permanently-mounted tabIndex={-1}
-  // refocus-anchor pattern as xCardBannerRef above: onRetryFailedTurn
-  // unmounts the Retry button (jobFailed flips false), which would
-  // otherwise force-blur focus to <body>. Refocusing this wrapper BEFORE
-  // that unmount keeps focus in the document.
-  const durableRetryRowRef = useRef<HTMLDivElement>(null);
-
   // stateSeqRef/combatBusyRef/monsterDrivingRef/combatStateRef/pollIntervalRef
   // moved into useCombatState (TAV-PLAY-SHELL step 5 hook 5a) — see that
   // hook's destructure above. idRef/chatLogRef moved into useTranscript
   // (TAV-PLAY-SHELL step 5 hook 4, Amendment A §A.2 row 4) — see that
   // hook's destructure above.
 
-  const revealRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const narrationAbort = useRef<AbortController | null>(null);
   // Tora MAJOR-2: ref for the "End" trigger button so focus returns to it when
   // the outcome chooser is closed via Escape.
   const endCombatBtnRef = useRef<HTMLButtonElement>(null);
@@ -611,341 +556,67 @@ export default function PlayPage() {
   // useCombatState (TAV-PLAY-SHELL step 5 hook 5a) — see that hook's own
   // file.
 
-  // TAV-PLAY-SHELL step 5, hook 4 of ~9: scene state (grounding, checks,
-  // transitions) + onMoveOn/onAttemptCheck/handleSceneAdvance. Called here
-  // (right after useCombatState's destructure above, well before
-  // narrate/narrateDurableBeat below) so the mount-load effect and the
+  // TAV-PLAY-SHELL step 5, hook 6 of ~9 (Amendment A §A.2 row 6): scene
+  // state (grounding, checks, transitions). Called here (right after
+  // useCombatState's destructure above) so the mount-load effect and the
   // unified durable events poll further down can keep reading this hook's
-  // setGrounding/diffAndExplainResolvedChecks/
-  // openScene/refocusSceneHeadIfStranded/applyOfferedCheckSignal/checkWrapRef
-  // by the same names, unchanged.
+  // setGrounding/diffAndExplainResolvedChecks/openScene/
+  // refocusSceneHeadIfStranded/applyOfferedCheckSignal/checkWrapRef by the
+  // same names, unchanged.
   //
-  // Amendment A §A.1: the one derived boolean useScene reads off combat's
-  // state -- `combatEngaged` now comes straight from useCombatState's
+  // Amendment A §A.1: the one derived boolean useSceneState reads off
+  // combat's state -- `combatEngaged` comes straight from useCombatState's
   // destructure above (A2); the isCombatEngaged() call itself lives inside
   // that hook, not here.
-  // onMoveOn/onAttemptCheck/handleSceneAdvance need narrate/narrateDurableBeat
-  // (useNarration, hook 8), which are declared FAR below this call -- the
-  // mount effect above needs useScene's setGrounding/openScene before either
-  // narration function exists, so useScene can't move down to sit after
-  // them. confirmBeatRef is a stable ref kept current by a single
-  // useLayoutEffect right after narrate/narrateDurableBeat's own
-  // declarations, mirroring this file's existing combatStateRef/logRef
-  // "latest value without a dep" idiom, applied to a function.
-  // debt: scene's confirmation beat reaches narrate/narrateDurableBeat through
-  // one late-bound ref (confirmBeatRef), not a parameter.
-  // ceiling: exactly ONE such ref in hooks/ — a second is the finding, not a pattern.
-  // until: A5 splits useScene into useSceneState + useSceneActions (plan
-  // Amendment A §A.2 rows 6/7/9); useSceneActions is composed BELOW useNarration
-  // and takes narrate/narrateDurableBeat/talking as plain parameters.
-  const confirmBeatRef = useRef<ConfirmBeatFn>(() => {});
+  //
+  // `sceneState` (the hook's own return object) is kept alongside the
+  // destructure below -- useNarration and useSceneActions both take it as
+  // one bundle (A5; see their own headers).
+  const sceneState = useSceneState(sessionId, combatEngaged, appendLog);
   const {
     grounding, setGrounding, sceneAdvanceBusy, adventureComplete, completionSeries,
     checkBusy, offeredCheckSkill, setOfferedCheckSkill, freeformOfferedCheck,
     setFreeformOfferedCheck, sceneHeadRef, checkWrapRef, transitionWrapRef,
     freeformCheckRef, sceneHasEncounter, availableTransitions, availableChecks,
-    diffAndExplainResolvedChecks, refreshGrounding, playArrivalLine,
-    playRescueTransitionLine, playOutcomeLine, refocusSceneHeadIfStranded,
-    applyOfferedCheckSignal, openScene, handleSceneAdvance, onMoveOn, onAttemptCheck,
-  } = useScene(
-    sessionId, session, combatEngaged, talking, advantage, appendLog,
-    confirmBeatRef, renderedSeqsRef,
+    diffAndExplainResolvedChecks, refreshGrounding, playOutcomeLine,
+    refocusSceneHeadIfStranded, applyOfferedCheckSignal, openScene,
+  } = sceneState;
+
+  // TAV-PLAY-SHELL step 5, hook 7 of ~9 (Amendment A §A.2 row 7):
+  // narration. Composed BELOW useSceneState (narrate() reads
+  // refreshGrounding/grounding/applyOfferedCheckSignal/etc off it) and
+  // ABOVE useSceneActions (whose handleSceneAdvance/onMoveOn/onAttemptCheck
+  // fire narrate/narrateDurableBeat as plain, already-declared parameters --
+  // this composition order is what discharges the confirmBeatRef debt
+  // marker A1b/A2/A3 carried forward; see useNarration.ts's and
+  // useSceneActions.ts's own headers for the full A5 story).
+  const narration = useNarration(
+    sessionId, session, sceneState, transcript,
+    msg, setMsg, dmNarrationPending, setDmNarrationPending, setDmNarrationError,
   );
+  const {
+    talking, setTalking, thinking, setThinking, setActiveJob,
+    jobFailed, setJobFailed, subscribedJobIdRef, turnKeyRef,
+    pollFailureGraceRef, durableRetryRowRef, narrationAbort, resumeThinking,
+    subscribeToJob, narrate, narrateDurable, narrateDurableBeat,
+    onRetryFailedTurn, onSendDmNarration,
+  } = narration;
 
-  // streamRowIdRef and the three DM-STREAM row writers
-  // (upsertStreamNarration/clearStreamNarration/finalizeStreamNarration)
-  // moved into useTranscript (TAV-PLAY-SHELL step 5 hook 4, Amendment A
-  // §A.2 row 4) — see that hook's destructure above and its own file for
-  // the full T1 (TAV-S1) screen-reader-flood rationale.
-
-  /**
-   * DDX-20 Pass 2 — subscribe to a durable job's SSE tail (Client Integration
-   * Design §6 `subscribeDmJob`). Used from THREE call sites, uniformly:
-   *   (1) narrateDurable's own just-created/deduped-resumed job (originating client).
-   *   (2) the 409-busy pivot (§4a) — subscribing to ANOTHER client's in-flight job.
-   *   (3) the poll's stateless resume/don't-re-POST discovery (§4b) — mount/reload.
-   * In every case SSE is a non-authoritative live accelerator (§3.3): the
-   * durable poll (`pollDurable`) is what actually reconciles the finished
-   * beat into the transcript via the ledger (rule 3) — this function only
-   * drives the live `thinking`/`talking` UI + the chat log's live streaming
-   * row (`upsertStreamNarration`, the SOLE narration surface post
-   * TAV-NARRATION-DECOUPLE) and keeps `pendingByKeyRef`'s `narrationRowId`
-   * in sync so that reconciliation can find this row when the durable event
-   * lands.
-   *
-   * `ledgerKey` is the turn_key when known (originating / mount-resume —
-   * `PendingGeneration.turn_key` is always present); the 409-busy case does
-   * not learn the OTHER client's real turn_key (the busy wire shape omits
-   * it), so callers pass a synthetic per-job key there — rule 3 matches by
-   * `triggerSeq`, not by the ledger map's key, so a synthetic key still
-   * reconciles correctly (see reconcileEvents.ts's `findActiveNarrationEntry`).
-   *
-   * Defined ahead of the mount/poll effects below (moved up from its
-   * original spot just after `narrate`) so both the events poll effect and
-   * `narrateDurable` can reference it — a plain `const` is not hoisted, so
-   * it must be declared before its first use in source order.
-   *
-   * `origin` (DDX-20 Pass 3 Finding 1) — 'composer' for `narrateDurable`'s
-   * two call sites and the poll's stateless resume-discovery call (§4b;
-   * origin is genuinely unknown there after a reload, so it defaults
-   * conservatively to 'composer' — see that call site's own comment), 'beat'
-   * for `narrateDurableBeat`'s two call sites. Drives whether an SSE-tail
-   * `error` may surface the shared composer Retry banner.
-   *
-   * `precreateRow` (TAV-NARRATION-DECOUPLE Phase 2, 2026-07-26) — when true,
-   * pre-create THIS turn's streaming anchor row and claim it in the ledger
-   * (`entry.narrationRowId`) synchronously, before any await, so the poll's
-   * reconciliation (rule 3) always finds a `streaming` row to REPLACE
-   * (sub-case a) instead of appending a fresh one whole (sub-case c, the
-   * pop-in). `true` for all four originating-client subscribes
-   * (narrateDurable's 200 + 409-pivot, narrateDurableBeat's 200 + 409-pivot);
-   * `false` for the poll's stateless resume-discovery subscribe (§4b) —
-   * scoped OFF that path deliberately: on a reload the narration may already
-   * exist server-side by the time this client discovers the job, so
-   * pre-creating an anchor there risks an orphaned empty row racing a
-   * same-tick append. See the design doc's §3 Phase 2 / §11 trade-offs.
-   */
-  const subscribeToJob = useCallback(
-    async (
-      jobId: string,
-      ledgerKey: string,
-      triggerSeq: number | undefined,
-      origin: 'composer' | 'beat',
-      precreateRow: boolean,
-    ) => {
-      // DDX-20 Pass 3 Finding 2 (Kage-CR MAJOR-1 / Miko-QA) — de-dupe by
-      // job_id BEFORE touching anything else. A 409-busy-pivot (composer or
-      // beat) can target a job THIS SAME CLIENT already subscribed to under
-      // a DIFFERENT ledgerKey — the beat-6-in-flight/beat-2-409s-against-
-      // job6 same-tab sequencing §3.3 documents as the normal combat->scene
-      // case. Subscribing again would register a SECOND awaitingNarration
-      // entry for one job: reconcileDurableEvents' findActiveNarrationEntry
-      // only ever resolves the FIRST (insertion-order) match, so the other
-      // orphans forever and can later hijack an unrelated LATER turn's
-      // narration (see reconcileEvents.pass3-busy-pivot-orphan.test.ts) —
-      // and re-subscribing would also reset the shared narrating UI (Iro
-      // MAJOR-1) for a job that's already correctly driving it. A
-      // DIFFERENT, not-yet-watched job_id (the genuine multi-tab pivot)
-      // deliberately falls through to the normal reset below.
-      for (const entry of pendingByKeyRef.current.values()) {
-        if (entry.jobId === jobId && entry.awaitingNarration) {
-          console.debug('subscribe_dedup_same_job', { job_id: jobId, ledger_key: ledgerKey, origin });
-          return;
-        }
-      }
-
-      subscribedJobIdRef.current = jobId;
-      // Kage #3 — register INTENT to receive this turn's narration
-      // SYNCHRONOUSLY, before any await. This is what closes the race where
-      // the durable narration event could land on a poll tick BEFORE this
-      // function's first SSE chunk arrives (network round-trip): without
-      // `awaitingNarration` set here, reconcileDurableEvents' rule 3 has no
-      // way to know a subscriber is coming and would fall through to a plain
-      // "no match -> append", and the LATER-arriving SSE chunk would then
-      // create a second, un-reconciled row for the same beat.
-      pendingByKeyRef.current.set(ledgerKey, {
-        ...pendingByKeyRef.current.get(ledgerKey),
-        jobId,
-        triggerSeq,
-        awaitingNarration: true,
-        origin,
-      });
-
-      narrationAbort.current?.abort();
-      const ctrl = new AbortController();
-      narrationAbort.current = ctrl;
-      setTalking(true);
-      setThinking(true);
-      clearStreamNarration(true);
-
-      let full = '';
-      let sawError = false;
-      // Kage #3 — true once the FIRST chunk observes that the poll's own
-      // reconciliation already claimed (appended) this turn's narration
-      // before we got here (see reconcileEvents.ts rule 3 sub-case (c)).
-      // Once true, every subsequent chunk is dropped for the chat log too —
-      // the durable row the poll already appended is canonical, and (T1/
-      // TAV-S1) mutating an already-visible (non aria-hidden, already
-      // announced-once) row's text on every chunk would re-flood a screen
-      // reader exactly like the bug `streaming:true` was built to prevent.
-      // TAV-NARRATION-DECOUPLE: this is the only user-visible effect of the
-      // race — a beat whose durable event lands before this client's first
-      // SSE byte renders as one already-complete row instead of growing
-      // token-by-token. See play.ddx20-durable-turn.test.tsx's
-      // "poll-claim race" case for the non-vacuous proof that this stays a
-      // single, correctly-reconciled row either way.
-      let pollClaimedNarration = false;
-      // TAV-S1-ABORT-CLEAR: this tail's OWN streaming row id (see narrate()'s
-      // identical comment above) — only meaningful when we, not the poll,
-      // own the live row.
-      let ownStreamRowId: string | null = null;
-
-      // TAV-NARRATION-DECOUPLE Phase 2 (2026-07-26) — pre-create THIS turn's
-      // streaming anchor row and claim it in the ledger BEFORE the SSE tail
-      // even starts, so the poll's reconcile (rule 3) always finds a
-      // `streaming` row to REPLACE (sub-case a) rather than appending a
-      // fresh one whole once no chunk has arrived yet (sub-case c, the
-      // pop-in). Runs synchronously, after `clearStreamNarration(true)`
-      // above (drops any superseded beat's stale row first) and before the
-      // `for await` below suspends — so `entry.narrationRowId` is set before
-      // the poll's setInterval tick could possibly run again, closing the
-      // gap even tighter than the first-chunk claim below does.
-      //
-      // Why the SR-flood guard still holds: if the poll replaces this anchor
-      // (sub-case a) before any chunk lands, the row's `id` in `log` is
-      // swapped to the durable row's OWN fresh id (announce-once) — but
-      // `streamRowIdRef.current` still holds the OLD anchor id. The first
-      // chunk's `if (!streamRowIdRef.current)` check below is FALSE (an id
-      // is still present), so it skips the poll-claimed-detection branch —
-      // but `upsertStreamNarration(full)` then does a find-by-id against the
-      // STALE anchor id, which no row matches anymore, so it silently no-ops
-      // (see `upsertStreamNarration`'s `existingId` branch). The
-      // already-announced durable row is never touched again. Identical
-      // outcome to today's "poll replaced the streaming row mid-stream"
-      // case — just reached from a pre-existing id instead of one the first
-      // chunk minted.
-      if (precreateRow) {
-        upsertStreamNarration('');
-        ownStreamRowId = streamRowIdRef.current;
-        const precreateEntry = pendingByKeyRef.current.get(ledgerKey);
-        if (precreateEntry && ownStreamRowId) {
-          precreateEntry.narrationRowId = ownStreamRowId;
-        }
-        // §8 masked observability — correlation ids only, no prose/mechanics.
-        console.debug('narration_anchor_precreated', {
-          job_id: jobId,
-          ledger_key: ledgerKey,
-          origin,
-        });
-      }
-
-      try {
-        for await (const ev of subscribeDmJob(jobId, sessionId, { signal: ctrl.signal })) {
-          if (ev.kind === 'chunk') {
-            full = ev.text;
-            // TAV-COMPOSING (Phase 1, 2026-07-26) — do NOT clear `thinking`
-            // here unconditionally. On the poll-claim race (below) this
-            // chunk's row is never rendered by THIS tail at all — clearing
-            // on the bare event flashed the indicator off while the full
-            // text was already sitting in the log (the "pops up then shows
-            // the whole message" complaint). Clear only once something is
-            // actually visible: either the poll-claimed detection just below
-            // (the row is already on-screen, non-hidden), or the upsert below
-            // that carries real (non-empty) text.
-            if (!pollClaimedNarration) {
-              if (!streamRowIdRef.current) {
-                // First chunk. If the ledger entry is already gone (both
-                // player+narration resolved via the poll) or already carries
-                // a narrationRowId we didn't set (streamRowIdRef is still
-                // null here, so it can't be ours) — the poll's
-                // reconciliation got here first. Stop touching the
-                // transcript for the rest of this tail.
-                const preEntry = pendingByKeyRef.current.get(ledgerKey);
-                if (!preEntry || preEntry.narrationRowId) {
-                  pollClaimedNarration = true;
-                  // TAV-COMPOSING — the poll already rendered this beat's
-                  // narration as a real, visible (non-streaming) row; the
-                  // composing cue has nothing left to cover.
-                  setThinking(false);
-                }
-              }
-              // Tora CRITICAL-1 (resurrection race) — same gate as narrate():
-              // a stale/superseded tail can still deliver a trailing chunk
-              // after a successor has synchronously aborted `ctrl` (readSSE
-              // only re-checks `signal.aborted` once per `reader.read()`
-              // chunk, not per SSE event). `ctrl.signal.aborted` flips
-              // synchronously on `.abort()` regardless of generator
-              // progress, so checking it here stops a stale tail from
-              // re-minting/adopting a row a successor already owns.
-              if (!pollClaimedNarration && !ctrl.signal.aborted) {
-                upsertStreamNarration(full);
-                // TAV-S1-ABORT-CLEAR: snapshot the row id THIS tail owns.
-                ownStreamRowId = streamRowIdRef.current;
-                // Keep the ledger's narrationRowId in sync with the live row
-                // so reconcileDurableEvents (rule 3) can find-and-replace it
-                // once the durable seq-bearing event lands on the poll.
-                const entry = pendingByKeyRef.current.get(ledgerKey);
-                if (entry && streamRowIdRef.current) {
-                  entry.narrationRowId = streamRowIdRef.current;
-                }
-                // TAV-COMPOSING — clear once the row genuinely carries
-                // visible text (guards a precreated anchor's first empty
-                // upsert, and a stray empty first chunk in general).
-                if (full.trim() !== '') setThinking(false);
-              }
-            }
-          } else if (ev.kind === 'error') {
-            sawError = true;
-          }
-        }
-      } catch (e) {
-        sawError = true;
-        console.error('[dm-turn] subscribe failed client-side:', e);
-      }
-
-      if (ctrl.signal.aborted) {
-        // TAV-S1-ABORT-CLEAR: see narrate()'s identical comment — only clear
-        // if a successor hasn't already claimed/replaced this ref.
-        if (shouldClearAbortedStreamRow(streamRowIdRef.current, ownStreamRowId)) {
-          clearStreamNarration(true);
-        }
-        return;
-      }
-      setThinking(false);
-      setTalking(false);
-      if (subscribedJobIdRef.current === jobId) subscribedJobIdRef.current = null;
-
-      if (sawError && !pollClaimedNarration) {
-        // §4d failure detection (SSE tail yields error). Drop the orphaned
-        // streaming row and its ledger entry — a `failed` job never writes a
-        // durable narration event, so nothing will ever reconcile it.
-        // Guarded on !pollClaimedNarration — Kage #3: if the poll's own
-        // reconciliation already rendered this beat's durable narration
-        // before we got here, a LATE SSE error (the tail closing after its
-        // job is already done) is not a real failure; nothing to clean up.
-        clearStreamNarration(true);
-        pendingByKeyRef.current.delete(ledgerKey);
-
-        if (origin === 'beat') {
-          // DDX-20 Pass 3 Finding 1 (Miko-QA/Kage-CR MUST-FIX) — a
-          // beat-originated job's SSE-tail error drops SILENTLY (§3.1
-          // "beats have no retry affordance"). Surfacing the shared
-          // composer Retry banner here was wrong on two counts: (a) its
-          // handler (onRetryFailedTurn) unconditionally replays via
-          // narrateDurable — the COMPOSER function, which has no
-          // mechanics/suppress_intent parameters at all, so a retried beat
-          // silently lost both (double scene-advance for beats 2/3/4, a
-          // mechanics-blind retry for 1/5/6); (b) it isn't this beat's
-          // failure to surface — beats already silently skip when Suzu's
-          // busy (§3.2); an SSE-tail error is the equivalent "give up
-          // quietly" case. Masked per §10 — no mechanics/prose, just the
-          // correlation id.
-          console.debug('beat_narration_sse_error_dropped', { job_id: jobId, turn_key: ledgerKey });
-        } else {
-          // Never reuse this turn_key on retry (narrateDurable mints a
-          // fresh one every call).
-          setJobFailed(true);
-          appendLog({
-            who: 'Suzu',
-            kind: 'system',
-            text: 'Suzu stepped away for a moment. Try again.',
-          });
-        }
-      }
-    },
-    // pendingByKeyRef/streamRowIdRef: sourced from useTranscript's
-    // destructure (TAV-PLAY-SHELL A3) -- stable refs, linter can no longer
-    // prove it from a local useRef() call, so listed explicitly.
-    [
-      sessionId, clearStreamNarration, upsertStreamNarration, appendLog,
-      pendingByKeyRef, streamRowIdRef,
-    ],
+  // TAV-PLAY-SHELL step 5, hook 9 of ~9 (Amendment A §A.2 row 9): the two
+  // player-facing handlers + the ADV-8 auto-advance narrator (the behaviour
+  // half of A1's original useScene). Composed BELOW useNarration (takes
+  // narrate/narrateDurableBeat as plain parameters) and ABOVE
+  // useCombatActions (which reads handleSceneAdvance from here).
+  const sceneActions = useSceneActions(
+    session, sceneState, narrate, narrateDurableBeat, talking, advantage,
+    appendLog, renderedSeqsRef,
   );
+  const { handleSceneAdvance, onMoveOn, onAttemptCheck } = sceneActions;
 
   // ── load session + party ────────────────────────────────────────────────────
   // debt: mount effect stays here, not in useSessionLifecycle -- it also
-  // seeds grounding/log/journal (useScene/useTranscript's concerns) in one
-  // atomic sequence 553 tests pin the ordering of. ceiling: no additional
+  // seeds grounding/log/journal (useSceneState/useTranscript's concerns) in
+  // one atomic sequence 553 tests pin the ordering of. ceiling: no additional
   // concern folded in. until: Backlog row TAV-PLAY-SHELL-MOUNT-EFFECT-ATOMIC-SEED-SPLIT is scheduled.
   // (Kage-CR A3 IMPORTANT-1, 2026-09-28: replaces "the atomic seeding
   // sequence is decomposed per-hook", which restated the owed work rather
@@ -1889,812 +1560,11 @@ export default function PlayPage() {
     // intermediate hook (same as the XP-guard effect above).
   }, [combatState?.state, myCharacterIdStr, toast, noCharToastFiredRef]);
 
-  // ── cleanup streams on unmount ───────────────────────────────────────────────
-  // pollIntervalRef is owned by useCombatState's own combat-state poll effect
-  // (TAV-PLAY-SHELL step 5 hook 5a) — its cleanup already runs on combatId
-  // change and on unmount. Don't double-clear it here; doing so trips a
-  // Strict Mode bug where the []-dep cleanup fires between the poll effect's
-  // double-invoke and its real mount, leaving no cleanup for real unmount.
-  useEffect(
-    () => () => {
-      if (revealRef.current) clearInterval(revealRef.current);
-      narrationAbort.current?.abort();
-    },
-    [],
-  );
-
-  /**
-   * TAV-NARRATION-DECOUPLE (2026-07-25): the client-side fake-typewriter for
-   * the buffered/non-streamMode legacy SSE beat (server sends the whole
-   * accumulated text in one non-paced delta, see narrate()'s `else` branch
-   * below). This used to reveal word-by-word into the top NarratorStrip's
-   * now-removed `narratorText`; it now drives the SAME `upsertStreamNarration`
-   * chat row the streamMode branch uses directly, so the buffered path keeps
-   * a real live-streaming row in the chat log (its sole narration surface)
-   * instead of the row popping in whole at `narrate()`'s post-loop finalize.
-   * `streamRowIdRef` ends up set exactly as it would for a streamMode beat, so
-   * the existing `finalizeStreamNarration(full)` call at the end of `narrate()`
-   * still finalizes/announces it correctly — no new finalize path needed.
-   *
-   * TAV-COMPOSING (Phase 1, 2026-07-26): this starts the row EMPTY
-   * (`upsertStreamNarration('')`) and grows it word-by-word, so `thinking`
-   * must NOT clear the moment this function is called (the caller's `full`
-   * argument is non-empty, but nothing visible exists yet) — it clears
-   * itself, right here, once the first tick actually paints non-empty text.
-   * Until then the composing cue stays up and covers the empty-anchor gap
-   * (ChatLog renders `null` for a streaming row with no text — see its own
-   * TAV-NARRATION-DECOUPLE Phase 2 guard).
-   */
-  const revealText = useCallback(
-    (full: string) => {
-      if (revealRef.current) clearInterval(revealRef.current);
-      if (reduced) {
-        upsertStreamNarration(full);
-        if (full.trim() !== '') setThinking(false);
-        return;
-      }
-      const tokens = full.split(/(\s+)/);
-      let i = 0;
-      upsertStreamNarration('');
-      revealRef.current = setInterval(() => {
-        i += 1;
-        const shown = tokens.slice(0, i).join('');
-        upsertStreamNarration(shown);
-        if (shown.trim() !== '') setThinking(false);
-        if (i >= tokens.length && revealRef.current) {
-          clearInterval(revealRef.current);
-          revealRef.current = null;
-        }
-      }, 26);
-    },
-    [reduced, upsertStreamNarration],
-  );
-
-  // diffAndExplainResolvedChecks/refreshGrounding/playArrivalLine/
-  // playRescueTransitionLine/playOutcomeLine/refocusSceneHeadIfStranded/
-  // applyOfferedCheckSignal (+ their scene-scoped refs) moved into useScene
-  // (TAV-PLAY-SHELL step 5 hook 4) -- see the useScene() call above, right
-  // after appendLog. `narrate` below reads them by the same names, from
-  // that call's destructure.
-
-
-  /**
-   * Stream one DM-narration beat; `mechanics` empty = pure roleplay beat.
-   *
-   * A1: optional `opts.kind` can be 'opening' — when set:
-   *   - No player log row is appended (opening is system-authored).
-   *   - `message` sent to the proxy is '' (opening beats have no player message).
-   *   - The proxy writes the durable `opening_narrated` event marker on success.
-   *   - On error, a neutral "Suzu hasn't joined yet" system row is appended.
-   *
-   * FIX-1: accepts optional `opts.session` to override the closure `session` value.
-   * This is required for the opening-scene call where session state is still null
-   * at mount time; all other callers omit it and fall back to the closure value.
-   *
-   * P1-PLAYFIX-2 §A.5/§A.7 (A.2 reconciliation): the SSE response may carry
-   * `offeredCheck` and/or `sceneAdvanced`/`advancedTo`. Both are handled AFTER
-   * the narration text is appended so the beat reads in order: Suzu's words
-   * land, THEN the UI reacts to what she signalled.
-   */
-  const narrate = useCallback(
-    async (
-      playerMessage: string,
-      mechanics: string,
-      beatMode: ComposeMode,
-      opts?: { kind?: 'beat' | 'opening'; session?: Session; suppressIntent?: boolean },
-    ) => {
-      // FIX-1: use the override session when supplied (opening call), otherwise
-      // fall back to the closure value (all subsequent player/combat calls).
-      const activeSession = opts?.session ?? session;
-      if (!activeSession || !username) return;
-
-      // S5.2: human-DM sessions do NOT route through the LLM pipeline at all.
-      // S5.5: ai_assist_level='off' or 'assist' also suppresses auto-fire narration.
-      //   'off'    → full interlock; no LLM calls (server enforces; client matches).
-      //   'assist' → no auto-fire; only explicit DM invocation (future affordance).
-      //              Sprint 5 ships assist = no auto-fire (same gate as off for now).
-      // Read directly from activeSession (server truth) — no separate useState copy.
-      const aiLevel = activeSession.ai_assist_level;
-      if (activeSession.dm_mode === 'human' || aiLevel === 'off' || aiLevel === 'assist') return;
-
-      // Iro Ship 2 CRITICAL-1: capture BEFORE any await in this function — a
-      // `sceneAdvanced` signal below triggers refreshGrounding(), which can
-      // recompute availableChecks/availableTransitions and unmount whichever
-      // button the player was just on. This mirrors onMoveOn/onAttemptCheck's
-      // own capture exactly; the browser focuses a clicked button
-      // synchronously, so this is the only reliable moment to know which
-      // group had it.
-      const hadFocusInCheckWrap = checkWrapRef.current?.contains(document.activeElement) ?? false;
-      const hadFocusInTransitionWrap =
-        transitionWrapRef.current?.contains(document.activeElement) ?? false;
-
-      narrationAbort.current?.abort();
-      const ctrl = new AbortController();
-      narrationAbort.current = ctrl;
-      setTalking(true);
-      setThinking(true);
-      // Drop any partial live-narration row left over from an aborted beat so
-      // this beat starts a fresh bottom-of-chat row (never overwrites the old).
-      clearStreamNarration(true);
-      // P1-PLAYFIX-2 §A.6 — clear any stale offer from a previous beat; THIS
-      // turn's response (if any) re-sets it below. Phase 4: clears the
-      // freeform sibling too — `applyOfferedCheckSignal` is the only writer
-      // of either, but only ONE beat's worth of clearing needs to happen
-      // here regardless of which one a prior beat set.
-      setOfferedCheckSkill(null);
-      setFreeformOfferedCheck(null);
-
-      const isOpening = opts?.kind === 'opening';
-
-      const transcript = logRef.current.slice(-8).map((r) => `${r.who}: ${r.text}`);
-      let full = '';
-      let errored = false;
-      let lastErrorReason: string | undefined;
-      let offeredCheckSignal: OfferedCheck | undefined;
-      let sceneAdvancedSignal = false;
-      // TAV-S1-ABORT-CLEAR: this beat's OWN streaming row id, captured right
-      // after upsertStreamNarration creates/updates it. A successor beat
-      // always clears + replaces streamRowIdRef before this one's abort
-      // check runs, so comparing against the CURRENT ref (not just clearing
-      // unconditionally) tells us whether a successor has already claimed
-      // it — clearing unconditionally here could otherwise delete a
-      // successor's brand-new row instead of this beat's own.
-      let ownStreamRowId: string | null = null;
-      try {
-        for await (const ev of streamDmNarration(
-          {
-            username,
-            channel: activeSession.channel,
-            // Opening beats MUST send empty message — the proxy enforces this.
-            message: isOpening ? '' : playerMessage,
-            mechanics,
-            transcript,
-            mode: beatMode,
-            session_id: activeSession.session_id,
-            ...(isOpening ? { kind: 'opening' as const } : {}),
-            // Kage #1 / Miko DEFECT-2 — true only on the client's own synthetic
-            // confirmation beats (onMoveOn/onAttemptCheck/handleSceneAdvance);
-            // tells the server's INTENT classifier not to advance the scene a
-            // second time for a beat that already advanced it via its own
-            // dedicated endpoint.
-            suppress_intent: opts?.suppressIntent ?? false,
-          },
-          { signal: ctrl.signal },
-        )) {
-          if (ev.kind === 'chunk') {
-            full = ev.text;
-            // TAV-COMPOSING (Phase 1, 2026-07-26) — same re-timing as
-            // subscribeToJob above: don't clear on the bare event, clear once
-            // real content is actually visible. The streamMode branch below
-            // upserts the real accumulated text directly (no gap); the
-            // buffered/revealText branch fake-types word-by-word starting
-            // from '', so it clears itself internally once its first
-            // non-empty tick paints (see revealText's own definition) —
-            // clearing it here too would flash the indicator off during that
-            // empty first tick, right as ChatLog's empty-anchor guard also
-            // hides the row, leaving nothing on screen for one 26ms tick.
-            if (ev.streamMode) {
-              // DM-STREAM: the server is already pacing the reveal
-              // token-by-token — set the cumulative text directly instead of
-              // running the client-side fake typewriter (which would double
-              // up the reveal and lag behind the real stream). Clear any
-              // typewriter interval left over from a prior non-streamed beat.
-              if (revealRef.current) {
-                clearInterval(revealRef.current);
-                revealRef.current = null;
-              }
-              // Tora CRITICAL-1 (resurrection race): `readSSE` only checks
-              // `signal.aborted` once per `reader.read()` chunk, not per SSE
-              // event — a single network read can carry 2+ buffered events,
-              // so a stale/superseded beat's `for await` body can still run
-              // AFTER a successor has synchronously aborted `ctrl` (and
-              // cleared `streamRowIdRef`). `ctrl.signal.aborted` itself flips
-              // synchronously the instant `.abort()` is called, regardless of
-              // whether this async generator has noticed yet — so gating the
-              // mutation on it (rather than relying solely on the post-loop
-              // abort check) stops a stale beat from ever re-minting/adopting
-              // a row after it's been superseded. Do NOT snapshot
-              // `ownStreamRowId` in the aborted branch — this beat no longer
-              // owns any row.
-              if (!ctrl.signal.aborted) {
-                // Mirror the live stream into a growing bottom-of-chat row.
-                upsertStreamNarration(full);
-                // TAV-S1-ABORT-CLEAR: snapshot the row id THIS beat owns right
-                // after the synchronous upsert sets it.
-                ownStreamRowId = streamRowIdRef.current;
-                // TAV-COMPOSING — real accumulated text lands directly (no
-                // fake-typewriter lag), so clear as soon as it's non-empty.
-                if (full.trim() !== '') setThinking(false);
-              }
-            } else {
-              // Flag-OFF / buffered path — fake-reveal, now driving the chat
-              // streaming row directly (revealText, TAV-NARRATION-DECOUPLE)
-              // instead of the removed narratorText bar. revealText itself
-              // clears `thinking` once its first non-empty tick paints (see
-              // its own TAV-COMPOSING comment) — do NOT also clear it here.
-              revealText(full);
-            }
-            if (ev.offeredCheck) offeredCheckSignal = ev.offeredCheck;
-            if (ev.sceneAdvanced) sceneAdvancedSignal = true;
-          } else if (ev.kind === 'error') {
-            errored = true;
-            lastErrorReason = ev.reason;
-          }
-        }
-      } catch (e) {
-        errored = true;
-        // OBS-1: never swallow the reason — this catch is exactly where
-        // "instant stepped-away with zero trace" failures land (aborted
-        // fetches, exhausted connection pool, proxy refusals). Console gets
-        // the real exception; the fallback row gets a debug suffix on the
-        // local stack so playtests can report the cause verbatim.
-        lastErrorReason = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
-         
-        console.error('[dm-narration] beat failed client-side:', e);
-      }
-
-      if (ctrl.signal.aborted) {
-        // TAV-S1-ABORT-CLEAR: an aborted beat with no successor would
-        // otherwise leave a dangling aria-hidden streaming row that nothing
-        // will ever finalize. Only clear if streamRowIdRef STILL points at
-        // this beat's own row — if a successor beat already claimed/
-        // replaced it (the normal supersede path), leave it alone.
-        if (shouldClearAbortedStreamRow(streamRowIdRef.current, ownStreamRowId)) {
-          clearStreamNarration(true);
-        }
-        return;
-      }
-      setThinking(false);
-      setTalking(false);
-      if (errored || !full.trim()) {
-        // Drop any partial live-streamed row before showing the fallback.
-        clearStreamNarration(true);
-        const fallbackText = isOpening
-          ? "Suzu hasn't joined yet — try a move and she'll catch up."
-          : lastErrorReason === 'ai_off'
-            ? 'This table runs without AI narration — you and your DM drive the scene.'
-            : // OBS-1: on the local stack, show the captured failure reason in
-              // the log row itself so a playtest report carries the cause
-              // verbatim (prod keeps the friendly copy only).
-              `Suzu stepped away for a moment. Try again.${
-                process.env.NEXT_PUBLIC_DEPLOY_ENV === 'local' && lastErrorReason
-                  ? ` (debug: ${lastErrorReason})`
-                  : ''
-              }`;
-        appendLog({
-          who: 'Suzu',
-          kind: 'system',
-          text: fallbackText,
-        });
-        return;
-      }
-
-      if (streamRowIdRef.current) {
-        // Kage-CR CRITICAL (review pass) — the buffered/non-streamMode path
-        // drives its streaming row via revealText's setInterval (26ms
-        // ticks), which is independent of the SSE loop above: a `done`
-        // event can race ahead of the interval's next tick (e.g. the whole
-        // beat's text is short, or `done` simply arrives before the next
-        // 26ms boundary). Without clearing it HERE, that pending interval
-        // fires AFTER finalizeStreamNarration below has already nulled
-        // `streamRowIdRef` — its next `upsertStreamNarration` call then sees
-        // no existing id and CREATES a brand-new (orphaned, aria-hidden)
-        // streaming row that nothing ever finalizes, double-rendering
-        // Suzu's prose. Truncating the reveal here (showing the full text
-        // immediately instead of finishing the animation) is an acceptable
-        // degradation — same "pops in whole" tradeoff already accepted for
-        // the durable poll-claim race — the invariant that matters is
-        // exactly ONE row. The streamMode branch above (~2091) already
-        // clears this same ref for the identical reason; this mirrors it.
-        if (revealRef.current) {
-          clearInterval(revealRef.current);
-          revealRef.current = null;
-        }
-        // Streamed path — the narration is already live in the bottom log as
-        // an aria-hidden streaming row. T1 (TAV-S1): finalize by REMOUNTING a
-        // fresh, non-hidden row (new id) in its place rather than mutating
-        // the same node's text — the fresh node is what the SR announces
-        // exactly once (see finalizeStreamNarration's own comment).
-        finalizeStreamNarration(full);
-      } else {
-        // Buffered / flag-OFF path — append the finished narration as before.
-        appendLog({ who: 'Suzu', kind: 'narration', text: full });
-      }
-
-      // P1-PLAYFIX-2 §A.5/§A.7 (A.2 reconciliation) — the server already
-      // narrated the transition in-fiction on THIS turn (server-side INTENT)
-      // when `sceneAdvanced` is true; just catch the scene card / affordances
-      // up. Never call narrate() again here — `full` above IS the narration
-      // for this beat, calling it again would double-narrate.
-      // Iro MAJOR-1: keep the freshly-fetched grounding here (not the closure
-      // value below) — refreshGrounding()'s returned data is used for the
-      // offered_check validation just below so a check offered on the
-      // NEWLY-advanced scene isn't wrongly dropped as "not authored".
-      let freshGrounding: GroundingData | null = null;
-      if (sceneAdvancedSignal) {
-        freshGrounding = await refreshGrounding();
-        // Iro Ship 2 CRITICAL-1: mirror onMoveOn/onAttemptCheck — refocus the
-        // scene heading if the refresh above stranded focus on <body>.
-        refocusSceneHeadIfStranded(hadFocusInCheckWrap || hadFocusInTransitionWrap);
-        // DM-ARRIVAL-NARRATION — on THIS path the arrival line FOLLOWS the
-        // beat rather than replacing it, and that is not a compromise: the
-        // narration above was generated from the scene being LEFT, so it
-        // legitimately narrates the player's journey ("I keep running towards
-        // the light" -> the chase). What went missing on 2026-07-29 was the
-        // landing, while the scene card had already flipped. Playing the
-        // authored arrival here is what lets the prose catch up to the card.
-        // Replacing it is not even available: the prose has already streamed.
-        // C3 — the rescue-transition line (if any) plays FIRST: it narrates
-        // how the party got here, `playArrivalLine` narrates arriving. Both
-        // are independent authored beats for the same landing.
-        playRescueTransitionLine(freshGrounding);
-        playArrivalLine(freshGrounding);
-      }
-
-      // P1-PLAYFIX-2 §A.5/§A.6 — surface an offered check. Per §A.3 this NEVER
-      // auto-rolls; it only makes the matching "Attempt {skill}" affordance
-      // impossible to miss. Phase 4 (Miko-QA "the sleeper bug" fix):
-      // `applyOfferedCheckSignal` no longer DROPS an offer whose skill isn't
-      // one of this scene's authored checks — it routes to the freeform
-      // "Attempt {skill}" affordance instead (`freeformOfferedCheck`).
-      if (offeredCheckSignal) {
-        // Iro MAJOR-1: validate against the freshly-fetched grounding when
-        // this beat just advanced the scene — the `grounding` closure value
-        // is stale until the next render (setGrounding() is async), so
-        // validating against it here would wrongly treat a check authored on
-        // the scene we JUST advanced to as unauthored/freeform.
-        const currentGrounding = sceneAdvancedSignal ? freshGrounding : grounding;
-        applyOfferedCheckSignal(offeredCheckSignal, currentGrounding);
-      }
-    },
-    [
-      session,
-      username,
-      revealText,
-      appendLog,
-      upsertStreamNarration,
-      clearStreamNarration,
-      finalizeStreamNarration,
-      refreshGrounding,
-      refocusSceneHeadIfStranded,
-      grounding,
-      applyOfferedCheckSignal,
-      playArrivalLine,
-      playRescueTransitionLine,
-      // checkWrapRef/transitionWrapRef (hadFocusInCheckWrap/
-      // hadFocusInTransitionWrap above) and setOfferedCheckSkill/
-      // setFreeformOfferedCheck (the top-of-beat clear) all come from
-      // useScene's destructure now (TAV-PLAY-SHELL step 5 hook 4) --
-      // stable across renders same as before, but the linter can no longer
-      // prove that from a local useRef/useState call, so listed explicitly
-      // (same fix hook 2's own extraction needed for noCharToastFiredRef).
-      checkWrapRef,
-      transitionWrapRef,
-      setOfferedCheckSkill,
-      setFreeformOfferedCheck,
-      // logRef/streamRowIdRef: same reasoning, now sourced from
-      // useTranscript's destructure (TAV-PLAY-SHELL A3).
-      logRef,
-      streamRowIdRef,
-    ],
-  );
-
-  /**
-   * DDX-20 Pass 2 — the flag-ON durable turn path (Client Integration Design
-   * §4/§5/§6). Mints+persists a `turn_key`, appends the optimistic player row
-   * (carrying `pendingKey`), POSTs `/api/narration/dm/turn`, and handles all
-   * three create outcomes:
-   *   - created (deduped:false)  → subscribe to the fresh job's SSE tail.
-   *   - resumed (deduped:true)   → same subscribe path; the engine's
-   *     `ON CONFLICT` returned the SAME job this client already started
-   *     (e.g. a stray double-fire) — not a new turn, just a resume.
-   *   - busy (409)               → the 409-subscribe-pivot (§4a): the
-   *     optimistic row is orphaned (never got a seq — the busy guard fires
-   *     BEFORE the player_action write), so it's removed and the composer
-   *     text restored; then subscribe to the OTHER client's in-flight job so
-   *     this client still watches it finish.
-   *
-   * Mirrors `narrate()`'s own AI-eligibility gate (dm_mode/ai_assist_level)
-   * so a human-DM/AI-off table behaves identically to today: the player's
-   * row still appears, no job is ever created.
-   */
-  const narrateDurable = useCallback(
-    async (playerMessage: string, beatMode: ComposeMode) => {
-      if (!session || !username || !sessionId) return;
-
-      const aiLevel = session.ai_assist_level;
-      const aiEligible =
-        session.dm_mode !== 'human' && aiLevel !== 'off' && aiLevel !== 'assist';
-
-      if (!aiEligible) {
-        // Mirrors narrate()'s own early-return for a human-DM/AI-off table —
-        // onSend always shows the player's row regardless; no job is created
-        // so there is nothing to reconcile (no pendingKey stamped).
-        appendLog({ who: username, kind: 'player', text: playerMessage, color: 'var(--accent)' });
-        return;
-      }
-
-      // Miko-QA finding (b) — mirrors narrate()'s own pattern: flip
-      // talking/thinking SYNCHRONOUSLY, before any await. Previously this
-      // only happened inside subscribeToJob, which does not run until AFTER
-      // `postDmTurn` resolves — leaving the entire network round-trip
-      // uncovered by onSend's `if (!text || talking) return` guard, so a
-      // second Enter fired during that window minted a SECOND turn_key and
-      // fired a SECOND POST (busy-pivot only cleans this up when the
-      // server's busy-guard has already committed, which is not guaranteed).
-      setTalking(true);
-      setThinking(true);
-
-      setJobFailed(false);
-      lastDurableTurnRef.current = { message: playerMessage, mode: beatMode };
-
-      const turnKey = mintTurnKey();
-      saveTurnKey(sessionId, turnKey);
-      turnKeyRef.current = turnKey;
-
-      const rowId = `r${(idRef.current += 1)}`;
-      setLog((prev) => [
-        ...prev,
-        {
-          id: rowId,
-          who: username,
-          kind: 'player' as const,
-          text: playerMessage,
-          ts: nowStamp(),
-          color: 'var(--accent)',
-          pendingKey: turnKey,
-        },
-      ]);
-      pendingByKeyRef.current.set(turnKey, { playerRowId: rowId });
-
-      let handle: Awaited<ReturnType<typeof postDmTurn>>;
-      try {
-        handle = await postDmTurn({
-          username,
-          channel: session.channel,
-          session_id: sessionId,
-          message: playerMessage,
-          mode: beatMode,
-          turn_key: turnKey,
-        });
-      } catch (e) {
-        console.error('[dm-turn] create failed client-side:', e);
-        setLog((prev) => prev.filter((r) => r.id !== rowId));
-        pendingByKeyRef.current.delete(turnKey);
-        clearTurnKey(sessionId);
-        turnKeyRef.current = null;
-        setMsg(playerMessage);
-        // Release the guard set synchronously above — no subscribeToJob will
-        // ever run on this path to clear it, so it must be reset here.
-        setTalking(false);
-        setThinking(false);
-        toast({ tone: 'error', message: 'Could not reach Suzu. Your message was not sent.' });
-        return;
-      }
-
-      if ('busy' in handle) {
-        // §4a — 409-subscribe-pivot. This client's just-appended optimistic
-        // row for the NEW turn is orphaned (the busy guard fires before the
-        // player_action write) — remove it and restore the composer text
-        // rather than leaving a permanently-unreconciled row.
-        setLog((prev) => prev.filter((r) => r.id !== rowId));
-        pendingByKeyRef.current.delete(turnKey);
-        clearTurnKey(sessionId);
-        turnKeyRef.current = null;
-        setMsg(playerMessage);
-        toast({
-          tone: 'info',
-          message: "Suzu is still responding — your message wasn't sent, try again in a moment.",
-        });
-        setActiveJob({
-          turn_key: '',
-          job_id: handle.job_id,
-          status: handle.status,
-          trigger_seq: handle.trigger_seq,
-          started_at: new Date().toISOString(),
-        });
-        // precreateRow: true — this IS an originating (composer) subscribe,
-        // just pivoted onto another client's job (TAV-NARRATION-DECOUPLE
-        // Phase 2).
-        void subscribeToJob(handle.job_id, `busy:${handle.job_id}`, handle.trigger_seq, 'composer', true);
-        return;
-      }
-
-      // Created or deduped-resumed — this IS this client's own active turn.
-      // triggerSeq is unknown from a 200 create/dedup response (only the 409
-      // busy shape carries it); reconcileDurableEvents treats an
-      // undefined triggerSeq as "match unconditionally", which is correct
-      // here — there is no ambiguity, this is the only turn this client owns.
-      setActiveJob({
-        turn_key: handle.turn_key,
-        job_id: handle.job_id,
-        status: handle.status === 'final' ? 'streaming' : handle.status,
-        trigger_seq: 0,
-        started_at: new Date().toISOString(),
-      });
-      // precreateRow: true (TAV-NARRATION-DECOUPLE Phase 2) — the common
-      // "type + send" path; pre-create the streaming anchor so the poll
-      // always replaces (rule 3 sub-case a) instead of popping in whole.
-      void subscribeToJob(handle.job_id, turnKey, undefined, 'composer', true);
-    },
-    // idRef/pendingByKeyRef/setLog: sourced from useTranscript's destructure
-    // (TAV-PLAY-SHELL A3) -- same reasoning as subscribeToJob's own deps above.
-    [
-      session, username, sessionId, appendLog, subscribeToJob, toast,
-      idRef, pendingByKeyRef, setLog,
-    ],
-  );
-
-  /**
-   * DDX-20 Pass 3 (Synthetic-Beat Design §7 step 2) — a thin durable sibling
-   * of `narrateDurable` for the six non-composer "synthetic beat" call sites
-   * (roll-confirm, scene-transition x2, check-confirm, combat-start,
-   * end-turn — Pass-3 §2's per-beat table). Same AI-eligibility gate, same
-   * synchronous `talking`/`thinking` flip before any await (Miko-QA finding
-   * (b) discipline), same `mintTurnKey`/`saveTurnKey`/`turnKeyRef` and
-   * `postDmTurn` → `subscribeToJob(job_id, turnKey)` on 200. Differs from
-   * `narrateDurable` in exactly four ways (§7 step 2):
-   *   (a) forwards `mechanics` + `suppress_intent` in the `/dm/turn` payload
-   *       — the composer path never carries either;
-   *   (b) does NOT append an optimistic player row — each beat already keeps
-   *       its own client-only `appendLog` SYSTEM row (§2 player-row policy).
-   *       Registers a ledger entry with NO `playerRowId` so the existing
-   *       reconcile rule-2 else-branch appends the durable `player_action`
-   *       exactly once, with zero reconcile-code changes (§5);
-   *   (c) a 409 is *subscribe-and-drop* (§3.1) — there is no composer text to
-   *       restore and no optimistic player row to remove for a synthetic
-   *       beat, so (unlike narrateDurable's 409-subscribe-pivot) this never
-   *       mutates the composer and never shows a retry affordance;
-   *   (d) the network-error (non-409) path clears the ledger entry + turnKey
-   *       and releases `talking`/`thinking` but — UNLIKE narrateDurable's own
-   *       catch block — never toasts and never restores composer text. This
-   *       is intentional, not an oversight: there was never any composer
-   *       text to restore, and per §3.1 beats have no retry/error affordance
-   *       at all, so surfacing a toast here would be new, beat-specific UI
-   *       this design deliberately doesn't add.
-   *
-   * DDX-20 Pass 3 Finding 1 (Miko-QA/Kage-CR MUST-FIX) — this function must
-   * NEVER write `jobFailed`/`lastDurableTurnRef`. Those are composer-retry
-   * state (`onRetryFailedTurn` replays `lastDurableTurnRef` through
-   * `narrateDurable`, which has no `mechanics`/`suppress_intent` params at
-   * all); a beat writing them would either clobber a genuine composer
-   * failure's retry payload with beat content, or cause a later beat SSE
-   * error to surface the composer's Retry banner. `subscribeToJob`'s
-   * `origin: 'beat'` argument (both call sites below) is what actually
-   * suppresses the Retry banner for a beat's own SSE-tail error — see its
-   * definition above.
-   */
-  const narrateDurableBeat = useCallback(
-    async (
-      playerLine: string,
-      mechanics: string,
-      beatMode: ComposeMode,
-      opts?: { suppressIntent?: boolean; beat?: string },
-    ) => {
-      if (!session || !username || !sessionId) return;
-
-      const aiLevel = session.ai_assist_level;
-      const aiEligible =
-        session.dm_mode !== 'human' && aiLevel !== 'off' && aiLevel !== 'assist';
-      if (!aiEligible) {
-        // Mirrors narrate()'s own no-op early-return for a human-DM/AI-off
-        // table — the caller already appended its own system row before
-        // reaching here, so there is nothing further to do.
-        return;
-      }
-
-      // Miko-QA finding (b) — flip talking/thinking SYNCHRONOUSLY, before any
-      // await (see narrateDurable's own comment on this above).
-      setTalking(true);
-      setThinking(true);
-
-      // Finding 1 — deliberately NOT touching jobFailed/lastDurableTurnRef
-      // here (see the JSDoc above): those are composer-retry state and a
-      // beat must never clobber or drive them.
-
-      const turnKey = mintTurnKey();
-      saveTurnKey(sessionId, turnKey);
-      turnKeyRef.current = turnKey;
-
-      // §2 player-row policy — no optimistic player row for a synthetic
-      // beat; register a ledger entry with NO playerRowId so the poll's
-      // durable player_action is appended exactly once (reconcile rule-2
-      // else-branch, reconcileEvents.ts:121-124) instead of stamped.
-      pendingByKeyRef.current.set(turnKey, {});
-
-      const beatTag = opts?.beat ?? 'unknown';
-      // §10 observability — masked: never mechanics/prose, just the
-      // correlation id + beat tag + boolean.
-      console.debug('beat_turn_started', {
-        turn_key: turnKey,
-        beat: beatTag,
-        suppress_intent: opts?.suppressIntent ?? false,
-      });
-
-      let handle: Awaited<ReturnType<typeof postDmTurn>>;
-      try {
-        handle = await postDmTurn({
-          username,
-          channel: session.channel,
-          session_id: sessionId,
-          message: playerLine,
-          mechanics,
-          mode: beatMode,
-          turn_key: turnKey,
-          suppress_intent: opts?.suppressIntent ?? false,
-        });
-      } catch (e) {
-        console.error('[dm-turn] beat create failed client-side:', e);
-        pendingByKeyRef.current.delete(turnKey);
-        clearTurnKey(sessionId);
-        turnKeyRef.current = null;
-        // Release the guard set synchronously above — no subscribeToJob will
-        // ever run on this path to clear it, so it must be reset here.
-        setTalking(false);
-        setThinking(false);
-        return;
-      }
-
-      if ('busy' in handle) {
-        // §3.1 subscribe-and-drop. This beat's mechanical action already
-        // committed durably in a PRIOR request (the roll/advanceScene/
-        // resolveCheck/combat action ran and wrote its own durable events
-        // before this call fired) — only the trailing flavor narration is
-        // skipped. No text-restore, no row-removal (there was never an
-        // optimistic player row), no retry affordance.
-        pendingByKeyRef.current.delete(turnKey);
-        clearTurnKey(sessionId);
-        turnKeyRef.current = null;
-        console.debug('beat_turn_busy_409', { beat: beatTag, inflight_job_id: handle.job_id });
-        setActiveJob({
-          turn_key: '',
-          job_id: handle.job_id,
-          status: handle.status,
-          trigger_seq: handle.trigger_seq,
-          started_at: new Date().toISOString(),
-        });
-        // precreateRow: true — originating (beat) subscribe pivoted onto
-        // another client's job (TAV-NARRATION-DECOUPLE Phase 2).
-        void subscribeToJob(handle.job_id, `busy:${handle.job_id}`, handle.trigger_seq, 'beat', true);
-        return;
-      }
-
-      // Created or deduped-resumed — this IS this beat's own active turn.
-      setActiveJob({
-        turn_key: handle.turn_key,
-        job_id: handle.job_id,
-        status: handle.status === 'final' ? 'streaming' : handle.status,
-        trigger_seq: 0,
-        started_at: new Date().toISOString(),
-      });
-      // precreateRow: true (TAV-NARRATION-DECOUPLE Phase 2) — synthetic
-      // beats originate client-side too; pre-create so the poll replaces
-      // instead of popping in whole.
-      void subscribeToJob(handle.job_id, turnKey, undefined, 'beat', true);
-    },
-    // pendingByKeyRef: sourced from useTranscript's destructure
-    // (TAV-PLAY-SHELL A3) -- same reasoning as narrateDurable's own deps above.
-    [session, username, sessionId, subscribeToJob, pendingByKeyRef],
-  );
-
-  // Amendment A §A.4: the ONE place the DURABLE_GENERATION_ENABLED fork
-  // lives. useLayoutEffect (not useEffect) makes confirmBeatRef order-
-  // independent -- MINOR-2's old two-ref mirror was only safe by declaration order.
-  useLayoutEffect(() => {
-    confirmBeatRef.current = DURABLE_GENERATION_ENABLED
-      ? (playerLine, mechanics, beat) =>
-          void narrateDurableBeat(playerLine, mechanics, 'act', { suppressIntent: true, beat })
-      : (playerLine, mechanics) =>
-          void narrate(playerLine, mechanics, 'act', { suppressIntent: true }); // byte-unchanged legacy path
-  }, [narrate, narrateDurableBeat]);
-
-  /**
-   * DDX-20 Pass 2 (§4d) — retry-after-failed. A `failed` job's turn_key is
-   * deduped-forever server-side, so retry MUST mint a NEW one — narrateDurable
-   * always does (mintTurnKey() is called fresh on every invocation), so a
-   * plain resubmit of the last content is sufficient here.
-   *
-   * Iro MAJOR-1: `setJobFailed(false)` unmounts the Retry button this click
-   * handler is attached to. If the button (or something inside it) still has
-   * focus at that moment, the browser force-blurs to <body> the instant it's
-   * removed. Refocus the permanently-mounted `durableRetryRowRef` wrapper
-   * FIRST — mirrors the xCardBannerRef Dismiss-button pattern above exactly
-   * (refocus-before-unmount, not after).
-   */
-  const onRetryFailedTurn = useCallback(() => {
-    if (durableRetryRowRef.current?.contains(document.activeElement)) {
-      durableRetryRowRef.current.focus({ preventScroll: true });
-    }
-    const last = lastDurableTurnRef.current;
-    setJobFailed(false);
-    if (last) void narrateDurable(last.message, last.mode);
-  }, [narrateDurable]);
-
-  // ── S5.2: DM narration submit handler ───────────────────────────────────────
-  /**
-   * Called when the human DM sends a dm_narration beat via the composer.
-   * Posts to POST /api/dnd/sessions/{id}/events (the existing proxy passthrough).
-   * Makes ZERO calls to /api/narration/* — the DM authors the text directly.
-   * Text is preserved in `msg` on error (cleared only on success).
-   */
-  const onSendDmNarration = useCallback(async () => {
-    const text = msg.trim();
-    if (!text || !sessionId || !session || !username || dmNarrationPending) return;
-    setDmNarrationPending(true);
-    setDmNarrationError(null);
-    // DDX-20 §3.3 (flag-ON only) — stamp a client-minted client_key into the
-    // POSTed event's data so ledger rule 4 can dedup this DM's own optimistic
-    // row against the durable poll row once it round-trips back (the proxy
-    // passthrough forwards `data` untouched; the engine persists it verbatim).
-    // Flag-OFF: `clientKey` is always undefined below, so `data` is always
-    // exactly `{text}` — byte-identical to the pre-DDX-20 request body.
-    const clientKey = DURABLE_GENERATION_ENABLED ? mintTurnKey() : undefined;
-    try {
-      await postSessionEvent(sessionId, {
-        kind: 'dm_narration',
-        actor_username: session.dm_username ?? username,
-        data: clientKey ? { text, client_key: clientKey } : { text },
-        visibility: 'table',
-      });
-      const actor = session.dm_username ?? username;
-      if (clientKey) {
-        // Flag-ON: append with pendingKey so the poll's reconciliation ledger
-        // (rule 4) stamps this row instead of double-rendering it once the
-        // durable dm_narration event lands.
-        const rowId = `r${(idRef.current += 1)}`;
-        setLog((prev) => [
-          ...prev,
-          {
-            id: rowId,
-            who: `DM (${actor})`,
-            kind: 'dm_narration' as const,
-            text,
-            ts: nowStamp(),
-            pendingKey: clientKey,
-          },
-        ]);
-        pendingByKeyRef.current.set(clientKey, { playerRowId: rowId });
-      } else {
-        // Flag-OFF (unchanged) — optimistically append with the distinct
-        // dm_narration kind; the poll never renders dm_narration rows on
-        // this path (unified-poll rendering is flag-gated), so there is no
-        // reconciliation to set up.
-        appendLog({
-          who: `DM (${actor})`,
-          kind: 'dm_narration',
-          text,
-        });
-      }
-      setMsg(''); // clear only on success
-    } catch (err) {
-      // Kage-CR final round: recognise `code === 'unauthorized'` alongside a
-      // direct 401/403, not a hand-copied status list — that code is
-      // client.ts's UNIFIED refresh-failure classification (items 2/3:
-      // 0/>=500/429 -> 'refresh_unavailable', everything else ->
-      // 'unauthorized', including a refresh 422 from flask-jwt-extended's
-      // default invalid-signature handler). Checking only status here would
-      // let a 422-classified dead session fall through to the generic inline
-      // error below instead of the sign-in redirect.
-      const e = err as { status?: number; code?: string } | null;
-      if (e?.status === 401 || e?.status === 403 || e?.code === 'unauthorized') {
-        // Cookie expired — redirect to login per existing pattern.
-        window.location.href = '/login';
-        return;
-      }
-      // 5xx / network / refresh_unavailable: preserve text, show inline error.
-      setDmNarrationError('Could not send narration. Try again.');
-    } finally {
-      setDmNarrationPending(false);
-    }
-    // idRef/setLog/pendingByKeyRef: sourced from useTranscript's destructure
-    // (TAV-PLAY-SHELL A3) -- same reasoning as subscribeToJob's own deps above.
-  }, [
-    msg, sessionId, session, username, dmNarrationPending, appendLog,
-    idRef, setLog, pendingByKeyRef,
-  ]);
-
-  // checkShouldOpen/openScene moved into useScene (TAV-PLAY-SHELL step 5
-  // hook 4) -- see the useScene() call above, right after appendLog.
+  // checkShouldOpen/openScene moved into useSceneState (TAV-PLAY-SHELL step
+  // 5 hook 6) -- see the useSceneState() call above, right after appendLog.
+  // narrate/narrateDurable/narrateDurableBeat/subscribeToJob/revealText/
+  // onRetryFailedTurn/onSendDmNarration moved into useNarration (hook 7,
+  // A5) -- see the useNarration() call above, right after useSceneState's.
 
   // ── dice ────────────────────────────────────────────────────────────────────
   // DDX-08 / T3: rolls are server-authoritative (POST /roll persists a
@@ -3289,16 +2159,10 @@ export default function PlayPage() {
   // already keys off myCharacterIdStr — it's unaffected by this flag.
   const isDmPlayingOwnPc = isHumanDM && !!myCharacterIdStr && !!mySheet;
 
-  // DDX-20 §9 — "Resuming Suzu's turn…" resume affordance. Reuses the SAME
-  // thinking waveform row as the shipped narrate() path (distinct copy),
-  // shown ONLY when there is a known in-flight job (mount/reload discovery
-  // or the 409-busy pivot) that this client is not ALREADY rendering via its
-  // own talking/thinking state (avoids a double "narrating…"/"Resuming…"
-  // flash — narrateDurable's own subscribeToJob sets talking/thinking
-  // synchronously in the same tick it sets activeJob, so this only fires for
-  // the genuinely-passive discovery case). Always false when the flag is off
-  // (activeJob is never set on the flag-OFF path).
-  const resumeThinking = DURABLE_GENERATION_ENABLED && !talking && activeJob != null;
+  // resumeThinking (DDX-20 §9 "Resuming Suzu's turn…" resume affordance)
+  // moved into useNarration (TAV-PLAY-SHELL step 5 hook 7, Amendment A
+  // §A.2 row 7, A5) -- pure derivation off that hook's own talking/
+  // activeJob, so it moved with them. See that hook's destructure above.
 
   // Show Suzu commentary panel when AI is active ('full' or 'assist').
   // For 'assist': the strip renders but auto-narration is suppressed in narrate().

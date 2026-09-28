@@ -7,11 +7,11 @@
  * hook (§A.2's rule: "a hook that CALLS a sibling composes after everything
  * it calls").
  *
- * Composed AFTER `useScene` and `useNarration` (§A.6) — today, before A5
- * lands `useNarration`, `narrate`/`narrateDurableBeat`/`handleSceneAdvance`/
- * `playOutcomeLine`/`refreshGrounding` are still page.tsx locals/`useScene`
- * returns declared above this hook's call site (~page.tsx:2850, right where
- * `beginEncounter` used to start; §A.6's own note on this).
+ * Composed AFTER `useSceneState`, `useNarration` and `useSceneActions` (§A.6;
+ * A5 landed the latter two — `narrate`/`narrateDurableBeat` come from
+ * `useNarration`'s destructure, `handleSceneAdvance` from
+ * `useSceneActions`', `playOutcomeLine`/`refreshGrounding` from
+ * `useSceneState`'s, all declared above this hook's call site in page.tsx).
  *
  * Owns: `beginEncounter`, `onCombatAction`, `onEndCombat`, the monster
  * auto-driver effect, and the turn-change refocus effect. Deliberately does
@@ -20,7 +20,8 @@
  * XP-form Escape guard (stays in page.tsx — useSessionLifecycle territory).
  *
  * Signature deviation from §A.6's abridged list (same kind of documented
- * deviation useScene's/useSafety's own headers flag):
+ * deviation `useSceneState`'s/`useSceneActions`'/`useSafety`'s own headers
+ * flag):
  *   - `combat: UseCombatStateResult` — §A.6 names this input as
  *     "combatState" (singular). The moved code actually reads/writes TEN
  *     separate fields off `useCombatState`'s return (`combatId`,
@@ -28,8 +29,8 @@
  *     positional parameters (on top of the eight §A.6 already names) would
  *     make the call site error-prone to read in the right order; passing
  *     the hook's own result object is ordinary hook composition, not a new
- *     mechanism, and mirrors how `useNarration` (A5) is planned to take
- *     "sceneState" as one named input rather than exploding it.
+ *     mechanism — the same "many fields, one hook" shape `useNarration` (A5)
+ *     uses for its own `sceneState`/`transcript` parameters.
  *   - `myCharacterIdStr`, `sceneHeadRef`, `composerRailAnchorRef`,
  *     `dmPanelAnchorRef`, `localTurnActionRef` — needed by the turn-change
  *     refocus effect, not named in §A.6's list. `composerRailAnchorRef`/
@@ -39,16 +40,19 @@
  *     by the separate dying-row refocus effect this hook does not own — one
  *     ref object, passed in, never duplicated.
  *   - `toast` is NOT a parameter — called via its own `useToast()`, same as
- *     `useScene`/`useSafety` already do for the identical value.
- *   - `username` IS a plain parameter (per §A.6, unlike `useScene`'s own
- *     choice to re-derive it via `useAuth()` — §A.6 names it explicitly for
- *     this hook, so it is taken as given rather than re-derived).
+ *     `useSceneState`/`useSceneActions`/`useSafety` already do for the
+ *     identical value.
+ *   - `username` IS a plain parameter (per §A.6, unlike `useSceneState`'s/
+ *     `useSceneActions`' own choice to re-derive it via `useAuth()` — §A.6
+ *     names it explicitly for this hook, so it is taken as given rather
+ *     than re-derived).
  *
  * No new ref-mirror: every ref this hook uses (`combatBusyRef`/
  * `stateSeqRef`/`monsterDrivingRef` from `combat`; `composerRailAnchorRef`/
  * `dmPanelAnchorRef`/`localTurnActionRef`/`sceneHeadRef` passed in) already
- * existed before this split. The one ref-mirror this file's sibling marker
- * permits (`confirmBeatRef`, page.tsx) stays exactly one.
+ * existed before this split. `confirmBeatRef` — the one ref-mirror this
+ * file's sibling marker used to permit — is deleted as of A5 (see
+ * `useSceneActions.ts`'s header); zero ref-mirrors remain in `hooks/`.
  */
 import { useCallback, useEffect, useRef, type MutableRefObject, type RefObject } from 'react';
 import { useToast } from '@/components/Toast';
@@ -72,7 +76,9 @@ import type { LogRow } from '@/components/ChatLog';
 import type { CombatState, EndCombatOutcome, Session } from '@/lib/api/types';
 import { isSessionLocked } from '../format';
 import type { UseCombatStateResult } from './useCombatState';
-import type { NarrateFn, NarrateDurableBeatFn, UseSceneResult } from './useScene';
+import type { NarrateFn, NarrateDurableBeatFn } from './useNarration';
+import type { UseSceneActionsResult } from './useSceneActions';
+import type { UseSceneStateResult } from './useSceneState';
 
 export interface UseCombatActionsResult {
   beginEncounter: () => Promise<void>;
@@ -88,9 +94,9 @@ export function useCombatActions(
   appendLog: (row: Omit<LogRow, 'id' | 'ts'>) => void,
   narrate: NarrateFn,
   narrateDurableBeat: NarrateDurableBeatFn,
-  handleSceneAdvance: UseSceneResult['handleSceneAdvance'],
-  playOutcomeLine: UseSceneResult['playOutcomeLine'],
-  refreshGrounding: UseSceneResult['refreshGrounding'],
+  handleSceneAdvance: UseSceneActionsResult['handleSceneAdvance'],
+  playOutcomeLine: UseSceneStateResult['playOutcomeLine'],
+  refreshGrounding: UseSceneStateResult['refreshGrounding'],
   sceneHeadRef: RefObject<HTMLDivElement | null>,
   composerRailAnchorRef: RefObject<HTMLDivElement | null>,
   dmPanelAnchorRef: RefObject<HTMLElement | null>,
@@ -655,8 +661,8 @@ export function useCombatActions(
         sceneHeadRef.current?.focus({ preventScroll: true });
       }
     });
-    // sceneHeadRef comes from useScene's destructure (TAV-PLAY-SHELL step 5
-    // hook 4) -- stable across renders, listed because the linter can no
+    // sceneHeadRef comes from useSceneState's destructure (TAV-PLAY-SHELL
+    // step 5 hook 6) -- stable across renders, listed because the linter can no
     // longer prove that from a local useRef call.
   }, [
     combatState,
