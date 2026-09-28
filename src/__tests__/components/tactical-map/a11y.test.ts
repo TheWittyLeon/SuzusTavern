@@ -13,7 +13,7 @@ describe('cellAccessibleName', () => {
       cellAccessibleName({
         row1: 5,
         col1: 5,
-        occupant: { name: 'Bren Oakshield', isSelf: true, isAlly: false, hostile: false, invisible: false, dead: false },
+        occupant: { name: 'Bren Oakshield', isSelf: true, isAlly: false, hostile: false, invisible: false, dead: false, downed: false },
         blocked: false,
         moveModeActive: true,
       }),
@@ -49,7 +49,7 @@ describe('cellAccessibleName', () => {
       cellAccessibleName({
         row1: 4,
         col1: 3,
-        occupant: { name: 'Sable Nightwhisper', isSelf: false, isAlly: true, hostile: false, invisible: false, dead: false },
+        occupant: { name: 'Sable Nightwhisper', isSelf: false, isAlly: true, hostile: false, invisible: false, dead: false, downed: false },
         blocked: false,
         moveModeActive: true,
       }),
@@ -61,7 +61,7 @@ describe('cellAccessibleName', () => {
       cellAccessibleName({
         row1: 4,
         col1: 11,
-        occupant: { name: 'Goblin', isSelf: false, isAlly: false, hostile: true, invisible: true, dead: false },
+        occupant: { name: 'Goblin', isSelf: false, isAlly: false, hostile: true, invisible: true, dead: false, downed: false },
         blocked: false,
         moveModeActive: true,
       }),
@@ -77,11 +77,26 @@ describe('cellAccessibleName', () => {
       cellAccessibleName({
         row1: 2,
         col1: 2,
-        occupant: { name: 'Goblin', isSelf: false, isAlly: false, hostile: true, invisible: false, dead: true },
+        occupant: { name: 'Goblin', isSelf: false, isAlly: false, hostile: true, invisible: false, dead: true, downed: false },
         blocked: false,
         moveModeActive: true,
       }),
     ).toBe("Row 2, column 2. Goblin, hostile, dead. Occupied — can't stop here.");
+  });
+
+  it('names a downed ally-occupied cell, including the downed disclosure (D1b item D, Kage-CR re-verify)', () => {
+    // Same gap as the dead test above, for the OTHER state .tokenDowned's
+    // faded/dashed/red-ring visual treatment discloses: a downed ally read
+    // identically to a healthy one to a screen-reader user before this.
+    expect(
+      cellAccessibleName({
+        row1: 6,
+        col1: 2,
+        occupant: { name: 'Bren Oakshield', isSelf: false, isAlly: true, hostile: false, invisible: false, dead: false, downed: true },
+        blocked: false,
+        moveModeActive: true,
+      }),
+    ).toBe("Row 6, column 2. Bren Oakshield, ally, downed. Occupied — can't stop here.");
   });
 
   it('appends a full conditions list (T2 "full list on focus") when the occupant has conditions beyond invisible', () => {
@@ -96,6 +111,7 @@ describe('cellAccessibleName', () => {
           hostile: false,
           invisible: false,
           dead: false,
+          downed: false,
           otherConditions: ['Prone', 'Poisoned'],
         },
         blocked: false,

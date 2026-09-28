@@ -21,9 +21,16 @@ export interface CellOccupant {
   /** `!is_alive` — a corpse, not a threat (Kage-CR D1 IMPORTANT-8's "the
    *  board shows corpses as threats" applies to screen-reader users too, not
    *  just the visual grayscale treatment — see TacticalMap.module.css's
-   *  `.tokenDead`). Mutually exclusive with `isDowned` by construction
-   *  (`isDowned` requires `is_alive`). */
+   *  `.tokenDead`). Mutually exclusive with `downed` by construction
+   *  (`downed` requires `is_alive`). */
   dead: boolean;
+  /** `hp_current === 0 && is_alive` — the same fact `.tokenDowned`'s
+   *  faded/dashed/red-ring treatment (design §5) discloses visually (D1b
+   *  item D, Kage-CR re-verify): before this a downed ally read identically
+   *  to a healthy one to a screen-reader user, the same visual/AT gap the
+   *  `dead` field already closed for corpses. Mutually exclusive with
+   *  `dead`. */
+  downed: boolean;
   /** T2 (Leon's ruling): active conditions OTHER than "invisible" (which
    *  already has its own bespoke disclosure above) — the "full list" half
    *  of "worst condition badge only, full list on focus/tap". Exposed here
@@ -95,8 +102,9 @@ export function cellAccessibleName(input: CellNameInput): string {
   if (input.occupant) {
     const relation = input.occupant.isAlly ? 'ally' : 'hostile';
     const invisible = input.occupant.invisible ? ', invisible' : '';
+    const downed = input.occupant.downed ? ', downed' : '';
     const dead = input.occupant.dead ? ', dead' : '';
-    return `${location} ${input.occupant.name}, ${relation}${invisible}${dead}. Occupied — can't stop here.${conditionsSuffix}`;
+    return `${location} ${input.occupant.name}, ${relation}${invisible}${downed}${dead}. Occupied — can't stop here.${conditionsSuffix}`;
   }
 
   if (input.moveModeActive) {

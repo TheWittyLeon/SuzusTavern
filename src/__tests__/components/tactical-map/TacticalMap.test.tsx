@@ -334,6 +334,28 @@ describe('TacticalMap — dead creatures (Kage-CR D1 IMPORTANT-8, coordinator de
   });
 });
 
+describe('TacticalMap — downed participants (D1b item D, Kage-CR re-verify)', () => {
+  it("a downed participant's (`hp_current: 0`, `is_alive: true`) gridcell accessible name discloses \"downed\"", () => {
+    // Root cause this pins: describeOccupant computed `downed` but never
+    // threaded it into the `cellOccupant` object cellAccessibleName reads —
+    // the field existed nowhere on the wire from render to a11y.ts, so no
+    // unit test on cellAccessibleName alone could have caught the gap.
+    const participants = [
+      makeParticipant({
+        participant_id: 'p1',
+        name: 'Bren',
+        at: [0, 0],
+        hp_current: 0,
+        is_alive: true,
+      }),
+    ];
+    render(<TacticalMap {...baseProps({ participants, viewerParticipantId: 'p9' })} />);
+    expect(
+      screen.getByRole('gridcell', { name: "Row 1, column 1. Bren, ally, downed. Occupied — can't stop here." }),
+    ).toBeInTheDocument();
+  });
+});
+
 describe('TacticalMap — T4: phone board centers on the active token each turn', () => {
   // Tora-Gesture MAJOR-1: scrollIntoView() walks EVERY scrollable ancestor
   // including the page (the phone vertical-jump trap) — this rewrite pins

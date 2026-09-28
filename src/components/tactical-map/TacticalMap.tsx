@@ -143,6 +143,10 @@ function describeOccupant(
       hostile: !occupant.is_pc,
       invisible,
       dead,
+      // D1b item D: was computed above but never threaded into the
+      // accessible-name input, so cellAccessibleName's downed branch (added
+      // this same fold-forward) had no signal to read for a real render.
+      downed,
       otherConditions,
     },
   };
