@@ -147,6 +147,24 @@ describe('Journal — 4th mobile tab', () => {
     const pane = document.getElementById('play-pane-journal');
     expect(pane).not.toHaveAttribute('role', 'dialog');
     expect(pane).not.toHaveAttribute('aria-modal');
+    // Kage-CR A7 IMPORTANT-4: the mobile tab is presented via `visible`
+    // (Drawer's `isVisible = open || visible`), not `open` — a pane the
+    // user is looking at must never be `inert`/`aria-hidden`.
+    expect(pane).not.toHaveAttribute('aria-hidden', 'true');
+    expect(pane).not.toHaveAttribute('inert');
+  });
+
+  it('Close on the mobile tab falls back to Story, not a no-op (Kage-CR A7 IMPORTANT-4)', async () => {
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+
+    const journalTab = screen.getByRole('button', { name: 'Journal' });
+    fireEvent.click(journalTab);
+
+    const closeBtn = screen.getByRole('button', { name: 'Close journal' });
+    fireEvent.click(closeBtn);
+
+    expect(journalTab).toHaveAttribute('aria-pressed', 'false');
   });
 });
 
