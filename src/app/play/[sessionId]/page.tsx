@@ -403,17 +403,20 @@ export default function PlayPage() {
   // than ten more positional ones (documented deviation, see that hook's
   // header).
   const combatStateResult = useCombatState(myCharacterIdStr, participants, username);
-  // setRefusedReason/combatStateRef/combatBusyRef/monsterDrivingRef/
-  // pollIntervalRef are NOT destructured here -- page.tsx never calls them
-  // directly (only useCombatActions does, via `combatStateResult` above).
-  // stateSeqRef IS still destructured: the mount effect's initial combat
-  // fetch and the inline onCombatStateUpdate/onCombatStateRefresh/
-  // onStateRefresh JSX handlers below all bump it directly.
+  // setRefusedReason/combatBusyRef/monsterDrivingRef are NOT destructured
+  // here -- page.tsx never calls them directly (only useCombatActions does,
+  // via `combatStateResult` above). combatStateRef/pollIntervalRef are no
+  // longer part of the hook's return at all (Kage-CR A2 IMPORTANT-3) --
+  // both were declared-with-zero-readers outside useCombatState's own file;
+  // they now stay fully internal to that hook. stateSeqRef IS still
+  // destructured: the mount effect's initial combat fetch and the inline
+  // onCombatStateUpdate/onCombatStateRefresh/onStateRefresh JSX handlers
+  // below all bump it directly.
   const {
     combatId, setCombatId, combatState, setCombatState, combatBusy, setCombatBusy,
     refusedReason, outcomeChooserOpen, setOutcomeChooserOpen, stateSeqRef,
-    combatEngaged, combatIsActive, round, targetableFoes, isPlayerTurn, isDying,
-    anyMonsterDown, allHostilesDown, selfPcId,
+    combatEngaged, combatIsActive, round, targetableFoes, activeParticipant,
+    activeIsMine, isPlayerTurn, isDying, anyMonsterDown, allHostilesDown, selfPcId,
   } = combatStateResult;
 
   // A2 — real quick-checks derived from the bound character's sheet.
@@ -2891,27 +2894,17 @@ export default function PlayPage() {
 
   // ── derived combat UI state ──────────────────────────────────────────────────
   // targetableFoes/isPlayerTurn/isDying/round/anyMonsterDown/allHostilesDown/
-  // selfPcId/combatIsActive moved into useCombatState (TAV-PLAY-SHELL step 5
-  // hook 5a, Amendment A §A.6 "every pure derivation off combatState") --
-  // already destructured from that hook's return above. What's left here is
+  // selfPcId/combatIsActive/activeParticipant/activeIsMine moved into
+  // useCombatState (TAV-PLAY-SHELL step 5 hook 5a, Amendment A §A.6 "every
+  // pure derivation off combatState") -- already destructured from that
+  // hook's return above. activeParticipant/activeIsMine moved at A3 (Kage-CR
+  // A2 IMPORTANT-2) -- this file used to carry a byte-identical second copy
+  // right here; deleted, not just pointed-to. What's left here is
   // JSX-adjacent derived state §A.6 doesn't name as the hook's own: it stays
-  // in page.tsx, recomputed off combatState/isDying (both hook-sourced) the
-  // same cheap-recompute shape myDeathSaveParticipant already used before
-  // this split (see hooks/useCombatState.ts's own header for the full
-  // reasoning).
-
-  // B1-4: per-user turn resolution.
-  // Find the active participant; it's MY turn only when the active participant
-  // is a PC whose entity_id matches my bound character_id (stringified).
-  // Out of combat: always enabled. DM/no-character: never their turn during combat.
-  const activeParticipant = combatState?.participants.find(
-    (p) => p.is_active_turn,
-  ) ?? null;
-
-  const activeIsMine =
-    activeParticipant?.is_pc === true &&
-    myCharacterIdStr != null &&
-    activeParticipant.entity_id === myCharacterIdStr;
+  // in page.tsx, recomputed off combatState/activeParticipant/activeIsMine/
+  // isDying (all hook-sourced) the same cheap-recompute shape
+  // myDeathSaveParticipant already used before this split (see
+  // hooks/useCombatState.ts's own header for the full reasoning).
 
   // TAV-ATTACK-BUTTON-STALE: the viewer's own PC has already spent their
   // ACTION this turn — read straight off the combat-state wire's per-turn

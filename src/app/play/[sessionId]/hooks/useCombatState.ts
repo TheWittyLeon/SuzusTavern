@@ -18,7 +18,9 @@
  * the 4s combat-state poll (deps `[combatId]`, unchanged reasoning), and
  * every pure derivation off `combatState` (§A.6): `combatEngaged`,
  * `combatIsActive`, `round`, `targetableFoes`, `isPlayerTurn`, `isDying`,
- * `anyMonsterDown`, `allHostilesDown`, `selfPcId`.
+ * `anyMonsterDown`, `allHostilesDown`, `selfPcId`, and — Kage-CR A2
+ * IMPORTANT-2 — `activeParticipant`/`activeIsMine`, exported here instead
+ * of existing a second time, byte-identical, in page.tsx.
  *
  * `setCombatId`/`setCombatState`/`stateSeqRef`/`setCombatBusy` are exported
  * because three write sites outside `useCombatActions` still write through
@@ -29,14 +31,21 @@
  * page.tsx exactly as before, now reading these setters/refs from this
  * hook's return instead of a local `useState`/`useRef` call.
  *
+ * `combatStateRef`/`pollIntervalRef` are NOT exported (Kage-CR A2
+ * IMPORTANT-3) — both were declared on the return type with zero code
+ * readers outside this file (only comments referenced them), the exact
+ * "declared field with no reader" red flag the durability protocol names.
+ * Both stay fully internal: the sync effect and the poll below are the only
+ * things that ever read or write either.
+ *
  * Deliberately does NOT own (§A.6): `combatEncounterUnstarted`/
  * `sceneCreatureNames` (read `grounding`, a tier-6/useScene concern this
  * state-tier hook can't reach — they stay in page.tsx, "useCombat's own
  * derived values" per useScene.ts's own header, just not THIS half of it),
- * `activeParticipant`/`activeIsMine`/`myActionSpent`/`myDeathSaveParticipant`/
- * `isMyPcDead`/`turnStatusText`/`activeEncounterId` (JSX-adjacent derived
- * values not named in Amendment A §A.6's "every pure derivation" list —
- * they stay in page.tsx, recomputed there off this hook's `combatState`
+ * `myActionSpent`/`myDeathSaveParticipant`/`isMyPcDead`/`turnStatusText`/
+ * `activeEncounterId` (JSX-adjacent derived values not named in Amendment A
+ * §A.6's "every pure derivation" list — they stay in page.tsx, recomputed
+ * there off this hook's `combatState`/`activeParticipant`/`activeIsMine`
  * return, the same cheap-recompute shape `myDeathSaveParticipant` already
  * used before this split), the movement-model fields (`at`/`space`/
  * `movement_remaining` — lane B6 adds those to `CombatState` itself; they
@@ -44,12 +53,23 @@
  * `beginEncounter`/`onCombatAction`/`onEndCombat`/the monster auto-driver
  * effect/the turn-change refocus effect (`useCombatActions`, composed AFTER
  * scene + narration — see that hook's own header).
+ *
+ * Signature deviation from §A.6's abridged `useCombatState(sessionId)`
+ * (Kage-CR A2 IMPORTANT-3, no header note): this hook actually takes
+ * `(myCharacterIdStr, participants, username)` and no `sessionId` at all.
+ * The state cells it owns never read `sessionId` (the poll fetches by
+ * `combatId`, not session), while `selfPcId`/`activeParticipant`/
+ * `activeIsMine`'s per-user turn resolution (§A.6's own "every pure
+ * derivation off combatState") needs the viewer's bound character id, the
+ * party roster and their username — none of which `sessionId` alone
+ * supplies. Same kind of documented deviation as `useScene`'s/`useSafety`'s
+ * own headers.
  */
 import { useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import { getCombatState } from '@/lib/api/dnd';
 import { isLivingTargetableFoe } from '@/lib/dnd/combatTargets';
 import type { CombatTarget } from '@/components/Composer';
-import type { CombatState, Participant } from '@/lib/api/types';
+import type { CombatParticipantState, CombatState, Participant } from '@/lib/api/types';
 import { POLL_INTERVAL_MS, isCombatEngaged } from '../format';
 
 export interface UseCombatStateResult {
@@ -63,11 +83,9 @@ export interface UseCombatStateResult {
   setRefusedReason: Dispatch<SetStateAction<string | null>>;
   outcomeChooserOpen: boolean;
   setOutcomeChooserOpen: Dispatch<SetStateAction<boolean>>;
-  combatStateRef: MutableRefObject<CombatState | null>;
   stateSeqRef: MutableRefObject<number>;
   combatBusyRef: MutableRefObject<boolean>;
   monsterDrivingRef: MutableRefObject<boolean>;
-  pollIntervalRef: MutableRefObject<ReturnType<typeof setInterval> | null>;
   /** Amendment A §A.1 — the ONE derived boolean useScene reads. NOT
    *  `combatIsActive` below (see that field's own note). */
   combatEngaged: boolean;
@@ -79,6 +97,15 @@ export interface UseCombatStateResult {
   combatIsActive: boolean;
   round: number | null;
   targetableFoes: CombatTarget[];
+  /** B1-4 per-user turn resolution: the participant whose turn it currently
+   *  is (`null` out of combat / no active-turn flag set). Kage-CR A2
+   *  IMPORTANT-2 — exported so page.tsx stops recomputing a byte-identical
+   *  copy. */
+  activeParticipant: CombatParticipantState | null;
+  /** True when `activeParticipant` is a PC whose `entity_id` matches the
+   *  viewer's bound character id. Kage-CR A2 IMPORTANT-2 — same reason as
+   *  `activeParticipant` above. */
+  activeIsMine: boolean;
   isPlayerTurn: boolean;
   isDying: boolean;
   anyMonsterDown: boolean;
@@ -159,7 +186,11 @@ export function useCombatState(
   // combatState") ─────────────────────────────────────────────────────────────
   const combatEngaged = isCombatEngaged(combatState);
   const combatIsActive = !!combatId && combatState?.state !== 'ended';
-  // Round from combatState is authoritative; fall back to null when no state yet.
+  // Round from combatState is authoritative; fall back to null when no state
+  // yet. (Kage-CR A2 minor: this comment used to say "fall back to 1" —
+  // main:page.tsx:3527 pre-A2 — but the code has always done `?? null`. The
+  // A2 move to this file silently corrected the comment to match; declaring
+  // that correction here since it wasn't declared in that commit.)
   const round = combatState?.round ?? null;
 
   // Participants that are valid targets (living, targetable enemies).
@@ -181,10 +212,11 @@ export function useCombatState(
   // B1-4: per-user turn resolution. Find the active participant; it's MY turn
   // only when the active participant is a PC whose entity_id matches my bound
   // character_id (stringified). Out of combat: always enabled. DM/no-character:
-  // never their turn during combat. Local-only (not exported): page.tsx
-  // recomputes its own copy for myActionSpent/myDeathSaveParticipant/
-  // isMyPcDead/turnStatusText, none of which Amendment A §A.6 names as this
-  // hook's own — see this file's header.
+  // never their turn during combat. Exported (Kage-CR A2 IMPORTANT-2) — was
+  // a byte-identical second copy in page.tsx; myActionSpent/
+  // myDeathSaveParticipant/isMyPcDead/turnStatusText stay in page.tsx,
+  // recomputed off THESE two fields now, none of them named as this hook's
+  // own by Amendment A §A.6 — see this file's header.
   const activeParticipant = combatState?.participants.find((p) => p.is_active_turn) ?? null;
   const activeIsMine =
     activeParticipant?.is_pc === true &&
@@ -198,6 +230,9 @@ export function useCombatState(
   // Combat-UX Fixes 2026-07-27, Fix B: the gate for the "Roll death save"
   // affordance — the viewer's own PC, on their turn, at 0 HP, not stable, not
   // dead (death_saves.is_dying already encodes exactly that on the wire).
+  // Narrower than "downed" — a stabilised-but-still-0-HP PC is is_downed but
+  // no longer is_dying, so the rail correctly stops offering the roll once
+  // 3 successes land.
   const isDying = activeIsMine && activeParticipant?.death_saves?.is_dying === true;
 
   // B3-1: Victory is disabled when no monster is down (engine would 400 victory_refused).
@@ -243,15 +278,15 @@ export function useCombatState(
     setRefusedReason,
     outcomeChooserOpen,
     setOutcomeChooserOpen,
-    combatStateRef,
     stateSeqRef,
     combatBusyRef,
     monsterDrivingRef,
-    pollIntervalRef,
     combatEngaged,
     combatIsActive,
     round,
     targetableFoes,
+    activeParticipant,
+    activeIsMine,
     isPlayerTurn,
     isDying,
     anyMonsterDown,
