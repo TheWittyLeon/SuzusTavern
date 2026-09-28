@@ -426,6 +426,39 @@ describe('DDX-26 — X-card durable safety banner', () => {
     expect(screen.getByText(BANNER_TEXT)).toBeInTheDocument();
   });
 
+  it('Kage-CR A4b IMP-2: a polled x_card also lands a transcript row, not just the banner', async () => {
+    jest.useFakeTimers();
+    try {
+      mockGetSession.mockResolvedValue(makeSession({ dm_username: 'suzu' })); // not leon
+      render(<PlayPage />);
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      mockGetSessionEventsRaw.mockResolvedValue([xCardEvent()]);
+      await act(async () => {
+        jest.advanceTimersByTime(4000);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      // The transcript row is anonymous (never `actor`) and parenthesized --
+      // distinct from the banner's own text (BANNER_TEXT is anchored to
+      // exclude this leading paren). Today only the banner is pinned; this
+      // is the permanent-record half of the same signal.
+      await waitFor(() =>
+        expect(
+          screen.getByText(/\(A safety signal was raised — the table eases off\.\)/),
+        ).toBeInTheDocument(),
+      );
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('Iro MAJOR-2: dismiss restores focus to the permanent banner wrapper, not <body>', async () => {
     mockGetSessionEventsRaw.mockResolvedValue([xCardEvent({ seq: 5 })]);
     const { container } = render(<PlayPage />);
