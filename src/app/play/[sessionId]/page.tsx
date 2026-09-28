@@ -45,8 +45,6 @@ import { useToast } from '@/components/Toast';
 import { useReducedMotion } from '@/lib/useReducedMotion';
 import { sessionTitle } from '@/lib/format';
 import {
-  combatFromScene,
-  endCombat,
   getCombatState,
   getCharacterSheet,
   getGrounding,
@@ -55,13 +53,6 @@ import {
   getSessionEventsRaw,
   getSessionEventsPage,
   postSessionEvent,
-  rollInitiative,
-  monsterTurn,
-  attack as combatAttack,
-  dodge as combatDodge,
-  dash as combatDash,
-  endTurn as combatEndTurn,
-  rollDeathSave as combatDeathSave,
   postRoll,
 } from '@/lib/api/dnd';
 import { streamDmNarration, postDmTurn, subscribeDmJob } from '@/lib/stream';
@@ -75,13 +66,8 @@ import {
   applyReconcileResult,
   type PendingTurnEntry,
 } from '@/lib/dnd/reconcileEvents';
-import { engineErrorMessage } from '@/lib/dnd/engineError';
-import { COMBAT_REFUSAL_REASON_MAP } from '@/lib/dnd/engineReasons';
-import { isLivingTargetableFoe } from '@/lib/dnd/combatTargets';
 import type {
   CharacterSheet,
-  CombatState,
-  EndCombatOutcome,
   EngineSessionEvent,
   GroundingData,
   OfferedCheck,
@@ -97,11 +83,7 @@ import CastSpellPanel from '@/components/CastSpellPanel';
 import SessionRecap from '@/components/SessionRecap';
 import { type ChatLogHandle, type LogRow } from '@/components/ChatLog';
 import DiceTray, { type Advantage } from '@/components/DiceTray';
-import Composer, {
-  type ComposeMode,
-  type CombatAction,
-  type CombatTarget,
-} from '@/components/Composer';
+import Composer, { type ComposeMode } from '@/components/Composer';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Drawer from '@/components/Drawer';
 import SafetyBanner from './regions/SafetyBanner';
@@ -111,11 +93,13 @@ import SceneStage from './regions/SceneStage';
 import Offers from './regions/Offers';
 import StoryLog from './regions/StoryLog';
 import { SessionHead, TopBar } from './regions/TopBar';
-import { POLL_INTERVAL_MS, isSessionLocked, isCombatEngaged, buildReadAloudBlock } from './format';
+import { POLL_INTERVAL_MS, isSessionLocked, buildReadAloudBlock } from './format';
 import { useSessionLifecycle } from './hooks/useSessionLifecycle';
 import { useMyCharacter } from './hooks/useMyCharacter';
 import { useSafety } from './hooks/useSafety';
+import { useCombatState } from './hooks/useCombatState';
 import { useScene, type ConfirmBeatFn } from './hooks/useScene';
+import { useCombatActions } from './hooks/useCombatActions';
 import JournalPane, { JOURNAL_HEADING_ID } from '@/components/JournalPane';
 import MemberSheetPanel, { MEMBER_SHEET_HEADING_ID } from '@/components/MemberSheetPanel';
 import NextPartOffer from '@/components/NextPartOffer';
@@ -379,11 +363,6 @@ export default function PlayPage() {
   // close <button ref={closeButtonRef}>.
   const journalCloseBtnRef = useRef<HTMLButtonElement>(null);
 
-  const [combatId, setCombatId] = useState<string | null>(null);
-  const [combatState, setCombatState] = useState<CombatState | null>(null);
-  const [combatBusy, setCombatBusy] = useState(false);
-  const [refusedReason, setRefusedReason] = useState<string | null>(null);
-
   // Iro MEDIUM-2: persistent turn-status text so one mounted live region mutates
   // in place instead of two regions mounting/unmounting on every poll cycle.
 
@@ -413,8 +392,29 @@ export default function PlayPage() {
   // <Drawer> — see the matching comment on journalCloseBtnRef above.
   const memberSheetCloseBtnRef = useRef<HTMLButtonElement>(null);
 
-  // B3-1: outcome chooser state (null = chooser closed).
-  const [outcomeChooserOpen, setOutcomeChooserOpen] = useState(false);
+  // TAV-PLAY-SHELL step 5, hook 5a of ~9 (decomposition plan §2.2, amended by
+  // Amendment A §A.2 row 5 / §A.6): combat's state half. Composed ABOVE
+  // useScene so useScene can take combatEngaged as a plain downward
+  // parameter (Amendment A §A.1) -- see hooks/useCombatState.ts for the full
+  // scope. Same identifiers as before, still destructured here -- every
+  // downstream reference in this file (JSX, other effects/handlers) is
+  // unchanged. `combatStateResult` (the hook's own return object) is kept
+  // too -- useCombatActions below takes it as one bundled parameter rather
+  // than ten more positional ones (documented deviation, see that hook's
+  // header).
+  const combatStateResult = useCombatState(myCharacterIdStr, participants, username);
+  // setRefusedReason/combatStateRef/combatBusyRef/monsterDrivingRef/
+  // pollIntervalRef are NOT destructured here -- page.tsx never calls them
+  // directly (only useCombatActions does, via `combatStateResult` above).
+  // stateSeqRef IS still destructured: the mount effect's initial combat
+  // fetch and the inline onCombatStateUpdate/onCombatStateRefresh/
+  // onStateRefresh JSX handlers below all bump it directly.
+  const {
+    combatId, setCombatId, combatState, setCombatState, combatBusy, setCombatBusy,
+    refusedReason, outcomeChooserOpen, setOutcomeChooserOpen, stateSeqRef,
+    combatEngaged, combatIsActive, round, targetableFoes, isPlayerTurn, isDying,
+    anyMonsterDown, allHostilesDown, selfPcId,
+  } = combatStateResult;
 
   // A2 — real quick-checks derived from the bound character's sheet.
   // null = not yet resolved; [] = DM-only (no character bound) or fetch failed.
@@ -542,28 +542,14 @@ export default function PlayPage() {
   // that unmount keeps focus in the document.
   const durableRetryRowRef = useRef<HTMLDivElement>(null);
 
-  // Monotone sequence guard: combatState updates from polls must not overwrite
-  // a more-recent mutation response. Mutations bump this; polls gate on it.
-  const stateSeqRef = useRef(0);
-
-  // Synchronous latch for double-tap protection on all combat mutating actions.
-  // React state (combatBusy) only disables UI after a re-render; the ref closes
-  // the race window between two taps in the same event-loop tick.
-  const combatBusyRef = useRef(false);
-  // Guards the auto monster-turn driver so combatState updates mid-loop don't
-  // spawn a second concurrent driver.
-  const monsterDrivingRef = useRef(false);
-
-  // Mirror of combatState kept in sync via an effect so the poll callback can
-  // read the current state without being listed as a dep (avoids resetting the
-  // interval on every state-string transition).
-  const combatStateRef = useRef<CombatState | null>(null);
+  // stateSeqRef/combatBusyRef/monsterDrivingRef/combatStateRef/pollIntervalRef
+  // moved into useCombatState (TAV-PLAY-SHELL step 5 hook 5a) — see that
+  // hook's destructure above.
 
   const idRef = useRef(0);
   const chatLogRef = useRef<ChatLogHandle>(null);
   const revealRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const narrationAbort = useRef<AbortController | null>(null);
-  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Tora MAJOR-2: ref for the "End" trigger button so focus returns to it when
   // the outcome chooser is closed via Escape.
   const endCombatBtnRef = useRef<HTMLButtonElement>(null);
@@ -598,7 +584,9 @@ export default function PlayPage() {
   // focus there instead of forcing a full re-tab. Falls back to sceneHeadRef.
   const composerRailAnchorRef = useRef<HTMLDivElement>(null);
   const dmPanelAnchorRef = useRef<HTMLElement>(null);
-  const prevActiveParticipantIdRef = useRef<string | null>(null);
+  // prevActiveParticipantIdRef moved into useCombatActions (TAV-PLAY-SHELL
+  // step 5 hook 5b) — private to the turn-change refocus effect it owns,
+  // read/written nowhere else.
   // Iro CRITICAL-1: provenance gate for the turn-flip refocus effect below.
   // combatState is synced to EVERY client via the 4s poll, so without this the
   // refocus effect would also fire on bystander tabs (including a screen-reader
@@ -617,12 +605,8 @@ export default function PlayPage() {
     logRef.current = log;
   }, [log]);
 
-  // Keep combatStateRef in sync so the poll callback can read current state
-  // without being a dep of the poll effect (which would reset the interval on
-  // every state-string transition such as active→between_turns→active).
-  useEffect(() => {
-    combatStateRef.current = combatState;
-  }, [combatState]);
+  // combatStateRef's sync effect moved into useCombatState (TAV-PLAY-SHELL
+  // step 5 hook 5a) — see that hook's own file.
 
   const appendLog = useCallback((row: Omit<LogRow, 'id' | 'ts'>) => {
     setLog((prev) => [...prev, { id: `r${(idRef.current += 1)}`, ts: nowStamp(), ...row }]);
@@ -636,8 +620,10 @@ export default function PlayPage() {
   // openScene/refocusSceneHeadIfStranded/applyOfferedCheckSignal/checkWrapRef
   // by the same names, unchanged.
   //
-  // Amendment A §A.1: the one derived boolean useScene reads off combat's state.
-  const combatEngaged = isCombatEngaged(combatState);
+  // Amendment A §A.1: the one derived boolean useScene reads off combat's
+  // state -- `combatEngaged` now comes straight from useCombatState's
+  // destructure above (A2); the isCombatEngaged() call itself lives inside
+  // that hook, not here.
   // onMoveOn/onAttemptCheck/handleSceneAdvance need narrate/narrateDurableBeat
   // (useNarration, hook 8), which are declared FAR below this call -- the
   // mount effect above needs useScene's setGrounding/openScene before either
@@ -1004,7 +990,9 @@ export default function PlayPage() {
   // debt: mount effect stays here, not in useSessionLifecycle -- it also
   // seeds grounding/log/journal (useScene/useTranscript's concerns) in one
   // atomic sequence 553 tests pin the ordering of. ceiling: no additional
-  // concern folded in. until: useCombatState/useMyCharacter/useScene/useTranscript exist.
+  // concern folded in. until: useMyCharacter/useScene/useTranscript exist.
+  // (useCombatState landed at A2 -- this effect already writes through its
+  // setCombatId/setCombatState/stateSeqRef, not local useState/useRef.)
   useEffect(() => {
     if (!username || !sessionId) return;
     const ctrl = new AbortController();
@@ -1293,38 +1281,9 @@ export default function PlayPage() {
     }
   }
 
-  // ── combat state poll (4s, foregrounded) ────────────────────────────────────
-  // Deps: [combatId] only — state transitions (active→between_turns→active) must
-  // NOT reset the interval. The ended short-circuit is checked inside poll() via
-  // combatStateRef so the effect never needs to observe combatState?.state.
-  useEffect(() => {
-    if (!combatId) return;
-
-    const poll = async () => {
-      if (document.hidden) return;
-      // Short-circuit: if combat has ended, skip the fetch.
-      if (combatStateRef.current?.state === 'ended') return;
-      const mySeq = stateSeqRef.current;
-      try {
-        const cs = await getCombatState(combatId);
-        // Only apply if no mutation has happened since we sent this request.
-        if (stateSeqRef.current === mySeq) {
-          setCombatState(cs);
-        }
-      } catch {
-        // Poll errors are non-fatal — the next tick will retry.
-      }
-    };
-
-    pollIntervalRef.current = setInterval(poll, POLL_INTERVAL_MS);
-
-    return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
-    };
-  }, [combatId]);
+  // The combat-state poll (4s, foregrounded) moved into useCombatState
+  // (TAV-PLAY-SHELL step 5 hook 5a) — same deps ([combatId] only), same
+  // load-bearing comment, unchanged, in that hook's own file now.
 
   // ── dice-roll events poll (4s, foregrounded) ────────────────────────────────
   // DDX-08 / T3: dice rolls are server-authoritative (POST /roll persists a
@@ -1941,10 +1900,12 @@ export default function PlayPage() {
   );
 
   // B1-4: fire-once toast when combat becomes active and the user has no
-  // bound character (they can observe but not act).
-  // debt: stays in page.tsx, not useMyCharacter -- it also reads
-  // useCombat's combatState.state. ceiling: no additional cross-concern
-  // read added. until: useCombat is extracted.
+  // bound character (they can observe but not act). Amendment A §A.6: this
+  // marker resolves at A2 -- combatState?.state is now a plain downward read
+  // off useCombatState's destructure above, the same shape as reading any
+  // other hook's return; it stays in page.tsx (not folded into either
+  // useMyCharacter or useCombatState) because it is genuinely a cross-hook
+  // consumer of both, not owned by either one.
   useEffect(() => {
     if (
       combatState?.state === 'active' &&
@@ -1964,10 +1925,11 @@ export default function PlayPage() {
   }, [combatState?.state, myCharacterIdStr, toast, noCharToastFiredRef]);
 
   // ── cleanup streams on unmount ───────────────────────────────────────────────
-  // pollIntervalRef is owned by the combatId effect above — its cleanup already
-  // runs on combatId change and on unmount. Don't double-clear it here; doing so
-  // trips a Strict Mode bug where the []-dep cleanup fires between the poll
-  // effect's double-invoke and its real mount, leaving no cleanup for real unmount.
+  // pollIntervalRef is owned by useCombatState's own combat-state poll effect
+  // (TAV-PLAY-SHELL step 5 hook 5a) — its cleanup already runs on combatId
+  // change and on unmount. Don't double-clear it here; doing so trips a
+  // Strict Mode bug where the []-dep cleanup fires between the poll effect's
+  // double-invoke and its real mount, leaving no cleanup for real unmount.
   useEffect(
     () => () => {
       if (revealRef.current) clearInterval(revealRef.current);
@@ -2843,364 +2805,21 @@ export default function PlayPage() {
   // the useScene() call above, right after appendLog.
 
   // ── combat ──────────────────────────────────────────────────────────────────
-  /**
-   * ADV-6: Begin an encounter from the current scene's authored encounter block.
-   * Now also initialises combatState from the response's data.state (CUI-11).
-   */
-  const beginEncounter = useCallback(async () => {
-    if (!session || !username || combatBusyRef.current) return;
-    combatBusyRef.current = true;
-    // Tora MINOR-2: increment seq at mutation START so any in-flight poll is discarded.
-    stateSeqRef.current += 1;
-    setCombatBusy(true);
-    setRefusedReason(null);
-    try {
-      const result = await combatFromScene({ session_id: session.session_id });
-      const newId = result.combat_id;
-      setCombatId(newId);
-      // Initialise combatState from the engine response if it carries structured state;
-      // else fetch it immediately. (Proxy passes through data.state once engine is updated.)
-      if ('state' in result && result.state) {
-        stateSeqRef.current += 1;
-        setCombatState(result.state as CombatState);
-      } else {
-        // Fallback: explicit fetch for the structured state.
-        const cs = await getCombatState(newId).catch(() => null);
-        if (cs) {
-          stateSeqRef.current += 1;
-          setCombatState(cs);
-        }
-      }
-      const initRes = await rollInitiative({ username, combat_id: newId }).catch(() => null);
-      // Use the state from the initiative response if the engine emits it;
-      // avoids a separate getCombatState round-trip (M2).
-      const csAfterInit = initRes?.state ?? (await getCombatState(newId).catch(() => null));
-      if (csAfterInit) {
-        stateSeqRef.current += 1;
-        setCombatState(csAfterInit);
-      }
-      const monsterNames = result.monsters.map((m) => m.name).join(', ') || 'enemies';
-      appendLog({
-        who: 'Suzu',
-        kind: 'system',
-        text: `Combat begins — ${monsterNames} close in. Roll initiative.`,
-      });
-      if (DURABLE_GENERATION_ENABLED) {
-        void narrateDurableBeat(
-          'We are under attack!',
-          `Combat starts. ${monsterNames} enter the scene. Set the scene.`,
-          'act',
-          { beat: 'combat_start' },
-        );
-      } else {
-        void narrate(
-          'We are under attack!',
-          `Combat starts. ${monsterNames} enter the scene. Set the scene.`,
-          'act',
-        ); // byte-unchanged legacy path
-      }
-    } catch (err) {
-      // combat_from_scene's 400/409 refusals (NekoNova-DnDEngine
-      // routes/combat.py) set no data.reason, only a ready-to-show `message`
-      // ("No encounter available for the current scene.", "A combat is already
-      // active for this session.", …).
-      //
-      // CORRECTION (2026-08-06, Kage-CR #3): this comment used to say "the
-      // 4xx-business branch below is what actually surfaces it". It doesn't —
-      // `api/routes/dnd_combat.py::_handle_dnd_error` renames `message` to
-      // `error` and tier-2 probes `body.message`, so every one of those
-      // refusals currently shows the bare fallback. Real fix is
-      // NEKONOVA-PROXY-DROPS-MESSAGE (filed); not patched over with curated
-      // copy here because the engine's text is already the right words.
-      toast({
-        tone: 'error',
-        message: engineErrorMessage(err, {
-          fallback: 'Could not start combat.',
-          // Kage-CR #4: reuse, don't re-type. A second literal of this string
-          // in a batch whose whole point is one home for reason copy would
-          // drift the moment either is reworded.
-          reasonMap: { msm_disabled: COMBAT_REFUSAL_REASON_MAP.msm_disabled },
-        }),
-      });
-    } finally {
-      combatBusyRef.current = false;
-      setCombatBusy(false);
-    }
-  }, [session, username, toast, appendLog, narrate, narrateDurableBeat]);
-
-  const onCombatAction = useCallback(
-    async (action: CombatAction, payload?: string) => {
-      if (!session || !username || !combatId || combatBusyRef.current) return;
-      combatBusyRef.current = true;
-      // Tora MINOR-2: increment seq at mutation START so any in-flight poll is discarded.
-      stateSeqRef.current += 1;
-      setCombatBusy(true);
-      setRefusedReason(null);
-
-      try {
-        let message = '';
-        let playerLine = '';
-        let newState: CombatState | null | undefined;
-        let sceneAdvance: { fromScene: string; toScene: string; outcome?: string } | null = null;
-        // T1 (Kage-CR ruling 2026-08-18): hoisted OUT of `sceneAdvance` —
-        // outcome_line resolves independently of scene_advance (see
-        // `playOutcomeLine`'s doc comment), so it's captured on every
-        // branch's own `res`, not folded into the scene-advance-only shape.
-        // Harmless on the branches whose routes don't emit it today (dodge/
-        // dash/attack/endturn — only death-save and /combat/{id}/end do).
-        let outcomeLine: string | null | undefined;
-
-        if (action === 'attack' && payload) {
-          // payload is the participant_id (from the target menu item's id).
-          // We send target_id as the preferred path; target (name) as fallback.
-          const target = combatState?.participants.find((p) => p.participant_id === payload);
-          const targetName = target?.name ?? payload;
-          let res;
-          try {
-            res = await combatAttack({
-              username,
-              combat_id: combatId,
-              target: targetName,
-              target_id: payload,
-            });
-          } catch (err) {
-            // F1/CAST-FAIL-SILENT: engineErrorMessage always returns a
-            // non-empty string (curated reason, else the engine's own 4xx
-            // message, else the fallback) — a bare "no data.reason" refusal
-            // (e.g. a 404 "Combat or session not found." with no reason
-            // code) used to fall through to `setRefusedReason(null)` here,
-            // silently clearing the banner with nothing shown at all.
-            setRefusedReason(
-              engineErrorMessage(err, {
-                // NOT "did not land" — that is the language of a MISSED attack
-                // roll and was read as one. NOT "try again" either: the most
-                // common refusal here (a spent action) cannot succeed until the
-                // turn ends. This fires only for network/abort or a refusal
-                // carrying no reason code at all.
-                fallback: "That combat action didn't go through.",
-                reasonMap: COMBAT_REFUSAL_REASON_MAP,
-              }),
-            );
-            const body = (err as { body?: unknown } | null)?.body;
-            const data = (body as { data?: { state?: CombatState } } | null)?.data;
-            if (data?.state) {
-              stateSeqRef.current += 1;
-              setCombatState(data.state);
-            }
-            return;
-          }
-          newState = res.state ?? null;
-          outcomeLine = res.outcome_line;
-          if (res.scene_advance) {
-            sceneAdvance = {
-              fromScene: res.scene_advance.from_scene,
-              toScene: res.scene_advance.to_scene,
-              outcome: res.scene_advance.outcome,
-            };
-          }
-          // Surface what happened from last_action.
-          const la = newState?.last_action;
-          const outcomeText = la
-            ? ` (${la.outcome}${la.damage_dealt ? `, ${la.damage_dealt} dmg` : ''})`
-            : '';
-          message = res.message ?? `You attack ${targetName}.${outcomeText}`;
-          playerLine = `I attack ${targetName}.`;
-        } else if (action === 'dodge') {
-          const res = await combatDodge({ username, combat_id: combatId });
-          newState = res.state ?? null;
-          outcomeLine = res.outcome_line;
-          message = res.message ?? 'You take the Dodge action.';
-          playerLine = 'I dodge.';
-        } else if (action === 'dash') {
-          const res = await combatDash({ username, combat_id: combatId });
-          newState = res.state ?? null;
-          outcomeLine = res.outcome_line;
-          message = res.message ?? 'You take the Dash action.';
-          playerLine = 'I dash.';
-        } else if (action === 'deathsave') {
-          // Combat-UX Fixes 2026-07-27, Fix B: solo self-resolve — omit
-          // target/target_id, cmd_deathsave resolves the caller's own downed
-          // character first.
-          const res = await combatDeathSave({ username, combat_id: combatId });
-          newState = res.state ?? null;
-          outcomeLine = res.outcome_line;
-          // TAV-DEATHSAVE-SCENE-ADVANCE (2026-08-18): a death save can
-          // trigger the engine's anti-TPK rescue (`maybe_trigger_anti_tpk_
-          // rescue` -> `finalize_combat`), which — exactly like the attack
-          // and endturn branches above/below — may carry a `scene_advance`.
-          // This branch used to drop it on the floor entirely: no scene-shift
-          // log line, no grounding refresh, no transition narration — just
-          // dead air until the next scene's narration appeared with no
-          // lead-in. Structurally parallel to its two siblings now.
-          if (res.scene_advance) {
-            sceneAdvance = {
-              fromScene: res.scene_advance.from_scene,
-              toScene: res.scene_advance.to_scene,
-              outcome: res.scene_advance.outcome,
-            };
-          }
-          message = res.message ?? 'You roll a death save.';
-          playerLine = 'I roll a death save.';
-        } else if (action === 'endturn') {
-          const res = await combatEndTurn({ username, combat_id: combatId });
-          newState = res.state ?? null;
-          outcomeLine = res.outcome_line;
-          if (res.scene_advance) {
-            sceneAdvance = {
-              fromScene: res.scene_advance.from_scene,
-              toScene: res.scene_advance.to_scene,
-              outcome: res.scene_advance.outcome,
-            };
-          }
-          message = res.message ?? 'You end your turn.';
-          playerLine = 'I end my turn.';
-        }
-
-        if (newState) {
-          stateSeqRef.current += 1;
-          setCombatState(newState);
-        }
-
-        appendLog({ who: username, kind: 'system', text: message });
-        // DDX-20 Pass 3 §3.3 — flag-OFF this `await` serializes end-turn
-        // narration ahead of the scene-advance call just below (preserved
-        // verbatim). Flag-ON, `narrateDurableBeat` returns after the job is
-        // CREATED, not after narration completes, so it is fired-and-forgot
-        // (`void`, no `await`) here — the accepted trade-off documented in
-        // Pass-3 §3.3: beat 2 (scene-advance) may 409 subscribe-and-drop
-        // against this beat's still-streaming narration; the scene still
-        // advances (its durable `scene_advance` event is independent). Do
-        // NOT try to serialize these — that re-couples the beats for a
-        // cosmetic gain the single-slot model already bounds.
-        if (DURABLE_GENERATION_ENABLED) {
-          void narrateDurableBeat(playerLine, message, 'act', { beat: 'end_turn' });
-        } else {
-          await narrate(playerLine, message, 'act'); // byte-unchanged legacy path
-        }
-
-        // Monsters' turns (after the player ends theirs) are driven uniformly by
-        // the auto monster-turn effect below — it picks up whenever combatState
-        // shows a non-PC active turn, including at combat start when monsters win
-        // initiative.
-
-        // ADV-8 auto-advance: scene_advance != null means combat resolved + scene moved.
-        if (sceneAdvance) {
-          await handleSceneAdvance(
-            sceneAdvance.fromScene,
-            sceneAdvance.toScene,
-            sceneAdvance.outcome,
-            outcomeLine,
-          );
-        } else {
-          // T1 (Kage-CR ruling 2026-08-18): an outcome_line can resolve with
-          // NO scene_advance at all (flee/victory on everfree_flight, whose
-          // advance_to is null for both) — play it directly rather than
-          // gating it behind a scene shift that never happens.
-          playOutcomeLine(outcomeLine);
-        }
-
-        // If combat ended, refresh grounding for the "Move on" affordance.
-        if (newState?.state === 'ended') {
-          void refreshGrounding();
-        }
-      } catch (err) {
-        // F1/CAST-FAIL-SILENT: same chokepoint as the attack sub-branch
-        // above — always surfaces SOMETHING (curated/engine-message/
-        // fallback), so a dodge/dash/endturn refusal with no reason code no
-        // longer falls silently through the old `if (reason) … else toast`
-        // split with nothing shown for the in-between case.
-        setRefusedReason(
-          engineErrorMessage(err, {
-            // NOT "did not land" — that is the language of a MISSED attack
-            // roll and was read as one. NOT "try again" either: the most
-            // common refusal here (a spent action) cannot succeed until the
-            // turn ends. This fires only for network/abort or a refusal
-            // carrying no reason code at all.
-            fallback: "That combat action didn't go through.",
-            reasonMap: COMBAT_REFUSAL_REASON_MAP,
-          }),
-        );
-        const body = (err as { body?: unknown } | null)?.body;
-        const data = (body as { data?: { state?: CombatState } } | null)?.data;
-        if (data?.state) {
-          stateSeqRef.current += 1;
-          setCombatState(data.state);
-        }
-      } finally {
-        combatBusyRef.current = false;
-        setCombatBusy(false);
-      }
-    },
-    [
-      session,
-      username,
-      combatId,
-      combatState,
-      appendLog,
-      narrate,
-      narrateDurableBeat,
-      handleSceneAdvance,
-      refreshGrounding,
-      playOutcomeLine,
-    ],
+  // TAV-PLAY-SHELL step 5, hook 5b of ~9 (decomposition plan §2.2, amended by
+  // Amendment A §A.2 row 10 / §A.6): combat's behaviour half -- beginEncounter,
+  // onCombatAction, onEndCombat, the monster auto-driver effect, and the
+  // turn-change refocus effect. Composed here (after narrate/narrateDurableBeat
+  // and handleSceneAdvance/playOutcomeLine/refreshGrounding from useScene are
+  // already declared above) per §A.6's own note -- useNarration doesn't exist
+  // yet (A5), so this is still page.tsx-local narrate/narrateDurableBeat, not
+  // a hook's return. See hooks/useCombatActions.ts for the full scope and the
+  // signature deviations from §A.6's abridged list (documented there).
+  const { beginEncounter, onCombatAction, onEndCombat } = useCombatActions(
+    session, username, myCharacterIdStr, combatStateResult,
+    appendLog, narrate, narrateDurableBeat, handleSceneAdvance, playOutcomeLine,
+    refreshGrounding, sceneHeadRef, composerRailAnchorRef, dmPanelAnchorRef,
+    localTurnActionRef,
   );
-
-  /**
-   * B3-1: Explicit "End combat" — posts /combat/{id}/end with a DM-chosen outcome.
-   * Previously hardcoded 'unresolved'; now driven by the outcome chooser.
-   */
-  const onEndCombat = useCallback(async (outcome: EndCombatOutcome = 'unresolved') => {
-    if (!combatId || !username || combatBusyRef.current) return;
-    combatBusyRef.current = true;
-    // Tora MINOR-2: increment seq at mutation START so any in-flight poll is discarded.
-    stateSeqRef.current += 1;
-    setCombatBusy(true);
-    // Tora MINOR-1: do NOT close the chooser here — only close on success so the
-    // user can retry on engine error without re-opening the panel.
-    try {
-      const result = await endCombat(combatId, { username, outcome });
-      if (result.state) {
-        stateSeqRef.current += 1;
-        setCombatState(result.state);
-      }
-      const outcomeLabel = result.outcome
-        ? result.outcome.charAt(0).toUpperCase() + result.outcome.slice(1)
-        : 'Unresolved';
-      appendLog({
-        who: 'Suzu',
-        kind: 'system',
-        text: `Combat ended. ${outcomeLabel}.`,
-      });
-      // Tora MINOR-1: close on SUCCESS only.
-      setOutcomeChooserOpen(false);
-      if (result.scene_advance) {
-        await handleSceneAdvance(
-          result.scene_advance.from_scene,
-          result.scene_advance.to_scene,
-          result.scene_advance.outcome,
-          result.outcome_line,
-        );
-      } else {
-        // T1 (Kage-CR ruling 2026-08-18): outcome_line can resolve without a
-        // scene_advance here too — see the identical hoist in onCombatAction.
-        playOutcomeLine(result.outcome_line);
-        void refreshGrounding();
-      }
-    } catch (err) {
-      const body = (err as { body?: unknown } | null)?.body;
-      const data = (body as { data?: { reason?: string } } | null)?.data;
-      const reason = data?.reason;
-      if (reason === 'victory_refused') {
-        toast({ tone: 'error', message: "Can't claim victory — no enemies are down yet." });
-      } else {
-        toast({ tone: 'error', message: 'Could not end combat.' });
-      }
-      // Tora MINOR-1: chooser stays open on error so the user can retry.
-    } finally {
-      combatBusyRef.current = false;
-      setCombatBusy(false);
-    }
-  }, [combatId, username, appendLog, handleSceneAdvance, refreshGrounding, playOutcomeLine, toast]);
 
   // UIR2-TAV-11: the xpForm's own onKeyDown only fires while focus is inside
   // the form's DOM subtree (a native keydown that starts there and bubbles
@@ -3242,9 +2861,11 @@ export default function PlayPage() {
   // new Escape-handling overlay is ever added under /play and follows the
   // consume-your-own-Escape pattern, it does NOT need to be added here.
   // debt: stays here instead of moving into useSessionLifecycle -- it also
-  // reads useCombat's outcomeChooserOpen and the journal drawer's
-  // journalOpen, neither of which this hook owns. ceiling: no additional
-  // cross-concern read added. until: useCombat and the journal drawer's own hook exist.
+  // reads the journal drawer's journalOpen, which this hook doesn't own.
+  // ceiling: no additional cross-concern read added. until: the journal
+  // drawer's own hook exists. (outcomeChooserOpen's half of this resolved at
+  // A2 -- it is now a plain downward read off useCombatState's destructure
+  // above, same shape as any other hook consumer, not a blocker anymore.)
   useEffect(() => {
     if (!xpFormOpen) return;
     const onDocumentKeyDown = (e: KeyboardEvent) => {
@@ -3268,164 +2889,16 @@ export default function PlayPage() {
     // stable).
   }, [xpFormOpen, outcomeChooserOpen, endSessionConfirmOpen, journalOpen, sessionActionBusy, setXpFormOpen, xpToggleBtnRef]);
 
-  // Auto-drive monster turns. Whenever combat is active and the current turn
-  // belongs to a living NPC, run that monster's turn — looping through all
-  // consecutive NPC turns until it's a PC's turn or combat ends. Without this,
-  // a combat where monsters win initiative is stuck at the start (the player is
-  // never reached) and monster turns between rounds never advance.
-  //
-  // S5.3: skip the auto-driver entirely when dm_mode === 'human' — the DM
-  // drives monster turns manually via the DmNarrationPanel (npc-action route).
-  useEffect(() => {
-    if (!combatState || combatState.state !== 'active' || !combatId || !username) return;
-    // Human DM: monster turns are driven by the DmNarrationPanel, not auto.
-    // S5.5: ai_assist_level='off' or 'assist' also suppresses auto monster drive.
-    // For 'off': no AI; for 'assist': no auto-fire (manual DM invocation only).
-    const autoAiLevel = session?.ai_assist_level;
-    // DDX-25: a paused/ended session freezes the whole table — the DM-side
-    // monster auto-driver must halt too, not just player actions, or monsters
-    // keep acting until the next PC turn while the banner reads "paused".
-    if (session?.dm_mode === 'human' || autoAiLevel === 'off' || autoAiLevel === 'assist' || isSessionLocked(session)) return;
-    // Only monsterDrivingRef guards here — NOT combatBusyRef. A player's end-turn
-    // completes with combatBusyRef still set while it hands off to a monster's
-    // turn; gating on it would stall the hand-off. The active.is_pc check below
-    // already prevents this from firing during the player's own turn.
-    if (monsterDrivingRef.current) return;
-    const active = combatState.participants.find(
-      (p) => p.participant_id === combatState.active_participant_id,
-    );
-    if (!active || active.is_pc || !active.is_alive) return;
-
-    monsterDrivingRef.current = true;
-    let cancelled = false;
-    (async () => {
-      try {
-        // Hard cap defends against an engine that fails to advance the turn.
-        for (let i = 0; i < 20 && !cancelled; i += 1) {
-          const mres = await Promise.resolve(
-            monsterTurn({ username, combat_id: combatId }),
-          ).catch(() => null);
-          if (!mres) break;
-          const mla = mres.state?.last_action;
-          const mLog =
-            mres.message ??
-            (mla
-              ? `${mla.actor_id}: ${mla.outcome}${mla.damage_dealt ? `, ${mla.damage_dealt} dmg` : ''}`
-              : null);
-          if (mLog) appendLog({ who: 'Suzu', kind: 'system', text: mLog });
-          if (mres.state) {
-            stateSeqRef.current += 1;
-            setCombatState(mres.state);
-          }
-          if (mres.scene_advance) {
-            await handleSceneAdvance(
-              mres.scene_advance.from_scene,
-              mres.scene_advance.to_scene,
-              mres.scene_advance.outcome,
-              mres.outcome_line,
-            );
-            break;
-          }
-          // T1 (Kage-CR ruling 2026-08-18): outcome_line can resolve without
-          // a scene_advance — same hoist as onCombatAction/onEndCombat.
-          // FORWARD-CONTRACT NOTE: `/monster-turn` does not emit outcome_line
-          // on the engine today (only death-save + /combat/{id}/end do) —
-          // this is inert-but-harmless until/unless the engine adds it here.
-          playOutcomeLine(mres.outcome_line);
-          const st = mres.state;
-          if (!st || st.state !== 'active') break;
-          const next = st.participants.find((p) => p.participant_id === st.active_participant_id);
-          if (!next || next.is_pc || !next.is_alive) break; // reached the player / nobody to drive
-        }
-      } finally {
-        monsterDrivingRef.current = false;
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [combatState, combatId, username, session, appendLog, handleSceneAdvance, playOutcomeLine]);
-
-  // Tora MAJOR-2: refocus the newly-enabled rail's container when a combat
-  // action flips the active turn and disabling the just-clicked button
-  // stranded focus on <body>. Reacts to combatState.active_participant_id
-  // changing rather than hooking into onCombatAction/MonsterRow.fireAction
-  // directly — both mutation paths already funnel into setCombatState (via
-  // onStateUpdate / the response's own newState), so one generic effect here
-  // covers a player Attack/Dodge/Dash/End-turn AND a DM per-monster
-  // Attack/Skip/Move without touching either handler's control flow (kept
-  // intentionally narrow per the review guardrail on this item). Mirrors
-  // refocusSceneHeadIfStranded's rAF-after-commit stranding check, falling
-  // back to sceneHeadRef when neither rail applies to this viewer.
-  useEffect(() => {
-    const active = combatId && combatState?.state !== 'ended' ? combatState : null;
-    const current = active?.active_participant_id ?? null;
-    const prev = prevActiveParticipantIdRef.current;
-    prevActiveParticipantIdRef.current = current;
-
-    // Consume the provenance flag on every pass (even early-return ones) so a
-    // local click that didn't end up changing the active participant can't
-    // leak forward and get misattributed to a later, unrelated turn change.
-    const causedByLocalClick = localTurnActionRef.current;
-    localTurnActionRef.current = false;
-
-    if (prev == null || current == null || prev === current) return;
-    // Provenance gate (Iro CRITICAL-1): only proceed when THIS client's own
-    // disabling click caused this transition — never for a transition that
-    // arrived purely via the poll (another client's action).
-    if (!causedByLocalClick) return;
-
-    const isDmSeat = !!(
-      session?.dm_username &&
-      username &&
-      session.dm_username.toLowerCase() === username.toLowerCase() &&
-      session?.dm_mode === 'human'
-    );
-    const newActiveParticipant =
-      active?.participants.find((p) => p.participant_id === current) ?? null;
-    // Ownership gate (Iro CRITICAL-1): reuses the `activeIsMine` pattern below
-    // — the composer/cast rail is only refocused when the newly active
-    // participant is THIS viewer's OWN bound PC, never another player's rail
-    // for their turn. This also subsumes the old dmPlayingOwnPc/hasComposerRail
-    // check: a DM with a bound PC gets this branch exactly when it becomes
-    // their own PC's turn.
-    const newActiveIsMine =
-      !!newActiveParticipant?.is_pc &&
-      myCharacterIdStr != null &&
-      newActiveParticipant.entity_id === myCharacterIdStr;
-
-    requestAnimationFrame(() => {
-      if (document.activeElement !== document.body) return;
-      if (newActiveIsMine) {
-        composerRailAnchorRef.current?.focus({ preventScroll: true });
-      } else if (!newActiveParticipant?.is_pc && isDmSeat) {
-        dmPanelAnchorRef.current?.focus({ preventScroll: true });
-      } else {
-        sceneHeadRef.current?.focus({ preventScroll: true });
-      }
-    });
-    // sceneHeadRef comes from useScene's destructure (TAV-PLAY-SHELL step 5
-    // hook 4) -- stable across renders, listed because the linter can no
-    // longer prove that from a local useRef call.
-  }, [combatState, combatId, session, username, myCharacterIdStr, sceneHeadRef]);
-
   // ── derived combat UI state ──────────────────────────────────────────────────
-
-  // Participants that are valid targets (living, targetable enemies).
-  // F2/CAST-DEAD-TARGET: shared with CastSpellPanel's own target picker via
-  // isLivingTargetableFoe (src/lib/dnd/combatTargets.ts) — Cast layers a
-  // heal-downed-ally exception on top of the same base rule instead of
-  // re-deriving it.
-  const targetableFoes: CombatTarget[] = combatState
-    ? combatState.participants
-        .filter(isLivingTargetableFoe)
-        .map((p) => ({
-          id: p.participant_id,
-          name: p.name,
-          hp: p.hp_current,
-          maxHp: p.hp_max,
-        }))
-    : [];
+  // targetableFoes/isPlayerTurn/isDying/round/anyMonsterDown/allHostilesDown/
+  // selfPcId/combatIsActive moved into useCombatState (TAV-PLAY-SHELL step 5
+  // hook 5a, Amendment A §A.6 "every pure derivation off combatState") --
+  // already destructured from that hook's return above. What's left here is
+  // JSX-adjacent derived state §A.6 doesn't name as the hook's own: it stays
+  // in page.tsx, recomputed off combatState/isDying (both hook-sourced) the
+  // same cheap-recompute shape myDeathSaveParticipant already used before
+  // this split (see hooks/useCombatState.ts's own header for the full
+  // reasoning).
 
   // B1-4: per-user turn resolution.
   // Find the active participant; it's MY turn only when the active participant
@@ -3439,18 +2912,6 @@ export default function PlayPage() {
     activeParticipant?.is_pc === true &&
     myCharacterIdStr != null &&
     activeParticipant.entity_id === myCharacterIdStr;
-
-  const isPlayerTurn = combatState?.state === 'active'
-    ? activeIsMine
-    : true; // out of combat: always enabled
-
-  // Combat-UX Fixes 2026-07-27, Fix B: the gate for the "Roll death save"
-  // affordance — the viewer's own PC, on their turn, at 0 HP, not stable, not
-  // dead (death_saves.is_dying already encodes exactly that on the wire).
-  // Narrower than "downed" — a stabilised-but-still-0-HP PC is is_downed but
-  // no longer is_dying, so the rail correctly stops offering the roll once
-  // 3 successes land.
-  const isDying = activeIsMine && activeParticipant?.death_saves?.is_dying === true;
 
   // TAV-ATTACK-BUTTON-STALE: the viewer's own PC has already spent their
   // ACTION this turn — read straight off the combat-state wire's per-turn
@@ -3523,8 +2984,7 @@ export default function PlayPage() {
           ? `Waiting on ${activeParticipant.name}'s turn...`
           : `Monster turn — ${activeParticipant.name}`;
 
-  // Round from combatState is authoritative; fall back to 1 when no state yet.
-  const round = combatState?.round ?? null;
+  // round now comes from useCombatState's destructure above.
 
   // Determine valid "Move on" transitions from grounding (ADV-7T).
   // Show the button only when: no active combat AND at least one transition is available
@@ -3543,8 +3003,9 @@ export default function PlayPage() {
   // (no `manual` vs `on_enter` branching here either; Package B never
   // auto-starts). `sceneHasEncounter` itself now comes from useScene's
   // destructure above (TAV-PLAY-SHELL step 5 hook 4) — the two effects
-  // below stay in page.tsx because they also read `combatId`, useCombat's
-  // not-yet-extracted state.
+  // below stay in page.tsx because they are genuinely cross-hook consumers
+  // (also reading `combatId` from useCombatState's destructure), not owned
+  // by either hook.
 
   // Iro-A11y MAJOR-2 — the "Begin an encounter"→"Stand and fight" reframe.
   // Originally this swapped the SAME button's text child in place while the
@@ -3579,8 +3040,10 @@ export default function PlayPage() {
   //
   // `combatEncounterUnstarted`/`sceneCreatureNames` below read `grounding`
   // (from useScene's destructure above) but stay in page.tsx -- they exist
-  // for the combat-verb guard (plan §1.4, useCombat's own derived values),
-  // not scene's.
+  // for the combat-verb guard (plan §1.4) and read `grounding`, a tier-6
+  // concern neither useCombatState (tier 5, composed above useScene) nor
+  // useCombatActions (composed after useScene, but not named as this
+  // derivation's owner in Amendment A §A.6) can claim -- not scene's either.
   const combatEncounterUnstarted = useMemo(() => {
     const enc = grounding?.encounter;
     if (!enc || typeof enc !== 'object') return false;
@@ -3832,7 +3295,7 @@ export default function PlayPage() {
   }
 
   const title = sessionTitle(session ?? {});
-  const combatIsActive = !!combatId && combatState?.state !== 'ended';
+  // combatIsActive now comes from useCombatState's destructure above.
 
   // TAV-NARRATION-DECOUPLE (2026-07-25) — NarratorStrip's combat-status
   // banner: an "if easy" glance at turn order, derived straight from the
@@ -3877,18 +3340,8 @@ export default function PlayPage() {
     ? [['dm_narration', 'DM Narration'], ['ooc', 'OOC']]
     : [['say', 'Say'], ['act', 'Act'], ['ooc', 'OOC']];
 
-  // B3-1: Victory is disabled when no monster is down (engine would 400 victory_refused).
-  const anyMonsterDown = !!combatState?.participants.some(
-    (p) => !p.is_pc && !p.is_alive,
-  );
-  // F3/COMBAT-NO-AUTO-RESOLVE: advisory (never blocking) — surfaced when the
-  // last hostile drops mid-combat. Reuses `targetableFoes` (isLivingTargetableFoe,
-  // src/lib/dnd/combatTargets.ts), the SAME signal the attack rail's own
-  // target picker already computes, rather than re-deriving "any living
-  // enemy" a second way. Gated on state==='active' explicitly (not just
-  // emptiness) — targetableFoes is ALSO empty before combat starts and after
-  // it ends, for a different reason; this must not fire in either case.
-  const allHostilesDown = combatState?.state === 'active' && targetableFoes.length === 0;
+  // anyMonsterDown/allHostilesDown now come from useCombatState's destructure
+  // above (Amendment A §A.6).
   const statusPill = combatIsActive ? (
     <Pill tone="lav" dot>
       round {round ?? 1} · combat
@@ -3924,24 +3377,7 @@ export default function PlayPage() {
           ? styles.showJournal
           : styles.showLog;
 
-  // Find the selfParticipantId for the "you" badge in the tracker.
-  // B1-4: prefer entity_id match (precise); fall back to name match for older engine.
-  const selfPcId =
-    (myCharacterIdStr != null
-      ? combatState?.participants.find(
-          (p) => p.is_pc && p.entity_id === myCharacterIdStr,
-        )?.participant_id
-      : undefined) ??
-    combatState?.participants.find(
-      (p) =>
-        p.is_pc &&
-        participants.some(
-          (part) =>
-            part.username.toLowerCase() === (username ?? '').toLowerCase() &&
-            part.character?.name?.toLowerCase() === p.name.toLowerCase(),
-        ),
-    )?.participant_id ??
-    null;
+  // selfPcId now comes from useCombatState's destructure above.
 
   return (
     <div id="main-content" className={`${styles.grid} ${mobileClass}`}>

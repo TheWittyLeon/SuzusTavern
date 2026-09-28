@@ -47,10 +47,15 @@ const PAGE = join(ROOT, PAGE_REL);
 // onMoveOn/onAttemptCheck/handleSceneAdvance moved; net -839 despite two new
 // ref-mirror sync effects and several exhaustive-deps fixes the extraction
 // introduced, same "linter can no longer prove local-ref stability" pattern
-// as hook 2's own history entry above).
+// as hook 2's own history entry above) -> 4013 (A2, Amendment A §A.6: step 5
+// hook 5 split into useCombatState (state cells + the 4s combat poll + every
+// pure derivation off combatState) and useCombatActions (beginEncounter/
+// onCombatAction/onEndCombat/the monster auto-driver effect/the turn-change
+// refocus effect); net -564, no new ref-mirror -- the existing confirmBeatRef
+// ceiling stays at exactly one).
 // Update this value, in the SAME commit, whenever page.tsx's actual line
 // count drops below it. Never raise it silently.
-export const RATCHET_CEILING = 4577;
+export const RATCHET_CEILING = 4013;
 
 /**
  * Pure: counts lines the way `wc -l` does (newline-byte count). Exported so
