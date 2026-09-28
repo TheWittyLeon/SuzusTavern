@@ -69,8 +69,8 @@ const PAGE = join(ROOT, PAGE_REL);
 // which it can't -- same "linter can no longer prove local-ref stability"
 // pattern as hook 2's and hook 4's own history entries above; zero new
 // ref-mirror) -> 3984 (A5 commit 0: lint-gate aggregation + Kage-CR A3
-// IMPORTANT-1/IMPORTANT-2; net -1, comment-only churn on the mount-effect
-// debt: marker) -> 2848 (A5, Amendment A §A.2 rows 7/9: useNarration
+// IMPORTANT-1/IMPORTANT-2; net -1, comment-only churn on the mount
+// effect's shortcut marker) -> 2848 (A5, Amendment A §A.2 rows 7/9: useNarration
 // extracted (narrate/narrateDurable/narrateDurableBeat/subscribeToJob/
 // revealText/onRetryFailedTurn/onSendDmNarration + talking/thinking/
 // activeJob/jobFailed + refs); useScene split into useSceneState (row 6)
