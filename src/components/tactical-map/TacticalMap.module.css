@@ -278,6 +278,47 @@
   margin: 0;
 }
 
+/* Inspector strip (coordinator decision 4, replaces the old title-only
+   "full condition list on tap" — Tora-Gesture MAJOR-3 found that inert on
+   touch). Shows whichever cell is currently roving-focused (keyboard arrow
+   keys, or a tap/click — see TacticalMap.tsx's onClick). Deliberately NOT
+   `aria-live`: focus already announces the cell via its own accessible
+   name (cellAccessibleName), and design §5's "no second aria-live
+   announcer" rule this component already honours applies here too — this
+   strip is a visual convenience, not a second announcement channel. */
+.inspector {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-5);
+  background: var(--bg-3);
+  border-radius: var(--radius-sm);
+  padding: var(--density-pad);
+  min-height: calc(var(--text-lg) + 2 * var(--space-5));
+}
+
+.inspectorName {
+  font-weight: 600;
+}
+
+.inspectorTeam {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.inspectorState {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--bad-ink);
+}
+
+.inspectorEmpty {
+  font-size: var(--text-sm);
+  color: var(--ink-3);
+}
+
 /* Theatre-of-mind band (design §3, §5 "Show 5" — combat without a `space`). */
 .tomBand {
   display: flex;

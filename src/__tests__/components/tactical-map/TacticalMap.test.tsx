@@ -460,6 +460,53 @@ describe('TacticalMap — refusal copy', () => {
   });
 });
 
+describe('TacticalMap — inspector strip (coordinator decision 4, replaces title-only tap disclosure)', () => {
+  it('shows a placeholder when the roving-focused cell has no occupant', () => {
+    // No active participant -> focusedCoord's initial value is [0,0]
+    // (activeAt ?? [0,0]), which nobody occupies here.
+    const participants = [makeParticipant({ participant_id: 'p1', name: 'Bren', at: [4, 4] })];
+    render(<TacticalMap {...baseProps({ participants, activeParticipantId: null })} />);
+    expect(screen.getByText('No creature selected.')).toBeInTheDocument();
+  });
+
+  it('shows the focused occupant\'s name, team and full condition list — not just the worst badge', () => {
+    const participants = [
+      makeParticipant({
+        participant_id: 'p1',
+        name: 'Bren',
+        at: [0, 0],
+        conditions: ['prone', 'unconscious'],
+      }),
+    ];
+    render(<TacticalMap {...baseProps({ participants, activeParticipantId: 'p1', moveMode: true })} />);
+    expect(screen.getByText('Bren')).toBeInTheDocument();
+    expect(screen.getByText('You')).toBeInTheDocument();
+    // Both conditions, not just "worst" — the inspector is the full-list
+    // half Tora-Gesture's MAJOR-3 asked for, unlike the token's own badge.
+    // ConditionChipList renders each name twice (a visible aria-hidden
+    // span + an sr-only span) — getAllByText, not getByText.
+    expect(screen.getAllByText('Prone').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Unconscious').length).toBeGreaterThan(0);
+  });
+
+  it('shows Downed / Dead state distinctly', () => {
+    const participants = [
+      makeParticipant({ participant_id: 'p1', name: 'Bren', at: [0, 0], hp_current: 0, is_alive: true }),
+    ];
+    render(<TacticalMap {...baseProps({ participants, activeParticipantId: 'p1', moveMode: true })} />);
+    expect(screen.getByText('Downed')).toBeInTheDocument();
+    expect(screen.queryByText('Dead')).not.toBeInTheDocument();
+  });
+
+  it('carries no aria-live attribute — a visual convenience, not a second announcement channel', () => {
+    const participants = [makeParticipant({ participant_id: 'p1', name: 'Bren', at: [0, 0] })];
+    const { container } = render(
+      <TacticalMap {...baseProps({ participants, activeParticipantId: 'p1', moveMode: true })} />,
+    );
+    expect(container.querySelectorAll('[aria-live]')).toHaveLength(0);
+  });
+});
+
 describe('TacticalMap — never reads terrain/tactics/position', () => {
   it('a participant carrying DM-only tactics/position text never reaches the DOM in any form', () => {
     const secretTactics = 'DM-SECRET-TACTICS-falls back toward the tunnel';

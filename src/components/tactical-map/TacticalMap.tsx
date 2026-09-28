@@ -33,6 +33,7 @@ import { chebyshevCost, coordsEqual, isLegalMoveTarget, reachableCells } from '.
 import { cellAccessibleName, nextFocusCoord, toDisplayRowCol, type CellOccupant } from './a11y';
 import { worstCondition } from './conditions';
 import { formatConditionName } from '@/lib/conditions';
+import ConditionChipList from '@/components/ConditionChipList';
 import TheatreOfMindBand from './TheatreOfMindBand';
 import styles from './TacticalMap.module.css';
 
@@ -279,6 +280,16 @@ export default function TacticalMap({
     }
   }
 
+  // Inspector strip (coordinator decision 4): driven by the roving focus,
+  // which a click now also syncs to (see the cell onClick handler below) —
+  // "tap = focus a cell" is the touch affordance Tora-Gesture's MAJOR-3
+  // asked for, replacing the old title-only (hover-only, touch-inert) full
+  // condition-list disclosure. `title` stays as a hover nicety only.
+  const focusedOccupant = placed.find((p) => coordsEqual(p.at, focusedCoord));
+  const focusedDesc = focusedOccupant
+    ? describeOccupant(focusedOccupant, viewerParticipantId)
+    : undefined;
+
   return (
     <div className={[styles.wrap, className].filter(Boolean).join(' ')}>
       <div
@@ -399,6 +410,32 @@ export default function TacticalMap({
             </div>
           ))}
         </div>
+      </div>
+      <div className={styles.inspector}>
+        {focusedOccupant && focusedDesc ? (
+          <>
+            <span className={styles.inspectorName}>{focusedOccupant.name}</span>
+            <span className={styles.inspectorTeam}>
+              {focusedDesc.cellOccupant.isSelf
+                ? 'You'
+                : focusedDesc.cellOccupant.isAlly
+                  ? 'Ally'
+                  : 'Foe'}
+            </span>
+            {focusedDesc.dead && <span className={styles.inspectorState}>Dead</span>}
+            {!focusedDesc.dead && focusedDesc.downed && (
+              <span className={styles.inspectorState}>Downed</span>
+            )}
+            {focusedDesc.invisible && <span className={styles.inspectorState}>Invisible</span>}
+            <ConditionChipList
+              conditions={focusedOccupant.conditions}
+              durations={focusedOccupant.condition_durations}
+              combatantName={focusedOccupant.name}
+            />
+          </>
+        ) : (
+          <span className={styles.inspectorEmpty}>No creature selected.</span>
+        )}
       </div>
       {refusalCopy && <p className={styles.refusal}>{refusalCopy}</p>}
     </div>
