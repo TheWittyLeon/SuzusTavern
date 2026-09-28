@@ -133,6 +133,21 @@ describe('TacticalMap contrast — D1 CR#1 coordinator decision 5 (existing toke
     });
   });
 
+  describe('.cellDestination outline (--cool-ink on --bg-3) — non-text, 3:1 (D1b item B: was plain --cool, 2.45:1 in candlelit)', () => {
+    for (const name of PALETTE_NAMES) {
+      const p = PALETTES[name];
+      it(`${name}: cool-ink vs --bg-3 clears 3:1`, () => {
+        expect(contrast(p.coolInk, p.bg3)).toBeGreaterThanOrEqual(3);
+      });
+    }
+
+    it('candlelit is the pair that actually needed --cool-ink (plain --cool fails at 2.45:1)', () => {
+      const p = PALETTES.candlelit;
+      expect(contrast(p.cool, p.bg3)).toBeLessThan(3);
+      expect(contrast(p.coolInk, p.bg3)).toBeGreaterThanOrEqual(3);
+    });
+  });
+
   describe('.eyeBadge icon (--cool-ink on --bg-3) — non-text, 3:1', () => {
     for (const name of PALETTE_NAMES) {
       const p = PALETTES[name];
