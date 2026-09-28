@@ -928,17 +928,27 @@ export default function PlayPage() {
   // still correct) but is no longer load-bearing for the invariant — if a
   // new Escape-handling overlay is ever added under /play and follows the
   // consume-your-own-Escape pattern, it does NOT need to be added here.
-  // debt: stays here instead of moving into useSessionLifecycle -- it also
-  // reads the journal drawer's journalOpen, which this hook doesn't own.
+  // debt: stays here instead of moving into useSessionLifecycle -- the guard
+  // below reads two overlay booleans owned by hooks composed BELOW it.
   // ceiling: no additional cross-concern read added.
-  // until: the journal drawer's own hook exists (plan §1.9).
-  // (A7 carry item (f), Kage-CR A4 Suggestion D / A4b Suggestion E: this
-  // marker's `until:` used to wrap onto a further comment line and
-  // tools/debt-harvest.py's 3-line lookahead truncated it to "the journal"
-  // -- reflowed so the whole trigger sits on the line `until:` starts on.
-  // outcomeChooserOpen's half of this resolved at A2 -- it is now a plain
-  // downward read off useCombatState's destructure above, same shape as
-  // any other hook consumer, not a blocker anymore.)
+  // until: §2.1's PlaySessionProvider exists (grep says it does not yet) so these become context reads, OR the 3-overlay guard is retired as the non-load-bearing belt-and-suspenders it already documents itself as.
+  //
+  // (A7, Kage-CR ruling 1: the previous `until:` -- "the journal drawer's own
+  // hook exists" -- FIRED at A7 (`useJournalDrawer`), but the debt did not
+  // discharge: the read only changed spelling, from the page-local
+  // `journalOpen` to `journalDrawer.open`. Ownership was never the blocker;
+  // composition ORDER is. `useSessionLifecycle` is row 3, `useJournalDrawer`
+  // is row 6 and `useCombatState` is row 8, so neither `journalDrawer.open`
+  // nor `outcomeChooserOpen` can reach row 3 as a downward param. The old
+  // parenthetical claiming outcomeChooserOpen's half "resolved at A2" was
+  // wrong for the same reason and is deleted, not reworded.
+  // `endSessionConfirmOpen` IS useSessionLifecycle's own and was never part
+  // of this. Not moved into a new one-effect hook (mirror rule: a layer with
+  // one caller) and not resolved by deleting the guard (a defensive guard is
+  // not deleted to make a refactor land -- that is the second `until:` arm,
+  // for a commit that can be reviewed as a behaviour change).
+  // A7 carry item (f): the `until:` used to wrap and the harvester
+  // truncated it to "the journal" -- reflowed, and it must stay on one line.)
   useEffect(() => {
     if (!xpFormOpen) return;
     const onDocumentKeyDown = (e: KeyboardEvent) => {
