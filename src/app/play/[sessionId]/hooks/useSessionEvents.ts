@@ -765,6 +765,11 @@ export function useSessionEvents(
     // "stable, not worth listing" reasoning as `getGrounding`/
     // `handlers.diffAndExplainResolvedChecks`/
     // `handlers.refocusSceneHeadIfStranded` immediately above.
+    //
+    // NEVER add `handlers` itself to this array (Kage-CR A4 IMPORTANT-1):
+    // page.tsx passes a fresh object literal every render, so `[handlers]`
+    // tears down and re-arms the poll on every render and under streaming
+    // re-render pressure the 4s interval never fires. List members only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, state, handlers.subscribeToJob, handlers.appendLog, handlers.clearStreamNarration]);
 }
