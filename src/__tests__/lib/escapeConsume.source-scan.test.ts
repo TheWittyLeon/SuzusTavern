@@ -67,6 +67,12 @@ const SCANNED_FILES = [
   // TAV-PLAY-SHELL step 3: the Award-XP form's consumeEscape call moved
   // here with SessionControls.
   'src/app/play/[sessionId]/regions/TableControls.tsx',
+  // Lane D D1 CR#1 (2026-09-28), sanctioned exception: TacticalMap.tsx lives
+  // outside src/app/play/** (it's a standalone, unmounted component under
+  // src/components/tactical-map/) but its Escape handler must be covered by
+  // this guard BEFORE it mounts into SceneStage, not after — Kage-CR
+  // IMPORTANT-3 / Tora-Gesture CRIT-1.
+  'src/components/tactical-map/TacticalMap.tsx',
 ];
 
 /**

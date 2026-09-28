@@ -28,6 +28,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import type { CombatParticipantState, CombatSpace, SpaceCoordinate } from '@/lib/api/types';
 import { COMBAT_REFUSAL_REASON_MAP } from '@/lib/dnd/engineReasons';
+import { consumeEscape } from '@/lib/a11y/escapeConsume';
 import { chebyshevCost, coordsEqual, isLegalMoveTarget, reachableCells } from './reach';
 import { cellAccessibleName, nextFocusCoord, toDisplayRowCol, type CellOccupant } from './a11y';
 import { worstCondition } from './conditions';
@@ -198,9 +199,15 @@ export default function TacticalMap({
   function handleGridKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     if (!space) return;
     if (e.key === 'Escape') {
+      // Tora-Gesture CRIT-1 / Kage-CR IMPORTANT-3: route through
+      // consumeEscape so Escape can never fall through to /play's
+      // document-level Award-XP fallback while exiting Move mode. Outside
+      // Move mode this branch never calls consumeEscape at all, so
+      // propagation is untouched — matches the pre-fix "no-op outside Move
+      // mode" behaviour Tora already verified clean.
       if (moveMode) {
         e.preventDefault();
-        onExitMove();
+        consumeEscape(e, { onClose: onExitMove });
       }
       return;
     }

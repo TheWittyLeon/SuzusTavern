@@ -357,6 +357,23 @@ describe('TacticalMap — keyboard flow', () => {
     expect(onExitMove).toHaveBeenCalledTimes(1);
   });
 
+  it('Tora-Gesture CRIT-1 / Kage-CR IMPORTANT-3: Escape in Move mode consumes the event (stopPropagation), so it never reaches an ancestor overlay listener', () => {
+    const onExitMove = jest.fn();
+    const outerHandler = jest.fn();
+    const participants = [makeParticipant({ participant_id: 'p1', name: 'Bren', at: [0, 0] })];
+    render(
+      // Simulates /play's document-level Award-XP fallback listener — the
+      // exact leak escapeConsume.ts's own header documents recurring 4x.
+      <div onKeyDown={outerHandler}>
+        <TacticalMap {...baseProps({ participants, activeParticipantId: 'p1', moveMode: true, onExitMove })} />
+      </div>,
+    );
+    const cell = screen.getByRole('gridcell', { name: /Current position/ });
+    fireEvent.keyDown(cell, { key: 'Escape' });
+    expect(onExitMove).toHaveBeenCalledTimes(1);
+    expect(outerHandler).not.toHaveBeenCalled();
+  });
+
   it('does not submit a move for an out-of-range or blocked cell', () => {
     const onMove = jest.fn();
     const participants = [makeParticipant({ participant_id: 'p1', name: 'Bren', at: [0, 0], movement_remaining: 5 })];
