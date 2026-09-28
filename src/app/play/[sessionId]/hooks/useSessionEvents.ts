@@ -89,7 +89,7 @@ import {
   getSessionEventsPage,
   getSessionEventsRaw,
 } from '@/lib/api/dnd';
-import { eventToLogRow } from '@/lib/rehydration';
+import { eventToLogRow, POLL_RENDERED_KINDS } from '@/lib/rehydration';
 import { DURABLE_GENERATION_ENABLED } from '@/lib/config';
 import { clearTurnKey } from '@/lib/turnKey';
 import { reconcileDurableEvents, applyReconcileResult } from '@/lib/dnd/reconcileEvents';
@@ -690,7 +690,7 @@ export function useSessionEvents(
         // that have real new activity.
         handlers.setJournalEvents([...events].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0)));
         const rows = newOnes
-          .filter((e) => e.kind === 'dice_roll' || e.kind === 'x_card')
+          .filter((e) => e.kind != null && POLL_RENDERED_KINDS.has(e.kind))
           .map(eventToLogRow)
           .filter((r): r is LogRow => r !== null);
         if (rows.length > 0) {

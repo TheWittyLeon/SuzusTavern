@@ -118,6 +118,22 @@ function diceRollLogRow(e: EngineSessionEvent): LogRow | null {
 }
 
 /**
+ * Kage-CR A4 IMPORTANT-4 (2026-09-28) — the flag-OFF/live session-events poll
+ * (`hooks/useSessionEvents.ts`) renders only these two kinds as ROWS; every
+ * other kind is already reflected through its own optimistic-append or
+ * streaming path (player_action/narration/dm_narration) and is left to a
+ * future unified events poll (DDX-20) rather than double-rendered here.
+ * Named and colocated with the switch below — the same pattern
+ * `GROUNDING_INVALIDATING_KINDS` (hooks/useSessionEvents.ts) already uses so
+ * two policies can't silently drift — for the same reason: when kind #12
+ * gets a `case` in the switch immediately below, its author is looking
+ * straight at this set to decide whether the poll should render it as a row
+ * too, instead of the answer being encoded by omission from an inline
+ * literal three files away.
+ */
+export const POLL_RENDERED_KINDS = new Set(['dice_roll', 'x_card']);
+
+/**
  * Map one durable `session_events` row to a LogRow, or null to skip it.
  *
  * Mapping:
