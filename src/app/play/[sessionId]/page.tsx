@@ -1430,7 +1430,7 @@ export default function PlayPage() {
           type="button"
           className={mobileView === 'journal' ? styles.tabOn : undefined}
           aria-pressed={mobileView === 'journal'}
-          aria-controls="play-pane-journal"
+          aria-controls={journalDrawer.id}
           onClick={() => setMobileView('journal')}
         >
           <Icon name="Lantern" size={13} aria-hidden /> Journal
@@ -1472,6 +1472,7 @@ export default function PlayPage() {
           title={title}
           journalOpen={journalDrawer.open}
           onToggleJournal={() => journalDrawer.setOpen((v) => !v)}
+          paneId={journalDrawer.id}
         />
         {/* TAV-PLAY-SHELL step 3: region extracted verbatim to
             regions/TableControls.tsx's SessionControls export (DDX-25 DM-only
@@ -1962,7 +1963,7 @@ export default function PlayPage() {
           hands the >880px fixed-drawer chrome off to that in-flow pane
           layout below the breakpoint). */}
       <Drawer
-        id="play-pane-journal"
+        id={journalDrawer.id}
         open={journalDrawer.open}
         visible={journalDrawer.visible}
         labelledBy={JOURNAL_HEADING_ID}
@@ -1986,7 +1987,7 @@ export default function PlayPage() {
           `visible` are simply the same value: it's the fixed drawer at any
           viewport width. */}
       <Drawer
-        id="play-pane-member-sheet"
+        id={memberSheetDrawer.id}
         open={memberSheetDrawer.open}
         visible={memberSheetDrawer.open}
         labelledBy={MEMBER_SHEET_HEADING_ID}

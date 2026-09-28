@@ -40,6 +40,7 @@ import type { UseDrawerResult } from './useDrawer';
 export type MobileView = 'log' | 'party' | 'scene' | 'journal';
 
 export interface UseJournalDrawerResult {
+  id: string;
   open: boolean;
   visible: boolean;
   closeButtonRef: UseDrawerResult['closeButtonRef'];
@@ -54,7 +55,7 @@ export function useJournalDrawer(
   mobileView: MobileView,
   setMobileView: Dispatch<SetStateAction<MobileView>>,
 ): UseJournalDrawerResult {
-  const { open, setOpen, closeButtonRef } = useDrawer('play-pane-journal');
+  const { id, open, setOpen, closeButtonRef } = useDrawer('play-pane-journal');
   const [journalEvents, setJournalEvents] = useState<EngineSessionEvent[]>([]);
   // A7 carry item (b) — see this file's header. Same DDX-20 F9+Recap
   // fix/invariant `useSessionEvents.ts`'s `pollDurable` documents on its
@@ -85,6 +86,7 @@ export function useJournalDrawer(
   }, [setOpen, setMobileView]);
 
   return {
+    id,
     open,
     visible,
     closeButtonRef,

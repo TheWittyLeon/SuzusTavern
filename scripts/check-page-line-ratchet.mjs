@@ -142,10 +142,17 @@ const PAGE = join(ROOT, PAGE_REL);
 // composition ORDER) and its `until:` had fired without discharging the
 // debt. Re-word only, no move -- +10 comment-only lines, same
 // "deliberate, reviewed, comment-only" category as the +5/+6/+8 entries
-// above. Raised, not lowered, and said why, per this file's own rule.)
+// above. Raised, not lowered, and said why, per this file's own rule.) ->
+// 2028 (A7 commit 0, Kage-CR A7 IMPORTANT-5: useDrawer's `id` argument
+// wired through as a real return value (durable fix, not the delete-the-
+// param alternative) -- SessionHead gains a `paneId` prop reading
+// journalDrawer.id, +1 line at its call site; the four DOM-id literals
+// (both <Drawer id>, the mobile tab's aria-controls, TopBar's own
+// aria-controls) all collapsed to read the one hook's return instead of
+// independently-typed copies. +1 line, same category as above.)
 // Update this value, in the SAME commit, whenever page.tsx's actual line
 // count drops below it. Never raise it silently.
-export const RATCHET_CEILING = 2027;
+export const RATCHET_CEILING = 2028;
 
 /**
  * Pure: counts lines the way `wc -l` does (newline-byte count). Exported so

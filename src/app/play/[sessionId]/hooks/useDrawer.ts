@@ -25,19 +25,22 @@
 import { useRef, useState, type Dispatch, type RefObject, type SetStateAction } from 'react';
 
 export interface UseDrawerResult {
+  id: string;
   open: boolean;
   setOpen: Dispatch<SetStateAction<boolean>>;
   closeButtonRef: RefObject<HTMLButtonElement | null>;
 }
 
-// `id` isn't read inside this hook -- it exists so every call site names
-// which drawer it is (mirrors <Drawer id=...>), for the same "the caller's
-// label, not the hook's input" reason useDrawer('play-pane-journal') reads
-// better than a bare useDrawer() at the call site. Leading underscore is
-// this repo's "intentionally unused" convention (eslint config comment,
-// no-unused-vars argsIgnorePattern).
-export function useDrawer(_id: string): UseDrawerResult {
+// Kage-CR A7 IMPORTANT-5: `id` is now returned, not just accepted -- it was
+// a declared-and-unread parameter (the fourth copy of the journal's DOM id
+// literal, alongside page.tsx's two <Drawer id> props and TopBar.tsx's own
+// aria-controls, with nothing tying the four together). Returning it makes
+// `useDrawer('play-pane-journal')` the single source both call sites and
+// TopBar's aria-controls read from, collapsing 4 copies to 1 and making
+// the aria-controls<->id pairing structural instead of four independently-
+// typed literals that happen to match today.
+export function useDrawer(id: string): UseDrawerResult {
   const [open, setOpen] = useState(false);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
-  return { open, setOpen, closeButtonRef };
+  return { id, open, setOpen, closeButtonRef };
 }

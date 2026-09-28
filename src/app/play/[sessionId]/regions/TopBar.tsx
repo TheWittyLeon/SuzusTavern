@@ -57,11 +57,17 @@ export interface SessionHeadProps {
   title: string;
   journalOpen: boolean;
   onToggleJournal: () => void;
+  /** Kage-CR A7 IMPORTANT-5: reads useJournalDrawer's own `id` (sourced
+   *  from useDrawer) instead of a fourth hand-typed copy of
+   *  'play-pane-journal' -- this button's aria-controls, page.tsx's two
+   *  `<Drawer id>` props, and the mobile tab's aria-controls all now trace
+   *  to the one hook that owns the value. */
+  paneId: string;
 }
 
 /** Back-to-lobby link + session title + journal-drawer toggle. Renders as a
  *  direct child of the party `<aside>`, exactly where it lives today. */
-export function SessionHead({ title, journalOpen, onToggleJournal }: SessionHeadProps) {
+export function SessionHead({ title, journalOpen, onToggleJournal, paneId }: SessionHeadProps) {
   return (
     <div className={styles.sessionHead} data-region="topBarSession">
       <Link href="/lobby" className={styles.back} aria-label="Leave session">
@@ -83,7 +89,7 @@ export function SessionHead({ title, journalOpen, onToggleJournal }: SessionHead
         onClick={onToggleJournal}
         aria-haspopup="dialog"
         aria-expanded={journalOpen}
-        aria-controls="play-pane-journal"
+        aria-controls={paneId}
         aria-label="Open journal"
       >
         <Icon name="Lantern" size={16} aria-hidden />

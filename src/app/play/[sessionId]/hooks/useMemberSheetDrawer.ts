@@ -25,6 +25,7 @@ import { useDrawer } from './useDrawer';
 import type { UseDrawerResult } from './useDrawer';
 
 export interface UseMemberSheetDrawerResult {
+  id: string;
   open: boolean;
   closeButtonRef: UseDrawerResult['closeButtonRef'];
   selectedMemberSheet: CharacterSheet | null;
@@ -40,7 +41,7 @@ export function useMemberSheetDrawer(
   username: string | null,
   mySheet: CharacterSheet | null,
 ): UseMemberSheetDrawerResult {
-  const { open, setOpen, closeButtonRef } = useDrawer('play-pane-member-sheet');
+  const { id, open, setOpen, closeButtonRef } = useDrawer('play-pane-member-sheet');
   const [selectedMemberSheet, setSelectedMemberSheet] = useState<CharacterSheet | null>(null);
   const [selectedMemberName, setSelectedMemberName] = useState<string | null>(null);
   // LVL (Aoi gap B): whether the drawer is showing the viewer's OWN sheet —
@@ -92,6 +93,7 @@ export function useMemberSheetDrawer(
   );
 
   return {
+    id,
     open,
     closeButtonRef,
     selectedMemberSheet,
