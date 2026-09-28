@@ -212,10 +212,11 @@ export function useNarration(
    * every call site in this file (not assumed): `(true, true)` on turn
    * start, `(talking=true, thinking=false)` once the first chunk of a
    * response is visible ("stop the thinking dots, keep talking"), and
-   * `(false, false)` once the turn settles. `(true, false)` — talking with
-   * no thinking transition ever having happened — is never reachable, so
-   * the twelve two-line `setThinking`/`setTalking` pairs this file used to
-   * write out longhand are really three named transitions. Naming them
+   * `(false, false)` once the turn settles. `(talking=false, thinking=true)`
+   * (thinking with no talking) is never reachable, so the thirteen
+   * `setThinking`/`setTalking` sites this file used to write out longhand
+   * (eight two-line pairs plus five single-line sites) are really three
+   * named transitions. Naming them
    * makes the unreachable fourth combination unrepresentable instead of
    * merely unobserved (Miko-QA's own mutation proof: swapping
    * `setThinking`/`setTalking` at a call site was a PROVABLE no-op given
