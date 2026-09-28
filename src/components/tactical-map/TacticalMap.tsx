@@ -31,6 +31,7 @@ import { COMBAT_REFUSAL_REASON_MAP } from '@/lib/dnd/engineReasons';
 import { chebyshevCost, coordsEqual, isLegalMoveTarget, reachableCells } from './reach';
 import { cellAccessibleName, nextFocusCoord, toDisplayRowCol, type CellOccupant } from './a11y';
 import { worstCondition } from './conditions';
+import { formatConditionName } from '@/lib/conditions';
 import TheatreOfMindBand from './TheatreOfMindBand';
 import styles from './TacticalMap.module.css';
 
@@ -135,14 +136,21 @@ export default function TacticalMap({
   // Move mode engaged, or the actor's own cell changed while engaged: focus
   // enters (design §5: "focus enters grid at your token") or follows
   // (a11y checklist: "focus follows the token after a successful move,
-  // prop-driven") the actor's current cell. Deliberately gated on
-  // `moveMode` so an observer's own roving-tabindex position is never
-  // yanked by someone else's move.
-  useEffect(() => {
-    if (!moveMode || !activeAt) return;
-    setFocusedCoord(activeAt);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [moveMode, activeAt?.[0], activeAt?.[1]]);
+  // prop-driven") the actor's current cell. React's documented "adjust
+  // state during render" pattern (a synchronous reset in the render body,
+  // not an effect) — same convention as JournalPane.tsx's resetKey, and it
+  // satisfies the repo-wide set-state-in-effect lint. `focusSyncKey` is
+  // `null` whenever `moveMode` is false, so re-engaging Move (even at an
+  // unchanged `at`) always reproduces a real key transition and re-syncs —
+  // deliberately gated on `moveMode` so an observer's own roving-tabindex
+  // position is never yanked by someone else's move.
+  const activeAtKey = activeAt ? coordKeyStr(activeAt) : null;
+  const focusSyncKey = moveMode ? activeAtKey : null;
+  const [prevFocusSyncKey, setPrevFocusSyncKey] = useState<string | null>(focusSyncKey);
+  if (focusSyncKey !== prevFocusSyncKey) {
+    setPrevFocusSyncKey(focusSyncKey);
+    if (moveMode && activeAt) setFocusedCoord(activeAt);
+  }
 
   useEffect(() => {
     if (!moveMode) return;
@@ -237,18 +245,29 @@ export default function TacticalMap({
 
                 let cellOccupant: CellOccupant | undefined;
                 let worst: string | undefined;
+                let otherConditionsFormatted: string | undefined;
                 let downed = false;
                 let invisible = false;
                 if (occupant) {
                   downed = isDowned(occupant);
                   invisible = occupant.conditions.includes('invisible');
                   worst = worstCondition(occupant.conditions);
+                  // T2: the badge shows only the worst condition; the full
+                  // list (minus "invisible", which has its own disclosure)
+                  // is exposed via the cell's accessible name (focus) and
+                  // the token's `title` attribute (tap/hover) below.
+                  const otherConditions = occupant.conditions
+                    .filter((c) => c.toLowerCase() !== 'invisible')
+                    .map(formatConditionName);
+                  otherConditionsFormatted =
+                    otherConditions.length > 0 ? otherConditions.join(', ') : undefined;
                   cellOccupant = {
                     name: occupant.name,
                     isSelf: occupant.participant_id === viewerParticipantId,
                     isAlly: occupant.is_pc && occupant.participant_id !== viewerParticipantId,
                     hostile: !occupant.is_pc,
                     invisible,
+                    otherConditions,
                   };
                 }
 
@@ -305,6 +324,7 @@ export default function TacticalMap({
                           .filter(Boolean)
                           .join(' ')}
                         aria-hidden="true"
+                        title={otherConditionsFormatted}
                       >
                         {tokenInitial(occupant.name)}
                         {invisible && (

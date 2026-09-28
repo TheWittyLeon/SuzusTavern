@@ -68,6 +68,27 @@ describe('cellAccessibleName', () => {
     ).toBe("Row 4, column 11. Goblin, hostile, invisible. Occupied — can't stop here.");
   });
 
+  it('appends a full conditions list (T2 "full list on focus") when the occupant has conditions beyond invisible', () => {
+    expect(
+      cellAccessibleName({
+        row1: 4,
+        col1: 3,
+        occupant: {
+          name: 'Sable Nightwhisper',
+          isSelf: false,
+          isAlly: true,
+          hostile: false,
+          invisible: false,
+          otherConditions: ['Prone', 'Poisoned'],
+        },
+        blocked: false,
+        moveModeActive: true,
+      }),
+    ).toBe(
+      "Row 4, column 3. Sable Nightwhisper, ally. Occupied — can't stop here. Conditions: Prone, Poisoned.",
+    );
+  });
+
   it('blocked takes priority over an (impossible in valid data) occupant/range state', () => {
     const name = cellAccessibleName({ row1: 1, col1: 1, occupant: undefined, blocked: true, inRange: true, costFt: 5, moveModeActive: true });
     expect(name).toBe('Row 1, column 1. Blocked. Not reachable.');

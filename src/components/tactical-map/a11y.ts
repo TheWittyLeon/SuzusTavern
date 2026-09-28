@@ -18,6 +18,15 @@ export interface CellOccupant {
   /** Not a PC (a monster). */
   hostile: boolean;
   invisible: boolean;
+  /** T2 (Leon's ruling): active conditions OTHER than "invisible" (which
+   *  already has its own bespoke disclosure above) — the "full list" half
+   *  of "worst condition badge only, full list on focus/tap". Exposed here
+   *  so a screen-reader user gets the full list for free on cell focus
+   *  (the visual token's own worst-only badge is the "tap" half — see
+   *  TacticalMap.tsx's `title` attribute on the token span). Empty when the
+   *  occupant has no other conditions, in which case the base sentence is
+   *  unchanged (keeps the design table's simple examples verbatim). */
+  otherConditions?: string[];
 }
 
 export interface CellNameInput {
@@ -64,10 +73,13 @@ export interface CellNameInput {
 export function cellAccessibleName(input: CellNameInput): string {
   const location = `Row ${input.row1}, column ${input.col1}.`;
 
+  const others = input.occupant?.otherConditions ?? [];
+  const conditionsSuffix = others.length > 0 ? ` Conditions: ${others.join(', ')}.` : '';
+
   if (input.occupant?.isSelf) {
     // The viewer's own token's cell is always "current position" for them —
     // true whether or not Move is currently engaged.
-    return `${location} ${input.occupant.name} — you. Current position.`;
+    return `${location} ${input.occupant.name} — you. Current position.${conditionsSuffix}`;
   }
 
   if (input.blocked) {
@@ -77,7 +89,7 @@ export function cellAccessibleName(input: CellNameInput): string {
   if (input.occupant) {
     const relation = input.occupant.isAlly ? 'ally' : 'hostile';
     const invisible = input.occupant.invisible ? ', invisible' : '';
-    return `${location} ${input.occupant.name}, ${relation}${invisible}. Occupied — can't stop here.`;
+    return `${location} ${input.occupant.name}, ${relation}${invisible}. Occupied — can't stop here.${conditionsSuffix}`;
   }
 
   if (input.moveModeActive) {
