@@ -36,7 +36,7 @@
  * "previously on" narration call off session-object identity and re-firing
  * it every ~4s indefinitely — see the poll's own comment and SessionRecap.tsx.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth/AuthProvider';
@@ -111,11 +111,11 @@ import SceneStage from './regions/SceneStage';
 import Offers from './regions/Offers';
 import StoryLog from './regions/StoryLog';
 import { SessionHead, TopBar } from './regions/TopBar';
-import { POLL_INTERVAL_MS, isSessionLocked, buildReadAloudBlock } from './format';
+import { POLL_INTERVAL_MS, isSessionLocked, isCombatEngaged, buildReadAloudBlock } from './format';
 import { useSessionLifecycle } from './hooks/useSessionLifecycle';
 import { useMyCharacter } from './hooks/useMyCharacter';
 import { useSafety } from './hooks/useSafety';
-import { useScene, type NarrateFn, type NarrateDurableBeatFn } from './hooks/useScene';
+import { useScene, type ConfirmBeatFn } from './hooks/useScene';
 import JournalPane, { JOURNAL_HEADING_ID } from '@/components/JournalPane';
 import MemberSheetPanel, { MEMBER_SHEET_HEADING_ID } from '@/components/MemberSheetPanel';
 import NextPartOffer from '@/components/NextPartOffer';
@@ -636,19 +636,23 @@ export default function PlayPage() {
   // openScene/refocusSceneHeadIfStranded/applyOfferedCheckSignal/checkWrapRef
   // by the same names, unchanged.
   //
+  // Amendment A §A.1: the one derived boolean useScene reads off combat's state.
+  const combatEngaged = isCombatEngaged(combatState);
   // onMoveOn/onAttemptCheck/handleSceneAdvance need narrate/narrateDurableBeat
   // (useNarration, hook 8), which are declared FAR below this call -- the
   // mount effect above needs useScene's setGrounding/openScene before either
   // narration function exists, so useScene can't move down to sit after
-  // them. narrateRef/narrateDurableBeatRef are stable refs kept current by
-  // the sync effects right after narrate/narrateDurableBeat's own
+  // them. confirmBeatRef is a stable ref kept current by a single
+  // useLayoutEffect right after narrate/narrateDurableBeat's own
   // declarations, mirroring this file's existing combatStateRef/logRef
-  // "latest value without a dep" idiom, applied to functions.
-  // debt: narrate/narrateDurableBeat threaded via ref mirror, not directly.
-  // ceiling: no additional ref-mirrors for other not-yet-extracted concerns.
-  // until: useNarration is extracted and threaded through directly.
-  const narrateRef = useRef<NarrateFn>(() => {});
-  const narrateDurableBeatRef = useRef<NarrateDurableBeatFn>(() => {});
+  // "latest value without a dep" idiom, applied to a function.
+  // debt: scene's confirmation beat reaches narrate/narrateDurableBeat through
+  // one late-bound ref (confirmBeatRef), not a parameter.
+  // ceiling: exactly ONE such ref in hooks/ — a second is the finding, not a pattern.
+  // until: A5 splits useScene into useSceneState + useSceneActions (plan
+  // Amendment A §A.2 rows 6/7/9); useSceneActions is composed BELOW useNarration
+  // and takes narrate/narrateDurableBeat/talking as plain parameters.
+  const confirmBeatRef = useRef<ConfirmBeatFn>(() => {});
   const {
     grounding, setGrounding, sceneAdvanceBusy, adventureComplete, completionSeries,
     checkBusy, offeredCheckSkill, setOfferedCheckSkill, freeformOfferedCheck,
@@ -658,8 +662,8 @@ export default function PlayPage() {
     playRescueTransitionLine, playOutcomeLine, refocusSceneHeadIfStranded,
     applyOfferedCheckSignal, openScene, handleSceneAdvance, onMoveOn, onAttemptCheck,
   } = useScene(
-    sessionId, session, combatState, talking, advantage, appendLog,
-    narrateRef, narrateDurableBeatRef, renderedSeqsRef,
+    sessionId, session, combatEngaged, talking, advantage, appendLog,
+    confirmBeatRef, renderedSeqsRef,
   );
 
   // DM-STREAM: while a narration streams, mirror it into a LIVE bottom-of-chat
@@ -1000,7 +1004,7 @@ export default function PlayPage() {
   // debt: mount effect stays here, not in useSessionLifecycle -- it also
   // seeds grounding/log/journal (useScene/useTranscript's concerns) in one
   // atomic sequence 553 tests pin the ordering of. ceiling: no additional
-  // concern folded in. until: useMyCharacter/useScene/useTranscript exist.
+  // concern folded in. until: useCombatState/useMyCharacter/useScene/useTranscript exist.
   useEffect(() => {
     if (!username || !sessionId) return;
     const ctrl = new AbortController();
@@ -2344,15 +2348,6 @@ export default function PlayPage() {
     ],
   );
 
-  // Keep narrateRef current every render (mirrors combatStateRef/logRef's
-  // own "latest value without a dep" idiom above, applied to a function) —
-  // see the useScene() call's own debt: marker for why useScene's
-  // onMoveOn/onAttemptCheck/handleSceneAdvance read narrate through this ref
-  // instead of directly.
-  useEffect(() => {
-    narrateRef.current = narrate;
-  }, [narrate]);
-
   /**
    * DDX-20 Pass 2 — the flag-ON durable turn path (Client Integration Design
    * §4/§5/§6). Mints+persists a `turn_key`, appends the optimistic player row
@@ -2644,11 +2639,16 @@ export default function PlayPage() {
     [session, username, sessionId, subscribeToJob],
   );
 
-  // Keep narrateDurableBeatRef current every render — same idiom as
-  // narrateRef above.
-  useEffect(() => {
-    narrateDurableBeatRef.current = narrateDurableBeat;
-  }, [narrateDurableBeat]);
+  // Amendment A §A.4: the ONE place the DURABLE_GENERATION_ENABLED fork
+  // lives. useLayoutEffect (not useEffect) makes confirmBeatRef order-
+  // independent -- MINOR-2's old two-ref mirror was only safe by declaration order.
+  useLayoutEffect(() => {
+    confirmBeatRef.current = DURABLE_GENERATION_ENABLED
+      ? (playerLine, mechanics, beat) =>
+          void narrateDurableBeat(playerLine, mechanics, 'act', { suppressIntent: true, beat })
+      : (playerLine, mechanics) =>
+          void narrate(playerLine, mechanics, 'act', { suppressIntent: true }); // byte-unchanged legacy path
+  }, [narrate, narrateDurableBeat]);
 
   /**
    * DDX-20 Pass 2 (§4d) — retry-after-failed. A `failed` job's turn_key is

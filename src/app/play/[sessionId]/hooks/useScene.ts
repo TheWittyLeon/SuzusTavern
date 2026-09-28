@@ -10,17 +10,26 @@
  * handlers share with combat's own scene_advance path (still in page.tsx,
  * hook 5/`useCombat` territory).
  *
- * Signature is `useScene(sessionId, session, combatState, talking,
- * advantage, appendLog, narrateRef, narrateDurableBeatRef, renderedSeqsRef)`,
+ * Signature is `useScene(sessionId, session, combatEngaged, talking,
+ * advantage, appendLog, confirmBeatRef, renderedSeqsRef)`,
  * not the plan's abridged `useScene(sessionId)` — every extra parameter is a
  * real cross-concern read, same kind of documented deviation as
  * useSafety's/useMyCharacter's own header:
- *   - `session`/`combatState`/`talking`/`advantage` — scene's own gates and
- *     combat-mode filters (`availableTransitions`/`availableChecks` hide
- *     during active combat; `onMoveOn`/`onAttemptCheck` refuse while
- *     `talking` or the session is locked) read state owned by
- *     useSessionLifecycle (already extracted) or by not-yet-extracted
- *     hooks (useCombat/useNarration) — this hook doesn't own any of them.
+ *   - `session`/`talking`/`advantage` — scene's own gates
+ *     (`onMoveOn`/`onAttemptCheck` refuse while `talking` or the session is
+ *     locked) read state owned by useSessionLifecycle (already extracted)
+ *     or by not-yet-extracted hooks (useCombat/useNarration) — this hook
+ *     doesn't own any of them.
+ *   - `combatEngaged` (Amendment A §A.1) — the ONE derived boolean this hook
+ *     reads off combat's state (`isCombatEngaged(combatState)`, see
+ *     `../format.ts`), not `CombatState` itself. Gates
+ *     `availableTransitions`/`availableChecks` during active combat. This
+ *     is a DATA gate, not a presentation one: `availableTransitions` also
+ *     feeds the composer's keyword fast-path (`matchKeywordIntent` in
+ *     page.tsx's `onSend`, `page.tsx:3750`) — dropping this filter and
+ *     suppressing only in a JSX consumer (e.g. `Offers`) would let a
+ *     movement phrase typed mid-fight advance the scene. Do not
+ *     "simplify" this into `Offers`.
  *   - `appendLog` — every authored-line player and both handlers write to
  *     the transcript; that's useTranscript's concern (hook 6), not yet
  *     extracted.
@@ -28,13 +37,13 @@
  *     dedup ledger with its own optimistic write's `event_seq`; that
  *     ledger is useSessionEvents' concern (hook 7), not yet extracted.
  *
- * `narrateRef`/`narrateDurableBeatRef` are the one genuinely new shape, not
- * just a wider parameter list. `onMoveOn`/`onAttemptCheck`/
- * `handleSceneAdvance` all fire a confirmation narration beat, and that
- * function is owned by useNarration — hook 8, composed AFTER useScene per
- * plan §2.2's fixed order ("dependencies flow downward only"). But
- * useNarration itself takes scene's own grounding/refresh helpers as input
- * (its own "Derived from: transcript, scene" row), so the two are mutually
+ * `confirmBeatRef` is the one genuinely new shape, not just a wider
+ * parameter list. `onMoveOn`/`onAttemptCheck`/`handleSceneAdvance` all fire
+ * a confirmation narration beat (`ConfirmBeatFn`, below), and that function
+ * is owned by useNarration — hook 8, composed AFTER useScene per plan
+ * §2.2's fixed order ("dependencies flow downward only"). But useNarration
+ * itself takes scene's own grounding/refresh helpers as input (its own
+ * "Derived from: transcript, scene" row), so the two are mutually
  * referential in the CURRENT, single-component code today (narrate() calls
  * refreshGrounding/playArrivalLine/applyOfferedCheckSignal; onMoveOn calls
  * narrate) — exactly the shape plan §2.2 flags for `useSessionEvents`
@@ -43,14 +52,16 @@
  * (`useCallback`s declared far below this hook's call site, right after
  * `appendLog`, because the mount effect needs `setGrounding`/`openScene`
  * before either narration function exists) as plain arguments — that's a
- * genuine temporal-dead-zone, not a stylistic one. page.tsx instead keeps a
- * ref to each, assigned by an effect once they're declared (mirrors this
- * same file's own `combatStateRef`/`logRef` "latest value without a dep"
- * idiom, applied to functions instead of state) and passes the STABLE refs
- * in; refs never change identity, so no TDZ and no extra dependency-array
- * entries. This ref-mirror is a deliberate shortcut, marked at its actual
- * call site (page.tsx, right where `useScene(...)` is called) rather than
- * here, so `tools/debt-harvest.py` sees exactly one marker for it.
+ * genuine temporal-dead-zone, not a stylistic one. page.tsx instead keeps
+ * ONE ref, `confirmBeatRef`, assigned by a single `useLayoutEffect` (which
+ * owns the `DURABLE_GENERATION_ENABLED` fork) once `narrate`/
+ * `narrateDurableBeat` are declared (mirrors this same file's own
+ * `combatStateRef`/`logRef` "latest value without a dep" idiom, applied to
+ * a function) and passes the STABLE ref in; refs never change identity, so
+ * no TDZ and no extra dependency-array entries. This ref-mirror is a
+ * deliberate shortcut, marked at its actual call site (page.tsx, right
+ * where `useScene(...)` is called) rather than here, so
+ * `tools/debt-harvest.py` sees exactly one marker for it.
  *
  * Deliberately does NOT own (debt: markers at each site in page.tsx):
  * the mount effect's grounding fetch (still seeds combatId/participants/
@@ -79,7 +90,6 @@ import type { ComposeMode } from '@/components/Composer';
 import type { Advantage } from '@/components/DiceTray';
 import type { LogRow } from '@/components/ChatLog';
 import type {
-  CombatState,
   GroundingData,
   OfferedCheck,
   SceneCheck,
@@ -118,6 +128,20 @@ export type NarrateDurableBeatFn = (
   beatMode: ComposeMode,
   opts?: { suppressIntent?: boolean; beat?: string },
 ) => void | Promise<void>;
+
+// Amendment A §A.4 (IMPORTANT-1): all three useScene call pairs into
+// narrate/narrateDurableBeat differ only in playerLine/mechanics/the durable
+// beat label -- beatMode is always 'act' and suppressIntent always true on
+// every branch. The union is exhaustive for THIS hook, which is the only
+// thing that fires these two beats. NarrateDurableBeatFn's own `beat?:
+// string` stays open, so adding a beat kind elsewhere (end_turn,
+// combat_start, roll_confirm) does not touch this type.
+export type SceneConfirmBeat = 'scene_advance' | 'check_confirm';
+export type ConfirmBeatFn = (
+  playerLine: string,
+  mechanics: string,
+  beat: SceneConfirmBeat,
+) => void;
 
 export interface UseSceneResult {
   grounding: GroundingData | null;
@@ -161,12 +185,11 @@ export interface UseSceneResult {
 export function useScene(
   sessionId: string,
   session: Session | null,
-  combatState: CombatState | null,
+  combatEngaged: boolean,
   talking: boolean,
   advantage: Advantage,
   appendLog: (row: Omit<LogRow, 'id' | 'ts'>) => void,
-  narrateRef: MutableRefObject<NarrateFn>,
-  narrateDurableBeatRef: MutableRefObject<NarrateDurableBeatFn>,
+  confirmBeatRef: MutableRefObject<ConfirmBeatFn>,
   renderedSeqsRef: MutableRefObject<Set<number>>,
 ): UseSceneResult {
   const { user } = useAuth();
@@ -334,6 +357,15 @@ export function useScene(
    * Takes the grounding EXPLICITLY (never the `grounding` closure) — every
    * caller has just awaited refreshGrounding(), and setGrounding() is async,
    * so the closure value is still the scene we just left.
+   *
+   * KNOWN GAP, deliberate: the durable events poll is NOT a caller. It
+   * refetches grounding for several reasons that are not advances (a
+   * classifier-opened beat gate on the SAME scene, most of all), so calling
+   * this from there would fire an arrival line mid-scene the first time any of
+   * them happened. `DURABLE_GENERATION_ENABLED` is false, so narrate()'s SSE
+   * signal and onMoveOn are the live advance paths and this is currently
+   * complete; whoever flips that flag must add an advance-specific call there
+   * (keyed on the scene_advance event, not on `invalidatesGrounding`).
    */
   const playArrivalLine = useCallback(
     (g: GroundingData | null): boolean => {
@@ -584,23 +616,13 @@ export function useScene(
       // Kage #1 / Miko DEFECT-2: this beat only narrates a transition the
       // caller's own scene_advance already performed server-side — suppress
       // the server's INTENT classifier from advancing the scene AGAIN.
-      if (DURABLE_GENERATION_ENABLED) {
-        void narrateDurableBeatRef.current(
-          'The scene changes.',
-          `Scene advance: ${fromScene} → ${toScene}. Narrate the transition.`,
-          'act',
-          { suppressIntent: true, beat: 'scene_advance' },
-        );
-      } else {
-        void narrateRef.current(
-          'The scene changes.',
-          `Scene advance: ${fromScene} → ${toScene}. Narrate the transition.`,
-          'act',
-          { suppressIntent: true },
-        ); // byte-unchanged legacy path
-      }
+      confirmBeatRef.current(
+        'The scene changes.',
+        `Scene advance: ${fromScene} → ${toScene}. Narrate the transition.`,
+        'scene_advance',
+      );
     },
-    [appendLog, refreshGrounding, playOutcomeLine, playArrivalLine, narrateRef, narrateDurableBeatRef],
+    [appendLog, refreshGrounding, playOutcomeLine, playArrivalLine, confirmBeatRef],
   );
 
   /** Manual "Move on" button handler (ADV-7T). */
@@ -663,21 +685,7 @@ export function useScene(
         const transitionContext = isAdventureComplete
           ? `Scene advance: ${result.from_scene} → the adventure concludes. Narrate the ending.`
           : `Scene advance: ${result.from_scene} → ${result.to_scene}. Narrate the transition.`;
-        if (DURABLE_GENERATION_ENABLED) {
-          void narrateDurableBeatRef.current(
-            'We move on.',
-            transitionContext,
-            'act',
-            { suppressIntent: true, beat: 'scene_advance' },
-          );
-        } else {
-          void narrateRef.current(
-            'We move on.',
-            transitionContext,
-            'act',
-            { suppressIntent: true },
-          ); // byte-unchanged legacy path
-        }
+        confirmBeatRef.current('We move on.', transitionContext, 'scene_advance');
       } catch (err) {
         const status = (err as { status?: number } | null)?.status;
         if (status === 400) {
@@ -700,8 +708,7 @@ export function useScene(
       appendLog,
       refreshGrounding,
       refocusSceneHeadIfStranded,
-      narrateRef,
-      narrateDurableBeatRef,
+      confirmBeatRef,
       toast,
       playArrivalLine,
       playRescueTransitionLine,
@@ -786,16 +793,7 @@ export function useScene(
         // Kage #1 / Miko DEFECT-2: resolveCheck() above already resolved the
         // check (and any resulting flag/auto-advance) server-side — suppress
         // the INTENT classifier from acting on this confirmation beat too.
-        if (DURABLE_GENERATION_ENABLED) {
-          void narrateDurableBeatRef.current(`I attempt a ${skillLabel} check.`, result.mechanics, 'act', {
-            suppressIntent: true,
-            beat: 'check_confirm',
-          });
-        } else {
-          void narrateRef.current(`I attempt a ${skillLabel} check.`, result.mechanics, 'act', {
-            suppressIntent: true,
-          }); // byte-unchanged legacy path
-        }
+        confirmBeatRef.current(`I attempt a ${skillLabel} check.`, result.mechanics, 'check_confirm');
       } catch (err) {
         // F1/CAST-FAIL-SILENT: curated map wins for the known reasons.
         const fallback = 'Could not resolve that check.';
@@ -834,8 +832,7 @@ export function useScene(
       appendLog,
       refreshGrounding,
       refocusSceneHeadIfStranded,
-      narrateRef,
-      narrateDurableBeatRef,
+      confirmBeatRef,
       toast,
       renderedSeqsRef,
     ],
@@ -851,12 +848,14 @@ export function useScene(
   // P1-PLAYFIX-2 §A.3: memoized (not a plain const) — the composer's
   // keyword-fast-path (page.tsx onSend, still there) depends on this array,
   // and a fresh array literal every render would recreate that callback
-  // every render too. `combatState` is a parameter (useCombat's own state,
-  // not yet extracted) — transitions/checks are an exploration-beat
-  // affordance, hidden during active combat.
+  // every render too. `combatEngaged` is a parameter (Amendment A §A.1:
+  // `isCombatEngaged(combatState)`, owned by useCombat, not yet extracted)
+  // — transitions/checks are an exploration-beat affordance, hidden during
+  // active combat. This is a DATA gate, not a presentation one — see this
+  // hook's own header comment for why.
   const availableTransitions = useMemo<SceneTransition[]>(
     () =>
-      combatState?.state !== 'active' && grounding?.transitions
+      combatEngaged === false && grounding?.transitions
         ? grounding.transitions.filter((t) => {
             // NOTE (TAV-SCENE-TRANSITION-LEAKS-FLAG-SLUG, 2026-08-06): flag
             // gating is deliberately NOT done here. The engine owns it —
@@ -871,7 +870,7 @@ export function useScene(
             return st.startsWith('resolved_');
           })
         : [],
-    [combatState?.state, grounding],
+    [combatEngaged, grounding],
   );
 
   // P1-PLAYFIX §3.3.3 (S2.4) — authored skill checks for the current scene.
@@ -882,7 +881,7 @@ export function useScene(
   // longer gated behind a narrator invite. Deduped by skill+dc, left in the
   // scene's own authored order.
   const availableChecks = useMemo<SceneCheck[]>(() => {
-    if (combatState?.state === 'active') return [];
+    if (combatEngaged) return [];
     const raw = grounding?.checks ?? [];
     const seen = new Set<string>();
     const deduped: SceneCheck[] = [];
@@ -896,7 +895,7 @@ export function useScene(
       deduped.push(c);
     }
     return deduped;
-  }, [combatState?.state, grounding]);
+  }, [combatEngaged, grounding]);
 
   return {
     grounding,

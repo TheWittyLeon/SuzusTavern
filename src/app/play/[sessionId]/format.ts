@@ -26,7 +26,7 @@
  * need both, and page.tsx's own onRoll/monster-auto-driver (not yet
  * extracted) keep needing `isSessionLocked`.
  */
-import type { GroundingData, Session } from '@/lib/api/types';
+import type { CombatState, GroundingData, Session } from '@/lib/api/types';
 
 /** Title-case an engine skill slug ('sleight_of_hand' -> 'Sleight Of Hand'). */
 export function titleCaseSkill(skill: string): string {
@@ -71,6 +71,14 @@ export function sessionsEqual(
  */
 export function isSessionLocked(s: Session | null | undefined): boolean {
   return s?.status === 'paused' || s?.status === 'ended';
+}
+
+/** A live turn order is running. NOT page.tsx's `combatIsActive`
+ *  (`!!combatId && state !== 'ended'`), which is also true before initiative
+ *  and between turns. This is the exact predicate the scene's offer memos
+ *  have always used — keep them identical. */
+export function isCombatEngaged(combatState: CombatState | null): boolean {
+  return combatState?.state === 'active';
 }
 
 /**

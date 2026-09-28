@@ -143,6 +143,11 @@ jest.mock('../../lib/stream', () => ({
 
 import PlayPage from '@/app/play/[sessionId]/page';
 import type { Session, Participant, NarrationEvent } from '@/lib/api/types';
+// A1b / Kage-CR MINOR-4: a handle onto the ALREADY-mocked module (the
+// jest.mock factory above owns the actual jest.fn() instances) purely to
+// assert on monsterTurn below -- this is an import addition, not a change
+// to the shared mock factory or to any existing test.
+import * as dnd from '@/lib/api/dnd';
 
 const BASE_SESSION: Session = {
   session_id: 's1',
@@ -357,6 +362,57 @@ describe('DDX-25 adversarial — paused session, same-tab gaps', () => {
       await flush();
 
       expect(mockResolveCheck).not.toHaveBeenCalled();
+    },
+  );
+
+  it(
+    'D3 (new coverage, Kage-CR MINOR-4): the monster auto-driver must not run while the session is paused',
+    async () => {
+      // isSessionLocked's remaining consumer with no direct pin: the DM-side
+      // monster auto-driver effect (page.tsx, "Auto-drive monster turns").
+      // Every OTHER consumer (onMoveOn, onRoll, onAttemptCheck, the rebind
+      // trigger) is covered by ADV-1/ADV-2/ADV-3/D2 above -- this scene is
+      // built so that, absent the isSessionLocked gate, the auto-driver
+      // WOULD fire: active combat, the current turn belongs to a living
+      // NPC, dm_mode/ai_assist_level both allow auto-drive, and a session
+      // that is (already) paused.
+      mockUsername = 'dm_alice';
+      setup(
+        { ...BASE_SESSION, status: 'paused', active_combat_id: 'combat-1' },
+        [{ username: 'dm_alice', is_dm: true, character: null }],
+      );
+      mockGetCombatState.mockResolvedValue({
+        combat_id: 'combat-1',
+        session_id: 's1',
+        round: 1,
+        state: 'active',
+        turn_index: 0,
+        active_participant_id: 'npc1',
+        initiative: ['npc1'],
+        participants: [
+          {
+            participant_id: 'npc1',
+            entity_id: 'goblin-1',
+            name: 'Goblin',
+            is_pc: false,
+            initiative: 18,
+            hp_current: 7,
+            hp_max: 7,
+            ac: 13,
+            conditions: [],
+            is_alive: true,
+            can_be_targeted: true,
+            is_active_turn: true,
+            took_turn: false,
+          },
+        ],
+      });
+
+      render(<PlayPage />);
+      await screen.findByText('The Hollow Tide');
+      await flush();
+
+      expect(dnd.monsterTurn).not.toHaveBeenCalled();
     },
   );
 });
