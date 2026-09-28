@@ -433,12 +433,23 @@ describe('ADVERSARIAL — poll-only failure detection (design §4d, second bulle
       status: 'pending',
       deduped: false,
     });
-    // Simulates a dropped/silently-ended tail: yields one chunk then the
-    // generator just ends (no {kind:'error'}, no {kind:'done'}) — the
-    // connection closed without either signal, e.g. a proxy timeout that
-    // truncates the stream without writing an SSE error frame.
+    // Simulates a dropped/silently-ended tail: yields one chunk, then the
+    // connection hangs forever with no {kind:'error'} and no {kind:'done'}
+    // — e.g. a proxy idle-timeout truncation the client never observes as
+    // a signal. Kage-CR A4b IMP-5: a generator that instead just RETURNS
+    // after one yield does NOT model this — `subscribeToJob`'s own
+    // `for await` loop completing normally calls `onTurnSettled()`
+    // unconditionally (useNarration.ts ~509) the instant that happens,
+    // which would clear `talking` immediately and make mechanism-2 (the
+    // POLL's own grace-expiry `onTurnSettled()`, useSessionEvents.ts ~700)
+    // untestable in this scenario — exactly the gap this test's own header
+    // says it targets. Hanging (mirrors the sibling "reload mid-turn"
+    // tests' `await new Promise(() => {})` in this same file) keeps the
+    // SSE tail genuinely open so mechanism-2 is the ONLY thing that can
+    // settle `talking`.
     mockSubscribeDmJob.mockImplementation(async function* () {
       yield { kind: 'chunk', text: 'Suzu begins to answer' };
+      await new Promise<never>(() => {});
     });
 
     jest.useFakeTimers();
@@ -486,6 +497,15 @@ describe('ADVERSARIAL — poll-only failure detection (design §4d, second bulle
       // unresolved beat. Documents the current gap if this fails.
       const retryBtn = await screen.findByRole('button', { name: /retry/i });
       expect(retryBtn).toBeInTheDocument();
+
+      // Kage-CR A4b IMP-5: the SAME §4d grace-expiry cleanup that surfaces
+      // Retry also calls onTurnSettled() (useSessionEvents.ts ~699) --
+      // `talking` gates the composer (onSend's own guard, and Composer's
+      // disabled prop), so without this the input stays locked forever even
+      // though the failure was correctly detected. Unpinned before this:
+      // the retry-button assertion above only proves detection, not
+      // recovery of the composer itself.
+      expect(input).not.toBeDisabled();
     } finally {
       jest.useRealTimers();
     }
