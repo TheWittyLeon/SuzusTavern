@@ -17,7 +17,7 @@
 import React from 'react';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import type { GroundingData, NarrationEvent, Participant, Session } from '@/lib/api/types';
+import type { CombatState, GroundingData, NarrationEvent, Participant, Session } from '@/lib/api/types';
 
 jest.mock('next/navigation', () => ({
   useParams: () => ({ sessionId: 's1' }),
@@ -288,5 +288,55 @@ describe('TAV-COMBAT-VERB-NO-MECHANICS — ordering vs the movement fast-path', 
 
     await waitFor(() => expect(mAdvanceScene).toHaveBeenCalledTimes(1));
     expect(mAdvanceScene.mock.calls[0][1]).toMatchObject({ to_scene: 'everfree_zecoras_hut' });
+  });
+
+  it('negative control: the same movement phrase does NOT advance the scene once combat is active', async () => {
+    // A1b / Amendment A §A.1 (Kage-CR IMPORTANT-2): `availableTransitions` is
+    // a DATA gate, not merely a presentation one -- it also feeds the
+    // composer's keyword fast-path (`matchKeywordIntent` in this file's
+    // `onSend`). Kage's proposed resolution (drop the gate, suppress only in
+    // the `Offers` consumer) would have removed this filter silently, and
+    // nothing pinned it. Same scene and same movement phrase as the case
+    // just above, but with a genuinely ACTIVE combat (`combatState.state ===
+    // 'active'` and a live `combatId`) -- the fast-path must NOT fire.
+    mGetSession.mockResolvedValue({ ...SESSION, active_combat_id: 'combat-1' });
+    mGetGrounding.mockResolvedValue(GROUNDING_UNSTARTED_ENCOUNTER);
+    const activeCombat: CombatState = {
+      combat_id: 'combat-1',
+      session_id: 's1',
+      round: 1,
+      state: 'active',
+      turn_index: 0,
+      active_participant_id: 'p1',
+      initiative: ['p1'],
+      participants: [
+        {
+          participant_id: 'p1',
+          entity_id: 'c1',
+          name: 'Anomaly',
+          is_pc: true,
+          initiative: 15,
+          hp_current: 9,
+          hp_max: 9,
+          ac: 12,
+          conditions: [],
+          is_alive: true,
+          can_be_targeted: false,
+          is_active_turn: true,
+          took_turn: false,
+        },
+      ],
+    };
+    (dnd.getCombatState as jest.MockedFunction<typeof dnd.getCombatState>).mockResolvedValue(
+      activeCombat,
+    );
+    render(<PlayPage />);
+    await screen.findByRole('textbox');
+
+    await sendMessage('I press forward');
+
+    expect(mAdvanceScene).not.toHaveBeenCalled();
+    await waitFor(() => expect(mStream).toHaveBeenCalledTimes(1));
+    expect(mStream.mock.calls[0][0].message).toBe('I press forward');
   });
 });
