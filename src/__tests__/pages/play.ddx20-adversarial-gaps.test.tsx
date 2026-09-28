@@ -22,6 +22,31 @@
  *      error frame, then pending_generation goes null with no narration
  *      ever landing) leaves the row/turn_key permanently stuck instead of
  *      surfacing the retry affordance.
+ *
+ * A8 carry item (d) / Kage-CR A7 pre-merge Suggestion C — WATCH, not a fix:
+ * this file's "reload mid-turn" cases (and the mechanism-2 grace-expiry case
+ * added at A7) deliberately hang their mocked SSE tail open forever
+ * (`await new Promise<never>(() => {})`) under `jest.useFakeTimers()`, the
+ * correct fidelity for what they're proving. Kage-CR observed ONE
+ * unreproduced red in 1 of 5 full-suite runs in a scratch copy at A7
+ * (`Tests: 1 failed, 3631 passed`, name lost to a summary-only grep), with
+ * 4 consecutive clean runs after on byte-identical source, and suspected
+ * THIS file's never-settling promise as the likely mechanism.
+ *
+ * A8 re-verify (Ren-Dev, 2026-09-28): ran `npm test` 12x on a clean `main`
+ * checkout to try to catch and name it. It recurred twice (runs 1, 9, 10 of
+ * 12) -- but BOTH times the failing test was
+ * `src/__tests__/pages/play.intent-fastpath.test.tsx:530`
+ * (`await waitFor(() => expect(document.activeElement).toBe(sceneHead))`,
+ * a REAL-timer rAF focus-rescue race, unrelated to this file's fake-timer
+ * hung-promise pattern), never a test in THIS file. Kage's suspicion did
+ * not reproduce at the file it named -- recorded per "does not reproduce
+ * because X" rather than silently fixing the wrong mechanism. The real
+ * intermittent (play.intent-fastpath.test.tsx) is filed separately
+ * (pre-existing on `main`, unrelated to A8's diff) rather than fixed here.
+ * This file's own watch stands on its own merits (a never-settling promise
+ * under fake timers IS a real, if so-far unconfirmed, flake shape) but is
+ * no longer the leading suspect for the one recurrence Kage saw.
  */
 import React from 'react';
 import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react';
