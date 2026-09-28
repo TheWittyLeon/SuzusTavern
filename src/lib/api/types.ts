@@ -1127,6 +1127,21 @@ export interface CombatSceneAdvance {
   outcome?: string;
 }
 
+/**
+ * Shape of authored `terrain` — DM-only; ABSENT for players at every wire
+ * door (ENGINE-COMBAT-STATE-TERRAIN-GM-LEAK, 2026-09-27). Authored GM prose:
+ * free text the encounter author writes for themselves, polymorphic across
+ * the corpus (2 of 19 live values are this dict shape, 17 are a bare
+ * string — `Record<string, unknown>` was wrong for the 89% majority).
+ * The player/GM boundary inside the prose is undecidable from shape or
+ * content, which is why the field is withheld as a class rather than
+ * filtered. **Never render.** The tactical map reads `space`, and only
+ * `space`, for player-visible battlefield information.
+ */
+export type TerrainNotes =
+  | string
+  | { lighting?: string; cover?: string; hazards?: string[] };
+
 /** Full combat state snapshot — source of truth for all UI state during combat. */
 export interface CombatState {
   combat_id: string;
@@ -1140,11 +1155,8 @@ export interface CombatState {
   /** Ordered participant ids (mirrors CombatSession.initiative_order). */
   initiative: string[];
   participants: CombatParticipantState[];
-  terrain?: {
-    lighting?: string;
-    cover?: string;
-    hazards?: string[];
-  } | null;
+  /** DM-only; absent for players. See `TerrainNotes`. */
+  terrain?: TerrainNotes | null;
   encounter_id?: string | null;
   scene_id?: string | null;
   /** Populated only on mutating route responses, not on GET /state. */
@@ -1826,7 +1838,8 @@ export interface CombatFromSceneResult {
   combat_id: string;
   round: number;
   monsters: CombatSceneMonster[];
-  terrain?: Record<string, unknown>;
+  /** DM-only; absent for players. See `TerrainNotes` (CombatState). */
+  terrain?: TerrainNotes;
   encounter_id?: string;
 }
 
