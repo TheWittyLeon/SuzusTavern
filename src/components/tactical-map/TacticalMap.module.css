@@ -25,6 +25,25 @@
  * fixed-dark device palette yet (design doc §2 says the same); if one does,
  * that is new tokens for Aoi-UI/Sora-Arch to add to globals.css, not a Lane
  * D decision.
+ *
+ * CONTRAST (Iro-A11y MAJOR-1/2, Kage-CR IMPORTANT-5, T5 = follow the
+ * palette, existing tokens only): every text/icon pair below that sits on a
+ * colored fill was measured across all 5 palettes
+ * (src/__tests__/components/tactical-map/contrast.test.ts is the script AND
+ * the regression pin; the exact ratios are asserted there, not just
+ * described here) rather than picked by eye. Two techniques, both already
+ * established elsewhere in this design system rather than invented here:
+ *   - `.token`'s glyph moved from a 0.85em (~12px) small-text ratio to
+ *     `--text-xl` (20px) bold, which crosses WCAG's large-text line
+ *     (>=18.66px bold -> 3:1 applies instead of 4.5:1) — dusk-tavern's
+ *     `--on-fill` on `--bad` was the one pair that needed it (4.14:1, fails
+ *     4.5, clears 3).
+ *   - `.feature` and `.destinationTag` mirror Pill.tsx's own tone-map
+ *     pattern exactly: a light tint of the decorative token
+ *     (`color-mix(in oklab, var(--X) N%, transparent)`) as the fill, paired
+ *     with that token's dedicated `--X-ink` variant as the foreground —
+ *     the same reuse Pill's "warm"/"cool" tones already rely on, not a new
+ *     contrast strategy for this component to maintain alone.
  */
 
 .wrap {
@@ -101,7 +120,10 @@
   justify-content: center;
   font-family: var(--font-mono);
   font-weight: 700;
-  font-size: 0.85em;
+  /* Contrast note above: --text-xl (20px) bold crosses the WCAG large-text
+     line, so the 3:1 threshold applies to this glyph rather than 4.5:1 —
+     see contrast.test.ts. */
+  font-size: var(--text-xl);
   color: var(--on-fill);
   background: var(--ink-3);
   border: 2px solid var(--line-strong);
@@ -145,7 +167,11 @@
   height: 14px;
   border-radius: 50%;
   background: var(--bg-3);
-  color: var(--cool);
+  /* Iro-A11y MAJOR-2 / Kage-CR IMPORTANT-5: --cool alone measured 2.45:1 on
+     candlelit's --bg-3 (fails the 3:1 non-text minimum for an icon-bearing
+     badge) — --cool-ink is the same token family's dedicated text-safe
+     variant, same pattern as --bad-ink/--warm-ink elsewhere in this file. */
+  color: var(--cool-ink);
   font-size: 9px;
   display: flex;
   align-items: center;
@@ -174,12 +200,19 @@
   width: 70%;
   height: 70%;
   border-radius: var(--radius-xs);
-  background: var(--warm);
-  color: var(--on-fill);
+  /* Contrast note above (Kage-CR IMPORTANT-5): candlelit's --warm (#d4a64b)
+     is a mid-tone amber, not the pale pastel it is in the other 4 palettes
+     — solid --warm + --on-fill measured 2.24:1 there (fails 4.5:1, and this
+     glyph is too small to claim the large-text exemption). Pill's own
+     "warm" tone (a tint of --warm + --warm-ink) is already tuned for
+     exactly this shape of surface — reused verbatim rather than re-solving
+     the same contrast problem a second way. */
+  background: color-mix(in oklab, var(--warm) 16%, transparent);
+  color: var(--warm-ink);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.75em;
+  font-size: var(--text-xl);
   font-weight: 700;
 }
 
@@ -190,8 +223,12 @@
   transform: translateX(-50%);
   font-family: var(--font-mono);
   font-size: 9px;
-  color: var(--on-accent);
-  background: color-mix(in oklab, var(--cool) 80%, transparent);
+  /* Contrast note above: same Pill-tone reuse as .feature — the pill's own
+     80%-opaque --cool fill measured 2.95:1 on candlelit (fails 4.5:1, and a
+     9px tag can never claim the large-text exemption); a light --cool tint
+     + --cool-ink clears every palette (contrast.test.ts). */
+  color: var(--cool-ink);
+  background: color-mix(in oklab, var(--cool) 10%, transparent);
   padding: 1px 4px;
   border-radius: var(--radius-pill);
   white-space: nowrap;
