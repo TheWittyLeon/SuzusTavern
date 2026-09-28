@@ -388,8 +388,10 @@ export function useSessionLifecycle(sessionId: string): UseSessionLifecycleResul
   const isEnded = session?.status === 'ended';
   // A paused OR ended session shouldn't accept ANY player action — gates
   // the composer, combat action rail, skill-check, move-on, dice-tray,
-  // rebind and the DM-side monster auto-driver (via isSessionLocked, still
-  // in page.tsx until useScene/useDice are extracted).
+  // rebind and the DM-side monster auto-driver (via `isSessionLocked`,
+  // ./format.ts — imported directly by useSceneActions/useCombatActions/
+  // useDice now that all three are extracted, rather than threaded through
+  // this hook's return).
   const sessionLocked = isPaused || isEnded;
 
   // DDX-25: inline validation for the Award XP form's submit button — the

@@ -11,7 +11,7 @@
  * `revealRef`, `narrationAbort`), plus `resumeThinking` (the one pure
  * derivation off this hook's own `talking`/`activeJob`).
  *
- * Composed at row 7 — ABOVE `useDice` (row 8, not yet extracted) and
+ * Composed at row 7 — ABOVE `useDice` (row 8, A6) and
  * `useSceneActions` (row 9, A5's other half) but BELOW `useSceneState` (row
  * 6, A5's first half). This is the resolution to Amendment A §A.2/§A.3 edge
  * R2: `narrate()` reads `refreshGrounding`/`refocusSceneHeadIfStranded`/

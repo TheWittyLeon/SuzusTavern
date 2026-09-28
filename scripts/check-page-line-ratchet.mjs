@@ -76,10 +76,18 @@ const PAGE = join(ROOT, PAGE_REL);
 // activeJob/jobFailed + refs); useScene split into useSceneState (row 6)
 // and useSceneActions (row 9, handleSceneAdvance/onMoveOn/onAttemptCheck);
 // confirmBeatRef + its useLayoutEffect deleted -- zero ref-mirrors remain
-// in hooks/. Net -1136.
+// in hooks/. Net -1136) -> 2784 (A6, Amendment A §A.2 row 8: useDice
+// extracted -- quickChecks/advantage/rollBusy(+ref)/diceRollPollIntervalRef/
+// onRoll; composed BELOW useNarration, ABOVE useSceneActions (which now
+// takes `advantage` from useDice's destructure, same call-site shape,
+// Amendment A §A.3 edge R5, reorder only). The still-inline events poll
+// (useSessionEvents territory, A4) keeps writing through
+// dice.diceRollPollIntervalRef by the same destructured name -- deliberately
+// NOT extracted this commit (see hooks/useDice.ts's own header). Net -64,
+// zero new ref-mirror.
 // Update this value, in the SAME commit, whenever page.tsx's actual line
 // count drops below it. Never raise it silently.
-export const RATCHET_CEILING = 2848;
+export const RATCHET_CEILING = 2784;
 
 /**
  * Pure: counts lines the way `wc -l` does (newline-byte count). Exported so

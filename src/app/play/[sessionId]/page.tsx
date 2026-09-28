@@ -51,7 +51,6 @@ import {
   getSession,
   getSessionEventsRaw,
   getSessionEventsPage,
-  postRoll,
 } from '@/lib/api/dnd';
 import { eventToLogRow, formatEventTimestamp as formatOpeningTimestamp } from '@/lib/rehydration';
 import { matchCombatIntent, matchKeywordIntent } from '@/lib/dnd/intentFastPath';
@@ -67,14 +66,14 @@ import type {
   OfferedCheck,
   Participant,
 } from '@/lib/api/types';
-import type { QuickCheck, RollTrigger } from '@/components/DiceTray';
+import type { QuickCheck } from '@/components/DiceTray';
 import Icon from '@/components/Icon';
 import Pill from '@/components/Pill';
 import PageSkeleton from '@/components/PageSkeleton';
 import CastSpellPanel from '@/components/CastSpellPanel';
 import SessionRecap from '@/components/SessionRecap';
 import { type LogRow } from '@/components/ChatLog';
-import DiceTray, { type Advantage } from '@/components/DiceTray';
+import DiceTray from '@/components/DiceTray';
 import Composer, { type ComposeMode } from '@/components/Composer';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Drawer from '@/components/Drawer';
@@ -85,7 +84,7 @@ import SceneStage from './regions/SceneStage';
 import Offers from './regions/Offers';
 import StoryLog from './regions/StoryLog';
 import { SessionHead, TopBar } from './regions/TopBar';
-import { POLL_INTERVAL_MS, isSessionLocked, buildReadAloudBlock } from './format';
+import { POLL_INTERVAL_MS, buildReadAloudBlock } from './format';
 import { useSessionLifecycle } from './hooks/useSessionLifecycle';
 import { useMyCharacter } from './hooks/useMyCharacter';
 import { useSafety } from './hooks/useSafety';
@@ -93,6 +92,7 @@ import { useTranscript } from './hooks/useTranscript';
 import { useCombatState } from './hooks/useCombatState';
 import { useSceneState } from './hooks/useSceneState';
 import { useNarration } from './hooks/useNarration';
+import { useDice } from './hooks/useDice';
 import { useSceneActions } from './hooks/useSceneActions';
 import { useCombatActions } from './hooks/useCombatActions';
 import JournalPane, { JOURNAL_HEADING_ID } from '@/components/JournalPane';
@@ -260,9 +260,10 @@ function listCreatureNames(names: readonly string[]): string {
 }
 
 // isSessionLocked moved to ./format.ts (TAV-PLAY-SHELL step 5 hook 4, same
-// Kage-CR C2 reason as titleCaseSkill above) — useScene's onMoveOn/
-// onAttemptCheck need it and this file's own onRoll/monster-auto-driver
-// (not yet extracted) still do too.
+// Kage-CR C2 reason as titleCaseSkill above) — useSceneActions' onMoveOn/
+// onAttemptCheck, useDice's onRoll (A6) and useCombatActions' monster
+// auto-driver (A2) each import it directly from format.ts now; page.tsx
+// itself has no remaining direct caller.
 
 export default function PlayPage() {
   const params = useParams<{ sessionId: string }>();
@@ -364,7 +365,8 @@ export default function PlayPage() {
   // manually switched the composer to OOC (Kage-CR). See the render-time
   // adjustment below.
   const [modeSynced, setModeSynced] = useState(false);
-  const [advantage, setAdvantage] = useState<Advantage>('none');
+  // advantage moved into useDice (TAV-PLAY-SHELL step 5 hook 8, Amendment A
+  // §A.2 row 8, A6) -- see that hook's destructure below.
   const [mobileView, setMobileView] = useState<'log' | 'party' | 'scene' | 'journal'>('log');
 
   // DDX-22: Journal / Memory pane. `journalEvents` mirrors the SAME raw
@@ -439,9 +441,13 @@ export default function PlayPage() {
     activeIsMine, isPlayerTurn, isDying, anyMonsterDown, allHostilesDown, selfPcId,
   } = combatStateResult;
 
-  // A2 — real quick-checks derived from the bound character's sheet.
-  // null = not yet resolved; [] = DM-only (no character bound) or fetch failed.
-  const [quickChecks, setQuickChecks] = useState<QuickCheck[] | null>(null);
+  // quickChecks (A2 — real quick-checks derived from the bound character's
+  // sheet; null = not yet resolved, [] = DM-only/fetch failed) moved into
+  // useDice (TAV-PLAY-SHELL step 5 hook 8, A6) -- see that hook's
+  // destructure below. This file's mount effect still BUILDS the value
+  // (the sheet fetch stays here, same as setGrounding/setMySheet), it just
+  // writes through useDice's setQuickChecks now instead of a page.tsx-local
+  // useState.
 
   // openingFiredRef moved into useScene (owns checkShouldOpen/openScene, its
   // only reader/writer).
@@ -490,11 +496,8 @@ export default function PlayPage() {
   // for the full DDX-20/TAV-S1-ABORT-CLEAR rationale each used to carry
   // here.
 
-  // Synchronous double-submit latch for roll buttons (mirrors checkBusyRef /
-  // sceneAdvanceBusyRef) — a roll is a real server write (persists a
-  // `dice_roll` event), so a same-tick double-click must not fire it twice.
-  const rollBusyRef = useRef(false);
-  const [rollBusy, setRollBusy] = useState(false);
+  // rollBusyRef/rollBusy moved into useDice (TAV-PLAY-SHELL step 5 hook 8,
+  // A6) -- see that hook's destructure below.
 
   // stateSeqRef/combatBusyRef/monsterDrivingRef/combatStateRef/pollIntervalRef
   // moved into useCombatState (TAV-PLAY-SHELL step 5 hook 5a) — see that
@@ -511,10 +514,11 @@ export default function PlayPage() {
   // stays as the fallback (e.g. if the chooser is ever opened programmatically).
   const lastOpenerRef = useRef<HTMLButtonElement | null>(null);
 
-  // DDX-08 / T3: interval handle for the dice-roll events poll (separate
-  // lifetime again — starts as soon as the session is loaded and runs for
-  // the whole session, independent of combat/session-status polling).
-  const diceRollPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // diceRollPollIntervalRef moved into useDice (TAV-PLAY-SHELL step 5
+  // hook 8, A6) -- see that hook's destructure below. The poll effect
+  // itself (the events poll further down) is still inline in page.tsx,
+  // `useSessionEvents` territory (A4) -- it now writes through
+  // dice.diceRollPollIntervalRef by the same name, unchanged otherwise.
 
   // sceneHeadRef/checkWrapRef/transitionWrapRef/freeformCheckRef moved into
   // useScene (TAV-PLAY-SHELL step 5 hook 4) — see the useScene() call below.
@@ -601,6 +605,19 @@ export default function PlayPage() {
     subscribeToJob, narrate, narrateDurable, narrateDurableBeat,
     onRetryFailedTurn, onSendDmNarration,
   } = narration;
+
+  // TAV-PLAY-SHELL step 5, hook 8 of ~9 (Amendment A §A.2 row 8): dice --
+  // quickChecks, advantage, rollBusy (+ its ref), diceRollPollIntervalRef,
+  // onRoll. Composed BELOW useNarration (onRoll reads narrate/
+  // narrateDurableBeat/talking as plain parameters, Amendment A §A.3 edge
+  // R7 "forward under the amended order") and ABOVE useSceneActions, which
+  // takes `advantage` from this hook's destructure below (edge R5, reorder
+  // only -- the call site shape is unchanged, only where the value
+  // originates moved). See hooks/useDice.ts's own header for the full
+  // scope, including what it deliberately does NOT own yet
+  // (useSessionEvents' still-inline poll body, A4).
+  const dice = useDice(session, narrate, narrateDurableBeat, talking, combatBusy);
+  const { quickChecks, setQuickChecks, advantage, setAdvantage, rollBusy, diceRollPollIntervalRef, onRoll } = dice;
 
   // TAV-PLAY-SHELL step 5, hook 9 of ~9 (Amendment A §A.2 row 9): the two
   // player-facing handlers + the ADV-8 auto-advance narrator (the behaviour
@@ -1566,90 +1583,9 @@ export default function PlayPage() {
   // onRetryFailedTurn/onSendDmNarration moved into useNarration (hook 7,
   // A5) -- see the useNarration() call above, right after useSceneState's.
 
-  // ── dice ────────────────────────────────────────────────────────────────────
-  // DDX-08 / T3: rolls are server-authoritative (POST /roll persists a
-  // `dice_roll` session event, DDX-07/DDX-08). This handler only forwards the
-  // trigger — it does NOT append a row to the log or compute an outcome. The
-  // result is rendered by the dice-roll events poll above, exactly like on
-  // every other client watching this session, so the roller sees their own
-  // roll the same way everyone else does and a roll from client A always
-  // shows up on client B without a reload.
-  const onRoll = useCallback(
-    async (trigger: RollTrigger) => {
-      // rollBusyRef: synchronous double-submit latch (mirrors checkBusyRef /
-      // sceneAdvanceBusyRef) — a roll is a real server write, so a same-tick
-      // double-click must not fire it twice.
-      if (!session || !username || rollBusyRef.current || isSessionLocked(session)) return;
-      rollBusyRef.current = true;
-      setRollBusy(true);
-      try {
-        const advantageWire: 'straight' | 'advantage' | 'disadvantage' =
-          advantage === 'adv' ? 'advantage' : advantage === 'dis' ? 'disadvantage' : 'straight';
-
-        if (trigger.kind === 'check') {
-          const result = await postRoll(session.session_id, {
-            username,
-            kind: 'skill',
-            skill: trigger.skill,
-            advantage: advantageWire,
-          });
-          // S5.5: skip auto-narration when AI is off or assist-only.
-          const sessionAiLevel = session.ai_assist_level;
-          // DDX-25 R2 (D2): a paused/ended session must not auto-fire
-          // narration either — the DiceTray `disabled` prop already blocks
-          // the click that reaches here (see its own sessionLocked gate
-          // further down), but this is checked again here too, mirroring the
-          // double-gate convention this file already uses for `talking` in
-          // onMoveOn/onAttemptCheck.
-          if (
-            !talking &&
-            !combatBusy &&
-            !isSessionLocked(session) &&
-            sessionAiLevel !== 'off' &&
-            sessionAiLevel !== 'assist'
-          ) {
-            if (DURABLE_GENERATION_ENABLED) {
-              void narrateDurableBeat(
-                `I roll ${trigger.label}.`,
-                `${result.description} Narrate the outcome.`,
-                'act',
-                { beat: 'roll' },
-              );
-            } else {
-              void narrate(
-                `I roll ${trigger.label}.`,
-                `${result.description} Narrate the outcome.`,
-                'act',
-              ); // byte-unchanged legacy path
-            }
-          }
-        } else if (trigger.sides === 20) {
-          // Plain d20 button: a bare (unmodified) d20 — kind='raw' with no
-          // notation still honours the advantage/disadvantage pill
-          // server-side, it just has no character/modifier attached.
-          await postRoll(session.session_id, {
-            username,
-            kind: 'raw',
-            advantage: advantageWire,
-          });
-        } else {
-          // Any other plain die (d4/d6/d8/d10/d12): notation always wins
-          // over `kind` server-side and rolls straight — advantage only
-          // applies to the d20 case above (mirrors the pre-DDX-08 behaviour).
-          await postRoll(session.session_id, {
-            username,
-            notation: `1d${trigger.sides}`,
-          });
-        }
-      } catch {
-        toast({ tone: 'error', message: 'Could not roll — try again.' });
-      } finally {
-        rollBusyRef.current = false;
-        setRollBusy(false);
-      }
-    },
-    [session, username, advantage, talking, combatBusy, narrate, narrateDurableBeat, toast],
-  );
+  // quickChecks/advantage/rollBusy/diceRollPollIntervalRef/onRoll moved
+  // into useDice (TAV-PLAY-SHELL step 5 hook 8, Amendment A §A.2 row 8,
+  // A6) -- see the useDice() call above, right after useNarration's.
 
   // handleSceneAdvance/onMoveOn/onAttemptCheck (+ sceneAdvanceBusyRef/
   // checkBusyRef) moved into useScene (TAV-PLAY-SHELL step 5 hook 4) -- see
