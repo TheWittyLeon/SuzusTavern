@@ -87,6 +87,10 @@
   justify-content: center;
   box-sizing: border-box;
   cursor: default;
+  /* Tora-Gesture MINOR-1: without this, a fast double-tap on a cell (common
+     on a touch board where taps land close together) can trigger iOS
+     Safari's double-tap-to-zoom gesture instead of two ordinary taps. */
+  touch-action: manipulation;
 }
 
 .cell:focus-visible {

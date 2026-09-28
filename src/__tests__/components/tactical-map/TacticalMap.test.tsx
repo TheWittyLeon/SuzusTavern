@@ -337,26 +337,75 @@ describe('TacticalMap — dead creatures (Kage-CR D1 IMPORTANT-8, coordinator de
 });
 
 describe('TacticalMap — T4: phone board centers on the active token each turn', () => {
-  it('calls scrollIntoView on the active participant\'s cell when the active turn changes', () => {
+  // Tora-Gesture MAJOR-1: scrollIntoView() walks EVERY scrollable ancestor
+  // including the page (the phone vertical-jump trap) — this rewrite pins
+  // that scrollIntoView is NEVER called and that centering instead lands on
+  // .boardScroll's OWN scrollLeft/scrollTop, computed from
+  // getBoundingClientRect deltas (mocked here since jsdom does no real
+  // layout — every rect is 0 by default, which would make the fix
+  // indistinguishable from a no-op without controlling geometry directly).
+  function mockRect(el: Element, rect: { left: number; top: number; width: number; height: number }) {
+    jest.spyOn(el, 'getBoundingClientRect').mockReturnValue({
+      ...rect,
+      right: rect.left + rect.width,
+      bottom: rect.top + rect.height,
+      x: rect.left,
+      y: rect.top,
+      toJSON() {
+        return rect;
+      },
+    } as DOMRect);
+  }
+
+  it('scrolls only the boardScroll container (never scrollIntoView) to center the active token', () => {
     const participants = [
       makeParticipant({ participant_id: 'p1', name: 'Bren', at: [0, 0] }),
       makeParticipant({ participant_id: 'p2', name: 'Sable', at: [4, 4] }),
     ];
-    const scrollSpy = jest.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
-    const { rerender } = render(
+    const scrollIntoViewSpy = jest.spyOn(Element.prototype, 'scrollIntoView');
+    const { container, rerender } = render(
       <TacticalMap {...baseProps({ participants, activeParticipantId: 'p1' })} />,
     );
-    expect(scrollSpy).toHaveBeenCalledWith(expect.objectContaining({ block: 'center' }));
-    scrollSpy.mockClear();
+    const boardScroll = container.querySelector(`.${styles.boardScroll}`) as HTMLElement;
+    const cells = container.querySelectorAll('[role="gridcell"]');
+    const p1Cell = cells[0] as HTMLElement; // [0,0] — first cell, row-major
+    const p2Cell = cells[24] as HTMLElement; // [4,4] — last cell of a 5x5 board
+
+    // A 200x200 viewport; p2's cell sits well outside it (centered at
+    // 420,420) — a real re-center must scroll right/down by 320 on both
+    // axes to bring its center to the container's own center (100,100).
+    mockRect(boardScroll, { left: 0, top: 0, width: 200, height: 200 });
+    mockRect(p1Cell, { left: 0, top: 0, width: 40, height: 40 });
+    mockRect(p2Cell, { left: 400, top: 400, width: 40, height: 40 });
+    boardScroll.scrollLeft = 0;
+    boardScroll.scrollTop = 0;
 
     // Same active participant re-renders: no redundant re-center.
     rerender(<TacticalMap {...baseProps({ participants, activeParticipantId: 'p1' })} />);
-    expect(scrollSpy).not.toHaveBeenCalled();
+    expect(boardScroll.scrollLeft).toBe(0);
+    expect(boardScroll.scrollTop).toBe(0);
 
-    // Turn changes to p2 -> centers again, on p2's cell this time.
+    // Turn changes to p2 -> centers again, scoped to the container only.
     rerender(<TacticalMap {...baseProps({ participants, activeParticipantId: 'p2' })} />);
-    expect(scrollSpy).toHaveBeenCalledTimes(1);
-    scrollSpy.mockRestore();
+    expect(boardScroll.scrollLeft).toBe(320);
+    expect(boardScroll.scrollTop).toBe(320);
+    expect(scrollIntoViewSpy).not.toHaveBeenCalled();
+    scrollIntoViewSpy.mockRestore();
+  });
+});
+
+describe('TacticalMap — click-driven roving focus (Tora MAJOR-2) feeds the inspector strip', () => {
+  it('a click on an occupied cell (tap = focus a cell) drives the inspector to that cell, even outside Move mode', () => {
+    const participants = [
+      makeParticipant({ participant_id: 'p1', name: 'Bren', at: [0, 0] }),
+      makeParticipant({ participant_id: 'p2', name: 'Goblin', is_pc: false, at: [1, 0] }),
+    ];
+    render(<TacticalMap {...baseProps({ participants, viewerParticipantId: 'p1' })} />);
+    expect(screen.queryByText('Goblin')).not.toBeInTheDocument();
+    const goblinCell = screen.getByRole('gridcell', { name: /Goblin, hostile\./ });
+    fireEvent.click(goblinCell);
+    expect(screen.getByText('Goblin')).toBeInTheDocument();
+    expect(screen.getByText('Foe')).toBeInTheDocument();
   });
 });
 
@@ -377,18 +426,41 @@ describe('TacticalMap — keyboard flow', () => {
     // Roving tabindex: across the WHOLE 5x5=25-cell board, exactly one
     // cell is tabbable at a time — not just the two named cells below.
     expect(container.querySelectorAll('[role="gridcell"][tabindex="0"]')).toHaveLength(1);
+    // Kage-CR D1 IMPORTANT-4: the roving-focus .focus() call was unpinned —
+    // deleting it left all 62 pre-existing tests green. Pin actual DOM
+    // focus, not just the tabindex model.
+    expect(document.activeElement).toBe(startCell);
 
     fireEvent.keyDown(startCell, { key: 'ArrowRight' });
     const nextCell = screen.getByRole('gridcell', { name: /Row 3, column 4\./ }); // [3,2] -> row3,col4
     expect(nextCell).toHaveAttribute('tabindex', '0');
     expect(startCell).toHaveAttribute('tabindex', '-1');
     expect(container.querySelectorAll('[role="gridcell"][tabindex="0"]')).toHaveLength(1);
+    expect(document.activeElement).toBe(nextCell);
 
     fireEvent.keyDown(nextCell, { key: 'Enter' });
     expect(onMove).toHaveBeenCalledWith([3, 2]);
 
     fireEvent.keyDown(nextCell, { key: 'Escape' });
     expect(onExitMove).toHaveBeenCalledTimes(1);
+  });
+
+  it('Tora-Gesture MAJOR-2: a click syncs the roving-tabindex model to the clicked cell, not just the actor\'s own cell', () => {
+    const participants = [makeParticipant({ participant_id: 'p1', name: 'Bren', at: [2, 2], movement_remaining: 10 })];
+    const { container } = render(
+      <TacticalMap {...baseProps({ participants, activeParticipantId: 'p1', moveMode: true })} />,
+    );
+    const startCell = screen.getByRole('gridcell', { name: /Current position/ });
+    expect(startCell).toHaveAttribute('tabindex', '0');
+
+    const otherCell = screen.getByRole('gridcell', { name: /Row 1, column 1\./ }); // [0,0] — an empty, out-of-range cell
+    fireEvent.click(otherCell);
+
+    // Without the fix, focusedCoord (and therefore the tabindex model)
+    // never moves off the actor's cell after a click.
+    expect(otherCell).toHaveAttribute('tabindex', '0');
+    expect(startCell).toHaveAttribute('tabindex', '-1');
+    expect(container.querySelectorAll('[role="gridcell"][tabindex="0"]')).toHaveLength(1);
   });
 
   it('Tora-Gesture CRIT-1 / Kage-CR IMPORTANT-3: Escape in Move mode consumes the event (stopPropagation), so it never reaches an ancestor overlay listener', () => {

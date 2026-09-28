@@ -24,7 +24,7 @@
 //      outline) + an eye badge, applied whenever `conditions` includes
 //      "invisible"; the token still renders at its true `at` (M1).
 //   T4 (phone board centers on the active token each turn) — the
-//      scroll-into-view effect keyed on `activeParticipantId` below.
+//      container-scoped scroll effect keyed on `activeParticipantId` below.
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import type { CombatParticipantState, CombatSpace, SpaceCoordinate } from '@/lib/api/types';
 import { COMBAT_REFUSAL_REASON_MAP } from '@/lib/dnd/engineReasons';
@@ -153,6 +153,7 @@ export default function TacticalMap({
   className,
 }: TacticalMapProps) {
   const cellRefs = useRef(new Map<string, HTMLDivElement>());
+  const boardScrollRef = useRef<HTMLDivElement>(null);
 
   const activeParticipant = useMemo(
     () => participants.find((p) => p.participant_id === activeParticipantId),
@@ -215,12 +216,27 @@ export default function TacticalMap({
 
   // T4: center the board on the active participant's cell each time the
   // turn changes (guarded so it fires once per turn, not on every render).
+  // Tora-Gesture MAJOR-1: `scrollIntoView` walks EVERY scrollable ancestor
+  // including the page (the classic phone vertical-jump trap) — scoped
+  // instead to `.boardScroll`'s own scrollLeft/scrollTop via
+  // getBoundingClientRect deltas, so no ancestor outside the board ever
+  // moves.
   const lastCenteredRef = useRef<string | null | undefined>(undefined);
   useEffect(() => {
     if (!space || !activeAt) return;
     if (lastCenteredRef.current === activeParticipantId) return;
     lastCenteredRef.current = activeParticipantId;
-    cellRefs.current.get(coordKeyStr(activeAt))?.scrollIntoView({ block: 'center', inline: 'center' });
+    const container = boardScrollRef.current;
+    const cell = cellRefs.current.get(coordKeyStr(activeAt));
+    if (!container || !cell) return;
+    const containerRect = container.getBoundingClientRect();
+    const cellRect = cell.getBoundingClientRect();
+    const deltaX =
+      cellRect.left + cellRect.width / 2 - (containerRect.left + containerRect.width / 2);
+    const deltaY =
+      cellRect.top + cellRect.height / 2 - (containerRect.top + containerRect.height / 2);
+    container.scrollLeft += deltaX;
+    container.scrollTop += deltaY;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [space, activeAt?.[0], activeAt?.[1], activeParticipantId]);
 
@@ -294,6 +310,7 @@ export default function TacticalMap({
     <div className={[styles.wrap, className].filter(Boolean).join(' ')}>
       <div
         className={styles.boardScroll}
+        ref={boardScrollRef}
         style={{ ['--tm-cols' as string]: space.width, ['--tm-rows' as string]: space.height }}
       >
         <div
@@ -356,7 +373,18 @@ export default function TacticalMap({
                     ]
                       .filter(Boolean)
                       .join(' ')}
-                    onClick={() => attemptMove(coord)}
+                    onClick={() => {
+                      // Tora-Gesture MAJOR-2: a click never synced
+                      // `focusedCoord`, desyncing DOM focus (which a click
+                      // on a tabindex-bearing div already moves natively)
+                      // from the roving-tabindex model — the NEXT arrow key
+                      // or Tab would then jump from the STALE cell, not the
+                      // one just clicked. Unconditional (not gated on
+                      // moveMode) so tapping any cell outside Move mode
+                      // also drives the inspector strip below.
+                      setFocusedCoord(coord);
+                      attemptMove(coord);
+                    }}
                     onMouseEnter={() => {
                       if (moveMode) setHoverCoord(coord);
                     }}
