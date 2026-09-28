@@ -68,6 +68,11 @@ export function useClassFeatureDescriptions(className: string | null | undefined
 
   useEffect(() => {
     if (!className) {
+      // Resetting to the empty/idle state when className drops out is
+      // synchronizing local state with an external precondition (the same
+      // justification as the fetch-on-mount call below), not deriving
+      // render-time data.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setDescriptions({});
       setStatus('idle');
       return;

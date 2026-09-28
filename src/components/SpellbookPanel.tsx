@@ -452,7 +452,7 @@ export default function SpellbookPanel({
     const ac = new AbortController();
     // Canonical fetch-on-mount pattern (React docs "Fetching data" example).
     // There's no external store to subscribe to here.
-     
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadKnown({ signal: ac.signal });
     // TAV-SPELLBOOK-STALE-AFTER-PICKER (Kage defect A): Browse only reloads
     // LAZILY on tab-open — but if Browse is the CURRENTLY active tab when
@@ -518,6 +518,9 @@ export default function SpellbookPanel({
     if (!isTechniquesOnly) return;
     const ac = new AbortController();
 
+    // Canonical fetch-on-mount pattern (React docs "Fetching data" example).
+    // There's no external store to subscribe to here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadFeaturePicks({ signal: ac.signal });
     return () => ac.abort();
   }, [isTechniquesOnly, loadFeaturePicks, refreshKey]);
