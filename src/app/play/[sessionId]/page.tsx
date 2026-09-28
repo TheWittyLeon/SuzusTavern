@@ -1033,10 +1033,15 @@ export default function PlayPage() {
   // consume-your-own-Escape pattern, it does NOT need to be added here.
   // debt: stays here instead of moving into useSessionLifecycle -- it also
   // reads the journal drawer's journalOpen, which this hook doesn't own.
-  // ceiling: no additional cross-concern read added. until: the journal
-  // drawer's own hook exists. (outcomeChooserOpen's half of this resolved at
-  // A2 -- it is now a plain downward read off useCombatState's destructure
-  // above, same shape as any other hook consumer, not a blocker anymore.)
+  // ceiling: no additional cross-concern read added.
+  // until: the journal drawer's own hook exists (plan §1.9).
+  // (A7 carry item (f), Kage-CR A4 Suggestion D / A4b Suggestion E: this
+  // marker's `until:` used to wrap onto a further comment line and
+  // tools/debt-harvest.py's 3-line lookahead truncated it to "the journal"
+  // -- reflowed so the whole trigger sits on the line `until:` starts on.
+  // outcomeChooserOpen's half of this resolved at A2 -- it is now a plain
+  // downward read off useCombatState's destructure above, same shape as
+  // any other hook consumer, not a blocker anymore.)
   useEffect(() => {
     if (!xpFormOpen) return;
     const onDocumentKeyDown = (e: KeyboardEvent) => {

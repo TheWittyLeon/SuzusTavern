@@ -27,9 +27,14 @@ import styles from '../Play.module.css';
  * positions.
  *
  * debt: two named exports standing in for one region (SessionControls +
- * DmCombatControls, split across two DOM parents). ceiling: fine as long
- * as nothing but page.tsx calls either export directly. until: step 10
- * lands (TableControls becomes a layer, D1) — collapse to one component.
+ * DmCombatControls, split across two DOM parents).
+ * ceiling: fine as long as nothing but page.tsx calls either export directly.
+ * until: step 10 lands (TableControls becomes a layer, D1) — collapse to one component.
+ *
+ * (A7 carry item (f), Kage-CR A4 Suggestion D / A4b Suggestion E: this
+ * marker's `until:` used to wrap onto a further comment line and
+ * tools/debt-harvest.py's 3-line lookahead truncated it to "step 10" --
+ * reflowed so the whole trigger sits on the line `until:` starts on.)
  *
  * I4 (Kage-CR/Miko-QA, 2026-09-21 review): the two exports used to share
  * ONE `data-region="tableControls"` value — inert today, but Miko's

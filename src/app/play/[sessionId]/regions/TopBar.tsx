@@ -43,10 +43,14 @@ import styles from '../Play.module.css';
  * `topBarStatus` — distinct, independently trackable.
  *
  * debt: two named exports standing in for one region (SessionHead +
- * TopBar, split across two DOM parents). ceiling: fine as long as nothing
- * but page.tsx calls either export directly. until: step 6 lands (the
- * preset shell) — TopBar becomes the single top-of-grid region and owns
- * both pieces.
+ * TopBar, split across two DOM parents).
+ * ceiling: fine as long as nothing but page.tsx calls either export directly.
+ * until: step 6 lands (the preset shell) — TopBar becomes the single top-of-grid region and owns both pieces.
+ *
+ * (A7 carry item (f), Kage-CR A4 Suggestion D / A4b Suggestion E: this
+ * marker's `until:` used to wrap onto a further comment line and
+ * tools/debt-harvest.py's 3-line lookahead truncated it to "step 6 lands
+ * (the" -- reflowed so the whole trigger sits on the line `until:` starts on.)
  */
 
 export interface SessionHeadProps {

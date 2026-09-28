@@ -89,7 +89,7 @@ const PAGE = join(ROOT, PAGE_REL);
 // or wrote it; the still-inline poll now owns a plain effect-local interval
 // id instead of a ref) and the 5 stale useScene-attributed provenance
 // comments inside the poll's [960,1470] range corrected to useSceneState/
-// useSceneActions. Net -1.) -> 2163 (A4, Amendment A §A.2 row 11: the
+// useSceneActions. Net -1.) -> folded to 2169 (A4, Amendment A §A.2 row 11: the
 // unified durable events poll + its flag-OFF legacy sibling extracted into
 // `useSessionEvents(sessionId, state, handlers)`, composed LAST (after
 // useCombatActions). One named `handlers` object (27 fields: 10 refs, 11
@@ -105,16 +105,26 @@ const PAGE = join(ROOT, PAGE_REL);
 // correcting eight stale cross-file "…below"/"…destructure above"
 // provenance comments the poll's departure left pointing at nothing, in
 // this and sibling hook files), the largest single extraction in the
-// series.
+// series. (A7 carry item (f), Kage-CR A4 Suggestion D / A4b Suggestion E:
+// this arrow used to read "-> 2163", which was arithmetically wrong --
+// 2783 - 614 = 2169, matching the ceiling this commit actually landed at
+// and the RATCHET_CEILING value below. Corrected to "folded to 2169",
+// mirroring the A3 entry's own "caught and folded into the next entry"
+// precedent above for an intermediate number that never existed as a
+// real ceiling.)
 // -> 2168 (A7 carry item (a), Kage-CR A4 IMPORTANT-2(ii)/A4b IMPORTANT-3: the
 // useSessionEvents poll's capture->setGrounding->diff->refocus sequence (4
 // fields: checkWrapRef/setGrounding/diffAndExplainResolvedChecks/
 // refocusSceneHeadIfStranded, duplicated on both the durable and flag-OFF
 // branches) folded into ONE `onGroundingInvalidated` handler owned by
-// useSceneState. Net -1.)
+// useSceneState. Net -1.) -> 2173 (A7 carry item (f): reflowed the
+// XP-escape-guard debt: marker at page.tsx:1034 so its `until:` fits
+// tools/debt-harvest.py's 3-line lookahead uncut -- +5 comment-only lines,
+// same "deliberate, reviewed, comment-only" category as the +6/+8 entries
+// above. Raised, not lowered, and said why, per this file's own rule.)
 // Update this value, in the SAME commit, whenever page.tsx's actual line
 // count drops below it. Never raise it silently.
-export const RATCHET_CEILING = 2168;
+export const RATCHET_CEILING = 2173;
 
 /**
  * Pure: counts lines the way `wc -l` does (newline-byte count). Exported so
