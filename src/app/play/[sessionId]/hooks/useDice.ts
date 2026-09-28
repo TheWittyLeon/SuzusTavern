@@ -3,8 +3,8 @@
 /**
  * TAV-PLAY-SHELL step 5, hook 8 of ~9 (decomposition plan §2.2, amended by
  * Amendment A §A.2 row 8) — `useDice`. Owns plan §1.6: `quickChecks`,
- * `advantage`, `rollBusy` (+ its synchronous double-submit latch ref),
- * `diceRollPollIntervalRef`, and `onRoll`.
+ * `advantage`, `rollBusy` (+ its synchronous double-submit latch ref), and
+ * `onRoll`.
  *
  * Composed AFTER `useNarration` (row 7) and BEFORE `useSceneActions` (row
  * 9) — this is Amendment A §A.3 edge R5's resolution ("reorder only …
@@ -31,13 +31,19 @@
  * LAST per Amendment A row 11 and "the poll never imports a sibling
  * hook"). That poll's flag-OFF branch renders `dice_roll`/`x_card` rows
  * and is what a roll's own result lands through (`onRoll` never appends a
- * row locally) — this hook owns the REF the poll's single `setInterval`
- * writes through (`diceRollPollIntervalRef`), not the poll body itself.
- * Same split `useSafety`'s header already documents for its own
- * `setXCardEvent`/`setLatestNarrationSeq` setters: the state/ref lives
- * here, the still-inline poll keeps calling it by the same name via this
- * hook's return, unchanged in every respect except where the value now
- * comes from.
+ * row locally).
+ *
+ * Kage-CR A6 IMPORTANT-1 (2026-09-28): this hook used to also own
+ * `diceRollPollIntervalRef` — the interval handle for the still-inline
+ * poll's `setInterval`/`clearInterval`. That was the exact inverse of
+ * Amendment A §A.3 edge R4's principle ("`useSessionEvents` owns the
+ * interval, not the ledger"): grep confirmed the ref had no reader or
+ * writer anywhere in this file, only in the poll's own closure — a
+ * "declared field with no reader" one hop removed (the field IS read, just
+ * never by the hook that declared it). Resolved outright rather than
+ * deferred: `useDice` no longer declares or returns it, and the poll now
+ * owns a plain effect-local interval id (see page.tsx's poll effect / this
+ * repo's `useSessionEvents.ts` once A4 lands).
  *
  * Deliberately does NOT own the sheet-fetch/quick-checks-BUILDING logic
  * (still inside page.tsx's mount effect, its own `debt:` marker) — that
@@ -47,13 +53,12 @@
  * of the atomic mount sequence lives.
  *
  * No new ref-mirror: `rollBusyRef` (a synchronous double-submit latch,
- * same shape as `sceneAdvanceBusyRef`/`checkBusyRef`) and
- * `diceRollPollIntervalRef` (an interval handle, same shape as
- * `pollIntervalRef`/`xCardBannerRef`) are ordinary hook-owned refs, not
- * mirrors bridging a temporal dead zone — zero `useLayoutEffect` remain in
- * `hooks/` after A5, and this commit keeps it at zero.
+ * same shape as `sceneAdvanceBusyRef`/`checkBusyRef`) is an ordinary
+ * hook-owned ref, not a mirror bridging a temporal dead zone — zero
+ * `useLayoutEffect` remain in `hooks/` after A5, and this commit keeps it
+ * at zero.
  */
-import { useCallback, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
+import { useCallback, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import { useToast } from '@/components/Toast';
 import { postRoll } from '@/lib/api/dnd';
@@ -69,7 +74,6 @@ export interface UseDiceResult {
   advantage: Advantage;
   setAdvantage: Dispatch<SetStateAction<Advantage>>;
   rollBusy: boolean;
-  diceRollPollIntervalRef: MutableRefObject<ReturnType<typeof setInterval> | null>;
   onRoll: (trigger: RollTrigger) => Promise<void>;
 }
 
@@ -96,13 +100,6 @@ export function useDice(
   // `dice_roll` event), so a same-tick double-click must not fire it twice.
   const rollBusyRef = useRef(false);
   const [rollBusy, setRollBusy] = useState(false);
-
-  // DDX-08 / T3: interval handle for the dice-roll events poll (separate
-  // lifetime again — starts as soon as the session is loaded and runs for
-  // the whole session, independent of combat/session-status polling). The
-  // poll itself stays inline in page.tsx until A4 (see this file's header);
-  // this hook owns the ref its single `setInterval`/`clearInterval` writes.
-  const diceRollPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── dice ────────────────────────────────────────────────────────────────────
   // DDX-08 / T3: rolls are server-authoritative (POST /roll persists a
@@ -195,7 +192,6 @@ export function useDice(
     advantage,
     setAdvantage,
     rollBusy,
-    diceRollPollIntervalRef,
     onRoll,
   };
 }

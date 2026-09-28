@@ -514,11 +514,12 @@ export default function PlayPage() {
   // stays as the fallback (e.g. if the chooser is ever opened programmatically).
   const lastOpenerRef = useRef<HTMLButtonElement | null>(null);
 
-  // diceRollPollIntervalRef moved into useDice (TAV-PLAY-SHELL step 5
-  // hook 8, A6) -- see that hook's destructure below. The poll effect
-  // itself (the events poll further down) is still inline in page.tsx,
-  // `useSessionEvents` territory (A4) -- it now writes through
-  // dice.diceRollPollIntervalRef by the same name, unchanged otherwise.
+  // Kage-CR A6 IMPORTANT-1: diceRollPollIntervalRef briefly lived on
+  // useDice's return, which inverted Amendment A §A.3 edge R4's principle
+  // ("useSessionEvents owns the interval, not the ledger") -- useDice
+  // neither read nor wrote it. Resolved outright, not deferred: the poll
+  // effect further down (still inline in page.tsx, `useSessionEvents`
+  // territory, A4) now owns a plain effect-local interval id instead.
 
   // sceneHeadRef/checkWrapRef/transitionWrapRef/freeformCheckRef moved into
   // useScene (TAV-PLAY-SHELL step 5 hook 4) — see the useScene() call below.
@@ -607,8 +608,8 @@ export default function PlayPage() {
   } = narration;
 
   // TAV-PLAY-SHELL step 5, hook 8 of ~9 (Amendment A §A.2 row 8): dice --
-  // quickChecks, advantage, rollBusy (+ its ref), diceRollPollIntervalRef,
-  // onRoll. Composed BELOW useNarration (onRoll reads narrate/
+  // quickChecks, advantage, rollBusy (+ its ref), onRoll. Composed BELOW
+  // useNarration (onRoll reads narrate/
   // narrateDurableBeat/talking as plain parameters, Amendment A §A.3 edge
   // R7 "forward under the amended order") and ABOVE useSceneActions, which
   // takes `advantage` from this hook's destructure below (edge R5, reorder
@@ -617,7 +618,7 @@ export default function PlayPage() {
   // scope, including what it deliberately does NOT own yet
   // (useSessionEvents' still-inline poll body, A4).
   const dice = useDice(session, narrate, narrateDurableBeat, talking, combatBusy);
-  const { quickChecks, setQuickChecks, advantage, setAdvantage, rollBusy, diceRollPollIntervalRef, onRoll } = dice;
+  const { quickChecks, setQuickChecks, advantage, setAdvantage, rollBusy, onRoll } = dice;
 
   // TAV-PLAY-SHELL step 5, hook 9 of ~9 (Amendment A §A.2 row 9): the two
   // player-facing handlers + the ADV-8 auto-advance narrator (the behaviour
@@ -1117,7 +1118,7 @@ export default function PlayPage() {
           // Keyed on `journalFresh` (seq-deduped) not `allNewEvents`, so it
           // fires ONCE per resolve rather than every tick under the NekoNova
           // `since_seq`-drop full-history refetch. Inlined (not
-          // useScene's `refreshGrounding()`) because that helper always
+          // useSceneState's `refreshGrounding()`) because that helper always
           // calls setGrounding+diffAndExplainResolvedChecks unconditionally
           // — this tick may only have an `offerThisTick` with
           // `invalidatesGrounding` false, and must NOT touch grounding
@@ -1164,15 +1165,15 @@ export default function PlayPage() {
                   // STRUCT-006 classifier did via roleplay -- no click on
                   // THIS client at all), stranding focus on <body> with no
                   // recovery. Same rescue onAttemptCheck's own click path
-                  // already uses (useScene.ts) -- capture synchronously
-                  // right before the state update that may unmount, refocus
-                  // after. `refocusSceneHeadIfStranded`/`setGrounding`/
-                  // `diffAndExplainResolvedChecks`/`checkWrapRef` all come
-                  // from useScene's destructure above (TAV-PLAY-SHELL step 5
-                  // hook 4) -- stable across renders, so deliberately NOT
-                  // added to this effect's own deps array (kept consistent
-                  // with the surrounding omissions this effect's own deps
-                  // comment documents).
+                  // already uses (useSceneActions.ts) -- capture
+                  // synchronously right before the state update that may
+                  // unmount, refocus after. `refocusSceneHeadIfStranded`/
+                  // `setGrounding`/`diffAndExplainResolvedChecks`/
+                  // `checkWrapRef` all come from useSceneState's destructure
+                  // above (TAV-PLAY-SHELL step 5 hook 6) -- stable across
+                  // renders, so deliberately NOT added to this effect's own
+                  // deps array (kept consistent with the surrounding
+                  // omissions this effect's own deps comment documents).
                   const hadFocusInCheckWrap =
                     checkWrapRef.current?.contains(document.activeElement) ?? false;
                   setGrounding(g);
@@ -1425,9 +1426,9 @@ export default function PlayPage() {
               // THIS client), refocus the scene heading after.
               // `setGrounding`/`diffAndExplainResolvedChecks`/
               // `refocusSceneHeadIfStranded`/`checkWrapRef` all come from
-              // useScene's destructure above (TAV-PLAY-SHELL step 5 hook 4)
-              // -- deliberately not listed in this effect's own deps array,
-              // same reasoning as the durable-poll branch above.
+              // useSceneState's destructure above (TAV-PLAY-SHELL step 5
+              // hook 6) -- deliberately not listed in this effect's own deps
+              // array, same reasoning as the durable-poll branch above.
               const hadFocusInCheckWrap =
                 checkWrapRef.current?.contains(document.activeElement) ?? false;
               setGrounding(g);
@@ -1445,14 +1446,12 @@ export default function PlayPage() {
       }
     };
 
-    diceRollPollIntervalRef.current = setInterval(poll, POLL_INTERVAL_MS);
-
-    return () => {
-      if (diceRollPollIntervalRef.current) {
-        clearInterval(diceRollPollIntervalRef.current);
-        diceRollPollIntervalRef.current = null;
-      }
-    };
+    // Kage-CR A6 IMPORTANT-1: an effect-local interval id, not a ref --
+    // nothing outside this effect's own closure ever read the old
+    // diceRollPollIntervalRef (grep-confirmed), so a plain local is exactly
+    // equivalent and correctly scopes the handle to the poll that owns it.
+    const intervalId = setInterval(poll, POLL_INTERVAL_MS);
+    return () => clearInterval(intervalId);
     // DDX-20 Pass 2: `subscribeToJob`/`appendLog`/`clearStreamNarration` are
     // listed (all `[]`-stable useCallbacks, so this never resets the
     // interval in practice) — matches this effect's existing convention of
@@ -1462,9 +1461,9 @@ export default function PlayPage() {
     // component-scoped values ESLint tracks the same way.
     //
     // Phase 4: `applyOfferedCheckSignal` (used by `pollDurable` above) is
-    // deliberately omitted too — it comes from useScene's destructure above
-    // (TAV-PLAY-SHELL step 5 hook 4), same "stable, not worth listing"
-    // reasoning as `getGrounding`/`diffAndExplainResolvedChecks`/
+    // deliberately omitted too — it comes from useSceneState's destructure
+    // above (TAV-PLAY-SHELL step 5 hook 6), same "stable, not worth
+    // listing" reasoning as `getGrounding`/`diffAndExplainResolvedChecks`/
     // `refocusSceneHeadIfStranded` immediately above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, state, subscribeToJob, appendLog, clearStreamNarration]);
@@ -1583,9 +1582,9 @@ export default function PlayPage() {
   // onRetryFailedTurn/onSendDmNarration moved into useNarration (hook 7,
   // A5) -- see the useNarration() call above, right after useSceneState's.
 
-  // quickChecks/advantage/rollBusy/diceRollPollIntervalRef/onRoll moved
-  // into useDice (TAV-PLAY-SHELL step 5 hook 8, Amendment A §A.2 row 8,
-  // A6) -- see the useDice() call above, right after useNarration's.
+  // quickChecks/advantage/rollBusy/onRoll moved into useDice
+  // (TAV-PLAY-SHELL step 5 hook 8, Amendment A §A.2 row 8, A6) -- see the
+  // useDice() call above, right after useNarration's.
 
   // handleSceneAdvance/onMoveOn/onAttemptCheck (+ sceneAdvanceBusyRef/
   // checkBusyRef) moved into useScene (TAV-PLAY-SHELL step 5 hook 4) -- see

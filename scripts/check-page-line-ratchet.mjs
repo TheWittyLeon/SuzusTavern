@@ -84,10 +84,15 @@ const PAGE = join(ROOT, PAGE_REL);
 // (useSessionEvents territory, A4) keeps writing through
 // dice.diceRollPollIntervalRef by the same destructured name -- deliberately
 // NOT extracted this commit (see hooks/useDice.ts's own header). Net -64,
-// zero new ref-mirror.
+// zero new ref-mirror.) -> 2783 (A4 commit 0, Kage-CR A6 IMPORTANT-1/
+// IMPORTANT-2: diceRollPollIntervalRef deleted outright (useDice never read
+// or wrote it; the still-inline poll now owns a plain effect-local interval
+// id instead of a ref) and the 5 stale useScene-attributed provenance
+// comments inside the poll's [960,1470] range corrected to useSceneState/
+// useSceneActions. Net -1.
 // Update this value, in the SAME commit, whenever page.tsx's actual line
 // count drops below it. Never raise it silently.
-export const RATCHET_CEILING = 2784;
+export const RATCHET_CEILING = 2783;
 
 /**
  * Pure: counts lines the way `wc -l` does (newline-byte count). Exported so
