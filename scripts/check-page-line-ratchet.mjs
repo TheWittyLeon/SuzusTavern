@@ -68,10 +68,12 @@ const PAGE = join(ROOT, PAGE_REL);
 // which the linter can prove stable, to a hook's destructured return,
 // which it can't -- same "linter can no longer prove local-ref stability"
 // pattern as hook 2's and hook 4's own history entries above; zero new
-// ref-mirror).
+// ref-mirror) -> 3984 (A5 commit 0: lint-gate aggregation + Kage-CR A3
+// IMPORTANT-1/IMPORTANT-2; net -1, comment-only churn on the mount-effect
+// debt: marker).
 // Update this value, in the SAME commit, whenever page.tsx's actual line
 // count drops below it. Never raise it silently.
-export const RATCHET_CEILING = 3985;
+export const RATCHET_CEILING = 3984;
 
 /**
  * Pure: counts lines the way `wc -l` does (newline-byte count). Exported so

@@ -275,3 +275,65 @@ describe('Tora CRITICAL-1 — stream-row resurrection race (TAV-S1-ABORT-CLEAR)'
     expect(within(log).queryByText('STALE RESURRECTION TEXT')).not.toBeInTheDocument();
   });
 });
+
+/**
+ * Kage-CR A3 IMPORTANT-2 (2026-09-28) — `clearStreamNarration`'s row-removal
+ * branch (`hooks/useTranscript.ts:140-144`, `if (removeRow && id) setLog(...)`)
+ * was unpinned: `if (false && removeRow && id) ...` left 238 suites / 3,486
+ * tests green. Every production call site passes `removeRow=true`, and two
+ * (`narrate()`'s abort-check, `:2142` at the time of the finding) gate it
+ * behind `shouldClearAbortedStreamRow`'s cross-beat ownership check — which
+ * this file's resurrection-race scenario above cannot reach with an EXISTING
+ * row (the Composer's own `disabled={talking || sessionLocked}` gate blocks
+ * a second real Enter press once the first beat's row has actually rendered,
+ * and the "two Enter presses in one act(), no render between" trick that
+ * bypasses that gate also means the predecessor's `for await` loop can never
+ * reach its first chunk before the second dispatch fires — see this file's
+ * own header comment on why that double-fire shape is necessary). The
+ * UNGATED `errored || !full.trim()` fallback branch a few lines below
+ * (`clearStreamNarration(true)` before the "Suzu stepped away" system row)
+ * removes a row that was actually present with a single beat and no
+ * cross-beat timing puzzle, and pins the identical hook-level code Kage's
+ * mutation targets.
+ */
+describe('Tora CRITICAL-1 sibling — clearStreamNarration row removal (Kage-CR A3 IMPORTANT-2)', () => {
+  it('a beat that errors mid-stream drops its partial row before showing the fallback', async () => {
+    const gate1 = deferred(); // pause between the chunk and the error, so the row's presence is observable
+
+    async function* erroringGen(): AsyncGenerator<NarrationEvent> {
+      yield { kind: 'chunk', text: 'Predecessor partial text', streamMode: true };
+      await gate1.promise;
+      yield { kind: 'error', error: 'boom' };
+    }
+
+    mStream.mockImplementationOnce(erroringGen);
+
+    render(<PlayPage />);
+    const input = await screen.findByRole('textbox');
+    const log = await screen.findByRole('log');
+
+    fireEvent.change(input, { target: { value: 'I glance around.' } });
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' });
+      await flush();
+    });
+
+    // Non-vacuity: the partial row EXISTS before the beat errors — this is
+    // the row M4 (`if (false && removeRow && id) ...`) would leave behind.
+    await waitFor(() => {
+      expect(within(log).getByText('Predecessor partial text')).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      gate1.resolve();
+      await flush();
+    });
+
+    // With the real code: the row is gone and the fallback system row shows
+    // instead. With M4: both are present — this assertion is what reds.
+    expect(within(log).queryByText('Predecessor partial text')).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(within(log).getByText(/Suzu stepped away for a moment/)).toBeInTheDocument();
+    });
+  });
+});

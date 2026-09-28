@@ -946,13 +946,12 @@ export default function PlayPage() {
   // debt: mount effect stays here, not in useSessionLifecycle -- it also
   // seeds grounding/log/journal (useScene/useTranscript's concerns) in one
   // atomic sequence 553 tests pin the ordering of. ceiling: no additional
-  // concern folded in. until: the atomic seeding sequence is decomposed
-  // per-hook (NOT merely "the owning hooks exist" -- useMyCharacter/
-  // useScene/useTranscript all do as of A3, and this effect still can't
-  // split for the reason above; corrected trigger -- the old wording read
-  // as satisfied without the debt being paid, same shape as A.4's
-  // unreachable-until finding, opposite direction. See
-  // useSessionLifecycle.ts's header for the full reasoning).
+  // concern folded in. until: Backlog row TAV-PLAY-SHELL-MOUNT-EFFECT-ATOMIC-SEED-SPLIT is scheduled.
+  // (Kage-CR A3 IMPORTANT-1, 2026-09-28: replaces "the atomic seeding
+  // sequence is decomposed per-hook", which restated the owed work rather
+  // than naming an observable trigger. Filing the row makes it observable
+  // -- has the row moved off `todo`? See planning/Backlog.md and
+  // useSessionLifecycle.ts's header for the full reasoning.)
   // (useCombatState landed at A2 -- this effect already writes through its
   // setCombatId/setCombatState/stateSeqRef, not local useState/useRef.)
   useEffect(() => {

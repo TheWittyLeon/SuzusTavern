@@ -26,8 +26,15 @@
  * (session + party + sheet + grounding + rehydration + initial combat
  * fetch, sharing one `AbortController` and one ordering guarantee the pin
  * depends on) into five per-hook mount effects without breaking that
- * guarantee — a design question, not a landmark to wait for. See the mount
- * effect's own corrected marker in page.tsx.
+ * guarantee — a design question, not a landmark to wait for.
+ *
+ * A5 correction (Kage-CR A3 IMPORTANT-1, 2026-09-28): a re-worded `until:`
+ * naming the same design question ("the atomic seeding sequence is
+ * decomposed per-hook") is still not an observable trigger — it restates
+ * the owed work rather than naming something a reader can check. Filed as
+ * Backlog row TAV-PLAY-SHELL-MOUNT-EFFECT-ATOMIC-SEED-SPLIT instead, so the
+ * trigger is "has that row moved off `todo`?" — answerable by inspection.
+ * See the mount effect's own corrected marker in page.tsx.
  *
  * Same reasoning for the XP-form Escape-guard effect (reads combat's
  * `outcomeChooserOpen` and the journal drawer's `journalOpen` alongside
