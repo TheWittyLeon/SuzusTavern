@@ -354,6 +354,19 @@ describe('TacticalMap — downed participants (D1b item D, Kage-CR re-verify)', 
       screen.getByRole('gridcell', { name: "Row 1, column 1. Bren, ally, downed. Occupied — can't stop here." }),
     ).toBeInTheDocument();
   });
+
+  it('a downed participant\'s token carries the tokenDowned class (D1b item C: was unpinned — the only prior reference was a `not.toHaveClass` on a DIFFERENT, dead, token)', () => {
+    // .tokenDowned's faded/dashed/red-ring treatment (design §5) is ONE
+    // class, not a separate ring class (TacticalMap.module.css: the red
+    // ring is `.tokenDowned`'s own `box-shadow`, not a second selector) —
+    // this single positive assertion covers the whole visual contract.
+    const participants = [
+      makeParticipant({ participant_id: 'p1', name: 'Bren', at: [0, 0], hp_current: 0, is_alive: true }),
+    ];
+    const { container } = render(<TacticalMap {...baseProps({ participants })} />);
+    const token = container.querySelector(`.${styles.token}`);
+    expect(token).toHaveClass(styles.tokenDowned);
+  });
 });
 
 describe('TacticalMap — T4: phone board centers on the active token each turn', () => {
