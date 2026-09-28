@@ -225,12 +225,13 @@ export interface UseSessionEventsHandlers {
   setXCardEvent: Dispatch<SetStateAction<XCardEvent | null>>;
   setLatestNarrationSeq: Dispatch<SetStateAction<number | null>>;
 
-  // page.tsx-local (DDX-22 journal drawer state, plan §1.9) — no owning
-  // hook yet; arrives the same way as everything above regardless.
-  //
-  // debt: journalSeenSeqsRef/setJournalEvents have no owning hook.
-  // ceiling: exactly these two fields, arriving as bare handler params.
-  // until: the journal drawer's own hook exists (plan §1.9) and owns both.
+  // useJournalDrawer (DDX-22 journal drawer state, plan §1.9, A7 carry item
+  // (b)) -- owns both of these now; they arrive here as plain handler params,
+  // the same shape as every other sibling-hook field above, none of which
+  // carries a marker either. (The `debt:` marker that stood here while they
+  // were page.tsx-local and unowned is DISCHARGED, not reworded: its `until:`
+  // was "the journal drawer's own hook exists (plan §1.9) and owns both",
+  // and A7 built exactly that. Kage-CR A7 ruling 2.)
   journalSeenSeqsRef: MutableRefObject<Set<number>>;
   setJournalEvents: Dispatch<SetStateAction<EngineSessionEvent[]>>;
 }

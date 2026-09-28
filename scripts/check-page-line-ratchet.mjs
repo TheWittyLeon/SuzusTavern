@@ -129,7 +129,9 @@ const PAGE = join(ROOT, PAGE_REL);
 // selectedMemberSheet/-Name/-IsSelf/memberSheetLoading/-Error/
 // memberSheetCloseBtnRef + their close/onSelectMember handlers all moved
 // off page.tsx-local state into the two drawer hooks (also discharging A7
-// carry item (b)'s `debt:` marker on useSessionEvents.ts); endCombatBtnRef/
+// carry item (b)'s debt -- journalSeenSeqsRef/setJournalEvents now have an
+// owning hook; the marker recording that debt is deleted in the follow-up,
+// Kage-CR A7 ruling 2); endCombatBtnRef/
 // lastOpenerRef/beginCombatRef/composerRailAnchorRef/dmPanelAnchorRef + the
 // death-save-row and begin-encounter-button stranding-rescue effects + the
 // begin-encounter rising-edge toast moved into useFocusAnchors. Zero new
