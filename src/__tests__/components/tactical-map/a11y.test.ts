@@ -20,6 +20,34 @@ describe('cellAccessibleName', () => {
     ).toBe('Row 5, column 5. Bren Oakshield — you. Current position.');
   });
 
+  it('discloses downed on the viewer\'s own cell, not just other occupants\' (D1c, Kage-CR D1b IMPORTANT-2)', () => {
+    // Before this fix the isSelf branch returned before the downed/dead
+    // clauses ever ran, so a downed viewer announced identically to a
+    // healthy one — the same visual/AT gap the dead/downed disclosures
+    // above already closed for OTHER occupants, unclosed for your own PC.
+    expect(
+      cellAccessibleName({
+        row1: 1,
+        col1: 1,
+        occupant: { name: 'Bren Oakshield', isSelf: true, isAlly: false, hostile: false, invisible: false, dead: false, downed: true },
+        blocked: false,
+        moveModeActive: true,
+      }),
+    ).toBe('Row 1, column 1. Bren Oakshield — you, downed. Current position.');
+  });
+
+  it('discloses dead on the viewer\'s own cell (D1c, Kage-CR D1b IMPORTANT-2)', () => {
+    expect(
+      cellAccessibleName({
+        row1: 1,
+        col1: 1,
+        occupant: { name: 'Bren Oakshield', isSelf: true, isAlly: false, hostile: false, invisible: false, dead: true, downed: false },
+        blocked: false,
+        moveModeActive: true,
+      }),
+    ).toBe('Row 1, column 1. Bren Oakshield — you, dead. Current position.');
+  });
+
   it('matches the design/mockup demo table for an in-range empty cell', () => {
     expect(
       cellAccessibleName({ row1: 5, col1: 8, occupant: undefined, blocked: false, inRange: true, costFt: 15, moveModeActive: true }),

@@ -91,8 +91,16 @@ export function cellAccessibleName(input: CellNameInput): string {
 
   if (input.occupant?.isSelf) {
     // The viewer's own token's cell is always "current position" for them —
-    // true whether or not Move is currently engaged.
-    return `${location} ${input.occupant.name} — you. Current position.${conditionsSuffix}`;
+    // true whether or not Move is currently engaged. downed/dead use the
+    // same ", <state>" phrasing as the other-occupant branch below (D1b
+    // Kage-CR IMPORTANT-2): the red ring .tokenDowned/.tokenDead disclose
+    // visually applies to your own PC too, and isDowned/isDead are
+    // independent of `otherConditions` (isDowned = hp_current === 0 &&
+    // is_alive carries no `conditions` entry), so nothing else in this
+    // string would otherwise carry the fact.
+    const downed = input.occupant.downed ? ', downed' : '';
+    const dead = input.occupant.dead ? ', dead' : '';
+    return `${location} ${input.occupant.name} — you${downed}${dead}. Current position.${conditionsSuffix}`;
   }
 
   if (input.blocked) {
