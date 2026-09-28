@@ -21,10 +21,17 @@
  * extracted) keep needing `POLL_INTERVAL_MS` too. Importing either from
  * `../page` would reproduce the exact circular/inverted dependency C2 fixed.
  *
- * Hook 4 (`useScene`): `isSessionLocked` and `buildReadAloudBlock` moved
+ * Hook 4 (`useScene`, original plan numbering — this file predates
+ * Amendment A's reorder): `isSessionLocked` and `buildReadAloudBlock` moved
  * here too, for the same reason — `onMoveOn`/`onAttemptCheck`/`openScene`
  * need both, and page.tsx's own onRoll/monster-auto-driver (not yet
  * extracted) keep needing `isSessionLocked`.
+ *
+ * A3 (`useTranscript`, Amendment A §A.2's AMENDED row 4): `nowStamp` moved
+ * here too — shared by `useTranscript`'s `appendLog`/stream-row writers and
+ * page.tsx's own narrate()/narrateDurable() (not yet extracted, A5), which
+ * write `setLog` directly rather than through `appendLog` and therefore
+ * need the same stamp a second place.
  */
 import type { CombatState, GroundingData, Session } from '@/lib/api/types';
 
@@ -33,6 +40,11 @@ export function titleCaseSkill(skill: string): string {
   return skill
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** `HH:MM` timestamp (locale default) stamped onto every transcript row. */
+export function nowStamp(): string {
+  return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 /** Poll interval in milliseconds, shared by every /play poll (session

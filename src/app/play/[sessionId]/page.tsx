@@ -64,7 +64,6 @@ import { shouldClearAbortedStreamRow } from '@/lib/streamRowOwnership';
 import {
   reconcileDurableEvents,
   applyReconcileResult,
-  type PendingTurnEntry,
 } from '@/lib/dnd/reconcileEvents';
 import type {
   CharacterSheet,
@@ -81,7 +80,7 @@ import Pill from '@/components/Pill';
 import PageSkeleton from '@/components/PageSkeleton';
 import CastSpellPanel from '@/components/CastSpellPanel';
 import SessionRecap from '@/components/SessionRecap';
-import { type ChatLogHandle, type LogRow } from '@/components/ChatLog';
+import { type LogRow } from '@/components/ChatLog';
 import DiceTray, { type Advantage } from '@/components/DiceTray';
 import Composer, { type ComposeMode } from '@/components/Composer';
 import ConfirmDialog from '@/components/ConfirmDialog';
@@ -93,10 +92,11 @@ import SceneStage from './regions/SceneStage';
 import Offers from './regions/Offers';
 import StoryLog from './regions/StoryLog';
 import { SessionHead, TopBar } from './regions/TopBar';
-import { POLL_INTERVAL_MS, isSessionLocked, buildReadAloudBlock } from './format';
+import { POLL_INTERVAL_MS, isSessionLocked, buildReadAloudBlock, nowStamp } from './format';
 import { useSessionLifecycle } from './hooks/useSessionLifecycle';
 import { useMyCharacter } from './hooks/useMyCharacter';
 import { useSafety } from './hooks/useSafety';
+import { useTranscript } from './hooks/useTranscript';
 import { useCombatState } from './hooks/useCombatState';
 import { useScene, type ConfirmBeatFn } from './hooks/useScene';
 import { useCombatActions } from './hooks/useCombatActions';
@@ -212,9 +212,9 @@ function scanXCardTracking(events: EngineSessionEvent[]): {
   return { xCard, narrationSeq };
 }
 
-function nowStamp(): string {
-  return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
+// nowStamp moved to ./format.ts (TAV-PLAY-SHELL A3, useTranscript's own
+// reason — see that file's header) -- shared by useTranscript's writers and
+// this file's own narrate()/narrateDurable() below.
 
 /**
  * Phase 4 (Sora-Arch design §4 Fork 3) — parse an `offered_check` payload off
@@ -321,7 +321,25 @@ export default function PlayPage() {
     setDismissedXCardSeq, xCardBusy, xCardBannerRef,
     xCardActive, onRaiseXCard,
   } = useSafety(session);
-  const [log, setLog] = useState<LogRow[]>([]);
+
+  // TAV-PLAY-SHELL step 5, hook 4 of ~9 (decomposition plan §2.2, amended by
+  // Amendment A §A.2 row 4): the transcript -- log/appendLog + the durable-
+  // poll ledgers (lastEventSeqRef/renderedSeqsRef/pendingByKeyRef) +
+  // idRef/logRef/chatLogRef + the DM-STREAM row writers
+  // (upsertStreamNarration/clearStreamNarration/finalizeStreamNarration).
+  // Composed ABOVE useCombatState/useScene (rows 5/6) per Amendment A --
+  // see hooks/useTranscript.ts's own header for the full scope and the
+  // signature deviation from §2.2's abridged useTranscript(sessionId).
+  // useScene's appendLog/renderedSeqsRef parameters are unchanged in shape
+  // (Amendment A §A.3 edges R3/R4, both "reorder only") -- they just read
+  // from this hook's return now instead of a page.tsx-local
+  // useState/useRef.
+  const {
+    log, setLog, appendLog, idRef, logRef, lastEventSeqRef, renderedSeqsRef,
+    pendingByKeyRef, chatLogRef, streamRowIdRef, upsertStreamNarration,
+    clearStreamNarration, finalizeStreamNarration,
+  } = useTranscript();
+
   // TAV-NARRATION-DECOUPLE (2026-07-25): `narratorText` used to feed the top
   // NarratorStrip with the live-streaming narration; removed when the strip
   // was repurposed to a scene/combat status banner (ChatLog's
@@ -432,24 +450,10 @@ export default function PlayPage() {
   // counterpart never coexist in the same mount.
   const rehydratedRef = useRef(false);
 
-  // DDX-08 / T3: highest session-event `seq` already rendered into the log
-  // (set once by rehydration, then advanced by the dice-roll events poll
-  // below). Lets the poll fetch the full event list every tick (the engine
-  // has no "since seq" filter) while only ever appending NEW rows.
-  const lastEventSeqRef = useRef(0);
-
-  // DDX-20 (flag-ON only, DURABLE_GENERATION_ENABLED) — the reconciliation
-  // ledger (Client Integration Design §3.1). Both refs, poll-safe: mutated
-  // in place by reconcileDurableEvents inside the flag-ON poll branch below;
-  // never touched on the flag-OFF path. renderedSeqsRef = every durable seq
-  // already reflected in the log; pendingByKeyRef = turn_key (or a human-DM
-  // beat's client_key) -> the in-flight optimistic row ids waiting to
-  // reconcile. Populated by the Pass-2 durable turn path (onSend/narrate);
-  // empty in this pass, so every poll tick falls to "append" (the reload /
-  // cross-client branch) — correct and already covered by the reload-
-  // reconstruction test in reconcileEvents.test.ts.
-  const renderedSeqsRef = useRef<Set<number>>(new Set());
-  const pendingByKeyRef = useRef<Map<string, PendingTurnEntry>>(new Map());
+  // lastEventSeqRef/renderedSeqsRef/pendingByKeyRef moved into useTranscript
+  // (TAV-PLAY-SHELL step 5 hook 4, Amendment A §A.2 row 4) -- see that
+  // hook's destructure above.
+  //
   // DDX-20 F9+Recap Post-Review Fix (Kage-CR IMPORTANT / Miko-QA MEDIUM,
   // fold commit) — a SEPARATE ledger for journalEvents' own merge-by-seq
   // dedup (pollDurable below). Cannot reuse renderedSeqsRef: that one tracks
@@ -547,10 +551,10 @@ export default function PlayPage() {
 
   // stateSeqRef/combatBusyRef/monsterDrivingRef/combatStateRef/pollIntervalRef
   // moved into useCombatState (TAV-PLAY-SHELL step 5 hook 5a) — see that
+  // hook's destructure above. idRef/chatLogRef moved into useTranscript
+  // (TAV-PLAY-SHELL step 5 hook 4, Amendment A §A.2 row 4) — see that
   // hook's destructure above.
 
-  const idRef = useRef(0);
-  const chatLogRef = useRef<ChatLogHandle>(null);
   const revealRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const narrationAbort = useRef<AbortController | null>(null);
   // Tora MAJOR-2: ref for the "End" trigger button so focus returns to it when
@@ -601,25 +605,18 @@ export default function PlayPage() {
   // CONFIRMATION of an already-known local cause, never a standalone signal.
   const localTurnActionRef = useRef(false);
 
-  // Latest-log ref so narrate() can read recent transcript without re-creating
-  // itself on every log change. Synced in an effect (never written during render).
-  const logRef = useRef<LogRow[]>([]);
-  useEffect(() => {
-    logRef.current = log;
-  }, [log]);
-
-  // combatStateRef's sync effect moved into useCombatState (TAV-PLAY-SHELL
-  // step 5 hook 5a) — see that hook's own file.
-
-  const appendLog = useCallback((row: Omit<LogRow, 'id' | 'ts'>) => {
-    setLog((prev) => [...prev, { id: `r${(idRef.current += 1)}`, ts: nowStamp(), ...row }]);
-  }, []);
+  // logRef's sync effect and appendLog both moved into useTranscript
+  // (TAV-PLAY-SHELL step 5 hook 4, Amendment A §A.2 row 4) — see that
+  // hook's destructure above. combatStateRef's sync effect moved into
+  // useCombatState (TAV-PLAY-SHELL step 5 hook 5a) — see that hook's own
+  // file.
 
   // TAV-PLAY-SHELL step 5, hook 4 of ~9: scene state (grounding, checks,
   // transitions) + onMoveOn/onAttemptCheck/handleSceneAdvance. Called here
-  // (right after appendLog, well before narrate/narrateDurableBeat below) so
-  // the mount-load effect and the unified durable events poll further down
-  // can keep reading this hook's setGrounding/diffAndExplainResolvedChecks/
+  // (right after useCombatState's destructure above, well before
+  // narrate/narrateDurableBeat below) so the mount-load effect and the
+  // unified durable events poll further down can keep reading this hook's
+  // setGrounding/diffAndExplainResolvedChecks/
   // openScene/refocusSceneHeadIfStranded/applyOfferedCheckSignal/checkWrapRef
   // by the same names, unchanged.
   //
@@ -655,61 +652,11 @@ export default function PlayPage() {
     confirmBeatRef, renderedSeqsRef,
   );
 
-  // DM-STREAM: while a narration streams, mirror it into a LIVE bottom-of-chat
-  // row that grows token-by-token (so the reader sees Suzu narrate inline in the
-  // conversation, not just in the top strip). The row is created on the first
-  // chunk and updated in place; finalized (or removed on error) after the beat.
-  //
-  // T1 (TAV-S1) — screen-reader flood fix: the in-progress row is marked
-  // `streaming: true` so ChatLog renders it `aria-hidden` (every token-by-
-  // token delta re-announcing the growing text floods a screen reader).
-  // `finalizeStreamNarration` below does NOT just flip that flag on the same
-  // node — it swaps in a brand-new row (fresh id/key) carrying the complete
-  // text, so React mounts a new, non-hidden DOM node and the finished
-  // narration is announced exactly once, rather than being the very node
-  // that was aria-hidden a moment ago (some AT/browser combos don't
-  // re-announce a node whose aria-hidden merely flips off in place).
-  const streamRowIdRef = useRef<string | null>(null);
-  const upsertStreamNarration = useCallback((text: string) => {
-    // Decide create-vs-update and mutate the id/ref OUTSIDE the state updater —
-    // setLog's updater must stay pure (React/StrictMode may re-invoke it).
-    const existingId = streamRowIdRef.current;
-    if (existingId) {
-      setLog((prev) => prev.map((r) => (r.id === existingId ? { ...r, text } : r)));
-    } else {
-      const id = `r${(idRef.current += 1)}`;
-      const ts = nowStamp();
-      streamRowIdRef.current = id;
-      setLog((prev) => [
-        ...prev,
-        { id, who: 'Suzu', kind: 'narration' as const, text, ts, streaming: true },
-      ]);
-    }
-  }, []);
-  const clearStreamNarration = useCallback((removeRow: boolean) => {
-    const id = streamRowIdRef.current;
-    streamRowIdRef.current = null;
-    if (removeRow && id) setLog((prev) => prev.filter((r) => r.id !== id));
-  }, []);
-  /** T1 (TAV-S1) — finalize a completed stream beat by REMOUNTING a fresh,
-   *  non-hidden row in place of the aria-hidden streaming one (same position
-   *  in the log, new id) rather than mutating the streaming row's text in
-   *  place. See the streamRowIdRef comment above for why a fresh node matters
-   *  for SR announcement. No-ops (and clears the ref) if the streaming row
-   *  was somehow already removed from the log. */
-  const finalizeStreamNarration = useCallback((text: string) => {
-    const id = streamRowIdRef.current;
-    streamRowIdRef.current = null;
-    if (!id) return;
-    const newId = `r${(idRef.current += 1)}`;
-    setLog((prev) => {
-      const idx = prev.findIndex((r) => r.id === id);
-      if (idx === -1) return prev;
-      const next = [...prev];
-      next[idx] = { ...next[idx], id: newId, text, streaming: false };
-      return next;
-    });
-  }, []);
+  // streamRowIdRef and the three DM-STREAM row writers
+  // (upsertStreamNarration/clearStreamNarration/finalizeStreamNarration)
+  // moved into useTranscript (TAV-PLAY-SHELL step 5 hook 4, Amendment A
+  // §A.2 row 4) — see that hook's destructure above and its own file for
+  // the full T1 (TAV-S1) screen-reader-flood rationale.
 
   /**
    * DDX-20 Pass 2 — subscribe to a durable job's SSE tail (Client Integration
@@ -986,14 +933,26 @@ export default function PlayPage() {
         }
       }
     },
-    [sessionId, clearStreamNarration, upsertStreamNarration, appendLog],
+    // pendingByKeyRef/streamRowIdRef: sourced from useTranscript's
+    // destructure (TAV-PLAY-SHELL A3) -- stable refs, linter can no longer
+    // prove it from a local useRef() call, so listed explicitly.
+    [
+      sessionId, clearStreamNarration, upsertStreamNarration, appendLog,
+      pendingByKeyRef, streamRowIdRef,
+    ],
   );
 
   // ── load session + party ────────────────────────────────────────────────────
   // debt: mount effect stays here, not in useSessionLifecycle -- it also
   // seeds grounding/log/journal (useScene/useTranscript's concerns) in one
   // atomic sequence 553 tests pin the ordering of. ceiling: no additional
-  // concern folded in. until: useMyCharacter/useScene/useTranscript exist.
+  // concern folded in. until: the atomic seeding sequence is decomposed
+  // per-hook (NOT merely "the owning hooks exist" -- useMyCharacter/
+  // useScene/useTranscript all do as of A3, and this effect still can't
+  // split for the reason above; corrected trigger -- the old wording read
+  // as satisfied without the debt being paid, same shape as A.4's
+  // unreachable-until finding, opposite direction. See
+  // useSessionLifecycle.ts's header for the full reasoning).
   // (useCombatState landed at A2 -- this effect already writes through its
   // setCombatId/setCombatState/stateSeqRef, not local useState/useRef.)
   useEffect(() => {
@@ -1824,9 +1783,13 @@ export default function PlayPage() {
   }, [sessionId, state, subscribeToJob, appendLog, clearStreamNarration]);
 
   // Re-pin the chat to the latest line when returning to the Story view.
+  // chatLogRef listed (TAV-PLAY-SHELL A3): now sourced from useTranscript's
+  // destructure, so exhaustive-deps can no longer prove it's a stable ref
+  // object the way a page.tsx-local useRef() call is. Same object identity
+  // every render either way — zero behaviour change.
   useEffect(() => {
     if (mobileView === 'log') chatLogRef.current?.scrollToBottom('instant');
-  }, [mobileView]);
+  }, [mobileView, chatLogRef]);
 
   // DDX-22 — Journal: true whenever the journal is actually presented to the
   // user in ANY form (open desktop drawer OR the active mobile tab). Drives
@@ -2310,6 +2273,10 @@ export default function PlayPage() {
       transitionWrapRef,
       setOfferedCheckSkill,
       setFreeformOfferedCheck,
+      // logRef/streamRowIdRef: same reasoning, now sourced from
+      // useTranscript's destructure (TAV-PLAY-SHELL A3).
+      logRef,
+      streamRowIdRef,
     ],
   );
 
@@ -2451,7 +2418,12 @@ export default function PlayPage() {
       // always replaces (rule 3 sub-case a) instead of popping in whole.
       void subscribeToJob(handle.job_id, turnKey, undefined, 'composer', true);
     },
-    [session, username, sessionId, appendLog, subscribeToJob, toast],
+    // idRef/pendingByKeyRef/setLog: sourced from useTranscript's destructure
+    // (TAV-PLAY-SHELL A3) -- same reasoning as subscribeToJob's own deps above.
+    [
+      session, username, sessionId, appendLog, subscribeToJob, toast,
+      idRef, pendingByKeyRef, setLog,
+    ],
   );
 
   /**
@@ -2601,7 +2573,9 @@ export default function PlayPage() {
       // instead of popping in whole.
       void subscribeToJob(handle.job_id, turnKey, undefined, 'beat', true);
     },
-    [session, username, sessionId, subscribeToJob],
+    // pendingByKeyRef: sourced from useTranscript's destructure
+    // (TAV-PLAY-SHELL A3) -- same reasoning as narrateDurable's own deps above.
+    [session, username, sessionId, subscribeToJob, pendingByKeyRef],
   );
 
   // Amendment A §A.4: the ONE place the DURABLE_GENERATION_ENABLED fork
@@ -2713,7 +2687,12 @@ export default function PlayPage() {
     } finally {
       setDmNarrationPending(false);
     }
-  }, [msg, sessionId, session, username, dmNarrationPending, appendLog]);
+    // idRef/setLog/pendingByKeyRef: sourced from useTranscript's destructure
+    // (TAV-PLAY-SHELL A3) -- same reasoning as subscribeToJob's own deps above.
+  }, [
+    msg, sessionId, session, username, dmNarrationPending, appendLog,
+    idRef, setLog, pendingByKeyRef,
+  ]);
 
   // checkShouldOpen/openScene moved into useScene (TAV-PLAY-SHELL step 5
   // hook 4) -- see the useScene() call above, right after appendLog.

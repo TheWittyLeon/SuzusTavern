@@ -52,10 +52,26 @@ const PAGE = join(ROOT, PAGE_REL);
 // pure derivation off combatState) and useCombatActions (beginEncounter/
 // onCombatAction/onEndCombat/the monster auto-driver effect/the turn-change
 // refocus effect); net -564, no new ref-mirror -- the existing confirmBeatRef
-// ceiling stays at exactly one).
+// ceiling stays at exactly one) -> 4006 (A3 commit 0b, Kage-CR A2
+// IMPORTANT-2/IMPORTANT-3: useCombatState exports activeParticipant/
+// activeIsMine instead of page.tsx recomputing a byte-identical copy, and
+// drops the zero-reader combatStateRef/pollIntervalRef from its return; net
+// -7. This commit landed without lowering the ceiling to match -- caught and
+// folded into the next entry rather than amended, since 4006 < 4013 the gate
+// never actually regressed) -> 3985 (A3, Amendment A §A.2 row 4:
+// useTranscript extracted -- log/appendLog/idRef/logRef/lastEventSeqRef/
+// renderedSeqsRef/pendingByKeyRef/chatLogRef/streamRowIdRef + the three
+// DM-STREAM row writers; composed ABOVE useCombatState/useScene; net -21
+// (-47 for the extraction itself, +26 for six exhaustive-deps fixes the
+// linter now needs -- chatLogRef/logRef/streamRowIdRef/idRef/
+// pendingByKeyRef/setLog moved from page.tsx-local useRef/useState calls,
+// which the linter can prove stable, to a hook's destructured return,
+// which it can't -- same "linter can no longer prove local-ref stability"
+// pattern as hook 2's and hook 4's own history entries above; zero new
+// ref-mirror).
 // Update this value, in the SAME commit, whenever page.tsx's actual line
 // count drops below it. Never raise it silently.
-export const RATCHET_CEILING = 4013;
+export const RATCHET_CEILING = 3985;
 
 /**
  * Pure: counts lines the way `wc -l` does (newline-byte count). Exported so

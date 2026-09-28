@@ -14,14 +14,25 @@
  * that 553 tests pin). Splitting it correctly is a cross-hook orchestration
  * problem — the same shape as `useSessionEvents` taking handler callbacks
  * rather than importing sibling hooks (plan §2.2's "one inversion, and it's
- * deliberate") — that only has a safe answer once the hooks it feeds
- * (useMyCharacter, useScene, useTranscript) exist too. Until then, this
- * hook exposes `setSession`/`setParticipants`/`setState` and page.tsx's
- * mount effect keeps calling them directly, unchanged in every other
- * respect. Same reasoning for the XP-form Escape-guard effect (reads
- * combat's `outcomeChooserOpen` and the journal drawer's `journalOpen`
- * alongside this hook's own state) — it stays in page.tsx, reading this
- * hook's returned values.
+ * deliberate"). This hook exposes `setSession`/`setParticipants`/`setState`
+ * and page.tsx's mount effect keeps calling them directly, unchanged in
+ * every other respect.
+ *
+ * A3 correction: the mount effect's own `debt:` marker used to name its
+ * `until:` as "useMyCharacter/useScene/useTranscript exist" — all three now
+ * do (useTranscript landed at A3), and the effect STILL can't split. Mere
+ * existence of the owning hooks was never the actual blocker; the real one
+ * is decomposing the single atomic fetch+rehydration sequence itself
+ * (session + party + sheet + grounding + rehydration + initial combat
+ * fetch, sharing one `AbortController` and one ordering guarantee the pin
+ * depends on) into five per-hook mount effects without breaking that
+ * guarantee — a design question, not a landmark to wait for. See the mount
+ * effect's own corrected marker in page.tsx.
+ *
+ * Same reasoning for the XP-form Escape-guard effect (reads combat's
+ * `outcomeChooserOpen` and the journal drawer's `journalOpen` alongside
+ * this hook's own state) — it stays in page.tsx, reading this hook's
+ * returned values.
  */
 import { useCallback, useEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from 'react';
 import { useAuth } from '@/lib/auth/AuthProvider';

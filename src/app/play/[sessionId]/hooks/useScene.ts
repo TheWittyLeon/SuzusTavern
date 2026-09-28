@@ -31,11 +31,14 @@
  *     movement phrase typed mid-fight advance the scene. Do not
  *     "simplify" this into `Offers`.
  *   - `appendLog` — every authored-line player and both handlers write to
- *     the transcript; that's useTranscript's concern (hook 6), not yet
- *     extracted.
+ *     the transcript; that's useTranscript's concern (Amendment A §A.2 row
+ *     4), extracted at A3 and composed ABOVE this hook.
  *   - `renderedSeqsRef` — `onAttemptCheck` seeds the DDX-20 durable-poll
- *     dedup ledger with its own optimistic write's `event_seq`; that
- *     ledger is useSessionEvents' concern (hook 7), not yet extracted.
+ *     dedup ledger with its own optimistic write's `event_seq`. ALSO
+ *     useTranscript's own ledger, not useSessionEvents' as this header used
+ *     to say before A3 (Amendment A §A.3 edge R4: "the ref is transcript
+ *     state, not poll state — the poll reads it. useSessionEvents owns the
+ *     interval, not the ledger").
  *
  * `confirmBeatRef` is the one genuinely new shape, not just a wider
  * parameter list. `onMoveOn`/`onAttemptCheck`/`handleSceneAdvance` all fire
@@ -849,7 +852,7 @@ export function useScene(
   // keyword-fast-path (page.tsx onSend, still there) depends on this array,
   // and a fresh array literal every render would recreate that callback
   // every render too. `combatEngaged` is a parameter (Amendment A §A.1:
-  // `isCombatEngaged(combatState)`, owned by useCombat, not yet extracted)
+  // `isCombatEngaged(combatState)`, owned by useCombatState, extracted at A2)
   // — transitions/checks are an exploration-beat affordance, hidden during
   // active combat. This is a DATA gate, not a presentation one — see this
   // hook's own header comment for why.
