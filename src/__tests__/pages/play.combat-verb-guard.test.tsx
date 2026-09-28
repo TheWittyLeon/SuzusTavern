@@ -339,4 +339,57 @@ describe('TAV-COMBAT-VERB-NO-MECHANICS — ordering vs the movement fast-path', 
     await waitFor(() => expect(mStream).toHaveBeenCalledTimes(1));
     expect(mStream.mock.calls[0][0].message).toBe('I press forward');
   });
+
+  it('positive control: the same movement phrase still fast-paths between turns (combat present, not active)', async () => {
+    // Kage-CR A2 IMPORTANT-1 (verbatim ask): "one `between_turns` + `combatId`
+    // fixture ... asserting the keyword fast-path still advances (transitions
+    // NOT filtered)." `combatEngaged` (useCombatState.ts) must be the exact
+    // `isCombatEngaged` predicate (`state === 'active'`), NOT `combatIsActive`
+    // (`!!combatId && state !== 'ended'`) -- the two disagree on
+    // `between_turns`/`rolling_initiative`/`idle`. Same scene and same
+    // movement phrase as the negative control just above, but with combat
+    // PRESENT and NOT `'active'` -- the fast-path must still fire.
+    mGetSession.mockResolvedValue({ ...SESSION, active_combat_id: 'combat-1' });
+    mGetGrounding.mockResolvedValue(GROUNDING_UNSTARTED_ENCOUNTER);
+    mAdvanceScene.mockResolvedValue({
+      from_scene: 'everfree_flight',
+      to_scene: 'everfree_zecoras_hut',
+    });
+    const betweenTurnsCombat: CombatState = {
+      combat_id: 'combat-1',
+      session_id: 's1',
+      round: 1,
+      state: 'between_turns',
+      turn_index: 0,
+      active_participant_id: 'p1',
+      initiative: ['p1'],
+      participants: [
+        {
+          participant_id: 'p1',
+          entity_id: 'c1',
+          name: 'Anomaly',
+          is_pc: true,
+          initiative: 15,
+          hp_current: 9,
+          hp_max: 9,
+          ac: 12,
+          conditions: [],
+          is_alive: true,
+          can_be_targeted: false,
+          is_active_turn: true,
+          took_turn: false,
+        },
+      ],
+    };
+    (dnd.getCombatState as jest.MockedFunction<typeof dnd.getCombatState>).mockResolvedValue(
+      betweenTurnsCombat,
+    );
+    render(<PlayPage />);
+    await screen.findByRole('textbox');
+
+    await sendMessage('I press forward');
+
+    await waitFor(() => expect(mAdvanceScene).toHaveBeenCalledTimes(1));
+    expect(mAdvanceScene.mock.calls[0][1]).toMatchObject({ to_scene: 'everfree_zecoras_hut' });
+  });
 });

@@ -630,6 +630,44 @@ describe('B3-1 — outcome chooser', () => {
     expect(screen.queryByText(/How does this fight end/i)).not.toBeInTheDocument();
   });
 
+  it('a non-null scene_advance in the endCombat response narrates the scene shift', async () => {
+    // A2 Miko-QA PASS survivor: "onEndCombat skipping handleSceneAdvance on
+    // result.scene_advance reds nothing, because every endCombat fixture
+    // [in this file] uses scene_advance: null." Pin the real wiring --
+    // useCombatActions.ts's onEndCombat calls handleSceneAdvance(...) when
+    // the response carries one; its first, unconditional observable effect
+    // is a system log row reading "The scene shifts: X -> Y" (useScene.ts's
+    // handleSceneAdvance).
+    mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
+    mGetParticipants.mockResolvedValue(PARTY_ALICE);
+    mGetCombatState.mockResolvedValue(COMBAT_VELKA_ACTIVE);
+    mEndCombat.mockResolvedValueOnce({
+      state: endedState(),
+      outcome: 'retreat',
+      xp_earned: 0,
+      defeated: [],
+      scene_advance: { from_scene: 'cave_mouth', to_scene: 'cave_exit', outcome: 'retreat' },
+    });
+
+    render(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /End combat/i })).toBeInTheDocument(),
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /End combat/i }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Retreat/i }));
+    });
+
+    await waitFor(() => expect(mEndCombat).toHaveBeenCalledTimes(1));
+    expect(
+      await screen.findByText(/The scene shifts: cave_mouth → cave_exit/i),
+    ).toBeInTheDocument();
+  });
+
   it('B2-4 bindCharacter client fn is exported', async () => {
     const { bindCharacter: fn } = await import('@/lib/api/dnd');
     expect(typeof fn).toBe('function');
