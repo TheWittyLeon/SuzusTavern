@@ -83,6 +83,7 @@ function makeFakeSceneState(): UseSceneStateResult {
     playRescueTransitionLine: jest.fn(() => false),
     playOutcomeLine: jest.fn(() => false),
     refocusSceneHeadIfStranded: jest.fn(),
+    onGroundingInvalidated: jest.fn(),
     applyOfferedCheckSignal: jest.fn(),
     openScene: jest.fn(() => Promise.resolve()),
     internals: {

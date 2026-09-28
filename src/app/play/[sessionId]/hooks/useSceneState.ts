@@ -120,6 +120,8 @@ export interface UseSceneStateResult {
   playRescueTransitionLine: (g: GroundingData | null) => boolean;
   playOutcomeLine: (outcomeLine: string | null | undefined, sceneLabel?: string) => boolean;
   refocusSceneHeadIfStranded: (hadFocusInGroup: boolean) => void;
+  /** A7 carry item (a) — see this file's header on `onGroundingInvalidated` below. */
+  onGroundingInvalidated: (g: GroundingData | null) => void;
   applyOfferedCheckSignal: (signal: OfferedCheck, currentGrounding: GroundingData | null) => void;
   openScene: (s: Session, g: GroundingData, sid: string, signal: AbortSignal) => Promise<void>;
   /** Amendment A §A.7 A-R3 mitigation — see this file's header. */
@@ -407,6 +409,35 @@ export function useSceneState(
   }, []);
 
   /**
+   * A7 carry item (a) — Kage-CR A4 IMPORTANT-2(ii) / A4b IMPORTANT-3
+   * confirmation. Folds `useSessionEvents`' 4-field
+   * capture->setGrounding->diff->refocus sequence (both the durable and
+   * flag-OFF branches carried an identical copy) into ONE definition, owned
+   * here since all four steps are already this hook's own state/callbacks.
+   *
+   * LOAD-BEARING ORDER: `hadFocusInCheckWrap` MUST be captured synchronously,
+   * BEFORE `setGrounding(g)` -- the whole point of the Tora-Gesture
+   * CRITICAL-1 rescue is knowing whether the about-to-be-replaced grounding
+   * unmounts a check the user currently has focus on, and that can only be
+   * read before the state update that may unmount it. See the source-scan
+   * pin (`useSceneState.onGroundingInvalidated.order.test.ts`) that fails if
+   * this order is ever swapped -- a real-DOM/RTL test cannot catch a swap
+   * here (React 18 batches the state update, so the DOM doesn't change
+   * mid-callback either way; Kage-CR A4b Suggestion A measured this
+   * directly: probe D, moving the capture after setGrounding, SURVIVED the
+   * whole corpus).
+   */
+  const onGroundingInvalidated = useCallback(
+    (g: GroundingData | null) => {
+      const hadFocusInCheckWrap = checkWrapRef.current?.contains(document.activeElement) ?? false;
+      setGrounding(g);
+      diffAndExplainResolvedChecks(g);
+      refocusSceneHeadIfStranded(hadFocusInCheckWrap);
+    },
+    [diffAndExplainResolvedChecks, refocusSceneHeadIfStranded],
+  );
+
+  /**
    * Phase 4 (Sora-Arch design §4 Fork 3; Miko-QA "the sleeper bug" fix) —
    * surface an `offered_check` signal from EITHER narration path: the
    * legacy/flag-OFF SSE beat (`narrate()`, useNarration.ts) or the durable
@@ -616,6 +647,7 @@ export function useSceneState(
     playRescueTransitionLine,
     playOutcomeLine,
     refocusSceneHeadIfStranded,
+    onGroundingInvalidated,
     applyOfferedCheckSignal,
     openScene,
     internals: {

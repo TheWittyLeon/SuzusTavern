@@ -187,11 +187,13 @@ export interface UseSessionEventsHandlers {
   appendLog: (row: Omit<LogRow, 'id' | 'ts'>) => void;
   clearStreamNarration: (removeRow: boolean) => void;
 
-  // useSceneState
-  checkWrapRef: MutableRefObject<HTMLDivElement | null>;
-  setGrounding: Dispatch<SetStateAction<GroundingData | null>>;
-  diffAndExplainResolvedChecks: (g: GroundingData | null | undefined) => void;
-  refocusSceneHeadIfStranded: (hadFocusInGroup: boolean) => void;
+  // useSceneState — A7 carry item (a) / Kage-CR A4 IMPORTANT-2(ii): the
+  // capture->setGrounding->diff->refocus sequence (was 4 fields:
+  // checkWrapRef/setGrounding/diffAndExplainResolvedChecks/
+  // refocusSceneHeadIfStranded) folded into ONE handler this hook now owns
+  // outright — see useSceneState.ts's own header on `onGroundingInvalidated`
+  // for the load-bearing capture-before-update ordering.
+  onGroundingInvalidated: (g: GroundingData | null) => void;
   applyOfferedCheckSignal: (signal: OfferedCheck, currentGrounding: GroundingData | null) => void;
   setOfferedCheckSkill: Dispatch<SetStateAction<string | null>>;
   setFreeformOfferedCheck: Dispatch<SetStateAction<string | null>>;
@@ -260,10 +262,7 @@ export function useSessionEvents(
     setLog,
     appendLog,
     clearStreamNarration,
-    checkWrapRef,
-    setGrounding,
-    diffAndExplainResolvedChecks,
-    refocusSceneHeadIfStranded,
+    onGroundingInvalidated,
     applyOfferedCheckSignal,
     setOfferedCheckSkill,
     setFreeformOfferedCheck,
@@ -292,11 +291,14 @@ export function useSessionEvents(
   // The engine's GET /events has no "since seq" filter, so every tick refetches
   // the full (capped) event list and appends only rows with seq strictly
   // greater than lastEventSeqRef.current (set once by rehydration, advanced
-  // here after each tick). Only `dice_roll` and `x_card` (DDX-26) events are
-  // rendered as ROWS by this poll — other kinds (player_action/narration/...)
-  // are already reflected through their own optimistic-append/streaming paths
-  // and are intentionally left to a future unified events poll (DDX-20) to
-  // avoid duplicating rows for the client that originated them.
+  // here after each tick). Only the kinds in POLL_RENDERED_KINDS (see
+  // ../../../lib/rehydration.ts) are rendered as ROWS by this poll — other
+  // kinds (player_action/narration/...) are already reflected through their
+  // own optimistic-append/streaming paths and are intentionally left to a
+  // future unified events poll (DDX-20) to avoid duplicating rows for the
+  // client that originated them. (Kage-CR A4b Suggestion C: this used to
+  // name the two kinds inline, a second copy of the same vocabulary that
+  // could silently drift from the constant.)
   //
   // DDX-26: this same tick also feeds `newOnes` (every kind, not just the
   // rendered ones) to scanXCardTracking so the X-card banner's active-state
@@ -507,28 +509,23 @@ export function useSessionEvents(
             getGrounding(sessionId)
               .then((g) => {
                 if (invalidatesGrounding) {
-                  // Tora-Gesture CRITICAL-1 (2026-07-28): this setGrounding
-                  // call can unmount the check the player currently has
-                  // focus on (another table member resolved/locked it, or a
+                  // Tora-Gesture CRITICAL-1 (2026-07-28) / A7 carry item (a),
+                  // Kage-CR A4 IMPORTANT-2(ii): this setGrounding call can
+                  // unmount the check the player currently has focus on
+                  // (another table member resolved/locked it, or a
                   // STRUCT-006 classifier did via roleplay -- no click on
                   // THIS client at all), stranding focus on <body> with no
                   // recovery. Same rescue onAttemptCheck's own click path
-                  // already uses (useSceneActions.ts) -- capture
-                  // synchronously right before the state update that may
-                  // unmount, refocus after. `refocusSceneHeadIfStranded`/
-                  // `setGrounding`/`diffAndExplainResolvedChecks`/
-                  // `checkWrapRef` are all useSceneState's (TAV-PLAY-SHELL
-                  // step 5 hook 6), arriving here as plain handler params --
-                  // the poll takes handler callbacks, not context reads
-                  // (Amendment A §A.2 row 11) -- stable across renders, so
-                  // deliberately NOT added to this effect's own deps array
-                  // (kept consistent with the surrounding omissions this
-                  // effect's own deps comment documents).
-                  const hadFocusInCheckWrap =
-                    checkWrapRef.current?.contains(document.activeElement) ?? false;
-                  setGrounding(g);
-                  diffAndExplainResolvedChecks(g);
-                  refocusSceneHeadIfStranded(hadFocusInCheckWrap);
+                  // already uses (useSceneActions.ts). The
+                  // capture-synchronously-before-the-update ->
+                  // setGrounding -> diff -> refocus sequence is now ONE
+                  // definition, owned by useSceneState (see that file's own
+                  // header on `onGroundingInvalidated`) -- arriving here as
+                  // a plain handler param, same as every other useSceneState
+                  // field, deliberately NOT added to this effect's own deps
+                  // array (kept consistent with the surrounding omissions
+                  // this effect's own deps comment documents).
+                  onGroundingInvalidated(g);
                 }
                 if (offerThisTick) applyOfferedCheckSignal(offerThisTick, g);
               })
@@ -767,22 +764,14 @@ export function useSessionEvents(
         if (newOnes.some((e) => e.kind != null && GROUNDING_INVALIDATING_KINDS.has(e.kind))) {
           getGrounding(sessionId)
             .then((g) => {
-              // Tora-Gesture CRITICAL-1 (2026-07-28): SSE/flag-off mirror of
-              // the durable poll's identical fix above -- capture focus
-              // synchronously right before the state update that may
-              // unmount a focused check (poll-driven removal, no click on
-              // THIS client), refocus the scene heading after.
-              // `setGrounding`/`diffAndExplainResolvedChecks`/
-              // `refocusSceneHeadIfStranded`/`checkWrapRef` are all
-              // useSceneState's (TAV-PLAY-SHELL step 5 hook 6), arriving here
-              // as plain handler params, same as the durable-poll branch
-              // above -- deliberately not listed in this effect's own deps
-              // array, same reasoning as that branch.
-              const hadFocusInCheckWrap =
-                checkWrapRef.current?.contains(document.activeElement) ?? false;
-              setGrounding(g);
-              diffAndExplainResolvedChecks(g);
-              refocusSceneHeadIfStranded(hadFocusInCheckWrap);
+              // Tora-Gesture CRITICAL-1 (2026-07-28) / A7 carry item (a):
+              // SSE/flag-off mirror of the durable poll's identical fix
+              // above -- same `onGroundingInvalidated` handler (owned by
+              // useSceneState), arriving here as a plain handler param, same
+              // as the durable-poll branch above -- deliberately not listed
+              // in this effect's own deps array, same reasoning as that
+              // branch.
+              onGroundingInvalidated(g);
             })
             .catch(() => {});
         }
@@ -831,10 +820,7 @@ export function useSessionEvents(
     setLog,
     appendLog,
     clearStreamNarration,
-    checkWrapRef,
-    setGrounding,
-    diffAndExplainResolvedChecks,
-    refocusSceneHeadIfStranded,
+    onGroundingInvalidated,
     applyOfferedCheckSignal,
     setOfferedCheckSkill,
     setFreeformOfferedCheck,

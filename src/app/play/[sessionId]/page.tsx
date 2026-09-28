@@ -482,7 +482,7 @@ export default function PlayPage() {
     setFreeformOfferedCheck, sceneHeadRef, checkWrapRef, transitionWrapRef,
     freeformCheckRef, sceneHasEncounter, availableTransitions, availableChecks,
     diffAndExplainResolvedChecks, refreshGrounding, playOutcomeLine,
-    refocusSceneHeadIfStranded, applyOfferedCheckSignal, openScene,
+    onGroundingInvalidated, applyOfferedCheckSignal, openScene,
   } = sceneState;
 
   // TAV-PLAY-SHELL step 5, hook 7 of ~9 (Amendment A §A.2 row 7):
@@ -984,8 +984,7 @@ export default function PlayPage() {
   useSessionEvents(sessionId, state, {
     lastEventSeqRef, renderedSeqsRef, pendingByKeyRef, logRef, setLog, appendLog,
     clearStreamNarration,
-    checkWrapRef, setGrounding, diffAndExplainResolvedChecks,
-    refocusSceneHeadIfStranded, applyOfferedCheckSignal, setOfferedCheckSkill,
+    onGroundingInvalidated, applyOfferedCheckSignal, setOfferedCheckSkill,
     setFreeformOfferedCheck,
     setActiveJob, setJobFailed, onTurnSettled, subscribedJobIdRef,
     turnKeyRef, pollFailureGraceRef, narrationAbort, subscribeToJob,

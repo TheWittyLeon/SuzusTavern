@@ -106,9 +106,15 @@ const PAGE = join(ROOT, PAGE_REL);
 // provenance comments the poll's departure left pointing at nothing, in
 // this and sibling hook files), the largest single extraction in the
 // series.
+// -> 2168 (A7 carry item (a), Kage-CR A4 IMPORTANT-2(ii)/A4b IMPORTANT-3: the
+// useSessionEvents poll's capture->setGrounding->diff->refocus sequence (4
+// fields: checkWrapRef/setGrounding/diffAndExplainResolvedChecks/
+// refocusSceneHeadIfStranded, duplicated on both the durable and flag-OFF
+// branches) folded into ONE `onGroundingInvalidated` handler owned by
+// useSceneState. Net -1.)
 // Update this value, in the SAME commit, whenever page.tsx's actual line
 // count drops below it. Never raise it silently.
-export const RATCHET_CEILING = 2169;
+export const RATCHET_CEILING = 2168;
 
 /**
  * Pure: counts lines the way `wc -l` does (newline-byte count). Exported so
