@@ -77,10 +77,54 @@ const PALETTES = parseGlobalsPalette(fs.readFileSync(GLOBALS_CSS_PATH, 'utf8'));
 const PALETTE_NAMES = Object.keys(PALETTES);
 
 describe('parseGlobalsPalette — coverage sanity (protects the loops below from a silent empty parse)', () => {
-  it('finds exactly the 5 known data-vibe palettes in globals.css', () => {
-    expect(PALETTE_NAMES.slice().sort()).toEqual(
-      ['aetheric', 'candlelit', 'dusk-tavern', 'hearthlight', 'moonlit-grove'],
-    );
+  const KNOWN_VIBES = ['aetheric', 'candlelit', 'dusk-tavern', 'hearthlight', 'moonlit-grove'];
+
+  it('discovers at least the 5 known data-vibe palettes in globals.css', () => {
+    // >= not ===: discovery (D1b IMPORTANT-1 fix) must never regress below
+    // the known baseline, but a legitimate 6th palette (Tavern 2.0's ruled
+    // "tinted worlds") must not fail this test — it should instead flow
+    // into the per-palette loops below via PALETTE_NAMES.
+    expect(PALETTE_NAMES.length).toBeGreaterThanOrEqual(KNOWN_VIBES.length);
+    expect(PALETTE_NAMES).toEqual(expect.arrayContaining(KNOWN_VIBES));
+  });
+
+  it('every [data-vibe="..."] block ahead of the structural-tokens marker is discovered (independent oracle, not the parser\'s own count)', () => {
+    const raw = fs.readFileSync(GLOBALS_CSS_PATH, 'utf8');
+    const markerIdx = raw.indexOf('Shared structural tokens');
+    const head = markerIdx === -1 ? raw : raw.slice(0, markerIdx);
+    const blockCount = (head.match(/\[data-vibe=["'][a-z0-9-]+["']\]\s*\{/g) ?? []).length;
+    expect(PALETTE_NAMES.length).toBe(blockCount);
+  });
+});
+
+describe('parseGlobalsPalette — discovers a novel vibe with no hand-maintained list (Kage-CR D1b IMPORTANT-1 regression, M-A5)', () => {
+  // Synthetic input, never globals.css itself (out of Lane D's file set) —
+  // reproduces Kage's exact M-A5 probe (a 6th [data-vibe] block, every pair
+  // ~1.2:1) without editing the real design tokens. Before the fix, a vibe
+  // absent from the hardcoded KNOWN_VIBES list was silently unparsed and
+  // never reached the contrast loops; this pins that it now is.
+  const nineBadTokens = `
+    --bg-3: #100f0f;
+    --on-fill: #1a1919;
+    --on-accent: #1a1919;
+    --bad: #120f0f;
+    --good: #131010;
+    --cool: #141111;
+    --cool-ink: #151212;
+    --warm: #161313;
+    --warm-ink: #171414;
+  `;
+  const syntheticCss = `
+    [data-vibe="dusk-tavern"] { ${nineBadTokens} }
+    [data-vibe="kagetest"] { ${nineBadTokens} }
+    /* Shared structural tokens */
+  `;
+
+  it('parses an unrecognised vibe name it has never seen before', () => {
+    const parsed = parseGlobalsPalette(syntheticCss);
+    expect(Object.keys(parsed).sort()).toEqual(['dusk-tavern', 'kagetest']);
+    expect(parsed.kagetest.bg3).toBe('#100f0f');
+    expect(parsed.kagetest.warmInk).toBe('#171414');
   });
 });
 

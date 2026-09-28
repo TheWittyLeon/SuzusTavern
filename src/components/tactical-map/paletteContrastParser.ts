@@ -29,8 +29,6 @@ export interface Palette {
   warmInk: string;
 }
 
-const KNOWN_VIBES = ['dusk-tavern', 'candlelit', 'aetheric', 'moonlit-grove', 'hearthlight'] as const;
-
 /** The design-tokens section ends where the shared (non-per-vibe) structural
  *  tokens begin — `globals.css` re-declares `[data-vibe="candlelit"]` a
  *  second time further down for an unrelated structural override, so
@@ -40,6 +38,20 @@ const STRUCTURAL_TOKENS_MARKER = 'Shared structural tokens';
 
 function stripBlockComments(css: string): string {
   return css.replace(/\/\*[\s\S]*?\*\//g, ' ');
+}
+
+/** Discovers every `[data-vibe="<vibe>"]` selector present in `headCss` by
+ *  regex — `globals.css` is the only source of truth for which palettes
+ *  exist (D1b Kage-CR IMPORTANT-1: a hand-mirrored `KNOWN_VIBES` list left a
+ *  6th palette silently unchecked). Order of first appearance, deduped. */
+function discoverVibes(headCss: string): string[] {
+  const re = /\[data-vibe=["']([a-z0-9-]+)["']\]/g;
+  const found: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(headCss)) !== null) {
+    if (!found.includes(m[1])) found.push(m[1]);
+  }
+  return found;
 }
 
 /** Extracts the `{ ... }` body of the FIRST `[data-vibe="<vibe>"]` selector
@@ -93,18 +105,23 @@ function required(decls: Map<string, string>, name: string, vibe: string): strin
 }
 
 /**
- * Parses every known `data-vibe` palette's contrast-relevant tokens out of
- * `globals.css` source text. Throws (a hard test failure, not a silent
- * empty result) if a known palette or required token goes missing — the
- * exact regression this replaces a hand-mirrored hex table to catch.
+ * Discovers every `data-vibe` palette declared in `globals.css` (regex, not
+ * a hand-mirrored name list — D1b IMPORTANT-1) and parses each one's
+ * contrast-relevant tokens. Throws (a hard test failure, not a silent empty
+ * result) if a discovered palette is missing a required token — the exact
+ * regression this replaces a hand-mirrored hex table to catch.
  */
 export function parseGlobalsPalette(css: string): Record<string, Palette> {
   const markerIdx = css.indexOf(STRUCTURAL_TOKENS_MARKER);
   const head = markerIdx === -1 ? css : css.slice(0, markerIdx);
   const stripped = stripBlockComments(head);
+  const vibes = discoverVibes(stripped);
+  if (vibes.length === 0) {
+    throw new Error('parseGlobalsPalette: no [data-vibe="..."] blocks found in globals.css');
+  }
 
   const out: Record<string, Palette> = {};
-  for (const vibe of KNOWN_VIBES) {
+  for (const vibe of vibes) {
     const block = extractVibeBlock(stripped, vibe);
     if (block === null) {
       throw new Error(`parseGlobalsPalette: [data-vibe="${vibe}"] block not found in globals.css`);
