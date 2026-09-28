@@ -149,10 +149,15 @@ const PAGE = join(ROOT, PAGE_REL);
 // journalDrawer.id, +1 line at its call site; the four DOM-id literals
 // (both <Drawer id>, the mobile tab's aria-controls, TopBar's own
 // aria-controls) all collapsed to read the one hook's return instead of
-// independently-typed copies. +1 line, same category as above.)
+// independently-typed copies. +1 line, same category as above.) -> 2017
+// (A7 pre-merge, Kage-CR ruling on the +11: the 16-line review-provenance
+// parenthetical at page.tsx ~936 folded to 5 lines -- its history lives in
+// the `-> 2027` entry above and the Reviews note, not in page.tsx. -11
+// returns the ceiling to its pre-round value; the `id` wiring's +1 code
+// line is kept and absorbed by the fold.)
 // Update this value, in the SAME commit, whenever page.tsx's actual line
 // count drops below it. Never raise it silently.
-export const RATCHET_CEILING = 2028;
+export const RATCHET_CEILING = 2017;
 
 /**
  * Pure: counts lines the way `wc -l` does (newline-byte count). Exported so
