@@ -25,7 +25,9 @@ import type {
   CombatState,
   CombatParticipantState,
   CombatSpace,
+  SpaceCellSize,
   SpaceCoordinate,
+  SpaceFeature,
   SpaceKind,
 } from '@/lib/api/types';
 
@@ -144,5 +146,48 @@ describe('api/types — CombatState.space / participant at+movement_remaining (d
   it('SpaceKind is square-only today (design M6/§1.2) — a second kind is a type-only addition, not a Tavern code change', () => {
     const kind: SpaceKind = 'square';
     expect(kind).toBe('square');
+  });
+});
+
+/**
+ * Kage-CR E1/B6 IMPORTANT-3 (2026-09-27 Reviews note): the tests above pin
+ * only the PERMISSIVE direction — that the types accept the design's shapes.
+ * They never pinned that the types REFUSE what the engine refuses, which is
+ * the whole point of narrowing `SpaceKind`/`cell.unit` to literals instead of
+ * `string`, and `SpaceCoordinate` to a 2-tuple instead of `number[]`. Four
+ * widening mutations measured clean under `tsc --noEmit` at review time:
+ * `SpaceKind = 'square'` -> `string`, `unit: 'ft'` -> `string`,
+ * `SpaceCoordinate = [number, number]` -> `number[]`, `SpaceFeature.label`
+ * -> optional. One `@ts-expect-error` per narrowing, closing B8c-2's carry
+ * of this finding (design brief §1.1 item 3).
+ *
+ * If a future edit accidentally widens one of these four types back out,
+ * `tsc --noEmit` fails here with "Unused '@ts-expect-error' directive" —
+ * that IS the regression signal, same mechanism the file's header comment
+ * already relies on for the positive pins above.
+ */
+describe('api/types — negative narrowing pins (Kage-CR E1/B6 IMPORTANT-3)', () => {
+  it('SpaceKind rejects a kind other than "square" (M6: square-only in 1.0)', () => {
+    // @ts-expect-error — SpaceKind is the literal union 'square', not `string`.
+    const kind: SpaceKind = 'hex';
+    expect(kind).toBeTruthy();
+  });
+
+  it('SpaceCellSize.unit rejects anything but "ft" (Kage-CR B1+B2 IMPORTANT-1: the engine validator narrows to ft-only)', () => {
+    // @ts-expect-error — `unit` is the literal 'ft', not `string`.
+    const cell: SpaceCellSize = { value: 1.5, unit: 'm' };
+    expect(cell.value).toBe(1.5);
+  });
+
+  it('SpaceCoordinate rejects a 3-tuple (square is a 2D [x, y] pair, not `number[]`)', () => {
+    // @ts-expect-error — SpaceCoordinate is the fixed 2-tuple [number, number].
+    const at: SpaceCoordinate = [1, 2, 3];
+    expect(at).toHaveLength(3);
+  });
+
+  it('SpaceFeature.label is required, not optional', () => {
+    // @ts-expect-error — `label` has no `?`; omitting it must not compile.
+    const feature: SpaceFeature = { id: 'crates', kind: 'prop', at: [[0, 0]] };
+    expect(feature.id).toBe('crates');
   });
 });
