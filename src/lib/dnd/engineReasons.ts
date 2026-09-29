@@ -228,7 +228,32 @@ export const COMBAT_REFUSAL_REASON_MAP: Record<string, string> = {
   no_space: "This encounter isn't played on a map — movement happens through the story, not a grid.",
   invalid_destination: "You can't move there — it's blocked or occupied.",
   no_movement_remaining: "You don't have enough movement left — try again next turn, or Dash.",
+  // `square` — the only adapter shipped in 1.0 — never actually returns this
+  // reason: `move_legality`'s steps 4/5 (mover_unplaced / invalid_destination)
+  // already refuse every case that would otherwise make `SquareSpace.cost()`
+  // return `None` (B8b design §3.4). Left in the vocabulary, and this copy
+  // left exactly as-is (Kage-CR E1/B6 IMPORTANT-1 is tracked separately, not
+  // resolved by this item), for the first non-grid `Space` kind whose
+  // `cost()` can genuinely mean "no path" for two individually-valid
+  // endpoints.
   unreachable: "There's no path there.",
+
+  // ── B8c-2 (2026-09-29): the remaining four of the move verb's reason
+  // vocabulary, added once the engine side landed on
+  // `feature/movement-b8b-verb-0928` (tip `996a699`, still under QA, not yet
+  // merged — this branch merges only after B8b does). Copy is the brief's
+  // own proposed table verbatim (design brief §5.1); Aoi-UI's call on final
+  // wording is still open, tracked separately from this item.
+  positioning_disabled: "The battle map isn't available here.",
+  same_cell: "You're already standing there.",
+  mover_unplaced: "Your token isn't on the board yet — the DM needs to place it.",
+  position_changed: "The board moved on — that spot is out of date. Have another look.",
+  // `destination_required` (DM path only — `npc-action move` on a boarded
+  // encounter with no `to`) is DELIBERATELY OMITTED: no Tavern surface
+  // drives `npc-action` today, so curating a code nothing here can emit
+  // would be an unjustified entry — the same precedent `not_your_character`
+  // above already establishes ("do not curate a code no Tavern surface can
+  // emit"). Add it if/when the Tavern ever drives a DM-side boarded move.
 };
 
 /**
