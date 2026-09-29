@@ -830,4 +830,154 @@ describe('TacticalMap — B8c-1 IMP-9b: moveSubmitting gates a second onMove', (
       styles.cellPending,
     );
   });
+
+  it('the Space key also submits a legal target (not just Enter)', () => {
+    const onMove = jest.fn();
+    const participants = [
+      makeParticipant({ participant_id: 'p1', name: 'Bren', at: [2, 2], movement_remaining: 10 }),
+    ];
+    render(
+      <TacticalMap
+        {...baseProps({ participants, activeParticipantId: 'p1', moveMode: true, onMove })}
+      />,
+    );
+    const startCell = screen.getByRole('gridcell', { name: /Current position/ });
+    fireEvent.keyDown(startCell, { key: 'ArrowUp' }); // focus -> [2,1]
+    fireEvent.keyDown(screen.getByRole('gridcell', { name: /Row 2, column 3\./ }), { key: ' ' });
+    expect(onMove).toHaveBeenCalledWith([2, 1]);
+  });
+
+  it('the Space key is also inert while submitting — same guard as Enter/click, proven by pairing with the baseline above', () => {
+    // Paired with the previous test on purpose: without a passing baseline
+    // showing Space DOES submit outside this state, a "Space is a no-op
+    // while submitting" assertion alone can't tell "gated by moveSubmitting"
+    // apart from "Space was never wired to attemptMove at all".
+    const onMove = jest.fn();
+    render(<TacticalMap {...submittingProps({ onMove })} />);
+    const startCell = screen.getByRole('gridcell', { name: /Current position/ });
+    fireEvent.keyDown(startCell, { key: 'ArrowUp' }); // focus -> [2,1]
+    fireEvent.keyDown(screen.getByRole('gridcell', { name: /Row 2, column 3\./ }), { key: ' ' });
+    expect(onMove).not.toHaveBeenCalled();
+  });
+
+  it('aria-busy stays keyed to moveSubmitting alone, decoupled from moveMode — and no cell is aria-disabled or cellPending when moveMode is false even though moveSubmitting is true', () => {
+    // The prop docs are explicit that a caller may exit the Move-picking UI
+    // (moveMode: false) before its own in-flight /move settles — pending
+    // and picking are two independent flags, not one. This pins the actual
+    // decoupled behaviour rather than leaving it an unexercised combination.
+    const participants = [
+      makeParticipant({ participant_id: 'p1', name: 'Bren', at: [2, 2], movement_remaining: 10 }),
+    ];
+    const { container } = render(
+      <TacticalMap
+        {...baseProps({
+          participants,
+          activeParticipantId: 'p1',
+          moveMode: false,
+          moveSubmitting: true,
+        })}
+      />,
+    );
+    expect(screen.getByRole('grid')).toHaveAttribute('aria-busy', 'true');
+    expect(container.querySelectorAll('[aria-disabled]')).toHaveLength(0);
+    expect(container.querySelectorAll(`.${styles.cellPending}`)).toHaveLength(0);
+  });
+});
+
+describe('TacticalMap — B8c-1 Miko-QA break-it pass', () => {
+  it('consumer-level pin: a reachable dead occupant\'s cell accessible name reads as a reach destination end-to-end, never "Occupied" (closes a mutation survivor — reverting a11y.ts\'s dead-branch fix left every TacticalMap.test.tsx assertion on this fixture green, because they only regex-match the occupant description, never the full reach-vs-occupied suffix)', () => {
+    const onMove = jest.fn();
+    const participants = [
+      makeParticipant({ participant_id: 'p1', name: 'Bren', at: [2, 2], movement_remaining: 10 }),
+      makeParticipant({
+        participant_id: 'p9',
+        name: 'Corpse',
+        is_pc: false,
+        at: [2, 1],
+        hp_current: 0,
+        is_alive: false,
+      }),
+    ];
+    render(
+      <TacticalMap
+        {...baseProps({ participants, activeParticipantId: 'p1', moveMode: true, onMove })}
+      />,
+    );
+    const corpseCell = screen.getByRole('gridcell', {
+      name: 'Row 2, column 3. Corpse, hostile, dead. In range — costs 5 feet.',
+    });
+    expect(corpseCell.getAttribute('aria-label')).not.toMatch(/Occupied/);
+  });
+
+  it('an ACTIVE participant who is themselves dead does not crash reach computation, is excluded from its own reach as a target, and reach still resolves correctly for other cells', () => {
+    // Leon's item 1: "does the self/active exclusion still hold when the
+    // active participant is itself dead?" Self-exclusion is a
+    // participant_id match (never gated on is_alive), so it holds
+    // regardless — this pins that as observable behaviour, not just code
+    // reading, and proves the rest of reach math tolerates a dead mover
+    // without throwing.
+    const onMove = jest.fn();
+    const participants = [
+      makeParticipant({
+        participant_id: 'p1',
+        name: 'DeadMover',
+        is_pc: false,
+        at: [2, 2],
+        hp_current: 0,
+        is_alive: false,
+        movement_remaining: 10,
+      }),
+    ];
+    expect(() => {
+      render(
+        <TacticalMap
+          {...baseProps({
+            participants,
+            viewerParticipantId: 'p9',
+            activeParticipantId: 'p1',
+            moveMode: true,
+            onMove,
+          })}
+        />,
+      );
+    }).not.toThrow();
+    // A neighboring empty cell is still computed as in-range — reach math
+    // did not silently break when the mover itself is dead.
+    expect(
+      screen.getByRole('gridcell', { name: 'Row 2, column 3. Empty. In range — costs 5 feet.' }),
+    ).toHaveClass(styles.cellInRange);
+    // The mover's own cell (viewer p9 is a spectator, so this renders via
+    // the ordinary occupant branch, not "Current position") is never a
+    // legal target for itself, dead or not — `reachableCells` excludes
+    // `from` unconditionally, before occupancy is even considered.
+    const ownCell = screen.getByRole('gridcell', {
+      name: 'Row 3, column 3. DeadMover, hostile, dead. Out of range.',
+    });
+    expect(ownCell).not.toHaveClass(styles.cellInRange);
+    fireEvent.click(ownCell);
+    expect(onMove).not.toHaveBeenCalled();
+  });
+
+  it('an invisible-but-living occupant still blocks its cell as a move target — invisibility is a rendering/disclosure fact, never an occupancy exemption', () => {
+    const onMove = jest.fn();
+    const participants = [
+      makeParticipant({ participant_id: 'p1', name: 'Bren', at: [2, 2], movement_remaining: 10 }),
+      makeParticipant({
+        participant_id: 'p2',
+        name: 'Ghost',
+        is_pc: false,
+        at: [2, 1],
+        conditions: ['invisible'],
+      }),
+    ];
+    render(
+      <TacticalMap
+        {...baseProps({ participants, activeParticipantId: 'p1', moveMode: true, onMove })}
+      />,
+    );
+    const ghostCell = screen.getByRole('gridcell', { name: /Ghost, hostile, invisible\./ });
+    expect(ghostCell).not.toHaveClass(styles.cellInRange);
+    fireEvent.click(ghostCell);
+    expect(onMove).not.toHaveBeenCalled();
+  });
 });
