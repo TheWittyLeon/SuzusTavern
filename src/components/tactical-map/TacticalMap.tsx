@@ -139,7 +139,26 @@ export interface TacticalMapProps {
   /** Called with the destination coordinate when the viewer confirms a
    *  legal cell (Enter/Space, or a click, on a cell this component's own
    *  `reach.ts` mirror considers reachable). The server's `/move` response
-   *  is the only authority — this is a client PREVIEW (design §4). */
+   *  is the only authority — this is a client PREVIEW (design §4).
+   *
+   *  Caller contract for the mount's `POST /combat/{id}/move` request
+   *  (B8b design brief §5.2): send the participant's RENDERED `at` as
+   *  `from` — the exact coordinate this component is currently drawing the
+   *  mover at, not a recomputed guess, not a stale value held across a
+   *  render the caller missed. The engine's move verb is a compare-and-set
+   *  on `at`; anything other than the rendered `at` becomes a 409
+   *  `position_changed` refusal, even when the destination itself is
+   *  perfectly legal. `onMove`'s callback therefore must close over the
+   *  active participant's CURRENT `at` at the time it fires, not capture it
+   *  once outside the render.
+   *
+   *  A 409 `position_changed` means "the board moved on since this render —
+   *  re-read `state`, re-render, and let the player choose again." It does
+   *  NOT mean "resubmit the same request" — the `from` that produced it is
+   *  now known-stale, so an automatic retry would just repeat the same
+   *  refusal. Pair with `moveSubmitting` above: once the request resolves
+   *  either way, the caller clears `moveSubmitting` and lets a fresh render
+   *  (with the fresh `at`) drive the next attempt. */
   onMove: (to: SpaceCoordinate) => void;
   /** Called when the viewer presses Escape while `moveMode` is true. This
    *  component does not move focus outside its own DOM — the caller is
