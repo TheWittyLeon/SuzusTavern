@@ -37,6 +37,16 @@
 //      inert on touch (MAJOR-3).
 //   8. Escape now routes through `consumeEscape` (Tora CRIT-1 = Kage
 //      IMPORTANT-3) — see `src/lib/a11y/escapeConsume.ts`.
+//
+// B8c-1 IMP-5 (2026-09-28, client half of the move verb that doesn't depend
+// on its wire shape — [[2026-09-27 Tavern 1.0 Drive — Reviews]] D1
+// IMPORTANT-8, B8a IMPORTANT-5): `occupiedByOthers` now excludes the dead
+// (`is_alive === false`), matching the engine ruling landed in B8a
+// (`engine/space.py::SquareSpace.occupied_by`'s docstring +
+// `engine.combat.living_participant_positions`): only LIVING participants
+// occupy a cell; the dead are walkable. A downed-but-alive participant (0
+// HP, `is_alive: true`) still occupies its cell — that is the engine's
+// `is_active` rule, not an HP check.
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import type { CombatParticipantState, CombatSpace, SpaceCoordinate } from '@/lib/api/types';
 import { consumeEscape } from '@/lib/a11y/escapeConsume';
@@ -182,8 +192,18 @@ export default function TacticalMap({
     [participants],
   );
 
+  // B8c-1 IMP-5 (D1 IMPORTANT-8 / B8a IMPORTANT-5): membership mirrors
+  // `engine/space.py::SquareSpace.occupied_by`'s docstring exactly — only
+  // LIVING participants (`is_alive`) occupy a cell; the dead are walkable.
+  // This is the ONE place that filters occupancy for this component — every
+  // call site below (`reachableCells`, `isLegalMoveTarget` for the
+  // destination preview, and `attemptMove`) reads this same value, so there
+  // is no second hand-rolled copy of the membership rule to drift from it.
   const occupiedByOthers = useMemo(
-    () => placed.filter((p) => p.participant_id !== activeParticipantId).map((p) => p.at),
+    () =>
+      placed
+        .filter((p) => p.participant_id !== activeParticipantId && p.is_alive)
+        .map((p) => p.at),
     [placed, activeParticipantId],
   );
 

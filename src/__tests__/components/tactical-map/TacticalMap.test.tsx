@@ -619,3 +619,116 @@ describe('TacticalMap — never reads terrain/tactics/position', () => {
     expect(props.space && 'terrain' in props.space).toBe(false);
   });
 });
+
+describe('TacticalMap — B8c-1 IMP-5: occupancy excludes the dead (engine parity)', () => {
+  // Mover p1 at [2,2], movement_remaining 10 on a 5ft-cell board -> a
+  // 2-cell (10ft) Chebyshev budget. [2,1] is one cell away (5ft), always
+  // within budget regardless of which fixture below occupies it.
+  it("a dead placed participant's cell IS in the reach overlay and a click on it calls onMove", () => {
+    const onMove = jest.fn();
+    const participants = [
+      makeParticipant({ participant_id: 'p1', name: 'Bren', at: [2, 2], movement_remaining: 10 }),
+      makeParticipant({
+        participant_id: 'p9',
+        name: 'Corpse',
+        is_pc: false,
+        at: [2, 1],
+        hp_current: 0,
+        is_alive: false,
+      }),
+    ];
+    render(
+      <TacticalMap
+        {...baseProps({ participants, activeParticipantId: 'p1', moveMode: true, onMove })}
+      />,
+    );
+    const corpseCell = screen.getByRole('gridcell', { name: /Corpse, hostile, dead\./ });
+    expect(corpseCell).toHaveClass(styles.cellInRange);
+    fireEvent.click(corpseCell);
+    expect(onMove).toHaveBeenCalledWith([2, 1]);
+  });
+
+  it("a dead placed participant's cell also accepts Enter, not just a click", () => {
+    const onMove = jest.fn();
+    const participants = [
+      makeParticipant({ participant_id: 'p1', name: 'Bren', at: [2, 2], movement_remaining: 10 }),
+      makeParticipant({
+        participant_id: 'p9',
+        name: 'Corpse',
+        is_pc: false,
+        at: [2, 1],
+        hp_current: 0,
+        is_alive: false,
+      }),
+    ];
+    render(
+      <TacticalMap
+        {...baseProps({ participants, activeParticipantId: 'p1', moveMode: true, onMove })}
+      />,
+    );
+    fireEvent.keyDown(screen.getByRole('gridcell', { name: /Current position/ }), {
+      key: 'ArrowUp',
+    }); // [2,2] -> [2,1], the corpse's cell
+    fireEvent.keyDown(screen.getByRole('gridcell', { name: /Corpse, hostile, dead\./ }), {
+      key: 'Enter',
+    });
+    expect(onMove).toHaveBeenCalledWith([2, 1]);
+  });
+
+  it('negative control: a LIVING occupant\'s cell is still refused', () => {
+    const onMove = jest.fn();
+    const participants = [
+      makeParticipant({ participant_id: 'p1', name: 'Bren', at: [2, 2], movement_remaining: 10 }),
+      makeParticipant({ participant_id: 'p2', name: 'Sable', is_pc: true, at: [2, 1] }),
+    ];
+    render(
+      <TacticalMap
+        {...baseProps({ participants, activeParticipantId: 'p1', moveMode: true, onMove })}
+      />,
+    );
+    const allyCell = screen.getByRole('gridcell', { name: /Sable, ally\./ });
+    expect(allyCell).not.toHaveClass(styles.cellInRange);
+    fireEvent.click(allyCell);
+    expect(onMove).not.toHaveBeenCalled();
+  });
+
+  it('a downed-but-alive occupant (0 HP, `is_alive: true`) is still refused — the engine keys occupancy on is_active, not HP', () => {
+    const onMove = jest.fn();
+    const participants = [
+      makeParticipant({ participant_id: 'p1', name: 'Bren', at: [2, 2], movement_remaining: 10 }),
+      makeParticipant({
+        participant_id: 'p2',
+        name: 'Sable',
+        is_pc: true,
+        at: [2, 1],
+        hp_current: 0,
+        is_alive: true,
+      }),
+    ];
+    render(
+      <TacticalMap
+        {...baseProps({ participants, activeParticipantId: 'p1', moveMode: true, onMove })}
+      />,
+    );
+    const downedCell = screen.getByRole('gridcell', { name: /Sable, ally, downed\./ });
+    expect(downedCell).not.toHaveClass(styles.cellInRange);
+    fireEvent.click(downedCell);
+    expect(onMove).not.toHaveBeenCalled();
+  });
+
+  it('the mover may always occupy (move onto the reach computation from) its own cell — unaffected by the is_alive filter', () => {
+    // Regression guard: the mover's own cell is excluded from `placed`'s
+    // "others" set by the participant_id check, never by is_alive — a live
+    // mover must not accidentally start filtering itself out too.
+    const participants = [
+      makeParticipant({ participant_id: 'p1', name: 'Bren', at: [2, 2], movement_remaining: 10 }),
+    ];
+    const { container } = render(
+      <TacticalMap {...baseProps({ participants, activeParticipantId: 'p1', moveMode: true })} />,
+    );
+    // The mover's own token still renders normally (not treated as a stray
+    // "occupied" entry that crashes or hides itself).
+    expect(container.querySelector(`.${styles.tokenSelf}`)).toBeInTheDocument();
+  });
+});
+
