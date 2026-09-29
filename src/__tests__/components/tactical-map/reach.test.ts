@@ -3,7 +3,7 @@
  * (NekoNova-DnDEngine/engine/space.py). Chebyshev distance × `cell.value`.
  */
 import { chebyshevCost, isLegalMoveTarget, isSpaceUsable, reachableCells } from '@/components/tactical-map/reach';
-import type { CombatSpace } from '@/lib/api/types';
+import { SPACE_MAX_DIM, type CombatSpace } from '@/lib/api/types';
 
 function space(overrides: Partial<CombatSpace> = {}): CombatSpace {
   return {
@@ -329,5 +329,37 @@ describe('isSpaceUsable — width/height validity (Miko-QA B8c-3b + Kage-CR IMPO
 
   it('control: an ordinary positive integer width/height is usable', () => {
     expect(isSpaceUsable(space({ width: 5, height: 5 }))).toBe(true);
+  });
+});
+
+describe('isSpaceUsable — dims UPPER bound (B8c-3c ledger row 26, Kage-CR IMPORTANT-2 / Miko-QA, 2026-09-29)', () => {
+  // Mirrors `engine/space.py::SPACE_MAX_DIM` (NekoNova-DnDEngine `main` @
+  // `8eaf152`, B8e): `_dim_in_range` requires `1 <= dim <= SPACE_MAX_DIM` on
+  // BOTH axes. Before this bound, `Number.isInteger(1e21)` is `true` for any
+  // whole-valued double regardless of magnitude, so `isSpaceUsable` returned
+  // `true` for a board with no legal cells at all -- and `reachableCells`'s
+  // scalar-bound nested loop has no `Array.from`-style length ceiling to
+  // throw fast on, so it hung instead of refusing. These are pure O(1)
+  // comparisons -- no loop runs here regardless of the value, so none of
+  // these three cases can hang even without the fix; the render-level hang
+  // risk (and its fix) is pinned separately in
+  // TacticalMap.dimsUpperBound.test.tsx.
+  const OVERSIZED_DIMS: Array<[string, number]> = [
+    [`one past the ceiling (SPACE_MAX_DIM + 1 = ${SPACE_MAX_DIM + 1})`, SPACE_MAX_DIM + 1],
+    ['a huge integer (10**6)', 10 ** 6],
+    ['an enormous integer-valued float (1e21)', 1e21],
+  ];
+
+  it.each(OVERSIZED_DIMS)('width/height = %s -> isSpaceUsable is false', (_label, dim) => {
+    expect(isSpaceUsable({ ...space(), width: dim, height: dim } as unknown as CombatSpace)).toBe(false);
+  });
+
+  it('only ONE axis oversized is still refused (the other stays a legal 5)', () => {
+    expect(isSpaceUsable(space({ width: SPACE_MAX_DIM + 1, height: 5 }))).toBe(false);
+    expect(isSpaceUsable(space({ width: 5, height: SPACE_MAX_DIM + 1 }))).toBe(false);
+  });
+
+  it('control: width/height AT the ceiling (SPACE_MAX_DIM) is still usable -- the engine accepts it, not just refuses past it', () => {
+    expect(isSpaceUsable(space({ width: SPACE_MAX_DIM, height: SPACE_MAX_DIM }))).toBe(true);
   });
 });

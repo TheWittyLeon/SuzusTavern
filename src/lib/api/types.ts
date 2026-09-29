@@ -1097,6 +1097,21 @@ export const SPACE_KINDS = ['square'] as const;
 export type SpaceKind = (typeof SPACE_KINDS)[number];
 
 /**
+ * Render/abuse safety bound for `space.width`/`space.height` — mirrors
+ * `engine/space.py::SPACE_MAX_DIM` exactly (both axes, `1..SPACE_MAX_DIM`
+ * inclusive; NOT a rules constant, same framing as the engine's own comment
+ * on this constant). Closes B8c-3c ledger row 26 (Kage-CR IMPORTANT-2 /
+ * Miko-QA, 2026-09-29): `isDimsValid` (`reach.ts`) used to accept any
+ * whole-valued double up to `MAX_SAFE_INTEGER`, so a huge `width`/`height`
+ * made `isSpaceUsable` return `true` and reached `reachableCells`'s
+ * scalar-bound nested loop, hanging the render. `reach.ts::isDimsValid` is
+ * the ONE reader — see its docstring for the render-seam fix.
+ *
+ * debt: SPACE_MAX_DIM is a hand-maintained client mirror of engine.space.SPACE_MAX_DIM (value 100). ceiling: drifts silently if the engine's bound ever changes. until: the engine publishes its space limits as a digest-pinned fixture (Backlog TAV-SPACE-KINDS-HAND-MIRROR, whose scope now covers both SPACE_KINDS and SPACE_MAX_DIM).
+ */
+export const SPACE_MAX_DIM = 100;
+
+/**
  * Opaque per-`space.kind` coordinate (design §1.3, §4.3: "opaque — `[6,6]`
  * for square, `"courtyard"` for zones … a Pydantic model that typed it as
  * `List[int]` would be the content literal wearing a schema"). `square` is

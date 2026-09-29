@@ -16,7 +16,7 @@
 // own marker: "debt: cost() is straight-line, not a path around `blocked`
 // cells") — this mirror inherits that same limitation deliberately, not by
 // oversight.
-import { SPACE_KINDS, type CombatSpace, type SpaceCoordinate } from '@/lib/api/types';
+import { SPACE_KINDS, SPACE_MAX_DIM, type CombatSpace, type SpaceCoordinate } from '@/lib/api/types';
 
 function coordKey(c: SpaceCoordinate): string {
   return `${c[0]},${c[1]}`;
@@ -144,10 +144,35 @@ function isCellValueValid(space: CombatSpace): boolean {
  * by the time this function ever sees it. This one shape stays
  * (documented, not silently) fail-open — no JS-side check can close it,
  * because there is no JS value left to check against.
+ *
+ * UPPER bound (B8c-3c ledger row 26, Kage-CR IMPORTANT-2 / Miko-QA,
+ * 2026-09-29 — closed engine-side by B8e, `engine/space.py::SPACE_MAX_DIM`,
+ * NekoNova-DnDEngine `main` @ `8eaf152`): before this clause,
+ * `Number.isInteger(1e21)` is `true` for ANY whole-valued double regardless
+ * of magnitude, so a huge `width`/`height` made this function — and
+ * therefore `isSpaceUsable` — return `true`. `reachableCells`'s nested
+ * `for (x < width) for (y < height)` loop has no `Array.from`-style length
+ * ceiling to throw fast on; it is a plain scalar-bound loop that must run
+ * `width × height` times, and it runs synchronously inside `TacticalMap`'s
+ * render-body `useMemo` — so a board with no legal cells at all (a board
+ * this large is never authored content) hung the render instead of
+ * degrading like every other malformed-dims shape. `width <=
+ * SPACE_MAX_DIM && height <= SPACE_MAX_DIM` mirrors the engine's own
+ * `_dim_in_range` bound exactly (`1 <= dim <= SPACE_MAX_DIM`, both axes) —
+ * see `SPACE_MAX_DIM`'s own doc comment (types.ts) for the constant and
+ * its `debt:` marker. `100` itself stays legal (the engine's own boundary
+ * test asserts the ceiling value is accepted, not refused).
  */
 function isDimsValid(space: CombatSpace): boolean {
   const { width, height } = space;
-  return Number.isInteger(width) && width > 0 && Number.isInteger(height) && height > 0;
+  return (
+    Number.isInteger(width) &&
+    width > 0 &&
+    width <= SPACE_MAX_DIM &&
+    Number.isInteger(height) &&
+    height > 0 &&
+    height <= SPACE_MAX_DIM
+  );
 }
 
 /**
