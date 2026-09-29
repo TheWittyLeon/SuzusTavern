@@ -23,7 +23,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { parseGlobalsPalette } from '@/components/tactical-map/paletteContrastParser';
+import { parseGlobalsPalette, type Palette } from '@/components/tactical-map/paletteContrastParser';
 
 function hexToRgb(hex: string): [number, number, number] {
   const h = hex.replace('#', '');
@@ -351,24 +351,44 @@ describe('TacticalMap contrast — D1 CR#1 coordinator decision 5 (existing toke
     });
   });
 
-  describe('.cellInRange reach ring (inset color-mix(--accent) — non-text 3:1) — new baseline pin, B8c-1: this ring had no contrast pin at all before Iro-A11y MAJOR-1', () => {
-    // 2 of 5 palettes (candlelit, hearthlight) sit under the 3:1 floor at
-    // BASELINE — i.e. with `moveMode` on and no pending state at all. That
-    // is a pre-existing gap (Kage-CR's reach-overlay finding, already
-    // routed to the SceneStage mount) and explicitly NOT this fix's scope —
-    // MAJOR-1 is about `.cellPending` making it WORSE, not about this
-    // floor. Only the 3 palettes Iro-A11y's review names as "passed before
-    // this diff" are asserted to clear 3:1 here; the other 2 are read but
-    // deliberately not asserted against an absolute floor this fix isn't
-    // responsible for.
-    const KNOWN_PASSING_AT_BASELINE = ['dusk-tavern', 'aetheric', 'moonlit-grove'];
-    for (const name of KNOWN_PASSING_AT_BASELINE) {
-      const p = PALETTES[name];
-      it(`${name}: accent@${Math.round(CELL_IN_RANGE_ACCENT_ALPHA * 100)}% ring vs --bg-3 clears 3:1 at baseline`, () => {
-        const ringComposite = alphaOver(p.accent, CELL_IN_RANGE_ACCENT_ALPHA, p.bg3);
-        expect(contrast(ringComposite, p.bg3)).toBeGreaterThanOrEqual(3);
-      });
+  describe('.cellInRange reach ring (inset color-mix(--accent) — non-text 3:1) — every discovered palette pinned, B8c-1 fix-round-2 (Kage-CR IMPORTANT-2)', () => {
+    // Was a hardcoded 3-palette allowlist (KNOWN_PASSING_AT_BASELINE) — a
+    // 6th palette got NO ring assertion at all, and `--accent` had no other
+    // asserting consumer, so a catastrophic accent value (proven below by
+    // cloning a real palette and wrecking only --accent) passed silently.
+    // Now every name in PALETTE_NAMES gets an assertion, one way or the
+    // other: the two known pre-existing under-floor palettes are asserted
+    // BELOW 3:1 (so this Set is forced to shrink the day either is fixed,
+    // rather than silently going stale), and every other palette — present
+    // today or added tomorrow — is asserted to clear 3:1.
+    //
+    // debt: candlelit/hearthlight's reach ring sits under the 3:1 non-text floor at baseline (pre-existing, unrelated to this fix — Kage-CR's reach-overlay finding, already routed to the SceneStage mount). ceiling: exactly these two palette names; --accent and --bg-3 both otherwise unchanged.
+    // until: Needs Leon's #31 --accent contrast ruling lands in globals.css, or the SceneStage-mount reach-overlay fix supersedes this pin.
+    const BASELINE_RING_UNDER_FLOOR = new Set(['candlelit', 'hearthlight']);
+
+    function ringClearsFloor(p: Palette): boolean {
+      const ringComposite = alphaOver(p.accent, CELL_IN_RANGE_ACCENT_ALPHA, p.bg3);
+      return contrast(ringComposite, p.bg3) >= 3;
     }
+
+    for (const name of PALETTE_NAMES) {
+      const p = PALETTES[name];
+      if (BASELINE_RING_UNDER_FLOOR.has(name)) {
+        it(`${name}: accent@${Math.round(CELL_IN_RANGE_ACCENT_ALPHA * 100)}% ring vs --bg-3 is a KNOWN pre-existing under-floor exemption (< 3:1) — re-measured every run, not silently trusted`, () => {
+          expect(ringClearsFloor(p)).toBe(false);
+        });
+      } else {
+        it(`${name}: accent@${Math.round(CELL_IN_RANGE_ACCENT_ALPHA * 100)}% ring vs --bg-3 clears 3:1 at baseline`, () => {
+          expect(ringClearsFloor(p)).toBe(true);
+        });
+      }
+    }
+
+    it('proof: a cloned palette with a wrecked --accent (~1:1 ring) is NOT in the exemption Set and fails ringClearsFloor — a 6th palette gets real coverage, not a silent pass (Kage-CR IMPORTANT-2 repro)', () => {
+      const wrecked: Palette = { ...PALETTES['dusk-tavern'], accent: '#100f0f' };
+      expect(BASELINE_RING_UNDER_FLOOR.has('dusk-tavern')).toBe(false);
+      expect(ringClearsFloor(wrecked)).toBe(false);
+    });
   });
 
   describe('.cellPending must not degrade the reach ring or the destination tag below their own un-pending baseline (Iro-A11y MAJOR-1, 2026-09-28)', () => {
