@@ -124,11 +124,6 @@ export function reachableCells(
   if (movementRemaining <= 0) return [];
   // A mover on an invalid cell has no legal move at all (`mover_unplaced`).
   if (!isValidCell(space, from)) return [];
-  // Kage-CR D1 CRITICAL-1: `_validate_space` accepts an omitted `blocked`
-  // key and never backfills it (Miko's B3 object-identity re-confirm) — the
-  // engine's own authority for this mirror (`SquareSpace._is_blocked`)
-  // defends with `space.get("blocked") or []`; match it.
-  const blockedSet = new Set((space.blocked ?? []).map(coordKey));
   const occupiedSet = new Set(occupied.map(coordKey));
   const fromKey = coordKey(from);
   const out: SpaceCoordinate[] = [];
@@ -137,7 +132,14 @@ export function reachableCells(
       const cell: SpaceCoordinate = [x, y];
       const key = coordKey(cell);
       if (key === fromKey) continue;
-      if (blockedSet.has(key)) continue;
+      // Kage-CR B8c-2 🟢 A: destination validity through the SAME
+      // `isValidCell` seam `isLegalMoveTarget` uses for both ends, instead
+      // of a second hand-rolled `blockedSet` copy of the blocked-term —
+      // one predicate, not two, so a future term added to `isValidCell`
+      // (Kage-CR D1 CRITICAL-1's `blocked ?? []` omitted-key defense
+      // included) reaches this destination check too, not just the origin
+      // one three lines up.
+      if (!isValidCell(space, cell)) continue;
       if (occupiedSet.has(key)) continue;
       if (chebyshevCost(space, from, cell) <= movementRemaining) out.push(cell);
     }
