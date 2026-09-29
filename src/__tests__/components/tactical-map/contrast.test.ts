@@ -88,13 +88,21 @@ function parseRgba(value: string): { rgb: [number, number, number]; alpha: numbe
   };
 }
 
-/** Composites an `rgba(...)` color (using ITS OWN alpha, optionally scaled
- *  by `alphaMultiplier` — `.cellPending`'s stripe fades `--line-strong`'s
- *  alpha further when a `color-mix(..., N%, transparent)` wraps it, per
- *  this file's own header note that mixing toward `transparent` is a plain
- *  alpha scale) over a solid hex backdrop. */
-function rgbaOverHex(rgbaStr: string, alphaMultiplier: number, backdropHex: string): string {
-  const { rgb, alpha } = parseRgba(rgbaStr);
+/** Composites a stripe TOKEN VALUE over a solid hex backdrop, optionally
+ *  scaled by `alphaMultiplier` (a `color-mix(..., N%, transparent)` wrapper
+ *  around the token, per this file's own header note that mixing toward
+ *  `transparent` is a plain alpha scale). Accepts either shape a stripe
+ *  color token can be declared as — an `rgba(...)` with its own alpha
+ *  (`--line-strong`, `.cellBlocked`'s stripe today) or a solid hex with an
+ *  implicit alpha of 1 (`--ink-2`, `.cellPending`'s stripe as of Iro-A11y's
+ *  re-verify 2 hash-color fix) — because which one `.cellPending` uses has
+ *  already changed once and the resolved token name is read off disk
+ *  dynamically (see `extractCellPendingStripeTokenName`), not hardcoded. */
+function rgbaOverHex(colorValue: string, alphaMultiplier: number, backdropHex: string): string {
+  if (colorValue.startsWith('#')) {
+    return alphaMultiplier >= 1 ? colorValue : alphaOver(colorValue, alphaMultiplier, backdropHex);
+  }
+  const { rgb, alpha } = parseRgba(colorValue);
   const bg = hexToRgb(backdropHex);
   const effectiveAlpha = alpha * alphaMultiplier;
   const out = rgb.map((c, i) => Math.round(c * effectiveAlpha + bg[i] * (1 - effectiveAlpha)));
@@ -257,14 +265,16 @@ function extractCellInRangeFillAlpha(css: string): number {
 }
 
 /**
- * `.cellPending`'s hash stripe color's alpha MULTIPLIER on top of
- * `--line-strong`'s own token alpha — 1 (no additional fade) in the
- * fixed, post-fix-round-2 state (Kage-CR IMPORTANT-5: the `color-mix(...,
- * 40%, transparent)` wrapper that used to fade it further is gone). Reads
- * whichever form is actually on disk rather than assuming the fix — a
- * re-introduced `color-mix(..., N%, transparent)` fade is picked up
- * automatically with no test edit, same discipline as
- * `extractCellInRangeAccentAlpha`.
+ * `.cellPending`'s hash stripe color's alpha MULTIPLIER on top of its own
+ * stripe token's alpha — 1 (no additional fade) in the fixed,
+ * post-fix-round-2 state (Kage-CR IMPORTANT-5: the `color-mix(...,
+ * 40%, transparent)` wrapper that used to fade `--line-strong` is gone).
+ * Reads whichever form is actually on disk rather than assuming the fix —
+ * a re-introduced `color-mix(..., N%, transparent)` fade around WHICHEVER
+ * token the stripe currently uses is picked up automatically with no test
+ * edit (the token name inside is not anchored — see
+ * `extractCellPendingStripeTokenName` below for the token name itself),
+ * same discipline as `extractCellInRangeAccentAlpha`.
  */
 function extractCellPendingStripeAlphaMultiplier(css: string): number {
   const body = extractCssRuleBody(css, 'cellPending');
@@ -274,10 +284,56 @@ function extractCellPendingStripeAlphaMultiplier(css: string): number {
       "contrast.test.ts: .cellPending has no background-image declaration — did the hash move to a different property?",
     );
   }
-  const m = /color-mix\(in oklab,\s*var\(--line-strong\)\s*([0-9.]+)%,\s*transparent\)/.exec(
+  const m = /color-mix\(in oklab,\s*var\(--[a-zA-Z0-9-]+\)\s*([0-9.]+)%,\s*transparent\)/.exec(
     bgImageMatch[1],
   );
   return m ? parseFloat(m[1]) / 100 : 1;
+}
+
+/**
+ * `.cellPending`'s stripe color's own TOKEN NAME (e.g. `"ink-2"`), read as
+ * the first `var(--<name>)` inside its `background-image` gradient — Iro-
+ * A11y re-verify 2 (2026-09-28): the stripe used to be hardcoded to
+ * `--line-strong` in this file, which failed to notice when the real CSS
+ * moved to `--ink-2` to clear the 3:1 floor. A future token swap (either
+ * direction) flows straight into every pin below with no test edit.
+ */
+function extractCellPendingStripeTokenName(css: string): string {
+  const body = extractCssRuleBody(css, 'cellPending');
+  const bgImageMatch = /background-image\s*:\s*([^;]+);/.exec(body);
+  if (!bgImageMatch) {
+    throw new Error(
+      "contrast.test.ts: .cellPending has no background-image declaration — did the hash move to a different property?",
+    );
+  }
+  const m = /var\(--([a-zA-Z0-9-]+)\)/.exec(bgImageMatch[1]);
+  if (!m) {
+    throw new Error(
+      "contrast.test.ts: .cellPending's background-image has no var(--...) color token — did the stripe stop using a custom property?",
+    );
+  }
+  return m[1];
+}
+
+/**
+ * Resolves a CSS custom-property name (kebab-case, e.g. `"ink-2"`) to its
+ * value on an already-parsed `Palette` — converting to the SAME camelCase
+ * `Palette` already uses for every other token (`"line-strong"` ->
+ * `lineStrong`, `"ink-2"` -> `ink2`), not a second hand-maintained mapping.
+ * Throws a clear error if `.cellPending`'s stripe ever points at a token
+ * `paletteContrastParser.ts`'s `Palette` doesn't carry — a stale/unresolved
+ * token must fail loudly here, not silently read `undefined` into the
+ * contrast math below.
+ */
+function resolveStripeToken(tokenName: string, p: Palette): string {
+  const camel = tokenName.replace(/-([a-z0-9])/g, (_match, c: string) => c.toUpperCase());
+  const value = (p as unknown as Record<string, string>)[camel];
+  if (typeof value !== 'string') {
+    throw new Error(
+      `contrast.test.ts: .cellPending's stripe uses --${tokenName} (Palette field "${camel}"), which paletteContrastParser.ts's Palette does not resolve — add it there first.`,
+    );
+  }
+  return value;
 }
 
 /**
@@ -337,6 +393,15 @@ const CELL_IN_RANGE_ACCENT_ALPHA = extractCellInRangeAccentAlpha(TACTICAL_MAP_CS
 const CELL_IN_RANGE_FILL_ALPHA = extractCellInRangeFillAlpha(TACTICAL_MAP_CSS);
 const CELL_PENDING_CONTAINER_OPACITY = extractCellPendingContainerOpacity(TACTICAL_MAP_CSS);
 const CELL_PENDING_STRIPE_ALPHA_MULTIPLIER = extractCellPendingStripeAlphaMultiplier(TACTICAL_MAP_CSS);
+const CELL_PENDING_STRIPE_TOKEN_NAME = extractCellPendingStripeTokenName(TACTICAL_MAP_CSS);
+
+/** `.cellPending`'s stripe color, resolved for palette `p` via whichever
+ *  token name is actually on disk (`CELL_PENDING_STRIPE_TOKEN_NAME`) — the
+ *  single call site every pin below uses instead of a hardcoded
+ *  `p.lineStrong`. */
+function pendingStripeColorFor(p: Palette): string {
+  return resolveStripeToken(CELL_PENDING_STRIPE_TOKEN_NAME, p);
+}
 
 describe('parseGlobalsPalette — coverage sanity (protects the loops below from a silent empty parse)', () => {
   const KNOWN_VIBES = ['aetheric', 'candlelit', 'dusk-tavern', 'hearthlight', 'moonlit-grove'];
@@ -365,7 +430,7 @@ describe('parseGlobalsPalette — discovers a novel vibe with no hand-maintained
   // ~1.2:1) without editing the real design tokens. Before the fix, a vibe
   // absent from the hardcoded KNOWN_VIBES list was silently unparsed and
   // never reached the contrast loops; this pins that it now is.
-  const elevenBadTokens = `
+  const twelveBadTokens = `
     --bg-3: #100f0f;
     --on-fill: #1a1919;
     --on-accent: #1a1919;
@@ -377,10 +442,11 @@ describe('parseGlobalsPalette — discovers a novel vibe with no hand-maintained
     --warm-ink: #171414;
     --accent: #181515;
     --line-strong: rgba(1,1,1,0.5);
+    --ink-2: #191616;
   `;
   const syntheticCss = `
-    [data-vibe="dusk-tavern"] { ${elevenBadTokens} }
-    [data-vibe="kagetest"] { ${elevenBadTokens} }
+    [data-vibe="dusk-tavern"] { ${twelveBadTokens} }
+    [data-vibe="kagetest"] { ${twelveBadTokens} }
     /* Shared structural tokens */
   `;
 
@@ -500,7 +566,7 @@ describe('TacticalMap contrast — D1 CR#1 coordinator decision 5 (existing toke
       const p = PALETTES[name];
       it(`${name}: cool-ink vs .destinationTag's real rendered background clears 4.5:1 even on the worst-case (pending) backdrop`, () => {
         const cellInRangeBg = alphaOver(p.accent, CELL_IN_RANGE_FILL_ALPHA, p.bg3);
-        const pendingBg = rgbaOverHex(p.lineStrong, CELL_PENDING_STRIPE_ALPHA_MULTIPLIER, cellInRangeBg);
+        const pendingBg = rgbaOverHex(pendingStripeColorFor(p), CELL_PENDING_STRIPE_ALPHA_MULTIPLIER, cellInRangeBg);
         const renderedBg = destinationTagRenderedBg(TACTICAL_MAP_CSS, p, pendingBg);
         expect(contrast(p.coolInk, renderedBg)).toBeGreaterThanOrEqual(4.5);
       });
@@ -517,7 +583,7 @@ describe('TacticalMap contrast — D1 CR#1 coordinator decision 5 (existing toke
       for (const name of PALETTE_NAMES) {
         const p = PALETTES[name];
         const cellInRangeBg = alphaOver(p.accent, CELL_IN_RANGE_FILL_ALPHA, p.bg3);
-        const pendingBg = rgbaOverHex(p.lineStrong, CELL_PENDING_STRIPE_ALPHA_MULTIPLIER, cellInRangeBg);
+        const pendingBg = rgbaOverHex(pendingStripeColorFor(p), CELL_PENDING_STRIPE_ALPHA_MULTIPLIER, cellInRangeBg);
         const renderedBg = destinationTagRenderedBg(tintedCss, p, pendingBg);
         expect(renderedBg).not.toBe(p.bg3);
         expect(contrast(p.coolInk, renderedBg)).toBeLessThan(4.5);
@@ -565,52 +631,33 @@ describe('TacticalMap contrast — D1 CR#1 coordinator decision 5 (existing toke
     });
   });
 
-  describe('.cellPending hash stripe contrast against its REAL backdrop (accent-tinted .cellInRange fill, not bare --bg-3) — new pin, B8c-1 fix-round-2 (Kage-CR IMPORTANT-5)', () => {
+  describe('.cellPending hash stripe contrast against its REAL backdrop (accent-tinted .cellInRange fill, not bare --bg-3) — new pin, B8c-1 fix-round-2 (Kage-CR IMPORTANT-5), color fixed (Iro-A11y re-verify 2)', () => {
     // The stripe's own backdrop is never bare --bg-3: pending only ever
     // applies to an in-range cell, and every in-range cell also carries
     // .cellInRange's own accent-tinted `background` fill
     // (CELL_IN_RANGE_FILL_ALPHA, read from its `background` shorthand —
-    // NOT the ring's separate 55% `box-shadow` alpha). Two of five
-    // palettes can't clear 3:1 with `--line-strong` alone (an existing
-    // token, no new literal) — carried as an explicit exemption, same
-    // pattern as the ring baseline's above, rather than silently asserting
-    // a floor that doesn't hold.
-    //
-    // debt: aetheric/moonlit-grove's pending hash sits under the 3:1 non-text floor even at --line-strong's full token alpha (measured 2.28/2.61). ceiling: exactly these two palette names; --line-strong and the .cellInRange accent fill both otherwise unchanged.
-    // until: Needs Leon's #31 --accent/--line-strong contrast ruling lands in globals.css for these two palettes.
-    const HASH_UNDER_FLOOR = new Set(['aetheric', 'moonlit-grove']);
+    // NOT the ring's separate 55% `box-shadow` alpha). `--line-strong`
+    // could not clear 3:1 in 2/5 palettes (aetheric, moonlit-grove) and
+    // was carried as a `debt:`-marked exemption for one round; Iro-A11y's
+    // re-verify 2 found `--ink-2` clears 3:1 in all 5 with margin
+    // (4.76-6.79 measured below), so the exemption is deleted rather than
+    // carried — no palette needs one.
 
     function hashRatio(p: Palette, stripeMultiplier: number): number {
       const cellInRangeBg = alphaOver(p.accent, CELL_IN_RANGE_FILL_ALPHA, p.bg3);
-      const stripe = rgbaOverHex(p.lineStrong, stripeMultiplier, cellInRangeBg);
+      const stripe = rgbaOverHex(pendingStripeColorFor(p), stripeMultiplier, cellInRangeBg);
       return contrast(stripe, cellInRangeBg);
     }
 
     for (const name of PALETTE_NAMES) {
       const p = PALETTES[name];
-      if (HASH_UNDER_FLOOR.has(name)) {
-        it(`${name}: line-strong hash vs its real .cellInRange-tinted backdrop is a KNOWN under-floor exemption (< 3:1) — re-measured every run, not silently trusted`, () => {
-          expect(hashRatio(p, CELL_PENDING_STRIPE_ALPHA_MULTIPLIER)).toBeLessThan(3);
-        });
-      } else {
-        it(`${name}: line-strong hash vs its real .cellInRange-tinted backdrop clears 3:1`, () => {
-          expect(hashRatio(p, CELL_PENDING_STRIPE_ALPHA_MULTIPLIER)).toBeGreaterThanOrEqual(3);
-        });
-      }
+      it(`${name}: pending hash vs its real .cellInRange-tinted backdrop clears 3:1`, () => {
+        expect(hashRatio(p, CELL_PENDING_STRIPE_ALPHA_MULTIPLIER)).toBeGreaterThanOrEqual(3);
+      });
     }
 
-    it('.cellPending applies no additional fade on top of --line-strong\'s own token alpha today (the fix itself, read from disk)', () => {
+    it("today's stripe token applies no additional fade on top of its own token alpha (the fix itself, read from disk)", () => {
       expect(CELL_PENDING_STRIPE_ALPHA_MULTIPLIER).toBe(1);
-    });
-
-    it("sanity: the OLD 40% color-mix fade measured ~1.4-1.6:1 in every palette (Iro-A11y's MINOR) — confirms the fix actually raised the ratio, not just that it compiles", () => {
-      for (const name of PALETTE_NAMES) {
-        const p = PALETTES[name];
-        const oldRatio = hashRatio(p, 0.4);
-        expect(oldRatio).toBeGreaterThanOrEqual(1.3);
-        expect(oldRatio).toBeLessThan(1.7);
-        expect(oldRatio).toBeLessThan(hashRatio(p, 1));
-      }
     });
   });
 

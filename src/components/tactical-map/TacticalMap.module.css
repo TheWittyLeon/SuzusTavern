@@ -139,33 +139,22 @@
 }
 
 /* B8c-1 IMP-9b (Iro-A11y MAJOR-1 fix, 2026-09-28 — was a blanket container
-   `opacity: 0.6`): a container opacity composites the WHOLE cell subtree —
-   `.cellInRange`'s inset accent@55% reach ring AND `.destinationTag`'s text
-   included — to one flattened layer before it lands on the board, which
-   dragged both pairs below WCAG AA in 5/5 palettes
-   (contrast.test.ts's ".cellPending stays at full ring/tag strength" cases
-   pin this; re-adding a container `opacity` here reproduces the exact
-   failure automatically, no test edit required — the harness reads this
-   rule's own `opacity` declaration off disk, it does not mirror a literal).
-   "Pending" must read as reachable-but-momentarily-inert, not as an
-   obstacle, so this is deliberately NOT `.cellBlocked`'s hash reused
-   verbatim — three differences, all visual, none color-only:
-     - opposite diagonal ("/" here vs `.cellBlocked`'s "\", i.e. -45deg vs
-       45deg — a different direction reads as a different state at a
-       glance, not just a paler version of the same one);
-     - a thinner stripe over a wider gap (2px/12px here vs blocked's dense
-       4px/9px — sparser, lighter, "momentary" rather than "solid wall").
-   Kage-CR B8c-1 IMPORTANT-5 fix-round-2 (2026-09-28): a THIRD differentiator
-   used to also fade the pattern's own ink via `color-mix(...,40%,...)` —
-   removed. Direction + period alone were already sufficient (the comment
-   above says so), and stacking a THIRD reduction on top of an
-   already-thinner/sparser pattern compounded into ~6.5x less ink than
-   `.cellBlocked`'s hash at full strength — contrast.test.ts measured the
-   stripe at ~1.4-1.6:1 against its real backdrop (`.cellInRange`'s accent
-   tint) in every palette, roughly half of blocked's own ~3.1-3.8:1 and
-   below the 3:1 non-text floor everywhere. `var(--line-strong)` now runs
-   at its own token alpha (no additional fade), same as `.cellBlocked`
-   above — contrast.test.ts pins the real per-palette numbers.
+   `opacity: 0.6`): a container opacity flattens the whole cell subtree
+   (ring + tag) before it lands on the board, dragging both below WCAG AA
+   in 5/5 palettes (contrast.test.ts's ring/tag pins catch a reintroduction
+   automatically — the harness reads this rule's own declarations off disk).
+   "Pending" must read as reachable-but-momentarily-inert, not an obstacle,
+   so it is deliberately NOT `.cellBlocked`'s hash reused verbatim:
+     - opposite diagonal ("/" vs blocked's "\", -45deg vs 45deg);
+     - thinner stripe over a wider gap (2px/12px vs blocked's 4px/9px).
+   Direction + period alone differentiate pending from blocked — colour is
+   never the sole signal (WCAG 1.4.1). Iro-A11y re-verify 2 (2026-09-28):
+   `--line-strong` measured ~1.4-3.2:1 against the real `.cellInRange`-
+   tinted backdrop, under the 3:1 non-text floor in 2/5 palettes (aetheric,
+   moonlit-grove). `--ink-2` (opaque, already used in this file, e.g.
+   `.inspectorTeam`) clears 3:1 in all 5 with margin (4.76-6.79 measured —
+   contrast.test.ts pins the real per-palette numbers) — geometry is
+   unchanged, only the stripe's own color token swapped.
    Applied via `background-image` only — `.cellInRange`'s `background`
    shorthand above already owns `background-color` (the accent tint); this
    adds a second background LAYER on top of that color rather than
@@ -184,7 +173,7 @@
 .cellPending {
   background-image: repeating-linear-gradient(
     -45deg,
-    var(--line-strong) 0 2px,
+    var(--ink-2) 0 2px,
     transparent 2px 12px
   );
   cursor: not-allowed;

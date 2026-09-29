@@ -6,11 +6,14 @@
  * palette edit that breaks a contrast pair reds `contrast.test.ts` instead
  * of silently drifting from a hand-copied hex table.
  *
- * Only extracts the 11 tokens `contrast.test.ts` actually composites
+ * Only extracts the 12 tokens `contrast.test.ts` actually composites
  * (bg-3/on-fill/on-accent/bad/good/cool/cool-ink/warm/warm-ink/accent —
  * `accent` added for B8c-1's `.cellPending` reach-ring pin, Iro-A11y
  * MAJOR-1 — plus `line-strong`, added for B8c-1 fix-round-2's pending-hash
- * contrast pin, Kage-CR IMPORTANT-5) — this is a test-support parser for
+ * contrast pin, Kage-CR IMPORTANT-5, and `ink-2`, added for Iro-A11y's
+ * re-verify 2 hash-color fix: `.cellPending`'s stripe token itself, read
+ * dynamically off `TacticalMap.module.css` rather than assumed by either
+ * of these two field names) — this is a test-support parser for
  * this component's own contrast pins, not a general CSS custom-property
  * engine. Lives beside
  * the component rather than under `__tests__/` on purpose: `next/jest`'s
@@ -32,10 +35,17 @@ export interface Palette {
   warmInk: string;
   accent: string;
   /** Raw value, NOT hex — every palette declares this as `rgba(r,g,b,a)`
-   *  directly (its own alpha baked in), unlike the other 10 tokens which
+   *  directly (its own alpha baked in), unlike the other tokens which
    *  are all solid hex. Callers compositing it need an rgba-aware helper,
    *  not `hexToRgb`. */
   lineStrong: string;
+  /** Solid hex, like `bg3`/`cool`/etc. `.cellPending`'s current stripe
+   *  token (Iro-A11y re-verify 2, 2026-09-28) — kept alongside
+   *  `lineStrong` rather than replacing it, since `.cellBlocked` still
+   *  uses `--line-strong` and a future stripe swap could point either
+   *  way again; `contrast.test.ts` resolves whichever one is actually on
+   *  disk. */
+  ink2: string;
 }
 
 /** The design-tokens section ends where the shared (non-per-vibe) structural
@@ -148,6 +158,7 @@ export function parseGlobalsPalette(css: string): Record<string, Palette> {
       warmInk: required(decls, 'warm-ink', vibe),
       accent: required(decls, 'accent', vibe),
       lineStrong: required(decls, 'line-strong', vibe),
+      ink2: required(decls, 'ink-2', vibe),
     };
   }
   return out;
