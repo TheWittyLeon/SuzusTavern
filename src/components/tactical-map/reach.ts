@@ -53,12 +53,21 @@ function isValidCell(space: CombatSpace, at: SpaceCoordinate): boolean {
  *
  * Python's `bool` is an `int` subclass, so the engine excludes it
  * explicitly; JS's `typeof true === 'boolean'` (never `'number'`) makes
- * that exclusion automatic here — no separate check needed. `cell` itself
- * absent/`null`/an array all fail the `typeof … === 'object'` dict-shape
- * test the same way `isinstance(cell, dict)` does. Kage-CR B8b-2 🟡-3 /
- * B8c-2 🟢 B (2026-09-29): with no guard, 6 of 9 corrupt `cell.value`
- * shapes (`"5"`, `null`, `true`, `0`, `-5`, `[5]`) rendered as legal moves
- * the engine refuses as `no_space`.
+ * that exclusion automatic here — no separate check needed. THREE
+ * different clauses guard `cell` itself, not one shared `typeof` test as
+ * an earlier version of this comment claimed (Kage-CR B8c-3a 🟢 3,
+ * 2026-09-29, measured): `typeof cell !== 'object'` catches only an
+ * ABSENT `cell` (`typeof undefined === 'undefined'`) — `typeof null` and
+ * `typeof [5]` both evaluate to `'object'` and pass that test fine, so
+ * `null` is caught by the separate `cell === null` clause and an array by
+ * `Array.isArray(cell)`. The latter is behaviourally DEAD today (🟢 4:
+ * deleting it is 1205/1205 green — an array has no `.value` property, so
+ * it is refused one line later regardless) — kept for mirror-legibility,
+ * as the faithful counterpart to `isinstance(cell, dict)`, not because it
+ * changes any outcome. Kage-CR B8b-2 🟡-3 / B8c-2 🟢 B (2026-09-29): with
+ * no guard at all, 6 of 9 corrupt `cell.value` shapes (`"5"`, `null`,
+ * `true`, `0`, `-5`, `[5]`) rendered as legal moves the engine refuses as
+ * `no_space`.
  */
 function isCellValueValid(space: CombatSpace): boolean {
   const cell = (space as { cell?: unknown }).cell;
@@ -70,25 +79,29 @@ function isCellValueValid(space: CombatSpace): boolean {
 /**
  * Mirrors `move_legality` steps 1–2 (engine/combat.py, engine `main` @
  * `3a5d18b`): step 1 refuses a falsy/non-dict `space`; step 2 refuses an
- * unregistered `space.kind` (`engine.space.SPACE_KINDS` has exactly one
- * entry, `"square"`, today — `engine/space.py:217`) or a malformed
- * `cell.value`. `SpaceKind = 'square'` closes this at the TYPE level on the
- * wire, but this module's own T1 pin (B8c-2 Kage 🟢 B) is what keeps that
- * honest at RUNTIME too — a pre-validator/corrupt board, or the first
- * non-`'square'` kind landing before the type union widens to match,
- * degrades to "no legal move" here rather than rendering square geometry
- * onto a board this mirror does not understand. Both call sites below
- * check this FIRST, matching the engine's own step-1-before-step-2-before-
- * everything-else order.
+ * unregistered `space.kind` (`engine.space.SPACE_KINDS`, currently exactly
+ * one entry — `engine/space.py::SPACE_KINDS`) or a malformed `cell.value`.
+ * `SpaceKind` (types.ts, now DERIVED from this client's own `SPACE_KINDS`
+ * registry rather than a second hand copy — Kage-CR B8c-3a IMPORTANT-1,
+ * ledger item 17) closes this at the TYPE level on the wire, but this
+ * function is what keeps that honest at RUNTIME too.
+ *
+ * A pre-validator/corrupt board, or the first non-`'square'` kind landing
+ * before the type union widens to match, degrades to "no legal move"
+ * wherever a caller checks this predicate FIRST, rather than rendering
+ * square geometry onto a board this mirror does not understand —
+ * `reachableCells`/`isLegalMoveTarget` below always did. `TacticalMap.tsx`'s
+ * own render guard did NOT, until it started calling this SAME function
+ * (Kage-CR B8c-3a CRITICAL-1, ledger item 16, 2026-09-29): before that fix
+ * this claim was true of this module in isolation but FALSE of the mounted
+ * component, which used a separate, `cell`-blind `kind !== 'square'` check
+ * and rendered a full, wrong grid (or threw, for `cell: null`) instead.
  */
-// Kage-CR B8c-3a CRITICAL-1 (2026-09-29, ledger item 16): exported as a TYPE
-// PREDICATE and made the component's own render seam (TacticalMap.tsx), not
-// just an internal helper here — a plain `space.kind !== 'square'` check at
-// the component's early return let a wire-reachable `cell: null` reach the
-// per-cell `chebyshevCost` call and throw `TypeError` at render, because
-// that check never validated `cell` at all. This is the ONE seam now: any
-// caller that gates on `isSpaceUsable` first is guaranteed a `CombatSpace`
-// with a real, finite, positive `cell.value` for every subsequent read.
+// Exported as a TYPE PREDICATE (Kage-CR B8c-3a CRITICAL-1, ledger item 16)
+// so `TacticalMap.tsx` can use it as its OWN render seam, guaranteeing a
+// `CombatSpace` with a real, finite, positive `cell.value` for every
+// subsequent read — see the docstring above for what "usable" means and
+// why that guarantee used to not hold for the mounted component.
 export function isSpaceUsable(space: CombatSpace | null | undefined): space is CombatSpace {
   if (!space || typeof space !== 'object') return false;
   // Kage-CR B8c-3a IMPORTANT-1 (ledger item 17): membership against the
