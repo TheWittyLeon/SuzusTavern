@@ -37,8 +37,10 @@ import {
 // reading the dict literal directly, not this ticket's own comments.
 //
 // B8c-2 (2026-09-29): +9 keys, verified by reading the dict literal on
-// the engine's B8b move verb (`feature/movement-b8b-verb-0928`, merged to
-// engine `main` before this branch) at `engine/combat.py:38-121`. Real count today (`main`, unrelated to this
+// the engine's B8b move verb at engine `main` @ `3a5d18b`
+// (`engine/combat.py::COMBAT_REASON_STATUS`) — a branch name dies with its
+// worktree (Kage-CR B8b-2 verify 🟢 4, 2026-09-29), a commit does not. Real
+// count today (`main`, unrelated to this
 // item) is actually higher still — `unknown_npc`/`npc_has_statblock`/
 // `standin_tier_required`/`unknown_standin_tier`/`participant_cap`/
 // `damage_apply_failed` are ALSO live on `main` but predate this list's last
@@ -70,7 +72,7 @@ const ENGINE_COMBAT_REASON_STATUS_KEYS = [
   'invalid_condition',
   'db_unavailable',
   'error',
-  // ── B8b move verb (design §3.4), engine/combat.py:83-120 ──────────────
+  // ── B8b move verb (design §3.4), engine/combat.py::COMBAT_REASON_STATUS ──
   'positioning_disabled',
   'no_space',
   'same_cell',
