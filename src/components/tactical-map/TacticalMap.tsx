@@ -141,7 +141,8 @@ export interface TacticalMapProps {
    *  `reach.ts` mirror considers reachable). The server's `/move` response
    *  is the only authority — this is a client PREVIEW (design §4).
    *
-   *  Caller contract for the mount's `POST /combat/{id}/move` request
+   *  Caller contract for the mount's `POST /api/dnd/combat/<combat_id>/move`
+   *  request (the NekoNova proxy to the engine's `POST /combat/{id}/move`)
    *  (B8b design brief §5.2): send the participant's RENDERED `at` as
    *  `from` — the exact coordinate this component is currently drawing the
    *  mover at, not a recomputed guess, not a stale value held across a

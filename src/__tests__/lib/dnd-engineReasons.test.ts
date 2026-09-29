@@ -37,9 +37,8 @@ import {
 // reading the dict literal directly, not this ticket's own comments.
 //
 // B8c-2 (2026-09-29): +9 keys, verified by reading the dict literal on
-// engine branch `feature/movement-b8b-verb-0928` (tip `996a699`, under QA,
-// not yet merged to `main` — this Tavern branch merges only after B8b does)
-// at `engine/combat.py:38-121`. Real count today (`main`, unrelated to this
+// the engine's B8b move verb (`feature/movement-b8b-verb-0928`, merged to
+// engine `main` before this branch) at `engine/combat.py:38-121`. Real count today (`main`, unrelated to this
 // item) is actually higher still — `unknown_npc`/`npc_has_statblock`/
 // `standin_tier_required`/`unknown_standin_tier`/`participant_cap`/
 // `damage_apply_failed` are ALSO live on `main` but predate this list's last
@@ -399,8 +398,7 @@ describe('engineReasons — wire shape: actor_required 401 through the REAL prox
 describe('engineReasons — movement move-refusal codes (design §5, B8 pending)', () => {
   const MOVEMENT_CODES = ['no_space', 'invalid_destination', 'no_movement_remaining', 'unreachable'] as const;
   // B8c-2 (2026-09-29, design brief §5.1): the remaining four of the move
-  // verb's vocabulary, now that engine branch `feature/movement-b8b-verb-0928`
-  // (tip `996a699`) has built the verb itself. `destination_required` is
+  // verb's vocabulary, now that the engine's B8b move verb exists. `destination_required` is
   // deliberately excluded — see NO_TAVERN_EMITTER_COMBAT_KEYS above.
   const B8C2_MOVEMENT_CODES = ['positioning_disabled', 'same_cell', 'mover_unplaced', 'position_changed'] as const;
 

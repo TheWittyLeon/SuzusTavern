@@ -2,9 +2,8 @@
  * reach-vectors.test.ts — B8c-2 (design brief §4 / §5.3 item 4, B8a
  * IMPORTANT-6's Tavern half): the shared reach-vector drift guard between
  * `engine/space.py::SquareSpace.cost` + `engine.combat.move_legality`
- * (engine branch `feature/movement-b8b-verb-0928`, tip `996a699`, still
- * under QA, not yet merged — this branch merges only after B8b does) and
- * this repo's client-side PREVIEW mirror (`reach.ts`).
+ * (the fixture last changed in engine commit `4c1f0fa`, B8b) and this
+ * repo's client-side PREVIEW mirror (`reach.ts`).
  *
  * LOCAL COPY, NOT A SIBLING-PATH READ. `src/__tests__/fixtures/reach_vectors.json`
  * is a byte-identical copy of the engine's `tests/fixtures/reach_vectors.json`,
@@ -28,13 +27,12 @@ const FIXTURE_PATH = path.join(__dirname, '..', '..', 'fixtures', 'reach_vectors
 const RAW = fs.readFileSync(FIXTURE_PATH, 'utf8');
 
 // Kage-CR B8a IMPORTANT-6 / design brief §4 item 6: the SAME literal as the
-// engine's `_CANONICAL_REACH_VECTORS_SHA256` on `feature/movement-b8b-verb-0928`
-// (tip `996a699`). B8b step 7 recomputed this after adding `others` /
-// `expected_reason` to every case and 2 new occupancy cases — the OLD
-// literal (`c51e3ea4...`) that earlier carry notes quoted is STALE; this is
-// the new one.
+// engine's `_CANONICAL_REACH_VECTORS_SHA256`, as of engine commit `4c1f0fa`
+// (B8b's fix round: 12 cases, the four `*_is_refused` renames). Earlier
+// literals quoted in carry notes (`c51e3ea4…`, `d6e0c106…`, `f2f12e3a…`) are
+// stale.
 const CANONICAL_REACH_VECTORS_SHA256 =
-  'f2f12e3aa5b5a971e45c9f8d1dc2f31b726a2bafa65b4efdb8eb3bd4f5fbe3c8';
+  '25a417e4b667508dac5a0504df079cc47879df450da54e7e501b7b45669d94f4';
 
 // Exact count, not a floor — same rationale as the engine's own
 // `_EXPECTED_REACH_VECTOR_COUNT` (Miko-QA B8a mutation probe 3: a floor only

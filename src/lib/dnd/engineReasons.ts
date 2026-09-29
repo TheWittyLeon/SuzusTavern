@@ -239,9 +239,8 @@ export const COMBAT_REFUSAL_REASON_MAP: Record<string, string> = {
   unreachable: "There's no path there.",
 
   // ── B8c-2 (2026-09-29): the remaining four of the move verb's reason
-  // vocabulary, added once the engine side landed on
-  // `feature/movement-b8b-verb-0928` (tip `996a699`, still under QA, not yet
-  // merged — this branch merges only after B8b does). Copy is the brief's
+  // vocabulary, added with the engine's B8b move verb
+  // (`feature/movement-b8b-verb-0928`). Copy is the brief's
   // own proposed table verbatim (design brief §5.1); Aoi-UI's call on final
   // wording is still open, tracked separately from this item.
   positioning_disabled: "The battle map isn't available here.",
