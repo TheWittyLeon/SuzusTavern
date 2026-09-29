@@ -9,9 +9,10 @@
  * only committed cross-repo parity artifact before this file was the
  * 12-case `reach_vectors.json`, which samples `cell.value` from
  * `{2.5, 5, 10}` only). This file is the committed replacement: a
- * DETERMINISTIC, table-driven cross of Kage's own axes — 17 `cell.value`s
- * x 8 `cell` containers x 9 `kind`s x 14 paired `width`/`height` values
- * (3,024 cases), PLUS a small fully-crossed `blocked` x `occupied` x
+ * DETERMINISTIC, table-driven cross of Kage's own axes — 9 `kind`s x 14
+ * paired `width`/`height` values x 24 `cell` shapes (a dict `cell` carrying
+ * each of 17 `cell.value`s, plus 7 non-dict `cell` shapes) = 3,024 cases,
+ * PLUS a small fully-crossed `blocked` x `occupied` x
  * `budget` block on one fixed valid board (8 cases, Kage-CR B8c-3b
  * IMPORTANT-2, ledger item 24) — 3,032 cases total — with each case's
  * EXPECTED verdict recorded from the real engine, not a hand-transcription

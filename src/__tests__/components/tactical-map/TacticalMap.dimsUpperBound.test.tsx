@@ -17,11 +17,20 @@
  * Miko's standalone probe was still at outer index 0 of `1e21` after
  * 5,000,000 inner iterations; Kage's first render matrix had to be killed
  * after 600s, and a concurrent scratch probe pegged 100% CPU for 9+ minutes
- * before the jest worker crashed on OOM. Not previously safe to exercise at
- * the render layer at all -- these are the first tests to render the actual
- * oversized shapes end to end, made safe ONLY because the fix now bails at
- * `isSpaceUsable` (`TacticalMap.tsx`'s one render seam, ledger item 16)
- * before `reachableCells`'s loop is ever reached.
+ * before the jest worker crashed on OOM.
+ *
+ * What actually prevents the loop (Kage-CR B8c-3d, measured): the `reach`
+ * memo runs ABOVE `TacticalMap.tsx`'s render seam, so the seam alone does
+ * not stop it. `reachableCells` refuses an unusable space itself
+ * (`isSpaceUsable` at the top of `reach.ts::reachableCells`) before its loop;
+ * removing that guard with the bound intact hangs this file. The render seam
+ * then keeps the grid from rendering at all.
+ *
+ * Only `SPACE_MAX_DIM + 1` is rendered here. The huge magnitudes (10**6,
+ * 1e21) are pinned at the O(1) unit layer in reach.test.ts instead: at the
+ * render layer they add no coverage over 101 and are the only values that
+ * would HANG CI, rather than fail fast, if a future change reintroduced the
+ * loop (Miko-QA B8c-3d).
  *
  * Timeout-guard caveat, stated plainly rather than overclaimed: the
  * wall-clock assertions below prove this FIX is fast. They cannot themselves
@@ -77,13 +86,10 @@ function baseProps(overrides: Partial<TacticalMapProps> = {}): TacticalMapProps 
   };
 }
 
-// Kage-CR's own reproduction shape (a JSON `1e21` dims row) plus the
-// ceiling's immediate successor and a plain large integer -- three
-// magnitudes, not just the literal number the finding happened to use.
+// One past the ceiling only; see the header for why the huge magnitudes
+// live in reach.test.ts's O(1) unit checks, not here.
 const OVERSIZED_DIMS: Array<[string, number]> = [
   [`one past the ceiling (SPACE_MAX_DIM + 1 = ${SPACE_MAX_DIM + 1})`, SPACE_MAX_DIM + 1],
-  ['a huge integer (10**6)', 10 ** 6],
-  ['an enormous integer-valued float (1e21)', 1e21],
 ];
 
 describe('TacticalMap — dims upper bound degrades to TheatreOfMindBand, never hangs (ledger row 26)', () => {

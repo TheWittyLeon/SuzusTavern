@@ -85,6 +85,7 @@ import hashlib
 import json
 import math
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -259,17 +260,28 @@ def build_destination_budget_cases() -> list[dict]:
 
 def verify_engine_commit(
     engine_path: pathlib.Path, expected_commit: str | None
-) -> None:
+) -> str | None:
+    """Verify the checkout is at `expected_commit` and return its FULL 40-char
+    sha, so the fixture records one canonical `engine_commit` whether the
+    caller typed a short or a full hash (Miko-QA B8c-3d: recording the literal
+    argument made a short hash produce a different, equally valid-looking
+    digest). Without a .git the commit can't be resolved, so only a full sha
+    is accepted there."""
     git_dir = engine_path / ".git"
     if not git_dir.exists():
+        if expected_commit is not None and not re.fullmatch(r"[0-9a-f]{40}", expected_commit):
+            raise SystemExit(
+                f"{engine_path} has no .git, so --engine-commit cannot be resolved; "
+                f"pass the full 40-char sha, not {expected_commit!r}."
+            )
         print(
             f"NOTE: {engine_path} has no .git (a git-archive extraction) — cannot verify "
             f"the commit from inside the script; verify the archive command used the right ref.",
             file=sys.stderr,
         )
-        return
+        return expected_commit
     if expected_commit is None:
-        return
+        return None
     actual = subprocess.run(
         ["git", "-C", str(engine_path), "rev-parse", "HEAD"],
         capture_output=True,
@@ -283,6 +295,7 @@ def verify_engine_commit(
             f"engine checkout at {engine_path} is {actual}, expected {expected_commit} "
             f"-- refusing to generate a fixture from the wrong engine commit."
         )
+    return actual
 
 
 def main() -> int:
@@ -305,7 +318,7 @@ def main() -> int:
     a = ap.parse_args()
 
     engine_path = pathlib.Path(a.engine_path).expanduser().resolve()
-    verify_engine_commit(engine_path, a.engine_commit)
+    a.engine_commit = verify_engine_commit(engine_path, a.engine_commit)
 
     sys.path.insert(0, str(engine_path))
     from engine.combat import move_legality  # noqa: E402  (path must be set first)
