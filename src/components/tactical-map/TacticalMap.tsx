@@ -170,8 +170,17 @@ function isDowned(p: CombatParticipantState): boolean {
  * so the next change to this rule (e.g. a future "downed no longer
  * occupies" ruling) could update the reach/legality half and silently
  * leave the accessible-name half behind.
+ *
+ * Exported (B8c-2, design brief §5.3/item 4) so the shared reach-vectors
+ * fixture test can build its `others` occupant list through this SAME
+ * predicate rather than re-implementing the living-only rule a third time.
+ * Parameter is a `Pick`, not the full `CombatParticipantState`, purely so
+ * that fixture-driven caller can construct a minimal stand-in without
+ * satisfying every field on the real wire type — every real call site
+ * still passes a full `CombatParticipantState`, which trivially satisfies
+ * the narrower `Pick`.
  */
-function occupiesWhenAlive(p: CombatParticipantState): boolean {
+export function occupiesWhenAlive(p: Pick<CombatParticipantState, 'is_alive'>): boolean {
   return p.is_alive;
 }
 

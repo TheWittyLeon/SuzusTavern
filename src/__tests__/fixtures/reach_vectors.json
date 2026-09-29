@@ -1,0 +1,192 @@
+{
+  "_mechanism": "Shared drift guard between engine/space.py::SquareSpace.cost (the sole authority, design 2026-09-21 ENGINE-MOVEMENT-PLAYER-VISIBLE-COORDS §2.2/§6 step 1) and SuzusTavern's src/components/tactical-map/reach.ts (a client-side PREVIEW-ONLY mirror; the server is sole authority per that file's own header). D1 Kage-CR IMPORTANT-7 (2026-09-28) found a vector file alone was not enough if the two repos could silently drift; B8a Kage-CR IMPORTANT-6 (2026-09-28, coordinator-routed) then found the checksum contract that was supposed to catch drift could not, twice over. THE FIX: this file is bound by a sha256 digest OF THIS CANONICAL FILE, recorded as the SAME literal constant in BOTH repos (engine: tests/test_space_adapter.py::_CANONICAL_REACH_VECTORS_SHA256; Tavern, B8c-2: reach.test.ts's own checksum test pins its local copy to that identical literal) -- so any edit here reds BOTH suites in its own commit, which is the forcing function that makes the re-sync happen, not a one-time human read. NO SIBLING-PATH READ: a prior version of this mechanism had the Tavern test load this file directly via a relative path across repos, which is INERT in every worktree the build pipeline actually uses (a worktree checkout under SuzusTavern/.worktrees/<item>/ has no sibling NekoNova-DnDEngine directory for '../NekoNova-DnDEngine/...' to resolve to) and could not detect drift even when it did resolve (editing the canonical file does not change a separately-committed local copy's digest) -- B8c-2's own local copy, checksum-pinned to the literal above, is the ONLY read path now. B8b step 7 (design §4) re-points `expected_legal` at the REAL legality predicate, `engine.combat.move_legality`, instead of a hard-coded formula -- the engine test now calls that function directly, so a fixture case exercises exactly the code the verb runs at request time. Every case is `space` (the real wire shape: kind/width/height/cell/blocked) + `from`/`to`/`expected` (`expected: null` = unreachable, matching `SquareSpace.cost`'s `None` return and `reach.ts`'s expected `undefined`/`null` -- COST semantics, the adapter's own contract, computed independent of occupancy) + `budget` + `others` (participant_id -> at, for every OTHER living participant; `{}` when none -- the FILTERED input `engine.combat.living_participant_positions` would produce, never a raw roster) + `expected_legal` + `expected_reason` (`\"\"` when legal; the reason `move_legality` returns on refusal -- read ONLY by the engine test, since `expected_legal` alone can't catch 'refused for the wrong reason', exactly how a reason-code rename could drift from the Tavern's own copy map without this). Coordinator ruling (2026-09-28): `same_cell` is NOT a legal move -- `expected` stays 0 (pure geometry: standing still costs nothing to traverse), but `expected_legal` is `false` and `expected_reason` is `\"same_cell\"`. `occupied_by_dead_is_legal` / `occupied_by_living_is_refused` pin D1 IMP-8 / B8a IMP-5's living-only occupancy rule through the real predicate: the dead case's `others` is `{}` because a dead participant is ALREADY filtered out before `others` is built -- there is no raw corpse entry to carry here, the FILTERED shape IS the fixture's whole point. `from`-mismatch (the CAS / compare-and-set) is deliberately NOT a fixture case here: it is a STORE concern, a function of request timing, not of `(space, from, to, budget, others)` -- see tests/test_b8b_resolve_move.py and tests/test_b8b_move_route.py instead. `diagonal_one_step_costs_the_same_as_orthogonal`'s `budget` is `0`, not `4` (Kage-CR B8a-verify 🟢 E) -- a budget of 4 on a 5-ft grid is a number no 5e creature's speed produces; `0` is a real, reachable value (a speed-zeroed creature) and free to fix since the digest changes anyway.",
+  "cases": [
+    {
+      "name": "orthogonal_one_step",
+      "space": {
+        "kind": "square",
+        "width": 5,
+        "height": 5,
+        "cell": { "value": 5, "unit": "ft" },
+        "blocked": []
+      },
+      "from": [0, 0],
+      "to": [0, 1],
+      "expected": 5,
+      "budget": 5,
+      "others": {},
+      "expected_legal": true,
+      "expected_reason": ""
+    },
+    {
+      "name": "diagonal_one_step_costs_the_same_as_orthogonal",
+      "space": {
+        "kind": "square",
+        "width": 5,
+        "height": 5,
+        "cell": { "value": 5, "unit": "ft" },
+        "blocked": []
+      },
+      "from": [0, 0],
+      "to": [1, 1],
+      "expected": 5,
+      "budget": 0,
+      "others": {},
+      "expected_legal": false,
+      "expected_reason": "no_movement_remaining"
+    },
+    {
+      "name": "diagonal_multi_step",
+      "space": {
+        "kind": "square",
+        "width": 5,
+        "height": 5,
+        "cell": { "value": 5, "unit": "ft" },
+        "blocked": []
+      },
+      "from": [0, 0],
+      "to": [3, 3],
+      "expected": 15,
+      "budget": 15,
+      "others": {},
+      "expected_legal": true,
+      "expected_reason": ""
+    },
+    {
+      "name": "asymmetric_axis_uses_the_larger_delta",
+      "space": {
+        "kind": "square",
+        "width": 6,
+        "height": 6,
+        "cell": { "value": 5, "unit": "ft" },
+        "blocked": []
+      },
+      "from": [0, 0],
+      "to": [4, 1],
+      "expected": 20,
+      "budget": 30,
+      "others": {},
+      "expected_legal": true,
+      "expected_reason": ""
+    },
+    {
+      "name": "cell_value_10",
+      "space": {
+        "kind": "square",
+        "width": 5,
+        "height": 5,
+        "cell": { "value": 10, "unit": "ft" },
+        "blocked": []
+      },
+      "from": [0, 0],
+      "to": [2, 0],
+      "expected": 20,
+      "budget": 15,
+      "others": {},
+      "expected_legal": false,
+      "expected_reason": "no_movement_remaining"
+    },
+    {
+      "name": "same_cell_costs_zero",
+      "space": {
+        "kind": "square",
+        "width": 5,
+        "height": 5,
+        "cell": { "value": 5, "unit": "ft" },
+        "blocked": []
+      },
+      "from": [2, 2],
+      "to": [2, 2],
+      "expected": 0,
+      "budget": 30,
+      "others": {},
+      "expected_legal": false,
+      "expected_reason": "same_cell"
+    },
+    {
+      "name": "blocked_destination_is_unreachable",
+      "space": {
+        "kind": "square",
+        "width": 5,
+        "height": 5,
+        "cell": { "value": 5, "unit": "ft" },
+        "blocked": [[2, 2]]
+      },
+      "from": [0, 0],
+      "to": [2, 2],
+      "expected": null,
+      "budget": 30,
+      "others": {},
+      "expected_legal": false,
+      "expected_reason": "invalid_destination"
+    },
+    {
+      "name": "destination_out_of_bounds_is_unreachable",
+      "space": {
+        "kind": "square",
+        "width": 5,
+        "height": 5,
+        "cell": { "value": 5, "unit": "ft" },
+        "blocked": []
+      },
+      "from": [0, 0],
+      "to": [5, 0],
+      "expected": null,
+      "budget": 30,
+      "others": {},
+      "expected_legal": false,
+      "expected_reason": "invalid_destination"
+    },
+    {
+      "name": "origin_out_of_bounds_is_unreachable",
+      "space": {
+        "kind": "square",
+        "width": 5,
+        "height": 5,
+        "cell": { "value": 5, "unit": "ft" },
+        "blocked": []
+      },
+      "from": [-1, 0],
+      "to": [1, 0],
+      "expected": null,
+      "budget": 30,
+      "others": {},
+      "expected_legal": false,
+      "expected_reason": "mover_unplaced"
+    },
+    {
+      "name": "occupied_by_dead_is_legal",
+      "space": {
+        "kind": "square",
+        "width": 5,
+        "height": 5,
+        "cell": { "value": 5, "unit": "ft" },
+        "blocked": []
+      },
+      "from": [1, 1],
+      "to": [1, 2],
+      "expected": 5,
+      "budget": 5,
+      "others": {},
+      "expected_legal": true,
+      "expected_reason": ""
+    },
+    {
+      "name": "occupied_by_living_is_refused",
+      "space": {
+        "kind": "square",
+        "width": 5,
+        "height": 5,
+        "cell": { "value": 5, "unit": "ft" },
+        "blocked": []
+      },
+      "from": [0, 0],
+      "to": [0, 1],
+      "expected": 5,
+      "budget": 30,
+      "others": { "p-other": [0, 1] },
+      "expected_legal": false,
+      "expected_reason": "invalid_destination"
+    }
+  ]
+}
