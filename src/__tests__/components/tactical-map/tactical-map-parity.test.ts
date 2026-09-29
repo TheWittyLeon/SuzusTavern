@@ -122,6 +122,40 @@ function desent(o: unknown): unknown {
 
 const FIXTURE: { _mechanism: string; engine_commit: string; cases: RawCase[] } = JSON.parse(RAW);
 
+describe('desent — the sentinel decoder is pinned (Kage-CR B8c-3e 🟡 1, Tavern twin)', () => {
+  // reach.ts refuses NaN, +/-Infinity and a raw sentinel object alike, so a
+  // wrong decode of an INVALID value is invisible to the parity sweep below
+  // (the identity function passed every case engine-side). These make a
+  // broken decoder red.
+  it('decodes each sentinel, nested or not', () => {
+    expect(desent({ __SENT__: 'nan' })).toBeNaN();
+    expect(desent({ __SENT__: 'inf' })).toBe(Number.POSITIVE_INFINITY);
+    expect(desent({ __SENT__: '-inf' })).toBe(Number.NEGATIVE_INFINITY);
+    expect(desent([{ __SENT__: 'inf' }, 5])).toEqual([Number.POSITIVE_INFINITY, 5]);
+    expect(desent({ cell: { value: { __SENT__: '-inf' } } })).toEqual({ cell: { value: Number.NEGATIVE_INFINITY } });
+  });
+
+  it('leaves non-sentinel objects alone', () => {
+    expect(desent({})).toEqual({});
+    expect(desent({ __SENT__: 'nan', x: [{ __SENT__: 'inf' }] })).toEqual({ __SENT__: 'nan', x: [Number.POSITIVE_INFINITY] });
+  });
+
+  it('the fixture actually carries every sentinel, so the decoder is exercised', () => {
+    const found = new Set<string>();
+    const walk = (o: unknown): void => {
+      if (Array.isArray(o)) { o.forEach(walk); return; }
+      if (o !== null && typeof o === 'object') {
+        const rec = o as Record<string, unknown>;
+        const keys = Object.keys(rec);
+        if (keys.length === 1 && keys[0] === '__SENT__') { found.add(String(rec.__SENT__)); return; }
+        keys.forEach((k) => walk(rec[k]));
+      }
+    };
+    walk(JSON.parse(RAW));
+    expect([...found].sort()).toEqual(['-inf', 'inf', 'nan']);
+  });
+});
+
 describe('reach.ts vs the tactical-map parity fixture (Kage-CR B8c-3a 🟢 1, ledger item 19)', () => {
   it('the fixture matches the canonical sha256 digest', () => {
     const digest = crypto.createHash('sha256').update(RAW).digest('hex');
