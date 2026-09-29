@@ -21,6 +21,21 @@
  * target picker can display live HP and filter by can_be_targeted. The onAction
  * callback receives the participant_id (not the name) as payload for attack so the
  * play page can send target_id to the engine (name fallback retained for compat).
+ *
+ * A8 fix round, Kage-CR IMPORTANT-3 (2026-09-28): the import below is the
+ * only one in all of src/components/ that reaches into src/app/ — every
+ * other region depends on src/components/ the other way — and ActionBar's
+ * stylesheet is still Composer.module.css (see regions/ActionBar.tsx's own
+ * header). The Omit-based ComposerCombat alias is the right call and isn't
+ * itself the debt: it deletes together with the import in one edit at step
+ * 6/11, with no second field list to reconcile. What fights step 6 is
+ * placement — data-region="actionBar" sits on a node nested inside
+ * .composer, so a grid area supplied from the play root can't reach it.
+ *
+ * debt: ActionBar renders as Composer's child, so a shared component
+ * imports a route-private region and borrows its stylesheet.
+ * ceiling: fine while page.tsx is ActionBar's only transitive caller.
+ * until: step 6/11 renders ActionBar from the shell and combat leaves ComposerProps.
  */
 import { useEffect, useRef, type RefObject } from 'react';
 import Icon from '@/components/Icon';
