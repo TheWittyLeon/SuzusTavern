@@ -732,3 +732,102 @@ describe('TacticalMap — B8c-1 IMP-5: occupancy excludes the dead (engine parit
   });
 });
 
+
+describe('TacticalMap — B8c-1 IMP-9b: moveSubmitting gates a second onMove', () => {
+  function submittingProps(overrides: Partial<TacticalMapProps> = {}) {
+    const participants = [
+      makeParticipant({ participant_id: 'p1', name: 'Bren', at: [2, 2], movement_remaining: 10 }),
+    ];
+    return baseProps({
+      participants,
+      activeParticipantId: 'p1',
+      moveMode: true,
+      moveSubmitting: true,
+      ...overrides,
+    });
+  }
+
+  it('a click on an in-range cell does not call onMove while submitting', () => {
+    const onMove = jest.fn();
+    render(<TacticalMap {...submittingProps({ onMove })} />);
+    const target = screen.getByRole('gridcell', { name: /Row 2, column 3\./ }); // [2,1]
+    fireEvent.click(target);
+    expect(onMove).not.toHaveBeenCalled();
+  });
+
+  it('Enter on the focused in-range cell does not call onMove while submitting', () => {
+    const onMove = jest.fn();
+    render(<TacticalMap {...submittingProps({ onMove })} />);
+    const startCell = screen.getByRole('gridcell', { name: /Current position/ });
+    fireEvent.keyDown(startCell, { key: 'ArrowUp' }); // focus -> [2,1]
+    fireEvent.keyDown(screen.getByRole('gridcell', { name: /Row 2, column 3\./ }), {
+      key: 'Enter',
+    });
+    expect(onMove).not.toHaveBeenCalled();
+  });
+
+  it('the same click works again once moveSubmitting flips back to false', () => {
+    const onMove = jest.fn();
+    const { rerender } = render(<TacticalMap {...submittingProps({ onMove })} />);
+    const target = screen.getByRole('gridcell', { name: /Row 2, column 3\./ });
+    fireEvent.click(target);
+    expect(onMove).not.toHaveBeenCalled();
+
+    rerender(<TacticalMap {...submittingProps({ onMove, moveSubmitting: false })} />);
+    fireEvent.click(screen.getByRole('gridcell', { name: /Row 2, column 3\./ }));
+    expect(onMove).toHaveBeenCalledWith([2, 1]);
+  });
+
+  it('keyboard focus stays on the same cell across the submitting flip (never lost or moved)', () => {
+    const { rerender } = render(<TacticalMap {...submittingProps()} />);
+    const startCell = screen.getByRole('gridcell', { name: /Current position/ });
+    fireEvent.keyDown(startCell, { key: 'ArrowUp' });
+    const focused = screen.getByRole('gridcell', { name: /Row 2, column 3\./ });
+    expect(document.activeElement).toBe(focused);
+
+    rerender(<TacticalMap {...submittingProps({ moveSubmitting: false })} />);
+    expect(document.activeElement).toBe(focused);
+    expect(focused).toHaveAttribute('tabindex', '0');
+
+    rerender(<TacticalMap {...submittingProps({ moveSubmitting: true })} />);
+    expect(document.activeElement).toBe(focused);
+  });
+
+  it('aria-busy is set on the grid while submitting, and absent otherwise', () => {
+    const { rerender } = render(<TacticalMap {...submittingProps()} />);
+    expect(screen.getByRole('grid')).toHaveAttribute('aria-busy', 'true');
+
+    rerender(<TacticalMap {...submittingProps({ moveSubmitting: false })} />);
+    expect(screen.getByRole('grid')).not.toHaveAttribute('aria-busy');
+  });
+
+  it('aria-disabled is set on in-range move targets while submitting, and absent otherwise (and never on out-of-range cells)', () => {
+    // A 10x10 board (vs. the 5x5 default) so there's a cell genuinely out of
+    // the 10ft/2-cell budget from [2,2] — on the default 5x5 board every
+    // cell is within 2 Chebyshev cells of the center, so none would qualify.
+    const { rerender } = render(
+      <TacticalMap {...submittingProps({ space: makeSpace({ width: 10, height: 10 }) })} />,
+    );
+    const target = screen.getByRole('gridcell', { name: /Row 2, column 3\./ }); // [2,1], in range
+    const outOfRange = screen.getByRole('gridcell', { name: /Row 10, column 10\./ }); // [9,9], out of range
+    expect(target).toHaveAttribute('aria-disabled', 'true');
+    expect(outOfRange).not.toHaveAttribute('aria-disabled');
+
+    rerender(<TacticalMap {...submittingProps({ moveSubmitting: false })} />);
+    expect(screen.getByRole('gridcell', { name: /Row 2, column 3\./ })).not.toHaveAttribute(
+      'aria-disabled',
+    );
+  });
+
+  it('an in-range cell carries the visual pending treatment (cellPending) only while submitting', () => {
+    const { rerender } = render(<TacticalMap {...submittingProps()} />);
+    expect(screen.getByRole('gridcell', { name: /Row 2, column 3\./ })).toHaveClass(
+      styles.cellPending,
+    );
+
+    rerender(<TacticalMap {...submittingProps({ moveSubmitting: false })} />);
+    expect(screen.getByRole('gridcell', { name: /Row 2, column 3\./ })).not.toHaveClass(
+      styles.cellPending,
+    );
+  });
+});

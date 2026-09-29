@@ -119,6 +119,19 @@
   cursor: pointer;
 }
 
+/* B8c-1 IMP-9b: an in-range cell while `moveSubmitting` is true — muted and
+   non-interactive (visual half of the pending state; `aria-disabled` on the
+   same element is the AT half, TacticalMap.tsx). Source order after
+   `.cellInRange` so the pointer cursor loses the tie deliberately — same
+   opacity-as-state-signal idiom `.tokenDowned`/`.tokenInvisible`/`.tokenDead`
+   already use above, no new token needed. No transition: this is a static
+   state flip, not an animation, so there is nothing for
+   prefers-reduced-motion to opt out of. */
+.cellPending {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .cellDestination {
   /* D1b item B (Kage-CR fold-forward): plain --cool measured 2.45:1 on
      candlelit's --bg-3 (fails the 3:1 non-text minimum for this outline) —

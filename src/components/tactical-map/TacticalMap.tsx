@@ -38,15 +38,21 @@
 //   8. Escape now routes through `consumeEscape` (Tora CRIT-1 = Kage
 //      IMPORTANT-3) — see `src/lib/a11y/escapeConsume.ts`.
 //
-// B8c-1 IMP-5 (2026-09-28, client half of the move verb that doesn't depend
-// on its wire shape — [[2026-09-27 Tavern 1.0 Drive — Reviews]] D1
-// IMPORTANT-8, B8a IMPORTANT-5): `occupiedByOthers` now excludes the dead
-// (`is_alive === false`), matching the engine ruling landed in B8a
-// (`engine/space.py::SquareSpace.occupied_by`'s docstring +
-// `engine.combat.living_participant_positions`): only LIVING participants
-// occupy a cell; the dead are walkable. A downed-but-alive participant (0
-// HP, `is_alive: true`) still occupies its cell — that is the engine's
-// `is_active` rule, not an HP check.
+// B8c-1 (2026-09-28, client half of the move verb that doesn't depend on its
+// wire shape — [[2026-09-27 Tavern 1.0 Drive — Reviews]] D1 IMPORTANT-8/9,
+// B8a IMPORTANT-5):
+//   IMP-5. `occupiedByOthers` now excludes the dead (`is_alive === false`),
+//      matching the engine ruling landed in B8a
+//      (`engine/space.py::SquareSpace.occupied_by`'s docstring +
+//      `engine.combat.living_participant_positions`): only LIVING
+//      participants occupy a cell; the dead are walkable. A downed-but-alive
+//      participant (0 HP, `is_alive: true`) still occupies its cell — that
+//      is the engine's `is_active` rule, not an HP check.
+//   IMP-9b. `moveSubmitting` (additive, optional) gates a second `onMove`
+//      from firing while the caller's own in-flight `/move` request hasn't
+//      resolved yet. The guard lives once in `attemptMove` (the one function
+//      both the click handler and the Enter/Space keyboard handler call),
+//      not duplicated per activation path.
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import type { CombatParticipantState, CombatSpace, SpaceCoordinate } from '@/lib/api/types';
 import { consumeEscape } from '@/lib/a11y/escapeConsume';
@@ -79,6 +85,15 @@ export interface TacticalMapProps {
    *  on a legal cell calls `onMove`. Caller-controlled — this component
    *  never decides on its own that it's "someone's turn to move". */
   moveMode: boolean;
+  /** True while the viewer's own confirmed move hasn't resolved yet
+   *  (B8c-1 IMP-9b, additive — omitted/false behaves exactly as before).
+   *  Gates every activation path from calling `onMove` a second time, and
+   *  mirrors the pending state to sighted users (a muted, non-interactive
+   *  look on the reach overlay) and assistive tech (`aria-busy` on the
+   *  grid, `aria-disabled` on the still-highlighted move targets) without
+   *  moving keyboard focus. The caller owns clearing it once its `/move`
+   *  request settles either way. */
+  moveSubmitting?: boolean;
   /** Called with the destination coordinate when the viewer confirms a
    *  legal cell (Enter/Space, or a click, on a cell this component's own
    *  `reach.ts` mirror considers reachable). The server's `/move` response
@@ -168,6 +183,7 @@ export default function TacticalMap({
   viewerParticipantId,
   activeParticipantId,
   moveMode,
+  moveSubmitting = false,
   onMove,
   onExitMove,
   className,
@@ -287,7 +303,11 @@ export default function TacticalMap({
       : false;
 
   function attemptMove(to: SpaceCoordinate) {
-    if (!space || !moveMode || !activeAt) return;
+    // B8c-1 IMP-9b: the one guard both activation paths (click's onClick
+    // below, and Enter/Space in handleGridKeyDown) go through — a second
+    // per-caller check would be the same-shape-sibling risk this function
+    // already exists to avoid.
+    if (!space || !moveMode || !activeAt || moveSubmitting) return;
     if (isLegalMoveTarget(space, activeAt, to, activeMovementRemaining, occupiedByOthers)) {
       onMove(to);
     }
@@ -347,6 +367,7 @@ export default function TacticalMap({
               ? `Battle map — ${activeParticipant.name}'s turn, ${activeMovementRemaining} feet remaining`
               : 'Battle map'
           }
+          aria-busy={moveSubmitting || undefined}
           onKeyDown={handleGridKeyDown}
         >
           {Array.from({ length: space.height }, (_, y) => (
@@ -369,6 +390,11 @@ export default function TacticalMap({
                 const isDestination = Boolean(
                   destinationCoord && coordKeyStr(destinationCoord) === key,
                 );
+                // B8c-1 IMP-9b: a move target while the caller's previous
+                // move hasn't resolved yet — visually muted (`.cellPending`)
+                // and disabled to AT, without touching this cell's tabIndex
+                // or unmounting it (keyboard focus must not move).
+                const pending = moveMode && inRange && moveSubmitting;
                 const { row1, col1 } = toDisplayRowCol(coord);
 
                 const desc = occupant ? describeOccupant(occupant, viewerParticipantId) : undefined;
@@ -382,6 +408,7 @@ export default function TacticalMap({
                     }}
                     role="gridcell"
                     tabIndex={coordsEqual(focusedCoord, coord) ? 0 : -1}
+                    aria-disabled={pending || undefined}
                     aria-label={cellAccessibleName({
                       row1,
                       col1,
@@ -395,6 +422,7 @@ export default function TacticalMap({
                       styles.cell,
                       blocked && styles.cellBlocked,
                       moveMode && inRange && styles.cellInRange,
+                      pending && styles.cellPending,
                       isDestination && destinationLegal && styles.cellDestination,
                     ]
                       .filter(Boolean)
