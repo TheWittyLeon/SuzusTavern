@@ -38,12 +38,31 @@
  *     (>=18.66px bold -> 3:1 applies instead of 4.5:1) — dusk-tavern's
  *     `--on-fill` on `--bad` was the one pair that needed it (4.14:1, fails
  *     4.5, clears 3).
- *   - `.feature` and `.destinationTag` mirror Pill.tsx's own tone-map
- *     pattern exactly: a light tint of the decorative token
- *     (`color-mix(in oklab, var(--X) N%, transparent)`) as the fill, paired
- *     with that token's dedicated `--X-ink` variant as the foreground —
- *     the same reuse Pill's "warm"/"cool" tones already rely on, not a new
- *     contrast strategy for this component to maintain alone.
+ *   - `.feature` mirrors Pill.tsx's own tone-map pattern exactly: a light
+ *     tint of the decorative token (`color-mix(in oklab, var(--X) N%,
+ *     transparent)`) as the fill, paired with that token's dedicated
+ *     `--X-ink` variant as the foreground — the same reuse Pill's
+ *     "warm"/"cool" tones already rely on, not a new contrast strategy for
+ *     this component to maintain alone.
+ *
+ * RESOLUTION (Iro-A11y MAJOR-1 re-open, Kage-CR IMPORTANT-6, 2026-09-28
+ * fix-round-2): `.destinationTag` used to follow the SAME translucent-tint
+ * pattern as `.feature` — but a translucent tint's contrast can only be
+ * pinned against the ONE backdrop it was measured on, and both this
+ * component's `.cellInRange` accent tint AND `.cellPending`'s hash sit
+ * BEHIND the tag whenever it renders (it renders only on a cell that is
+ * also `.cellInRange`), so a pin against bare `--bg-3` was measuring a
+ * backdrop that can't occur. `.destinationTag` is now a fully OPAQUE fill
+ * (`.eyeBadge`'s solid-punch-through pattern, `--bg-3` + `--cool-ink`) —
+ * backdrop-independent by construction, so this is a documented EXCEPTION
+ * to the tint pattern rather than a second instance of it. `.feature`
+ * keeps the tint (re-derived against the REAL `.cellInRange`-tinted
+ * backdrop in contrast.test.ts — still clears its 3:1 large-text floor in
+ * all 5 palettes there). The same "tint pinned against an impossible bare-
+ * `--bg-3` backdrop" shape is latent at `Pill.tsx:60` and
+ * `Play.module.css:434-443` (neither touched by this component) — tracked
+ * as `TAV-TINTED-FILL-CONTRAST-BACKDROP` for whoever picks up that Backlog
+ * row.
  */
 
 .wrap {
@@ -327,12 +346,28 @@
   transform: translateX(-50%);
   font-family: var(--font-mono);
   font-size: 9px;
-  /* Contrast note above: same Pill-tone reuse as .feature — the pill's own
-     80%-opaque --cool fill measured 2.95:1 on candlelit (fails 4.5:1, and a
-     9px tag can never claim the large-text exemption); a light --cool tint
-     + --cool-ink clears every palette (contrast.test.ts). */
+  /* Iro-A11y MAJOR-1 re-open, Kage-CR IMPORTANT-6 (2026-09-28,
+     fix-round-2): the light --cool TINT this used to carry was pinned
+     against bare --bg-3, but this tag only ever renders on a cell that is
+     ALSO `.cellInRange` (same `reachableCells` predicate,
+     `isLegalMoveTarget` in reach.ts) — so its REAL backdrop always
+     includes .cellInRange's own accent tint underneath, and on a pending
+     destination the hash too. Recomputed against that real backdrop
+     (contrast.test.ts): 5/5 palettes dropped under 4.5:1 once pending
+     (worst case ~2.6-3.8:1), and two failed even at rest. A translucent
+     tint's contrast can only ever be pinned against the ONE backdrop it
+     was measured on — so this now uses a FULLY OPAQUE fill, same
+     solid-punch-through pattern `.eyeBadge` above already uses (`--bg-3`
+     + `--cool-ink`): nothing behind it — tint, hash, or any future
+     overlay — can ever bleed through, and the pin below is backdrop-
+     independent by construction rather than modeling one specific
+     backdrop correctly. `.feature` below keeps the translucent-tint
+     pattern (it is not blocking for a text-contrast floor once measured
+     against ITS real backdrop) — see the file header's CONTRAST note for
+     the tracked cross-file latent shape (TAV-TINTED-FILL-CONTRAST-
+     BACKDROP). */
   color: var(--cool-ink);
-  background: color-mix(in oklab, var(--cool) 10%, transparent);
+  background: var(--bg-3);
   padding: 1px 4px;
   border-radius: var(--radius-pill);
   white-space: nowrap;

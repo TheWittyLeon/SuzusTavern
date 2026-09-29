@@ -300,6 +300,39 @@ function extractCellPendingContainerOpacity(css: string): number {
   return m[2] === '%' ? value / 100 : value;
 }
 
+/**
+ * `.destinationTag`'s ACTUAL rendered background, read from its
+ * `background` declaration rather than assumed opaque — Kage-CR B8c-1
+ * IMPORTANT-6 (fix-round-2). A fully opaque `var(--bg-3)` fill (today's
+ * fixed state) is backdrop-independent, so this returns `p.bg3` regardless
+ * of what is behind the cell. A translucent `color-mix(in oklab,
+ * var(--cool) N%, transparent)` tint (the pre-fix, MAJOR-1-re-opened
+ * shape) is composited over `realBackdropHex` exactly like `.feature`'s
+ * tint elsewhere in this file — so a REGRESSION back to the tint is
+ * caught by the resulting contrast ratio actually dropping, not by this
+ * function silently assuming one shape or the other. Throws on any other
+ * construction, so a future change to a different property/function fails
+ * loudly rather than this pin checking nothing.
+ */
+function destinationTagRenderedBg(css: string, p: Palette, realBackdropHex: string): string {
+  const body = extractCssRuleBody(css, 'destinationTag');
+  const backgroundMatch = /\bbackground\s*:\s*([^;]+);/.exec(body);
+  if (!backgroundMatch) {
+    throw new Error(
+      "contrast.test.ts: .destinationTag has no background declaration — did the fill move to a different property?",
+    );
+  }
+  const value = backgroundMatch[1].trim();
+  if (value === 'var(--bg-3)') return p.bg3;
+  const tintMatch = /color-mix\(in oklab,\s*var\(--cool\)\s*([0-9.]+)%,\s*transparent\)/.exec(value);
+  if (tintMatch) {
+    return alphaOver(p.cool, parseFloat(tintMatch[1]) / 100, realBackdropHex);
+  }
+  throw new Error(
+    `contrast.test.ts: .destinationTag's background is an unrecognised construction — "${value}"`,
+  );
+}
+
 const CELL_IN_RANGE_ACCENT_ALPHA = extractCellInRangeAccentAlpha(TACTICAL_MAP_CSS);
 const CELL_IN_RANGE_FILL_ALPHA = extractCellInRangeFillAlpha(TACTICAL_MAP_CSS);
 const CELL_PENDING_CONTAINER_OPACITY = extractCellPendingContainerOpacity(TACTICAL_MAP_CSS);
@@ -408,36 +441,87 @@ describe('TacticalMap contrast — D1 CR#1 coordinator decision 5 (existing toke
     });
   });
 
-  describe('.feature glyph (--warm-ink on a 16% --warm tint over --bg-3) — large text (>=18.66px bold -> 3:1)', () => {
-    for (const name of PALETTE_NAMES) {
-      const p = PALETTES[name];
-      it(`${name}: warm-ink vs the 16% warm tint over bg-3 clears 3:1`, () => {
+  describe('.feature glyph (--warm-ink on a 16% --warm tint) — large text (>=18.66px bold -> 3:1)', () => {
+    describe('baseline: tint over bare --bg-3 (why the tint+large-text combo was needed at all)', () => {
+      for (const name of PALETTE_NAMES) {
+        const p = PALETTES[name];
+        it(`${name}: warm-ink vs the 16% warm tint over bg-3 clears 3:1`, () => {
+          const composite = alphaOver(p.warm, 0.16, p.bg3);
+          expect(contrast(p.warmInk, composite)).toBeGreaterThanOrEqual(3);
+        });
+      }
+
+      it('candlelit is the pair that actually needed the tint+large-text combo (solid --warm + --on-fill fails even 3:1, at 2.24:1)', () => {
+        const p = PALETTES.candlelit;
+        expect(contrast(p.onFill, p.warm)).toBeLessThan(3);
         const composite = alphaOver(p.warm, 0.16, p.bg3);
         expect(contrast(p.warmInk, composite)).toBeGreaterThanOrEqual(3);
       });
-    }
+    });
 
-    it('candlelit is the pair that actually needed the tint+large-text combo (solid --warm + --on-fill fails even 3:1, at 2.24:1)', () => {
-      const p = PALETTES.candlelit;
-      expect(contrast(p.onFill, p.warm)).toBeLessThan(3);
-      const composite = alphaOver(p.warm, 0.16, p.bg3);
-      expect(contrast(p.warmInk, composite)).toBeGreaterThanOrEqual(3);
+    describe("real backdrop: tint over .cellInRange's OWN accent fill, not bare --bg-3 (Kage-CR B8c-1 IMPORTANT-6, 2026-09-28 fix-round-2)", () => {
+      // .feature renders whenever a cell carries a decorative marker and
+      // no occupant — nothing in reachableCells excludes feature cells, so
+      // a feature cell within reach is ALSO .cellInRange, and the glyph's
+      // real backdrop is the accent-tinted fill underneath, not bare
+      // --bg-3. Not a live violation (all five still clear 3:1 here,
+      // 3.56-5.15 measured) — re-derived so the pin models the backdrop
+      // that actually occurs, closing the same "impossible bare-bg3
+      // backdrop" gap `.destinationTag`'s fix (below) closed differently.
+      // `.feature`, `Pill.tsx:60` and `Play.module.css:434-443` carry the
+      // same latent tinted-fill-over-a-tinted-surface shape — tracked as
+      // TAV-TINTED-FILL-CONTRAST-BACKDROP (see this file's own header
+      // comment for the cross-file note).
+      for (const name of PALETTE_NAMES) {
+        const p = PALETTES[name];
+        it(`${name}: warm-ink vs the 16% warm tint over .cellInRange's real accent fill clears 3:1`, () => {
+          const cellInRangeBg = alphaOver(p.accent, CELL_IN_RANGE_FILL_ALPHA, p.bg3);
+          const composite = alphaOver(p.warm, 0.16, cellInRangeBg);
+          expect(contrast(p.warmInk, composite)).toBeGreaterThanOrEqual(3);
+        });
+      }
     });
   });
 
-  describe('.destinationTag text (--cool-ink on a 10% --cool tint over --bg-3) — small text (9px), 4.5:1, NO large-text exemption available', () => {
+  describe('.destinationTag (--cool-ink on its ACTUAL rendered background) — small text (9px), 4.5:1, NO large-text exemption available', () => {
+    // Iro-A11y MAJOR-1 re-open, Kage-CR IMPORTANT-6 (2026-09-28
+    // fix-round-2): the previous translucent 10% --cool tint was pinned
+    // against bare --bg-3, but the tag's REAL backdrop always includes
+    // .cellInRange's own accent fill underneath, and on a pending
+    // destination the hash too. `destinationTagRenderedBg` reads
+    // `.destinationTag`'s OWN `background` declaration off disk rather
+    // than assuming the fix landed — composited against the WORST-CASE
+    // real backdrop (accent fill + pending hash) — so this is a genuine
+    // regression guard: a revert back to the translucent tint reproduces
+    // the exact failure (mutation-verified: reverting the real file to the
+    // old tint on disk and rerunning reds this describe; restoring
+    // returns it to green).
     for (const name of PALETTE_NAMES) {
       const p = PALETTES[name];
-      it(`${name}: cool-ink vs the 10% cool tint over bg-3 clears 4.5:1`, () => {
-        const composite = alphaOver(p.cool, 0.10, p.bg3);
-        expect(contrast(p.coolInk, composite)).toBeGreaterThanOrEqual(4.5);
+      it(`${name}: cool-ink vs .destinationTag's real rendered background clears 4.5:1 even on the worst-case (pending) backdrop`, () => {
+        const cellInRangeBg = alphaOver(p.accent, CELL_IN_RANGE_FILL_ALPHA, p.bg3);
+        const pendingBg = rgbaOverHex(p.lineStrong, CELL_PENDING_STRIPE_ALPHA_MULTIPLIER, cellInRangeBg);
+        const renderedBg = destinationTagRenderedBg(TACTICAL_MAP_CSS, p, pendingBg);
+        expect(contrast(p.coolInk, renderedBg)).toBeGreaterThanOrEqual(4.5);
       });
     }
 
-    it('the original 80%-opaque --cool fill + --on-accent (pre-fix) fails 4.5:1 in candlelit specifically (Kage-CR D1 IMPORTANT-5: 2.95:1)', () => {
-      const p = PALETTES.candlelit;
-      const oldComposite = alphaOver(p.cool, 0.80, p.bg3);
-      expect(contrast(p.onAccent, oldComposite)).toBeLessThan(4.5);
+    it("today's opaque fill renders as plain --bg-3, independent of what backdrop was passed in (proves the opacity fix, not just the resulting ratio)", () => {
+      const p = PALETTES['dusk-tavern'];
+      expect(destinationTagRenderedBg(TACTICAL_MAP_CSS, p, '#000000')).toBe(p.bg3);
+      expect(destinationTagRenderedBg(TACTICAL_MAP_CSS, p, '#ffffff')).toBe(p.bg3);
+    });
+
+    it('control: a synthetic translucent .destinationTag (the pre-fix shape) composites over the given backdrop instead of returning bg3, and fails 4.5:1 against the real worst-case backdrop in every palette', () => {
+      const tintedCss = `.destinationTag { background: color-mix(in oklab, var(--cool) 10%, transparent); }`;
+      for (const name of PALETTE_NAMES) {
+        const p = PALETTES[name];
+        const cellInRangeBg = alphaOver(p.accent, CELL_IN_RANGE_FILL_ALPHA, p.bg3);
+        const pendingBg = rgbaOverHex(p.lineStrong, CELL_PENDING_STRIPE_ALPHA_MULTIPLIER, cellInRangeBg);
+        const renderedBg = destinationTagRenderedBg(tintedCss, p, pendingBg);
+        expect(renderedBg).not.toBe(p.bg3);
+        expect(contrast(p.coolInk, renderedBg)).toBeLessThan(4.5);
+      }
     });
   });
 
@@ -530,7 +614,7 @@ describe('TacticalMap contrast — D1 CR#1 coordinator decision 5 (existing toke
     });
   });
 
-  describe('.cellPending must not degrade the reach ring or the destination tag below their own un-pending baseline (Iro-A11y MAJOR-1, 2026-09-28)', () => {
+  describe('.cellPending must not degrade the reach ring below its own un-pending baseline (Iro-A11y MAJOR-1, 2026-09-28)', () => {
     // A container `opacity` composites the WHOLE cell subtree — ring, tag
     // and every other child alike — to one flattened layer before it lands
     // on the board (that is what a browser's compositor does for `opacity`
@@ -552,7 +636,11 @@ describe('TacticalMap contrast — D1 CR#1 coordinator decision 5 (existing toke
     // box-shadow and below every child element (see the rule's own comment
     // in TacticalMap.module.css) — it paints over neither the ring nor the
     // tag, so nothing needs compositing IN beyond the container-opacity
-    // term itself.
+    // term itself. `.destinationTag` no longer needs a degradation check
+    // here (Kage-CR IMPORTANT-6 fix-round-2): it is a fully opaque fill
+    // now, so no container opacity or backdrop change can ever move its
+    // contrast — see its own solid-pair pin in the `.destinationTag`
+    // describe above, which needs no compositing at all.
     for (const name of PALETTE_NAMES) {
       const p = PALETTES[name];
 
@@ -563,24 +651,6 @@ describe('TacticalMap contrast — D1 CR#1 coordinator decision 5 (existing toke
         const pendingRatio = contrast(pendingRing, p.bg3);
         expect(pendingRatio).toBeCloseTo(baselineRatio, 2);
       });
-
-      it(`${name}: destinationTag text under .cellPending equals its own un-pending baseline (no degradation), and both clear 4.5:1`, () => {
-        const tagComposite = alphaOver(p.cool, 0.10, p.bg3);
-        const baselineRatio = contrast(p.coolInk, tagComposite);
-        // The tag's fill AND its ink each fade toward `--bg-3`
-        // independently under a container opacity — two separate elements
-        // inside the same flattened subtree, not one layered atop the
-        // other.
-        const pendingTagBg = alphaOver(tagComposite, CELL_PENDING_CONTAINER_OPACITY, p.bg3);
-        const pendingTagInk = alphaOver(p.coolInk, CELL_PENDING_CONTAINER_OPACITY, p.bg3);
-        const pendingRatio = contrast(pendingTagInk, pendingTagBg);
-        expect(pendingRatio).toBeCloseTo(baselineRatio, 2);
-        // Unlike the ring, the tag's baseline clears 4.5:1 in all 5
-        // palettes (see the un-pending `.destinationTag text` describe
-        // above) — so an absolute floor is also valid here, not just the
-        // no-degradation check.
-        expect(pendingRatio).toBeGreaterThanOrEqual(4.5);
-      });
     }
 
     it('.cellPending declares no dimming mechanism at all today (the MAJOR-1 fix itself), in ANY spelling — Kage-CR IMPORTANT-1 fix-round-2, replacing the narrower "opacity numeric value is 1" pin', () => {
@@ -590,21 +660,13 @@ describe('TacticalMap contrast — D1 CR#1 coordinator decision 5 (existing toke
       expect(CELL_PENDING_CONTAINER_OPACITY).toBe(1);
     });
 
-    it("sanity: at the OLD 0.6 container opacity, dusk-tavern's ring and tag actually degrade below their baseline — this proves the `alphaOver` compositing MATH above is discriminating, not vacuously true (it never reads the stylesheet, so it is not itself a regression guard for the CSS — assertNoDimmingDeclaration above and the mutation suite below are)", () => {
+    it("sanity: at the OLD 0.6 container opacity, dusk-tavern's ring actually degrades below its baseline — this proves the `alphaOver` compositing MATH above is discriminating, not vacuously true (it never reads the stylesheet, so it is not itself a regression guard for the CSS — assertNoDimmingDeclaration above and the mutation suite below are)", () => {
       const p = PALETTES['dusk-tavern'];
       const ringComposite = alphaOver(p.accent, CELL_IN_RANGE_ACCENT_ALPHA, p.bg3);
       const baselineRingRatio = contrast(ringComposite, p.bg3);
       const oldPendingRing = alphaOver(ringComposite, 0.6, p.bg3);
       expect(contrast(oldPendingRing, p.bg3)).toBeLessThan(baselineRingRatio);
       expect(contrast(oldPendingRing, p.bg3)).toBeLessThan(3);
-
-      const tagComposite = alphaOver(p.cool, 0.10, p.bg3);
-      const baselineTagRatio = contrast(p.coolInk, tagComposite);
-      const oldPendingTagBg = alphaOver(tagComposite, 0.6, p.bg3);
-      const oldPendingTagInk = alphaOver(p.coolInk, 0.6, p.bg3);
-      const oldPendingTagRatio = contrast(oldPendingTagInk, oldPendingTagBg);
-      expect(oldPendingTagRatio).toBeLessThan(baselineTagRatio);
-      expect(oldPendingTagRatio).toBeLessThan(4.5);
     });
   });
 
