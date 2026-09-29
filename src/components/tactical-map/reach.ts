@@ -95,6 +95,11 @@ export function isLegalMoveTarget(
   if (!inBounds(space, to)) return false;
   const toKey = coordKey(to);
   if (toKey === coordKey(from)) return false;
+  // The engine's `move_legality` refuses a mover whose own cell is off the
+  // board (`mover_unplaced`) before it prices anything; mirror it so the
+  // preview never offers a move the server will refuse (reach_vectors
+  // `origin_out_of_bounds_is_unreachable`).
+  if (!inBounds(space, from)) return false;
   // Kage-CR D1 CRITICAL-1: see reachableCells' matching comment above.
   if ((space.blocked ?? []).some((b) => coordKey(b) === toKey)) return false;
   if (occupied.some((o) => coordKey(o) === toKey)) return false;

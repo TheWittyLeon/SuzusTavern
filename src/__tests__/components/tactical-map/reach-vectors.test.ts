@@ -85,37 +85,9 @@ describe('reach.ts vs the shared reach-vector fixture (B8c-2, design brief §4)'
     expect(new Set(names).size).toBe(names.length);
   });
 
-  // ── KNOWN CLIENT/ENGINE DIVERGENCE — reported, not silently absorbed ─────
-  // `origin_out_of_bounds_is_unreachable`: reach.ts's `isLegalMoveTarget`
-  // bounds-checks only `to`, never `from` — the engine's `move_legality`
-  // refuses this case at step 4 (`mover_unplaced`) before cost is even
-  // computed. Measured directly: the client returns `true` (legal) for a
-  // mover whose OWN cell is off the board; the engine's real answer is
-  // `false`. Not fixed here — reach.ts is a client-side PREVIEW mirror
-  // whose own module header already states the server's `/move` response
-  // is sole authority on disagreement (design §4), and this is a genuinely
-  // separate finding from this item's scope (the fixture pin, not a
-  // reach.ts behaviour change). Reported to the coordinator per the build
-  // brief's own instruction for this item; NOT "fixed" by editing the
-  // fixture's `expected_legal` to match the client's wrong answer.
-  const KNOWN_DIVERGENCES: Record<string, string> = {
-    origin_out_of_bounds_is_unreachable:
-      'isLegalMoveTarget never bounds-checks `from`, only `to` — client says legal, engine refuses mover_unplaced',
-  };
-
-  it.each(FIXTURE.cases)('$name: isLegalMoveTarget agrees with the engine\'s move_legality (or is a documented divergence)', (c) => {
+  it.each(FIXTURE.cases)('$name: isLegalMoveTarget agrees with the engine\'s move_legality', (c) => {
     const occupied = occupiedFromOthers(c.others);
-    const actual = isLegalMoveTarget(c.space, c.from, c.to, c.budget, occupied);
-    if (c.name in KNOWN_DIVERGENCES) {
-      // Pin the CURRENT (wrong) client behaviour so a future silent fix to
-      // reach.ts is visible here as an intentional change, not a surprise —
-      // and pin that it really does diverge from the engine's real answer,
-      // so this entry can't go stale into "this case doesn't diverge
-      // anymore" without anyone noticing.
-      expect(actual).not.toBe(c.expected_legal);
-      return;
-    }
-    expect(actual).toBe(c.expected_legal);
+    expect(isLegalMoveTarget(c.space, c.from, c.to, c.budget, occupied)).toBe(c.expected_legal);
   });
 
   it.each(FIXTURE.cases.filter((c) => c.expected !== null))(
