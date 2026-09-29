@@ -119,16 +119,48 @@
   cursor: pointer;
 }
 
-/* B8c-1 IMP-9b: an in-range cell while `moveSubmitting` is true — muted and
-   non-interactive (visual half of the pending state; `aria-disabled` on the
-   same element is the AT half, TacticalMap.tsx). Source order after
-   `.cellInRange` so the pointer cursor loses the tie deliberately — same
-   opacity-as-state-signal idiom `.tokenDowned`/`.tokenInvisible`/`.tokenDead`
-   already use above, no new token needed. No transition: this is a static
+/* B8c-1 IMP-9b (Iro-A11y MAJOR-1 fix, 2026-09-28 — was a blanket container
+   `opacity: 0.6`): a container opacity composites the WHOLE cell subtree —
+   `.cellInRange`'s inset accent@55% reach ring AND `.destinationTag`'s text
+   included — to one flattened layer before it lands on the board, which
+   dragged both pairs below WCAG AA in 5/5 palettes
+   (contrast.test.ts's ".cellPending stays at full ring/tag strength" cases
+   pin this; re-adding a container `opacity` here reproduces the exact
+   failure automatically, no test edit required — the harness reads this
+   rule's own `opacity` declaration off disk, it does not mirror a literal).
+   "Pending" must read as reachable-but-momentarily-inert, not as an
+   obstacle, so this is deliberately NOT `.cellBlocked`'s hash reused
+   verbatim — three differences, all visual, none color-only:
+     - opposite diagonal ("/" here vs `.cellBlocked`'s "\", i.e. -45deg vs
+       45deg — a different direction reads as a different state at a
+       glance, not just a paler version of the same one);
+     - a thinner stripe over a wider gap (2px/12px here vs blocked's dense
+       4px/9px — sparser, lighter, "momentary" rather than "solid wall");
+     - the pattern's own ink faded via `color-mix` (fades only the hash's
+       own pixels — it cannot touch a child element's or a box-shadow's
+       alpha the way a container opacity did, so nothing downstream needs
+       compositing back in).
+   Applied via `background-image` only — `.cellInRange`'s `background`
+   shorthand above already owns `background-color` (the accent tint); this
+   adds a second background LAYER on top of that color rather than
+   replacing it via the shorthand. Background layers paint below border/
+   box-shadow/content in normal box painting order, so this hash sits
+   strictly BEHIND `.cellInRange`'s inset ring and behind every child
+   (token, destinationTag) — it cannot dim either one. Deliberately no
+   `box-shadow` here for the same reason `.tokenActive.tokenDowned` above
+   has to combine explicitly: two same-specificity single-class rules each
+   setting `box-shadow` do not merge, the later one simply replaces the
+   earlier one wholesale — adding one here would silently delete
+   `.cellInRange`'s ring instead of layering with it. cursor stays
+   not-allowed: still non-interactive. No transition: this is a static
    state flip, not an animation, so there is nothing for
    prefers-reduced-motion to opt out of. */
 .cellPending {
-  opacity: 0.6;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    color-mix(in oklab, var(--line-strong) 40%, transparent) 0 2px,
+    transparent 2px 12px
+  );
   cursor: not-allowed;
 }
 

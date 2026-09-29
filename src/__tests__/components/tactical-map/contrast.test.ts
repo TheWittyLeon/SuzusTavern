@@ -76,6 +76,92 @@ const PALETTES = parseGlobalsPalette(fs.readFileSync(GLOBALS_CSS_PATH, 'utf8'));
 
 const PALETTE_NAMES = Object.keys(PALETTES);
 
+/**
+ * B8c-1 / Iro-A11y MAJOR-1 (2026-09-28): `.cellPending`'s reach-ring and
+ * destination-tag pins below read `.cellInRange`'s and `.cellPending`'s OWN
+ * rules straight out of `TacticalMap.module.css` on disk — same
+ * read-the-file-not-a-mirrored-literal pattern `parseGlobalsPalette` uses
+ * for `globals.css` — rather than hand-copying the 55% ring alpha or the
+ * (now-absent) container opacity as numeric literals in this test. A CSS
+ * change to either rule flows straight into the math below with no test
+ * edit required; the alternative (a hand-mirrored literal) is the exact
+ * failure this file's own header already names as resolved debt for the
+ * palette table, and MAJOR-1 is the same class of bug (a container opacity
+ * silently changed what these pairs actually render at).
+ */
+const TACTICAL_MAP_CSS_PATH = path.join(
+  process.cwd(),
+  'src/components/tactical-map/TacticalMap.module.css',
+);
+const TACTICAL_MAP_CSS = fs.readFileSync(TACTICAL_MAP_CSS_PATH, 'utf8');
+
+function stripCssComments(css: string): string {
+  return css.replace(/\/\*[\s\S]*?\*\//g, ' ');
+}
+
+/** Extracts the `{ ... }` body of the first `.<selector> { ... }` rule found
+ *  (flat declarations only, same non-greedy-`[^}]*` assumption
+ *  `paletteContrastParser.ts` makes for `[data-vibe]` blocks — true for
+ *  every rule in this file today). Throws if the selector itself is gone
+ *  (a rename/restructure this parser cannot follow), so a structural
+ *  change fails loudly instead of this test silently checking nothing. */
+function extractCssRuleBody(css: string, selector: string): string {
+  const stripped = stripCssComments(css);
+  const re = new RegExp(`\\.${selector}\\s*\\{([^}]*)\\}`);
+  const m = re.exec(stripped);
+  if (!m) {
+    throw new Error(
+      `contrast.test.ts: .${selector} rule not found in TacticalMap.module.css`,
+    );
+  }
+  return m[1];
+}
+
+/**
+ * The reach ring's own alpha, read from `.cellInRange`'s `box-shadow`
+ * specifically (NOT its `background` — that's the 20% fill tint, a
+ * different `color-mix(--accent)` in the same rule) — not mirrored as a
+ * literal `0.55` in this file. Throws if the declaration's shape changes
+ * (a different property, a different color function) rather than silently
+ * falling back to a stale percentage, or worse, silently matching the
+ * wrong declaration.
+ */
+function extractCellInRangeAccentAlpha(css: string): number {
+  const body = extractCssRuleBody(css, 'cellInRange');
+  const boxShadowMatch = /box-shadow\s*:\s*([^;]+);/.exec(body);
+  if (!boxShadowMatch) {
+    throw new Error(
+      "contrast.test.ts: .cellInRange has no box-shadow declaration — did the ring move to a different property?",
+    );
+  }
+  const m = /color-mix\(in oklab,\s*var\(--accent\)\s*([0-9.]+)%,\s*transparent\)/.exec(
+    boxShadowMatch[1],
+  );
+  if (!m) {
+    throw new Error(
+      "contrast.test.ts: .cellInRange's box-shadow has no var(--accent) color-mix() alpha — did the ring's construction change?",
+    );
+  }
+  return parseFloat(m[1]) / 100;
+}
+
+/**
+ * `.cellPending`'s own container `opacity`, if it has one — 1 (no dimming)
+ * when absent, which is the fixed, post-Iro-A11y-MAJOR-1 state. If a
+ * container opacity is ever re-added, this picks the new value straight up
+ * and the degraded-contrast math below reproduces MAJOR-1's exact failure
+ * automatically (mutation-proven below by literally re-adding it and
+ * reverting — see the fix-round report, not committed here).
+ */
+function extractCellPendingContainerOpacity(css: string): number {
+  const body = extractCssRuleBody(css, 'cellPending');
+  const m = /(?<![\w-])opacity\s*:\s*([0-9.]+)\s*;/.exec(body);
+  return m ? parseFloat(m[1]) : 1;
+}
+
+const CELL_IN_RANGE_ACCENT_ALPHA = extractCellInRangeAccentAlpha(TACTICAL_MAP_CSS);
+const CELL_PENDING_CONTAINER_OPACITY = extractCellPendingContainerOpacity(TACTICAL_MAP_CSS);
+
 describe('parseGlobalsPalette — coverage sanity (protects the loops below from a silent empty parse)', () => {
   const KNOWN_VIBES = ['aetheric', 'candlelit', 'dusk-tavern', 'hearthlight', 'moonlit-grove'];
 
@@ -103,7 +189,7 @@ describe('parseGlobalsPalette — discovers a novel vibe with no hand-maintained
   // ~1.2:1) without editing the real design tokens. Before the fix, a vibe
   // absent from the hardcoded KNOWN_VIBES list was silently unparsed and
   // never reached the contrast loops; this pins that it now is.
-  const nineBadTokens = `
+  const tenBadTokens = `
     --bg-3: #100f0f;
     --on-fill: #1a1919;
     --on-accent: #1a1919;
@@ -113,10 +199,11 @@ describe('parseGlobalsPalette — discovers a novel vibe with no hand-maintained
     --cool-ink: #151212;
     --warm: #161313;
     --warm-ink: #171414;
+    --accent: #181515;
   `;
   const syntheticCss = `
-    [data-vibe="dusk-tavern"] { ${nineBadTokens} }
-    [data-vibe="kagetest"] { ${nineBadTokens} }
+    [data-vibe="dusk-tavern"] { ${tenBadTokens} }
+    [data-vibe="kagetest"] { ${tenBadTokens} }
     /* Shared structural tokens */
   `;
 
@@ -207,6 +294,101 @@ describe('TacticalMap contrast — D1 CR#1 coordinator decision 5 (existing toke
       const p = PALETTES.candlelit;
       const oldComposite = alphaOver(p.cool, 0.80, p.bg3);
       expect(contrast(p.onAccent, oldComposite)).toBeLessThan(4.5);
+    });
+  });
+
+  describe('.cellInRange reach ring (inset color-mix(--accent) — non-text 3:1) — new baseline pin, B8c-1: this ring had no contrast pin at all before Iro-A11y MAJOR-1', () => {
+    // 2 of 5 palettes (candlelit, hearthlight) sit under the 3:1 floor at
+    // BASELINE — i.e. with `moveMode` on and no pending state at all. That
+    // is a pre-existing gap (Kage-CR's reach-overlay finding, already
+    // routed to the SceneStage mount) and explicitly NOT this fix's scope —
+    // MAJOR-1 is about `.cellPending` making it WORSE, not about this
+    // floor. Only the 3 palettes Iro-A11y's review names as "passed before
+    // this diff" are asserted to clear 3:1 here; the other 2 are read but
+    // deliberately not asserted against an absolute floor this fix isn't
+    // responsible for.
+    const KNOWN_PASSING_AT_BASELINE = ['dusk-tavern', 'aetheric', 'moonlit-grove'];
+    for (const name of KNOWN_PASSING_AT_BASELINE) {
+      const p = PALETTES[name];
+      it(`${name}: accent@${Math.round(CELL_IN_RANGE_ACCENT_ALPHA * 100)}% ring vs --bg-3 clears 3:1 at baseline`, () => {
+        const ringComposite = alphaOver(p.accent, CELL_IN_RANGE_ACCENT_ALPHA, p.bg3);
+        expect(contrast(ringComposite, p.bg3)).toBeGreaterThanOrEqual(3);
+      });
+    }
+  });
+
+  describe('.cellPending must not degrade the reach ring or the destination tag below their own un-pending baseline (Iro-A11y MAJOR-1, 2026-09-28)', () => {
+    // A container `opacity` composites the WHOLE cell subtree — ring, tag
+    // and every other child alike — to one flattened layer before it lands
+    // on the board (that is what a browser's compositor does for `opacity`
+    // on a stacking-context-forming element); the translucent result then
+    // blends toward whatever sits BEHIND the cell, which is `--bg-3`
+    // (`.boardScroll`'s own background). `CELL_PENDING_CONTAINER_OPACITY` is
+    // read straight from `.cellPending`'s own rule (see above) — at 1
+    // (today's fixed state) every composite below is a no-op and "pending"
+    // equals "baseline" exactly; at 0.6 (MAJOR-1's shipped-and-reverted
+    // state) pending drops measurably below baseline and these tests catch
+    // it with no test edit required. Asserting "no worse than baseline"
+    // rather than an absolute floor is deliberate: candlelit/hearthlight's
+    // ring already sits under 3:1 at baseline (describe above) for reasons
+    // outside this fix's scope, and a floor assertion here would either
+    // false-red on those two or have to special-case them — the actual
+    // requirement (MAJOR-1: pending must not make it WORSE) doesn't care
+    // which side of 3:1 the baseline was already on. `.cellPending`'s fix
+    // is a `background-image` layer painted BELOW `.cellInRange`'s
+    // box-shadow and below every child element (see the rule's own comment
+    // in TacticalMap.module.css) — it paints over neither the ring nor the
+    // tag, so nothing needs compositing IN beyond the container-opacity
+    // term itself.
+    for (const name of PALETTE_NAMES) {
+      const p = PALETTES[name];
+
+      it(`${name}: reach ring under .cellPending equals its own un-pending baseline (no degradation)`, () => {
+        const ringComposite = alphaOver(p.accent, CELL_IN_RANGE_ACCENT_ALPHA, p.bg3);
+        const baselineRatio = contrast(ringComposite, p.bg3);
+        const pendingRing = alphaOver(ringComposite, CELL_PENDING_CONTAINER_OPACITY, p.bg3);
+        const pendingRatio = contrast(pendingRing, p.bg3);
+        expect(pendingRatio).toBeCloseTo(baselineRatio, 2);
+      });
+
+      it(`${name}: destinationTag text under .cellPending equals its own un-pending baseline (no degradation), and both clear 4.5:1`, () => {
+        const tagComposite = alphaOver(p.cool, 0.10, p.bg3);
+        const baselineRatio = contrast(p.coolInk, tagComposite);
+        // The tag's fill AND its ink each fade toward `--bg-3`
+        // independently under a container opacity — two separate elements
+        // inside the same flattened subtree, not one layered atop the
+        // other.
+        const pendingTagBg = alphaOver(tagComposite, CELL_PENDING_CONTAINER_OPACITY, p.bg3);
+        const pendingTagInk = alphaOver(p.coolInk, CELL_PENDING_CONTAINER_OPACITY, p.bg3);
+        const pendingRatio = contrast(pendingTagInk, pendingTagBg);
+        expect(pendingRatio).toBeCloseTo(baselineRatio, 2);
+        // Unlike the ring, the tag's baseline clears 4.5:1 in all 5
+        // palettes (see the un-pending `.destinationTag text` describe
+        // above) — so an absolute floor is also valid here, not just the
+        // no-degradation check.
+        expect(pendingRatio).toBeGreaterThanOrEqual(4.5);
+      });
+    }
+
+    it('.cellPending declares no container opacity today (the MAJOR-1 fix itself) — a cheap, direct pin alongside the ratio math above', () => {
+      expect(CELL_PENDING_CONTAINER_OPACITY).toBe(1);
+    });
+
+    it("sanity: at the OLD 0.6 container opacity, dusk-tavern's ring and tag actually degrade below their baseline (proves the math above is discriminating, not vacuously true — this is the fix round's mutation proof, kept permanently rather than a one-off manual edit)", () => {
+      const p = PALETTES['dusk-tavern'];
+      const ringComposite = alphaOver(p.accent, CELL_IN_RANGE_ACCENT_ALPHA, p.bg3);
+      const baselineRingRatio = contrast(ringComposite, p.bg3);
+      const oldPendingRing = alphaOver(ringComposite, 0.6, p.bg3);
+      expect(contrast(oldPendingRing, p.bg3)).toBeLessThan(baselineRingRatio);
+      expect(contrast(oldPendingRing, p.bg3)).toBeLessThan(3);
+
+      const tagComposite = alphaOver(p.cool, 0.10, p.bg3);
+      const baselineTagRatio = contrast(p.coolInk, tagComposite);
+      const oldPendingTagBg = alphaOver(tagComposite, 0.6, p.bg3);
+      const oldPendingTagInk = alphaOver(p.coolInk, 0.6, p.bg3);
+      const oldPendingTagRatio = contrast(oldPendingTagInk, oldPendingTagBg);
+      expect(oldPendingTagRatio).toBeLessThan(baselineTagRatio);
+      expect(oldPendingTagRatio).toBeLessThan(4.5);
     });
   });
 });

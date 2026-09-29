@@ -88,11 +88,14 @@ export interface TacticalMapProps {
   /** True while the viewer's own confirmed move hasn't resolved yet
    *  (B8c-1 IMP-9b, additive — omitted/false behaves exactly as before).
    *  Gates every activation path from calling `onMove` a second time, and
-   *  mirrors the pending state to sighted users (a muted, non-interactive
-   *  look on the reach overlay) and assistive tech (`aria-busy` on the
-   *  grid, `aria-disabled` on the still-highlighted move targets) without
-   *  moving keyboard focus. The caller owns clearing it once its `/move`
-   *  request settles either way. */
+   *  mirrors the pending state to sighted users (a diagonal-texture,
+   *  non-interactive look on the reach overlay — see
+   *  `TacticalMap.module.css`'s `.cellPending`; deliberately NOT opacity,
+   *  which composited the whole cell and dragged the reach ring and
+   *  destination-tag text below WCAG AA, Iro-A11y MAJOR-1, 2026-09-28) and
+   *  assistive tech (`aria-busy` on the grid, `aria-disabled` on the
+   *  still-highlighted move targets) without moving keyboard focus. The
+   *  caller owns clearing it once its `/move` request settles either way. */
   moveSubmitting?: boolean;
   /** Called with the destination coordinate when the viewer confirms a
    *  legal cell (Enter/Space, or a click, on a cell this component's own

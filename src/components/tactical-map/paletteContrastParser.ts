@@ -6,15 +6,16 @@
  * palette edit that breaks a contrast pair reds `contrast.test.ts` instead
  * of silently drifting from a hand-copied hex table.
  *
- * Only extracts the 9 tokens `contrast.test.ts` actually composites
- * (bg-3/on-fill/on-accent/bad/good/cool/cool-ink/warm/warm-ink) — this is a
- * test-support parser for this component's own contrast pins, not a
- * general CSS custom-property engine. Lives beside the component rather
- * than under `__tests__/` on purpose: `next/jest`'s default `testMatch`
- * treats every `.ts` file under any `__tests__/` directory as its own test
- * suite ("must contain at least one test"), so a pure-helper module placed
- * there fails collection outright — this file has no test of its own,
- * `contrast.test.ts` is its only consumer.
+ * Only extracts the 10 tokens `contrast.test.ts` actually composites
+ * (bg-3/on-fill/on-accent/bad/good/cool/cool-ink/warm/warm-ink/accent —
+ * `accent` added for B8c-1's `.cellPending` reach-ring pin, Iro-A11y
+ * MAJOR-1) — this is a test-support parser for this component's own
+ * contrast pins, not a general CSS custom-property engine. Lives beside
+ * the component rather than under `__tests__/` on purpose: `next/jest`'s
+ * default `testMatch` treats every `.ts` file under any `__tests__/`
+ * directory as its own test suite ("must contain at least one test"), so a
+ * pure-helper module placed there fails collection outright — this file
+ * has no test of its own, `contrast.test.ts` is its only consumer.
  */
 
 export interface Palette {
@@ -27,6 +28,7 @@ export interface Palette {
   coolInk: string;
   warm: string;
   warmInk: string;
+  accent: string;
 }
 
 /** The design-tokens section ends where the shared (non-per-vibe) structural
@@ -137,6 +139,7 @@ export function parseGlobalsPalette(css: string): Record<string, Palette> {
       coolInk: required(decls, 'cool-ink', vibe),
       warm: required(decls, 'warm', vibe),
       warmInk: required(decls, 'warm-ink', vibe),
+      accent: required(decls, 'accent', vibe),
     };
   }
   return out;
