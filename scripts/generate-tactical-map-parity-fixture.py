@@ -13,35 +13,62 @@ recorded verdict for every case
 (`src/__tests__/components/tactical-map/tactical-map-parity.test.ts`).
 
 WIDTH/HEIGHT ARE PAIRED (width == height == the same DIMS value), not
-independently crossed (which would be 9x9=81 dims combos, not 9) — this
-keeps the matrix at 1,944 deterministic cases instead of ~17,500, while
-still exercising every malformed dims value from Kage's own DIMS axis at
-least once against every (kind, cell) combination. Kage's own 4,000-case
-run varied width and height independently, but RANDOMLY, not exhaustively
-— this script trades that independence for determinism and a stable,
-reviewable case count.
+independently crossed (which would be 11x11=121 dims combos, not 11) — this
+keeps the matrix small and deterministic, while still exercising every
+malformed dims value from Kage's own DIMS axis at least once against every
+(kind, cell) combination. Kage's own 4,000-case run varied width and height
+independently, but RANDOMLY, not exhaustively — this script trades that
+independence for determinism and a stable, reviewable case count.
+
+DIMS also carries `0.5` and `NaN` (Kage-CR B8c-3b IMPORTANT-4 / Miko-QA,
+ledger item 22, 2026-09-29 — the reach.ts-side `isDimsValid` fix's own two
+missing shapes from the earlier `-3`/`0`/`"5"`/`5.5` set). `5.0` is
+DELIBERATELY not a DIMS value here, unlike those: it is unrepresentable as
+a value distinct from `5` once it round-trips through JSON into JS
+(`JSON.parse("5.0") === 5`), so a fixture case for it would encode a
+divergence this parity test cannot ever close on the client side — see
+`isDimsValid`'s own docstring in reach.ts.
+
+The BLOCKED/OCCUPIED/BUDGET axes below (Kage-CR B8c-3b IMPORTANT-2, ledger
+item 24) are a SEPARATE, small, fully-crossed block
+(`build_destination_budget_cases`) on a single FIXED valid board, not a
+fourth loop level over the whole kind x dims x cell matrix: most of that
+matrix already refuses at `no_space`/`mover_unplaced` (an unregistered
+kind, a malformed cell, or dims too small for `frm`) before `move_legality`
+ever reaches its blocked/occupied/budget steps (5/6/8), so crossing those
+axes against every row above would mostly just duplicate the SAME reason
+under a different label — real coverage of the destination/budget seam
+needs a board where those steps are actually reached.
 
 HOW TO REGENERATE (only when `move_legality`'s CONTRACT changes — a new
 step, a new refusal reason, a changed evaluation order — not for routine
 engine work elsewhere):
 
     cd NekoNova-DnDEngine
-    git archive <pinned-commit> | tar -x -C /tmp/engine-parity-src
+    git worktree add --detach /tmp/engine-parity-src <pinned-commit>
     cd SuzusTavern
     python3 scripts/generate-tactical-map-parity-fixture.py \
         --engine-path /tmp/engine-parity-src \
         --engine-commit <pinned-commit>
+    git -C NekoNova-DnDEngine worktree remove /tmp/engine-parity-src
 
-The script verifies the archive's `git rev-parse HEAD` (when it has a
-`.git`) matches `--engine-commit` before running anything, so a stale or
-wrong checkout cannot silently mint bogus verdicts. `move_legality` imports
-and runs standalone with no DB — never a live `suzu_dnd`/`suzu_dnd_dev`
-connection.
+`git worktree add` (unlike `git archive | tar -x`) produces a real linked
+checkout with its own `.git` FILE pointing back at the main repo, so the
+script's own `verify_engine_commit` can actually run `git rev-parse HEAD`
+inside it and refuse a stale or wrong checkout before minting bogus
+verdicts (Kage-CR B8c-3b IMPORTANT-3, ledger item 24, 2026-09-29: the
+previously-documented `git archive` path produces a tree with NO `.git`,
+so the check silently no-ops there — measured, an `--engine-commit
+deadbeef…` typo on an archive tree wrote a full fixture with that literal
+lie recorded as `engine_commit`). `move_legality` imports and runs
+standalone with no DB — never a live `suzu_dnd`/`suzu_dnd_dev` connection.
 
-Update BOTH the sha256 and case-count literals in
+Update the sha256, case-count AND reason-histogram literals in
 `tactical-map-parity.test.ts` after regenerating (the test's own header
 explains why — same "digest-pinned fixture, edit both or the guard is
-inert" mechanism as `reach_vectors.json`/`reach-vectors.test.ts`).
+inert" mechanism as `reach_vectors.json`/`reach-vectors.test.ts`; the
+histogram is item 24's own addition — see that file's header for why a sha
+pin alone does not catch a degenerate regeneration).
 
 FOLLOW-UP, ROUTED, NOT DONE HERE: a digest-pinned COPY of this fixture (or
 its generator) in the engine repo, matching `tests/fixtures/
@@ -107,22 +134,39 @@ CELL_VALUES = [
 ]  # 17
 CELL_SHAPES = ["dict", None, ABSENT, [5], "5", 5, True, {}]  # 8
 KINDS = ["square", "hex", "zones", None, ABSENT, "", "Square", 0, True]  # 9
-DIMS = [5, 8, 1, "5", 5.5, -3, None, ABSENT, 0]  # 9, paired width == height
+# 11, paired width == height. `0.5` and `math.nan` added by Kage-CR B8c-3b
+# IMPORTANT-4 / Miko-QA (ledger item 22, 2026-09-29) -- the two malformed
+# dims shapes reach.ts's `isDimsValid` fix closes that the original 9-value
+# axis never exercised (`5.0` deliberately excluded -- see the module
+# docstring above).
+DIMS = [5, 8, 1, "5", 5.5, 0.5, -3, None, ABSENT, 0, math.nan]  # 11
 
 FROM = [2, 2]
 TO = [2, 3]
 BUDGET = 30
-OTHERS: dict = {}
+
+# ── Kage-CR B8c-3b IMPORTANT-2, ledger item 24 (2026-09-29): blocked,
+# occupied and budget were each single-valued (`[]` / `{}` / `30`) across
+# the entire matrix above, so the fixture had ZERO `invalid_destination`
+# and ZERO `no_movement_remaining` coverage. See `build_destination_budget_
+# cases` below for why these are a separate small block, not a fourth loop
+# level over the whole kind x dims x cell matrix. ────────────────────────
+BLOCKED_VARIANTS = [[], [TO]]  # 2: TO open, TO blocked
+OCCUPIED_VARIANTS: "list[dict]" = [
+    {},
+    {"blocker": TO},
+]  # 2: TO free, TO occupied (by another participant)
+BUDGET_VARIANTS = [30, 0]  # 2: sufficient, exhausted
 
 
-def build_space(kind, cell_shape, cell_value, dims) -> dict:
+def build_space(kind, cell_shape, cell_value, dims, blocked=None) -> dict:
     sp: dict = {}
     if kind is not ABSENT:
         sp["kind"] = kind
     if dims is not ABSENT:
         sp["width"] = dims
         sp["height"] = dims
-    sp["blocked"] = []
+    sp["blocked"] = [] if blocked is None else blocked
     sp["features"] = []
     if cell_shape == "dict":
         cell: dict = {"unit": "ft"}
@@ -161,9 +205,41 @@ def build_cases() -> list[dict]:
                             frm=FROM,
                             to=TO,
                             budget=BUDGET,
-                            occupied=[],
+                            others={},
                         )
                     )
+    cases.extend(build_destination_budget_cases())
+    return cases
+
+
+def build_destination_budget_cases() -> list[dict]:
+    """Kage-CR B8c-3b IMPORTANT-2, ledger item 24: a small, fully-crossed
+    block on a single FIXED valid board (`kind='square'`, dims=5,
+    `cell.value=5`) so `move_legality` steps 5/6 (`invalid_destination`, via
+    `blocked`/`occupied`) and step 8 (`no_movement_remaining`, via
+    `budget`) are actually reached, not swallowed by an earlier `no_space`/
+    `mover_unplaced` refusal the way crossing these axes against the whole
+    kind x dims x cell matrix above would mostly be (see the module
+    docstring for why this is a separate block, not a fourth loop level).
+    """
+    cases = []
+    for blocked in BLOCKED_VARIANTS:
+        for occupied in OCCUPIED_VARIANTS:
+            for budget in BUDGET_VARIANTS:
+                cases.append(
+                    dict(
+                        desc=(
+                            "kind='square' dims=5 cell.value=5 "
+                            f"blocked={blocked!r} occupied={list(occupied.values())!r} "
+                            f"budget={budget!r}"
+                        ),
+                        space=build_space("square", "dict", 5, 5, blocked=blocked),
+                        frm=FROM,
+                        to=TO,
+                        budget=budget,
+                        others=occupied,
+                    )
+                )
     return cases
 
 
@@ -226,7 +302,7 @@ def main() -> int:
     for c in cases:
         try:
             ok, reason, cost = move_legality(
-                c["space"], c["frm"], c["to"], c["budget"], OTHERS
+                c["space"], c["frm"], c["to"], c["budget"], c["others"]
             )
             legal, err = bool(ok), None
         except Exception as e:  # noqa: BLE001 -- recording the failure IS the point
@@ -239,7 +315,11 @@ def main() -> int:
                 frm=c["frm"],
                 to=c["to"],
                 budget=c["budget"],
-                occupied=c["occupied"],
+                # `others` maps participant_id -> at (move_legality's own
+                # shape); the client's `occupied` param is just the `at`
+                # values (SpaceCoordinate[]) -- same conversion `others` ->
+                # `occupied` every other caller of this predicate makes.
+                occupied=list(c["others"].values()),
                 legal=legal,
                 reason=reason,
                 err=err,
@@ -273,6 +353,21 @@ def main() -> int:
     out_path.write_text(raw + "\n")
 
     digest = hashlib.sha256((raw + "\n").encode()).hexdigest()
+
+    # Kage-CR B8c-3b IMPORTANT-2, ledger item 24: printed BEFORE the
+    # summary below so a degenerate regeneration (e.g. every case
+    # collapsing to `no_space`) is loud to a human watching this run, not
+    # only caught later by tactical-map-parity.test.ts's own histogram
+    # assertion (the actual gate -- this print is a second, earlier signal,
+    # not a replacement for it).
+    histogram: dict[str, int] = {}
+    for c in out_cases:
+        if c["err"] is not None:
+            continue
+        key = c["reason"] or ""
+        histogram[key] = histogram.get(key, 0) + 1
+    print(f"reason histogram: {histogram}")
+
     print(f"wrote {len(out_cases)} cases to {out_path}")
     print(f"engine raised on {n_err} case(s)")
     print(f"sha256: {digest}")

@@ -10,9 +10,12 @@
  * 12-case `reach_vectors.json`, which samples `cell.value` from
  * `{2.5, 5, 10}` only). This file is the committed replacement: a
  * DETERMINISTIC, table-driven cross of Kage's own axes — 17 `cell.value`s
- * x 8 `cell` containers x 9 `kind`s x 9 paired `width`/`height` values,
- * 1,944 cases total — with each case's EXPECTED verdict recorded from the
- * real engine, not a hand-transcription of its documented behaviour.
+ * x 8 `cell` containers x 9 `kind`s x 11 paired `width`/`height` values
+ * (2,376 cases), PLUS a small fully-crossed `blocked` x `occupied` x
+ * `budget` block on one fixed valid board (8 cases, Kage-CR B8c-3b
+ * IMPORTANT-2, ledger item 24) — 2,384 cases total — with each case's
+ * EXPECTED verdict recorded from the real engine, not a hand-transcription
+ * of its documented behaviour.
  *
  * Generator: `scripts/generate-tactical-map-parity-fixture.py` (repo root
  * — see its header for how/when to regenerate). Fixture:
@@ -21,7 +24,12 @@
  * DIGEST-PINNED, same mechanism as `reach_vectors.json`/
  * `reach-vectors.test.ts`: any edit to the fixture must update BOTH the
  * sha256 and case-count literals below in the SAME commit, or this test
- * (not silent trust) is what catches the drift.
+ * (not silent trust) is what catches the drift. That pin catches DRIFT
+ * (the digest changes) but not DEGRADATION (a regeneration that collapsed
+ * the whole table to one refusal reason would still pass every assertion
+ * here except the digest, which a reviewer just re-pins) — the reason-
+ * histogram assertion below (Kage-CR B8c-3b IMPORTANT-2, ledger item 24)
+ * is what closes that gap.
  *
  * FOLLOW-UP, ROUTED, NOT DONE HERE (generator script header, same note):
  * a digest-pinned copy of this fixture (or its generator) in the engine
@@ -38,9 +46,23 @@ import type { CombatSpace, SpaceCoordinate } from '@/lib/api/types';
 const FIXTURE_PATH = path.join(__dirname, '..', '..', 'fixtures', 'tactical_map_parity.json');
 const RAW = fs.readFileSync(FIXTURE_PATH, 'utf8');
 
-const CANONICAL_SHA256 = '9666dba24dae4cdcdcf7573025682d16904432218fd8221ae7bc808c9e84fd29';
-const EXPECTED_CASE_COUNT = 1944;
+const CANONICAL_SHA256 = '9a40cdb401b4e237a26bab536ddf23bcbd35b27d4f971af5c70a329112e42bba';
+const EXPECTED_CASE_COUNT = 2384;
 const EXPECTED_ENGINE_COMMIT = '3a5d18b51865f53900394838bfe32b387d8ea9d1';
+
+// Kage-CR B8c-3b IMPORTANT-2, ledger item 24: the sha pin catches drift,
+// not degradation -- a regeneration that collapsed the whole table to one
+// reason would still pass every OTHER assertion here. Re-derive this by
+// running scripts/generate-tactical-map-parity-fixture.py and reading its
+// own `reason histogram: {...}` summary line (printed for exactly this
+// reason), never hand-typed independently of a real regeneration.
+const EXPECTED_REASON_HISTOGRAM: Record<string, number> = {
+  '': 11,
+  no_space: 2321,
+  mover_unplaced: 45,
+  invalid_destination: 6,
+  no_movement_remaining: 1,
+};
 
 interface RawCase {
   desc: string;
@@ -103,6 +125,19 @@ describe('reach.ts vs the tactical-map parity fixture (Kage-CR B8c-3a 🟢 1, le
   it('positive control: the fixture has both legal and refused cases — not a vacuous all-refuse table', () => {
     expect(decided.some((c) => c.legal === true)).toBe(true);
     expect(decided.some((c) => c.legal === false)).toBe(true);
+  });
+
+  it('the reason histogram matches the pinned distribution — a degenerate regeneration (e.g. everything collapsing to one reason) is loud here, not silent behind an unrelated digest re-pin (Kage-CR B8c-3b IMPORTANT-2, ledger item 24)', () => {
+    const histogram: Record<string, number> = {};
+    for (const c of decided) {
+      const key = c.reason ?? '';
+      histogram[key] = (histogram[key] ?? 0) + 1;
+    }
+    expect(histogram).toEqual(EXPECTED_REASON_HISTOGRAM);
+    // `reason` itself: a declared field with no other reader before this
+    // (design-durability.md's red-flag table) — this is the assertion that
+    // gives it one.
+    expect(FIXTURE.cases.every((c) => 'reason' in c)).toBe(true);
   });
 
   it('the engine never raises across the whole matrix, even with malformed width/height (measured; matches Kage-CR\'s own 4,216-case finding)', () => {

@@ -17,11 +17,15 @@
  *
  * Mutation proof (manual, recorded here — not re-run by this file itself):
  * reverting TacticalMap.tsx's guard to the pre-fix
- * `!space || space.kind !== 'square'` reds the `cell: null` and `cell
- * absent` cases below with the exact TypeError quoted above; every other
- * row here stays green under either guard (they never crashed — they just
- * silently rendered a full, wrong grid pre-fix), which is why this table
- * also asserts `grid=false` for all of them, not merely "does not throw".
+ * `!space || space.kind !== 'square'` reds all 9 malformed rows below --
+ * `cell: null` and `cell absent` on the exact TypeError quoted above, the
+ * other 7 on `grid` being present, because pre-fix they rendered a full,
+ * wrong grid without throwing. Which is why this table asserts `grid=false`
+ * for all of them, not merely "does not throw" (Kage-CR B8c-3b IMPORTANT-1,
+ * ledger item 24, 2026-09-29: a prior version of this sentence claimed the
+ * other 7 rows "stay green under either guard" -- measured false, and
+ * self-contradicting with the very next clause explaining why `grid=false`
+ * is asserted at all).
  *
  * `cell.value: {}` / `NaN` / `Infinity` are deliberately NOT in this table
  * — Kage-CR IMPORTANT-2 (ledger item 18) pins those separately in
