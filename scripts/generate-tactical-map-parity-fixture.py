@@ -4,9 +4,9 @@
 Generates `src/__tests__/fixtures/tactical_map_parity.json`: a DETERMINISTIC,
 table-driven cross of the axes Kage-CR's ad hoc reviewer script exercised
 (2026-09-29 review, never committed anywhere) — 17 `cell.value`s x 8 `cell`
-containers x 9 `kind`s x 9 paired `width`/`height` values, each case's
+containers x 9 `kind`s x 14 paired `width`/`height` values, each case's
 EXPECTED verdict recorded from the REAL engine `move_legality`
-(`engine/combat.py`, engine `main` @ 3a5d18b), not a hand-transcription of
+(`engine/combat.py`, engine `main` @ 8eaf152), not a hand-transcription of
 its documented behaviour. `src/components/tactical-map/reach.ts`'s
 `isLegalMoveTarget`/`reachableCells` are asserted to agree with this
 recorded verdict for every case
@@ -134,12 +134,26 @@ CELL_VALUES = [
 ]  # 17
 CELL_SHAPES = ["dict", None, ABSENT, [5], "5", 5, True, {}]  # 8
 KINDS = ["square", "hex", "zones", None, ABSENT, "", "Square", 0, True]  # 9
-# 11, paired width == height. `0.5` and `math.nan` added by Kage-CR B8c-3b
+# 14, paired width == height. `0.5` and `math.nan` added by Kage-CR B8c-3b
 # IMPORTANT-4 / Miko-QA (ledger item 22, 2026-09-29) -- the two malformed
 # dims shapes reach.ts's `isDimsValid` fix closes that the original 9-value
 # axis never exercised (`5.0` deliberately excluded -- see the module
-# docstring above).
-DIMS = [5, 8, 1, "5", 5.5, 0.5, -3, None, ABSENT, 0, math.nan]  # 11
+# docstring above). `100`/`101`/`1e21` added by B8c-3d (ledger row 26,
+# 2026-09-29) for `engine/space.py::SPACE_MAX_DIM = 100` (engine `main` @
+# `8eaf152`, B8e): `100` is the ceiling itself (must stay legal -- the
+# engine's OWN boundary test asserts this, `test_..._at_the_max_dim_
+# ceiling_is_legal`), `101` is one past it (refused on MAGNITUDE, via
+# `_dim_in_range`'s `dim <= SPACE_MAX_DIM` clause -- the case that actually
+# exercises the new bound). `1e21` is refused too, but for a DIFFERENT
+# reason than the client mirror's own `1e21` render-hang case (reach.ts's
+# `isDimsValid`/`TacticalMap.dimsUpperBound.test.tsx`): a Python JSON float
+# literal is never `isinstance(dim, int)`, so it fails `_dim_in_range`'s
+# TYPE clause before the magnitude clause is ever reached -- same class as
+# the pre-existing `5.5`/`0.5` rows, not a new mechanism. It is included
+# here for wire-shape coverage (a `1e21`-valued JSON number round-trips
+# fine through both `json.dumps`/`JSON.parse`), not because it proves the
+# magnitude bound -- `101` is what proves that.
+DIMS = [5, 8, 1, "5", 5.5, 0.5, -3, None, ABSENT, 0, math.nan, 100, 101, 1e21]  # 14
 
 FROM = [2, 2]
 TO = [2, 3]

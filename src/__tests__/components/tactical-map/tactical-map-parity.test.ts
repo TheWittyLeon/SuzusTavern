@@ -10,12 +10,30 @@
  * 12-case `reach_vectors.json`, which samples `cell.value` from
  * `{2.5, 5, 10}` only). This file is the committed replacement: a
  * DETERMINISTIC, table-driven cross of Kage's own axes — 17 `cell.value`s
- * x 8 `cell` containers x 9 `kind`s x 11 paired `width`/`height` values
- * (2,376 cases), PLUS a small fully-crossed `blocked` x `occupied` x
+ * x 8 `cell` containers x 9 `kind`s x 14 paired `width`/`height` values
+ * (3,024 cases), PLUS a small fully-crossed `blocked` x `occupied` x
  * `budget` block on one fixed valid board (8 cases, Kage-CR B8c-3b
- * IMPORTANT-2, ledger item 24) — 2,384 cases total — with each case's
+ * IMPORTANT-2, ledger item 24) — 3,032 cases total — with each case's
  * EXPECTED verdict recorded from the real engine, not a hand-transcription
  * of its documented behaviour.
+ *
+ * B8c-3d (ledger row 26, 2026-09-29) widened the dims axis by 3 (11 -> 14:
+ * `100`, `101`, `1e21` — engine `main` @ `8eaf152`, B8e's
+ * `SPACE_MAX_DIM = 100`) and regenerated. The reason histogram shifted for
+ * a real reason, not a fixture artefact: B8e also moved dims validity
+ * EARLIER in `move_legality` (a new step-2 `_space_dims_verdict` check,
+ * mirroring `_dim_in_range`), so malformed-dims cases that used to reach
+ * step 4 (`SquareSpace.is_valid`, reason `mover_unplaced`) now refuse at
+ * step 2 instead (reason `no_space`) — `mover_unplaced` drops 45 -> 5,
+ * `no_space` absorbs the difference plus the new oversized-dims cases, and
+ * `''` (legal) gains the 5 new `dims=100` cases with an otherwise-valid
+ * board (a legitimately large but still-legal board, same shape as the
+ * existing `dims=5`/`dims=8` legal cases). `101` and `1e21` are refused
+ * for two DIFFERENT reasons — `101` on magnitude (`_dim_in_range`'s
+ * `<= SPACE_MAX_DIM` clause, the case that actually exercises the new
+ * bound) and `1e21` on TYPE (a Python JSON float is never `isinstance(dim,
+ * int)`, same class as the pre-existing `5.5`/`0.5` rows) — see the
+ * generator's own DIMS comment.
  *
  * Generator: `scripts/generate-tactical-map-parity-fixture.py` (repo root
  * — see its header for how/when to regenerate). Fixture:
@@ -46,9 +64,9 @@ import type { CombatSpace, SpaceCoordinate } from '@/lib/api/types';
 const FIXTURE_PATH = path.join(__dirname, '..', '..', 'fixtures', 'tactical_map_parity.json');
 const RAW = fs.readFileSync(FIXTURE_PATH, 'utf8');
 
-const CANONICAL_SHA256 = '9a40cdb401b4e237a26bab536ddf23bcbd35b27d4f971af5c70a329112e42bba';
-const EXPECTED_CASE_COUNT = 2384;
-const EXPECTED_ENGINE_COMMIT = '3a5d18b51865f53900394838bfe32b387d8ea9d1';
+const CANONICAL_SHA256 = 'e2c5702b16da4ffb491c0b58df3586e9158bcfc9d893b218df8caf151e5d06a2';
+const EXPECTED_CASE_COUNT = 3032;
+const EXPECTED_ENGINE_COMMIT = '8eaf152203819ad0fac1260f6171e46fa0193ef2';
 
 // Kage-CR B8c-3b IMPORTANT-2, ledger item 24: the sha pin catches drift,
 // not degradation -- a regeneration that collapsed the whole table to one
@@ -57,9 +75,9 @@ const EXPECTED_ENGINE_COMMIT = '3a5d18b51865f53900394838bfe32b387d8ea9d1';
 // own `reason histogram: {...}` summary line (printed for exactly this
 // reason), never hand-typed independently of a real regeneration.
 const EXPECTED_REASON_HISTOGRAM: Record<string, number> = {
-  '': 11,
-  no_space: 2321,
-  mover_unplaced: 45,
+  '': 16,
+  no_space: 3004,
+  mover_unplaced: 5,
   invalid_destination: 6,
   no_movement_remaining: 1,
 };
@@ -115,7 +133,7 @@ describe('reach.ts vs the tactical-map parity fixture (Kage-CR B8c-3a 🟢 1, le
     expect(new Set(descs).size).toBe(descs.length);
   });
 
-  it('was generated against engine main @ 3a5d18b, not a branch name that dies with its worktree', () => {
+  it('was generated against engine main @ 8eaf152, not a branch name that dies with its worktree', () => {
     expect(FIXTURE.engine_commit).toBe(EXPECTED_ENGINE_COMMIT);
   });
 
