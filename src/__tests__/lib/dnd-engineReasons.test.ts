@@ -35,6 +35,17 @@ import {
 //
 // engine/combat.py::COMBAT_REASON_STATUS (24 keys) — verified 2026-08-06 by
 // reading the dict literal directly, not this ticket's own comments.
+//
+// B8c-2 (2026-09-29): +9 keys, verified by reading the dict literal on
+// engine branch `feature/movement-b8b-verb-0928` (tip `996a699`, under QA,
+// not yet merged to `main` — this Tavern branch merges only after B8b does)
+// at `engine/combat.py:38-121`. Real count today (`main`, unrelated to this
+// item) is actually higher still — `unknown_npc`/`npc_has_statblock`/
+// `standin_tier_required`/`unknown_standin_tier`/`participant_cap`/
+// `damage_apply_failed` are ALSO live on `main` but predate this list's last
+// sync and are not this item's scope; flagged, not fixed, here.
+//
+// debt: this array is a hand-maintained client mirror of engine.combat.COMBAT_REASON_STATUS. ceiling: drifts silently whenever the engine adds a code. until: the engine publishes COMBAT_REASON_STATUS as a digest-pinned fixture (Backlog TAV-ENGINE-REASON-VOCAB-HAND-MIRROR).
 const ENGINE_COMBAT_REASON_STATUS_KEYS = [
   'no_combat',
   'no_active_turn',
@@ -60,6 +71,16 @@ const ENGINE_COMBAT_REASON_STATUS_KEYS = [
   'invalid_condition',
   'db_unavailable',
   'error',
+  // ── B8b move verb (design §3.4), engine/combat.py:83-120 ──────────────
+  'positioning_disabled',
+  'no_space',
+  'same_cell',
+  'mover_unplaced',
+  'invalid_destination',
+  'no_movement_remaining',
+  'unreachable',
+  'position_changed',
+  'destination_required',
 ] as const;
 
 // engine/spells.py::SPELL_REASON_STATUS (18 keys).
@@ -101,10 +122,19 @@ const ENGINE_COMBAT_ROUTE_LEVEL_KEYS = ['target_is_self', 'not_found', 'invalid_
 // deliberate exception to "the map is complete over the engine vocabulary".
 const DELIBERATELY_UNCURATED_COMBAT_KEYS = new Set(['not_your_character']);
 
+// design brief §5.1 (B8c-2, 2026-09-29): `destination_required` is a real,
+// live engine key (DM path only — `npc-action move` on a boarded encounter
+// with no `to`) but no Tavern surface drives `npc-action` today, so curating
+// it would be an unjustified entry. Different reason from
+// `DELIBERATELY_UNCURATED_COMBAT_KEYS` above (that one is ambiguous — two
+// branches, two messages; this one is simply unreachable from here), same
+// precedent: a real code deliberately left out of the map.
+const NO_TAVERN_EMITTER_COMBAT_KEYS = new Set(['destination_required']);
+
 describe('engineReasons — contract: map keys against the engine vocabulary', () => {
-  it('COMBAT_REFUSAL_REASON_MAP covers every key in engine.combat.COMBAT_REASON_STATUS except the deliberate tier-2 exception', () => {
+  it('COMBAT_REFUSAL_REASON_MAP covers every key in engine.combat.COMBAT_REASON_STATUS except the deliberate tier-2 and no-Tavern-emitter exceptions', () => {
     for (const key of ENGINE_COMBAT_REASON_STATUS_KEYS) {
-      if (DELIBERATELY_UNCURATED_COMBAT_KEYS.has(key)) continue;
+      if (DELIBERATELY_UNCURATED_COMBAT_KEYS.has(key) || NO_TAVERN_EMITTER_COMBAT_KEYS.has(key)) continue;
       expect(COMBAT_REFUSAL_REASON_MAP).toHaveProperty(key);
       expect(typeof COMBAT_REFUSAL_REASON_MAP[key]).toBe('string');
       expect(COMBAT_REFUSAL_REASON_MAP[key].trim().length).toBeGreaterThan(0);
@@ -113,6 +143,10 @@ describe('engineReasons — contract: map keys against the engine vocabulary', (
 
   it('not_your_character is DELIBERATELY absent from COMBAT_REFUSAL_REASON_MAP (IMP-3) so tier 2 owns the branch-specific message', () => {
     expect(COMBAT_REFUSAL_REASON_MAP).not.toHaveProperty('not_your_character');
+  });
+
+  it('destination_required is DELIBERATELY absent from COMBAT_REFUSAL_REASON_MAP (design brief §5.1) — no Tavern surface emits it', () => {
+    expect(COMBAT_REFUSAL_REASON_MAP).not.toHaveProperty('destination_required');
   });
 
   it('COMBAT_REFUSAL_REASON_MAP covers the route-level / positional-tuple codes reachable from onCombatAction', () => {
@@ -146,18 +180,19 @@ describe('engineReasons — contract: map keys against the engine vocabulary', (
       // exception as `actor_required` above: a real refusal that can land on
       // ANY proxied route, just never from the engine itself.
       'upstream_non_json',
-      // ENGINE-MOVEMENT-PLAYER-VISIBLE-COORDS design §5 — the move verb's
-      // reason vocabulary, curated ahead of the verb shipping (design step 6
-      // runs before step 5 / B8 in the loop). Traced to the design table,
-      // not invented: `no_space`, `invalid_destination`,
-      // `no_movement_remaining`, `unreachable`. NOT yet in
-      // ENGINE_COMBAT_REASON_STATUS_KEYS above on purpose — that array is
-      // re-derived from the LIVE engine dict, and these four aren't in it
-      // until B8 lands `POST /combat/{id}/move`.
-      'no_space',
-      'invalid_destination',
-      'no_movement_remaining',
-      'unreachable',
+      // B8c-2 (2026-09-29): the move verb's reason codes are now REAL engine
+      // keys (spread in via ENGINE_COMBAT_REASON_STATUS_KEYS above) rather
+      // than a separate hand-listed quartet here — `no_space`,
+      // `invalid_destination`, `no_movement_remaining`, `unreachable`,
+      // `positioning_disabled`, `same_cell`, `mover_unplaced`,
+      // `position_changed` all move OUT of this literal per design brief
+      // §5.1 ("the four movement codes move out of the hand-maintained
+      // `justified` list and into `ENGINE_COMBAT_REASON_STATUS_KEYS`, which
+      // is re-derived from the engine … the list stops being
+      // hand-maintained"). `destination_required` is also a real engine key
+      // now but is never added to the map (see
+      // NO_TAVERN_EMITTER_COMBAT_KEYS above), so it needs no entry here
+      // either.
     ]);
     const unjustified = Object.keys(COMBAT_REFUSAL_REASON_MAP).filter((k) => !justified.has(k));
     expect(unjustified).toEqual([]);
@@ -363,6 +398,11 @@ describe('engineReasons — wire shape: actor_required 401 through the REAL prox
 // per-key sourcing.
 describe('engineReasons — movement move-refusal codes (design §5, B8 pending)', () => {
   const MOVEMENT_CODES = ['no_space', 'invalid_destination', 'no_movement_remaining', 'unreachable'] as const;
+  // B8c-2 (2026-09-29, design brief §5.1): the remaining four of the move
+  // verb's vocabulary, now that engine branch `feature/movement-b8b-verb-0928`
+  // (tip `996a699`) has built the verb itself. `destination_required` is
+  // deliberately excluded — see NO_TAVERN_EMITTER_COMBAT_KEYS above.
+  const B8C2_MOVEMENT_CODES = ['positioning_disabled', 'same_cell', 'mover_unplaced', 'position_changed'] as const;
 
   it('all four new codes are present in COMBAT_REFUSAL_REASON_MAP with non-empty copy', () => {
     for (const key of MOVEMENT_CODES) {
@@ -370,6 +410,22 @@ describe('engineReasons — movement move-refusal codes (design §5, B8 pending)
       expect(typeof COMBAT_REFUSAL_REASON_MAP[key]).toBe('string');
       expect(COMBAT_REFUSAL_REASON_MAP[key].trim().length).toBeGreaterThan(0);
     }
+  });
+
+  it('the four B8c-2 codes are present in COMBAT_REFUSAL_REASON_MAP with non-empty copy, verbatim from the build brief §5.1', () => {
+    for (const key of B8C2_MOVEMENT_CODES) {
+      expect(COMBAT_REFUSAL_REASON_MAP).toHaveProperty(key);
+      expect(typeof COMBAT_REFUSAL_REASON_MAP[key]).toBe('string');
+      expect(COMBAT_REFUSAL_REASON_MAP[key].trim().length).toBeGreaterThan(0);
+    }
+    expect(COMBAT_REFUSAL_REASON_MAP.positioning_disabled).toBe("The battle map isn't available here.");
+    expect(COMBAT_REFUSAL_REASON_MAP.same_cell).toBe("You're already standing there.");
+    expect(COMBAT_REFUSAL_REASON_MAP.mover_unplaced).toBe(
+      "Your token isn't on the board yet — the DM needs to place it.",
+    );
+    expect(COMBAT_REFUSAL_REASON_MAP.position_changed).toBe(
+      'The board moved on — that spot is out of date. Have another look.',
+    );
   });
 
   it('the move verb reuses the existing not_your_turn code — no duplicate/second entry', () => {
