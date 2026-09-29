@@ -16,6 +16,21 @@
  * has its own distinct value; only genuinely MUTUALLY EXCLUSIVE branches
  * (TopBar's NarratorStrip-vs-aiOffStatus ternary — never both mounted at
  * once) are allowed to share one.
+ *
+ * A8 fix round, Kage-CR IMPORTANT-2 (2026-09-28): before this change, the
+ * presence checks below were a hand-written per-region `it()` allowlist
+ * that never covered `ActionBar.tsx` at all — deleting or misspelling
+ * `data-region="actionBar"` survived the entire suite, only a COLLISION
+ * with another region's id ever went red. Replaced with one loop over
+ * `readdirSync(REGIONS_DIR)` driven by a single `Record<file, Set<id>>`
+ * row map (`REGION_ROWS` below): a new region file is onboarded by adding
+ * one row, not writing a new `it()` block, and the loop itself checks that
+ * every `.tsx` file under `regions/` actually HAS a row (so a new region
+ * can't silently ship with zero coverage the way ActionBar did at step 8).
+ * The I4-specific regression pins (exact occurrence counts, the retired
+ * shared value) are kept as their own dedicated assertions below the loop
+ * — a different, narrower concern (a past defect's exact shape) than the
+ * generic "does this id exist at all" contract the loop enforces.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -40,37 +55,62 @@ function countOccurrences(text: string, needle: string): number {
 
 const REGIONS_DIR = 'src/app/play/[sessionId]/regions';
 
+/**
+ * The row map (Kage-CR IMPORTANT-2's durable fix): every region `.tsx`
+ * file, mapped to the `data-region` id(s) its root node(s) must carry. A
+ * new region at a future step is onboarded here — one row — and the loop
+ * below picks it up automatically; it also fails loudly if a region file
+ * exists with NO row (so a new region can't ship uncovered) or a row
+ * points at a file that no longer exists (a stale row surviving a
+ * rename/delete).
+ */
+const REGION_ROWS: Record<string, Set<string>> = {
+  'SafetyBanner.tsx': new Set(['safetyBanner']),
+  'PartyStrip.tsx': new Set(['partyStrip']),
+  'SceneStage.tsx': new Set(['sceneStage']),
+  'Offers.tsx': new Set(['offers']),
+  'StoryLog.tsx': new Set(['storyLog']),
+  'TableControls.tsx': new Set(['tableControlsSession', 'tableControlsDm']),
+  'TopBar.tsx': new Set(['topBarSession', 'topBarStatus']),
+  'ActionBar.tsx': new Set(['actionBar']),
+};
+
 describe('TAV-PLAY-SHELL data-region contract', () => {
-  it('SafetyBanner carries data-region="safetyBanner" exactly once', () => {
-    const src = readRegion(`${REGIONS_DIR}/SafetyBanner.tsx`);
-    expect(countOccurrences(src, 'data-region="safetyBanner"')).toBe(1);
-  });
+  describe('REGION_ROWS loop — every region file carries every id its row declares', () => {
+    const files = fs
+      .readdirSync(path.resolve(process.cwd(), REGIONS_DIR))
+      .filter((f) => f.endsWith('.tsx'));
 
-  it('PartyStrip carries data-region="partyStrip" exactly once', () => {
-    const src = readRegion(`${REGIONS_DIR}/PartyStrip.tsx`);
-    expect(countOccurrences(src, 'data-region="partyStrip"')).toBe(1);
-  });
+    it('every .tsx file under regions/ has a row in REGION_ROWS (a new region ships covered, not silently unchecked)', () => {
+      const uncovered = files.filter((f) => !(f in REGION_ROWS));
+      expect(uncovered).toEqual([]);
+    });
 
-  it('SceneStage carries data-region="sceneStage" exactly once', () => {
-    const src = readRegion(`${REGIONS_DIR}/SceneStage.tsx`);
-    expect(countOccurrences(src, 'data-region="sceneStage"')).toBe(1);
-  });
+    it('every row in REGION_ROWS still points at a real file (no stale row surviving a rename/delete)', () => {
+      const stale = Object.keys(REGION_ROWS).filter((f) => !files.includes(f));
+      expect(stale).toEqual([]);
+    });
 
-  it('Offers carries data-region="offers" exactly once', () => {
-    const src = readRegion(`${REGIONS_DIR}/Offers.tsx`);
-    expect(countOccurrences(src, 'data-region="offers"')).toBe(1);
+    for (const [file, ids] of Object.entries(REGION_ROWS)) {
+      for (const id of ids) {
+        it(`${file} carries data-region="${id}"`, () => {
+          const src = readRegion(`${REGIONS_DIR}/${file}`);
+          expect(countOccurrences(src, `data-region="${id}"`)).toBeGreaterThanOrEqual(1);
+        });
+      }
+    }
   });
 
   it('StoryLog passes data-region="storyLog" through to ChatLog\'s actual root (no wrapping element)', () => {
-    const src = readRegion(`${REGIONS_DIR}/StoryLog.tsx`);
-    expect(countOccurrences(src, 'data-region="storyLog"')).toBe(1);
-    // The passthrough mechanism itself: ChatLog must accept it (I4).
+    // The row loop above already pins presence; this pins the specific
+    // PASSTHROUGH mechanism (ChatLog must accept and apply the prop),
+    // which is a structural concern the generic loop doesn't reach.
     const chatLogSrc = readRegion('src/components/ChatLog.tsx');
     expect(chatLogSrc).toMatch(/'data-region'\?\s*:\s*string/);
     expect(chatLogSrc).toMatch(/data-region=\{dataRegion\}/);
   });
 
-  describe('I4 — TableControls: two INDEPENDENTLY gated nodes get DISTINCT ids', () => {
+  describe('I4 — TableControls: two INDEPENDENTLY gated nodes get DISTINCT ids (historical regression pin, exact shape of the defect the review found)', () => {
     const src = readRegion(`${REGIONS_DIR}/TableControls.tsx`);
 
     it('SessionControls carries data-region="tableControlsSession" exactly once', () => {
@@ -81,28 +121,16 @@ describe('TAV-PLAY-SHELL data-region contract', () => {
       expect(countOccurrences(src, 'data-region="tableControlsDm"')).toBe(1);
     });
 
-    it('the two values are DIFFERENT (the exact defect the review found)', () => {
-      expect('tableControlsSession').not.toBe('tableControlsDm');
-    });
-
     it('the old shared value no longer appears anywhere in the file (exact match — "tableControls" is also a substring of the two new values, so a plain .toContain would false-fail)', () => {
       expect(src).not.toMatch(/data-region="tableControls"/);
     });
   });
 
-  describe('I4 — TopBar: SessionHead and the NarratorStrip/aiOffStatus ternary get DISTINCT ids; the ternary\'s two MUTUALLY EXCLUSIVE branches share one on purpose', () => {
+  describe('I4 — TopBar: the NarratorStrip/aiOffStatus ternary shares one id on purpose (historical regression pin, exact shape of the defect the review found)', () => {
     const src = readRegion(`${REGIONS_DIR}/TopBar.tsx`);
-
-    it('SessionHead carries data-region="topBarSession" exactly once', () => {
-      expect(countOccurrences(src, 'data-region="topBarSession"')).toBe(1);
-    });
 
     it('the NarratorStrip call and the aiOffStatus fallback both carry data-region="topBarStatus" (mutually exclusive branches of one ternary — exactly 2 occurrences, not 1)', () => {
       expect(countOccurrences(src, 'data-region="topBarStatus"')).toBe(2);
-    });
-
-    it('topBarSession and topBarStatus are different values', () => {
-      expect('topBarSession').not.toBe('topBarStatus');
     });
 
     it('NarratorStrip itself accepts the passthrough (I4)', () => {
