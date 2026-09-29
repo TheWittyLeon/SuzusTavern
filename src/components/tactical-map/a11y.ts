@@ -112,16 +112,26 @@ export function cellAccessibleName(input: CellNameInput): string {
     const invisible = input.occupant.invisible ? ', invisible' : '';
     const downed = input.occupant.downed ? ', downed' : '';
     const dead = input.occupant.dead ? ', dead' : '';
-    return `${location} ${input.occupant.name}, ${relation}${invisible}${downed}${dead}. Occupied — can't stop here.${conditionsSuffix}`;
+    const occupantPart = `${location} ${input.occupant.name}, ${relation}${invisible}${downed}${dead}.`;
+    // The dead do not occupy a cell (engine `SquareSpace.occupied_by`,
+    // living participants only; B8a IMP-5), so a corpse's cell is a legal
+    // destination and reads with the same reach phrasing as an empty one.
+    // A downed-but-alive occupant still blocks.
+    if (input.occupant.dead) {
+      return `${occupantPart}${reachPhrase(input)}${conditionsSuffix}`;
+    }
+    return `${occupantPart} Occupied — can't stop here.${conditionsSuffix}`;
   }
 
-  if (input.moveModeActive) {
-    return input.inRange
-      ? `${location} Empty. In range — costs ${input.costFt} feet.`
-      : `${location} Empty. Out of range.`;
-  }
+  return `${location} Empty.${reachPhrase(input)}`;
+}
 
-  return `${location} Empty.`;
+/** The move-targeting suffix for a cell a mover may stand on: empty
+ *  (design §5's "Empty." has no range language outside Move targeting)
+ *  when Move is not engaged. */
+function reachPhrase(input: CellNameInput): string {
+  if (!input.moveModeActive) return '';
+  return input.inRange ? ` In range — costs ${input.costFt} feet.` : ' Out of range.';
 }
 
 /** `at` -> 1-indexed {row, col} for the accessible-name/announcement layer. */

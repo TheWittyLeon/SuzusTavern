@@ -107,9 +107,34 @@ describe('cellAccessibleName', () => {
         col1: 2,
         occupant: { name: 'Goblin', isSelf: false, isAlly: false, hostile: true, invisible: false, dead: true, downed: false },
         blocked: false,
+        inRange: true,
+        costFt: 10,
         moveModeActive: true,
       }),
-    ).toBe("Row 2, column 2. Goblin, hostile, dead. Occupied — can't stop here.");
+    ).toBe('Row 2, column 2. Goblin, hostile, dead. In range — costs 10 feet.');
+  });
+
+  it('names a dead occupant\'s cell as a destination, never "Occupied" (B8a IMP-5: the dead are walkable)', () => {
+    const corpse = { name: 'Goblin', isSelf: false, isAlly: false, hostile: true, invisible: false, dead: true, downed: false };
+    expect(
+      cellAccessibleName({ row1: 2, col1: 9, occupant: corpse, blocked: false, inRange: false, moveModeActive: true }),
+    ).toBe('Row 2, column 9. Goblin, hostile, dead. Out of range.');
+    expect(
+      cellAccessibleName({ row1: 2, col1: 9, occupant: corpse, blocked: false, moveModeActive: false }),
+    ).toBe('Row 2, column 9. Goblin, hostile, dead.');
+    // Control: a downed-but-alive occupant still occupies (engine keys on
+    // is_active, not HP), so it keeps the refusal even when in range.
+    expect(
+      cellAccessibleName({
+        row1: 2,
+        col1: 9,
+        occupant: { ...corpse, dead: false, downed: true },
+        blocked: false,
+        inRange: true,
+        costFt: 10,
+        moveModeActive: true,
+      }),
+    ).toBe("Row 2, column 9. Goblin, hostile, downed. Occupied — can't stop here.");
   });
 
   it('names a downed ally-occupied cell, including the downed disclosure (D1b item D, Kage-CR re-verify)', () => {
