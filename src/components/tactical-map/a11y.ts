@@ -31,6 +31,18 @@ export interface CellOccupant {
    *  `dead` field already closed for corpses. Mutually exclusive with
    *  `dead`. */
   downed: boolean;
+  /** Whether this occupant currently blocks movement onto their own cell —
+   *  computed ONCE in `TacticalMap.tsx`'s `describeOccupant`
+   *  (`occupiesWhenAlive(occupant) || (isSelf && isActiveMover)`), never
+   *  re-derived here from `dead` (Kage-CR B8c-1 IMPORTANT-3, 2026-09-28):
+   *  before this field existed, the self-narration branch below assumed
+   *  "your own cell is always Current position" unconditionally, which
+   *  stopped being true the moment a dead, non-active viewer's square
+   *  became a legal move target for someone else (B8a IMP-5) — the
+   *  self-branch now reads THIS fact instead of hardcoding the assumption,
+   *  and the other-occupant branch reads it instead of re-deciding
+   *  membership from `dead` independently. */
+  occupiesCell: boolean;
   /** T2 (Leon's ruling): active conditions OTHER than "invisible" (which
    *  already has its own bespoke disclosure above) — the "full list" half
    *  of "worst condition badge only, full list on focus/tap". Exposed here
@@ -90,16 +102,29 @@ export function cellAccessibleName(input: CellNameInput): string {
   const conditionsSuffix = others.length > 0 ? ` Conditions: ${others.join(', ')}.` : '';
 
   if (input.occupant?.isSelf) {
-    // The viewer's own token's cell is always "current position" for them —
-    // true whether or not Move is currently engaged. downed/dead use the
-    // same ", <state>" phrasing as the other-occupant branch below (D1b
-    // Kage-CR IMPORTANT-2): the red ring .tokenDowned/.tokenDead disclose
-    // visually applies to your own PC too, and isDowned/isDead are
-    // independent of `otherConditions` (isDowned = hp_current === 0 &&
-    // is_alive carries no `conditions` entry), so nothing else in this
-    // string would otherwise carry the fact.
+    // Kage-CR B8c-1 IMPORTANT-3 (2026-09-28, fix-round-2): "your own cell
+    // is always Current position" was true only because, before B8a's
+    // dead-don't-occupy fix, EVERY placed participant (dead or alive)
+    // occupied their own square. Now that a dead, non-active viewer's
+    // square can be a legal destination for someone else's move, this
+    // reads `occupiesCell` — the SAME fact the other-occupant branch below
+    // uses — instead of assuming "Current position." unconditionally. A
+    // self cell where the viewer IS the active mover always stays
+    // "Current position." regardless (occupiesCell's isSelf-&&-
+    // isActiveMover carve-out, see TacticalMap.tsx's describeOccupant) —
+    // the mover's own square is never a target for their own move.
+    // downed/dead use the same ", <state>" phrasing as the other-occupant
+    // branch below (D1b Kage-CR IMPORTANT-2): the red ring
+    // .tokenDowned/.tokenDead disclose visually applies to your own PC
+    // too, and isDowned/isDead are independent of `otherConditions`
+    // (isDowned = hp_current === 0 && is_alive carries no `conditions`
+    // entry), so nothing else in this string would otherwise carry the
+    // fact.
     const downed = input.occupant.downed ? ', downed' : '';
     const dead = input.occupant.dead ? ', dead' : '';
+    if (!input.occupant.occupiesCell) {
+      return `${location} ${input.occupant.name} — you${downed}${dead}.${reachPhrase(input)}${conditionsSuffix}`;
+    }
     return `${location} ${input.occupant.name} — you${downed}${dead}. Current position.${conditionsSuffix}`;
   }
 
@@ -113,11 +138,15 @@ export function cellAccessibleName(input: CellNameInput): string {
     const downed = input.occupant.downed ? ', downed' : '';
     const dead = input.occupant.dead ? ', dead' : '';
     const occupantPart = `${location} ${input.occupant.name}, ${relation}${invisible}${downed}${dead}.`;
-    // The dead do not occupy a cell (engine `SquareSpace.occupied_by`,
-    // living participants only; B8a IMP-5), so a corpse's cell is a legal
-    // destination and reads with the same reach phrasing as an empty one.
-    // A downed-but-alive occupant still blocks.
-    if (input.occupant.dead) {
+    // Branches on `occupiesCell` (Kage-CR B8c-1 IMPORTANT-3) — the SAME
+    // fact TacticalMap.tsx's `occupiedByOthers`/`reachableCells` use to
+    // decide legality — rather than re-deciding membership from `dead`
+    // independently. The dead do not occupy a cell (engine
+    // `SquareSpace.occupied_by`, living participants only; B8a IMP-5), so
+    // a corpse's cell is a legal destination and reads with the same
+    // reach phrasing as an empty one. A downed-but-alive occupant still
+    // blocks.
+    if (!input.occupant.occupiesCell) {
       return `${occupantPart}${reachPhrase(input)}${conditionsSuffix}`;
     }
     return `${occupantPart} Occupied — can't stop here.${conditionsSuffix}`;

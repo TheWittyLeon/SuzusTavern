@@ -53,6 +53,20 @@
 //      resolved yet. The guard lives once in `attemptMove` (the one function
 //      both the click handler and the Enter/Space keyboard handler call),
 //      not duplicated per activation path.
+//
+// B8c-1 fix-round-2 (2026-09-28, Kage-CR IMPORTANT-3 — [[2026-09-27 Tavern
+// 1.0 Drive — Reviews]]): occupancy was encoded twice — `occupiedByOthers`
+// below (reach/legality) and `a11y.ts`'s `cellAccessibleName` (the
+// accessible-name self-branch, which re-derived "does this occupant occupy"
+// from `occupant.dead` independently). The two disagreed on the viewer's OWN
+// cell: a dead, non-active viewer's square is a legal move target for
+// someone else (IMP-5 above), but the self-narration still said only
+// "Current position." `describeOccupant` now computes ONE `occupiesCell`
+// fact — `occupiesWhenAlive` (the same predicate `occupiedByOthers` filters
+// on) plus the narrow "you are the active mover" carve-out reach/legality
+// doesn't need but the self-narration does — and threads it into
+// `cellAccessibleName`, which no longer reads `dead` for this decision at
+// all. See `occupiesWhenAlive`'s and `describeOccupant`'s own comments below.
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import type { CombatParticipantState, CombatSpace, SpaceCoordinate } from '@/lib/api/types';
 import { consumeEscape } from '@/lib/a11y/escapeConsume';
@@ -107,11 +121,20 @@ export interface TacticalMapProps {
    *  given on its current render. If the flip to `true` lands late, two
    *  rapid discrete inputs — a fast double-tap, or Enter immediately
    *  followed by a stray Space — can both call `onMove` before either
-   *  render picks up the pending state. The server is a backstop, not a
-   *  substitute for this contract: it refuses a second move once the
-   *  mover's movement budget for the turn is spent, but that turns the
-   *  failure mode into a confusing refusal (or a wasted request) instead of
-   *  the intended silent no-op. */
+   *  render picks up the pending state. There is no server backstop to
+   *  fall back on today (Kage-CR B8c-1 IMPORTANT-4, 2026-09-28 — retracting
+   *  this component's own earlier D1 IMPORTANT-9(b) claim that one exists):
+   *  `/move` has no route yet, and even once B8b lands one, a short step
+   *  off a larger budget does not spend the whole budget, so an identical
+   *  second request can legally succeed rather than be refused — the only
+   *  thing that would refuse a same-cell double-submit is the
+   *  coordinator's own same-cell ruling (B8a IMPORTANT-6), and two requests
+   *  racing on the SAME destination both apply under it. `/move`'s
+   *  idempotency and concurrency handling is the engine move verb's own
+   *  requirement (routed to B8b), not this component's. Until that lands,
+   *  the caller contract above — set this prop synchronously, before
+   *  awaiting — is the ONLY guard against a double submit; there is
+   *  nothing else in this render path to fall back on. */
   moveSubmitting?: boolean;
   /** Called with the destination coordinate when the viewer confirms a
    *  legal cell (Enter/Space, or a click, on a cell this component's own
@@ -131,6 +154,25 @@ function coordKeyStr(c: SpaceCoordinate): string {
 
 function isDowned(p: CombatParticipantState): boolean {
   return p.hp_current === 0 && p.is_alive;
+}
+
+/**
+ * The engine's occupancy rule (`SquareSpace.occupied_by` docstring, B8a
+ * IMP-5): true iff a participant's presence blocks movement onto their
+ * cell — living participants only, the dead are walkable. Named and shared
+ * verbatim by `occupiedByOthers` below (the reach/legality set, which ALSO
+ * excludes the active mover's own id — a reach-specific exclusion that has
+ * nothing to do with the occupancy rule itself, see `describeOccupant`'s
+ * `occupiesCell`) and by `describeOccupant` (the accessible-name
+ * disclosure). Kage-CR B8c-1 IMPORTANT-3 (2026-09-28): before this,
+ * `a11y.ts` independently re-derived the same fact from `occupant.dead` —
+ * numerically identical today, but a SECOND computation of the SAME rule,
+ * so the next change to this rule (e.g. a future "downed no longer
+ * occupies" ruling) could update the reach/legality half and silently
+ * leave the accessible-name half behind.
+ */
+function occupiesWhenAlive(p: CombatParticipantState): boolean {
+  return p.is_alive;
 }
 
 function tokenInitial(name: string): string {
@@ -163,6 +205,7 @@ interface OccupantDescription {
 function describeOccupant(
   occupant: CombatParticipantState,
   viewerParticipantId: string | null | undefined,
+  activeParticipantId: string | null | undefined,
 ): OccupantDescription {
   const downed = isDowned(occupant);
   const dead = !occupant.is_alive;
@@ -174,6 +217,19 @@ function describeOccupant(
   const otherConditions = nonInvisibleConditions.map(formatConditionName);
   const otherConditionsFormatted = otherConditions.length > 0 ? otherConditions.join(', ') : undefined;
   const isSelf = occupant.participant_id === viewerParticipantId;
+  const isActiveMover = occupant.participant_id === activeParticipantId;
+  // Kage-CR B8c-1 IMPORTANT-3 (2026-09-28): `occupiesWhenAlive` alone is the
+  // fact `cellAccessibleName`'s "other occupant" branch needs (replacing
+  // its old, independent `dead` re-derivation). The self-narration branch
+  // needs ONE more bit `occupiedByOthers` deliberately does NOT carry: the
+  // active mover's own square is excluded from THAT set for a reach-only
+  // reason (a mover never checks whether their own cell blocks their own
+  // move — moot), not because it stops being occupied. Without the
+  // `isSelf && isActiveMover` carve-out, occupiesWhenAlive alone would
+  // misreport a LIVING active mover's own square as "not occupied" to
+  // themselves, which the many pre-existing "Current position." fixtures
+  // pin against.
+  const occupiesCell = occupiesWhenAlive(occupant) || (isSelf && isActiveMover);
   return {
     downed,
     dead,
@@ -191,6 +247,7 @@ function describeOccupant(
       // accessible-name input, so cellAccessibleName's downed branch (added
       // this same fold-forward) had no signal to read for a real render.
       downed,
+      occupiesCell,
       otherConditions,
     },
   };
@@ -229,15 +286,17 @@ export default function TacticalMap({
 
   // B8c-1 IMP-5 (D1 IMPORTANT-8 / B8a IMPORTANT-5): membership mirrors
   // `engine/space.py::SquareSpace.occupied_by`'s docstring exactly — only
-  // LIVING participants (`is_alive`) occupy a cell; the dead are walkable.
-  // This is the ONE place that filters occupancy for this component — every
-  // call site below (`reachableCells`, `isLegalMoveTarget` for the
-  // destination preview, and `attemptMove`) reads this same value, so there
-  // is no second hand-rolled copy of the membership rule to drift from it.
+  // LIVING participants (`occupiesWhenAlive`) occupy a cell; the dead are
+  // walkable. This is the ONE place that filters occupancy for
+  // reach/legality — every call site below (`reachableCells`,
+  // `isLegalMoveTarget` for the destination preview, and `attemptMove`)
+  // reads this same value, so there is no second hand-rolled copy of THAT
+  // rule to drift from it. `describeOccupant`'s `occupiesCell` (the
+  // accessible-name half) shares `occupiesWhenAlive` too — see its comment.
   const occupiedByOthers = useMemo(
     () =>
       placed
-        .filter((p) => p.participant_id !== activeParticipantId && p.is_alive)
+        .filter((p) => p.participant_id !== activeParticipantId && occupiesWhenAlive(p))
         .map((p) => p.at),
     [placed, activeParticipantId],
   );
@@ -368,7 +427,7 @@ export default function TacticalMap({
   // condition-list disclosure. `title` stays as a hover nicety only.
   const focusedOccupant = placed.find((p) => coordsEqual(p.at, focusedCoord));
   const focusedDesc = focusedOccupant
-    ? describeOccupant(focusedOccupant, viewerParticipantId)
+    ? describeOccupant(focusedOccupant, viewerParticipantId, activeParticipantId)
     : undefined;
 
   return (
@@ -416,7 +475,9 @@ export default function TacticalMap({
                 const pending = moveMode && inRange && moveSubmitting;
                 const { row1, col1 } = toDisplayRowCol(coord);
 
-                const desc = occupant ? describeOccupant(occupant, viewerParticipantId) : undefined;
+                const desc = occupant
+                  ? describeOccupant(occupant, viewerParticipantId, activeParticipantId)
+                  : undefined;
 
                 return (
                   <div

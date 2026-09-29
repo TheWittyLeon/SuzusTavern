@@ -981,3 +981,60 @@ describe('TacticalMap — B8c-1 Miko-QA break-it pass', () => {
     expect(onMove).not.toHaveBeenCalled();
   });
 });
+
+describe('TacticalMap — B8c-1 fix-round-2 (Kage-CR IMPORTANT-3): occupancy encoded once, self cell included', () => {
+  it('a dead viewer\'s own cell reads and behaves as a reach destination, not "Current position.", when a DIFFERENT active mover could step there — label and click agree', () => {
+    const onMove = jest.fn();
+    const participants = [
+      makeParticipant({ participant_id: 'p1', name: 'Sable', at: [2, 2], movement_remaining: 10 }),
+      makeParticipant({
+        participant_id: 'p9',
+        name: 'Bren',
+        at: [2, 1],
+        hp_current: 0,
+        is_alive: false,
+      }),
+    ];
+    render(
+      <TacticalMap
+        {...baseProps({
+          participants,
+          viewerParticipantId: 'p9',
+          activeParticipantId: 'p1',
+          moveMode: true,
+          onMove,
+        })}
+      />,
+    );
+    const ownCell = screen.getByRole('gridcell', {
+      name: 'Row 2, column 3. Bren — you, dead. In range — costs 5 feet.',
+    });
+    expect(ownCell).toHaveClass(styles.cellInRange);
+    fireEvent.click(ownCell);
+    expect(onMove).toHaveBeenCalledWith([2, 1]);
+  });
+
+  it('positive control: a self cell where the viewer IS the active mover stays "Current position." and is never a click target for themselves', () => {
+    const onMove = jest.fn();
+    const participants = [
+      makeParticipant({ participant_id: 'p1', name: 'Bren', at: [2, 2], movement_remaining: 10 }),
+    ];
+    render(
+      <TacticalMap
+        {...baseProps({
+          participants,
+          viewerParticipantId: 'p1',
+          activeParticipantId: 'p1',
+          moveMode: true,
+          onMove,
+        })}
+      />,
+    );
+    const ownCell = screen.getByRole('gridcell', {
+      name: 'Row 3, column 3. Bren — you. Current position.',
+    });
+    expect(ownCell).not.toHaveClass(styles.cellInRange);
+    fireEvent.click(ownCell);
+    expect(onMove).not.toHaveBeenCalled();
+  });
+});

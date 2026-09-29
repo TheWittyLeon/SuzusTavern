@@ -13,7 +13,7 @@ describe('cellAccessibleName', () => {
       cellAccessibleName({
         row1: 5,
         col1: 5,
-        occupant: { name: 'Bren Oakshield', isSelf: true, isAlly: false, hostile: false, invisible: false, dead: false, downed: false },
+        occupant: { name: 'Bren Oakshield', isSelf: true, isAlly: false, hostile: false, invisible: false, dead: false, downed: false, occupiesCell: true },
         blocked: false,
         moveModeActive: true,
       }),
@@ -29,7 +29,7 @@ describe('cellAccessibleName', () => {
       cellAccessibleName({
         row1: 1,
         col1: 1,
-        occupant: { name: 'Bren Oakshield', isSelf: true, isAlly: false, hostile: false, invisible: false, dead: false, downed: true },
+        occupant: { name: 'Bren Oakshield', isSelf: true, isAlly: false, hostile: false, invisible: false, dead: false, downed: true, occupiesCell: true },
         blocked: false,
         moveModeActive: true,
       }),
@@ -41,11 +41,56 @@ describe('cellAccessibleName', () => {
       cellAccessibleName({
         row1: 1,
         col1: 1,
-        occupant: { name: 'Bren Oakshield', isSelf: true, isAlly: false, hostile: false, invisible: false, dead: true, downed: false },
+        occupant: { name: 'Bren Oakshield', isSelf: true, isAlly: false, hostile: false, invisible: false, dead: true, downed: false, occupiesCell: true },
         blocked: false,
         moveModeActive: true,
       }),
     ).toBe('Row 1, column 1. Bren Oakshield — you, dead. Current position.');
+  });
+
+  it('a dead self cell that is NOT the mover\'s own reads via the reach phrase, never "Current position." (Kage-CR B8c-1 IMPORTANT-3 — the bug this fix-round closes)', () => {
+    // occupiesCell: false — the viewer is dead AND not the active mover
+    // (occupiesWhenAlive is false, and the isSelf-&&-isActiveMover
+    // carve-out does not apply), so this cell is a legal move target for
+    // whoever IS active, and the self-narration must say so instead of
+    // asserting "Current position." unconditionally.
+    expect(
+      cellAccessibleName({
+        row1: 2,
+        col1: 3,
+        occupant: { name: 'Bren', isSelf: true, isAlly: false, hostile: false, invisible: false, dead: true, downed: false, occupiesCell: false },
+        blocked: false,
+        inRange: true,
+        costFt: 5,
+        moveModeActive: true,
+      }),
+    ).toBe('Row 2, column 3. Bren — you, dead. In range — costs 5 feet.');
+    expect(
+      cellAccessibleName({
+        row1: 2,
+        col1: 3,
+        occupant: { name: 'Bren', isSelf: true, isAlly: false, hostile: false, invisible: false, dead: true, downed: false, occupiesCell: false },
+        blocked: false,
+        inRange: false,
+        moveModeActive: true,
+      }),
+    ).toBe('Row 2, column 3. Bren — you, dead. Out of range.');
+  });
+
+  it('positive control: a self cell where the viewer IS the active mover always stays "Current position." — the occupiesCell carve-out, not reach state', () => {
+    // occupiesCell: true via the isSelf-&&-isActiveMover carve-out even
+    // though this cell is never in `reach` (reachableCells skips its own
+    // fromKey) — "Current position." must not depend on inRange at all.
+    expect(
+      cellAccessibleName({
+        row1: 3,
+        col1: 3,
+        occupant: { name: 'Bren', isSelf: true, isAlly: false, hostile: false, invisible: false, dead: false, downed: false, occupiesCell: true },
+        blocked: false,
+        inRange: false,
+        moveModeActive: true,
+      }),
+    ).toBe('Row 3, column 3. Bren — you. Current position.');
   });
 
   it('matches the design/mockup demo table for an in-range empty cell', () => {
@@ -77,7 +122,7 @@ describe('cellAccessibleName', () => {
       cellAccessibleName({
         row1: 4,
         col1: 3,
-        occupant: { name: 'Sable Nightwhisper', isSelf: false, isAlly: true, hostile: false, invisible: false, dead: false, downed: false },
+        occupant: { name: 'Sable Nightwhisper', isSelf: false, isAlly: true, hostile: false, invisible: false, dead: false, downed: false, occupiesCell: true },
         blocked: false,
         moveModeActive: true,
       }),
@@ -89,7 +134,7 @@ describe('cellAccessibleName', () => {
       cellAccessibleName({
         row1: 4,
         col1: 11,
-        occupant: { name: 'Goblin', isSelf: false, isAlly: false, hostile: true, invisible: true, dead: false, downed: false },
+        occupant: { name: 'Goblin', isSelf: false, isAlly: false, hostile: true, invisible: true, dead: false, downed: false, occupiesCell: true },
         blocked: false,
         moveModeActive: true,
       }),
@@ -105,7 +150,7 @@ describe('cellAccessibleName', () => {
       cellAccessibleName({
         row1: 2,
         col1: 2,
-        occupant: { name: 'Goblin', isSelf: false, isAlly: false, hostile: true, invisible: false, dead: true, downed: false },
+        occupant: { name: 'Goblin', isSelf: false, isAlly: false, hostile: true, invisible: false, dead: true, downed: false, occupiesCell: false },
         blocked: false,
         inRange: true,
         costFt: 10,
@@ -115,7 +160,7 @@ describe('cellAccessibleName', () => {
   });
 
   it('names a dead occupant\'s cell as a destination, never "Occupied" (B8a IMP-5: the dead are walkable)', () => {
-    const corpse = { name: 'Goblin', isSelf: false, isAlly: false, hostile: true, invisible: false, dead: true, downed: false };
+    const corpse = { name: 'Goblin', isSelf: false, isAlly: false, hostile: true, invisible: false, dead: true, downed: false, occupiesCell: false };
     expect(
       cellAccessibleName({ row1: 2, col1: 9, occupant: corpse, blocked: false, inRange: false, moveModeActive: true }),
     ).toBe('Row 2, column 9. Goblin, hostile, dead. Out of range.');
@@ -128,13 +173,37 @@ describe('cellAccessibleName', () => {
       cellAccessibleName({
         row1: 2,
         col1: 9,
-        occupant: { ...corpse, dead: false, downed: true },
+        occupant: { ...corpse, dead: false, downed: true, occupiesCell: true },
         blocked: false,
         inRange: true,
         costFt: 10,
         moveModeActive: true,
       }),
     ).toBe("Row 2, column 9. Goblin, hostile, downed. Occupied — can't stop here.");
+  });
+
+  it('a dead occupant carrying other conditions reads the reach phrase before the conditions list (Kage-CR 🟢 E)', () => {
+    expect(
+      cellAccessibleName({
+        row1: 2,
+        col1: 3,
+        occupant: {
+          name: 'Corpse',
+          isSelf: false,
+          isAlly: false,
+          hostile: true,
+          invisible: false,
+          dead: true,
+          downed: false,
+          occupiesCell: false,
+          otherConditions: ['Prone'],
+        },
+        blocked: false,
+        inRange: true,
+        costFt: 5,
+        moveModeActive: true,
+      }),
+    ).toBe('Row 2, column 3. Corpse, hostile, dead. In range — costs 5 feet. Conditions: Prone.');
   });
 
   it('names a downed ally-occupied cell, including the downed disclosure (D1b item D, Kage-CR re-verify)', () => {
@@ -145,7 +214,7 @@ describe('cellAccessibleName', () => {
       cellAccessibleName({
         row1: 6,
         col1: 2,
-        occupant: { name: 'Bren Oakshield', isSelf: false, isAlly: true, hostile: false, invisible: false, dead: false, downed: true },
+        occupant: { name: 'Bren Oakshield', isSelf: false, isAlly: true, hostile: false, invisible: false, dead: false, downed: true, occupiesCell: true },
         blocked: false,
         moveModeActive: true,
       }),
@@ -165,6 +234,7 @@ describe('cellAccessibleName', () => {
           invisible: false,
           dead: false,
           downed: false,
+          occupiesCell: true,
           otherConditions: ['Prone', 'Poisoned'],
         },
         blocked: false,
