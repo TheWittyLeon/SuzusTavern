@@ -161,57 +161,25 @@ describe('reachableCells — Kage-CR D1 CRITICAL-1', () => {
   });
 });
 
-/**
- * Miko-QA B8c-2 divergence sweep (design brief §3.3 vs this mirror,
- * rule-by-rule): `move_legality` refuses at step 4 when
- * `adapter.is_valid(space, frm)` is false — and `SquareSpace.is_valid`
- * (engine/space.py) is `_in_bounds(at) AND NOT _is_blocked(at)`, the SAME
- * two-part check for both `frm` and `to`. This mirror's `isLegalMoveTarget`
- * / `reachableCells` apply that two-part check to `to` (bounds via
- * `inBounds`, blocked via the `space.blocked` scan) but only the BOUNDS
- * half to `from` — `from` is never checked against `space.blocked`. A
- * mover whose own current cell is a blocked cell (design's own scenario:
- * "an edited space, a downgraded engine" — `move_legality`'s step-3-before-
- * step-4 ordering comment names this exact case) gets `mover_unplaced`
- * (refused) from the engine but LEGAL from this mirror, on every other
- * cell.
- *
- * REACHABILITY, stated honestly: `adventure_validator.py:774` refuses to
- * author a `start` cell that is also a `blocked` cell, and space is static
- * mid-combat (`SquareSpace`'s own "board is static in 1.0 per R6" note) —
- * so this exact shape is NOT reachable through today's spawn path alone. It
- * is reachable through a content edit to an already-authored `blocked` list
- * between encounters that reuse a stored `at` from an earlier one, or a
- * hand-edited fixture/save row — precisely the "edited space, downgraded
- * engine" class of case `move_legality`'s docstring says step 3's ordering
- * exists to handle. Filed as a defect, not fixed here (Miko-QA does not
- * touch production code) — Ren-Dev decides whether the fix is
- * `isLegalMoveTarget`/`reachableCells` gaining a `from`-blocked check, or a
- * documented "the mirror trusts the caller's `from`" scope note. Locked via
- * `it.failing` (established repo convention — JournalPane.test.tsx,
- * play.rehydration.session-switch-staleness.adversarial.test.tsx): asserts
- * the CORRECT (engine-matching) behavior, which currently fails; if a fix
- * lands, Jest fails THIS suite (test.failing passing unexpectedly) and that
- * is the signal to drop `.failing()` and promote it to a real assertion.
- */
-describe('reach.ts vs move_legality — from-cell blocked divergence (Miko-QA B8c-2, NOT fixed here)', () => {
+describe('reach.ts vs move_legality — the mover\'s own cell must be valid (Miko-QA B8c-2)', () => {
+  // engine `move_legality` step 4 refuses a mover on a blocked or off-board
+  // cell (`mover_unplaced`); the preview must offer nothing there.
   const s = space({ width: 5, height: 5, blocked: [[0, 0]] });
 
-  it.failing(
-    'isLegalMoveTarget should refuse a move FROM a blocked cell, matching move_legality step 4 (mover_unplaced) — currently returns true',
-    () => {
-      // Confirmed via a throwaway probe against this exact build (2026-09-29):
-      // isLegalMoveTarget(s, [0,0], [1,0], 30, []) === true today.
-      expect(isLegalMoveTarget(s, [0, 0], [1, 0], 30, [])).toBe(false);
-    },
-  );
+  it('isLegalMoveTarget refuses a move FROM a blocked cell', () => {
+    expect(isLegalMoveTarget(s, [0, 0], [1, 0], 30, [])).toBe(false);
+  });
 
-  it.failing(
-    'reachableCells should return nothing when `from` is itself a blocked cell, matching move_legality step 4 — currently returns the whole open board',
-    () => {
-      // Confirmed via the same probe: length 24 (every other cell on a 5x5
-      // board) today, not 0.
-      expect(reachableCells(s, [0, 0], 30, [])).toHaveLength(0);
-    },
-  );
+  it('reachableCells returns nothing when `from` is a blocked cell', () => {
+    expect(reachableCells(s, [0, 0], 30, [])).toHaveLength(0);
+  });
+
+  it('reachableCells returns nothing when `from` is off the board', () => {
+    expect(reachableCells(s, [7, 0], 30, [])).toHaveLength(0);
+  });
+
+  it('control: a valid origin next to the blocked cell still reaches the open board', () => {
+    expect(isLegalMoveTarget(s, [1, 0], [2, 0], 30, [])).toBe(true);
+    expect(reachableCells(s, [1, 0], 30, []).length).toBeGreaterThan(0);
+  });
 });

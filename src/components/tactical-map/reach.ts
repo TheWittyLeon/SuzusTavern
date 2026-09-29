@@ -27,6 +27,20 @@ function inBounds(space: CombatSpace, at: SpaceCoordinate): boolean {
 }
 
 /**
+ * The mirror of `SquareSpace.is_valid` (engine/space.py): on the board and
+ * not `blocked`. The engine's `move_legality` applies it to BOTH ends — the
+ * mover's own cell (`mover_unplaced`) and the destination
+ * (`invalid_destination`) — so this preview does too. Kage-CR D1
+ * CRITICAL-1: an omitted `blocked` key is legal content, defended as
+ * `SquareSpace._is_blocked` does (`space.get("blocked") or []`).
+ */
+function isValidCell(space: CombatSpace, at: SpaceCoordinate): boolean {
+  if (!inBounds(space, at)) return false;
+  const key = coordKey(at);
+  return !(space.blocked ?? []).some((b) => coordKey(b) === key);
+}
+
+/**
  * Chebyshev distance between `from` and `to`, scaled by `space.cell.value` —
  * the exact mirror of `SquareSpace.cost` (engine/space.py). Returns the cost
  * in `space.cell.unit` (ft-only in 1.0). Does not check bounds/blocked/
@@ -58,6 +72,8 @@ export function reachableCells(
   occupied: SpaceCoordinate[],
 ): SpaceCoordinate[] {
   if (movementRemaining <= 0) return [];
+  // A mover on an invalid cell has no legal move at all (`mover_unplaced`).
+  if (!isValidCell(space, from)) return [];
   // Kage-CR D1 CRITICAL-1: `_validate_space` accepts an omitted `blocked`
   // key and never backfills it (Miko's B3 object-identity re-confirm) — the
   // engine's own authority for this mirror (`SquareSpace._is_blocked`)
@@ -80,8 +96,9 @@ export function reachableCells(
 }
 
 /**
- * The refusal predicate mirrored (design §4): legal iff `to` is in bounds,
- * not blocked, not occupied, and within budget. Used by the interactive grid
+ * The refusal predicate mirrored (design §4, engine `move_legality`): legal
+ * iff `to` differs from `from`, both are valid cells (in bounds, not
+ * blocked), `to` is not occupied, and the cost is within budget. Used by the interactive grid
  * layer to decide whether Enter/Space/click on a cell calls `onMove` — never
  * used to claim the server will agree (see module header).
  */
@@ -92,16 +109,13 @@ export function isLegalMoveTarget(
   movementRemaining: number,
   occupied: SpaceCoordinate[],
 ): boolean {
-  if (!inBounds(space, to)) return false;
   const toKey = coordKey(to);
   if (toKey === coordKey(from)) return false;
-  // The engine's `move_legality` refuses a mover whose own cell is off the
-  // board (`mover_unplaced`) before it prices anything; mirror it so the
-  // preview never offers a move the server will refuse (reach_vectors
-  // `origin_out_of_bounds_is_unreachable`).
-  if (!inBounds(space, from)) return false;
-  // Kage-CR D1 CRITICAL-1: see reachableCells' matching comment above.
-  if ((space.blocked ?? []).some((b) => coordKey(b) === toKey)) return false;
+  // `move_legality` steps 4-5: both ends must be valid cells, so the preview
+  // never offers a move the server refuses as `mover_unplaced` or
+  // `invalid_destination`.
+  if (!isValidCell(space, from)) return false;
+  if (!isValidCell(space, to)) return false;
   if (occupied.some((o) => coordKey(o) === toKey)) return false;
   return chebyshevCost(space, from, to) <= movementRemaining;
 }

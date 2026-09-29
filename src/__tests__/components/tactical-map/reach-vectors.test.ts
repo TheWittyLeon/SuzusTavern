@@ -22,7 +22,6 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { chebyshevCost, isLegalMoveTarget } from '@/components/tactical-map/reach';
-import { occupiesWhenAlive } from '@/components/tactical-map/TacticalMap';
 import type { CombatSpace, SpaceCoordinate } from '@/lib/api/types';
 
 const FIXTURE_PATH = path.join(__dirname, '..', '..', 'fixtures', 'reach_vectors.json');
@@ -58,19 +57,13 @@ const FIXTURE: { _mechanism: string; cases: ReachVectorCase[] } = JSON.parse(RAW
 
 /**
  * Builds the `occupied` coordinate list `isLegalMoveTarget` expects from a
- * case's `others` map, routed through `TacticalMap`'s OWN `occupiesWhenAlive`
- * predicate — never re-implemented here. Every fixture entry in `others`
- * already represents a LIVING participant (the engine's
- * `living_participant_positions` pre-filters before building `others`; see
- * the fixture's own "_mechanism" key), so every stand-in built here is
- * `is_alive: true` — this proves the Tavern's occupancy pipeline, when fed
- * the same pre-filtered shape production code would receive, agrees with
- * it, rather than silently bypassing the shared rule.
+ * case's `others` map. The engine builds `others` with
+ * `living_participant_positions`, so every entry is already a LIVING
+ * participant and this fixture cannot exercise the dead/alive filter itself;
+ * that filter (`occupiesWhenAlive`) is proven in TacticalMap.test.tsx.
  */
 function occupiedFromOthers(others: Record<string, SpaceCoordinate>): SpaceCoordinate[] {
-  return Object.entries(others)
-    .filter(() => occupiesWhenAlive({ is_alive: true }))
-    .map(([, at]) => at);
+  return Object.values(others);
 }
 
 describe('reach.ts vs the shared reach-vector fixture (B8c-2, design brief §4)', () => {
