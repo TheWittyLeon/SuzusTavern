@@ -30,9 +30,21 @@ function coordKey(c: SpaceCoordinate): string {
 // FINE in JS with no error, so without this check the client silently
 // allowed a move onto a board Python refuses outright (10/1,944 parity
 // cases, both non-int dims values, all 5 otherwise-valid cell.values).
+//
+// The `Number.isInteger(width)/(height)` guard that used to live here is
+// now `isDimsValid`'s job, one call above every path that reaches this
+// function (Kage-CR B8c-3b IMPORTANT-4 / Miko-QA, ledger item 22,
+// 2026-09-29 -- see `isDimsValid`'s own docstring for the full history).
+// `inBounds` is private and reachable ONLY through `isValidCell`, itself
+// reachable ONLY from `reachableCells`/`isLegalMoveTarget`, both of which
+// check `isSpaceUsable` -- which now calls `isDimsValid` -- FIRST and
+// return before ever calling `isValidCell` on a space with bad dims. A
+// second `Number.isInteger` check here would be permanently unreachable
+// dead code, not defense-in-depth: removed, not duplicated, per the
+// "single seam" pattern the last four ledger items (11, 16, 17, 19) all
+// converged on.
 function inBounds(space: CombatSpace, at: SpaceCoordinate): boolean {
   const { width, height } = space;
-  if (!Number.isInteger(width) || !Number.isInteger(height)) return false;
   return at[0] >= 0 && at[0] < width && at[1] >= 0 && at[1] < height;
 }
 
@@ -87,6 +99,58 @@ function isCellValueValid(space: CombatSpace): boolean {
 }
 
 /**
+ * `width`/`height` must be a real, positive integer — mirrors the
+ * STRICTER of the engine's two width/height checks, not
+ * `SquareSpace._in_bounds`'s (engine/space.py @ `3a5d18b`): `_in_bounds`
+ * only asserts `isinstance(width, int)` per coordinate check and never
+ * asserts positivity at all (a non-positive width simply makes every `x`
+ * fail `0 <= x < width`, so the board silently has no valid cells rather
+ * than being flagged invalid). The content-authoring gate every board
+ * must already clear before it can reach a client,
+ * `adventure_validator._validate_space` (engine/adventure_validator.py:
+ * 246-251 @ `3a5d18b`), is the stricter, explicit one this mirror follows:
+ *
+ *   if isinstance(width, bool) or not isinstance(width, int) or width < 1:
+ *       raise _err(...)
+ *
+ * (same clause repeated for `height`). Found by Miko-QA (B8c-3b) and
+ * Kage-CR IMPORTANT-4 independently, from opposite directions (ledger item
+ * 22, 2026-09-29): with no dims check in `isSpaceUsable`, a malformed
+ * board fell through the render seam to a THIRD, untested degrade shape —
+ * `-3`/`0`/`NaN` rendered an empty `role="grid"` shell
+ * (`Array.from({length: <clamped-to-0>})`), a numeric-string `"5"` or a
+ * float `5.5` rendered a full, wrong grid — `inBounds` used to carry its
+ * own `Number.isInteger(width)/(height)` check back then, which refused
+ * every cell inside it, but the grid FRAME itself (`TacticalMap.tsx`'s
+ * `Array.from({ length: space.width/height }, …)`) never consulted
+ * `inBounds` and drew regardless. That per-cell copy is now redundant and
+ * removed — see `inBounds`'s own comment for why — since this function
+ * refuses the whole board before the render layer ever loops.
+ *
+ * `Number.isInteger` already excludes `boolean` the same way
+ * `isCellValueValid`'s `typeof` check does above (`typeof true ===
+ * 'boolean'`, never `'number'`, so `Number.isInteger(true)` is `false`
+ * with no separate check needed) — the validator's explicit
+ * `isinstance(width, bool)` clause exists only because Python's `bool` IS
+ * an `int` subclass (`isinstance(True, int)` is `True`); JS has no such
+ * subtyping, so this is a case where the mirror needs FEWER lines than the
+ * source to stay exact, not more.
+ *
+ * `5.0` (Kage-CR IMPORTANT-4, re-verified here): unrepresentable as a
+ * distinct value in JS. Python's validator/`_in_bounds` both refuse it
+ * (`isinstance(5.0, int)` is `False` — a JSON float literal), but
+ * `JSON.parse("5.0") === 5` and `Number.isInteger(5)` is `true`, so a wire
+ * payload containing the literal text `5.0` is indistinguishable from `5`
+ * by the time this function ever sees it. This one shape stays
+ * (documented, not silently) fail-open — no JS-side check can close it,
+ * because there is no JS value left to check against.
+ */
+function isDimsValid(space: CombatSpace): boolean {
+  const { width, height } = space;
+  return Number.isInteger(width) && width > 0 && Number.isInteger(height) && height > 0;
+}
+
+/**
  * Mirrors `move_legality` steps 1–2 (engine/combat.py, engine `main` @
  * `3a5d18b`): step 1 refuses a falsy/non-dict `space`; step 2 refuses an
  * unregistered `space.kind` (`engine.space.SPACE_KINDS`, currently exactly
@@ -95,6 +159,18 @@ function isCellValueValid(space: CombatSpace): boolean {
  * registry rather than a second hand copy — Kage-CR B8c-3a IMPORTANT-1,
  * ledger item 17) closes this at the TYPE level on the wire, but this
  * function is what keeps that honest at RUNTIME too.
+ *
+ * PLUS `isDimsValid` (ledger item 22, 2026-09-29) — a check with no
+ * matching step number above, added deliberately: `move_legality` itself
+ * only discovers bad dims later, at steps 4/5 (`mover_unplaced` /
+ * `invalid_destination`, via `SquareSpace.is_valid`), never here. But a
+ * board with invalid dims has ZERO legally occupiable cells for ANY
+ * coordinate — there is nothing a grid could legally render regardless of
+ * which reason code a real move attempt would eventually get back from the
+ * server, so this predicate refuses it at the same seam as every other
+ * "there is no usable board" case rather than letting the render layer
+ * draw geometry over it first. See `isDimsValid`'s own docstring for the
+ * full finding.
  *
  * A pre-validator/corrupt board, or the first non-`'square'` kind landing
  * before the type union widens to match, degrades to "no legal move"
@@ -109,9 +185,10 @@ function isCellValueValid(space: CombatSpace): boolean {
  */
 // Exported as a TYPE PREDICATE (Kage-CR B8c-3a CRITICAL-1, ledger item 16)
 // so `TacticalMap.tsx` can use it as its OWN render seam, guaranteeing a
-// `CombatSpace` with a real, finite, positive `cell.value` for every
-// subsequent read — see the docstring above for what "usable" means and
-// why that guarantee used to not hold for the mounted component.
+// `CombatSpace` with a real, finite, positive `cell.value` AND real,
+// positive integer `width`/`height` for every subsequent read — see the
+// docstring above for what "usable" means and why that guarantee used to
+// not hold for the mounted component.
 export function isSpaceUsable(space: CombatSpace | null | undefined): space is CombatSpace {
   if (!space || typeof space !== 'object') return false;
   // Kage-CR B8c-3a IMPORTANT-1 (ledger item 17): membership against the
@@ -119,6 +196,11 @@ export function isSpaceUsable(space: CombatSpace | null | undefined): space is C
   // `!== 'square'` literal — a kind check that widens the moment the
   // engine registers a second entry, with nothing else to edit here.
   if (!(SPACE_KINDS as readonly string[]).includes((space as { kind?: unknown }).kind as string)) return false;
+  // Ledger item 22 (2026-09-29): malformed width/height used to fall
+  // through this seam entirely and reach the render layer, which drew
+  // either an empty grid shell or a full, wrong grid instead of degrading
+  // to `TheatreOfMindBand` — see `isDimsValid`'s docstring.
+  if (!isDimsValid(space)) return false;
   return isCellValueValid(space);
 }
 

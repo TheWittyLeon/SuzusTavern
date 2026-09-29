@@ -274,9 +274,11 @@ describe('reach.ts vs SquareSpace.is_valid — width/height must be `int`, not j
   // `5.5` and a numeric string `"5"` both refuse there. `at[0] < width` in
   // JS compares/coerces those fine with no error, so isValidCell silently
   // allowed a move onto a board the engine refuses outright. Direct unit
-  // pin, independent of the fixture (which found this): mutating
-  // `Number.isInteger(width)` back to `true` (i.e. deleting the check)
-  // reds both cases below.
+  // pin, independent of the fixture (which found this): the guard now lives
+  // in `isDimsValid` (called by `isSpaceUsable`, ledger item 22) rather than
+  // in `inBounds` itself -- deleting `isDimsValid`'s `Number.isInteger`
+  // clauses (or the `isSpaceUsable` call to it) reds both cases below, the
+  // same as deleting the old `inBounds`-level check used to.
   it('a float width/height (5.5) is never valid, even for an in-range coordinate', () => {
     const s = space({ width: 5.5, height: 5.5 });
     expect(isLegalMoveTarget(s, [2, 2], [2, 3], 30, [])).toBe(false);
@@ -292,5 +294,40 @@ describe('reach.ts vs SquareSpace.is_valid — width/height must be `int`, not j
   it('control: an ordinary integer width/height is unaffected', () => {
     const s = space({ width: 5, height: 5 });
     expect(isLegalMoveTarget(s, [2, 2], [2, 3], 30, [])).toBe(true);
+  });
+});
+
+describe('isSpaceUsable — width/height validity (Miko-QA B8c-3b + Kage-CR IMPORTANT-4, ledger item 22, 2026-09-29)', () => {
+  // Direct unit pin at the RENDER SEAM itself, per shape -- component-level
+  // coverage lives in TacticalMap.dimsValidity.test.tsx. `isDimsValid`
+  // itself is not exported (same convention as `isCellValueValid`), so this
+  // exercises it only through `isSpaceUsable`, exactly as every real caller
+  // does.
+  const MALFORMED_DIMS: Array<[string, unknown]> = [
+    ['negative (-3)', -3],
+    ['zero', 0],
+    ['a non-integer float (0.5)', 0.5],
+    ['NaN', Number.NaN],
+    ['a numeric string ("5")', '5'],
+    ['a non-integer float (5.5)', 5.5],
+  ];
+
+  it.each(MALFORMED_DIMS)('width/height = %s -> isSpaceUsable is false', (_label, dims) => {
+    expect(isSpaceUsable({ ...space(), width: dims, height: dims } as unknown as CombatSpace)).toBe(false);
+  });
+
+  it('width/height = 5.0 -> isSpaceUsable is TRUE -- a documented, unclosable divergence, not a bug', () => {
+    // Python's validator/`_in_bounds` both refuse `5.0`
+    // (`isinstance(5.0, int)` is `False`), but a JSON payload literally
+    // reading `5.0` parses in JS to the plain number `5`
+    // (`JSON.parse("5.0") === 5`), and `Number.isInteger(5)` is `true`.
+    // There is no JS value distinct from `5` left to check against by the
+    // time this function runs -- see `isDimsValid`'s own docstring.
+    const dims = JSON.parse('5.0');
+    expect(isSpaceUsable({ ...space(), width: dims, height: dims } as unknown as CombatSpace)).toBe(true);
+  });
+
+  it('control: an ordinary positive integer width/height is usable', () => {
+    expect(isSpaceUsable(space({ width: 5, height: 5 }))).toBe(true);
   });
 });
