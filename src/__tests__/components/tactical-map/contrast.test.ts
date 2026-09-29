@@ -71,6 +71,36 @@ function alphaOver(fgHex: string, alpha: number, backdropHex: string): string {
   return `#${out.map((c) => c.toString(16).padStart(2, '0')).join('')}`;
 }
 
+/**
+ * `--line-strong` is declared as `rgba(r,g,b,a)` directly in every palette
+ * (its own alpha baked in, unlike the other 10 tokens this file composites,
+ * which are all solid hex) — B8c-1 fix-round-2 (Kage-CR IMPORTANT-5), added
+ * for the `.cellPending` hash's real-backdrop contrast pin below.
+ */
+function parseRgba(value: string): { rgb: [number, number, number]; alpha: number } {
+  const m = /rgba?\(\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)\s*(?:,\s*([0-9.]+))?\s*\)/.exec(value);
+  if (!m) {
+    throw new Error(`contrast.test.ts: could not parse rgba() color "${value}"`);
+  }
+  return {
+    rgb: [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10)],
+    alpha: m[4] !== undefined ? parseFloat(m[4]) : 1,
+  };
+}
+
+/** Composites an `rgba(...)` color (using ITS OWN alpha, optionally scaled
+ *  by `alphaMultiplier` — `.cellPending`'s stripe fades `--line-strong`'s
+ *  alpha further when a `color-mix(..., N%, transparent)` wraps it, per
+ *  this file's own header note that mixing toward `transparent` is a plain
+ *  alpha scale) over a solid hex backdrop. */
+function rgbaOverHex(rgbaStr: string, alphaMultiplier: number, backdropHex: string): string {
+  const { rgb, alpha } = parseRgba(rgbaStr);
+  const bg = hexToRgb(backdropHex);
+  const effectiveAlpha = alpha * alphaMultiplier;
+  const out = rgb.map((c, i) => Math.round(c * effectiveAlpha + bg[i] * (1 - effectiveAlpha)));
+  return `#${out.map((c) => c.toString(16).padStart(2, '0')).join('')}`;
+}
+
 const GLOBALS_CSS_PATH = path.join(process.cwd(), 'src/app/globals.css');
 const PALETTES = parseGlobalsPalette(fs.readFileSync(GLOBALS_CSS_PATH, 'utf8'));
 
@@ -194,6 +224,63 @@ function extractCellInRangeAccentAlpha(css: string): number {
 }
 
 /**
+ * `.cellInRange`'s FILL alpha, read from its `background` shorthand
+ * specifically (NOT its `box-shadow` ring — see
+ * `extractCellInRangeAccentAlpha` above; the two are separate
+ * `color-mix(--accent)` percentages in the same rule). B8c-1 fix-round-2
+ * (Kage-CR IMPORTANT-6): this is the REAL backdrop `.feature` and
+ * `.destinationTag` render on whenever their cell is also `.cellInRange` —
+ * every reachable cell, not a hypothetical one — so their contrast pins
+ * composite against THIS, not bare `--bg-3`.
+ */
+function extractCellInRangeFillAlpha(css: string): number {
+  const body = extractCssRuleBody(css, 'cellInRange');
+  // `\b` before "background" plus a literal `:` right after (only
+  // whitespace between) is what excludes `background-image`/
+  // `background-color` shorthand-adjacent properties — this rule uses the
+  // bare `background` shorthand for its fill.
+  const backgroundMatch = /\bbackground\s*:\s*([^;]+);/.exec(body);
+  if (!backgroundMatch) {
+    throw new Error(
+      "contrast.test.ts: .cellInRange has no background declaration — did the fill move to a different property?",
+    );
+  }
+  const m = /color-mix\(in oklab,\s*var\(--accent\)\s*([0-9.]+)%,\s*transparent\)/.exec(
+    backgroundMatch[1],
+  );
+  if (!m) {
+    throw new Error(
+      "contrast.test.ts: .cellInRange's background has no var(--accent) color-mix() alpha — did the fill's construction change?",
+    );
+  }
+  return parseFloat(m[1]) / 100;
+}
+
+/**
+ * `.cellPending`'s hash stripe color's alpha MULTIPLIER on top of
+ * `--line-strong`'s own token alpha — 1 (no additional fade) in the
+ * fixed, post-fix-round-2 state (Kage-CR IMPORTANT-5: the `color-mix(...,
+ * 40%, transparent)` wrapper that used to fade it further is gone). Reads
+ * whichever form is actually on disk rather than assuming the fix — a
+ * re-introduced `color-mix(..., N%, transparent)` fade is picked up
+ * automatically with no test edit, same discipline as
+ * `extractCellInRangeAccentAlpha`.
+ */
+function extractCellPendingStripeAlphaMultiplier(css: string): number {
+  const body = extractCssRuleBody(css, 'cellPending');
+  const bgImageMatch = /background-image\s*:\s*([^;]+);/.exec(body);
+  if (!bgImageMatch) {
+    throw new Error(
+      "contrast.test.ts: .cellPending has no background-image declaration — did the hash move to a different property?",
+    );
+  }
+  const m = /color-mix\(in oklab,\s*var\(--line-strong\)\s*([0-9.]+)%,\s*transparent\)/.exec(
+    bgImageMatch[1],
+  );
+  return m ? parseFloat(m[1]) / 100 : 1;
+}
+
+/**
  * `.cellPending`'s own container `opacity`, if it has one — 1 (no dimming)
  * when absent, which is the fixed, post-Iro-A11y-MAJOR-1 state. If a
  * container opacity is ever re-added, this picks the new value straight up
@@ -214,7 +301,9 @@ function extractCellPendingContainerOpacity(css: string): number {
 }
 
 const CELL_IN_RANGE_ACCENT_ALPHA = extractCellInRangeAccentAlpha(TACTICAL_MAP_CSS);
+const CELL_IN_RANGE_FILL_ALPHA = extractCellInRangeFillAlpha(TACTICAL_MAP_CSS);
 const CELL_PENDING_CONTAINER_OPACITY = extractCellPendingContainerOpacity(TACTICAL_MAP_CSS);
+const CELL_PENDING_STRIPE_ALPHA_MULTIPLIER = extractCellPendingStripeAlphaMultiplier(TACTICAL_MAP_CSS);
 
 describe('parseGlobalsPalette — coverage sanity (protects the loops below from a silent empty parse)', () => {
   const KNOWN_VIBES = ['aetheric', 'candlelit', 'dusk-tavern', 'hearthlight', 'moonlit-grove'];
@@ -243,7 +332,7 @@ describe('parseGlobalsPalette — discovers a novel vibe with no hand-maintained
   // ~1.2:1) without editing the real design tokens. Before the fix, a vibe
   // absent from the hardcoded KNOWN_VIBES list was silently unparsed and
   // never reached the contrast loops; this pins that it now is.
-  const tenBadTokens = `
+  const elevenBadTokens = `
     --bg-3: #100f0f;
     --on-fill: #1a1919;
     --on-accent: #1a1919;
@@ -254,10 +343,11 @@ describe('parseGlobalsPalette — discovers a novel vibe with no hand-maintained
     --warm: #161313;
     --warm-ink: #171414;
     --accent: #181515;
+    --line-strong: rgba(1,1,1,0.5);
   `;
   const syntheticCss = `
-    [data-vibe="dusk-tavern"] { ${tenBadTokens} }
-    [data-vibe="kagetest"] { ${tenBadTokens} }
+    [data-vibe="dusk-tavern"] { ${elevenBadTokens} }
+    [data-vibe="kagetest"] { ${elevenBadTokens} }
     /* Shared structural tokens */
   `;
 
@@ -388,6 +478,55 @@ describe('TacticalMap contrast — D1 CR#1 coordinator decision 5 (existing toke
       const wrecked: Palette = { ...PALETTES['dusk-tavern'], accent: '#100f0f' };
       expect(BASELINE_RING_UNDER_FLOOR.has('dusk-tavern')).toBe(false);
       expect(ringClearsFloor(wrecked)).toBe(false);
+    });
+  });
+
+  describe('.cellPending hash stripe contrast against its REAL backdrop (accent-tinted .cellInRange fill, not bare --bg-3) — new pin, B8c-1 fix-round-2 (Kage-CR IMPORTANT-5)', () => {
+    // The stripe's own backdrop is never bare --bg-3: pending only ever
+    // applies to an in-range cell, and every in-range cell also carries
+    // .cellInRange's own accent-tinted `background` fill
+    // (CELL_IN_RANGE_FILL_ALPHA, read from its `background` shorthand —
+    // NOT the ring's separate 55% `box-shadow` alpha). Two of five
+    // palettes can't clear 3:1 with `--line-strong` alone (an existing
+    // token, no new literal) — carried as an explicit exemption, same
+    // pattern as the ring baseline's above, rather than silently asserting
+    // a floor that doesn't hold.
+    //
+    // debt: aetheric/moonlit-grove's pending hash sits under the 3:1 non-text floor even at --line-strong's full token alpha (measured 2.28/2.61). ceiling: exactly these two palette names; --line-strong and the .cellInRange accent fill both otherwise unchanged.
+    // until: Needs Leon's #31 --accent/--line-strong contrast ruling lands in globals.css for these two palettes.
+    const HASH_UNDER_FLOOR = new Set(['aetheric', 'moonlit-grove']);
+
+    function hashRatio(p: Palette, stripeMultiplier: number): number {
+      const cellInRangeBg = alphaOver(p.accent, CELL_IN_RANGE_FILL_ALPHA, p.bg3);
+      const stripe = rgbaOverHex(p.lineStrong, stripeMultiplier, cellInRangeBg);
+      return contrast(stripe, cellInRangeBg);
+    }
+
+    for (const name of PALETTE_NAMES) {
+      const p = PALETTES[name];
+      if (HASH_UNDER_FLOOR.has(name)) {
+        it(`${name}: line-strong hash vs its real .cellInRange-tinted backdrop is a KNOWN under-floor exemption (< 3:1) — re-measured every run, not silently trusted`, () => {
+          expect(hashRatio(p, CELL_PENDING_STRIPE_ALPHA_MULTIPLIER)).toBeLessThan(3);
+        });
+      } else {
+        it(`${name}: line-strong hash vs its real .cellInRange-tinted backdrop clears 3:1`, () => {
+          expect(hashRatio(p, CELL_PENDING_STRIPE_ALPHA_MULTIPLIER)).toBeGreaterThanOrEqual(3);
+        });
+      }
+    }
+
+    it('.cellPending applies no additional fade on top of --line-strong\'s own token alpha today (the fix itself, read from disk)', () => {
+      expect(CELL_PENDING_STRIPE_ALPHA_MULTIPLIER).toBe(1);
+    });
+
+    it("sanity: the OLD 40% color-mix fade measured ~1.4-1.6:1 in every palette (Iro-A11y's MINOR) — confirms the fix actually raised the ratio, not just that it compiles", () => {
+      for (const name of PALETTE_NAMES) {
+        const p = PALETTES[name];
+        const oldRatio = hashRatio(p, 0.4);
+        expect(oldRatio).toBeGreaterThanOrEqual(1.3);
+        expect(oldRatio).toBeLessThan(1.7);
+        expect(oldRatio).toBeLessThan(hashRatio(p, 1));
+      }
     });
   });
 

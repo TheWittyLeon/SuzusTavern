@@ -135,11 +135,18 @@
        45deg — a different direction reads as a different state at a
        glance, not just a paler version of the same one);
      - a thinner stripe over a wider gap (2px/12px here vs blocked's dense
-       4px/9px — sparser, lighter, "momentary" rather than "solid wall");
-     - the pattern's own ink faded via `color-mix` (fades only the hash's
-       own pixels — it cannot touch a child element's or a box-shadow's
-       alpha the way a container opacity did, so nothing downstream needs
-       compositing back in).
+       4px/9px — sparser, lighter, "momentary" rather than "solid wall").
+   Kage-CR B8c-1 IMPORTANT-5 fix-round-2 (2026-09-28): a THIRD differentiator
+   used to also fade the pattern's own ink via `color-mix(...,40%,...)` —
+   removed. Direction + period alone were already sufficient (the comment
+   above says so), and stacking a THIRD reduction on top of an
+   already-thinner/sparser pattern compounded into ~6.5x less ink than
+   `.cellBlocked`'s hash at full strength — contrast.test.ts measured the
+   stripe at ~1.4-1.6:1 against its real backdrop (`.cellInRange`'s accent
+   tint) in every palette, roughly half of blocked's own ~3.1-3.8:1 and
+   below the 3:1 non-text floor everywhere. `var(--line-strong)` now runs
+   at its own token alpha (no additional fade), same as `.cellBlocked`
+   above — contrast.test.ts pins the real per-palette numbers.
    Applied via `background-image` only — `.cellInRange`'s `background`
    shorthand above already owns `background-color` (the accent tint); this
    adds a second background LAYER on top of that color rather than
@@ -158,7 +165,7 @@
 .cellPending {
   background-image: repeating-linear-gradient(
     -45deg,
-    color-mix(in oklab, var(--line-strong) 40%, transparent) 0 2px,
+    var(--line-strong) 0 2px,
     transparent 2px 12px
   );
   cursor: not-allowed;
