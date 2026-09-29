@@ -21,6 +21,7 @@
  * has no other type-only test file to pattern-match (checked: no existing
  * `satisfies CombatState` / `@ts-expect-error` fixture anywhere in `src/`).
  */
+import { SPACE_KINDS } from '@/lib/api/types';
 import type {
   CombatState,
   CombatParticipantState,
@@ -145,6 +146,16 @@ describe('api/types — CombatState.space / participant at+movement_remaining (d
 
   it('SpaceKind is square-only today (design M6/§1.2) — a second kind is a type-only addition, not a Tavern code change', () => {
     const kind: SpaceKind = 'square';
+    expect(kind).toBe('square');
+  });
+
+  it('SPACE_KINDS (Kage-CR B8c-3a IMPORTANT-1, ledger item 17) is the runtime registry SpaceKind derives from — exactly one entry today', () => {
+    expect(SPACE_KINDS).toEqual(['square']);
+    // If this ever drifts from SpaceKind's own literal union, the line
+    // above (a plain equality on the array) is what catches it — the type
+    // system alone cannot: SpaceKind = (typeof SPACE_KINDS)[number] means
+    // widening SPACE_KINDS silently widens SpaceKind too, by construction.
+    const kind: SpaceKind = SPACE_KINDS[0];
     expect(kind).toBe('square');
   });
 });

@@ -1078,12 +1078,23 @@ export interface CombatDeathSaves {
  * Space kind registry — **square only** in 1.0 (design M6/§1.2: a second
  * adapter with zero tenants is the mirror-rule failure the design explicitly
  * declines to ship speculatively). A future kind (`hex`, `zones`, …) adds a
- * member to this union AND its own coordinate/feature shape alongside
- * `SpaceCoordinate` below — mirroring `engine/space.py`'s `SPACE_KINDS`
+ * member to `SPACE_KINDS` below AND its own coordinate/feature shape
+ * alongside `SpaceCoordinate` — mirroring `engine/space.py`'s `SPACE_KINDS`
  * registry (the engine-side source of truth this type must never drift
  * from). Do not add a kind here ahead of the engine registering its adapter.
+ *
+ * `SPACE_KINDS` is the ONE runtime source both `SpaceKind` (below) and
+ * every runtime membership check (`reach.ts::isSpaceUsable`) derive from —
+ * Kage-CR B8c-3a IMPORTANT-1 (2026-09-29, ledger item 17): before this,
+ * `'square'` was hand-copied in three places (this type, and two separate
+ * runtime `!== 'square'` compares) with nothing mechanically linking them.
+ *
+ * debt: SPACE_KINDS is a hand-maintained client mirror of engine.space.SPACE_KINDS. ceiling: drifts silently whenever the engine registers a second kind. until: the engine publishes SPACE_KINDS as a digest-pinned fixture (Backlog TAV-SPACE-KINDS-HAND-MIRROR).
  */
-export type SpaceKind = 'square';
+export const SPACE_KINDS = ['square'] as const;
+
+/** Derived from `SPACE_KINDS` — never widen this union directly. */
+export type SpaceKind = (typeof SPACE_KINDS)[number];
 
 /**
  * Opaque per-`space.kind` coordinate (design §1.3, §4.3: "opaque — `[6,6]`

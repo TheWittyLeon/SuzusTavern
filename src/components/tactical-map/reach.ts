@@ -16,7 +16,7 @@
 // own marker: "debt: cost() is straight-line, not a path around `blocked`
 // cells") — this mirror inherits that same limitation deliberately, not by
 // oversight.
-import type { CombatSpace, SpaceCoordinate } from '@/lib/api/types';
+import { SPACE_KINDS, type CombatSpace, type SpaceCoordinate } from '@/lib/api/types';
 
 function coordKey(c: SpaceCoordinate): string {
   return `${c[0]},${c[1]}`;
@@ -91,7 +91,11 @@ function isCellValueValid(space: CombatSpace): boolean {
 // with a real, finite, positive `cell.value` for every subsequent read.
 export function isSpaceUsable(space: CombatSpace | null | undefined): space is CombatSpace {
   if (!space || typeof space !== 'object') return false;
-  if ((space as { kind?: unknown }).kind !== 'square') return false;
+  // Kage-CR B8c-3a IMPORTANT-1 (ledger item 17): membership against the
+  // one runtime `SPACE_KINDS` registry (types.ts), not a hand-copied
+  // `!== 'square'` literal — a kind check that widens the moment the
+  // engine registers a second entry, with nothing else to edit here.
+  if (!(SPACE_KINDS as readonly string[]).includes((space as { kind?: unknown }).kind as string)) return false;
   return isCellValueValid(space);
 }
 
