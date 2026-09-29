@@ -95,7 +95,23 @@ export interface TacticalMapProps {
    *  destination-tag text below WCAG AA, Iro-A11y MAJOR-1, 2026-09-28) and
    *  assistive tech (`aria-busy` on the grid, `aria-disabled` on the
    *  still-highlighted move targets) without moving keyboard focus. The
-   *  caller owns clearing it once its `/move` request settles either way. */
+   *  caller owns clearing it once its `/move` request settles either way.
+   *
+   *  Caller contract (Tora-Gesture MINOR-1, 2026-09-28): the mount MUST set
+   *  this to `true` SYNCHRONOUSLY inside its own `onMove` handler, before
+   *  awaiting the network call — never after the `await`, and never from a
+   *  `.then()`/effect that only runs once the promise has already yielded.
+   *  This component has no request-lifecycle state of its own to fall back
+   *  on: `attemptMove` (the single choke point both the click handler and
+   *  the Enter/Space keyboard handler call) only ever sees the prop it was
+   *  given on its current render. If the flip to `true` lands late, two
+   *  rapid discrete inputs — a fast double-tap, or Enter immediately
+   *  followed by a stray Space — can both call `onMove` before either
+   *  render picks up the pending state. The server is a backstop, not a
+   *  substitute for this contract: it refuses a second move once the
+   *  mover's movement budget for the turn is spent, but that turns the
+   *  failure mode into a confusing refusal (or a wasted request) instead of
+   *  the intended silent no-op. */
   moveSubmitting?: boolean;
   /** Called with the destination coordinate when the viewer confirms a
    *  legal cell (Enter/Space, or a click, on a cell this component's own
