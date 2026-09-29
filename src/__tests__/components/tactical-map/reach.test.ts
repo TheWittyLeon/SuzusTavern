@@ -161,6 +161,74 @@ describe('reachableCells — Kage-CR D1 CRITICAL-1', () => {
   });
 });
 
+describe('reach.ts vs move_legality steps 1-2 — space validity (Kage-CR B8b-2 🟡-3 / verify-2 🟢 2, B8c-2 🟢 B; B8c-3 ledger items 10/11)', () => {
+  const openBoard = space({ width: 5, height: 5 });
+
+  it('`space` falsy -> reachableCells returns [] and isLegalMoveTarget refuses', () => {
+    expect(reachableCells(null as unknown as CombatSpace, [0, 0], 30, [])).toEqual([]);
+    expect(reachableCells(undefined as unknown as CombatSpace, [0, 0], 30, [])).toEqual([]);
+    expect(isLegalMoveTarget(null as unknown as CombatSpace, [0, 0], [1, 0], 30, [])).toBe(false);
+  });
+
+  it('an unregistered `space.kind` (e.g. a future "hex" board) is never legal -- closes B8c-2 🟢 B\'s "a hex space renders legal" gap', () => {
+    // `SpaceKind` is a `'square'`-only union at the type level; the wire has
+    // no such guarantee (design §1.2/§4.3), so this is cast through
+    // `unknown` the same way the fixture-shape tests above do.
+    const hex = { ...openBoard, kind: 'hex' } as unknown as CombatSpace;
+    expect(reachableCells(hex, [0, 0], 30, [])).toEqual([]);
+    expect(isLegalMoveTarget(hex, [0, 0], [1, 0], 30, [])).toBe(false);
+  });
+
+  // Kage-CR B8b-2 verify · IMPORTANT-3 measured 6 of these 9 shapes
+  // rendering as legal client-side while the engine refused all 9 as
+  // `no_space` -- there was no `cell.value` guard here at all. No parity
+  // GENERATOR is committed in this repo to extend with this axis: Kage's
+  // 4,000-case differential (`ts-node -T` against the real `move_legality`,
+  // B8c-2 review) was run ad hoc from a reviewer's own script, not checked
+  // in anywhere under `src/__tests__/` or `NekoNova-DnDEngine/tests/`
+  // (confirmed by grep -- the only committed cross-repo parity artifact is
+  // the digest-pinned `reach_vectors.json` fixture, which samples
+  // `cell.value` from `{2.5, 5, 10}` only and is out of this item's scope).
+  // So this table asserts the axis directly against the engine's documented
+  // behaviour -- `_cell_value_is_valid`'s own docstring and code,
+  // engine `main` @ `3a5d18b` -- rather than against a generator this repo
+  // does not have.
+  const invalidCellValues: Array<[string, unknown]> = [
+    ['a numeric string', '5'],
+    ['null', null],
+    ['a boolean', true],
+    ['an array', [5]],
+    ['an empty object', {}],
+    ['zero', 0],
+    ['negative', -5],
+    ['NaN', Number.NaN],
+    ['Infinity', Number.POSITIVE_INFINITY],
+  ];
+
+  it.each(invalidCellValues)('cell.value = %s (%p) -> nothing reachable, no move legal', (_label, value) => {
+    const corrupt = { ...openBoard, cell: { ...openBoard.cell, value } } as unknown as CombatSpace;
+    expect(reachableCells(corrupt, [2, 2], 30, [])).toEqual([]);
+    expect(isLegalMoveTarget(corrupt, [2, 2], [2, 3], 30, [])).toBe(false);
+  });
+
+  it('`cell` itself absent or `null` -> nothing reachable, no move legal', () => {
+    const noCell = { ...openBoard } as { cell?: unknown };
+    delete noCell.cell;
+    expect(reachableCells(noCell as CombatSpace, [2, 2], 30, [])).toEqual([]);
+    expect(isLegalMoveTarget(noCell as CombatSpace, [2, 2], [2, 3], 30, [])).toBe(false);
+
+    const nullCell = { ...openBoard, cell: null } as unknown as CombatSpace;
+    expect(reachableCells(nullCell, [2, 2], 30, [])).toEqual([]);
+    expect(isLegalMoveTarget(nullCell, [2, 2], [2, 3], 30, [])).toBe(false);
+  });
+
+  it('a valid finite positive float (2.5) still works -- the guard does not over-refuse', () => {
+    const valid = { ...openBoard, cell: { value: 2.5, unit: 'ft' as const } };
+    expect(reachableCells(valid, [2, 2], 30, [])).not.toEqual([]);
+    expect(isLegalMoveTarget(valid, [2, 2], [2, 3], 30, [])).toBe(true);
+  });
+});
+
 describe('reach.ts vs move_legality — the mover\'s own cell must be valid (Miko-QA B8c-2)', () => {
   // engine `move_legality` step 4 refuses a mover on a blocked or off-board
   // cell (`mover_unplaced`); the preview must offer nothing there.

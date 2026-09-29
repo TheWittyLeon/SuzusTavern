@@ -41,6 +41,53 @@ function isValidCell(space: CombatSpace, at: SpaceCoordinate): boolean {
 }
 
 /**
+ * Mirrors `engine.combat._cell_value_is_valid` (engine/combat.py) exactly:
+ * `space.cell.value` must be a real, finite, positive number. Read directly
+ * off engine `main` @ `3a5d18b` rather than guessed:
+ *
+ *   cell = space.get("cell")
+ *   if not isinstance(cell, dict): return False
+ *   value = cell.get("value")
+ *   if isinstance(value, bool) or not isinstance(value, (int, float)): return False
+ *   return math.isfinite(value) and value > 0
+ *
+ * Python's `bool` is an `int` subclass, so the engine excludes it
+ * explicitly; JS's `typeof true === 'boolean'` (never `'number'`) makes
+ * that exclusion automatic here — no separate check needed. `cell` itself
+ * absent/`null`/an array all fail the `typeof … === 'object'` dict-shape
+ * test the same way `isinstance(cell, dict)` does. Kage-CR B8b-2 🟡-3 /
+ * B8c-2 🟢 B (2026-09-29): with no guard, 6 of 9 corrupt `cell.value`
+ * shapes (`"5"`, `null`, `true`, `0`, `-5`, `[5]`) rendered as legal moves
+ * the engine refuses as `no_space`.
+ */
+function isCellValueValid(space: CombatSpace): boolean {
+  const cell = (space as { cell?: unknown }).cell;
+  if (typeof cell !== 'object' || cell === null || Array.isArray(cell)) return false;
+  const value = (cell as { value?: unknown }).value;
+  return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+/**
+ * Mirrors `move_legality` steps 1–2 (engine/combat.py, engine `main` @
+ * `3a5d18b`): step 1 refuses a falsy/non-dict `space`; step 2 refuses an
+ * unregistered `space.kind` (`engine.space.SPACE_KINDS` has exactly one
+ * entry, `"square"`, today — `engine/space.py:217`) or a malformed
+ * `cell.value`. `SpaceKind = 'square'` closes this at the TYPE level on the
+ * wire, but this module's own T1 pin (B8c-2 Kage 🟢 B) is what keeps that
+ * honest at RUNTIME too — a pre-validator/corrupt board, or the first
+ * non-`'square'` kind landing before the type union widens to match,
+ * degrades to "no legal move" here rather than rendering square geometry
+ * onto a board this mirror does not understand. Both call sites below
+ * check this FIRST, matching the engine's own step-1-before-step-2-before-
+ * everything-else order.
+ */
+function isSpaceUsable(space: CombatSpace | null | undefined): boolean {
+  if (!space || typeof space !== 'object') return false;
+  if ((space as { kind?: unknown }).kind !== 'square') return false;
+  return isCellValueValid(space);
+}
+
+/**
  * Chebyshev distance between `from` and `to`, scaled by `space.cell.value` —
  * the exact mirror of `SquareSpace.cost` (engine/space.py). Returns the cost
  * in `space.cell.unit` (ft-only in 1.0). Does not check bounds/blocked/
@@ -71,6 +118,9 @@ export function reachableCells(
   movementRemaining: number,
   occupied: SpaceCoordinate[],
 ): SpaceCoordinate[] {
+  // move_legality steps 1-2: no board, an unregistered kind, or a malformed
+  // `cell.value` -> no move is legal at all (Kage-CR B8b-2 🟡-3, B8c-2 🟢 B).
+  if (!isSpaceUsable(space)) return [];
   if (movementRemaining <= 0) return [];
   // A mover on an invalid cell has no legal move at all (`mover_unplaced`).
   if (!isValidCell(space, from)) return [];
@@ -109,6 +159,8 @@ export function isLegalMoveTarget(
   movementRemaining: number,
   occupied: SpaceCoordinate[],
 ): boolean {
+  // move_legality steps 1-2 (see `isSpaceUsable`'s own docstring).
+  if (!isSpaceUsable(space)) return false;
   const toKey = coordKey(to);
   if (toKey === coordKey(from)) return false;
   // `move_legality` steps 4-5: both ends must be valid cells, so the preview
