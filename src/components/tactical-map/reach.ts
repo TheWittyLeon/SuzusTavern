@@ -81,7 +81,15 @@ function isCellValueValid(space: CombatSpace): boolean {
  * check this FIRST, matching the engine's own step-1-before-step-2-before-
  * everything-else order.
  */
-function isSpaceUsable(space: CombatSpace | null | undefined): boolean {
+// Kage-CR B8c-3a CRITICAL-1 (2026-09-29, ledger item 16): exported as a TYPE
+// PREDICATE and made the component's own render seam (TacticalMap.tsx), not
+// just an internal helper here — a plain `space.kind !== 'square'` check at
+// the component's early return let a wire-reachable `cell: null` reach the
+// per-cell `chebyshevCost` call and throw `TypeError` at render, because
+// that check never validated `cell` at all. This is the ONE seam now: any
+// caller that gates on `isSpaceUsable` first is guaranteed a `CombatSpace`
+// with a real, finite, positive `cell.value` for every subsequent read.
+export function isSpaceUsable(space: CombatSpace | null | undefined): space is CombatSpace {
   if (!space || typeof space !== 'object') return false;
   if ((space as { kind?: unknown }).kind !== 'square') return false;
   return isCellValueValid(space);

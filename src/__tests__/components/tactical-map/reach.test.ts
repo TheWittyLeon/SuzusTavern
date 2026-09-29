@@ -2,7 +2,7 @@
  * reach.ts — client-side PREVIEW mirror of `SquareSpace.cost`
  * (NekoNova-DnDEngine/engine/space.py). Chebyshev distance × `cell.value`.
  */
-import { chebyshevCost, isLegalMoveTarget, reachableCells } from '@/components/tactical-map/reach';
+import { chebyshevCost, isLegalMoveTarget, isSpaceUsable, reachableCells } from '@/components/tactical-map/reach';
 import type { CombatSpace } from '@/lib/api/types';
 
 function space(overrides: Partial<CombatSpace> = {}): CombatSpace {
@@ -249,5 +249,21 @@ describe('reach.ts vs move_legality — the mover\'s own cell must be valid (Mik
   it('control: a valid origin next to the blocked cell still reaches the open board', () => {
     expect(isLegalMoveTarget(s, [1, 0], [2, 0], 30, [])).toBe(true);
     expect(reachableCells(s, [1, 0], 30, []).length).toBeGreaterThan(0);
+  });
+});
+
+describe('isSpaceUsable — exported as a type predicate (Kage-CR B8c-3a CRITICAL-1, ledger item 16)', () => {
+  // Direct unit coverage now that this is public API and TacticalMap.tsx's
+  // own render seam, not just an internal helper `reachableCells`/
+  // `isLegalMoveTarget` happen to call first.
+  it('true for a usable space', () => {
+    expect(isSpaceUsable(space())).toBe(true);
+  });
+
+  it('false for null/undefined, a non-square kind, and every malformed cell.value already covered above', () => {
+    expect(isSpaceUsable(null)).toBe(false);
+    expect(isSpaceUsable(undefined)).toBe(false);
+    expect(isSpaceUsable({ ...space(), kind: 'hex' } as unknown as CombatSpace)).toBe(false);
+    expect(isSpaceUsable({ ...space(), cell: null } as unknown as CombatSpace)).toBe(false);
   });
 });

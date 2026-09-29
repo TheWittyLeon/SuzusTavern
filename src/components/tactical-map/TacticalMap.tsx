@@ -70,7 +70,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import type { CombatParticipantState, CombatSpace, SpaceCoordinate } from '@/lib/api/types';
 import { consumeEscape } from '@/lib/a11y/escapeConsume';
-import { chebyshevCost, coordsEqual, isLegalMoveTarget, reachableCells } from './reach';
+import { chebyshevCost, coordsEqual, isLegalMoveTarget, isSpaceUsable, reachableCells } from './reach';
 import { cellAccessibleName, nextFocusCoord, toDisplayRowCol, type CellOccupant } from './a11y';
 import { worstCondition } from './conditions';
 import { formatConditionName } from '@/lib/conditions';
@@ -389,7 +389,16 @@ export default function TacticalMap({
   // a nonsensical Chebyshev overlay. M6 (movement design) is square-only in
   // 1.0 — fall through to the same theatre-of-mind band `!space` uses
   // rather than draw a board this mirror doesn't understand.
-  if (!space || space.kind !== 'square') {
+  //
+  // Kage-CR B8c-3a CRITICAL-1 (2026-09-29, ledger item 16): this is now the
+  // component's ONE seam for space usability — `isSpaceUsable` (reach.ts)
+  // is a type predicate, so everything below this line (the per-cell
+  // `chebyshevCost` call included) runs only on a `CombatSpace` with a
+  // real, finite, positive `cell.value`. The old `space.kind !== 'square'`
+  // check never validated `cell` at all, so a wire-reachable `cell: null`
+  // (key-presence-only projection gate, engine/combat.py:7361-7364 @
+  // 3a5d18b) reached `chebyshevCost` and threw `TypeError` at render.
+  if (!isSpaceUsable(space)) {
     if (participants.length === 0) return null;
     return <TheatreOfMindBand participants={participants} className={className} />;
   }
