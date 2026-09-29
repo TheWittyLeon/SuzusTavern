@@ -267,3 +267,30 @@ describe('isSpaceUsable — exported as a type predicate (Kage-CR B8c-3a CRITICA
     expect(isSpaceUsable({ ...space(), cell: null } as unknown as CombatSpace)).toBe(false);
   });
 });
+
+describe('reach.ts vs SquareSpace.is_valid — width/height must be `int`, not just numeric (found by the ledger item 19 parity fixture, 2026-09-29)', () => {
+  // engine/space.py::SquareSpace.is_valid refuses BEFORE the bounds compare
+  // when `not isinstance(width, int) or not isinstance(height, int)` --
+  // `5.5` and a numeric string `"5"` both refuse there. `at[0] < width` in
+  // JS compares/coerces those fine with no error, so isValidCell silently
+  // allowed a move onto a board the engine refuses outright. Direct unit
+  // pin, independent of the fixture (which found this): mutating
+  // `Number.isInteger(width)` back to `true` (i.e. deleting the check)
+  // reds both cases below.
+  it('a float width/height (5.5) is never valid, even for an in-range coordinate', () => {
+    const s = space({ width: 5.5, height: 5.5 });
+    expect(isLegalMoveTarget(s, [2, 2], [2, 3], 30, [])).toBe(false);
+    expect(reachableCells(s, [2, 2], 30, [])).toEqual([]);
+  });
+
+  it('a numeric-STRING width/height ("5") is never valid -- JS would otherwise coerce it in a `<` compare', () => {
+    const s = { ...space(), width: '5', height: '5' } as unknown as CombatSpace;
+    expect(isLegalMoveTarget(s, [2, 2], [2, 3], 30, [])).toBe(false);
+    expect(reachableCells(s, [2, 2], 30, [])).toEqual([]);
+  });
+
+  it('control: an ordinary integer width/height is unaffected', () => {
+    const s = space({ width: 5, height: 5 });
+    expect(isLegalMoveTarget(s, [2, 2], [2, 3], 30, [])).toBe(true);
+  });
+});

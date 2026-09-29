@@ -22,8 +22,18 @@ function coordKey(c: SpaceCoordinate): string {
   return `${c[0]},${c[1]}`;
 }
 
+// Found by the ledger item 19 parity fixture (Kage-CR B8c-3a 🟢 1, 2026-09-29):
+// `SquareSpace.is_valid` (engine/space.py) refuses BEFORE the bounds
+// comparison when `width`/`height` aren't `int` (`isinstance(width, int)`)
+// -- a `5.5` or a numeric-string `"5"` width is `no_space`, not "the board
+// is just very small". `at[0] < "5"` and `at[0] < 5.5` both coerce/compare
+// FINE in JS with no error, so without this check the client silently
+// allowed a move onto a board Python refuses outright (10/1,944 parity
+// cases, both non-int dims values, all 5 otherwise-valid cell.values).
 function inBounds(space: CombatSpace, at: SpaceCoordinate): boolean {
-  return at[0] >= 0 && at[0] < space.width && at[1] >= 0 && at[1] < space.height;
+  const { width, height } = space;
+  if (!Number.isInteger(width) || !Number.isInteger(height)) return false;
+  return at[0] >= 0 && at[0] < width && at[1] >= 0 && at[1] < height;
 }
 
 /**
