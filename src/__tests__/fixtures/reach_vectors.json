@@ -155,6 +155,23 @@
       "expected_reason": "mover_unplaced"
     },
     {
+      "name": "origin_blocked_is_unreachable",
+      "space": {
+        "kind": "square",
+        "width": 5,
+        "height": 5,
+        "cell": { "value": 5, "unit": "ft" },
+        "blocked": [[0, 0]]
+      },
+      "from": [0, 0],
+      "to": [1, 0],
+      "expected": null,
+      "budget": 30,
+      "others": {},
+      "expected_legal": false,
+      "expected_reason": "mover_unplaced"
+    },
+    {
       "name": "occupied_by_dead_is_legal",
       "space": {
         "kind": "square",

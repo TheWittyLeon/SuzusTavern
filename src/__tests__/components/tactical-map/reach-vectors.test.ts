@@ -34,12 +34,12 @@ const RAW = fs.readFileSync(FIXTURE_PATH, 'utf8');
 // literal (`c51e3ea4...`) that earlier carry notes quoted is STALE; this is
 // the new one.
 const CANONICAL_REACH_VECTORS_SHA256 =
-  'd6e0c106d165a25b4ede0a673dc81ee578fe07cd5205b02e2d8ef021f5c53bcc';
+  'f2f12e3aa5b5a971e45c9f8d1dc2f31b726a2bafa65b4efdb8eb3bd4f5fbe3c8';
 
 // Exact count, not a floor — same rationale as the engine's own
 // `_EXPECTED_REACH_VECTOR_COUNT` (Miko-QA B8a mutation probe 3: a floor only
 // catches the fixture going empty, never one case quietly disappearing).
-const EXPECTED_CASE_COUNT = 11;
+const EXPECTED_CASE_COUNT = 12;
 
 interface ReachVectorCase {
   name: string;
@@ -72,7 +72,7 @@ describe('reach.ts vs the shared reach-vector fixture (B8c-2, design brief §4)'
     expect(digest).toBe(CANONICAL_REACH_VECTORS_SHA256);
   });
 
-  it('carries exactly 11 cases — a floor would miss a single dropped vector', () => {
+  it('carries exactly 12 cases — a floor would miss a single dropped vector', () => {
     expect(FIXTURE.cases).toHaveLength(EXPECTED_CASE_COUNT);
     const names = FIXTURE.cases.map((c) => c.name);
     expect(new Set(names).size).toBe(names.length);
