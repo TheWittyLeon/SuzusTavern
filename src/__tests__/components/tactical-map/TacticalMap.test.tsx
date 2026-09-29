@@ -1038,3 +1038,167 @@ describe('TacticalMap — B8c-1 fix-round-2 (Kage-CR IMPORTANT-3): occupancy enc
     expect(onMove).not.toHaveBeenCalled();
   });
 });
+
+describe('TacticalMap — B8c-1 Miko-QA re-check after round 2 (occupiesCell enumeration): {self,other} x {alive,downed,dead} x {is/isn\'t active mover} x moveMode x moveSubmitting', () => {
+  // Geometry reused from the fix-round-2 fixtures above: p1 at [2,2],
+  // movement_remaining 10 on the 5ft-cell default board -> [2,1] (1 cell,
+  // 5ft) is always within budget when it isn't excluded by occupancy or by
+  // being the mover's own cell. Every test here asserts THREE observable
+  // facts together (label, cellInRange membership, click/Enter -> onMove),
+  // per the coordinator's ask, so a fix that gets one right and another
+  // wrong still reds.
+
+  it('self, ALIVE, NOT the active mover: "Current position." and excluded from reach — the occupiesWhenAlive term alone must carry this, not the isActiveMover carve-out (closes a real gap: the pre-existing T1 "spectator viewer" test never asserted the spectator\'s OWN cell)', () => {
+    const onMove = jest.fn();
+    const participants = [
+      makeParticipant({ participant_id: 'p1', name: 'Bren', at: [2, 2], movement_remaining: 10 }),
+      makeParticipant({ participant_id: 'p2', name: 'Sable', at: [2, 1] }),
+    ];
+    render(
+      <TacticalMap
+        {...baseProps({ participants, viewerParticipantId: 'p2', activeParticipantId: 'p1', moveMode: true, onMove })}
+      />,
+    );
+    const ownCell = screen.getByRole('gridcell', {
+      name: 'Row 2, column 3. Sable — you. Current position.',
+    });
+    expect(ownCell).not.toHaveClass(styles.cellInRange);
+    fireEvent.click(ownCell);
+    expect(onMove).not.toHaveBeenCalled();
+  });
+
+  it('self, DOWNED (0 HP, is_alive: true), NOT the active mover: still "Current position." and excluded from reach — discriminates against a plausible-but-wrong "downed no longer occupies" rule, on the SELF branch specifically (the engine keys occupancy on is_active/is_alive, never HP)', () => {
+    const onMove = jest.fn();
+    const participants = [
+      makeParticipant({ participant_id: 'p1', name: 'Bren', at: [2, 2], movement_remaining: 10 }),
+      makeParticipant({
+        participant_id: 'p9',
+        name: 'Mira',
+        at: [2, 1],
+        hp_current: 0,
+        is_alive: true,
+      }),
+    ];
+    render(
+      <TacticalMap
+        {...baseProps({ participants, viewerParticipantId: 'p9', activeParticipantId: 'p1', moveMode: true, onMove })}
+      />,
+    );
+    const ownCell = screen.getByRole('gridcell', {
+      name: 'Row 2, column 3. Mira — you, downed. Current position.',
+    });
+    expect(ownCell).not.toHaveClass(styles.cellInRange);
+    fireEvent.click(ownCell);
+    expect(onMove).not.toHaveBeenCalled();
+  });
+
+  it('OTHER occupant who IS the dead active mover, viewed by a third party: reads the reach phrase ("Out of range."), never "Occupied" — proves the carve-out is scoped to `isSelf && isActiveMover` together, not `isActiveMover` alone (a plausible mutation of the OR\'s second term would flip this cell to "Occupied" even though it is unreachable only because it is the FROM cell, not because it is occupied)', () => {
+    const onMove = jest.fn();
+    const participants = [
+      makeParticipant({
+        participant_id: 'p1',
+        name: 'Bren',
+        at: [2, 2],
+        movement_remaining: 10,
+        is_alive: false,
+        hp_current: 0,
+      }),
+      makeParticipant({ participant_id: 'p3', name: 'Third', at: [4, 4] }),
+    ];
+    render(
+      <TacticalMap
+        {...baseProps({ participants, viewerParticipantId: 'p3', activeParticipantId: 'p1', moveMode: true, onMove })}
+      />,
+    );
+    const brensCell = screen.getByRole('gridcell', {
+      name: 'Row 3, column 3. Bren, ally, dead. Out of range.',
+    });
+    expect(brensCell).not.toHaveClass(styles.cellInRange);
+    fireEvent.click(brensCell);
+    expect(onMove).not.toHaveBeenCalled();
+  });
+
+  it('self, DEAD, IS the active mover (structurally permitted by this component; whether the mount ever produces this state is Kage-CR\'s open question to B8c-2): still "Current position." via the isSelf-&&-isActiveMover carve-out, and never a click target for themselves — the same_cell exclusion in reach.ts, not occupiesCell, is what protects the click half here', () => {
+    const onMove = jest.fn();
+    const participants = [
+      makeParticipant({
+        participant_id: 'p1',
+        name: 'Bren',
+        at: [2, 2],
+        movement_remaining: 10,
+        is_alive: false,
+        hp_current: 0,
+      }),
+    ];
+    render(
+      <TacticalMap
+        {...baseProps({ participants, viewerParticipantId: 'p1', activeParticipantId: 'p1', moveMode: true, onMove })}
+      />,
+    );
+    const ownCell = screen.getByRole('gridcell', {
+      name: 'Row 3, column 3. Bren — you, dead. Current position.',
+    });
+    expect(ownCell).not.toHaveClass(styles.cellInRange);
+    fireEvent.click(ownCell);
+    expect(onMove).not.toHaveBeenCalled();
+  });
+
+  it('self, DEAD, NOT the active mover, moveMode OFF: reads "you, dead." with no "Current position." and no reach phrase, never highlighted, never a click target — moveMode collapses ALL of the occupiesCell axes at once, not just the ones exercised with moveMode on above', () => {
+    const onMove = jest.fn();
+    const participants = [
+      makeParticipant({ participant_id: 'p1', name: 'Bren', at: [2, 2], movement_remaining: 10 }),
+      makeParticipant({
+        participant_id: 'p9',
+        name: 'Corpse',
+        at: [2, 1],
+        hp_current: 0,
+        is_alive: false,
+      }),
+    ];
+    render(
+      <TacticalMap
+        {...baseProps({ participants, viewerParticipantId: 'p9', activeParticipantId: 'p1', moveMode: false, onMove })}
+      />,
+    );
+    const ownCell = screen.getByRole('gridcell', {
+      name: 'Row 2, column 3. Corpse — you, dead.',
+    });
+    expect(ownCell).not.toHaveClass(styles.cellInRange);
+    fireEvent.click(ownCell);
+    expect(onMove).not.toHaveBeenCalled();
+  });
+
+  it('self, DEAD, NOT the active mover, cell reachable AND moveSubmitting: the fix-round-2 self-occupancy exclusion and the earlier IMP-9b moveSubmitting guard compose correctly on the SAME cell — cellPending/aria-disabled apply and the click is inert, paired with the fix-round-2 baseline above (same fixture, moveSubmitting omitted) which already proves this exact cell submits when NOT submitting', () => {
+    const onMove = jest.fn();
+    const participants = [
+      makeParticipant({ participant_id: 'p1', name: 'Bren', at: [2, 2], movement_remaining: 10 }),
+      makeParticipant({
+        participant_id: 'p9',
+        name: 'Bren',
+        at: [2, 1],
+        hp_current: 0,
+        is_alive: false,
+      }),
+    ];
+    render(
+      <TacticalMap
+        {...baseProps({
+          participants,
+          viewerParticipantId: 'p9',
+          activeParticipantId: 'p1',
+          moveMode: true,
+          moveSubmitting: true,
+          onMove,
+        })}
+      />,
+    );
+    const ownCell = screen.getByRole('gridcell', {
+      name: 'Row 2, column 3. Bren — you, dead. In range — costs 5 feet.',
+    });
+    expect(ownCell).toHaveClass(styles.cellInRange);
+    expect(ownCell).toHaveClass(styles.cellPending);
+    expect(ownCell).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.click(ownCell);
+    expect(onMove).not.toHaveBeenCalled();
+  });
+});
