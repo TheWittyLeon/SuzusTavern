@@ -32,6 +32,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { stripComments } from '../../../scripts/lib/strip-source-comments.mjs';
 
 const SCANNED_FILES = [
   // TAV-PLAY-SHELL step 3: page.tsx belongs here for the SAME reason it
@@ -117,55 +118,15 @@ function readRaw(relPath: string): string {
   return fs.readFileSync(abs, 'utf8');
 }
 
-/**
- * Strips `//` line comments and slash-star block comments from TS/TSX source,
- * replacing removed characters with spaces (never removing newlines) so
- * every remaining character keeps its original line number. Tracks string/
- * template-literal state so a `//` or `/*` INSIDE a string literal is never
- * mistaken for the start of a comment. Not a full parser (`${...}`
- * interpolations inside template literals are treated as opaque string
- * content, not re-entered as code) — good enough for the narrow purpose
- * here: none of the scanned files have Escape-handling logic nested inside
- * a template-literal interpolation.
- */
-function stripComments(src: string): string {
-  let out = '';
-  let i = 0;
-  const n = src.length;
-  type State = 'code' | 'line' | 'block' | 'sq' | 'dq' | 'tmpl';
-  let state: State = 'code';
-  while (i < n) {
-    const c = src[i];
-    const c2 = i + 1 < n ? src[i + 1] : '';
-    if (state === 'code') {
-      if (c === '/' && c2 === '/') { state = 'line'; out += '  '; i += 2; continue; }
-      if (c === '/' && c2 === '*') { state = 'block'; out += '  '; i += 2; continue; }
-      if (c === "'") { state = 'sq'; out += c; i += 1; continue; }
-      if (c === '"') { state = 'dq'; out += c; i += 1; continue; }
-      if (c === '`') { state = 'tmpl'; out += c; i += 1; continue; }
-      out += c; i += 1; continue;
-    }
-    if (state === 'line') {
-      if (c === '\n') { state = 'code'; out += c; i += 1; continue; }
-      out += ' '; i += 1; continue;
-    }
-    if (state === 'block') {
-      if (c === '*' && c2 === '/') { state = 'code'; out += '  '; i += 2; continue; }
-      out += c === '\n' ? '\n' : ' '; i += 1; continue;
-    }
-    if (state === 'sq' || state === 'dq') {
-      const quote = state === 'sq' ? "'" : '"';
-      if (c === '\\') { out += c + c2; i += 2; continue; }
-      if (c === quote) { state = 'code'; out += c; i += 1; continue; }
-      out += c; i += 1; continue;
-    }
-    // state === 'tmpl'
-    if (c === '\\') { out += c + c2; i += 2; continue; }
-    if (c === '`') { state = 'code'; out += c; i += 1; continue; }
-    out += c; i += 1; continue;
-  }
-  return out;
-}
+// A8 fix round, Kage-CR IMPORTANT-1 (shared lexer): this file's own
+// string/template-literal-aware `stripComments` used to be a byte-for-byte
+// duplicate (apart from TS types and a `src`/`text` parameter-name
+// difference) of `scripts/check-page-line-ratchet.mjs`'s copy. Both now
+// import the one copy in `scripts/lib/strip-source-comments.mjs`, so the
+// `${}`-nesting fix documented there (a template literal nested inside
+// another template literal's interpolation no longer desyncs the
+// tmpl/code toggle) reaches this scanner too, instead of needing to be
+// applied twice.
 
 function lineNumberAt(text: string, offset: number): number {
   return text.slice(0, offset).split('\n').length;

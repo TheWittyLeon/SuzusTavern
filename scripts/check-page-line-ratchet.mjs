@@ -48,6 +48,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { stripComments } from './lib/strip-source-comments.mjs';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const PAGE_REL = 'src/app/play/[sessionId]/page.tsx';
@@ -243,57 +244,14 @@ function stripJsxComments(text) {
   return text.replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, (m) => m.replace(/[^\n]/g, ' '));
 }
 
-/**
- * Strips `//` line comments and `/* *\/` block comments from TS/TSX source,
- * replacing removed characters with spaces (newlines preserved) so
- * remaining line positions never shift. String/template-literal aware (a
- * `//` or `/*` inside a string or template is never mistaken for a comment
- * start) — same state-machine technique as
- * `src/__tests__/lib/escapeConsume.source-scan.test.ts`'s own
- * `stripComments`. Kept as a separate copy rather than an imported shared
- * module: that file is a test, not a module, and the mirror rule's "no
- * unrequested abstraction" cuts the other way here too — extracting a
- * shared module for two current call sites, in two different trees
- * (scripts/ and src/__tests__/lib/), is exactly the row-vs-code question
- * this repo already had this exact tradeoff on the OTHER side of.
- */
-function stripComments(text) {
-  let out = '';
-  let i = 0;
-  const n = text.length;
-  let state = 'code';
-  while (i < n) {
-    const c = text[i];
-    const c2 = i + 1 < n ? text[i + 1] : '';
-    if (state === 'code') {
-      if (c === '/' && c2 === '/') { state = 'line'; out += '  '; i += 2; continue; }
-      if (c === '/' && c2 === '*') { state = 'block'; out += '  '; i += 2; continue; }
-      if (c === "'") { state = 'sq'; out += c; i += 1; continue; }
-      if (c === '"') { state = 'dq'; out += c; i += 1; continue; }
-      if (c === '`') { state = 'tmpl'; out += c; i += 1; continue; }
-      out += c; i += 1; continue;
-    }
-    if (state === 'line') {
-      if (c === '\n') { state = 'code'; out += c; i += 1; continue; }
-      out += ' '; i += 1; continue;
-    }
-    if (state === 'block') {
-      if (c === '*' && c2 === '/') { state = 'code'; out += '  '; i += 2; continue; }
-      out += c === '\n' ? '\n' : ' '; i += 1; continue;
-    }
-    if (state === 'sq' || state === 'dq') {
-      const quote = state === 'sq' ? "'" : '"';
-      if (c === '\\') { out += c + c2; i += 2; continue; }
-      if (c === quote) { state = 'code'; out += c; i += 1; continue; }
-      out += c; i += 1; continue;
-    }
-    // state === 'tmpl'
-    if (c === '\\') { out += c + c2; i += 2; continue; }
-    if (c === '`') { state = 'code'; out += c; i += 1; continue; }
-    out += c; i += 1; continue;
-  }
-  return out;
-}
+// A8 fix round, Kage-CR IMPORTANT-1 / suggestion (shared lexer): the
+// string/template-literal-aware `stripComments` used to be a byte-for-byte
+// duplicate of `src/__tests__/lib/escapeConsume.source-scan.test.ts`'s own
+// copy. It now lives in `scripts/lib/strip-source-comments.mjs`, imported
+// by both, so the `${}`-nesting fix documented there reaches both call
+// sites from one place. See that module's header for the fix itself and
+// its two documented residual gaps (nested-brace-inside-interpolation,
+// regex literals containing `/*`).
 
 /**
  * Pure: the metric `main()` actually enforces (A8 carry item (a)). Strips
@@ -312,6 +270,91 @@ export function countCodeLines(text) {
     if (line.trim() !== '') count += 1;
   }
   return count;
+}
+
+/**
+ * A8 fix round, Kage-CR IMPORTANT-1(ii): a second, deliberately DUMBER line
+ * counter, used only as a fail-closed cross-check against `countCodeLines`
+ * (below) — never as the ratchet's own metric. Shares `stripJsxComments`
+ * (a narrow, non-fragile regex, not the vulnerable state machine) so an
+ * ordinary JSX comment doesn't manufacture a permanent, meaningless
+ * divergence between the two counters; past that, it has no string/
+ * template/regex awareness at all (only `//`, `/*`, and a leading `*`
+ * continuation-line prefix, plus naive single-line-scoped block tracking),
+ * so it is fooled by DIFFERENT inputs than `countCodeLines` is: a `//` or
+ * `/*` sitting inside a real string is miscounted here but not there, and
+ * conversely a nested template or a regex literal containing `/*` is
+ * miscounted by `countCodeLines` (see strip-source-comments.mjs's header)
+ * but never by this one — this counter re-evaluates a `/*`'s closing
+ * marker fresh on every line's own text, so it can never carry a
+ * mis-parsed "still inside a string" assumption across lines the way the
+ * quote-tracking state machine can. Two independently-wrong-in-different-
+ * ways counters landing far apart is the signal that something is
+ * actually being misread, without needing to know which one is right.
+ */
+export function countCodeLinesNaive(text) {
+  const jsxStripped = stripJsxComments(text);
+  let inBlock = false;
+  let count = 0;
+  for (const rawLine of jsxStripped.split('\n')) {
+    if (inBlock) {
+      const closeIdx = rawLine.indexOf('*/');
+      if (closeIdx === -1) continue;
+      inBlock = false;
+      if (rawLine.slice(closeIdx + 2).trim() !== '') count += 1;
+      continue;
+    }
+    const line = rawLine.trim();
+    if (line === '' || line.startsWith('//') || line.startsWith('*')) continue;
+    if (line.startsWith('/*')) {
+      const closeIdx = line.indexOf('*/', 2);
+      if (closeIdx === -1) { inBlock = true; continue; }
+      if (line.slice(closeIdx + 2).trim() !== '') count += 1;
+      continue;
+    }
+    count += 1;
+  }
+  return count;
+}
+
+// A8 fix round, Kage-CR IMPORTANT-1(ii): on the real page.tsx today the two
+// counters read 946 (countCodeLines) vs 946 (countCodeLinesNaive) -- an
+// exact match, measured directly with both exported functions, not
+// estimated. On a scratch reproduction of Kage's poisoned fixture (the
+// nested-template poison plus 60 real lines spliced into a copy of
+// page.tsx, see check-page-line-ratchet.test.ts) the two land roughly 60%+
+// apart. 5% ("a few percent" per the A8 fix-round instruction) clears
+// today's exact-match baseline with real headroom for incidental future
+// differences neither lexer resolves the same way (a `//` or a leading `*`
+// inside a real string, for example) while staying far below the poison's
+// order-of-magnitude-larger gap.
+export const DIVERGENCE_TOLERANCE_PERCENT = 5;
+
+/**
+ * Pure: IMPORTANT-1(ii)'s fail-closed check. `countCodeLines` and
+ * `countCodeLinesNaive` are two different, differently-wrong lexers; if
+ * they land far apart, at least one of them has misread this file and the
+ * gate should refuse rather than silently trust whichever one `main()`
+ * happens to call the "real" metric.
+ */
+export function evaluateDivergence(smartCount, naiveCount, tolerancePercent = DIVERGENCE_TOLERANCE_PERCENT) {
+  const denom = Math.max(smartCount, naiveCount, 1);
+  const percent = (Math.abs(smartCount - naiveCount) / denom) * 100;
+  if (percent > tolerancePercent) {
+    return {
+      pass: false,
+      message:
+        `\n✗ page.tsx ratchet: the two line counters disagree by ` +
+        `${percent.toFixed(1)}% (countCodeLines=${smartCount}, ` +
+        `countCodeLinesNaive=${naiveCount}), past the ${tolerancePercent}% ` +
+        `tolerance.\n\nThis usually means a nested template literal, a ` +
+        `regex literal containing "/*", or a similarly unusual construct ` +
+        `is fooling one of the two lexers (scripts/lib/strip-source-` +
+        `comments.mjs's header documents the known gaps). Refusing rather ` +
+        `than trusting a count neither lexer confirms independently.\n`,
+    };
+  }
+  return { pass: true, message: `✓ line counters agree within tolerance (${percent.toFixed(1)}%).` };
 }
 
 /**
@@ -354,6 +397,19 @@ function main() {
   // A8 carry item (a): the gate measures countCodeLines (non-comment,
   // non-blank), not the raw wc -l count -- see this file's header.
   const actual = countCodeLines(raw);
+  // A8 fix round, Kage-CR IMPORTANT-1(ii): fail closed BEFORE trusting
+  // `actual` for the ratchet decision below -- a poisoned nested template
+  // or a regex literal containing `/*` can make countCodeLines silently
+  // undercount by hundreds of lines (see strip-source-comments.mjs), and a
+  // falsely-low count would pass the ratchet AND invite a bad
+  // re-baseline. The divergence check runs first and refuses loudly
+  // instead.
+  const naive = countCodeLinesNaive(raw);
+  const divergence = evaluateDivergence(actual, naive);
+  if (!divergence.pass) {
+    console.error(divergence.message);
+    process.exit(1);
+  }
   const { pass, message } = evaluateRatchet(actual, RATCHET_CEILING);
   if (pass) {
     console.log(message);
