@@ -99,22 +99,70 @@ function stripCssComments(css: string): string {
   return css.replace(/\/\*[\s\S]*?\*\//g, ' ');
 }
 
-/** Extracts the `{ ... }` body of the first `.<selector> { ... }` rule found
- *  (flat declarations only, same non-greedy-`[^}]*` assumption
- *  `paletteContrastParser.ts` makes for `[data-vibe]` blocks — true for
- *  every rule in this file today). Throws if the selector itself is gone
- *  (a rename/restructure this parser cannot follow), so a structural
- *  change fails loudly instead of this test silently checking nothing. */
+/** Extracts the `{ ... }` body of the first `.<selector> { ... }` rule found.
+ *  Brace-balanced (Kage-CR B8c-1 IMPORTANT-1, 2026-09-28 fix-round-2): the
+ *  previous non-greedy `[^}]*` scan stopped at the FIRST `}`, which is the
+ *  closing brace of a NESTED rule (`&:hover { ... }`, live in this
+ *  toolchain via Lightning CSS nesting) rather than the selector's own —
+ *  silently truncating the captured body before any declaration that comes
+ *  AFTER the nested block (M11: a re-added `opacity: 0.6;` past a
+ *  `&:hover {}` survived the old extractor undetected). Also requires a
+ *  non-identifier boundary after the selector name, so `.cellPending` never
+ *  matches a longer class sharing its prefix. Throws if the selector itself
+ *  is gone (a rename/restructure this parser cannot follow) or its body
+ *  never closes, so a structural change fails loudly instead of this test
+ *  silently checking nothing. */
 function extractCssRuleBody(css: string, selector: string): string {
   const stripped = stripCssComments(css);
-  const re = new RegExp(`\\.${selector}\\s*\\{([^}]*)\\}`);
-  const m = re.exec(stripped);
-  if (!m) {
+  const headRe = new RegExp(`\\.${selector}(?![\\w-])\\s*\\{`);
+  const headMatch = headRe.exec(stripped);
+  if (!headMatch) {
     throw new Error(
       `contrast.test.ts: .${selector} rule not found in TacticalMap.module.css`,
     );
   }
-  return m[1];
+  const openIdx = headMatch.index + headMatch[0].length - 1;
+  let depth = 0;
+  let closeIdx = -1;
+  for (let i = openIdx; i < stripped.length; i++) {
+    if (stripped[i] === '{') depth++;
+    else if (stripped[i] === '}') {
+      depth--;
+      if (depth === 0) {
+        closeIdx = i;
+        break;
+      }
+    }
+  }
+  if (closeIdx === -1) {
+    throw new Error(
+      `contrast.test.ts: .${selector} rule body never closes (brace-balanced scan) in TacticalMap.module.css`,
+    );
+  }
+  return stripped.slice(openIdx + 1, closeIdx);
+}
+
+/**
+ * B8c-1 fix-round-2 (Kage-CR IMPORTANT-1, 2026-09-28): asserts a rule's body
+ * declares NO compositing/dimming mechanism, in ANY value spelling — the
+ * absence assertion Iro-A11y's original MAJOR-1 fix should have been from
+ * the start, rather than a numeric parse of ONE declaration's ONE spelling.
+ * Anchors on the PROPERTY NAME only (never the value), so
+ * `opacity: 0.6;` / `opacity: 0.6 !important;` / `opacity: 60%;` /
+ * `filter: opacity(0.6);` / any `backdrop-filter`/`mix-blend-mode`
+ * declaration are all caught identically, echoing the offending
+ * declaration in the thrown message.
+ */
+const DIMMING_DECLARATION_RE = /(^|[\s;{}])(opacity|filter|backdrop-filter|mix-blend-mode)\s*:/;
+
+function assertNoDimmingDeclaration(body: string, selector: string): void {
+  const m = DIMMING_DECLARATION_RE.exec(body);
+  if (!m) return;
+  const semiIdx = body.indexOf(';', m.index);
+  const offender = (semiIdx === -1 ? body.slice(m.index) : body.slice(m.index, semiIdx + 1)).trim();
+  throw new Error(
+    `contrast.test.ts: .${selector} declares a dimming mechanism (MAJOR-1 regression) — "${offender}"`,
+  );
 }
 
 /**
@@ -150,13 +198,19 @@ function extractCellInRangeAccentAlpha(css: string): number {
  * when absent, which is the fixed, post-Iro-A11y-MAJOR-1 state. If a
  * container opacity is ever re-added, this picks the new value straight up
  * and the degraded-contrast math below reproduces MAJOR-1's exact failure
- * automatically (mutation-proven below by literally re-adding it and
- * reverting — see the fix-round report, not committed here).
+ * automatically. The PRIMARY regression guard is `assertNoDimmingDeclaration`
+ * above (it fails the suite outright on ANY re-introduction, any spelling);
+ * this numeric path exists only to feed the "no degradation" ratio math
+ * below, so it tolerates `!important` and `<percentage>` (Kage-CR
+ * IMPORTANT-1) rather than silently falling back to "no dimming" on those
+ * two spellings the way the pre-fix-round-2 regex did.
  */
 function extractCellPendingContainerOpacity(css: string): number {
   const body = extractCssRuleBody(css, 'cellPending');
-  const m = /(?<![\w-])opacity\s*:\s*([0-9.]+)\s*;/.exec(body);
-  return m ? parseFloat(m[1]) : 1;
+  const m = /(?<![\w-])opacity\s*:\s*([0-9.]+)\s*(%)?\s*(?:!important)?\s*;/.exec(body);
+  if (!m) return 1;
+  const value = parseFloat(m[1]);
+  return m[2] === '%' ? value / 100 : value;
 }
 
 const CELL_IN_RANGE_ACCENT_ALPHA = extractCellInRangeAccentAlpha(TACTICAL_MAP_CSS);
@@ -370,11 +424,14 @@ describe('TacticalMap contrast — D1 CR#1 coordinator decision 5 (existing toke
       });
     }
 
-    it('.cellPending declares no container opacity today (the MAJOR-1 fix itself) — a cheap, direct pin alongside the ratio math above', () => {
+    it('.cellPending declares no dimming mechanism at all today (the MAJOR-1 fix itself), in ANY spelling — Kage-CR IMPORTANT-1 fix-round-2, replacing the narrower "opacity numeric value is 1" pin', () => {
+      expect(() =>
+        assertNoDimmingDeclaration(extractCssRuleBody(TACTICAL_MAP_CSS, 'cellPending'), 'cellPending'),
+      ).not.toThrow();
       expect(CELL_PENDING_CONTAINER_OPACITY).toBe(1);
     });
 
-    it("sanity: at the OLD 0.6 container opacity, dusk-tavern's ring and tag actually degrade below their baseline (proves the math above is discriminating, not vacuously true — this is the fix round's mutation proof, kept permanently rather than a one-off manual edit)", () => {
+    it("sanity: at the OLD 0.6 container opacity, dusk-tavern's ring and tag actually degrade below their baseline — this proves the `alphaOver` compositing MATH above is discriminating, not vacuously true (it never reads the stylesheet, so it is not itself a regression guard for the CSS — assertNoDimmingDeclaration above and the mutation suite below are)", () => {
       const p = PALETTES['dusk-tavern'];
       const ringComposite = alphaOver(p.accent, CELL_IN_RANGE_ACCENT_ALPHA, p.bg3);
       const baselineRingRatio = contrast(ringComposite, p.bg3);
@@ -389,6 +446,55 @@ describe('TacticalMap contrast — D1 CR#1 coordinator decision 5 (existing toke
       const oldPendingTagRatio = contrast(oldPendingTagInk, oldPendingTagBg);
       expect(oldPendingTagRatio).toBeLessThan(baselineTagRatio);
       expect(oldPendingTagRatio).toBeLessThan(4.5);
+    });
+  });
+
+  describe('.cellPending dimming-absence guard is brace-balanced and spelling-robust (Kage-CR B8c-1 IMPORTANT-1 fix-round-2, mutation-proven)', () => {
+    // Synthetic `.cellPending` rules, not the real file — these are
+    // PERMANENT regression tests for the extractor/guard mechanism itself
+    // (brace-balancing + property-name-only matching), independent of
+    // whatever TacticalMap.module.css currently contains. The real file is
+    // separately asserted clean above.
+    it('a synthetic .cellPending with no dimming declaration passes (negative control for the mutations below)', () => {
+      const css = `.cellPending { background-image: repeating-linear-gradient(-45deg, red 0 2px, transparent 2px 12px); cursor: not-allowed; }`;
+      expect(() => assertNoDimmingDeclaration(extractCssRuleBody(css, 'cellPending'), 'cellPending')).not.toThrow();
+    });
+
+    it.each([
+      ['M4: bare opacity', '.cellPending { opacity: 0.6; }'],
+      ['M5: opacity with !important', '.cellPending { opacity: 0.6 !important; }'],
+      ['M6: percentage opacity', '.cellPending { opacity: 60%; }'],
+      ['M6b: filter opacity() function', '.cellPending { filter: opacity(0.6); }'],
+      ['backdrop-filter', '.cellPending { backdrop-filter: blur(1px); }'],
+      ['mix-blend-mode', '.cellPending { mix-blend-mode: multiply; }'],
+    ])('%s reds the absence guard', (_label, css) => {
+      expect(() => assertNoDimmingDeclaration(extractCssRuleBody(css, 'cellPending'), 'cellPending')).toThrow(
+        /dimming mechanism/,
+      );
+    });
+
+    it('M11: a nested &:hover rule above a re-added opacity no longer hides it from the extractor (brace-balanced scan, not a non-greedy [^}]* one)', () => {
+      const css = `
+        .cellPending {
+          background-image: repeating-linear-gradient(-45deg, red 0 2px, transparent 2px 12px);
+          &:hover {
+            outline: none;
+          }
+          opacity: 0.6;
+        }
+      `;
+      const body = extractCssRuleBody(css, 'cellPending');
+      // The brace-balanced body includes the re-added declaration AFTER
+      // the nested rule closes — a non-greedy `[^}]*` scan would have
+      // truncated at the nested `&:hover {}`'s own closing brace and never
+      // seen it.
+      expect(body).toContain('opacity: 0.6');
+      expect(() => assertNoDimmingDeclaration(body, 'cellPending')).toThrow(/dimming mechanism/);
+    });
+
+    it('M9 precedent unchanged: a renamed selector still fails collection loudly, not silently', () => {
+      const css = `.cellPendingRenamed { opacity: 0.6; }`;
+      expect(() => extractCssRuleBody(css, 'cellPending')).toThrow(/rule not found/);
     });
   });
 });
