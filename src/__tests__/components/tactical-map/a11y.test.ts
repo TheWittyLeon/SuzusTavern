@@ -206,6 +206,43 @@ describe('cellAccessibleName', () => {
     ).toBe('Row 2, column 3. Corpse, hostile, dead. In range — costs 5 feet. Conditions: Prone.');
   });
 
+  it('discriminates occupiesCell from dead on the OTHER-occupant branch (Kage-CR B8c-1 IMPORTANT-A) — every fixture above has the two anti-correlated', () => {
+    // Every non-self CellOccupant fixture above has `dead` and `occupiesCell`
+    // perfectly anti-correlated (dead: true always pairs with occupiesCell:
+    // false, dead: false always with occupiesCell: true), so a11y.ts's
+    // `!input.occupant.occupiesCell` branch and a hypothetical
+    // `input.occupant.dead` re-derivation are numerically indistinguishable
+    // on every case that exists — option (a)'s whole point (ONE
+    // `occupiesCell` fact, never re-derived from `dead`) is unpinned. These
+    // two cases break the correlation on purpose: a dead-but-still-occupying
+    // corpse (a future membership rule — a Huge corpse that still blocks)
+    // and a living-but-non-occupying occupant (a future phasing ally).
+    // Mutation-proven: reverting the other-occupant branch in a11y.ts to
+    // `if (input.occupant.dead)` reds this test, while the whole
+    // pre-existing suite above stays green under that same mutation.
+    expect(
+      cellAccessibleName({
+        row1: 1,
+        col1: 1,
+        occupant: { name: 'Corpse', isSelf: false, isAlly: false, hostile: true, invisible: false, dead: true, downed: false, occupiesCell: true },
+        blocked: false,
+        moveModeActive: true,
+      }),
+    ).toBe("Row 1, column 1. Corpse, hostile, dead. Occupied — can't stop here.");
+
+    expect(
+      cellAccessibleName({
+        row1: 1,
+        col1: 2,
+        occupant: { name: 'Sable', isSelf: false, isAlly: true, hostile: false, invisible: false, dead: false, downed: false, occupiesCell: false },
+        blocked: false,
+        inRange: true,
+        costFt: 5,
+        moveModeActive: true,
+      }),
+    ).toBe('Row 1, column 2. Sable, ally. In range — costs 5 feet.');
+  });
+
   it('names a downed ally-occupied cell, including the downed disclosure (D1b item D, Kage-CR re-verify)', () => {
     // Same gap as the dead test above, for the OTHER state .tokenDowned's
     // faded/dashed/red-ring visual treatment discloses: a downed ally read
