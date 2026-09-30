@@ -1,0 +1,223 @@
+/**
+ * TAV-PLAY-SHELL step 6a — pure-data tests for
+ * `src/app/play/[sessionId]/presets.ts`. No rendering, no RTL: the registry
+ * is data + one pure resolver function, so these are plain assertions over
+ * the exported constants, following the raw-data-assertion family already
+ * established by `play-data-region-contract.test.ts` /
+ * `play-region-import-direction.test.ts` (source/data checks, not mounts).
+ *
+ * Five things this file pins, per the item brief:
+ *  (a) row-completeness — every RegionId has a `default` Placement in every
+ *      LayoutRow (the "tenth region costs one row edit" guard: a RegionId
+ *      added to the union without a row entry must fail here).
+ *  (b) the R3 render-matrix rule at the data level — every
+ *      `ANNOUNCING_REGIONS` member is never `visible: false` in any row ×
+ *      moment (see presets.ts's own header for why this holds by design,
+ *      not by exception).
+ *  (c) lives in theme.test.tsx, beside `resolveVibe`'s own tests (plan
+ *      §3.3: "same file, same test file, same mental model").
+ *  (d) likewise lives in theme.test.tsx (ThemeProvider/NO_FLASH_SCRIPT).
+ *  (e) area/placement consistency — a row's `areas` string names exactly
+ *      the set of areas its regions place, in both directions (no orphan
+ *      grid area, no region pointing at a missing area).
+ *
+ * Plus one bonus structural check (not in the lettered list, but the same
+ * concern one level down): every `areas` string is syntactically valid
+ * `grid-template-areas` — uniform column count per row, and every named
+ * area forms exactly one rectangle. A hand-authored template string that
+ * violates this would be invisible to (e) (which only checks token SETS,
+ * not shape) and would be rejected by a real browser silently (an invalid
+ * grid-template-areas value falls back to the initial 'none').
+ */
+import {
+  ANNOUNCING_REGIONS,
+  LAYOUT_ROWS,
+  REGION_IDS,
+  getPlacement,
+  type LayoutRow,
+  type Moment,
+} from '../../app/play/[sessionId]/presets';
+
+const MOMENTS: readonly Moment[] = ['exploring', 'combat'];
+
+/** Every non-'.' token used across a `grid-template-areas` value's quoted rows. */
+function areaTokens(areasValue: string): Set<string> {
+  const rows = [...areasValue.matchAll(/"([^"]*)"/g)].map((m) => m[1]);
+  const tokens = new Set<string>();
+  for (const row of rows) {
+    for (const tok of row.trim().split(/\s+/)) {
+      if (tok !== '.') tokens.add(tok);
+    }
+  }
+  return tokens;
+}
+
+/** The set of areas actually placed by SOME region in `row` for `moment`. */
+function placedAreas(row: LayoutRow, moment: Moment): Set<string> {
+  const out = new Set<string>();
+  for (const id of REGION_IDS) {
+    const area = getPlacement(row, id, moment).area;
+    if (area) out.add(area);
+  }
+  return out;
+}
+
+/** Parses a `grid-template-areas` value into its row-of-tokens grid, and
+ *  validates it is syntactically well-formed: every row has the same
+ *  column count, and every named token's occurrences form one rectangle
+ *  (CSS's own requirement — an area that isn't a rectangle is invalid and
+ *  the whole property falls back to `none` in a real browser). Returns the
+ *  list of validation problems (empty = valid). */
+function gridTemplateAreaProblems(areasValue: string): string[] {
+  const rows = [...areasValue.matchAll(/"([^"]*)"/g)].map((m) => m[1].trim().split(/\s+/));
+  const problems: string[] = [];
+  if (rows.length === 0) return ['no quoted rows found'];
+  const cols = rows[0].length;
+  rows.forEach((r, i) => {
+    if (r.length !== cols) problems.push(`row ${i} has ${r.length} columns, expected ${cols}`);
+  });
+
+  const cells = new Map<string, Array<[number, number]>>();
+  rows.forEach((row, r) => {
+    row.forEach((tok, c) => {
+      if (tok === '.') return;
+      const list = cells.get(tok) ?? [];
+      list.push([r, c]);
+      cells.set(tok, list);
+    });
+  });
+
+  for (const [tok, coords] of cells) {
+    const rs = coords.map(([r]) => r);
+    const cs = coords.map(([, c]) => c);
+    const minR = Math.min(...rs);
+    const maxR = Math.max(...rs);
+    const minC = Math.min(...cs);
+    const maxC = Math.max(...cs);
+    const expectedCount = (maxR - minR + 1) * (maxC - minC + 1);
+    if (coords.length !== expectedCount) {
+      problems.push(`"${tok}" occurrences (${coords.length}) do not form one rectangle (bounding box needs ${expectedCount})`);
+    }
+  }
+  return problems;
+}
+
+describe('TAV-PLAY-SHELL presets.ts — row completeness (a)', () => {
+  it('REGION_IDS is non-empty (guards the test itself against a silently-empty union)', () => {
+    expect(REGION_IDS.length).toBeGreaterThan(0);
+  });
+
+  it('LAYOUT_ROWS covers all three presets', () => {
+    expect(LAYOUT_ROWS.map((r) => r.id).sort()).toEqual(['phone', 'story', 'table']);
+  });
+
+  for (const row of LAYOUT_ROWS) {
+    for (const id of REGION_IDS) {
+      it(`${row.id}: "${id}" has a default Placement`, () => {
+        expect(row.regions[id]).toBeDefined();
+        expect(row.regions[id].default).toBeDefined();
+        expect(typeof row.regions[id].default.area === 'string' || row.regions[id].default.area === null).toBe(
+          true,
+        );
+      });
+    }
+  }
+});
+
+describe('TAV-PLAY-SHELL presets.ts — announces render-matrix (b, plan R3)', () => {
+  it('ANNOUNCING_REGIONS is non-empty and every member is a real RegionId', () => {
+    expect(ANNOUNCING_REGIONS.size).toBeGreaterThan(0);
+    for (const id of ANNOUNCING_REGIONS) expect(REGION_IDS).toContain(id);
+  });
+
+  for (const row of LAYOUT_ROWS) {
+    for (const region of ANNOUNCING_REGIONS) {
+      for (const moment of MOMENTS) {
+        it(`${row.id}/${moment}: "${region}" is never visible:false`, () => {
+          const placement = getPlacement(row, region, moment);
+          expect(placement.visible).not.toBe(false);
+        });
+      }
+    }
+  }
+});
+
+describe('TAV-PLAY-SHELL presets.ts — area/placement consistency (e)', () => {
+  for (const row of LAYOUT_ROWS) {
+    for (const moment of MOMENTS) {
+      it(`${row.id}/${moment}: every area named in the areas string is placed by some region`, () => {
+        const tokens = areaTokens(row.areas[moment]);
+        const placed = placedAreas(row, moment);
+        const orphanAreas = [...tokens].filter((t) => !placed.has(t));
+        expect(orphanAreas).toEqual([]);
+      });
+
+      it(`${row.id}/${moment}: every region-placed area appears in the areas string`, () => {
+        const tokens = areaTokens(row.areas[moment]);
+        const placed = placedAreas(row, moment);
+        const missingAreas = [...placed].filter((a) => !tokens.has(a));
+        expect(missingAreas).toEqual([]);
+      });
+    }
+  }
+});
+
+describe('TAV-PLAY-SHELL presets.ts — grid-template-areas are syntactically valid (bonus structural check)', () => {
+  for (const row of LAYOUT_ROWS) {
+    for (const moment of MOMENTS) {
+      it(`${row.id}/${moment}: uniform column count, every named area is one rectangle`, () => {
+        expect(gridTemplateAreaProblems(row.areas[moment])).toEqual([]);
+      });
+    }
+  }
+});
+
+describe('TAV-PLAY-SHELL presets.ts — getPlacement', () => {
+  it('falls back to default when no moment-specific override exists', () => {
+    const row = LAYOUT_ROWS.find((r) => r.id === 'story')!;
+    // topBar has no per-moment override in any row.
+    expect(getPlacement(row, 'topBar', 'exploring')).toBe(row.regions.topBar.default);
+    expect(getPlacement(row, 'topBar', 'combat')).toBe(row.regions.topBar.default);
+  });
+
+  it('uses the moment-specific override when one exists', () => {
+    const row = LAYOUT_ROWS.find((r) => r.id === 'story')!;
+    expect(getPlacement(row, 'offers', 'combat')).toBe(row.regions.offers.combat);
+    expect(getPlacement(row, 'offers', 'combat')).not.toBe(row.regions.offers.default);
+  });
+});
+
+/**
+ * Not a test — documents the exact hand-run mutation checks performed
+ * during development (Ren-Dev's workflow brief: "break the data once,
+ * watch each test fail for its own reason, then restore"). Kept as a
+ * comment rather than a `.skip`ped test so it can't accidentally start
+ * running or bit-rot silently. Each was applied, run (`npx jest
+ * play-preset-registry.test.ts -t <filter>`), observed red, then reverted
+ * before the next:
+ *
+ *  (a) Deleted `offers`'s `default` entry from the `story` row's
+ *      `regions` object → reddened exactly ONE case,
+ *      `story: "offers" has a default Placement`, nothing else (110 → 109
+ *      passed, 1 failed).
+ *  (b) Set `story.regions.safetyBanner.default.visible = false` → reddened
+ *      exactly 2 of the 110 cases — `story/exploring` and `story/combat:
+ *      "safetyBanner" is never visible:false` — the other two rows'
+ *      safetyBanner cases stayed green, confirming the check is per-row.
+ *  (e) Two separate single-token edits to `table.areas.exploring`, run
+ *      one at a time (a single edit only breaks ONE direction of a
+ *      bidirectional check, not both — confirmed empirically, not assumed):
+ *        - typo'd ONE of `characterBlock`'s four occurrences to
+ *          `characterBlok` → reddened ONLY "every area named in the areas
+ *          string is placed by some region" (the typo is a new orphan);
+ *          "every region-placed area appears in the string" stayed green
+ *          because the other three correctly-spelled occurrences still
+ *          satisfy it.
+ *        - replaced ALL FOUR `characterBlock` occurrences with `.` → the
+ *          mirror image: reddened ONLY "every region-placed area appears
+ *          in the areas string" (the real placement now has nowhere to
+ *          go); the orphan check stayed green because no unplaced token
+ *          remains in the string.
+ * All edits were reverted immediately after observing the red run, and the
+ * full 110-case file was confirmed green again before the next one.
+ */

@@ -3,15 +3,19 @@ import path from 'path';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import {
   DEFAULT_DENSITY,
+  DEFAULT_LAYOUT_PREF,
   DEFAULT_VIBE,
   DENSITY_KEY,
+  LAYOUT_KEY,
   NO_FLASH_SCRIPT,
   VIBE_KEY,
   VIBES,
   isDensity,
+  isLayoutPref,
   isVibe,
   isVibePref,
   prefersLight,
+  resolveLayout,
   resolveVibe,
 } from '@/lib/theme/theme';
 import { ThemeProvider, useTheme } from '@/lib/theme/ThemeProvider';
@@ -29,9 +33,24 @@ describe('theme constants', () => {
     expect(isDensity(undefined)).toBe(false);
   });
 
+  it('validates known layout prefs and rejects junk (TAV-PLAY-SHELL step 6a)', () => {
+    expect(isLayoutPref('auto')).toBe(true);
+    expect(isLayoutPref('story')).toBe(true);
+    expect(isLayoutPref('table')).toBe(true);
+    expect(isLayoutPref('phone')).toBe(false); // resolved id, never a preference
+    expect(isLayoutPref('nope')).toBe(false);
+    expect(isLayoutPref(null)).toBe(false);
+    expect(isLayoutPref(undefined)).toBe(false);
+  });
+
   it('no-flash script references the storage keys and validates values', () => {
     expect(NO_FLASH_SCRIPT).toContain(VIBE_KEY);
     expect(NO_FLASH_SCRIPT).toContain(DENSITY_KEY);
+    expect(NO_FLASH_SCRIPT).toContain(LAYOUT_KEY);
+    // Guards story/table; 'auto' is deliberately never written as an
+    // attribute (absence means auto — see theme.ts's own comment).
+    expect(NO_FLASH_SCRIPT).toContain("l==='story'");
+    expect(NO_FLASH_SCRIPT).toContain("l==='table'");
     // Guards every vibe so a tampered localStorage can't inject an attribute.
     expect(NO_FLASH_SCRIPT).toContain('hearthlight');
     expect(NO_FLASH_SCRIPT).toContain('dusk-tavern');
@@ -113,6 +132,102 @@ describe('ThemeProvider', () => {
     const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
     expect(() => render(<Probe />)).toThrow(/ThemeProvider/);
     spy.mockRestore();
+  });
+});
+
+/** Exposes only `layout` — a dedicated probe so the `layout` assertions
+ *  below aren't coupled to `Probe`'s vibe/density text format. */
+function LayoutProbe() {
+  const { layout } = useTheme();
+  return <span data-testid="layout-probe">{layout}</span>;
+}
+
+describe('ThemeProvider — layout preference (TAV-PLAY-SHELL step 6a, plan §3.4, persistence round-trip (d))', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    document.documentElement.removeAttribute('data-layout');
+  });
+
+  it('falls back to the default ("auto", R23) when nothing is stored', () => {
+    render(
+      <ThemeProvider>
+        <LayoutProbe />
+      </ThemeProvider>,
+    );
+    expect(screen.getByTestId('layout-probe')).toHaveTextContent(DEFAULT_LAYOUT_PREF);
+  });
+
+  it('seeds from the html dataset already painted by the no-flash script', () => {
+    document.documentElement.dataset.layout = 'table';
+    render(
+      <ThemeProvider>
+        <LayoutProbe />
+      </ThemeProvider>,
+    );
+    expect(screen.getByTestId('layout-probe')).toHaveTextContent('table');
+  });
+
+  it('seeds from localStorage when the dataset is absent but localStorage is set', async () => {
+    window.localStorage.setItem(LAYOUT_KEY, 'story');
+    render(
+      <ThemeProvider>
+        <LayoutProbe />
+      </ThemeProvider>,
+    );
+    await act(async () => {});
+    expect(screen.getByTestId('layout-probe')).toHaveTextContent('story');
+  });
+
+  it('setLayout writes the dataset + localStorage and updates the probe live', () => {
+    function Setter() {
+      const { layout, setLayout } = useTheme();
+      return (
+        <>
+          <span data-testid="layout-probe">{layout}</span>
+          <button type="button" onClick={() => setLayout('table')}>
+            table
+          </button>
+        </>
+      );
+    }
+    render(
+      <ThemeProvider>
+        <Setter />
+      </ThemeProvider>,
+    );
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'table' }));
+    });
+    expect(screen.getByTestId('layout-probe')).toHaveTextContent('table');
+    expect(document.documentElement.dataset.layout).toBe('table');
+    expect(window.localStorage.getItem(LAYOUT_KEY)).toBe('table');
+  });
+
+  it('setLayout("auto") clears the pinned dataset attribute + localStorage entry, same pattern as setVibe("system")', () => {
+    window.localStorage.setItem(LAYOUT_KEY, 'story');
+    document.documentElement.dataset.layout = 'story';
+    function Setter() {
+      const { layout, setLayout } = useTheme();
+      return (
+        <>
+          <span data-testid="layout-probe">{layout}</span>
+          <button type="button" onClick={() => setLayout('auto')}>
+            auto
+          </button>
+        </>
+      );
+    }
+    render(
+      <ThemeProvider>
+        <Setter />
+      </ThemeProvider>,
+    );
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'auto' }));
+    });
+    expect(screen.getByTestId('layout-probe')).toHaveTextContent('auto');
+    expect(document.documentElement.hasAttribute('data-layout')).toBe(false);
+    expect(window.localStorage.getItem(LAYOUT_KEY)).toBeNull();
   });
 });
 
@@ -380,11 +495,41 @@ describe('theme.ts pure functions — resolveVibe / isVibePref / prefersLight (U
   });
 });
 
+describe('theme.ts pure functions — resolveLayout (TAV-PLAY-SHELL step 6a, plan §3.3) (c)', () => {
+  // The full truth table: phone wins over any pref; auto → story/table by
+  // moment; an explicit pref holds in both moments. 3 prefs × 2 isPhone ×
+  // 2 moments = 12 rows, every combination the resolver can see.
+  const cases: Array<[pref: 'auto' | 'story' | 'table', isPhone: boolean, moment: 'exploring' | 'combat', want: 'story' | 'table' | 'phone']> = [
+    // R16: phone wins over ANY preference, in both moments.
+    ['auto', true, 'exploring', 'phone'],
+    ['auto', true, 'combat', 'phone'],
+    ['story', true, 'exploring', 'phone'],
+    ['story', true, 'combat', 'phone'],
+    ['table', true, 'exploring', 'phone'],
+    ['table', true, 'combat', 'phone'],
+    // R18: auto → story while exploring, table in combat (desktop/tablet only).
+    ['auto', false, 'exploring', 'story'],
+    ['auto', false, 'combat', 'table'],
+    // An explicit pref holds in BOTH moments — it never flips on its own.
+    ['story', false, 'exploring', 'story'],
+    ['story', false, 'combat', 'story'],
+    ['table', false, 'exploring', 'table'],
+    ['table', false, 'combat', 'table'],
+  ];
+
+  for (const [pref, isPhone, moment, want] of cases) {
+    it(`resolveLayout('${pref}', isPhone=${isPhone}, '${moment}') → '${want}'`, () => {
+      expect(resolveLayout(pref, isPhone, moment)).toBe(want);
+    });
+  }
+});
+
 describe('NO_FLASH_SCRIPT — actually executed, not just inspected as text (UIR2-TAV-4)', () => {
   beforeEach(() => {
     window.localStorage.clear();
     document.documentElement.removeAttribute('data-vibe');
     document.documentElement.removeAttribute('data-density');
+    document.documentElement.removeAttribute('data-layout');
   });
   afterEach(uninstallMatchMedia);
 
@@ -472,6 +617,27 @@ describe('NO_FLASH_SCRIPT — actually executed, not just inspected as text (UIR
     installMatchMedia(false);
     runNoFlashScript();
     expect(document.documentElement.hasAttribute('data-density')).toBe(false);
+  });
+
+  it('applies a valid stored layout independently of the vibe/density branches (TAV-PLAY-SHELL step 6a)', () => {
+    installMatchMedia(false);
+    window.localStorage.setItem(LAYOUT_KEY, 'table');
+    runNoFlashScript();
+    expect(document.documentElement.dataset.vibe).toBe('hearthlight');
+    expect(document.documentElement.dataset.layout).toBe('table');
+  });
+
+  it('leaves data-layout unset when nothing is stored (absence means auto)', () => {
+    installMatchMedia(false);
+    runNoFlashScript();
+    expect(document.documentElement.hasAttribute('data-layout')).toBe(false);
+  });
+
+  it('leaves data-layout unset for a tampered/garbage value — "auto" itself is never a valid attribute value', () => {
+    installMatchMedia(false);
+    window.localStorage.setItem(LAYOUT_KEY, 'auto');
+    runNoFlashScript();
+    expect(document.documentElement.hasAttribute('data-layout')).toBe(false);
   });
 });
 
