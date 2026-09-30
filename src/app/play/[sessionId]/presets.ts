@@ -197,6 +197,36 @@ export const ANNOUNCING_REGIONS: ReadonlySet<RegionId> = new Set<RegionId>([
   'safetyBanner',
 ]);
 
+/**
+ * Kage-CR IMPORTANT-6 (2026-09-30): `Placement.density` is deliberately
+ * opaque to the shell (Guard 1, plan §3.5, "an opaque string to the shell
+ * and a union inside the region") — but nothing recorded which values are
+ * legal for which region, so a typo or an unsupported value was
+ * undetectable by `tsc` and by every test. This table is that missing
+ * union, one entry per region that actually has a density axis, derived
+ * from the plan's declared per-region unions (§2.3) and this row data
+ * (reconciled against three divergences found in review — see each
+ * region's own `regions.*` comment for its specific fix):
+ *  - `characterBlock` — was `'rail'` in `table` (a third, unplanned value
+ *    — R21 says "full sheet + five tabs") and unset in `story`/`phone`
+ *    (plan §2.4: "compact = card/drawer"). Now `'full'` / `'compact'`.
+ *  - `suzuPresence` is deliberately ABSENT from this table: its real prop
+ *    is `size` (plan §2.3: "{mood, size, caption?, aiOff}"), not
+ *    `density` — the opaque `density` field carries its value today for
+ *    lack of a dedicated slot, but the axis name is wrong, so validating
+ *    it against a "density" union would assert the wrong thing.
+ * A9b/A9c derive each region's own prop union from this
+ * (`(typeof REGION_DENSITIES)['offers'][number]`) instead of
+ * hand-writing it a second time.
+ */
+export const REGION_DENSITIES = {
+  partyStrip: ['strip', 'rail'],
+  sceneStage: ['inline', 'panel', 'hero'],
+  offers: ['chips', 'list'],
+  characterBlock: ['compact', 'full'],
+  actionBar: ['vitals', 'chips', 'full'],
+} as const satisfies Partial<Record<RegionId, readonly string[]>>;
+
 export type Moment = 'exploring' | 'combat';
 export type LayoutId = 'story' | 'table' | 'phone';
 
@@ -313,7 +343,9 @@ const STORY_ROW: LayoutRow = {
       combat: { area: null, visible: false },
     },
     // R16: Story's sheet is "in a drawer" — never docked in this preset.
-    characterBlock: { default: { area: null, layer: true } },
+    // Kage-CR IMPORTANT-6 (2026-09-30): density reconciled to plan §2.4
+    // ("compact = card/drawer") — was unset.
+    characterBlock: { default: { area: null, layer: true, density: 'compact' } },
     // Kage-CR Q1 ruling (2026-09-30, overrules Miko's R16-literal defect):
     // Amendment A already hides `offers` during combat, so dropping the
     // bar too would leave Story-combat with NO way to act at all — that
@@ -435,7 +467,9 @@ const PHONE_ROW: LayoutRow = {
       combat: { area: null, visible: false },
     },
     // R16 (Phone = Story's arrangement): sheet is a drawer, never docked.
-    characterBlock: { default: { area: null, layer: true } },
+    // Kage-CR IMPORTANT-6 (2026-09-30): density reconciled to plan §2.4
+    // ("compact = card/drawer") — was unset.
+    characterBlock: { default: { area: null, layer: true, density: 'compact' } },
     actionBar: { default: { area: 'actionBar' } },
     composer: { default: { area: 'composer' } },
     tableControls: { default: { area: null, layer: true } },

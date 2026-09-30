@@ -33,6 +33,7 @@ import {
   ANNOUNCING_REGIONS,
   LAYOUT_ROWS,
   LAYOUT_ROWS_BY_ID,
+  REGION_DENSITIES,
   REGION_IDS,
   getPlacement,
   type LayoutRow,
@@ -249,6 +250,28 @@ function pinnedValue(p: Placement): string | null {
   return null;
 }
 
+describe('TAV-PLAY-SHELL presets.ts — density values are declared (IMPORTANT-6)', () => {
+  const DENSITY_REGIONS = Object.keys(REGION_DENSITIES) as (keyof typeof REGION_DENSITIES)[];
+
+  it('REGION_DENSITIES is non-empty and every key is a real RegionId', () => {
+    expect(DENSITY_REGIONS.length).toBeGreaterThan(0);
+    for (const id of DENSITY_REGIONS) expect(REGION_IDS).toContain(id);
+  });
+
+  for (const row of LAYOUT_ROWS) {
+    for (const region of DENSITY_REGIONS) {
+      for (const moment of MOMENTS) {
+        it(`${row.id}/${moment}: "${region}"'s density is undefined or a declared member`, () => {
+          const density = getPlacement(row, region, moment).density;
+          if (density === undefined) return; // a region needn't emit one
+          const allowed: readonly string[] = REGION_DENSITIES[region];
+          expect(allowed).toContain(density);
+        });
+      }
+    }
+  }
+});
+
 describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3): every RegionId is where it should be', () => {
   function pin(row: LayoutRow, moment: Moment): Record<string, string | null> {
     const out: Record<string, string | null> = {};
@@ -463,5 +486,15 @@ describe('TAV-PLAY-SHELL presets.ts — getPlacement', () => {
  *      (`story/exploring`, `story/combat`); all other 129 cases —
  *      including every (a)/(e)/bonus-structural/co-occupancy check —
  *      stayed green. Reverted immediately; full 131-case file
+ *      reconfirmed green.
+ *
+ * IMPORTANT-6's density-declaration guard, sanity check (not one of
+ * Kage-CR's named mutations, but the same discipline):
+ *
+ *  Typo control — changed `story.regions.offers.default.density` from
+ *      `'chips'` to `'chipss'`. Reddened exactly 1 case (`story/
+ *      exploring: "offers"'s density is undefined or a declared
+ *      member`), with the failure message listing the allowed set
+ *      (`["chips", "list"]`). Reverted immediately; full 171-case file
  *      reconfirmed green.
  */
