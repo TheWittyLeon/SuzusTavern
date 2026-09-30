@@ -386,6 +386,35 @@ describe('TAV-PLAY-SHELL presets.ts — grid-template-areas are syntactically va
   }
 });
 
+/** Column count implied by an `areas` value's first quoted row (same parse
+ *  as `gridTemplateAreaProblems`, exposed for the `columns` cross-check below). */
+function areaColumnCount(areasValue: string): number {
+  const firstRow = areasValue.match(/"([^"]*)"/);
+  return firstRow ? firstRow[1].trim().split(/\s+/).length : 0;
+}
+
+/** Whitespace-token count of a `grid-template-columns` value. Safe for this
+ *  file's declared tracks today: none contains a space (`minmax(0,1fr)`
+ *  tokenises as one), per Kage-CR S1's own note. */
+function columnsTokenCount(columnsValue: string): number {
+  return columnsValue.trim().split(/\s+/).length;
+}
+
+describe('TAV-PLAY-SHELL presets.ts — columns/areas agree on track count (S1)', () => {
+  // Kage-CR S1 (2026-09-30): `columns` and `areas` can disagree silently —
+  // a `columns` value with fewer tracks than `areas` declares columns
+  // leaves the extra area an implicit `auto` track in CSS, a silent
+  // visual break invisible to every other check here (which only look at
+  // `areas`, never at `columns`).
+  for (const row of LAYOUT_ROWS) {
+    for (const moment of MOMENTS) {
+      it(`${row.id}/${moment}: columns has exactly as many tracks as areas has columns`, () => {
+        expect(columnsTokenCount(row.columns[moment])).toBe(areaColumnCount(row.areas[moment]));
+      });
+    }
+  }
+});
+
 describe('TAV-PLAY-SHELL presets.ts — getPlacement', () => {
   it('falls back to default when no moment-specific override exists', () => {
     const row = LAYOUT_ROWS.find((r) => r.id === 'story')!;
@@ -527,4 +556,13 @@ describe('TAV-PLAY-SHELL presets.ts — getPlacement', () => {
  *      other consumer's failure mode from a bare `undefined` TypeError
  *      into a readable one. Reverted immediately; full 163-case file
  *      reconfirmed green.
+ *
+ * S1's positive control (Kage-CR M4):
+ *
+ *  M4 — dropped the 4th track from `table.columns.exploring`
+ *      (`'160px 150px minmax(0,1fr) 300px'` -> `'160px 150px
+ *      minmax(0,1fr)'`; `areas.exploring` still names 4 columns).
+ *      Reddened exactly 1 case (`table/exploring: columns has exactly
+ *      as many tracks as areas has columns`, 4 expected vs 3 received).
+ *      Reverted immediately; full 169-case file reconfirmed green.
  */
