@@ -26,16 +26,20 @@ import {
 } from 'react';
 import {
   DEFAULT_DENSITY,
+  DEFAULT_LAYOUT_PREF,
   DEFAULT_VIBE,
   DEFAULT_VIBE_PREF,
   DENSITY_KEY,
+  LAYOUT_KEY,
   VIBE_KEY,
   isDensity,
+  isLayoutPref,
   isVibe,
   isVibePref,
   prefersLight,
   resolveVibe,
   type Density,
+  type LayoutPref,
   type Vibe,
   type VibePref,
 } from './theme';
@@ -46,8 +50,20 @@ interface ThemeContextValue {
   /** The user's stored preference: a concrete vibe, or 'system' (follow OS). */
   vibePref: VibePref;
   density: Density;
+  /** TAV-PLAY-SHELL step 6a (plan §3.4): the `/play` layout preset
+   *  preference — 'auto' (default, R23) | 'story' | 'table'. Resolved to a
+   *  concrete `LayoutId` by `resolveLayout` (theme.ts), which also takes
+   *  the phone breakpoint and the current moment — neither of which this
+   *  provider knows about, so it stores the raw preference only.
+   *
+   *  debt: `layout`/`setLayout` persist now but have no UI caller yet.
+   *  ceiling: one persisted pref with zero callers; a second is the finding.
+   *  until: A9c adds the TweaksPanel layout picker that calls setLayout.
+   */
+  layout: LayoutPref;
   setVibe: (v: VibePref) => void;
   setDensity: (d: Density) => void;
+  setLayout: (l: LayoutPref) => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
@@ -80,6 +96,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [vibe, setVibeResolved] = useState<Vibe>(DEFAULT_VIBE);
   const [vibePref, setVibePref] = useState<VibePref>(DEFAULT_VIBE_PREF);
   const [density, setDensityState] = useState<Density>(DEFAULT_DENSITY);
+  const [layout, setLayoutState] = useState<LayoutPref>(DEFAULT_LAYOUT_PREF);
 
   // Sync React state with what the no-flash script already painted.
   useEffect(() => {
@@ -117,6 +134,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     else {
       const stored = safeGet(DENSITY_KEY);
       if (isDensity(stored)) setDensityState(stored);
+    }
+
+    // Same pattern as density: 'auto' is the default and is never painted as
+    // an attribute (NO_FLASH_SCRIPT), so an absent/invalid dataset value just
+    // means "nothing pinned yet" rather than "seed from storage".
+    const domLayout = d.dataset.layout;
+    if (isLayoutPref(domLayout)) setLayoutState(domLayout);
+    else {
+      const storedLayout = safeGet(LAYOUT_KEY);
+      if (isLayoutPref(storedLayout)) setLayoutState(storedLayout);
     }
   }, []);
 
@@ -163,8 +190,23 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setDensityState(d);
   }, []);
 
+  const setLayout = useCallback((l: LayoutPref) => {
+    // 'auto' is the default — clear the pinned choice rather than writing
+    // the literal string, same reason setVibe clears VIBE_KEY for 'system'.
+    if (l === 'auto') {
+      document.documentElement.removeAttribute('data-layout');
+      safeRemove(LAYOUT_KEY);
+    } else {
+      document.documentElement.dataset.layout = l;
+      safeSet(LAYOUT_KEY, l);
+    }
+    setLayoutState(l);
+  }, []);
+
   return (
-    <ThemeContext.Provider value={{ vibe, vibePref, density, setVibe, setDensity }}>
+    <ThemeContext.Provider
+      value={{ vibe, vibePref, density, layout, setVibe, setDensity, setLayout }}
+    >
       {children}
     </ThemeContext.Provider>
   );

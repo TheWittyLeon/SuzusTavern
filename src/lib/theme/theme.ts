@@ -13,6 +13,7 @@
  * lands on the light `candlelit` palette instead of the dark default.
  * `color-scheme` is set declaratively per `data-vibe` in globals.css.
  */
+import type { LayoutId, Moment } from '@/app/play/[sessionId]/presets';
 
 export const VIBES = ['hearthlight', 'dusk-tavern', 'candlelit', 'aetheric', 'moonlit-grove'] as const;
 export type Vibe = (typeof VIBES)[number];
@@ -26,6 +27,25 @@ export type VibePref = Vibe | 'system';
 
 export const DENSITIES = ['compact', 'cozy', 'airy'] as const;
 export type Density = (typeof DENSITIES)[number];
+
+/**
+ * TAV-PLAY-SHELL step 6a (decomposition plan §3.3/§3.4) — the user's layout
+ * preset preference. `'phone'` is deliberately NOT a member: it is a
+ * resolved {@link LayoutId} the phone breakpoint forces (R16: "phone has
+ * ONE layout"), never something a user picks.
+ */
+export const LAYOUT_PREFS = ['auto', 'story', 'table'] as const;
+export type LayoutPref = (typeof LAYOUT_PREFS)[number];
+
+/** R23: Auto is the default, and the new shell ships with no feature flag —
+ *  the preset picker itself is the escape hatch. */
+export const DEFAULT_LAYOUT_PREF: LayoutPref = 'auto';
+
+export const LAYOUT_KEY = 'tavern.layout';
+
+export function isLayoutPref(v: string | null | undefined): v is LayoutPref {
+  return v != null && (LAYOUT_PREFS as readonly string[]).includes(v);
+}
 
 /** Ultimate fallback vibe when the OS preference is unavailable (SSR / no matchMedia).
  *  T4p1: hearthlight-refined is now the app default (dusk-tavern stays fully
@@ -112,6 +132,23 @@ export function resolveVibe(pref: VibePref, osPrefersLight: boolean): Vibe {
 }
 
 /**
+ * TAV-PLAY-SHELL step 6a (decomposition plan §3.3) — resolves `/play`'s
+ * layout preset from the user's preference, the phone breakpoint, and the
+ * current moment. Byte-for-byte parallel to {@link resolveVibe}: same file,
+ * same test file, same mental model, same reason this isn't a component
+ * (pure function of three already-known inputs).
+ *
+ * `isPhone` is expected to come from `useMediaQuery(PLAY_PHONE_QUERY)`
+ * (`src/lib/breakpoints.ts`) — not re-derived here, so this stays a pure
+ * function with no window/matchMedia access of its own.
+ */
+export function resolveLayout(pref: LayoutPref, isPhone: boolean, moment: Moment): LayoutId {
+  if (isPhone) return 'phone'; // R16: phone has one layout, full stop.
+  if (pref === 'auto') return moment === 'combat' ? 'table' : 'story'; // R18
+  return pref;
+}
+
+/**
  * Dependency-free script injected into the document head. It runs before first
  * paint and applies the palette/density to <html>, so the correct scheme never
  * flashes the default then swaps (AC #4). It resolves the palette from the
@@ -120,5 +157,12 @@ export function resolveVibe(pref: VibePref, osPrefersLight: boolean): Vibe {
  * light → candlelit, otherwise hearthlight (T4p1: was dusk-tavern). Kept tiny
  * and literal (no imports — it executes before any module loads) and CSP-safe
  * (no eval, no external src). Mirrors the keys/values above; keep in sync.
+ *
+ * TAV-PLAY-SHELL step 6a: extended with `data-layout`, same convention as
+ * density — `'auto'` is the default and is never written as an attribute
+ * (absence means auto); only a pinned `'story'`/`'table'` choice is painted
+ * pre-hydration. This is the *preference*; the resolved id
+ * (`data-layout-resolved` + `data-moment`) is `/play`'s own concern
+ * (plan §3.4), not this app-wide script's.
  */
-export const NO_FLASH_SCRIPT = `(function(){try{var d=document.documentElement,v=localStorage.getItem('${VIBE_KEY}'),n=localStorage.getItem('${DENSITY_KEY}');if(v!=='hearthlight'&&v!=='dusk-tavern'&&v!=='candlelit'&&v!=='aetheric'&&v!=='moonlit-grove'){v=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches)?'candlelit':'hearthlight';}d.setAttribute('data-vibe',v);if(n==='compact'||n==='cozy'||n==='airy')d.setAttribute('data-density',n);}catch(e){}})();`;
+export const NO_FLASH_SCRIPT = `(function(){try{var d=document.documentElement,v=localStorage.getItem('${VIBE_KEY}'),n=localStorage.getItem('${DENSITY_KEY}'),l=localStorage.getItem('${LAYOUT_KEY}');if(v!=='hearthlight'&&v!=='dusk-tavern'&&v!=='candlelit'&&v!=='aetheric'&&v!=='moonlit-grove'){v=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches)?'candlelit':'hearthlight';}d.setAttribute('data-vibe',v);if(n==='compact'||n==='cozy'||n==='airy')d.setAttribute('data-density',n);if(l==='story'||l==='table')d.setAttribute('data-layout',l);}catch(e){}})();`;
