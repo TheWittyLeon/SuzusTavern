@@ -156,21 +156,20 @@
  * and safe for accessibility.
  */
 
-export type RegionId =
-  | 'topBar'
-  | 'partyStrip'
-  | 'sceneStage'
-  | 'suzuPresence'
-  | 'storyLog'
-  | 'offers'
-  | 'characterBlock'
-  | 'actionBar'
-  | 'composer'
-  | 'tableControls'
-  | 'safetyBanner';
-
-/** Canonical iteration order — matches the plan's §3.2 listing. */
-export const REGION_IDS: readonly RegionId[] = [
+/**
+ * Canonical iteration order — matches the plan's §3.2 listing.
+ * Kage-CR IMPORTANT-7 (2026-09-30, verified by M6): `RegionId` is derived
+ * FROM this array (`as const`) rather than hand-mirrored alongside it —
+ * the same pattern theme.ts already uses for `VIBES`/`Vibe`,
+ * `DENSITIES`/`Density` and `LAYOUT_PREFS`/`LayoutPref`. Previously a
+ * 12th literal added to the `RegionId` union alone (no `REGION_IDS`
+ * edit) reddened `tsc --noEmit` at 3 sites but left every jest suite
+ * iterating `REGION_IDS` green (Miko-QA's gap, confirmed measured).
+ * Deriving the type makes that drift structurally impossible: the same
+ * mutation now reds BOTH `tsc` and the per-region `it()` loops (they grow
+ * with the array).
+ */
+export const REGION_IDS = [
   'topBar',
   'partyStrip',
   'sceneStage',
@@ -182,7 +181,9 @@ export const REGION_IDS: readonly RegionId[] = [
   'composer',
   'tableControls',
   'safetyBanner',
-];
+] as const;
+
+export type RegionId = (typeof REGION_IDS)[number];
 
 /** Regions that host a live-region announcer (grepped — see file header). */
 export const ANNOUNCING_REGIONS: ReadonlySet<RegionId> = new Set<RegionId>([
@@ -278,7 +279,16 @@ export interface LayoutRow {
  * than re-derived at each call site.
  */
 export function getPlacement(row: LayoutRow, region: RegionId, moment: Moment): Placement {
-  return row.regions[region][moment] ?? row.regions[region].default;
+  const entry = row.regions[region];
+  // Kage-CR IMPORTANT-7 (2026-09-30): with `RegionId` now derived from
+  // `REGION_IDS`, a region added to the union but missing from a row's
+  // `regions` literal is a `tsc` error at the call site (`Record<RegionId,
+  // ...>`'s exhaustiveness check) — cheap insurance for whoever debugs a
+  // white-screened `/play` if that ever slips through anyway (e.g. a
+  // runtime-constructed row), naming the region instead of a bare
+  // TypeError on `undefined`.
+  if (!entry) throw new Error(`no placement for "${region}" in row "${row.id}"`);
+  return entry[moment] ?? entry.default;
 }
 
 // ---------------------------------------------------------------------------

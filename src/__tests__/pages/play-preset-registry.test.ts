@@ -399,6 +399,17 @@ describe('TAV-PLAY-SHELL presets.ts — getPlacement', () => {
     expect(getPlacement(row, 'offers', 'combat')).toBe(row.regions.offers.combat);
     expect(getPlacement(row, 'offers', 'combat')).not.toBe(row.regions.offers.default);
   });
+
+  it('throws a named error for a region missing from the row (Kage-CR IMPORTANT-7) instead of a bare TypeError', () => {
+    const row = LAYOUT_ROWS.find((r) => r.id === 'story')!;
+    // `tsc`'s Record<RegionId, ...> exhaustiveness check makes this
+    // unreachable through the real, statically-typed data — this directly
+    // exercises the defensive branch for a runtime-constructed row.
+    const incompleteRow = { ...row, regions: {} } as unknown as LayoutRow;
+    expect(() => getPlacement(incompleteRow, 'topBar', 'exploring')).toThrow(
+      'no placement for "topBar" in row "story"',
+    );
+  });
 });
 
 /**
@@ -496,5 +507,24 @@ describe('TAV-PLAY-SHELL presets.ts — getPlacement', () => {
  *      exploring: "offers"'s density is undefined or a declared
  *      member`), with the failure message listing the allowed set
  *      (`["chips", "list"]`). Reverted immediately; full 171-case file
+ *      reconfirmed green.
+ *
+ * IMPORTANT-7's positive control (Kage-CR M6, re-run after deriving
+ * `RegionId` FROM `REGION_IDS`):
+ *
+ *  M6 — added a 12th literal (`'ghostRegion'`) to the `REGION_IDS`
+ *      array (no row edit). Reddened `tsc --noEmit` at the same 3 sites
+ *      as before the fix (the three `Record<RegionId, ...>` `regions`
+ *      literals, each now missing the 12th key) AND, unlike before the
+ *      fix, reddened jest too: 33 of 166 cases in this file (163 + the
+ *      3 new "ghostRegion has a default Placement" row-completeness
+ *      cases). The other 30 are every other describe block that
+ *      iterates `REGION_IDS` and calls `getPlacement` for the new id —
+ *      each now fails with the IMPORTANT-7 named error ('no placement
+ *      for "ghostRegion" in row "..."') rather than silently passing,
+ *      confirming the two IMPORTANT-7 fixes compound: deriving the type
+ *      makes the drift a `tsc` error, and the named throw turns every
+ *      other consumer's failure mode from a bare `undefined` TypeError
+ *      into a readable one. Reverted immediately; full 163-case file
  *      reconfirmed green.
  */
