@@ -277,19 +277,31 @@ const STORY_ROW: LayoutRow = {
     // see the `regions.actionBar` entry below); only its density changes.
     // What combat actually does here is move `sceneStage` above `storyLog`
     // and gate `offers` off (Amendment A, a data gate in useScene, not a
-    // rendering choice). The third column has nothing left to place once
-    // `characterBlock` is a drawer in this row (R16), so it is empty ('.')
-    // rather than orphaning a token.
+    // rendering choice). Kage-CR IMPORTANT-5 (2026-09-30, option (c)):
+    // column 3 would otherwise be a dead 280px track below its header row
+    // once `characterBlock` is a drawer in this row (R16) — instead of
+    // leaving it empty, `partyStrip` takes it full-height as a rail in
+    // combat (see the `regions.partyStrip` entry below), mirroring the
+    // treatment `table.characterBlock` already gets. Keeps 3 stable
+    // tracks across moments (R18: "the stage animates in and the story
+    // log never remounts") rather than dropping to 2.
     combat: `"safetyBanner safetyBanner safetyBanner"
              "topBar       topBar       partyStrip"
-             "suzuPresence sceneStage   ."
-             "suzuPresence storyLog     ."
-             "suzuPresence composer     ."
-             "suzuPresence actionBar    ."`,
+             "suzuPresence sceneStage   partyStrip"
+             "suzuPresence storyLog     partyStrip"
+             "suzuPresence composer     partyStrip"
+             "suzuPresence actionBar    partyStrip"`,
   },
   regions: {
     topBar: { default: { area: 'topBar' } },
-    partyStrip: { default: { area: 'partyStrip', density: 'strip' } },
+    // Kage-CR IMPORTANT-5 (2026-09-30, option (c)): exploring keeps the
+    // header-row strip; combat gives it column 3 full-height as a rail
+    // (same density Table's characterBlock rail would use) rather than
+    // leaving a dead 280px track.
+    partyStrip: {
+      default: { area: 'partyStrip', density: 'strip' },
+      combat: { area: 'partyStrip', density: 'rail' },
+    },
     suzuPresence: { default: { area: 'suzuPresence' } },
     sceneStage: {
       default: { area: 'sceneStage', density: 'panel' },
