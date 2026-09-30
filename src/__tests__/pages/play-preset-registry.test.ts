@@ -415,6 +415,23 @@ describe('TAV-PLAY-SHELL presets.ts — columns/areas agree on track count (S1)'
   }
 });
 
+describe('TAV-PLAY-SHELL presets.ts — layer and area are mutually exclusive (S2)', () => {
+  // Kage-CR S2 (2026-09-30): `Placement.layer`'s own doc says "When true,
+  // `area` is always null" — a doc-comment invariant with no guard. A
+  // region that is both grid-placed AND a layer would render docked AND
+  // as an overlay simultaneously at step 6b.
+  for (const row of LAYOUT_ROWS) {
+    for (const region of REGION_IDS) {
+      for (const moment of MOMENTS) {
+        it(`${row.id}/${moment}: "${region}" is never both layer:true and grid-placed`, () => {
+          const placement = getPlacement(row, region, moment);
+          if (placement.layer === true) expect(placement.area).toBeNull();
+        });
+      }
+    }
+  }
+});
+
 describe('TAV-PLAY-SHELL presets.ts — getPlacement', () => {
   it('falls back to default when no moment-specific override exists', () => {
     const row = LAYOUT_ROWS.find((r) => r.id === 'story')!;
@@ -565,4 +582,13 @@ describe('TAV-PLAY-SHELL presets.ts — getPlacement', () => {
  *      Reddened exactly 1 case (`table/exploring: columns has exactly
  *      as many tracks as areas has columns`, 4 expected vs 3 received).
  *      Reverted immediately; full 169-case file reconfirmed green.
+ *
+ * S2's positive control (Kage-CR M7):
+ *
+ *  M7 — added `layer: true` to `table.characterBlock.default` (area
+ *      stayed `'characterBlock'` — no per-moment override exists, so
+ *      both moments share it). Reddened exactly 2 cases (`table/
+ *      exploring` and `table/combat: "characterBlock" is never both
+ *      layer:true and grid-placed`). Reverted immediately; full
+ *      235-case file reconfirmed green.
  */
