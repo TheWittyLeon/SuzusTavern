@@ -255,11 +255,14 @@ const STORY_ROW: LayoutRow = {
                 "suzuPresence offers       sceneStage"
                 "suzuPresence composer     sceneStage"
                 "suzuPresence actionBar    sceneStage"`,
-    // Plan §3.2: "story combat moves stage above story and adds actionBar."
-    // `offers` is gated off by Amendment A (data gate in useScene, not a
-    // rendering choice — see its own row below); the third column has
-    // nothing left to place once `characterBlock` is a drawer in this row
-    // (R16), so it is empty ('.') rather than orphaning a token.
+    // Plan §3.2's illustrative snippet says combat "adds actionBar" —
+    // stale: `actionBar` is placed in BOTH moments (Kage-CR Q1 ruling,
+    // see the `regions.actionBar` entry below); only its density changes.
+    // What combat actually does here is move `sceneStage` above `storyLog`
+    // and gate `offers` off (Amendment A, a data gate in useScene, not a
+    // rendering choice). The third column has nothing left to place once
+    // `characterBlock` is a drawer in this row (R16), so it is empty ('.')
+    // rather than orphaning a token.
     combat: `"safetyBanner safetyBanner safetyBanner"
              "topBar       topBar       partyStrip"
              "suzuPresence sceneStage   ."
@@ -282,7 +285,18 @@ const STORY_ROW: LayoutRow = {
     },
     // R16: Story's sheet is "in a drawer" — never docked in this preset.
     characterBlock: { default: { area: null, layer: true } },
-    actionBar: { default: { area: 'actionBar' } },
+    // Kage-CR Q1 ruling (2026-09-30, overrules Miko's R16-literal defect):
+    // Amendment A already hides `offers` during combat, so dropping the
+    // bar too would leave Story-combat with NO way to act at all — that
+    // forces the data, no Leon needed. Placed in BOTH moments (`areas`
+    // strings already carry the token, unchanged); only the density
+    // changes: 'vitals' while exploring (no combat verbs to offer),
+    // 'chips' in combat (R16's "offers inline" idiom, now rendered by the
+    // bar itself since `offers` is gone).
+    actionBar: {
+      default: { area: 'actionBar', density: 'vitals' },
+      combat: { area: 'actionBar', density: 'chips' },
+    },
     composer: { default: { area: 'composer' } },
     tableControls: { default: { area: null, layer: true } },
     safetyBanner: { default: { area: 'safetyBanner' } },
