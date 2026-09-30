@@ -1,0 +1,399 @@
+/**
+ * TAV-PLAY-SHELL step 6a — the layout-preset registry (decomposition plan
+ * §3.1–§3.6; rulings R13/R16/R18–R25, D1–D4). Data and pure logic ONLY: no
+ * CSS, no rendering, no change to page.tsx/regions/*. The `PlayShell` that
+ * actually reads this (step 6b) is the next item.
+ *
+ * R16's hard rule, restated: "a preset may arrange, show or hide shared
+ * parts; it may never fork a component." This file is that rule encoded as
+ * data — three `LayoutRow`s (`story`/`table`/`phone`), each placing every
+ * `RegionId` somewhere (a grid `area`) or nowhere (`area: null` + optionally
+ * `layer: true` for a dismissible overlay, D1). Presets PLACE, they never
+ * UNMOUNT (plan §5 step 6) — see the `visible`/`layer` discussion below.
+ *
+ * ---------------------------------------------------------------------------
+ * RegionId reconciliation (plan §3.2's list vs what `main` actually has,
+ * per this task's brief: "if the plan's list and the code disagree, the
+ * code wins"). Read from `regions/*.tsx`, `page.tsx`'s remaining inline
+ * JSX, and each file's own header comments:
+ *
+ *  - `topBar`      — plan's single region is TWO DOM nodes today
+ *                     (`regions/TopBar.tsx`'s `SessionHead` + `TopBar`
+ *                     exports, `data-region="topBarSession"` /
+ *                     `"topBarStatus"`), by TopBar.tsx's OWN `debt:` marker
+ *                     ("until: step 6 lands ... TopBar becomes the single
+ *                     top-of-grid region"). No disagreement with the plan's
+ *                     RegionId itself — `topBar` here is the FUTURE merged
+ *                     region step 6b builds; the two-DOM-node reality is
+ *                     that step's job, not this file's.
+ *  - `tableControls` — same shape: `TableControls.tsx`'s `SessionControls` /
+ *                     `DmCombatControls` exports (`data-region=
+ *                     "tableControlsSession"` / `"tableControlsDm"`), same
+ *                     kind of `debt:` marker ("until: step 10 lands").
+ *  - `partyStrip`, `sceneStage`, `offers`, `storyLog`, `actionBar`,
+ *                     `safetyBanner` — each has exactly one dedicated
+ *                     `regions/*.tsx` file already. No disagreement.
+ *  - `suzuPresence`  — NOT a dedicated file. `SuzuDM` still renders only
+ *                     inside `NarratorStrip` (called from `regions/
+ *                     TopBar.tsx`'s `TopBar` export) — TopBar.tsx's own
+ *                     comment: "SuzuPresence ... is NOT created here ...
+ *                     flagged for step 9". Kept as a RegionId per the
+ *                     plan (this registry is forward-looking for step 6b),
+ *                     represented today by that nested `SuzuDM` call.
+ *  - `characterBlock`— NOT a dedicated file. Represented today by
+ *                     `MemberSheetPanel` (the always-available party-member
+ *                     drawer) — the one-sheet merge with `/character/[id]`
+ *                     is step 7, R24, still pending. Kept per the plan.
+ *  - `composer`      — NOT under `regions/`; still `@/components/Composer`,
+ *                     imported directly by `page.tsx`. Matches plan §2.3
+ *                     ("Composer | existing props minus combat | wrapped,
+ *                     shrinks") — it is a real region concern, just not
+ *                     relocated. `ActionBar` (see below) already IS
+ *                     extracted and Composer renders it as
+ *                     `{combat && <ActionBar .../>}`, its first child —
+ *                     step 8 landed ahead of this registry.
+ *
+ * Net: all 11 of the plan's RegionIds are kept. Nothing added, nothing
+ * removed — every "disagreement" above is "not yet extracted", not "wrong
+ * id", and is noted so step 6b knows which regions it can place today vs
+ * which it is placing ahead of their own extraction.
+ * ---------------------------------------------------------------------------
+ *
+ * Rulings vs the pass-2 mockup (`scratchpad/tavern20-second-pass/`), where
+ * they disagree — the RULING wins, the mockup is an exploratory visual
+ * reference, not a spec:
+ *
+ *  - R16 says Story's sheet is "in a drawer"; the mockup's Story CSS shows
+ *    a persistent docked `.me` card. Followed R16: `characterBlock` is
+ *    `layer: true` (never grid-placed) in `story` AND `phone`; only
+ *    `table` docks it (`area: 'characterBlock'`, R20's "collapsible rail",
+ *    both moments — R20: "applies exploring and in combat").
+ *  - D1 ("owner/DM controls are a dismissible layer, not a permanent
+ *    column") vs the mockup's persistent `.tools` icon rail: `tableControls`
+ *    is `layer: true` in every row — no grid area at all. The mockup's
+ *    icon-rail trigger is a rendering detail for step 6b, not this file's
+ *    concern.
+ *  - `topBar` overlays `sceneStage`'s area in `table` (mirrors the mockup's
+ *    `.top{grid-area:stage}` / `.init{grid-area:stage}` — title/initiative
+ *    float over the stage rather than taking their own row). No ruling
+ *    contradicts this, so the mockup stands.
+ *  - `offers` has no dedicated grid area in the mockup at all (nested
+ *    inside `.story`'s own flex column). Given `Offers` is a real,
+ *    independently-mounted region (plan §2.3, code confirms), it gets its
+ *    own area here — matching the plan's OWN illustrative §3.2 snippet
+ *    ("party story stage" / "party offers stage" / "party composer
+ *    stage"), not the mockup's nesting.
+ *
+ * Amendment A (2026-09-28) on `Offers`/combat: "the region's visibility
+ * during combat becomes a Placement row (`regions.offers.combat =
+ * { visible: false }`, §3.2) — a row, as §3.6 promises." Implemented
+ * literally below in every row: `offers.combat = { area: null, visible:
+ * false }`. `Offers` has no aria-live of its own (grepped, see next
+ * paragraph) so hiding it never drops an announcement.
+ *
+ * ---------------------------------------------------------------------------
+ * `announces` — derived by grepping every region's OWN file plus (for the
+ * three not-yet-extracted regions) the component that stands in for it
+ * today, for `aria-live` / `role="status"` / `role="alert"`, transitively
+ * through what each region/component actually renders (not guessed):
+ *
+ *   topBar          — TopBar.tsx: `role="status" aria-live="polite"` (the
+ *                      aiOffStatus fallback) + NarratorStrip.tsx's own
+ *                      `role="status" aria-live={combatActive?'off':'polite'}`.
+ *   partyStrip       — PartyStrip.tsx has none itself, but wraps
+ *                      InitiativeTracker.tsx, which has
+ *                      `aria-live="polite"` (round indicator) AND
+ *                      `role="alert" aria-live="assertive"`.
+ *   sceneStage       — SceneStage.tsx: two `role="status" aria-live="polite"`
+ *                      nodes (combatNote, autoResolvePrompt).
+ *   storyLog         — StoryLog.tsx wraps ChatLog, which has
+ *                      `aria-live="polite"` on its `role="log"` root.
+ *   actionBar        — ActionBar.tsx: `aria-live="polite"` (not-your-turn),
+ *                      `role="alert" aria-live="assertive"` (refused
+ *                      reason), `aria-live="polite" aria-atomic="true"`.
+ *   composer         — Composer.tsx: `role="alert" aria-live="assertive"`
+ *                      (send error) + `role="status" aria-live={disabled?
+ *                      'off':'polite'}` (pending).
+ *   characterBlock   — MemberSheetPanel.tsx: `aria-busy aria-live="polite"`
+ *                      (loading) + `role="alert"` (error).
+ *   tableControls    — TableControls.tsx has none itself, but wraps
+ *                      DmNarrationPanel.tsx (`role="alert"
+ *                      aria-live="assertive"`, ×2 more `role="alert"`) and
+ *                      CampaignFloorPanel.tsx (`role="status"
+ *                      aria-live="polite"`). ConditionsPanel.tsx's
+ *                      `role="alert"` is a duration-hint, same family.
+ *   safetyBanner     — SafetyBanner.tsx: `role="status" aria-live="polite"`
+ *                      — the R3/Iro-CRITICAL-1 precedent this whole flag
+ *                      exists to generalize.
+ *
+ *   NOT announcing: `offers` (Offers.tsx — no match) and `suzuPresence`
+ *   (SuzuDM.tsx — no match; its parent NarratorStrip's announcer is
+ *   `topBar`'s, not SuzuDM's own).
+ *
+ * R3's render-matrix rule ("every announcing region is `data-visible=
+ * "true"` in every row × moment") is therefore satisfied by DESIGN below,
+ * not by exception: every `announces: true` region (9 of 11) is placed
+ * with `visible` left at its default `true` in EVERY row and moment,
+ * including `actionBar`/`sceneStage`/`characterBlock`/`tableControls`,
+ * whose CONTENT is only ever non-empty during combat or while a layer is
+ * open. This is the exact "wrapper mounts unconditionally, only the
+ * CONTENT is gated" pattern `page.tsx` already uses for `.deadStatus` /
+ * `.durableRetryRow` (see those divs' own comments) — the region
+ * component's job, not a reason to remove its mount point from a preset.
+ * `layer: true` regions (`characterBlock` outside `table`, `tableControls`
+ * everywhere) are likewise never `visible: false`: a layer's own
+ * open/closed state is independent of the preset (Drawer invariant A5,
+ * "always mounted") and is not this file's concern.
+ *
+ * Only `offers` (not announcing) ever goes `visible: false` — the one
+ * region for which hiding it during combat is both true to the rulings
+ * and safe for accessibility.
+ */
+
+export type RegionId =
+  | 'topBar'
+  | 'partyStrip'
+  | 'sceneStage'
+  | 'suzuPresence'
+  | 'storyLog'
+  | 'offers'
+  | 'characterBlock'
+  | 'actionBar'
+  | 'composer'
+  | 'tableControls'
+  | 'safetyBanner';
+
+/** Canonical iteration order — matches the plan's §3.2 listing. */
+export const REGION_IDS: readonly RegionId[] = [
+  'topBar',
+  'partyStrip',
+  'sceneStage',
+  'suzuPresence',
+  'storyLog',
+  'offers',
+  'characterBlock',
+  'actionBar',
+  'composer',
+  'tableControls',
+  'safetyBanner',
+];
+
+/** Regions that host a live-region announcer (grepped — see file header). */
+export const ANNOUNCING_REGIONS: ReadonlySet<RegionId> = new Set<RegionId>([
+  'topBar',
+  'partyStrip',
+  'sceneStage',
+  'storyLog',
+  'actionBar',
+  'composer',
+  'characterBlock',
+  'tableControls',
+  'safetyBanner',
+]);
+
+export type Moment = 'exploring' | 'combat';
+export type LayoutId = 'story' | 'table' | 'phone';
+
+export interface Placement {
+  /** Grid-area name; null = not placed in the grid this moment (either a
+   *  `layer` or genuinely absent, e.g. `offers` during combat). */
+  area: string | null;
+  /** Passed straight to the region. Opaque to the shell (Guard 1, plan
+   *  §3.5) — a region's own prop type is the only thing that interprets it. */
+  density?: string;
+  /** default true; false = display:none, still mounted. Never set true→false
+   *  on an `ANNOUNCING_REGIONS` member — see file header. */
+  visible?: boolean;
+  collapsible?: boolean;
+  /** Rendered as an overlay, outside the grid (D1). When true, `area` is
+   *  always null — a layer has no grid position to speak of. */
+  layer?: boolean;
+}
+
+export interface LayoutRow {
+  id: LayoutId;
+  label: string;
+  /** The grid-template-areas value. */
+  areas: Record<Moment, string>;
+  /** The grid-template-columns value. Row heights are deliberately NOT part
+   *  of this contract (no `rows` field) — sizing per area is a step-6b/
+   *  Aoi-UI CSS concern (`--stage-w`/`--stage-h` etc., plan §4.1), not
+   *  preset data. */
+  columns: Record<Moment, string>;
+  regions: Record<RegionId, Partial<Record<Moment, Placement>> & { default: Placement }>;
+}
+
+/**
+ * Resolves a region's placement for a given moment: the moment-specific
+ * override if the row declares one, else the row's `default` for that
+ * region. This is the one piece of resolution logic every consumer needs
+ * (step 6b's `PlayShell`, and this file's own tests) — kept here rather
+ * than re-derived at each call site.
+ */
+export function getPlacement(row: LayoutRow, region: RegionId, moment: Moment): Placement {
+  return row.regions[region][moment] ?? row.regions[region].default;
+}
+
+// ---------------------------------------------------------------------------
+// STORY — R16: "story column, sheet in a drawer, offers inline". Columns
+// reuse today's real proportions in spirit (`Play.module.css`'s current
+// `220px 1fr 260px`, plan §2.3's render note) rather than the mockup's
+// invented px values.
+// ---------------------------------------------------------------------------
+
+const STORY_ROW: LayoutRow = {
+  id: 'story',
+  label: 'Story',
+  columns: {
+    exploring: '200px minmax(0,1fr) 280px',
+    combat: '200px minmax(0,1fr) 280px',
+  },
+  areas: {
+    exploring: `"safetyBanner safetyBanner safetyBanner"
+                "topBar       topBar       partyStrip"
+                "suzuPresence storyLog     sceneStage"
+                "suzuPresence offers       sceneStage"
+                "suzuPresence composer     sceneStage"
+                "suzuPresence actionBar    sceneStage"`,
+    // Plan §3.2: "story combat moves stage above story and adds actionBar."
+    // `offers` is gated off by Amendment A (data gate in useScene, not a
+    // rendering choice — see its own row below); the third column has
+    // nothing left to place once `characterBlock` is a drawer in this row
+    // (R16), so it is empty ('.') rather than orphaning a token.
+    combat: `"safetyBanner safetyBanner safetyBanner"
+             "topBar       topBar       partyStrip"
+             "suzuPresence sceneStage   ."
+             "suzuPresence storyLog     ."
+             "suzuPresence composer     ."
+             "suzuPresence actionBar    ."`,
+  },
+  regions: {
+    topBar: { default: { area: 'topBar' } },
+    partyStrip: { default: { area: 'partyStrip', density: 'strip' } },
+    suzuPresence: { default: { area: 'suzuPresence' } },
+    sceneStage: {
+      default: { area: 'sceneStage', density: 'panel' },
+      combat: { area: 'sceneStage', density: 'hero' },
+    },
+    storyLog: { default: { area: 'storyLog' } },
+    offers: {
+      default: { area: 'offers', density: 'chips' },
+      combat: { area: null, visible: false },
+    },
+    // R16: Story's sheet is "in a drawer" — never docked in this preset.
+    characterBlock: { default: { area: null, layer: true } },
+    actionBar: { default: { area: 'actionBar' } },
+    composer: { default: { area: 'composer' } },
+    tableControls: { default: { area: null, layer: true } },
+    safetyBanner: { default: { area: 'safetyBanner' } },
+  },
+};
+
+// ---------------------------------------------------------------------------
+// TABLE — R16: "scene stage, sheet docked open, action bar" (all three
+// persistent, not moment-gated — matches the mockup's unconditional
+// `.bar{display:flex}` under `[data-layout="table"]`, unlike phone/story).
+// R20: the docked sheet is a collapsible RAIL, same in both moments.
+// ---------------------------------------------------------------------------
+
+const TABLE_ROW: LayoutRow = {
+  id: 'table',
+  label: 'Table',
+  columns: {
+    exploring: '160px 150px minmax(0,1fr) 300px',
+    combat: '160px 150px minmax(0,1fr) 300px',
+  },
+  areas: {
+    exploring: `"safetyBanner safetyBanner safetyBanner safetyBanner"
+                "partyStrip   sceneStage   sceneStage   characterBlock"
+                "partyStrip   suzuPresence storyLog     characterBlock"
+                "partyStrip   suzuPresence offers       characterBlock"
+                "partyStrip   suzuPresence composer     characterBlock"
+                "partyStrip   actionBar    actionBar    actionBar"`,
+    combat: `"safetyBanner safetyBanner safetyBanner safetyBanner"
+             "partyStrip   sceneStage   sceneStage   characterBlock"
+             "partyStrip   suzuPresence storyLog     characterBlock"
+             "partyStrip   suzuPresence composer     characterBlock"
+             "partyStrip   actionBar    actionBar    actionBar"`,
+  },
+  regions: {
+    // Mirrors the mockup's `.top{grid-area:stage}` / `.init{grid-area:stage}`
+    // — title + initiative float over the stage rather than owning a row.
+    topBar: { default: { area: 'sceneStage' } },
+    partyStrip: { default: { area: 'partyStrip', density: 'rail' } },
+    suzuPresence: { default: { area: 'suzuPresence' } },
+    sceneStage: { default: { area: 'sceneStage', density: 'hero' } },
+    storyLog: { default: { area: 'storyLog' } },
+    offers: {
+      default: { area: 'offers', density: 'list' },
+      combat: { area: null, visible: false },
+    },
+    characterBlock: { default: { area: 'characterBlock', density: 'rail' } },
+    actionBar: { default: { area: 'actionBar' } },
+    composer: { default: { area: 'composer' } },
+    tableControls: { default: { area: null, layer: true } },
+    safetyBanner: { default: { area: 'safetyBanner' } },
+  },
+};
+
+// ---------------------------------------------------------------------------
+// PHONE — R16: "ONE layout: A's [Story], gaining B's [Table] action bar in
+// combat." Single column; `partyStrip`/`suzuPresence` share `topBar`'s area
+// (inline avatar strip + a small always-mounted presence icon, R10's bound
+// "presence must not cost story space on a phone" — mirrors the mockup's
+// `.pl.phone .party`/`.suzu` living inside/over `.hdr`, not a separate row).
+// `sceneStage` density per plan §4.2's 390-wide column (never hidden —
+// `inline` while exploring, `panel` in combat, both collapsible).
+// ---------------------------------------------------------------------------
+
+const PHONE_ROW: LayoutRow = {
+  id: 'phone',
+  label: 'Phone',
+  columns: {
+    exploring: '1fr',
+    combat: '1fr',
+  },
+  areas: {
+    exploring: `"safetyBanner"
+                "topBar"
+                "sceneStage"
+                "storyLog"
+                "offers"
+                "composer"
+                "actionBar"`,
+    combat: `"safetyBanner"
+             "topBar"
+             "sceneStage"
+             "storyLog"
+             "composer"
+             "actionBar"`,
+  },
+  regions: {
+    topBar: { default: { area: 'topBar' } },
+    partyStrip: { default: { area: 'topBar', density: 'strip' } },
+    suzuPresence: { default: { area: 'topBar', density: 'compact' } },
+    sceneStage: {
+      default: { area: 'sceneStage', density: 'inline', collapsible: true },
+      combat: { area: 'sceneStage', density: 'panel', collapsible: true },
+    },
+    storyLog: { default: { area: 'storyLog' } },
+    offers: {
+      default: { area: 'offers', density: 'chips' },
+      combat: { area: null, visible: false },
+    },
+    // R16 (Phone = Story's arrangement): sheet is a drawer, never docked.
+    characterBlock: { default: { area: null, layer: true } },
+    actionBar: { default: { area: 'actionBar' } },
+    composer: { default: { area: 'composer' } },
+    tableControls: { default: { area: null, layer: true } },
+    safetyBanner: { default: { area: 'safetyBanner' } },
+  },
+};
+
+export const LAYOUT_ROWS: readonly LayoutRow[] = [STORY_ROW, TABLE_ROW, PHONE_ROW];
+
+export const LAYOUT_ROWS_BY_ID: Record<LayoutId, LayoutRow> = {
+  story: STORY_ROW,
+  table: TABLE_ROW,
+  phone: PHONE_ROW,
+};
