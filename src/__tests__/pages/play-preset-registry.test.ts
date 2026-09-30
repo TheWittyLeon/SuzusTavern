@@ -130,15 +130,38 @@ describe('TAV-PLAY-SHELL presets.ts — announces render-matrix (b, plan R3)', (
     for (const id of ANNOUNCING_REGIONS) expect(REGION_IDS).toContain(id);
   });
 
+  // Kage-CR CRITICAL-1 (2026-09-30): the old guard read ONE field
+  // (`visible`) and missed the undefined third state where `area: null`
+  // with no `layer` means the region has no mount point at all — silently
+  // never rendered anywhere. R3 requires a mount point, not merely the
+  // absence of `visible: false`. (CRITICAL-2 below extends this clause to
+  // also accept a `host`.)
   for (const row of LAYOUT_ROWS) {
     for (const region of ANNOUNCING_REGIONS) {
       for (const moment of MOMENTS) {
-        it(`${row.id}/${moment}: "${region}" is never visible:false`, () => {
+        it(`${row.id}/${moment}: "${region}" has a mount point and is never hidden`, () => {
           const placement = getPlacement(row, region, moment);
           expect(placement.visible).not.toBe(false);
+          // R3: an announcing region must have a mount point — a grid
+          // area or a layer.
+          expect(placement.area !== null || placement.layer === true).toBe(true);
         });
       }
     }
+  }
+});
+
+describe('TAV-PLAY-SHELL presets.ts — Amendment A pinned positively (CRITICAL-1)', () => {
+  // The old suite only pinned "never visible:false" for ANNOUNCING_REGIONS,
+  // which never covers `offers` (not announcing) — so Amendment A's literal
+  // requirement (`regions.offers.combat = { visible: false }`, plan §3.2)
+  // was never actually asserted anywhere. Pin it positively, per row.
+  for (const row of LAYOUT_ROWS) {
+    it(`${row.id}/combat: "offers" is area:null and visible:false (Amendment A)`, () => {
+      const placement = getPlacement(row, 'offers', 'combat');
+      expect(placement.area).toBeNull();
+      expect(placement.visible).toBe(false);
+    });
   }
 });
 
@@ -220,4 +243,22 @@ describe('TAV-PLAY-SHELL presets.ts — getPlacement', () => {
  *          remains in the string.
  * All edits were reverted immediately after observing the red run, and the
  * full 110-case file was confirmed green again before the next one.
+ *
+ * Kage-CR fix-round mutations (2026-09-30), same discipline — applied,
+ * run, observed red, reverted, full suite re-confirmed green:
+ *
+ *  M1 — CRITICAL-1's positive control. Set `story.regions.actionBar` to
+ *      `{ default: { area: null } }` and dropped the `actionBar` token
+ *      from both `story` `areas` strings (the exact shape Miko's
+ *      overruled Q1 fix would have produced). Reddened exactly 2 cases:
+ *      `story/exploring` and `story/combat: "actionBar" has a mount point
+ *      and is never hidden` — the new R3 guard catches what the old
+ *      "never visible:false" guard missed. All other 111 cases stayed
+ *      green.
+ *  M8 — CRITICAL-1's positive control. Dropped `visible: false` from
+ *      `offers.combat` in all three rows (left `area: null`). Reddened
+ *      exactly the 3 new Amendment A cases (`story/combat`, `table/combat`,
+ *      `phone/combat: "offers" is area:null and visible:false`) — nothing
+ *      in the old suite could see this at all, since `offers` is not an
+ *      `ANNOUNCING_REGIONS` member.
  */
