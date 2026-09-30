@@ -7,6 +7,7 @@ import {
   DEFAULT_VIBE,
   DENSITY_KEY,
   LAYOUT_KEY,
+  LAYOUT_PREFS,
   NO_FLASH_SCRIPT,
   VIBE_KEY,
   VIBES,
@@ -47,10 +48,16 @@ describe('theme constants', () => {
     expect(NO_FLASH_SCRIPT).toContain(VIBE_KEY);
     expect(NO_FLASH_SCRIPT).toContain(DENSITY_KEY);
     expect(NO_FLASH_SCRIPT).toContain(LAYOUT_KEY);
-    // Guards story/table; 'auto' is deliberately never written as an
-    // attribute (absence means auto — see theme.ts's own comment).
-    expect(NO_FLASH_SCRIPT).toContain("l==='story'");
-    expect(NO_FLASH_SCRIPT).toContain("l==='table'");
+    // Kage-CR S3 (2026-09-30): was a hand-mirror ('story'/'table' spelled
+    // out again) guarded by a hand-mirror — derive from LAYOUT_PREFS
+    // instead, so a new pref is covered automatically. 'auto' is
+    // deliberately never written as an attribute (absence means auto —
+    // see theme.ts's own comment), so it's asserted ABSENT, every other
+    // pref asserted present.
+    for (const pref of LAYOUT_PREFS) {
+      if (pref === 'auto') expect(NO_FLASH_SCRIPT).not.toContain("l==='auto'");
+      else expect(NO_FLASH_SCRIPT).toContain(`l==='${pref}'`);
+    }
     // Guards every vibe so a tampered localStorage can't inject an attribute.
     expect(NO_FLASH_SCRIPT).toContain('hearthlight');
     expect(NO_FLASH_SCRIPT).toContain('dusk-tavern');
