@@ -73,10 +73,16 @@
  *    is `layer: true` in every row — no grid area at all. The mockup's
  *    icon-rail trigger is a rendering detail for step 6b, not this file's
  *    concern.
- *  - `topBar` overlays `sceneStage`'s area in `table` (mirrors the mockup's
- *    `.top{grid-area:stage}` / `.init{grid-area:stage}` — title/initiative
- *    float over the stage rather than taking their own row). No ruling
- *    contradicts this, so the mockup stands.
+ *  - `topBar` is a declared co-occupancy (`host: 'sceneStage'`) in `table`
+ *    (mirrors the mockup's `.top{grid-area:stage}` / `.init{grid-area:
+ *    stage}` — title/initiative float over the stage rather than taking
+ *    their own row). No ruling contradicts this, so the mockup stands.
+ *    Kage-CR CRITICAL-2 (2026-09-30): originally encoded as a duplicate
+ *    `area: 'sceneStage'` string, indistinguishable from a typo and with
+ *    no stacking signal for step 6b — replaced with the explicit `host`
+ *    field (see `Placement.host`'s own doc) once `phone.partyStrip`/
+ *    `phone.suzuPresence` turned out to need the identical mechanism
+ *    against `topBar`.
  *  - `offers` has no dedicated grid area in the mockup at all (nested
  *    inside `.story`'s own flex column). Given `Offers` is a real,
  *    independently-mounted region (plan §2.3, code confirms), it gets its
@@ -208,6 +214,17 @@ export interface Placement {
   /** Rendered as an overlay, outside the grid (D1). When true, `area` is
    *  always null — a layer has no grid position to speak of. */
   layer?: boolean;
+  /**
+   * Kage-CR CRITICAL-2 (2026-09-30): this region is not an independent
+   * grid item — it renders INSIDE the named region's area (a declared
+   * co-occupancy, e.g. TopBar's title/initiative floating over the scene
+   * stage, or Phone's party strip and presence icon living inside the
+   * header). The host must itself be placed (non-null `area`) in the
+   * same row × moment — enforced by the "grid co-occupancy" guard below.
+   * When set, `area` is always null: a hosted region has no grid
+   * position of its own, same convention as `layer`.
+   */
+  host?: RegionId;
 }
 
 export interface LayoutRow {
@@ -333,7 +350,9 @@ const TABLE_ROW: LayoutRow = {
   regions: {
     // Mirrors the mockup's `.top{grid-area:stage}` / `.init{grid-area:stage}`
     // — title + initiative float over the stage rather than owning a row.
-    topBar: { default: { area: 'sceneStage' } },
+    // Kage-CR CRITICAL-2 (2026-09-30): a declared co-occupancy, not a
+    // duplicate area string — topBar renders INSIDE sceneStage's area.
+    topBar: { default: { area: null, host: 'sceneStage' } },
     partyStrip: { default: { area: 'partyStrip', density: 'rail' } },
     suzuPresence: { default: { area: 'suzuPresence' } },
     sceneStage: { default: { area: 'sceneStage', density: 'hero' } },
@@ -352,10 +371,11 @@ const TABLE_ROW: LayoutRow = {
 
 // ---------------------------------------------------------------------------
 // PHONE — R16: "ONE layout: A's [Story], gaining B's [Table] action bar in
-// combat." Single column; `partyStrip`/`suzuPresence` share `topBar`'s area
-// (inline avatar strip + a small always-mounted presence icon, R10's bound
-// "presence must not cost story space on a phone" — mirrors the mockup's
-// `.pl.phone .party`/`.suzu` living inside/over `.hdr`, not a separate row).
+// combat." Single column; `partyStrip`/`suzuPresence` are declared
+// co-occupancies of `topBar` (CRITICAL-2 — inline avatar strip + a small
+// always-mounted presence icon, R10's bound "presence must not cost story
+// space on a phone" — mirrors the mockup's `.pl.phone .party`/`.suzu`
+// living inside/over `.hdr`, not a separate row).
 // `sceneStage` density per plan §4.2's 390-wide column (never hidden —
 // `inline` while exploring, `panel` in combat, both collapsible).
 // ---------------------------------------------------------------------------
@@ -384,8 +404,10 @@ const PHONE_ROW: LayoutRow = {
   },
   regions: {
     topBar: { default: { area: 'topBar' } },
-    partyStrip: { default: { area: 'topBar', density: 'strip' } },
-    suzuPresence: { default: { area: 'topBar', density: 'compact' } },
+    // Kage-CR CRITICAL-2 (2026-09-30): declared co-occupancies of `topBar`,
+    // not duplicate area strings — both render INSIDE topBar's area.
+    partyStrip: { default: { area: null, host: 'topBar', density: 'strip' } },
+    suzuPresence: { default: { area: null, host: 'topBar', density: 'compact' } },
     sceneStage: {
       default: { area: 'sceneStage', density: 'inline', collapsible: true },
       combat: { area: 'sceneStage', density: 'panel', collapsible: true },

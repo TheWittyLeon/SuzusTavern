@@ -132,10 +132,13 @@ describe('TAV-PLAY-SHELL presets.ts — announces render-matrix (b, plan R3)', (
 
   // Kage-CR CRITICAL-1 (2026-09-30): the old guard read ONE field
   // (`visible`) and missed the undefined third state where `area: null`
-  // with no `layer` means the region has no mount point at all — silently
-  // never rendered anywhere. R3 requires a mount point, not merely the
-  // absence of `visible: false`. (CRITICAL-2 below extends this clause to
-  // also accept a `host`.)
+  // with no `layer`/`host` means the region has no mount point at all —
+  // silently never rendered anywhere. R3 requires a mount point, not
+  // merely the absence of `visible: false`. `host` counts as a mount
+  // point (CRITICAL-2): a hosted announcer mounts inside its host, which
+  // is itself placed — exercised for real by `table/*: "topBar"` and
+  // `phone/*: "partyStrip"` below, both ANNOUNCING_REGIONS members that
+  // are hosted rather than grid-placed.
   for (const row of LAYOUT_ROWS) {
     for (const region of ANNOUNCING_REGIONS) {
       for (const moment of MOMENTS) {
@@ -143,8 +146,11 @@ describe('TAV-PLAY-SHELL presets.ts — announces render-matrix (b, plan R3)', (
           const placement = getPlacement(row, region, moment);
           expect(placement.visible).not.toBe(false);
           // R3: an announcing region must have a mount point — a grid
-          // area or a layer.
-          expect(placement.area !== null || placement.layer === true).toBe(true);
+          // area, a layer, or a host (which must itself be placed —
+          // pinned separately by the grid co-occupancy guard below).
+          expect(
+            placement.area !== null || placement.layer === true || placement.host != null,
+          ).toBe(true);
         });
       }
     }
@@ -180,6 +186,45 @@ describe('TAV-PLAY-SHELL presets.ts — area/placement consistency (e)', () => {
         const placed = placedAreas(row, moment);
         const missingAreas = [...placed].filter((a) => !tokens.has(a));
         expect(missingAreas).toEqual([]);
+      });
+    }
+  }
+});
+
+describe('TAV-PLAY-SHELL presets.ts — grid co-occupancy (CRITICAL-2): no undeclared area sharing', () => {
+  // Kage-CR CRITICAL-2 (2026-09-30): `area` used to be overloaded — a
+  // duplicate `area: 'x'` string across two regions was indistinguishable
+  // from a typo, with nothing in the data marking it intentional. `host`
+  // makes the third state explicit. Two invariants, written as
+  // "everything except declared exemptions" rather than a list of known
+  // violators, so a NEW accidental share reds the same way a known one
+  // does:
+  for (const row of LAYOUT_ROWS) {
+    for (const moment of MOMENTS) {
+      it(`${row.id}/${moment}: every host names a region that is itself placed this row × moment`, () => {
+        for (const id of REGION_IDS) {
+          const placement = getPlacement(row, id, moment);
+          if (placement.host == null) continue;
+          expect(REGION_IDS).toContain(placement.host);
+          const hostPlacement = getPlacement(row, placement.host, moment);
+          expect(hostPlacement.area).not.toBeNull();
+        }
+      });
+
+      it(`${row.id}/${moment}: no two regions share a non-null area unless one declares the other as host`, () => {
+        const violations: string[] = [];
+        for (const idA of REGION_IDS) {
+          const pA = getPlacement(row, idA, moment);
+          if (pA.area == null) continue;
+          for (const idB of REGION_IDS) {
+            if (idB === idA) continue;
+            const pB = getPlacement(row, idB, moment);
+            if (pB.area !== pA.area) continue;
+            if (pA.host === idB || pB.host === idA) continue; // declared
+            violations.push(`"${pA.area}": ${idA} <-> ${idB}`);
+          }
+        }
+        expect(violations).toEqual([]);
       });
     }
   }
@@ -261,4 +306,28 @@ describe('TAV-PLAY-SHELL presets.ts — getPlacement', () => {
  *      `phone/combat: "offers" is area:null and visible:false`) — nothing
  *      in the old suite could see this at all, since `offers` is not an
  *      `ANNOUNCING_REGIONS` member.
+ *
+ * CRITICAL-2's grid co-occupancy guard, same discipline:
+ *
+ *  Undo control — reverted `table.topBar`/`phone.partyStrip`/
+ *      `phone.suzuPresence` from the fixed `host`-declared shape back to
+ *      the ORIGINAL duplicate-`area`-string encoding (no `host` field at
+ *      all). Reddened 4 cases — `table/exploring`, `table/combat`,
+ *      `phone/exploring`, `phone/combat: "no two regions share a non-null
+ *      area unless one declares the other as host"` — confirming the
+ *      guard actually depends on the fix, not merely coexists with it.
+ *      table's violation list held 1 pair (`topBar<->sceneStage`, both
+ *      directions); phone's held 3 pairs, 6 entries — `topBar<->
+ *      partyStrip`, `topBar<->suzuPresence`, AND `partyStrip<->
+ *      suzuPresence` (the two tenants share `topBar` with EACH OTHER too,
+ *      independent of `topBar` itself — this is Kage-CR's uncited
+ *      "fourth" co-occupancy; resolved automatically once both declare
+ *      `host: 'topBar'`, since neither then retains a non-null `area`).
+ *      Reverted immediately; full 125-case file reconfirmed green.
+ *  Fifth-share control — set `story.regions.composer.default.area` to
+ *      `'storyLog'` (an accidental share the first-draft guard would have
+ *      missed, per Kage-CR's own recommended check). Reddened exactly 2
+ *      cases — `story/exploring` and `story/combat` — with both pair
+ *      directions (`storyLog<->composer`, `composer<->storyLog`) in the
+ *      violation list. Reverted immediately; full suite reconfirmed green.
  */
