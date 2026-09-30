@@ -324,7 +324,12 @@ const STORY_ROW: LayoutRow = {
 // TABLE — R16: "scene stage, sheet docked open, action bar" (all three
 // persistent, not moment-gated — matches the mockup's unconditional
 // `.bar{display:flex}` under `[data-layout="table"]`, unlike phone/story).
-// R20: the docked sheet is a collapsible RAIL, same in both moments.
+// R20: the docked sheet is a COLLAPSIBLE RAIL — "docked open by default,
+// with a handle that folds it to a thin strip", same in both moments.
+// `collapsible: true` is the fold mechanism; `density: 'full'` is R21's
+// "full sheet + five tabs" (Kage-CR IMPORTANT-4, 2026-09-30 — the docked
+// state is the full sheet, collapsible is what makes it a RAIL when
+// folded, not a separate density value).
 // ---------------------------------------------------------------------------
 
 const TABLE_ROW: LayoutRow = {
@@ -361,7 +366,7 @@ const TABLE_ROW: LayoutRow = {
       default: { area: 'offers', density: 'list' },
       combat: { area: null, visible: false },
     },
-    characterBlock: { default: { area: 'characterBlock', density: 'rail' } },
+    characterBlock: { default: { area: 'characterBlock', density: 'full', collapsible: true } },
     actionBar: { default: { area: 'actionBar' } },
     composer: { default: { area: 'composer' } },
     tableControls: { default: { area: null, layer: true } },

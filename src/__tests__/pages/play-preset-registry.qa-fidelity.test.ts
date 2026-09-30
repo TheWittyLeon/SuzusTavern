@@ -94,6 +94,12 @@ describe('play-preset-registry — ruling fidelity (Miko-QA, R16)', () => {
     expect(getPlacement(row, 'characterBlock', 'combat').layer).not.toBe(true);
     expect(getPlacement(row, 'characterBlock', 'exploring').area).not.toBeNull();
   });
+
+  it('Table’s sheet is collapsible in every moment (Kage-CR IMPORTANT-4: R20 — "The docked sheet in Table layout is a COLLAPSIBLE RAIL. Scope: docked open by default, with a handle that folds it to a thin strip... Applies exploring and in combat.")', () => {
+    const row = LAYOUT_ROWS_BY_ID.table;
+    expect(getPlacement(row, 'characterBlock', 'exploring').collapsible).toBe(true);
+    expect(getPlacement(row, 'characterBlock', 'combat').collapsible).toBe(true);
+  });
 });
 
 describe('play-preset-registry — REGION_IDS/RegionId union drift (Miko-QA)', () => {
