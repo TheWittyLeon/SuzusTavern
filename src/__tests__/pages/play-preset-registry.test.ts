@@ -456,6 +456,37 @@ describe('TAV-PLAY-SHELL presets.ts — getPlacement', () => {
       'no placement for "topBar" in row "story"',
     );
   });
+
+  it('a moment override REPLACES the default wholesale — it does not merge in an unstated field (S5)', () => {
+    // Kage-CR S5 (2026-09-30): `getPlacement`'s implementation
+    // (`entry[moment] ?? entry.default`) is replace-not-merge, and the
+    // docstring says "the override, else the default" — but nothing
+    // PINS that A9b can rely on replacement, which is the contract's
+    // most surprising property. Constructed row (not a real preset)
+    // isolates the resolver's own semantics from whether any current
+    // row's override happens to restate every field.
+    const probeRow: LayoutRow = {
+      id: 'story',
+      label: 'probe',
+      columns: { exploring: '1fr', combat: '1fr' },
+      areas: { exploring: '"x"', combat: '"x"' },
+      regions: Object.fromEntries(
+        REGION_IDS.map((id) => [
+          id,
+          id === 'sceneStage'
+            ? {
+                default: { area: 'x', collapsible: true, density: 'panel' },
+                // Deliberately omits `collapsible`/`density`.
+                combat: { area: 'x' },
+              }
+            : { default: { area: null } },
+        ]),
+      ) as LayoutRow['regions'],
+    };
+    const resolved = getPlacement(probeRow, 'sceneStage', 'combat');
+    expect(resolved.collapsible).toBeUndefined();
+    expect(resolved.density).toBeUndefined();
+  });
 });
 
 /**
