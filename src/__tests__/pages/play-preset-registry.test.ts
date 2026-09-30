@@ -32,10 +32,12 @@
 import {
   ANNOUNCING_REGIONS,
   LAYOUT_ROWS,
+  LAYOUT_ROWS_BY_ID,
   REGION_IDS,
   getPlacement,
   type LayoutRow,
   type Moment,
+  type Placement,
 } from '../../app/play/[sessionId]/presets';
 
 const MOMENTS: readonly Moment[] = ['exploring', 'combat'];
@@ -230,6 +232,127 @@ describe('TAV-PLAY-SHELL presets.ts — grid co-occupancy (CRITICAL-2): no undec
   }
 });
 
+/**
+ * Kage-CR IMPORTANT-3 (2026-09-30): none of the checks above pin row
+ * CONTENT — a region↔area swap satisfies every structural check (both
+ * tokens still exist, both directions of (e) still hold) and stays
+ * invisible. This is the full literal pin: every RegionId's resolved
+ * value in every row × moment, compared with `toEqual` against a
+ * hand-written object (not derived from the data being tested). A value
+ * is the area string, `host:<id>` for a declared co-occupancy
+ * (CRITICAL-2), or `null` for a layer/no-placement. A swap, a drop, or an
+ * accidental addition all go red in the same assertion.
+ */
+function pinnedValue(p: Placement): string | null {
+  if (p.area != null) return p.area;
+  if (p.host != null) return `host:${p.host}`;
+  return null;
+}
+
+describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3): every RegionId is where it should be', () => {
+  function pin(row: LayoutRow, moment: Moment): Record<string, string | null> {
+    const out: Record<string, string | null> = {};
+    for (const id of REGION_IDS) out[id] = pinnedValue(getPlacement(row, id, moment));
+    return out;
+  }
+
+  it('story/exploring', () => {
+    expect(pin(LAYOUT_ROWS_BY_ID.story, 'exploring')).toEqual({
+      topBar: 'topBar',
+      partyStrip: 'partyStrip',
+      sceneStage: 'sceneStage',
+      suzuPresence: 'suzuPresence',
+      storyLog: 'storyLog',
+      offers: 'offers',
+      characterBlock: null,
+      actionBar: 'actionBar',
+      composer: 'composer',
+      tableControls: null,
+      safetyBanner: 'safetyBanner',
+    });
+  });
+
+  it('story/combat', () => {
+    expect(pin(LAYOUT_ROWS_BY_ID.story, 'combat')).toEqual({
+      topBar: 'topBar',
+      partyStrip: 'partyStrip',
+      sceneStage: 'sceneStage',
+      suzuPresence: 'suzuPresence',
+      storyLog: 'storyLog',
+      offers: null,
+      characterBlock: null,
+      actionBar: 'actionBar',
+      composer: 'composer',
+      tableControls: null,
+      safetyBanner: 'safetyBanner',
+    });
+  });
+
+  it('table/exploring', () => {
+    expect(pin(LAYOUT_ROWS_BY_ID.table, 'exploring')).toEqual({
+      topBar: 'host:sceneStage',
+      partyStrip: 'partyStrip',
+      sceneStage: 'sceneStage',
+      suzuPresence: 'suzuPresence',
+      storyLog: 'storyLog',
+      offers: 'offers',
+      characterBlock: 'characterBlock',
+      actionBar: 'actionBar',
+      composer: 'composer',
+      tableControls: null,
+      safetyBanner: 'safetyBanner',
+    });
+  });
+
+  it('table/combat', () => {
+    expect(pin(LAYOUT_ROWS_BY_ID.table, 'combat')).toEqual({
+      topBar: 'host:sceneStage',
+      partyStrip: 'partyStrip',
+      sceneStage: 'sceneStage',
+      suzuPresence: 'suzuPresence',
+      storyLog: 'storyLog',
+      offers: null,
+      characterBlock: 'characterBlock',
+      actionBar: 'actionBar',
+      composer: 'composer',
+      tableControls: null,
+      safetyBanner: 'safetyBanner',
+    });
+  });
+
+  it('phone/exploring', () => {
+    expect(pin(LAYOUT_ROWS_BY_ID.phone, 'exploring')).toEqual({
+      topBar: 'topBar',
+      partyStrip: 'host:topBar',
+      sceneStage: 'sceneStage',
+      suzuPresence: 'host:topBar',
+      storyLog: 'storyLog',
+      offers: 'offers',
+      characterBlock: null,
+      actionBar: 'actionBar',
+      composer: 'composer',
+      tableControls: null,
+      safetyBanner: 'safetyBanner',
+    });
+  });
+
+  it('phone/combat', () => {
+    expect(pin(LAYOUT_ROWS_BY_ID.phone, 'combat')).toEqual({
+      topBar: 'topBar',
+      partyStrip: 'host:topBar',
+      sceneStage: 'sceneStage',
+      suzuPresence: 'host:topBar',
+      storyLog: 'storyLog',
+      offers: null,
+      characterBlock: null,
+      actionBar: 'actionBar',
+      composer: 'composer',
+      tableControls: null,
+      safetyBanner: 'safetyBanner',
+    });
+  });
+});
+
 describe('TAV-PLAY-SHELL presets.ts — grid-template-areas are syntactically valid (bonus structural check)', () => {
   for (const row of LAYOUT_ROWS) {
     for (const moment of MOMENTS) {
@@ -330,4 +453,15 @@ describe('TAV-PLAY-SHELL presets.ts — getPlacement', () => {
  *      cases — `story/exploring` and `story/combat` — with both pair
  *      directions (`storyLog<->composer`, `composer<->storyLog`) in the
  *      violation list. Reverted immediately; full suite reconfirmed green.
+ *
+ * IMPORTANT-3's full row pin, re-running Kage-CR's own M3:
+ *
+ *  M3 — swapped `STORY_ROW.regions.storyLog.default.area` <->
+ *      `composer.default.area` (both tokens already exist in the `areas`
+ *      string, so both directions of check (e) still pass — exactly as
+ *      Kage-CR documented). Reddened exactly the 2 IMPORTANT-3 pin cases
+ *      (`story/exploring`, `story/combat`); all other 129 cases —
+ *      including every (a)/(e)/bonus-structural/co-occupancy check —
+ *      stayed green. Reverted immediately; full 131-case file
+ *      reconfirmed green.
  */
