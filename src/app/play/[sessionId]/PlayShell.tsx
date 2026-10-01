@@ -234,7 +234,7 @@ export default function PlayShell({
     const regionNode = regions[regionId];
     const foldSpec = FOLDABLE_REGIONS.has(regionId) ? foldSpecs?.[regionId] : undefined;
     const body =
-      foldSpec && regionNode !== undefined ? (
+      foldSpec && regionNode != null ? (
         <FoldDock
           {...foldSpec}
           foldable={getPlacement(row, regionId, moment).collapsible === true}

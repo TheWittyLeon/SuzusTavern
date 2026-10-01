@@ -42,6 +42,18 @@ describe('every collapsible placement has a FoldSpec (collapsible-without-spec m
   });
 });
 
+describe('a region whose node is null renders nothing, not an empty dock (Kage S10)', () => {
+  const NULLED = [...FOLDABLE_REGIONS].flatMap((id) => COMBOS.map((c): [string, ...typeof c] => [id, ...c]));
+  it.each(NULLED)('%s null in %s: no handle for it, no dock in its slot', (id, _n, row, moment) => {
+    const { container } = render(
+      <PlayShell row={row} moment={moment} regions={{ ...regionNodes(), [id]: null }} tenants={{}} foldSpecs={FOLD_SPECS} />,
+    );
+    expect(screen.queryByRole('button', { name: FOLD_SPECS[id]!.label })).toBeNull();
+    const slot = container.querySelector(`[data-region-slot="${id}"]`);
+    if (slot) expect(slot.querySelector('[data-foldable]')).toBeNull();
+  });
+});
+
 describe('PlayShell folds a region because its PLACEMENT says collapsible, in every real row x moment', () => {
   it.each(COMBOS)('%s: a handle exists for exactly the collapsible, non-layer regions', (_n, row, moment) => {
     const { container } = render(
