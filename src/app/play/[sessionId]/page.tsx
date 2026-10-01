@@ -457,10 +457,12 @@ export default function PlayPage() {
   // header for the full scope (the 5 stable anchor refs + the two
   // rAF-after-commit stranding-rescue effects + the adjacent rising-edge
   // toast, all one cluster in the decomposition plan's §1.13).
+  const moment: Moment = combatIsActive ? 'combat' : 'exploring';
+  const { row, layoutId } = usePlayLayout(moment);
   const {
     endCombatBtnRef, lastOpenerRef, beginCombatRef, composerRailAnchorRef, dmPanelAnchorRef,
     composerTextareaAnchorRef,
-  } = useFocusAnchors(isDying, sceneHasEncounter, combatId, sceneHeadRef, combatIsActive);
+  } = useFocusAnchors(isDying, sceneHasEncounter, combatId, sceneHeadRef, combatIsActive, layoutId);
 
   // TAV-PLAY-SHELL step 5, hook 7 of ~9 (Amendment A §A.2 row 7):
   // narration. Composed BELOW useSceneState (narrate() reads
@@ -1237,13 +1239,12 @@ export default function PlayPage() {
   // src/lib/a11y/lockProps.ts, used by Composer and CastSpellPanel; Iro A9c-2 N-2).
 
   // TAV-PLAY-SHELL step 6b, commit C4 (build brief §6.2): resolves the
-  // layout PRESET (not just its id) for the current moment. `moment` is
+  // layout PRESET (not just its id) for the current moment (the call sits above
+  // useFocusAnchors, A9d-2 F2, which takes the id). `moment` is
   // `combatIsActive ? 'combat' : 'exploring'` per usePlayLayout's own
   // contract (Amendment A §A.1: combatIsActive, never combatEngaged).
   // `row` is read downstream, in the JSX below, by the regions/tenants
   // maps `<PlayShell>` renders from.
-  const moment: Moment = combatIsActive ? 'combat' : 'exploring';
-  const { row } = usePlayLayout(moment);
   const { foldedRegions, onToggleFold, unfold } = useRegionFolds();
   const revealSheet = useCallback(() => unfold('characterBlock'), [unfold]);
   const characterBlockIsLayer = getPlacement(row, 'characterBlock', moment).layer === true;

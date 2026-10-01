@@ -11,7 +11,7 @@ import { useFocusAnchors } from '@/app/play/[sessionId]/hooks/useFocusAnchors';
 jest.mock('../../components/Toast', () => ({ useToast: () => ({ toast: jest.fn() }) }));
 
 function Harness({ combatIsActive, showActionBar }: { combatIsActive: boolean; showActionBar: boolean }) {
-  const { composerTextareaAnchorRef } = useFocusAnchors(false, false, null, { current: null }, combatIsActive);
+  const { composerTextareaAnchorRef } = useFocusAnchors(false, false, null, { current: null }, combatIsActive, 'story');
   return (
     <div>
       <textarea aria-label="composer" ref={composerTextareaAnchorRef} />
