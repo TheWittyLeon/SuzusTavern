@@ -114,6 +114,26 @@ describe('Play.module.css', () => {
     });
   });
 
+  describe('A9c-2 (Iro MINOR-5) — the X-card consequence copy is never hidden', () => {
+    const strip = (t: string) => t.replace(/\/\*[\s\S]*?\*\//g, '');
+    // Every rule body in the file that targets .safetyHint, narrow or not.
+    const hintBodies = () =>
+      [...strip(css).matchAll(/\.safetyHint\s*\{([^}]*)\}/g)].map((m) => m[1]);
+
+    it('no .safetyHint rule uses the sr-only technique, display:none or visibility:hidden', () => {
+      expect(hintBodies().length).toBeGreaterThan(0);
+      for (const body of hintBodies()) {
+        expect(body).not.toMatch(/clip:|display:\s*none|visibility:\s*hidden|width:\s*1px|position:\s*absolute/);
+      }
+    });
+
+    it('below 560px the safety box wraps and the hint takes its own full-width line', () => {
+      const narrow = strip(blockFrom('@container (max-width: 560px) {'));
+      expect(narrow).toMatch(/\.safety\s*\{[^}]*flex-wrap:\s*wrap/);
+      expect(narrow).toMatch(/\.safetyHint\s*\{[^}]*flex:\s*1 0 100%/);
+    });
+  });
+
   describe('A11 — the mobile tab bar is shell chrome, hidden pending A9d (C4 rewrite — see this file\'s own header)', () => {
     it('.mobileTabs has no @media (max-width: 880px) override re-enabling it — its own base rule stays display:none at every width', () => {
       const mobileBlock = blockFrom('@media (max-width: 880px) {');

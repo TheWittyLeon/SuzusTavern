@@ -727,10 +727,12 @@
   cursor: progress;
 }
 
-/* A9c-1 C1 (Iro A9b MINOR-1): what the control does, visible where there is
-   room. It is also the button's aria-describedby target, so when the bar is
-   narrow it is hidden VISUALLY only (the sr-only technique) and the
-   description survives. */
+/* A9c-1 C1 (Iro A9b MINOR-1): what the control does. It is also the button's
+   aria-describedby target. A9c-2 (Iro MINOR-5): it used to go sr-only below
+   560px, hiding the consequence copy exactly where there is least room for
+   anything else. It now drops to its own line under the label and button, so
+   it is visible at every width. The DOM order is unchanged (the description
+   still precedes the button); `order` only moves it on screen. */
 .safetyHint {
   font-size: 11px;
   line-height: 1.3;
@@ -738,16 +740,13 @@
 }
 
 @container (max-width: 560px) {
+  .safety {
+    flex-wrap: wrap;
+  }
+
   .safetyHint {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
+    order: 1;
+    flex: 1 0 100%;
   }
 }
 
