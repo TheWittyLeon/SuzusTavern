@@ -70,7 +70,13 @@ import ForgotPasswordPage from '../../app/forgot-password/page';
 import ResetPasswordPage from '../../app/reset-password/page';
 import PlayPage from '../../app/play/[sessionId]/page';
 import PlayShell from '../../app/play/[sessionId]/PlayShell';
-import { LAYOUT_ROWS, REGION_IDS, type RegionId } from '../../app/play/[sessionId]/presets';
+import {
+  LAYOUT_ROWS,
+  REGION_IDS,
+  REGION_TENANTS,
+  TENANT_IDS,
+  type RegionId,
+} from '../../app/play/[sessionId]/presets';
 
 function assertSkipTargetPresent(container: HTMLElement) {
   const target = container.querySelector('#main-content');
@@ -107,13 +113,14 @@ describe('skip-link targets on /play (A9c C5, Iro A9b)', () => {
     expect(container.querySelector('[data-layout-resolved]')).not.toHaveAttribute('id', 'main-content');
   });
 
-  it('exploring: the action bar slot is the focusable #play-actions target (the link to it is pinned below)', async () => {
+  it('exploring: the action bar slot holds only the X-card tenant, and "Skip to actions" is offered to it', async () => {
     const { container } = renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     const target = container.querySelectorAll('#play-actions');
     expect(target).toHaveLength(1);
     expect(target[0]).toHaveAttribute('tabindex', '-1');
     expect(target[0]).toHaveAttribute('data-region-slot', 'actionBar');
+    expect(screen.getByRole('link', { name: 'Skip to actions' })).toHaveAttribute('href', '#play-actions');
   });
 });
 
@@ -137,6 +144,14 @@ describe('"Skip to actions" (PlayShell, real rows)', () => {
       });
     }
   }
+
+  it('a tenant alone is something to render: no region node, one hosted tenant, the link is offered', () => {
+    const hosted = TENANT_IDS.filter((t) => REGION_TENANTS[t].host === 'actionBar');
+    expect(hosted.length).toBeGreaterThan(0);
+    const tenants = Object.fromEntries(hosted.map((t) => [t, <span key={t}>{t}</span>]));
+    render(<PlayShell row={LAYOUT_ROWS[0]} moment="exploring" regions={nodes(['actionBar'])} tenants={tenants} />);
+    expect(screen.getByRole('link', { name: 'Skip to actions' })).toHaveAttribute('href', '#play-actions');
+  });
 
   it('no link while the target region has nothing to render', () => {
     render(<PlayShell row={LAYOUT_ROWS[0]} moment="combat" regions={nodes(['actionBar'])} tenants={{}} />);
