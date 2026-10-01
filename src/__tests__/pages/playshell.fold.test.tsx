@@ -48,7 +48,7 @@ describe('a region whose node is null renders nothing, not an empty dock (Kage S
     const { container } = render(
       <PlayShell row={row} moment={moment} regions={{ ...regionNodes(), [id]: null }} tenants={{}} foldSpecs={FOLD_SPECS} />,
     );
-    expect(screen.queryByRole('button', { name: FOLD_SPECS[id]!.label })).toBeNull();
+    expect(screen.queryByRole('button', { name: FOLD_SPECS[id as RegionId]!.label })).toBeNull();
     const slot = container.querySelector(`[data-region-slot="${id}"]`);
     if (slot) expect(slot.querySelector('[data-foldable]')).toBeNull();
   });
@@ -60,7 +60,7 @@ describe('PlayShell folds a region because its PLACEMENT says collapsible, in ev
       <PlayShell row={row} moment={moment} regions={regionNodes()} tenants={{}} foldSpecs={FOLD_SPECS} />,
     );
     const handles = Array.from(container.querySelectorAll('button[aria-expanded]'));
-    const expected = collapsibleIds(row, moment).map((id) => FOLD_SPECS[id]!.label);
+    const expected = collapsibleIds(row, moment).map((id) => FOLD_SPECS[id as RegionId]!.label);
     expect(handles.map((h) => h.getAttribute('aria-label')).sort()).toEqual([...expected].sort());
     for (const h of handles) {
       expect(h).toHaveAttribute('aria-expanded', 'true');
