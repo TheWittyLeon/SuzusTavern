@@ -968,16 +968,16 @@
  * because `play.journal.test.tsx`'s mobile-tab cases still drive it and
  * jsdom applies no CSS, so they stay green regardless.
  *
- * debt: the mobile tab bar switches panes the shell no longer renders; hidden below the breakpoint (its own unchanged base rule, not a media-query override) rather than deleted, because its DOM + aria-pressed state machine is still what play.journal.test.tsx's mobile-tab cases drive.
- * ceiling: hidden-but-mounted, main only — do NOT propose a deploy between A9b and A9d.
- * until: A9d deletes mobileView and journalVisible collapses into the resolver.
+ * debt: the phone Journal opens as an invisible modal holding focus; party/initiative/scene/dice are unreachable on phone (the mobile tab bar that switched them is hidden, but still mounted because play.journal.test.tsx's mobile-tab cases drive its DOM + aria-pressed state machine).
+ * ceiling: phone is NOT a usable /play (Aoi Imp-4, Miko FAIL); hidden-but-mounted, main only — do NOT deploy between A9b and A9d.
+ * until: A9d deletes mobileView, journalVisible collapses into the resolver, and the phone row gets its own party/initiative/scene/dice surfaces.
  *
  * `.journalToggleBtn`'s own mobile `display:none` override is ALSO
  * deleted (it existed only because the toggle used to live inside the
  * tab-switched `.left` pane — `topBar` is its own always-visible region
- * now, not nested inside any tab-switched pane) — the journal stays
- * reachable through it on a phone, in addition to the unchanged 4th
- * mobile tab.
+ * now, not nested inside any tab-switched pane). The toggle still opens the
+ * Journal on a phone, but see the debt above: it opens as an invisible
+ * modal holding focus, which is NOT "reachable" in any useful sense.
  */
 @media (max-width: 880px) {
   /* DDX-22: the journal becomes a plain in-flow pane on mobile when the
