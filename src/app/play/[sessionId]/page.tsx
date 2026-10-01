@@ -240,7 +240,7 @@ export default function PlayPage() {
   // TAV-PLAY-SHELL step 5, hook 4 of ~9 (decomposition plan §2.2, amended by
   // Amendment A §A.2 row 4): the transcript -- log/appendLog + the durable-
   // poll ledgers (lastEventSeqRef/renderedSeqsRef/pendingByKeyRef) +
-  // idRef/logRef/chatLogRef + the DM-STREAM row writers
+  // idRef/logRef + the DM-STREAM row writers
   // (upsertStreamNarration/clearStreamNarration/finalizeStreamNarration).
   // Composed ABOVE useCombatState/useSceneState (rows 5/6) per Amendment A
   // -- see hooks/useTranscript.ts's own header for the full scope and the
@@ -256,7 +256,7 @@ export default function PlayPage() {
   const transcript = useTranscript();
   const {
     log, setLog, appendLog, logRef, lastEventSeqRef, renderedSeqsRef,
-    pendingByKeyRef, chatLogRef, clearStreamNarration,
+    pendingByKeyRef, clearStreamNarration,
   } = transcript;
 
   // TAV-NARRATION-DECOUPLE (2026-07-25): `narratorText` used to feed the top
@@ -380,7 +380,7 @@ export default function PlayPage() {
 
   // stateSeqRef/combatBusyRef/monsterDrivingRef/combatStateRef/pollIntervalRef
   // moved into useCombatState (TAV-PLAY-SHELL step 5 hook 5a) — see that
-  // hook's destructure above. idRef/chatLogRef moved into useTranscript
+  // hook's destructure above. idRef moved into useTranscript
   // (TAV-PLAY-SHELL step 5 hook 4, Amendment A §A.2 row 4) — see that
   // hook's destructure above.
 
@@ -1228,7 +1228,7 @@ export default function PlayPage() {
     // A7) rather than a page.tsx-local useRef() call -- same "linter can no
     // longer prove local-ref stability through an intermediate hook" pattern
     // this file's other hook-sourced refs already document (e.g.
-    // chatLogRef, xpToggleBtnRef). Stable across renders either way.
+    // xpToggleBtnRef). Stable across renders either way.
     beginCombatRef,
   ]);
 
@@ -1464,7 +1464,6 @@ export default function PlayPage() {
     storyLog: (
       <>
         <StoryLog
-          ref={chatLogRef}
           rows={log}
           thinking={thinking || resumeThinking}
           thinkingLabel={resumeThinking ? "Resuming Suzu's turn…" : undefined}

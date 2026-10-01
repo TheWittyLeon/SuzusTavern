@@ -247,8 +247,8 @@ export const VARIANTS_NOT_EMITTED_BY_PRESETS: Partial<Record<RegionId, readonly 
  *
  * The distinction, stated once: *placed independently by a row ⇒ a
  * REGION; rides inside a placed region ⇒ a TENANT; placed by its own
- * overlay host ⇒ a LAYER; the root, the slots and (until A9d) the mobile
- * tab bar ⇒ SHELL CHROME.*
+ * overlay host ⇒ a LAYER; the root and the slots ⇒ SHELL CHROME.* (The
+ * mobile tab bar was chrome too until A9d E4 deleted it.)
  *
  * A tenant renders inside its host's slot element, carries
  * `data-tenant="<id>"` and never a `data-region`. R3's rule extends: an
@@ -736,11 +736,11 @@ const TABLE_ROW: LayoutRow = {
   },
   regions: {
     // Mirrors the mockup's `.top{grid-area:stage}` — the title floats over the
-    // stage rather than owning a row. A9c C4 (Amendment C.1): ANCHORED, not
-    // anchored — its own keyed top-level slot in the stage's area, self-aligned
-    // top-start. A host changed parent on every Auto switch and so remounted
-    // TopBar (Kage S7); this only moves, and stays out of the stage's
-    // scroller. `overlay` is the compact one-line form.
+    // stage rather than owning a row. A9c C4 (Amendment C.1): an ANCHORED
+    // overlay — its own keyed top-level slot in the stage's area, self-aligned
+    // top-start, so a row switch only moves it and it stays out of the stage's
+    // scroller (a `host` changed parent on every Auto switch and remounted
+    // TopBar, Kage S7; `host` is retired, A9d E2). `compact` is the one-line form.
     topBar: { default: { area: 'sceneStage', anchor: 'top-start', variant: 'compact' } },
     partyStrip: { default: { area: 'partyStrip', variant: 'rail' } },
     // Amendment B.3 (🟡-5): presence size is preset data — Table gives it
@@ -793,8 +793,8 @@ const TABLE_ROW: LayoutRow = {
 //                   6px gap that the pre-lever 277 paid are gone; measured at 390x844: the combat
 //                   log inner is the track minus 48)
 // Party minimum 91 = 14 label
-// + 8 gap + 57 tile row + 12 slot edge: one tile row, which is also why a focused tile's
-// caption (about 28px below the tile) does not fit and is clipped by the band at its minimum.
+// + 8 gap + 57 tile row + 12 slot edge: one tile row. A focused tile's name caption sits ABOVE the
+// tile, in the label's row (PartyPanel.module.css), so it fits at this minimum.
 const PHONE_ROW: LayoutRow = {
   id: 'phone',
   vars: {

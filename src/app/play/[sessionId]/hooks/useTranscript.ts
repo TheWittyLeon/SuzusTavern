@@ -7,11 +7,9 @@
  * bookkeeping (`lastEventSeqRef`/`renderedSeqsRef`/`pendingByKeyRef`), and
  * the DM-STREAM live-narration row writers (`upsertStreamNarration`/
  * `clearStreamNarration`/`finalizeStreamNarration` + `streamRowIdRef`).
- * Also `idRef` (the monotone row-id counter every writer shares) and
- * `chatLogRef` (the `<ChatLog>` imperative handle — its only reader is the
- * tab-return scroll-repin effect and its only writer is the JSX `ref` prop,
- * neither of which is this hook's own concern; both stay in page.tsx,
- * reading this hook's returned ref object).
+ * Also `idRef` (the monotone row-id counter every writer shares). (It also
+ * owned `chatLogRef`, the `<ChatLog>` imperative handle, until A9d-2 deleted it
+ * with its only reader, the tab-return scroll-repin effect.)
  *
  * Composed at row 4, ABOVE `useCombatState` (row 5) and `useScene` (row 6)
  * — Amendment A §A.2's amended order, moved up from the original plan's
@@ -47,10 +45,9 @@ import {
   useState,
   type Dispatch,
   type MutableRefObject,
-  type RefObject,
   type SetStateAction,
 } from 'react';
-import { type ChatLogHandle, type LogRow } from '@/components/ChatLog';
+import { type LogRow } from '@/components/ChatLog';
 import type { PendingTurnEntry } from '@/lib/dnd/reconcileEvents';
 import { nowStamp } from '../format';
 
@@ -63,7 +60,6 @@ export interface UseTranscriptResult {
   lastEventSeqRef: MutableRefObject<number>;
   renderedSeqsRef: MutableRefObject<Set<number>>;
   pendingByKeyRef: MutableRefObject<Map<string, PendingTurnEntry>>;
-  chatLogRef: RefObject<ChatLogHandle | null>;
   streamRowIdRef: MutableRefObject<string | null>;
   upsertStreamNarration: (text: string) => void;
   clearStreamNarration: (removeRow: boolean) => void;
@@ -74,7 +70,6 @@ export function useTranscript(): UseTranscriptResult {
   const [log, setLog] = useState<LogRow[]>([]);
 
   const idRef = useRef(0);
-  const chatLogRef = useRef<ChatLogHandle>(null);
 
   // DDX-08 / T3: highest session-event `seq` already rendered into the log
   // (set once by rehydration, then advanced by the dice-roll events poll
@@ -171,7 +166,6 @@ export function useTranscript(): UseTranscriptResult {
     lastEventSeqRef,
     renderedSeqsRef,
     pendingByKeyRef,
-    chatLogRef,
     streamRowIdRef,
     upsertStreamNarration,
     clearStreamNarration,
