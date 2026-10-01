@@ -88,8 +88,19 @@ describe('Rule 3 (ii): no position: fixed reachable from regions/ and tenants/',
     ['MemberSheetPanel', 'src/components/MemberSheetPanel.module.css'],
     ['DiceTray', 'src/components/DiceTray.module.css'],
     ['JournalPane (page-only import)', 'src/components/JournalPane.module.css'],
+    // Kage A9d-1 I-4: PlayShell renders FoldDock in every collapsible slot and is not
+    // imported by regions/ or tenants/; it is an entry of its own.
+    ['FoldDock (reached only through PlayShell.tsx)', 'src/components/FoldDock.module.css'],
   ])('a planted position: fixed in %s (reached only through page.tsx) is red', (_n, css) => {
     expect(red(mutate((m) => append(m, css, `.zzz { position: fixed; inset: 0; }`)))).toBe(true);
+  });
+
+  it('is not vacuous for the shell entry: cutting PlayShell\'s FoldDock import is itself red', () => {
+    const v = mutate((m) => {
+      const f = `${PLAY}/PlayShell.tsx`;
+      m.set(f, m.get(f)!.replace(/import FoldDock from '@\/components\/FoldDock';/, ''));
+    });
+    expect(v.some((x) => /scope is vacuous: src\/components\/FoldDock\.module\.css/.test(x))).toBe(true);
   });
 
   it('TweaksPanel is a declared layer host: it is reached through page.tsx and its fixed rules are its job', () => {

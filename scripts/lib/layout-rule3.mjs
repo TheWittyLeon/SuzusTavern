@@ -28,6 +28,14 @@ const ENTRY_DIRS = [`${PLAY_DIR}/regions/`, `${PLAY_DIR}/tenants/`];
  */
 export const PAGE_ENTRY = `${PLAY_DIR}/page.tsx`;
 
+/**
+ * The shell is an entry too (Kage A9d-1 I-4): PlayShell renders FoldDock inside every
+ * collapsible slot, but it is imported by neither regions/ nor tenants/ and page.tsx
+ * reaches it by a relative path the walk does not follow, so a `position: fixed` planted
+ * in FoldDock.module.css passed the lint.
+ */
+export const SHELL_ENTRY = `${PLAY_DIR}/PlayShell.tsx`;
+
 /** Declared layer hosts: they ARE the layer, `position: fixed` is their job. */
 export const LAYER_HOSTS = Object.freeze([
   'src/components/Drawer.module.css',
@@ -71,6 +79,8 @@ export const VACUITY_SCOPE = Object.freeze([
   // being followed, these drop out of scope and the lint says so instead of passing.
   'src/components/MemberSheetPanel.module.css',
   'src/components/DiceTray.module.css',
+  // Reached only through PlayShell.tsx (Kage A9d-1 I-4).
+  'src/components/FoldDock.module.css',
 ]);
 
 const stripCssComments = (t) => t.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
@@ -135,6 +145,7 @@ export function reachableCss(files) {
     if (ENTRY_DIRS.some((d) => f.startsWith(d)) && /\.tsx?$/.test(f)) visit(f);
   }
   visit(PAGE_ENTRY);
+  visit(SHELL_ENTRY);
   return css;
 }
 
