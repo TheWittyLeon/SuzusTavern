@@ -13,11 +13,12 @@ import styles from '../Play.module.css';
  * exist because a one-line edit at its old call site could re-gate it on
  * combat state without a single test going red (Kage A9b IMPORTANT-3).
  *
- * THE BAR'S DISABLED MODEL, stated once: combat verbs and Cast use native
- * `disabled` (focus rescue via the rail anchor, A8). The X-card uses
- * `aria-disabled`, ONLY for its own in-flight raise, NEVER for combat or
- * session state. Props deliberately carry no turn/lock/busy-combat field:
- * a safety tool stays reachable whatever the table is doing (DDX-26), and
+ * THE BAR'S DISABLED MODEL, stated once: combat verbs use native `disabled`
+ * (focus rescue via the rail anchor, A8). Cast and the Composer use
+ * `aria-disabled` via `lockProps` (A9c-2: a transient lock must not drop focus).
+ * The X-card uses `aria-disabled`, ONLY for its own in-flight raise, NEVER for
+ * combat or session state. Props deliberately carry no turn/lock/busy-combat
+ * field: a safety tool stays reachable whatever the table is doing (DDX-26), and
  * a prop that could gate it is a prop someone will wire.
  *
  * Iro A9b IMPORTANT-4: native `disabled` blurs a focused button, and the
@@ -36,11 +37,10 @@ export default function SafetyControls({ xCardBusy, onRaiseXCard }: SafetyContro
   return (
     <div className={styles.safety} data-tenant="safetyControls">
       <span className={styles.safetyLabel}>Safety</span>
-      {/* Iro A9b MINOR-1 (3.3.2): the consequence copy is VISIBLE where there
-          is room, and stays the button's accessible description. When the bar
-          is narrow, Play.module.css hides it visually only (the sr-only
-          technique, a container query on the bar slot), so the description
-          survives. */}
+      {/* Iro A9b MINOR-1 (3.3.2): the consequence copy is VISIBLE at every width and
+          stays the button's accessible description. When the bar is narrow,
+          Play.module.css wraps it onto its own line above the button (`order`); it is
+          never visually hidden. */}
       <span id="play-safety-hint" className={styles.safetyHint}>
         Pause · rewind · Suzu listens.
       </span>
