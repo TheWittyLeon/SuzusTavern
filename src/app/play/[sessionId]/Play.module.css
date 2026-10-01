@@ -391,10 +391,12 @@
 .topBarCompact .sessionPill {
   flex: 0 0 auto;
 }
-/* Below 480px the pill stacks UNDER the title inside the same 64px line, and the
-   AI-off pill takes a second line of its own (the line then grows past the token:
-   that wrap happens only on a phone, never on the overlaid Table bar, which is
-   desktop-wide). A viewport @media, not a container query: the Table bar's slot is
+/* Below 480px the pill stacks UNDER the title inside the same 64px line; the AI-off
+   pill (a live region in the same wrapper, A9d-1 lever 4) stacks there too, so the
+   header is as tall with AI off as with it on. Its "round N · " lead is clipped
+   visually (still announced, exactly the sr-only idiom): the AI-on pill shows
+   "combat" alone, and the full text does not fit the ~116px a 390 phone leaves the
+   wrapper. A viewport @media, not a container query: the Table bar's slot is
    content-sized, and `container-type: inline-size` on a content-sized box collapses
    it to 0 wide. 480 is Composer.module.css's own narrow breakpoint, not the shell's
    880 (breakpoints.ts is the only copy of that one). */
@@ -409,13 +411,17 @@
     line-height: 1.2;
   }
   .topBarCompact {
-    flex-wrap: wrap;
     height: auto;
     min-height: var(--overlay-bar-h);
   }
-  .topBarCompact .aiOffStatus {
-    flex: 1 0 100%;
-    justify-content: flex-start;
+  .topBarCompact .pillRound {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 }
 /* Below 367px the EXPLORING pill (103px) no longer fits beside the controls under a
@@ -986,7 +992,7 @@
 .aiOffStatus {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   padding: 4px 0;
   flex-shrink: 0;
 }

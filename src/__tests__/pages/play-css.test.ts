@@ -263,13 +263,18 @@ describe('Play.module.css', () => {
       expect(rest).toMatch(/\.topBarCompact \.journalToggleBtn\s*\{[^}]*margin-left:\s*auto/);
     });
 
-    it('below 480px the pill stacks under the title and the AI-off pill takes its own line; it is a viewport @media, never a container query on the content-sized Table bar', () => {
+    it('below 480px the pill stacks under the title and the AI-off pill stacks with it, its round lead clipped (A9d-1 lever 4); it is a viewport @media, never a container query on the content-sized Table bar', () => {
       const text = strip(css);
       const start = text.indexOf('@media (max-width: 480px) {');
       expect(start).toBeGreaterThan(-1);
       const rest = text.slice(start);
       expect(rest).toMatch(/\.topBarCompact \.sessionTitleWrap\s*\{[^}]*flex-direction:\s*column/);
-      expect(rest).toMatch(/\.topBarCompact \.aiOffStatus\s*\{[^}]*flex:\s*1 0 100%/);
+      // A9d-1 lever 4 (named pin edit): the AI-off pill no longer takes a 100%-wide row of its own
+      // (that made the header 102px against AI-on's 64px); it rides in the title wrapper, and only the
+      // visible "round N · " lead is clipped
+      expect(rest).not.toMatch(/\.topBarCompact \.aiOffStatus\s*\{[^}]*flex:\s*1 0 100%/);
+      expect(rest).not.toMatch(/\.topBarCompact\s*\{[^}]*flex-wrap:\s*wrap/);
+      expect(rest).toMatch(/\.topBarCompact \.pillRound\s*\{[^}]*clip:\s*rect\(0 0 0 0\)/);
       expect(text).not.toMatch(/\.topBarCompact\s*\{[^}]*container-type/);
     });
   });

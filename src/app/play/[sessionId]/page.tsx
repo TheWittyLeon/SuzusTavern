@@ -1325,9 +1325,7 @@ export default function PlayPage() {
   // anyMonsterDown/allHostilesDown now come from useCombatState's destructure
   // above (Amendment A §A.6).
   const statusPill = combatIsActive ? (
-    <Pill tone="lav" dot>
-      round {round ?? 1} · combat
-    </Pill>
+    <Pill tone="lav" dot><span className={styles.pillRound}>round {round ?? 1} · </span>combat</Pill>
   ) : (
     <Pill tone="muted" dot>
       exploring

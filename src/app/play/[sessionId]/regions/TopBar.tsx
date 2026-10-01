@@ -113,14 +113,20 @@ export default function TopBar({
           {/* compact: the visible pill, inside the title's wrapper so a narrow header
               can stack it UNDER the title with one flex-direction (A9d E5b). `aria-hidden`
               because NarratorStrip (in the `sr-only` wrapper below) already carries it —
-              one announcer per fact (A4). AI off has no NarratorStrip, so its pill is the
-              announcer and lives at the ROOT (below), not here: one tree position in both
-              variants. */}
+              one announcer per fact (A4). */}
           {compact && showSuzuPanel ? (
             <span aria-hidden="true" className={styles.sessionPill}>
               {status}
             </span>
           ) : null}
+          {/* AI off has no NarratorStrip, so its pill is the announcer, and it sits in the
+              SAME wrapper as the AI-on pill (A9d-1 lever 4: the same two-line left column,
+              so the header is the same height either way). ONE tree position in both
+              variants (Kage A9c-2 IMPORTANT-5): the AI-off pill is a live region, and a node
+              that moves between a full and a compact position is destroyed and recreated by
+              React, so every Story <-> Table switch re-announced it. Pinned on the real page
+              by play.render-matrix.real-page.test.tsx. */}
+          {showSuzuPanel ? null : aiOff}
         </div>
         {/* DDX-22: Journal drawer toggle — visible to every seat (not
             isDm-gated; the journal is a per-player surface, not a DM tool). */}
@@ -143,11 +149,6 @@ export default function TopBar({
           BOTH variants and only its class toggles, so an Auto switch never
           remounts NarratorStrip (a remount re-announces the scene). */}
       {narrator && <div className={compact ? 'sr-only' : undefined}>{narrator}</div>}
-      {/* ONE tree position in both variants (Kage A9c-2 IMPORTANT-5): the AI-off pill is
-          a live region, and a node that moves between a full and a compact position is
-          destroyed and recreated by React, so every Story <-> Table switch re-announced
-          it. Pinned on the real page by play.render-matrix.real-page.test.tsx. */}
-      {showSuzuPanel ? null : aiOff}
     </div>
   );
 }

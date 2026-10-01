@@ -72,6 +72,17 @@ describe('A9c C4 — TopBar variants', () => {
     expect(screen.getAllByRole('status')).toHaveLength(1);
   });
 
+  it('ai-off: the status region lives in the title wrapper (the same two-line left column as AI-on, A9d-1 lever 4) and is one node across full <-> compact', () => {
+    const { container, rerender } = render(<TopBar {...base} showSuzuPanel={false} />);
+    const wrap = () => container.querySelector('[data-region="topBar"] > div > div:nth-child(2)')!;
+    const before = screen.getByRole('status');
+    expect(wrap()).toContainElement(before);
+    expect(wrap()).toContainElement(screen.getByText('The Hollow Tide'));
+    rerender(<TopBar {...base} variant="compact" showSuzuPanel={false} />);
+    expect(screen.getByRole('status')).toBe(before);
+    expect(wrap()).toContainElement(before);
+  });
+
   it('NarratorStrip is the SAME node across an Auto switch full <-> compact (a remount re-announces the scene; Kage A9c-1 S1)', () => {
     const { rerender } = render(<TopBar {...base} />);
     const before = screen.getByText('Cave Mouth');
