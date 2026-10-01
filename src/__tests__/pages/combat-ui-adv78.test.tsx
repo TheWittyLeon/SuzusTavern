@@ -523,7 +523,9 @@ describe('CUI-11 — refused action surfaces reason', () => {
 
 describe('CUI-11 — monster turn reflected in log', () => {
   it('monster turn message appears in the chat log after end-turn', async () => {
-    mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
+    // A9d-2: only the session's DM tab drives monsters (the engine route is guard_dm, so any other tab got a 404 on
+    // every poll). alice is the DM of this table: the proxy stamps dm_username from the creator's cookie.
+    mGetSession.mockResolvedValue({ ...SESSION_WITH_COMBAT, dm_username: 'alice' });
     mEndTurn.mockResolvedValue({ message: 'End turn.', state: COMBAT_STATE_GOBLIN_TURN });
     mMonsterTurn.mockResolvedValue({
       message: '[MONSTER] Goblin attacks Velka for 4.',

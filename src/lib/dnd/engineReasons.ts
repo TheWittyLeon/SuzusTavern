@@ -186,6 +186,13 @@ export const COMBAT_REFUSAL_REASON_MAP: Record<string, string> = {
   // generic fallback — worse than saying plainly that the server faulted.
   db_unavailable: 'The game database is unavailable right now — try again in a moment.',
   error: 'Something went wrong resolving that action.',
+  // A9d-2 (F3, Leon's ruling Needs Leon #40): the DM's `/monster-turn` refuses with HTTP 500 and this reason when a
+  // monster's stat block cannot be resolved (a malformed or unreadable row), BEFORE anything is written: no damage,
+  // no spent budget, no end_turn. A 5xx body message is never shown (engineErrorMessage), so this curated copy is the
+  // only thing the DM sees. It names the way out the Tavern actually has: nothing in AI-auto mode acts for a monster by
+  // hand, so "act for it manually" (the engine's own text) would be a lie here; the scene's End control ends the fight.
+  monster_statblock_unresolved:
+    "A monster's stat block couldn't be loaded, so its turn didn't run. Reload to try again; if it keeps happening, end the fight from the scene controls.",
 
   // ── emitted by engine/combat.py but absent from COMBAT_REASON_STATUS ────
   // (the route's `COMBAT_REASON_STATUS.get(reason, 400)` default covers it)

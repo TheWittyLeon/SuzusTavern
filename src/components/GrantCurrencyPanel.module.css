@@ -60,7 +60,9 @@
   border: 1px solid var(--line-strong);
   background: color-mix(in oklab, var(--ink) 3%, transparent);
   color: var(--ink);
-  font-size: 13px;
+  /* 16px: no iOS focus zoom on the DM's currency grant (A9d-2, Tora A9d-1 MAJOR-3; found by the harness's (r) check on a
+     DM phone shot). */
+  font-size: 16px;
 }
 
 .select {
