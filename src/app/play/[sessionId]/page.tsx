@@ -103,6 +103,7 @@ import {
   DurableRetryRowTenant,
 } from './tenants/StatusAnnouncers';
 import CastSpellTenant from './tenants/CastSpellTenant';
+import SafetyControls from './tenants/SafetyControls';
 import styles from './Play.module.css';
 
 /**
@@ -1790,27 +1791,7 @@ export default function PlayPage() {
         />
       </div>
     ),
-    safetyControls: (
-      <div className={styles.safety} data-tenant="safetyControls">
-        <span className={styles.safetyLabel}>Safety</span>
-        {/* DDX-26: durable, cross-client — a bare local appendLog/toast
-            (the old behavior) was the bug: no other client ever saw it,
-            and the toast had no way to know it had been "resolved" so it
-            lingered (UIR2-TAV-25). postXCard persists an `x_card` session
-            event; the banner above + the events poll are what every
-            client (including this one) actually renders from. */}
-        <button
-          type="button"
-          onClick={() => void onRaiseXCard()}
-          disabled={xCardBusy}
-          aria-busy={xCardBusy}
-          aria-describedby="play-safety-hint"
-        >
-          X-card
-        </button>
-        <span id="play-safety-hint" className="sr-only">X-card · pause · rewind. Suzu listens.</span>
-      </div>
-    ),
+    safetyControls: <SafetyControls xCardBusy={xCardBusy} onRaiseXCard={onRaiseXCard} />,
   };
 
   return (

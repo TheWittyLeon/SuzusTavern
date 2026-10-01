@@ -198,6 +198,9 @@ const TENANT_ROWS: Record<string, Set<string>> = {
     'durableRetryRow',
   ]),
   'CastSpellTenant.tsx': new Set(['castSpellPanel']),
+  // A9c C1: safetyControls moved out of page.tsx into its own tenant file
+  // (brief 6c1 §2) so the X-card's disabled model lives in one place.
+  'SafetyControls.tsx': new Set(['safetyControls']),
 };
 
 describe('TAV-PLAY-SHELL data-tenant contract (Amendment B.4)', () => {
@@ -226,12 +229,12 @@ describe('TAV-PLAY-SHELL data-tenant contract (Amendment B.4)', () => {
     }
   });
 
-  // Three tenants (nextPartOffer, diceTray, safetyControls) carry
+  // Two tenants (nextPartOffer, diceTray) carry
   // data-tenant IN PLACE — no dedicated tenants/*.tsx file, per the build
   // brief's §3 table ("the small ones... get the attribute in place, no
-  // move"). TENANT_ROWS only tracks files; these three are named here
+  // move"). TENANT_ROWS only tracks files; these two are named here
   // explicitly so the drift check below covers the FULL TENANT_IDS set.
-  const IN_PLACE_TENANT_IDS = ['nextPartOffer', 'diceTray', 'safetyControls'];
+  const IN_PLACE_TENANT_IDS = ['nextPartOffer', 'diceTray'];
 
   it('TENANT_IDS (presets.ts) and TENANT_ROWS + IN_PLACE_TENANT_IDS (this file) declare the identical set of ids — a drift either way is caught', () => {
     const fromRows = new Set([
@@ -241,7 +244,7 @@ describe('TAV-PLAY-SHELL data-tenant contract (Amendment B.4)', () => {
     expect([...fromRows].sort()).toEqual([...TENANT_IDS].sort());
   });
 
-  it('nextPartOffer/diceTray/safetyControls carry data-tenant in place (no dedicated tenant file — attribute only, per build brief §3)', () => {
+  it('nextPartOffer/diceTray carry data-tenant in place (no dedicated tenant file — attribute only, per build brief §3)', () => {
     const pageSrc = readRegion('src/app/play/[sessionId]/page.tsx');
     for (const id of IN_PLACE_TENANT_IDS) {
       expect(countOccurrences(pageSrc, `data-tenant="${id}"`)).toBeGreaterThanOrEqual(1);

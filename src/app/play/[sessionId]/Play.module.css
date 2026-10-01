@@ -527,6 +527,12 @@
    (label + the 44px button, no card chrome): the copy that used to sit
    beside it is now the button's accessible description. */
 .slot:has(> [data-tenant="safetyControls"]) {
+  /* A9c-1 C1 (Iro A9b MINOR-1): the container the consequence copy's query
+     below reads. Inline-size containment is safe here: this slot is the
+     `actionBar` area, which is never the lone content of an `auto` column
+     (every row gives it a definite track), so its inline size never came
+     from its own content. */
+  container-type: inline-size;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -577,6 +583,38 @@
 .safety button:hover {
   color: var(--ink);
   border-color: var(--bad);
+}
+
+/* A9c-1 C1 (Iro A9b IMPORTANT-4): a raise in flight is `aria-disabled`, not
+   native `disabled` (which blurs the button and strands focus on <body>). The
+   latch in useSafety is the click guard; this is only the look. */
+.safety button[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+/* A9c-1 C1 (Iro A9b MINOR-1): what the control does, visible where there is
+   room. It is also the button's aria-describedby target, so when the bar is
+   narrow it is hidden VISUALLY only (the sr-only technique) and the
+   description survives. */
+.safetyHint {
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--ink-2);
+}
+
+@container (max-width: 560px) {
+  .safetyHint {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
 }
 
 /* ── B1-4: off-turn / my-turn status lines ── */
