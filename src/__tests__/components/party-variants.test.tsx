@@ -3,6 +3,8 @@
  * `rail` / `strip` variant. Component contract; the real-browser half is the
  * harness's check (f) (every visible `[data-party-name]` in a rail cell >= 60px).
  */
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import PartyStrip from '@/app/play/[sessionId]/regions/PartyStrip';
@@ -180,4 +182,29 @@ describe('the rows place partyStrip as strip or rail (what page.tsx reads throug
   });
   // The page-level wiring (page.tsx passes variantFor's answer, not a literal) is pinned in
   // play.render-matrix.real-page.test.tsx (D5).
+});
+
+describe('the strip caption sits ABOVE its tile, one line, and the label fades (A9d-1 R-1 b)', () => {
+  // jsdom ignores CSS Modules; the painted geometry is the harness's party-name-focus (N-1) probe.
+  const css = readFileSync(join(process.cwd(), 'src/components/PartyPanel.module.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const rule = (sel: string) => css.match(new RegExp(`${sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
+
+  it('anchored above the tile (bottom, never top), clear of the focus ring, one line, ellipsised', () => {
+    const r = rule('.strip .link:focus-visible .nameRow');
+    expect(r).toMatch(/bottom:\s*calc\(100% \+ var\(--focus-ring-clearance\)\)/);
+    expect(r).not.toMatch(/\btop:/);
+    expect(r).toMatch(/white-space:\s*nowrap/);
+    expect(r).toMatch(/max-width:\s*88px/);
+    // the words ellipsise on the inner span (.name: nowrap + text-overflow), inside the capped box
+    expect(rule('.name')).toMatch(/text-overflow:\s*ellipsis/);
+  });
+
+  it('the Party label fades by opacity (it stays in the a11y tree), only while a tile is focus-visible', () => {
+    expect(rule('.strip:has(.link:focus-visible) > .label')).toMatch(/^\s*opacity:\s*0;\s*$/);
+  });
+
+  it('the first and last tile still flip to the list edge so a caption never leaves the band', () => {
+    expect(rule('.strip .list > li:first-child .link:focus-visible .nameRow')).toMatch(/left:\s*0/);
+    expect(rule('.strip .list > li:last-child:not(:first-child) .link:focus-visible .nameRow')).toMatch(/right:\s*0/);
+  });
 });
