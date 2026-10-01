@@ -703,9 +703,9 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
     expect(trackList(LAYOUT_ROWS_BY_ID.phone.rows.exploring)).toEqual([
       'max-content',
       'max-content',
-      'minmax(52px,var(--play-optional,auto))',
+      'minmax(91px,var(--play-optional,auto))',
       'fit-content(var(--play-optional,20vh))',
-      'minmax(var(--play-floor,240px),1fr)',
+      'minmax(var(--play-floor,241px),1fr)',
       'max-content',
       'max-content',
       'max-content',
@@ -717,13 +717,22 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
     expect(trackList(LAYOUT_ROWS_BY_ID.phone.rows.combat)).toEqual([
       'max-content',
       'max-content',
-      'minmax(52px,var(--play-optional,auto))',
+      'minmax(91px,var(--play-optional,auto))',
       'fit-content(var(--play-optional,34vh))',
-      'minmax(var(--play-floor,224px),1fr)',
+      'minmax(var(--play-floor,277px),1fr)',
       'max-content',
       'max-content',
     ]);
     expect(LAYOUT_ROWS_BY_ID.phone.columns.combat).toBe('minmax(0,1fr) auto');
+  });
+
+  it('only the phone row spends less than the density gap per slot (desktop rows set no --play-slot-* var)', () => {
+    expect(LAYOUT_ROWS_BY_ID.phone.vars).toEqual({
+      '--play-slot-edge': 'var(--space-3)',
+      '--play-slot-pad': '0px',
+    });
+    expect(LAYOUT_ROWS_BY_ID.story.vars).toBeUndefined();
+    expect(LAYOUT_ROWS_BY_ID.table.vars).toBeUndefined();
   });
 });
 

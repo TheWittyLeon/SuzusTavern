@@ -404,6 +404,14 @@ export interface LayoutRow {
    * not a CSS hunt.
    */
   rows: Record<Moment, string>;
+  /**
+   * A9d: extra `--play-*` custom properties for this row, emitted on `.grid` beside
+   * the three track lists. Absent = the desktop defaults. The phone row sets
+   * `--play-slot-edge` (what each slot spends top and bottom, as a transparent border,
+   * see `.slot` in `Play.module.css`) and zeroes `--play-slot-pad`: seven slots at
+   * 2 x 16px is 224px of an 844px screen.
+   */
+  vars?: Readonly<Record<`--play-${string}`, string>>;
   regions: Record<RegionId, Partial<Record<Moment, Placement>> & { default: Placement }>;
 }
 
@@ -785,6 +793,7 @@ const TABLE_ROW: LayoutRow = {
 
 const PHONE_ROW: LayoutRow = {
   id: 'phone',
+  vars: { '--play-slot-edge': 'var(--space-3)', '--play-slot-pad': '0px' },
   // Column 2 is `suzuPresence`'s track: 0px when she is absent (AI assist off).
   columns: {
     exploring: 'minmax(0,1fr) auto',
@@ -794,9 +803,9 @@ const PHONE_ROW: LayoutRow = {
   // standing in for the inline strip until step 11 reads the `inline` variant.
   rows: {
     exploring:
-      'max-content max-content minmax(52px,var(--play-optional,auto)) fit-content(var(--play-optional,20vh)) minmax(var(--play-floor,240px),1fr) max-content max-content max-content',
+      'max-content max-content minmax(91px,var(--play-optional,auto)) fit-content(var(--play-optional,20vh)) minmax(var(--play-floor,241px),1fr) max-content max-content max-content',
     combat:
-      'max-content max-content minmax(52px,var(--play-optional,auto)) fit-content(var(--play-optional,34vh)) minmax(var(--play-floor,224px),1fr) max-content max-content',
+      'max-content max-content minmax(91px,var(--play-optional,auto)) fit-content(var(--play-optional,34vh)) minmax(var(--play-floor,277px),1fr) max-content max-content',
   },
   areas: {
     exploring: `"safetyBanner safetyBanner"

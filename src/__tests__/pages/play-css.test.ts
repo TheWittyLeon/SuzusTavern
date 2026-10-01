@@ -155,7 +155,7 @@ describe('Play.module.css', () => {
 
     it('a slot whose dock is foldable keeps the 44px handle plus its block padding (the handle is never squeezed out)', () => {
       const rule = strip(blockFrom(".slot:has(> [data-foldable='true']) {"));
-      expect(rule).toMatch(/min-height:\s*calc\(44px \+ 2 \* var\(--density-gap\)\)/);
+      expect(rule).toMatch(/min-height:\s*calc\(44px \+ 2 \* var\(--play-slot-edge, var\(--density-gap\)\)\)/);
     });
 
     it('a raised safety banner zeroes ONLY the two --play-* row variables on .grid, naming no layout (safety yield)', () => {
@@ -218,6 +218,15 @@ describe('Play.module.css', () => {
       expect(block).toMatch(
         /\.slot:has\(> \[data-tenant="safetyControls"\]\) > :not\(\[data-tenant\]\)\s*\{[^}]*flex:\s*1 0 100%/,
       );
+    });
+
+    it('a row that spends less per slot swaps padding for a transparent border (a scroller paints into its padding); the empty and overlay slots carry neither', () => {
+      const text = strip(css);
+      const slot = text.slice(text.indexOf('.slot {'), text.indexOf('\n}', text.indexOf('.slot {')));
+      expect(slot).toMatch(/padding-block:\s*var\(--play-slot-pad, var\(--density-gap\)\)/);
+      expect(slot).toMatch(/border-block:\s*var\(--play-slot-edge, 0px\) solid transparent/);
+      expect(text).toMatch(/\.slot:has\(> :only-child:empty\)\s*\{[^}]*border-block-width:\s*0/);
+      expect(text).toMatch(/\.slotOverlay\s*\{[^}]*border-block-width:\s*0/);
     });
 
     it('the compact header cannot outgrow its box: the head shrinks (min-width:0), the title wrapper takes the rest, the pill rides beside the title', () => {
