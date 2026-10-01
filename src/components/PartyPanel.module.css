@@ -300,7 +300,10 @@
   left: 50%;
   transform: translateX(-50%);
   width: max-content;
-  max-width: 88px;
+  /* 120px (Iro A9d-1 MINOR-3): "Kestrel Ashwood", "Brother Elian" and "Borin Stonehollow" ellipsised at 88px. The
+     caption is centred on its tile and the first and last tiles anchor to the strip's own edges (below), so it
+     stays inside the strip at every width; it sits above the tiles, in the label's row, so it costs no height. */
+  max-width: 120px;
   height: auto;
   margin: 0;
   padding: 0 6px;

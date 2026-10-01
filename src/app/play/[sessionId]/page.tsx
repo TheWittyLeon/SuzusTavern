@@ -1326,7 +1326,7 @@ export default function PlayPage() {
   // anyMonsterDown/allHostilesDown now come from useCombatState's destructure
   // above (Amendment A §A.6).
   const statusPill = combatIsActive ? (
-    <Pill tone="lav" dot><span className={styles.pillRound}>round {round ?? 1} · </span>combat</Pill>
+    <Pill tone="lav" dot><span className={styles.pillRound} aria-hidden>round {round ?? 1} · </span>combat</Pill>
   ) : (
     <Pill tone="muted" dot>
       exploring
@@ -1341,8 +1341,9 @@ export default function PlayPage() {
   // double-read verbatim by a screen reader user browsing the DOM manually.
   // Scoped to ONLY the NarratorStrip prop — the aiOffStatus fallback below
   // (ai_assist_level='off', no NarratorStrip/combat line rendered at all)
-  // still uses the full `statusPill` with its round, since nothing else on
-  // that path states it.
+  // still uses the full `statusPill` with its round, visually. The round is
+  // `aria-hidden` there (A9d-2, Iro A9d-1 MINOR-5): the initiative tracker in the
+  // party strip is the one polite region that says it, in every row.
   const narratorStatusPill = combatIsActive ? (
     <Pill tone="lav" dot>
       combat

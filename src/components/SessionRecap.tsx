@@ -176,7 +176,14 @@ export default function SessionRecap({ session, username, variant = 'card', hidd
             type="button"
             className={styles.dismiss}
             aria-label="Dismiss recap"
-            onClick={() => setDismissed(true)}
+            onClick={(e) => {
+              // The button unmounts with the strip, and focus on an unmounted node falls to <body> (Iro A9d-1 MINOR-4,
+              // 2.4.3). It goes to the landmark the strip sits in (the play page's `main`, a programmatic target,
+              // `tabindex="-1"`), taken from the DOM so this component names no page.
+              const home = e.currentTarget.closest<HTMLElement>('main, [tabindex="-1"]');
+              setDismissed(true);
+              requestAnimationFrame(() => home?.focus({ preventScroll: true }));
+            }}
           >
             <Icon name="Close" size={14} aria-hidden />
           </button>
