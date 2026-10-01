@@ -9,12 +9,12 @@ import CastSpellPanel from '@/components/CastSpellPanel';
  * brief §6.7 "carry (a)") — the role="group" wrapper + CastSpellPanel,
  * mount condition copied VERBATIM from page.tsx. `CastSpellPanel` is the
  * second player combat-submit surface (its own `combatBusy` latch exists
- * to stop a Cast+Attack double-spend); at 6b it is a declared tenant of
- * `storyLog` (where it renders today). Its `host` changes to `actionBar`
- * at A9c per Leon's S3 ruling ("ActionBar stays the single place that
- * submits a combat action") — a one-field `REGION_TENANTS` row edit, not
- * a JSX move. Do not move it at 6b: `play.castspellpanel-gating.test.tsx`
- * and its three sibling gating suites pin this mount condition.
+ * to stop a Cast+Attack double-spend). Declared tenant of `actionBar` since
+ * A9c-2 D6 (Leon's S3 ruling: "ActionBar stays the single place that submits
+ * a combat action") — it was a `storyLog` tenant at 6b, and the move was the
+ * one-field `REGION_TENANTS` row edit, not a JSX move.
+ * `play.castspellpanel-gating.test.tsx` and its three sibling gating suites pin
+ * the mount condition and did not move.
  */
 export interface CastSpellTenantProps {
   isDmPlayingOwnPc: boolean;

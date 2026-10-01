@@ -861,6 +861,35 @@ describe('TAV-PLAY-SHELL presets.ts — the X-card control is always on screen (
   });
 });
 
+describe('TAV-PLAY-SHELL presets.ts — the action bar can host tenants (A9c-2 D6)', () => {
+  // CastSpellPanel is the second player combat-submit surface and rides the
+  // action bar (Leon's S3 ruling: the bar is the single place a combat action is
+  // submitted). A tenant is only reachable if its host is a PLACED, visible,
+  // non-layer region in every row x moment, so this runs over whichever tenants
+  // declare `actionBar` as host (derived, not listed): the tenth bar tenant is one
+  // `REGION_TENANTS` row and inherits the guard.
+  // Control: make `actionBar` a `layer` or `visible:false` in any row/moment -> red.
+  const barTenants = (Object.keys(REGION_TENANTS) as Array<keyof typeof REGION_TENANTS>).filter(
+    (t) => REGION_TENANTS[t].host === 'actionBar',
+  );
+
+  it('the bar hosts the cast panel next to the X-card control (D6 regression pin)', () => {
+    expect(barTenants).toEqual(expect.arrayContaining(['castSpellPanel', 'safetyControls']));
+  });
+
+  for (const row of LAYOUT_ROWS) {
+    for (const moment of MOMENTS) {
+      it(`${row.id}/${moment}: actionBar is placed, visible and not a layer`, () => {
+        const p = getPlacement(row, 'actionBar', moment);
+        expect(p.layer).not.toBe(true);
+        expect(p.host).toBeUndefined();
+        expect(p.area).not.toBeNull();
+        expect(p.visible).not.toBe(false);
+      });
+    }
+  }
+});
+
 describe('TAV-PLAY-SHELL presets.ts — getPlacement', () => {
   it('falls back to default when no moment-specific override exists', () => {
     const row = LAYOUT_ROWS.find((r) => r.id === 'story')!;

@@ -320,7 +320,7 @@ export const REGION_TENANTS: Record<TenantId, TenantPlacement> = {
   turnStatus: { host: 'storyLog', announces: true },
   deadStatus: { host: 'storyLog', announces: true },
   durableRetryRow: { host: 'storyLog', announces: true },
-  castSpellPanel: { host: 'storyLog', announces: true },
+  castSpellPanel: { host: 'actionBar', announces: true },
   nextPartOffer: { host: 'storyLog', announces: true },
   diceTray: { host: 'sceneStage', announces: false },
   safetyControls: { host: 'actionBar', announces: false },
