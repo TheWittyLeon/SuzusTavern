@@ -61,7 +61,9 @@
   min-width: 0;
   resize: none;
   max-height: 120px;
-  padding: 10px 12px;
+  /* 9px, not 10: the 16px font below is 2.8px taller than the 14px it replaced; the box stays the
+     ~42px the two-row composer budgets for (A9d-2, Tora A9d-1 MAJOR-3). */
+  padding: 9px 12px;
   border-radius: 12px;
   background: color-mix(in oklab, var(--ink) 3%, transparent);
   /* A11Y-BUTTON-BORDER-CONTRAST: textarea control — --line-strong clears
@@ -69,7 +71,10 @@
   border: 1px solid var(--line-strong);
   color: var(--ink);
   font: inherit;
-  font-size: 14px;
+  /* 16px: iOS Safari zooms the page when a focused control's font is under 16px, leaving the layout
+     shifted and the action bar and X-card pinched out of view. Never fixed by locking the viewport's scale (that
+     breaks pinch-zoom, WCAG 1.4.4): the control is simply not small. A9d-2, Tora A9d-1 MAJOR-3. */
+  font-size: 16px;
   line-height: 1.4;
 }
 
