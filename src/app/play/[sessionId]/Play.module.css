@@ -90,6 +90,42 @@
   display: none;
 }
 
+/* A9c C4 (Amendment C.1): an anchored region is its own grid item in another
+   region's area, content-sized, self-aligned to a corner and stacked above that
+   area's owner. The alignment rules read `data-anchor` so ANY of the four
+   corners works without a CSS edit when a row first emits it. Stacking is
+   confined to these two selectors — `.slot` itself never takes `z-index`,
+   `isolation` or `transform`: any of them would trap every in-slot
+   `position:fixed` modal in its slot's stacking context and let a later slot
+   paint over its backdrop (build brief §1). */
+.slotOverlay {
+  z-index: 1;
+  margin: var(--space-4);
+  max-width: calc(100% - 2 * var(--space-4));
+  /* Content-sized: the track is the owner's, this box is not stretched to it. */
+  align-self: start;
+  justify-self: start;
+  overflow: visible;
+  padding: 0;
+}
+.slotOverlay[data-anchor^='top'] {
+  align-self: start;
+}
+.slotOverlay[data-anchor^='bottom'] {
+  align-self: end;
+}
+.slotOverlay[data-anchor$='start'] {
+  justify-self: start;
+}
+.slotOverlay[data-anchor$='end'] {
+  justify-self: end;
+}
+/* The owner of an overlaid area: confines the stage's own stacking (step 12's
+   map tokens) under the overlay. */
+.slot[data-overlaid='true'] {
+  isolation: isolate;
+}
+
 /* partyStrip's and sceneStage's slots ARE the landmark `<aside>` elements
    (build brief §6.4 rule 3) — independent vertical scroll containers,
    mirroring the retired .left/.right panes' own overflow-y:auto. */
@@ -190,6 +226,40 @@
 .journalToggleBtn:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+
+/* A9c C4: TopBar `overlay` variant (Table) — one line over the stage: exit,
+   title, status pill, journal toggle. Translucent token-tinted backing so the
+   scene reads through it. NarratorStrip stays mounted in an `sr-only`
+   wrapper, so the region still announces (R3). */
+.topBarOverlay {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  padding: var(--space-4) var(--space-6);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--bg) 78%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.topBarOverlay .sessionTitle {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.topBarOverlay .sessionHead {
+  margin: 0;
+}
+.topBarOverlay .aiOffStatus {
+  padding: 0;
+}
+.topBarOverlay .journalToggleBtn {
+  margin: 0;
+}
+.topBarOverlay .back {
+  margin: 0;
 }
 
 /* ── right pane ── */

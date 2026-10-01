@@ -227,13 +227,16 @@ const PAGE = join(ROOT, PAGE_REL);
 // verbatim out of page.tsx's tenants map into tenants/SafetyControls.tsx
 // (the X-card's disabled model lives in one file now). Net -13 code lines.
 // Lowered in the commit that earned it.
+// -> 901 (A9c-1 commit C4, brief §6): `suzuPresenceVariant`'s hand-written
+// 4-line `as` union is gone (the region's prop type IS the registry's; the
+// read is `variantFor(...)` inline), net -3 after `topBar`'s variant prop.
 // Update this value, in the SAME commit, whenever page.tsx's actual
 // non-comment, non-blank line count drops below it. Never raise it
 // silently -- unless the growth is deliberate and reviewed, in which case
 // raise it in the same commit and say why (this file's own rule, restated
 // correctly per the A7 pre-merge ratchet ruling: the runbook's "may only go
 // down" was a paraphrase that was never this file's actual rule).
-export const RATCHET_CEILING = 904;
+export const RATCHET_CEILING = 901;
 
 /**
  * Pure: counts lines the way `wc -l` does (newline-byte count). Exported so

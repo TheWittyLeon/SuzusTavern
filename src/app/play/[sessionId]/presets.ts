@@ -73,10 +73,11 @@
  *    is `layer: true` in every row — no grid area at all. The mockup's
  *    icon-rail trigger is a rendering detail for step 6b, not this file's
  *    concern.
- *  - `topBar` is a declared co-occupancy (`host: 'sceneStage'`) in `table`
- *    (mirrors the mockup's `.top{grid-area:stage}` / `.init{grid-area:
- *    stage}` — title/initiative float over the stage rather than taking
- *    their own row). No ruling contradicts this, so the mockup stands.
+ *  - `topBar` overlays the stage in `table` (mirrors the mockup's
+ *    `.top{grid-area:stage}` — the title floats over the stage rather than
+ *    taking its own row). No ruling contradicts this, so the mockup stands.
+ *    A9c C4: encoded as `anchor: 'top-start'` on `area: 'sceneStage'`
+ *    (Amendment C.1); the `host` encoding below was superseded.
  *    Kage-CR CRITICAL-2 (2026-09-30): originally encoded as a duplicate
  *    `area: 'sceneStage'` string, indistinguishable from a typo and with
  *    no stacking signal for step 6b — replaced with the explicit `host`
@@ -219,45 +220,11 @@ export const ANNOUNCING_REGIONS: ReadonlySet<RegionId> = new Set<RegionId>([
   'safetyBanner',
 ]);
 
-/**
- * Amendment B.3 (2026-09-30, Sora-Arch — answers Kage-CR 🟡-5/6/7): the
- * three `variant` unions, reconciled. `Placement.variant` is deliberately
- * opaque to the shell (Guard 1, plan §3.5, "an opaque string to the shell
- * and a union inside the region") — this table is the missing record of
- * which values are legal for which region, so a typo or an unsupported
- * value is caught by the guard below instead of being undetectable by
- * `tsc` and by every test.
- *  - `suzuPresence: ['compact','full']` — Kage's option (i). The B.1 rename
- *    removes the objection that excluded it at A9a ("its real prop is
- *    `size`, so validating it against a *density* union asserts the wrong
- *    thing") — presence size **is** a presentational variant: Story's
- *    "figure beside the story" and Table's "framed speaker portrait" differ
- *    in LOOK, not on the size axis. A third value with one emitter would
- *    repeat the `'vitals'` mistake below.
- *  - `characterBlock: ['compact','full','rail']` — `'rail'` is R20's
- *    FOLDED state, reached at runtime from the persisted fold pref (A9c),
- *    and declared in `VARIANTS_NOT_EMITTED_BY_PRESETS` below as not emitted
- *    by any preset row — a declaration, not the accident that killed
- *    `actionBar`'s `'full'`.
- *  - `actionBar: ['chips','bar']` — 🟡-7 taken whole. `'vitals'` was the
- *    name of a DATA prop (`ActionBarProps.vitals`), not a variant; `'full'`
- *    had no emitter. "Vitals only while exploring" is the bar's own
- *    response to an empty `actions` array (data), which is what it already
- *    does — R16's "phone gains the action bar in combat" is therefore
- *    expressed by the bar's CONTENT, and the registry stops claiming a
- *    moment difference it cannot deliver.
- * A9b/A9c derive each region's own prop union from this
- * (`(typeof REGION_VARIANTS)['offers'][number]`) instead of hand-writing it
- * a second time.
- */
-export const REGION_VARIANTS = {
-  partyStrip: ['strip', 'rail'],
-  sceneStage: ['inline', 'panel', 'hero'],
-  offers: ['chips', 'list'],
-  characterBlock: ['compact', 'full', 'rail'],
-  actionBar: ['chips', 'bar'],
-  suzuPresence: ['compact', 'full'],
-} as const satisfies Partial<Record<RegionId, readonly string[]>>;
+import { REGION_VARIANTS, isRegionVariant, type RegionVariant, type VariantRegionId } from './variants';
+
+export { REGION_VARIANTS };
+export type { RegionVariant, VariantRegionId };
+export { isRegionVariant };
 
 /**
  * Amendment B.3: union members that are legal but never emitted by a
@@ -360,6 +327,16 @@ export const REGION_TENANTS: Record<TenantId, TenantPlacement> = {
 export type Moment = 'exploring' | 'combat';
 export type LayoutId = 'story' | 'table' | 'phone';
 
+/**
+ * A9c C4 (Amendment C.1) — the four corners an overlay can anchor to. The
+ * shell maps ANY anchor generically (`top|bottom` -> `align-self`,
+ * `start|end` -> `justify-self`, through `data-anchor` attribute selectors in
+ * `Play.module.css`), so a corner no row emits yet costs nothing and still has
+ * a reader: the tenth overlay is one row (`area` + `anchor`), no code.
+ */
+export const ANCHORS = ['top-start', 'top-end', 'bottom-start', 'bottom-end'] as const;
+export type Anchor = (typeof ANCHORS)[number];
+
 export interface Placement {
   /** Grid-area name; null = not placed in the grid this moment (either a
    *  `layer` or genuinely absent, e.g. `offers` during combat). */
@@ -377,6 +354,17 @@ export interface Placement {
    * §3.5) — a region's own prop type is the only thing that interprets it.
    */
   variant?: string;
+  /**
+   * A9c C4 (Amendment C.1): `area` names ANOTHER region's area this moment.
+   * This region is its own keyed grid item there (never inside the owner's
+   * scroller, so the owner's scroll position is untouched), self-aligned to
+   * this corner, stacked above the area's owner and content-sized. Replaces
+   * `host` for desktop co-occupancy: a hosted region changes parent on every
+   * row switch and so REMOUNTS; an anchored one is a top-level slot in every
+   * row and only moves. Requires `area != null`, no `host`, no `layer`
+   * (guard C1-a); the area's owner must be placed and never hidden (C1-c).
+   */
+  anchor?: Anchor;
   /** default true; false = display:none, still mounted. Never set true→false
    *  on an `ANNOUNCING_REGIONS` member — see file header. */
   visible?: boolean;
@@ -387,9 +375,8 @@ export interface Placement {
   /**
    * Kage-CR CRITICAL-2 (2026-09-30): this region is not an independent
    * grid item — it renders INSIDE the named region's area (a declared
-   * co-occupancy, e.g. TopBar's title/initiative floating over the scene
-   * stage, or Phone's party strip and presence icon living inside the
-   * header). The host must itself be placed (non-null `area`) in the
+   * co-occupancy, today only Phone's party strip and presence icon living
+   * inside the header; desktop overlays use `anchor` instead, C4/C.1). The host must itself be placed (non-null `area`) in the
    * same row × moment — enforced by the "grid co-occupancy" guard below.
    * When set, `area` is always null: a hosted region has no grid
    * position of its own, same convention as `layer`.
@@ -468,9 +455,14 @@ export function getPlacement(row: LayoutRow, region: RegionId, moment: Moment): 
  *      slot of its own, the shell renders it INSIDE the host's slot, in
  *      `REGION_IDS` order. Layers (`layer: true`) own no DOM slot and are
  *      not listed.
+ *   4. C4 (C.1): an ANCHORED region (`placement.anchor`) is an `overlay`: its
+ *      own top-level slot, listed with the area it sits on — its `top-*`
+ *      overlays, then the area's owner, then its `bottom-*` overlays (each
+ *      group in `REGION_IDS` order). Never inside the owner's slot.
  */
 export type SlotEntry =
   | { id: RegionId; kind: 'slot' | 'hidden' }
+  | { id: RegionId; kind: 'overlay'; anchor: Anchor; area: string }
   | { id: RegionId; kind: 'hosted'; host: RegionId };
 
 export function slotOrder(row: LayoutRow, moment: Moment): SlotEntry[] {
@@ -485,11 +477,28 @@ export function slotOrder(row: LayoutRow, moment: Moment): SlotEntry[] {
     }
   }
 
+  // Overlays (C.1) by the area they sit on, in REGION_IDS order.
+  const overlaysByArea = new Map<string, Extract<SlotEntry, { kind: 'overlay' }>[]>();
+  for (const id of REGION_IDS) {
+    const { area, anchor, host, layer } = getPlacement(row, id, moment);
+    if (anchor == null || area == null || host != null || layer === true) continue;
+    const list = overlaysByArea.get(area) ?? [];
+    list.push({ id, kind: 'overlay', anchor, area });
+    overlaysByArea.set(area, list);
+  }
+
   const order: SlotEntry[] = [];
   for (const id of tokens) {
     const placement = getPlacement(row, id, moment);
     if (placement.host != null || placement.layer === true || placement.area == null) continue;
+    // An anchored region is placed through its owner's token, not its own.
+    if (placement.anchor != null) continue;
+    // Its top-* overlays, then its owner, then its bottom-* overlays: focus
+    // order follows the eye (WCAG 2.4.3), and a top-start title is read first.
+    const overlays = overlaysByArea.get(placement.area) ?? [];
+    order.push(...overlays.filter((o) => o.anchor.startsWith('top-')));
     order.push({ id, kind: 'slot' });
+    order.push(...overlays.filter((o) => o.anchor.startsWith('bottom-')));
   }
 
   // C.2: hidden (area-less) slots, in REGION_IDS order, each after its nearest
@@ -514,6 +523,28 @@ export function slotOrder(row: LayoutRow, moment: Moment): SlotEntry[] {
     if (host != null) order.push({ id, kind: 'hosted', host });
   }
   return order;
+}
+
+/**
+ * A9c C4 (build brief §6) — the one read site for a placement's `variant`,
+ * typed as the REGION's own union. Throws, naming row/region/moment, on a
+ * value outside `REGION_VARIANTS[region]`: unreachable on the real rows
+ * (the registry guard holds), so it fails loudly for a runtime-built row
+ * rather than letting a typo render as the region's default.
+ */
+export function variantFor<R extends VariantRegionId>(
+  row: LayoutRow,
+  region: R,
+  moment: Moment,
+): RegionVariant<R> | undefined {
+  const { variant } = getPlacement(row, region, moment);
+  if (variant === undefined) return undefined;
+  if (!isRegionVariant(region, variant)) {
+    throw new Error(
+      `"${variant}" is not a declared variant of "${region}" (row "${row.id}", ${moment})`,
+    );
+  }
+  return variant;
 }
 
 // ---------------------------------------------------------------------------
@@ -599,7 +630,7 @@ const STORY_ROW: LayoutRow = {
              "suzuPresence actionBar    partyStrip"`,
   },
   regions: {
-    topBar: { default: { area: 'topBar' } },
+    topBar: { default: { area: 'topBar', variant: 'band' } },
     // Kage-CR IMPORTANT-5 (2026-09-30, option (c)): exploring keeps the
     // header-row strip; combat gives it column 3 full-height as a rail
     // (same variant Table's characterBlock rail would use) rather than
@@ -667,8 +698,8 @@ const TABLE_ROW: LayoutRow = {
     combat: '160px auto minmax(0,1fr) fit-content(300px)',
   },
   // debt: Table/combat storyLog is ~107-132px inner vs the 240px browser floor (a:storyLog).
-  // ceiling: 3-4 rows at 900px; the 400px stage cap holds the scene + in-flow session header + initiative (363px).
-  // until: A9c lifts topBar over the stage (mockup `.top{grid-area:stage}`), returning ~113px to the log.
+  // ceiling: 3-4 rows at 900px; `minmax(0,400px)` grows to its cap whatever the stage holds, so lifting topBar over the stage (C4) returned nothing to the log.
+  // until: A9c-2 D7 content-sizes the stage track (`fit-content(400px)`).
   rows: {
     exploring: 'auto 218px minmax(0,1fr) fit-content(120px) auto auto',
     combat: 'auto minmax(0,400px) minmax(0,1fr) auto auto',
@@ -687,11 +718,13 @@ const TABLE_ROW: LayoutRow = {
              "partyStrip   actionBar    actionBar    actionBar"`,
   },
   regions: {
-    // Mirrors the mockup's `.top{grid-area:stage}` / `.init{grid-area:stage}`
-    // — title + initiative float over the stage rather than owning a row.
-    // Kage-CR CRITICAL-2 (2026-09-30): a declared co-occupancy, not a
-    // duplicate area string — topBar renders INSIDE sceneStage's area.
-    topBar: { default: { area: null, host: 'sceneStage' } },
+    // Mirrors the mockup's `.top{grid-area:stage}` — the title floats over the
+    // stage rather than owning a row. A9c C4 (Amendment C.1): ANCHORED, not
+    // hosted — its own keyed top-level slot in the stage's area, self-aligned
+    // top-start. A host changed parent on every Auto switch and so remounted
+    // TopBar (Kage S7); this only moves, and stays out of the stage's
+    // scroller. `overlay` is the compact one-line form.
+    topBar: { default: { area: 'sceneStage', anchor: 'top-start', variant: 'overlay' } },
     partyStrip: { default: { area: 'partyStrip', variant: 'rail' } },
     // Amendment B.3 (🟡-5): presence size is preset data — Table gives it
     // a "framed speaker portrait" treatment, `'full'`.
@@ -759,7 +792,7 @@ const PHONE_ROW: LayoutRow = {
              "actionBar"`,
   },
   regions: {
-    topBar: { default: { area: 'topBar' } },
+    topBar: { default: { area: 'topBar', variant: 'band' } },
     // Kage-CR CRITICAL-2 (2026-09-30): declared co-occupancies of `topBar`,
     // not duplicate area strings — both render INSIDE topBar's area.
     partyStrip: { default: { area: null, host: 'topBar', variant: 'strip' } },

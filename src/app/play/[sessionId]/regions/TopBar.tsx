@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import Icon from '@/components/Icon';
 import NarratorStrip from '@/components/NarratorStrip';
 import styles from '../Play.module.css';
+import type { RegionVariant } from '../variants';
 
 /**
  * TAV-PLAY-SHELL step 6b, commit C4 (build brief §6.8) — `TopBar` becomes
@@ -45,6 +46,10 @@ export interface TopBarProps {
   initiativeOrder: string[];
   status: ReactNode;
   statusPill: ReactNode;
+  /** The row's `variant` (`REGION_VARIANTS.topBar`): `band` is today's two-row
+   *  header (Story, Phone); `overlay` is the one-line form over the stage
+   *  (Table). Unset renders `band`. */
+  variant?: RegionVariant<'topBar'>;
 }
 
 /** S5.5: NarratorStrip (a scene/combat status banner) hidden when
@@ -65,17 +70,44 @@ export default function TopBar({
   initiativeOrder,
   status,
   statusPill,
+  variant = 'band',
 }: TopBarProps) {
+  const overlay = variant === 'overlay';
+  const narrator = showSuzuPanel ? (
+    <NarratorStrip
+      talking={talking}
+      sceneName={sceneName}
+      objective={objective}
+      combatActive={combatActive}
+      round={round}
+      turnStatusText={turnStatusText}
+      initiativeOrder={initiativeOrder}
+      status={status}
+    />
+  ) : null;
+  const aiOff = (
+    <div className={styles.aiOffStatus} role="status" aria-live="polite">
+      {statusPill}
+    </div>
+  );
+
   return (
-    <div data-region="topBar">
+    <div
+      data-region="topBar"
+      data-variant={variant}
+      className={overlay ? styles.topBarOverlay : undefined}
+    >
       <div className={styles.sessionHead}>
         <Link href="/lobby" className={styles.back} aria-label="Leave session">
           <Icon name="Chevron" size={14} style={{ transform: 'rotate(180deg)' }} />
         </Link>
         <div>
-          <div className={styles.kicker}>Session</div>
+          {overlay ? null : <div className={styles.kicker}>Session</div>}
           <div className={styles.sessionTitle}>{title}</div>
         </div>
+        {/* overlay: the visible pill. `aria-hidden` because NarratorStrip (in the
+            `sr-only` wrapper below) already carries it — one announcer per fact (A4). */}
+        {overlay ? showSuzuPanel ? <span aria-hidden="true">{status}</span> : aiOff : null}
         {/* DDX-22: Journal drawer toggle — visible to every seat (not
             isDm-gated; the journal is a per-player surface, not a DM tool). */}
         <button
@@ -90,22 +122,11 @@ export default function TopBar({
           <Icon name="Lantern" size={16} aria-hidden />
         </button>
       </div>
-      {showSuzuPanel ? (
-        <NarratorStrip
-          talking={talking}
-          sceneName={sceneName}
-          objective={objective}
-          combatActive={combatActive}
-          round={round}
-          turnStatusText={turnStatusText}
-          initiativeOrder={initiativeOrder}
-          status={status}
-        />
-      ) : (
-        <div className={styles.aiOffStatus} role="status" aria-live="polite">
-          {statusPill}
-        </div>
-      )}
+      {/* overlay: NarratorStrip stays MOUNTED so topBar still announces (R3); it
+          is redundant on screen (the stage shows the scene, suzuPresence shows
+          `talking`, turnStatus announces the turn). */}
+      {overlay ? narrator && <div className="sr-only">{narrator}</div> : narrator}
+      {overlay || showSuzuPanel ? null : aiOff}
     </div>
   );
 }

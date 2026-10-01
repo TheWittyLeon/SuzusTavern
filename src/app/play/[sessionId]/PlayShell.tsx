@@ -18,12 +18,19 @@
  * A9c's render matrix can mount this component directly, without a
  * `<ThemeProvider>`.
  *
- * Four placement kinds, one loop, per `getPlacement`:
+ * Five placement kinds, one loop, per `getPlacement`:
  *   - `area != null`             -> a grid-item slot (`.slot`), visible
  *     unless `visible === false` (`.slotHidden` — a CSS class, never an
  *     inline style: jsdom computes inline styles, dropping the node from
  *     RTL's accessibility-filtered queries, but a CSS Module class is
  *     invisible to jsdom — build brief §1 mechanism 1).
+ *   - `anchor != null` (+ area)  -> an OVERLAY (A9c C4, Amendment C.1): its
+ *     own keyed top-level slot in another region's area (`.slotOverlay`,
+ *     `data-anchor`), self-aligned to a corner and stacked above that area's
+ *     owner, which gains `data-overlaid` + `isolation:isolate`. Only those two
+ *     elements ever gain stacking — never `.slot` generically, which would
+ *     confine every in-slot `position:fixed` modal to its slot's stacking
+ *     context (build brief §1).
  *   - `host != null`             -> nothing of its own; appended INSIDE
  *     the host's slot, after the host's own node (same mechanism tenants
  *     use — a hosted REGION and a TENANT are both "rides inside a placed
@@ -69,6 +76,7 @@ import {
   TENANT_IDS,
   getPlacement,
   slotOrder,
+  type Anchor,
   type LayoutRow,
   type Moment,
   type RegionId,
@@ -170,13 +178,19 @@ export default function PlayShell({
     hostedRegionsByHost.set(entry.host, list);
   }
 
-  const slotFor = (regionId: RegionId, area: string | null) => {
+  // C4 (C.1): the areas an overlay sits on. Their owner slots get
+  // `data-overlaid` + `isolation:isolate` (and ONLY they do — never `.slot`).
+  const overlaidAreas = new Set<string>();
+  for (const entry of order) if (entry.kind === 'overlay') overlaidAreas.add(entry.area);
+
+  const slotFor = (regionId: RegionId, area: string | null, anchor?: Anchor) => {
     const hidden = area == null || getPlacement(row, regionId, moment).visible === false;
     const landmark = LANDMARKS[regionId];
     const Tag = landmark?.as ?? 'div';
     const slotClass = [
       styles.slot,
       landmark?.layoutClassName,
+      anchor != null ? styles.slotOverlay : null,
       hidden ? styles.slotHidden : null,
     ]
       .filter(Boolean)
@@ -191,6 +205,8 @@ export default function PlayShell({
         style={area == null ? undefined : { gridArea: area }}
         data-region-slot={regionId}
         data-area={area ?? undefined}
+        data-anchor={anchor}
+        data-overlaid={anchor == null && area != null && overlaidAreas.has(area) ? 'true' : undefined}
         data-visible={!hidden}
       >
         {regions[regionId]}
@@ -208,7 +224,8 @@ export default function PlayShell({
   for (const entry of order) {
     if (entry.kind === 'hosted') continue;
     if (entry.kind === 'hidden' && regions[entry.id] === undefined) continue;
-    slots.push(slotFor(entry.id, entry.kind === 'hidden' ? null : getPlacement(row, entry.id, moment).area));
+    if (entry.kind === 'overlay') slots.push(slotFor(entry.id, entry.area, entry.anchor));
+    else slots.push(slotFor(entry.id, entry.kind === 'hidden' ? null : getPlacement(row, entry.id, moment).area));
   }
   // The precise trigger for a DOM move (ScrollKeeper): slot order + hosting.
   const orderKey = order

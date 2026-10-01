@@ -1,6 +1,7 @@
 'use client';
 
 import SuzuDM from '@/components/SuzuDM';
+import type { RegionVariant } from '../variants';
 
 /**
  * TAV-PLAY-SHELL step 6b, commit C4 (build brief §6.8, Amendment B.3) —
@@ -18,18 +19,19 @@ import SuzuDM from '@/components/SuzuDM';
  * `size={56}` so desktop's visual size is unchanged at 6b.
  */
 export interface SuzuPresenceProps {
-  variant?: 'compact' | 'full';
+  /** The registry's own union (`REGION_VARIANTS.suzuPresence`), not a hand-written copy. */
+  variant?: RegionVariant<'suzuPresence'>;
   talking?: boolean;
 }
 
-const SIZE_BY_VARIANT: Record<'compact' | 'full', number> = {
+const SIZE_BY_VARIANT: Record<RegionVariant<'suzuPresence'>, number> = {
   compact: 32,
   full: 56,
 };
 
 export default function SuzuPresence({ variant = 'full', talking = false }: SuzuPresenceProps) {
   return (
-    <div data-region="suzuPresence">
+    <div data-region="suzuPresence" data-variant={variant}>
       <SuzuDM size={SIZE_BY_VARIANT[variant]} glow={false} talking={talking} />
     </div>
   );

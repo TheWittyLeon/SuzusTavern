@@ -74,7 +74,7 @@ import StoryLog from './regions/StoryLog';
 import TopBar from './regions/TopBar';
 import SuzuPresence from './regions/SuzuPresence';
 import PlayShell from './PlayShell';
-import { getPlacement, type Moment, type RegionId, type TenantId } from './presets';
+import { getPlacement, variantFor, type Moment, type RegionId, type TenantId } from './presets';
 import { buildReadAloudBlock, scanXCardTracking } from './format';
 import { useSessionLifecycle } from './hooks/useSessionLifecycle';
 import { useMyCharacter } from './hooks/useMyCharacter';
@@ -1420,11 +1420,6 @@ export default function PlayPage() {
   // flag, which the row itself decides (resolved above, beside `usePlayLayout`).
   const memberSheetPanelNode = <MemberSheetPanel {...memberSheetDrawer.panelProps} />;
 
-  const suzuPresenceVariant = getPlacement(row, 'suzuPresence', moment).variant as
-    | 'compact'
-    | 'full'
-    | undefined;
-
   // TAV-PLAY-SHELL step 6b, commit C4 (build brief §6.2–§6.4) — `regions`/
   // `tenants` are the only two things `<PlayShell>` knows: `RegionId ->
   // ReactNode` and `TenantId -> ReactNode`. Built here, where every piece's
@@ -1462,6 +1457,7 @@ export default function PlayPage() {
         initiativeOrder={narratorInitiativeOrder}
         status={narratorStatusPill}
         statusPill={statusPill}
+        variant={variantFor(row, 'topBar', moment)}
       />
     ),
     partyStrip: (
@@ -1566,7 +1562,7 @@ export default function PlayPage() {
         {memberSheetPanelNode}
       </FoldDock>
     ) : undefined,
-    suzuPresence: <SuzuPresence variant={suzuPresenceVariant} talking={talking} />,
+    suzuPresence: <SuzuPresence variant={variantFor(row, 'suzuPresence', moment)} talking={talking} />,
     storyLog: (
       <>
         <StoryLog

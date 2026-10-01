@@ -30,6 +30,7 @@
  * grid-template-areas value falls back to the initial 'none').
  */
 import {
+  ANCHORS,
   ANNOUNCING_REGIONS,
   LAYOUT_ROWS,
   LAYOUT_ROWS_BY_ID,
@@ -197,7 +198,61 @@ describe('TAV-PLAY-SHELL presets.ts — area/placement consistency (e)', () => {
   }
 });
 
-describe('TAV-PLAY-SHELL presets.ts — grid co-occupancy (CRITICAL-2): no undeclared area sharing', () => {
+/** C1-b as a function of a row, so the controls below can feed it mutated rows. */
+function coOccupancyViolations(row: LayoutRow, moment: Moment): string[] {
+  const out: string[] = [];
+  const byArea = new Map<string, { id: RegionId; anchor?: string }[]>();
+  for (const id of REGION_IDS) {
+    const p = getPlacement(row, id, moment);
+    if (p.area == null) continue;
+    const list = byArea.get(p.area) ?? [];
+    list.push({ id, anchor: p.anchor });
+    byArea.set(p.area, list);
+  }
+  for (const [area, members] of byArea) {
+    const owners = members.filter((m) => m.anchor === undefined);
+    if (owners.length !== 1) out.push(`"${area}": ${owners.length} owners (${owners.map((o) => o.id).join(', ')})`);
+    const seen = new Set<string>();
+    for (const m of members) {
+      if (m.anchor === undefined) continue;
+      if (seen.has(m.anchor)) out.push(`"${area}": two overlays at ${m.anchor}`);
+      seen.add(m.anchor);
+    }
+  }
+  return out;
+}
+
+/** C1-a. `anchor` needs an area to sit in and excludes `host` (re-parents, remounts) and `layer` (no slot). */
+function anchorShapeViolations(row: LayoutRow, moment: Moment): string[] {
+  const out: string[] = [];
+  for (const id of REGION_IDS) {
+    const p = getPlacement(row, id, moment);
+    if (p.anchor === undefined) continue;
+    if (!(ANCHORS as readonly string[]).includes(p.anchor)) out.push(`${id}: unknown anchor ${p.anchor}`);
+    if (p.area == null) out.push(`${id}: anchor without an area`);
+    if (p.host !== undefined) out.push(`${id}: anchor with host`);
+    if (p.layer === true) out.push(`${id}: anchor on a layer`);
+  }
+  return out;
+}
+
+/** C1-c. The owner of an anchored area is placed and never visible:false (C1-b separately demands exactly one). */
+function anchorOwnerViolations(row: LayoutRow, moment: Moment): string[] {
+  const out: string[] = [];
+  for (const id of REGION_IDS) {
+    const p = getPlacement(row, id, moment);
+    if (p.anchor === undefined || p.area == null) continue;
+    for (const o of REGION_IDS) {
+      const q = getPlacement(row, o, moment);
+      if (q.area === p.area && q.anchor === undefined && q.visible === false) {
+        out.push(`${id} overlays ${o}, which is visible:false`);
+      }
+    }
+  }
+  return out;
+}
+
+describe('TAV-PLAY-SHELL presets.ts — grid co-occupancy (CRITICAL-2, rewritten by C1-b): one owner per area, the rest anchored', () => {
   // Kage-CR CRITICAL-2 (2026-09-30): `area` used to be overloaded — a
   // duplicate `area: 'x'` string across two regions was indistinguishable
   // from a typo, with nothing in the data marking it intentional. `host`
@@ -227,23 +282,93 @@ describe('TAV-PLAY-SHELL presets.ts — grid co-occupancy (CRITICAL-2): no undec
         }
       });
 
-      it(`${row.id}/${moment}: no two regions share a non-null area unless one declares the other as host`, () => {
-        const violations: string[] = [];
-        for (const idA of REGION_IDS) {
-          const pA = getPlacement(row, idA, moment);
-          if (pA.area == null) continue;
-          for (const idB of REGION_IDS) {
-            if (idB === idA) continue;
-            const pB = getPlacement(row, idB, moment);
-            if (pB.area !== pA.area) continue;
-            if (pA.host === idB || pB.host === idA) continue; // declared
-            violations.push(`"${pA.area}": ${idA} <-> ${idB}`);
-          }
-        }
+      // A9c C4 guard C1-b (Amendment C.1), replacing A9b's "unless one
+      // declares the other as host": per row x moment, each non-null area
+      // has exactly ONE owner (a placement with no `anchor`); every other
+      // region naming it carries an `anchor`, and the anchors on one area
+      // are pairwise distinct (two overlays on one corner would stack on
+      // each other). Hosted regions have `area:null` and are unaffected.
+      // Written as "everything except the declared overlay", so a NEW
+      // accidental share reds the same way a known one does.
+      it(`${row.id}/${moment}: each area has exactly one owner; every other region on it is an anchored overlay with a distinct anchor (C1-b)`, () => {
+        const violations = coOccupancyViolations(row, moment);
         expect(violations).toEqual([]);
+      });
+
+      // C1-a: `anchor` means "an overlay in somebody's area": it needs an
+      // area to sit in, and it is exclusive of the two other ways a region
+      // can ride another one (`host` changes parent and remounts; `layer`
+      // has no slot at all).
+      it(`${row.id}/${moment}: an anchored region has an area, no host, and is not a layer (C1-a)`, () => {
+        expect(anchorShapeViolations(row, moment)).toEqual([]);
+      });
+
+      it(`${row.id}/${moment}: the owner of an anchored area is placed and never visible:false (C1-c)`, () => {
+        expect(anchorOwnerViolations(row, moment)).toEqual([]);
       });
     }
   }
+});
+
+/**
+ * Controls for C1-a/b/c: each guard must go RED on the mutation named in the
+ * build brief (section 2), on a clone of the real row (a guard that stays green
+ * on its own control is aimed at the wrong thing).
+ */
+describe('A9c C4 — guards C1-a/b/c go red on their controls', () => {
+  const table = LAYOUT_ROWS_BY_ID.table;
+  const story = LAYOUT_ROWS_BY_ID.story;
+  const patch = (row: LayoutRow, id: RegionId, p: Placement, moment?: Moment): LayoutRow => ({
+    ...row,
+    regions: {
+      ...row.regions,
+      [id]: moment ? { ...row.regions[id], [moment]: p } : { ...row.regions[id], default: p },
+    },
+  });
+
+  it('the real rows are the green baseline', () => {
+    for (const row of LAYOUT_ROWS) {
+      for (const m of MOMENTS) {
+        expect([...coOccupancyViolations(row, m), ...anchorShapeViolations(row, m), ...anchorOwnerViolations(row, m)]).toEqual([]);
+      }
+    }
+  });
+
+  it('C1-a: table.topBar gains host:sceneStage -> red', () => {
+    const mutated = patch(table, 'topBar', { area: 'sceneStage', anchor: 'top-start', host: 'sceneStage' });
+    expect(anchorShapeViolations(mutated, 'combat')).toContain('topBar: anchor with host');
+  });
+
+  it('C1-a: an anchor on a layer, or without an area, -> red', () => {
+    expect(anchorShapeViolations(patch(table, 'topBar', { area: 'sceneStage', anchor: 'top-start', layer: true }), 'combat')).toContain('topBar: anchor on a layer');
+    expect(anchorShapeViolations(patch(table, 'topBar', { area: null, anchor: 'top-start' }), 'combat')).toContain('topBar: anchor without an area');
+  });
+
+  it('C1-b: dropping `anchor` from table.topBar -> red (two owners of sceneStage)', () => {
+    const mutated = patch(table, 'topBar', { area: 'sceneStage', variant: 'overlay' });
+    expect(coOccupancyViolations(mutated, 'exploring').join('\n')).toMatch(/"sceneStage": 2 owners/);
+  });
+
+  it('C1-b: story.composer = {area:storyLog} -> red (CRITICAL-2 fifth-share control)', () => {
+    const mutated = patch(story, 'composer', { area: 'storyLog' });
+    expect(coOccupancyViolations(mutated, 'exploring').join('\n')).toMatch(/"storyLog": 2 owners/);
+  });
+
+  it('C1-b: two overlays on one corner of one area -> red', () => {
+    const mutated = patch(patch(table, 'topBar', { area: 'sceneStage', anchor: 'top-start' }), 'suzuPresence', { area: 'sceneStage', anchor: 'top-start' });
+    expect(coOccupancyViolations(mutated, 'exploring').join('\n')).toMatch(/two overlays at top-start/);
+  });
+
+  it('C1-b: two overlays on DIFFERENT corners are fine (anchors are pairwise distinct, not unique per area)', () => {
+    const mutated = patch(patch(table, 'topBar', { area: 'sceneStage', anchor: 'top-start' }), 'suzuPresence', { area: 'sceneStage', anchor: 'top-end' });
+    expect(coOccupancyViolations(mutated, 'exploring')).toEqual([]);
+  });
+
+  it('C1-c: table.sceneStage.combat.visible=false -> red', () => {
+    const mutated = patch(table, 'sceneStage', { area: 'sceneStage', variant: 'hero', visible: false }, 'combat');
+    expect(anchorOwnerViolations(mutated, 'combat')).toEqual(['topBar overlays sceneStage, which is visible:false']);
+    expect(anchorOwnerViolations(mutated, 'exploring')).toEqual([]);
+  });
 });
 
 /**
@@ -268,6 +393,7 @@ describe('TAV-PLAY-SHELL presets.ts — grid co-occupancy (CRITICAL-2): no undec
  */
 function pinnedValue(p: Placement): string {
   const parts: string[] = [p.area != null ? p.area : p.host != null ? `host:${p.host}` : 'null'];
+  if (p.anchor !== undefined) parts.push(`anchor:${p.anchor}`);
   if (p.variant !== undefined) parts.push(`variant:${p.variant}`);
   if (p.visible !== undefined) parts.push(`visible:${p.visible}`);
   if (p.layer !== undefined) parts.push(`layer:${p.layer}`);
@@ -344,7 +470,7 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
 
   it('story/exploring', () => {
     expect(pin(LAYOUT_ROWS_BY_ID.story, 'exploring')).toEqual({
-      topBar: 'topBar',
+      topBar: 'topBar variant:band',
       partyStrip: 'partyStrip variant:strip',
       sceneStage: 'sceneStage variant:panel',
       suzuPresence: 'suzuPresence variant:full',
@@ -360,7 +486,7 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
 
   it('story/combat', () => {
     expect(pin(LAYOUT_ROWS_BY_ID.story, 'combat')).toEqual({
-      topBar: 'topBar',
+      topBar: 'topBar variant:band',
       partyStrip: 'partyStrip variant:rail',
       sceneStage: 'sceneStage variant:hero',
       suzuPresence: 'suzuPresence variant:full',
@@ -376,7 +502,7 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
 
   it('table/exploring', () => {
     expect(pin(LAYOUT_ROWS_BY_ID.table, 'exploring')).toEqual({
-      topBar: 'host:sceneStage',
+      topBar: 'sceneStage anchor:top-start variant:overlay',
       partyStrip: 'partyStrip variant:rail',
       sceneStage: 'sceneStage variant:hero',
       suzuPresence: 'suzuPresence variant:full',
@@ -392,7 +518,7 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
 
   it('table/combat', () => {
     expect(pin(LAYOUT_ROWS_BY_ID.table, 'combat')).toEqual({
-      topBar: 'host:sceneStage',
+      topBar: 'sceneStage anchor:top-start variant:overlay',
       partyStrip: 'partyStrip variant:rail',
       sceneStage: 'sceneStage variant:hero',
       suzuPresence: 'suzuPresence variant:full',
@@ -408,7 +534,7 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
 
   it('phone/exploring', () => {
     expect(pin(LAYOUT_ROWS_BY_ID.phone, 'exploring')).toEqual({
-      topBar: 'topBar',
+      topBar: 'topBar variant:band',
       partyStrip: 'host:topBar variant:strip',
       sceneStage: 'sceneStage variant:inline collapsible:true',
       suzuPresence: 'host:topBar variant:compact',
@@ -424,7 +550,7 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
 
   it('phone/combat', () => {
     expect(pin(LAYOUT_ROWS_BY_ID.phone, 'combat')).toEqual({
-      topBar: 'topBar',
+      topBar: 'topBar variant:band',
       partyStrip: 'host:topBar variant:strip',
       sceneStage: 'sceneStage variant:panel collapsible:true',
       suzuPresence: 'host:topBar variant:compact',
