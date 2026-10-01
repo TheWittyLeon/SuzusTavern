@@ -2,6 +2,8 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import FoldDock from '@/components/FoldDock';
+import { readFileSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
 
 function dock(props: Partial<React.ComponentProps<typeof FoldDock>> = {}) {
   const onToggle = jest.fn();
@@ -119,5 +121,18 @@ describe('FoldDock', () => {
     expect(panel).not.toHaveAttribute('role');
     expect(panel).not.toHaveAttribute('aria-labelledby');
     expect(document.querySelector('[hidden]')).toBeNull();
+  });
+});
+
+describe('FoldDock with a body is content-sized (A9d-2: its tenants follow it, they are not a band-height away)', () => {
+  it('the dock carries data-has-body only when a body is declared, and the stylesheet sizes that form to its content', () => {
+    const { container, rerender } = render(
+      <FoldDock folded={false} onToggle={() => {}} label="Scene stage" icon="Map" body="b"><div id="b" data-fold-body /></FoldDock>,
+    );
+    expect(container.querySelector('[data-foldable]')).toHaveAttribute('data-has-body', 'true');
+    rerender(<FoldDock folded={false} onToggle={() => {}} label="Character sheet" icon="Scroll"><div /></FoldDock>);
+    expect(container.querySelector('[data-foldable]')).not.toHaveAttribute('data-has-body');
+    const css = readFileSync(resolvePath(process.cwd(), 'src/components/FoldDock.module.css'), 'utf8');
+    expect(css).toMatch(/\.dock\[data-has-body='true'\],\s*\.dock\[data-has-body='true'\] > \.panel\s*\{\s*height:\s*auto;?\s*\}/);
   });
 });

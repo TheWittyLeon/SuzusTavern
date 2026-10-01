@@ -7,6 +7,8 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { useRovingToolbar, type ToolbarOrientation } from '@/lib/a11y/useRovingToolbar';
 import DiceTray from '@/components/DiceTray';
+import { readFileSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
 
 function Bar({
   orientation,
@@ -261,5 +263,47 @@ describe('DiceTray — the dice are a 3x2 grid with row keys', () => {
     expect(die(4)).toHaveFocus();
     const grid = screen.getByRole('toolbar', { name: 'Dice' });
     expect(grid.style.getPropertyValue('--dice-columns')).toBe('3');
+  });
+});
+
+describe('DiceTray — a row that asks for one row of six (A9d-2, Tora A9d-1 MAJOR-1)', () => {
+  const realGCS = window.getComputedStyle.bind(window);
+  afterEach(() => jest.restoreAllMocks());
+
+  const sixAcross = () =>
+    jest.spyOn(window, 'getComputedStyle').mockImplementation((el: Element, pseudo?: string | null) => {
+      const cs = realGCS(el, pseudo);
+      if (el instanceof HTMLElement && el.getAttribute('role') === 'toolbar' && el.getAttribute('aria-label') === 'Dice') {
+        return new Proxy(cs, { get: (t, k) => (k === 'gridTemplateColumns' ? '50px 50px 50px 50px 50px 50px' : Reflect.get(t, k)) });
+      }
+      return cs;
+    });
+
+  it('the keys follow the RESOLVED column count: with six across, ArrowDown has no row to step to (d4 stays), Left/Right still walk', () => {
+    sixAcross();
+    render(<DiceTray onRoll={() => {}} />);
+    const die = (n: number) => screen.getByRole('button', { name: `Roll d${n}` });
+    die(4).focus();
+    key(die(4), 'ArrowDown');
+    expect(die(4)).toHaveFocus(); // at 3 columns this lands on d10
+    key(die(4), 'ArrowRight');
+    expect(die(6)).toHaveFocus();
+    key(die(6), 'End');
+    expect(die(20)).toHaveFocus();
+  });
+
+  it('control: unresolved (jsdom) keeps three columns, so ArrowDown still steps a row', () => {
+    render(<DiceTray onRoll={() => {}} />);
+    const die = (n: number) => screen.getByRole('button', { name: `Roll d${n}` });
+    die(4).focus();
+    key(die(4), 'ArrowDown');
+    expect(die(10)).toHaveFocus();
+  });
+
+  it('the stylesheet lets a row set the count and never lets a chip fall under 44px for the gap', () => {
+    const css = readFileSync(resolvePath(process.cwd(), 'src/components/DiceTray.module.css'), 'utf8');
+    expect(css).toMatch(/--dice-cols:\s*var\(--play-dice-columns,\s*var\(--dice-columns,\s*3\)\)/);
+    expect(css).toMatch(/grid-template-columns:\s*repeat\(var\(--dice-cols\),\s*1fr\)/);
+    expect(css).toMatch(/column-gap:\s*clamp\(1px,\s*calc\(\(100% - var\(--dice-cols\) \* 44px\) \/ \(var\(--dice-cols\) - 1\)\),\s*8px\)/);
   });
 });

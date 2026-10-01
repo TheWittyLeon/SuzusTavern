@@ -79,7 +79,7 @@ export default function FoldDock({
   // by construction here rather than by each attribute remembering to check (Iro A9c-1 MINOR-3).
   const landmarkLabelledBy = foldable ? labelledBy : undefined;
   return (
-    <div className={styles.dock} data-foldable={foldable} data-folded={isFolded}>
+    <div className={styles.dock} data-foldable={foldable} data-folded={isFolded} data-has-body={body !== undefined ? 'true' : undefined}>
       {foldable && (
         <button
           type="button"

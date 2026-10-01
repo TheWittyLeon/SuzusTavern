@@ -167,7 +167,7 @@ describe('Play.module.css', () => {
 
     it('a slot whose dock is foldable keeps the 44px handle plus its block padding (the handle is never squeezed out)', () => {
       const rule = strip(blockFrom(".slot:has(> [data-foldable='true']) {"));
-      expect(rule).toMatch(/min-height:\s*calc\(44px \+ 2 \* var\(--play-slot-edge, var\(--density-gap\)\)\)/);
+      expect(rule).toMatch(/min-height:\s*max\(calc\(44px \+ 2 \* var\(--play-slot-edge, var\(--density-gap\)\)\), var\(--play-foldable-min, 0px\)\)/);
     });
 
     it('a raised safety banner yields ONLY the two --play-* row variables on .grid, to the row\'s BANNER floor (never 0 where the row has one), naming no layout (safety yield)', () => {
@@ -183,6 +183,12 @@ describe('Play.module.css', () => {
       // The same rule text appears exactly once in the file, and it is that one.
       const all = strip(css).match(/safetyBanner'\] > :not\(:empty\)\)/g) ?? [];
       expect(all).toHaveLength(1);
+    });
+
+    it('on a short viewport (the complement of the 701px boundary) the stage band takes the row\'s reflow minimum, via --play-foldable-min only (Tora A9d-1 MAJOR-1)', () => {
+      const rule = strip(blockFrom('@media (max-height: 700px) {'));
+      expect(rule).toMatch(/\.grid\s*\{\s*--play-foldable-min:\s*var\(--play-foldable-reflow-min,\s*0px\);?\s*\}/);
+      expect(rule).not.toMatch(/data-layout|story|table|phone/i);
     });
 
     it('the Appearance dialog is bounded by the viewport and scrolls inside', () => {
