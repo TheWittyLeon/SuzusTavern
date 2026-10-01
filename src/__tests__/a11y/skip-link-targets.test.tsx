@@ -107,14 +107,13 @@ describe('skip-link targets on /play (A9c C5, Iro A9b)', () => {
     expect(container.querySelector('[data-layout-resolved]')).not.toHaveAttribute('id', 'main-content');
   });
 
-  it('exploring: the action bar slot is the focusable #play-actions target but has no content, so no "Skip to actions" link is offered', async () => {
+  it('exploring: the action bar slot is the focusable #play-actions target (the link to it is pinned below)', async () => {
     const { container } = renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     const target = container.querySelectorAll('#play-actions');
     expect(target).toHaveLength(1);
     expect(target[0]).toHaveAttribute('tabindex', '-1');
     expect(target[0]).toHaveAttribute('data-region-slot', 'actionBar');
-    expect(screen.queryByRole('link', { name: 'Skip to actions' })).toBeNull();
   });
 });
 
