@@ -598,15 +598,21 @@ const STORY_ROW: LayoutRow = {
   // `max-content` takes its base size from the content, so it is never shrunk.
   // A9c-2 D7: the combat stage track is `fit-content(290px)`, content-sized up to
   // R19's cap, instead of `minmax(0,290px)`, which grows to its cap whatever the
-  // stage holds. Measured at the harness: it returns 0px today (story·combat log
-  // 116px before and after) because the stage holds the dice tray AND its
-  // quick-check list, which push it past the cap (>=556px of content, probed with
-  // the cap at 900px). With the tray taken out of the stage the stage is 268px,
-  // so the cap still does not bind, and the log is STILL 116px: the rest of the
-  // log slot is the recap strip (46px), the turn banner and padding.
-  // debt: Story/combat storyLog is 116px inner vs the 200px combat-floor target (a:storyLog), harness floor stays 100.
-  // ceiling: reaching 200 needs ~84px more than the stage can give; the log slot's own chrome (recap strip, turn banner) is the next claim, not the stage.
-  // until: the recap strip folds away in combat, or the session header moves over the stage (Backlog TAV-COMBAT-LOG-FLOOR-200).
+  // stage holds. It returns 0px today: the stage holds the dice tray AND its
+  // quick-check list (>=556px of content, probed with the cap at 900px), so the
+  // track sits at its 290px cap, and it STAYS at 290 with the tray out of the stage
+  // (Kage's A9c-2 review measurement), so the cap is not the lever here at all.
+  // Measured inner log (a:storyLog, story·combat g), by lever, after the empty
+  // announcer tenants left the flex flow (116 -> 132, `h:emptyTenants`):
+  //   as shipped (gap removed)            132
+  //   + recap strip out of the log slot   194   <- the only lever that moves Story
+  //   + dice tray out of the stage        132   (no effect: the track stays 290)
+  // The recap strip is the largest lever. Even with it gone Story is ~6px short of
+  // 200; that last 6px is the turn banner / slot padding, an Aoi layout call, not
+  // a code lever claimed here.
+  // debt: Story/combat storyLog is 132px inner vs the 200px combat-floor target (a:storyLog), harness floor stays 100.
+  // ceiling: 200 needs the recap strip out of the log slot (194) plus ~6px of turn-banner/padding chrome; the stage cannot give it, the track stays 290.
+  // until: the recap strip is no longer rendered inside the combat log slot AND Aoi rules the remaining ~6px (Backlog TAV-COMBAT-LOG-FLOOR-200).
   rows: {
     exploring: 'auto auto minmax(0,1fr) auto auto max-content',
     combat: 'auto auto fit-content(290px) minmax(0,1fr) auto max-content',
@@ -707,11 +713,19 @@ const TABLE_ROW: LayoutRow = {
   },
   // A9c-2 D7: `fit-content(400px)` (was `minmax(0,400px)`), same lever, same 0px
   // returned: the stage holds the dice tray and its quick-check list (>=680px of
-  // content probed at a 900px cap), so it always fills its 400px cap. With the
-  // tray out of the stage the log measured 209-234px on every table combat cell.
-  // debt: Table/combat storyLog is 107-132px inner vs the 200px combat-floor target (a:storyLog), harness floor stays 100.
-  // ceiling: the dice tray (+ quick checks) sits in the stage track, so the stage always fills its 400px cap and the log gets the remainder.
-  // until: the dice tray folds or leaves the stage in combat (Backlog TAV-COMBAT-LOG-FLOOR-200).
+  // content probed at a 900px cap), so it always fills its 400px cap.
+  // Measured inner log (a:storyLog; Table b = the plain combat cell, Table c = the
+  // caster cell with the Cast panel), by lever, after the empty announcer tenants
+  // left the flex flow (+16px, `h:emptyTenants`):
+  //   as shipped, gap removed                 148 (b)  123 (c)
+  //   + dice tray out of the stage            186      161
+  //   + recap strip out (tray still in)       210      185
+  //   + both                                  248      223
+  // The recap strip is the largest lever: alone it takes b past 200 (210). The
+  // caster cell c needs BOTH the strip and the tray out of the stage to pass 200.
+  // debt: Table/combat storyLog is 123-148px inner vs the 200px combat-floor target (a:storyLog), harness floor stays 100.
+  // ceiling: the recap strip in the log slot plus (caster cell only) the dice tray in the stage hold the caster cell at 123 against 223 with both gone; neither is movable from this track.
+  // until: the recap strip is no longer rendered inside the combat log slot (reaches 200 on the plain cell), and the dice tray leaves the stage in combat (caster cell) (Backlog TAV-COMBAT-LOG-FLOOR-200).
   // debt: Table's `offers` (`list`, one full-width button per offer) is capped at 120px and scrolls inside it; uncapped, 3-4 offers starve the log.
   // ceiling: 3+ offers scroll in a 120px box, in the table·exploring cell only (offers are hidden in combat).
   // until: Table's offers take the `chips` form (step 11 Table checkpoint) or the stage track is content-sized.
