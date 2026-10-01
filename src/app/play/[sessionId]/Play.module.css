@@ -227,6 +227,15 @@
   color: var(--ink);
 }
 
+/* A9c-2 D3: TopBar's `settings` slot (the Appearance trigger, 44x44 by its own
+   rule). Same footprint trick as .back/.journalToggleBtn: the 44px tap target
+   takes 36px of layout, so the trigger does not grow the header. */
+.settingsSlot {
+  display: flex;
+  flex-shrink: 0;
+  margin: -4px;
+}
+
 .journalToggleBtn:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;

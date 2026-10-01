@@ -50,6 +50,11 @@ export interface TopBarProps {
    *  header (Story, Phone); `overlay` is the one-line form over the stage
    *  (Table). Unset renders `band`. */
   variant?: RegionVariant<'topBar'>;
+  /** A9c-2 D3 (R23): the page's Appearance trigger (`<TweaksPanel />`), rendered
+   *  AFTER the journal toggle so the exit stays the first tab stop. `/play` is
+   *  outside `TavernShell`, so this is the only place the layout picker can be
+   *  reached mid-session. The region never imports theme code: it is a node. */
+  settings?: ReactNode;
 }
 
 /** S5.5: NarratorStrip (a scene/combat status banner) hidden when
@@ -71,6 +76,7 @@ export default function TopBar({
   status,
   statusPill,
   variant = 'band',
+  settings,
 }: TopBarProps) {
   const overlay = variant === 'overlay';
   const narrator = showSuzuPanel ? (
@@ -121,6 +127,7 @@ export default function TopBar({
         >
           <Icon name="Lantern" size={16} aria-hidden />
         </button>
+        {settings && <div className={styles.settingsSlot}>{settings}</div>}
       </div>
       {/* overlay: NarratorStrip stays MOUNTED so topBar still announces (R3); it
           is redundant on screen (the stage shows the scene, suzuPresence shows

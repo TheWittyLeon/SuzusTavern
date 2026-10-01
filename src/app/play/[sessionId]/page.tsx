@@ -103,6 +103,7 @@ import { useRegionFolds } from './hooks/useRegionFolds';
 import JournalPane, { JOURNAL_HEADING_ID } from '@/components/JournalPane';
 import MemberSheetPanel, { MEMBER_SHEET_HEADING_ID } from '@/components/MemberSheetPanel';
 import NextPartOffer from '@/components/NextPartOffer';
+import TweaksPanel from '@/components/TweaksPanel';
 import {
   SessionRecapTenant,
   SessionPausedEndedTenant,
@@ -1433,6 +1434,7 @@ export default function PlayPage() {
         status={narratorStatusPill}
         statusPill={statusPill}
         variant={variantFor(row, 'topBar', moment)}
+        settings={<TweaksPanel />}
       />
     ),
     partyStrip: (

@@ -83,6 +83,22 @@ describe('A9c C4 — TopBar variants', () => {
     expect(before.closest('.sr-only')).toBeNull();
   });
 
+  it('settings slot (D3): rendered after the journal toggle in both variants, absent when not passed; the exit stays first', () => {
+    for (const variant of ['band', 'overlay'] as const) {
+      const { unmount } = render(
+        <TopBar {...base} variant={variant} settings={<button type="button">Gear</button>} />,
+      );
+      const exit = screen.getByRole('link', { name: 'Leave session' });
+      const journal = screen.getByRole('button', { name: 'Open journal' });
+      const gear = screen.getByRole('button', { name: 'Gear' });
+      expect(exit.compareDocumentPosition(journal) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(journal.compareDocumentPosition(gear) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      unmount();
+    }
+    render(<TopBar {...base} />);
+    expect(screen.queryByRole('button', { name: 'Gear' })).toBeNull();
+  });
+
   it('band + ai-off keeps its single status region below the head (unchanged)', () => {
     render(<TopBar {...base} showSuzuPanel={false} />);
     expect(screen.getAllByRole('status')).toHaveLength(1);
