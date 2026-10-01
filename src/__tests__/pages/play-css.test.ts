@@ -144,6 +144,37 @@ describe('Play.module.css', () => {
     });
   });
 
+  describe('A9d E3 — the shell lets the page scroll instead of clipping the block axis', () => {
+    const strip = (t: string) => t.replace(/\/\*[\s\S]*?\*\//g, '');
+
+    it('.grid clips x only: overflow-x:clip, overflow-y:visible, never the `overflow: hidden` shorthand', () => {
+      const grid = strip(blockFrom('.grid {'));
+      expect(grid).toMatch(/overflow-x:\s*clip/);
+      expect(grid).toMatch(/overflow-y:\s*visible/);
+      expect(grid).not.toMatch(/overflow:\s*hidden/);
+    });
+
+    it('a slot whose dock is foldable keeps the 44px handle plus its block padding (the handle is never squeezed out)', () => {
+      const rule = strip(blockFrom(".slot:has(> [data-foldable='true']) {"));
+      expect(rule).toMatch(/min-height:\s*calc\(44px \+ 2 \* var\(--density-gap\)\)/);
+    });
+
+    it('a raised safety banner zeroes ONLY the two --play-* row variables on .grid, naming no layout (safety yield)', () => {
+      const rule = strip(blockFrom(".grid:has(> [data-region-slot='safetyBanner'] > :not(:empty)) {"));
+      const decls = rule.slice(rule.indexOf('{') + 1, rule.lastIndexOf('}')).split(';').map((d) => d.trim()).filter(Boolean);
+      expect(decls).toEqual(['--play-floor: 0px', '--play-optional: 0px']);
+      expect(rule).not.toMatch(/data-layout|story|table|phone/i);
+    });
+
+    it('the Appearance dialog is bounded by the viewport and scrolls inside', () => {
+      const tweaks = fs.readFileSync(path.resolve(process.cwd(), 'src/components/TweaksPanel.module.css'), 'utf8');
+      const panel = strip(tweaks.slice(tweaks.indexOf('.panel {')));
+      const body = panel.slice(0, panel.indexOf('}'));
+      expect(body).toMatch(/max-height:\s*calc\(100dvh - 24px\)/);
+      expect(body).toMatch(/overflow-y:\s*auto/);
+    });
+  });
+
   describe('A11 — the mobile tab bar is shell chrome, hidden pending A9d (C4 rewrite — see this file\'s own header)', () => {
     it('.mobileTabs has no @media (max-width: 880px) override re-enabling it — its own base rule stays display:none at every width', () => {
       const mobileBlock = blockFrom('@media (max-width: 880px) {');

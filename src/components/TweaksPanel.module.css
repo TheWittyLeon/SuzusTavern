@@ -39,6 +39,10 @@
   position: fixed;
   z-index: 60; /* above the sticky topnav (which owns its own stacking context) */
   width: min(300px, calc(100vw - 24px));
+  /* A9d E3: a viewport-bound ceiling in CSS too. The component's inline
+     `maxHeight` (placed from the trigger) is the tighter bound and wins; this
+     is what holds if it is ever absent, and the panel scrolls inside it. */
+  max-height: calc(100dvh - 24px);
   overflow-y: auto;
   padding: var(--density-pad);
   display: flex;

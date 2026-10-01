@@ -26,8 +26,16 @@
   width: 100%;
   background: var(--bg);
   /* No full-bleed ::before here — overflow-x is clipped to avoid the phantom
-     horizontal scroll the .aurora layer once caused. */
-  overflow: hidden;
+     horizontal scroll the .aurora layer once caused. A9d E3: the BLOCK axis is
+     not clipped. When the whole + floor + optional minimums of a row exceed the
+     viewport (a phone at 375x667, a landscape 720x450, a 400% zoom), the tracks
+     overflow this box and the PAGE scrolls, so the X-card and the composer are
+     reachable by scrolling instead of being clipped away. Desktop rows reference
+     neither --play-floor nor --play-optional and every band is a scroll-container
+     `auto`/`fit-content` track (minimum contribution 0) or a ~62-81px bar, so
+     their minimum sums stay far under 900px and this never engages at 1440x900. */
+  overflow-x: clip;
+  overflow-y: visible;
   /* A9c C5: the "Skip to actions" link is absolutely positioned (globals
      `.skip-link`, off-canvas until focused); this makes the grid the box it
      is positioned and clipped against, not the page. */
@@ -75,6 +83,27 @@
      scroll height (measured 1109/1179/945px against a 900px viewport),
      pushing the action bar off-screen. */
   position: relative;
+}
+
+/* A9d E3 (build brief 2.3): the fold handle is never squeezed out. A slot whose
+   dock is foldable keeps room for the handle (44px, FoldDock.module.css
+   `.handle`) plus its own block padding, whatever the row's track gives it, so
+   a floor/optional track can shrink the region to the handle and no further.
+   Generic: it names a dock, never a region or a layout. */
+.slot:has(> [data-foldable='true']) {
+  min-height: calc(44px + 2 * var(--density-gap));
+}
+
+/* A9d E3 (build brief 2.3): safety yield. A9c section 8 ranks a raised safety
+   banner above party and stage; this is that rank enforced by layout. While the
+   banner slot has content, a row's floor and optional tracks drop to their
+   minimums (party -> one tile row, stage -> its handle row) and the log takes
+   what is left. It sets only the two `--play-*` row variables on `.grid` and
+   names no layout, so every row that does not reference them (all desktop rows)
+   is untouched. */
+.grid:has(> [data-region-slot='safetyBanner'] > :not(:empty)) {
+  --play-floor: 0px;
+  --play-optional: 0px;
 }
 
 /* A9b fix round 1 (Imp-3, Aoi B3): `.slot`'s padding defeated `:empty` — the
