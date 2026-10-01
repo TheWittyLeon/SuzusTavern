@@ -293,11 +293,14 @@ export default function PlayShell({
     .map((entry) => (entry.kind === 'hosted' ? `${entry.host}>${entry.id}` : `${entry.kind}:${entry.id}`))
     .join(',');
 
-  // "Skip to actions": only while the target slot is a visible, placed one.
+  // "Skip to actions": only while the target slot is a visible, placed one AND
+  // renders something: its own region node or at least one tenant riding in it
+  // (the X-card is a tenant of the action bar, so exploring has a target).
   const skipLinks = (Object.keys(SKIP_TARGETS) as RegionId[]).flatMap((regionId) => {
     const target = SKIP_TARGETS[regionId];
     const placement = getPlacement(row, regionId, moment);
-    const shown = target && placement.area != null && placement.visible !== false && regions[regionId] !== undefined;
+    const hasContent = regions[regionId] !== undefined || tenantsByHost.has(regionId);
+    const shown = target && placement.area != null && placement.visible !== false && hasContent;
     return shown ? [<a key={target.id} className="skip-link" href={`#${target.id}`}>{target.label}</a>] : [];
   });
 
