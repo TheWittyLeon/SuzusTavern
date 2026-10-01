@@ -112,8 +112,10 @@ export default function TopBar({
           <div className={styles.sessionTitle}>{title}</div>
         </div>
         {/* overlay: the visible pill. `aria-hidden` because NarratorStrip (in the
-            `sr-only` wrapper below) already carries it — one announcer per fact (A4). */}
-        {overlay ? showSuzuPanel ? <span aria-hidden="true">{status}</span> : aiOff : null}
+            `sr-only` wrapper below) already carries it — one announcer per fact (A4).
+            AI off has no NarratorStrip, so its pill is the announcer and lives at the
+            ROOT (below), not here: one tree position in both variants. */}
+        {overlay && showSuzuPanel ? <span aria-hidden="true">{status}</span> : null}
         {/* DDX-22: Journal drawer toggle — visible to every seat (not
             isDm-gated; the journal is a per-player surface, not a DM tool). */}
         <button
@@ -135,7 +137,11 @@ export default function TopBar({
           BOTH variants and only its class toggles, so an Auto switch never
           remounts NarratorStrip (a remount re-announces the scene). */}
       {narrator && <div className={overlay ? 'sr-only' : undefined}>{narrator}</div>}
-      {overlay || showSuzuPanel ? null : aiOff}
+      {/* ONE tree position in both variants (Kage A9c-2 IMPORTANT-5): the AI-off pill is
+          a live region, and a node that moves between a band and an overlay position is
+          destroyed and recreated by React, so every Story <-> Table switch re-announced
+          it. Pinned on the real page by play.render-matrix.real-page.test.tsx. */}
+      {showSuzuPanel ? null : aiOff}
     </div>
   );
 }

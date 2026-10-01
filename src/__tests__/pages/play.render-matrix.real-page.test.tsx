@@ -10,7 +10,7 @@
  * here and nowhere else.
  */
 import React from 'react';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { Session, Participant } from '@/lib/api/types';
@@ -70,9 +70,14 @@ import * as dnd from '@/lib/api/dnd';
 import PlayPage from '@/app/play/[sessionId]/page';
 import { PLAY_PHONE_QUERY } from '@/lib/breakpoints';
 import {
+  ANNOUNCING_REGIONS,
+  FOLDABLE_REGIONS,
   LAYOUT_ROWS_BY_ID,
+  REGION_TENANTS,
   REGION_VARIANTS,
+  getPlacement,
   variantFor,
+  type TenantId,
   type LayoutId,
   type Moment,
   type RegionId,
@@ -154,7 +159,28 @@ const CELLS: Cell[] = [
   { name: 'phone x combat', row: 'phone', moment: 'combat', pref: null, phone: true },
 ];
 
+const LIVE = '[aria-live], [role="status"], [role="alert"], [role="log"]';
 const checked: Record<string, number> = {};
+const slotSets = new Map<string, Set<string>>();
+const tenantsSeen = new Set<string>();
+const foldChecked = { collapsible: 0, inert: 0 };
+
+/**
+ * Plan 4.1 / build brief section 4.1: the settled DOM order of the top-level slots,
+ * as LITERALS (a hidden slot is `o°`, an overlay `o▲`). Pinned here on the real
+ * page and in the registry test on `slotOrder`; the phone's partyStrip and
+ * suzuPresence are hosted inside topBar, so they are not top-level slots.
+ */
+const ORDER_LITERALS: Record<string, string> = {
+  'story exploring': 'safetyBanner, topBar, partyStrip, suzuPresence, storyLog, sceneStage, offers, composer, actionBar',
+  'story combat': 'safetyBanner, topBar, partyStrip, suzuPresence, sceneStage, storyLog, offers°, composer, actionBar',
+  'table exploring': 'safetyBanner, partyStrip, topBar▲, sceneStage, characterBlock, suzuPresence, storyLog, offers, composer, actionBar',
+  'table combat': 'safetyBanner, partyStrip, topBar▲, sceneStage, characterBlock, suzuPresence, storyLog, offers°, composer, actionBar',
+  'phone exploring': 'safetyBanner, topBar, sceneStage, storyLog, offers, composer, actionBar',
+  'phone combat': 'safetyBanner, topBar, sceneStage, storyLog, offers°, composer, actionBar',
+};
+const slotOf = (el: Element) => el.closest('[data-region-slot]');
+const slotId = (el: Element) => slotOf(el)?.getAttribute('data-region-slot') ?? null;
 
 describe('/play real-page render matrix (4 desktop + 2 phone)', () => {
   it.each(CELLS)('$name: every variant-consuming region carries its row\'s variant', async (cell) => {
@@ -190,9 +216,119 @@ describe('/play real-page render matrix (4 desktop + 2 phone)', () => {
       else expect(REGION_VARIANTS[region as keyof typeof REGION_VARIANTS] as readonly string[]).toContain(got);
       checked[region] = (checked[region] ?? 0) + (want !== undefined ? 1 : 0);
     }
+
+    // D5 (1): the slot-id set per row, compared across moments in its own test below.
+    const slots = Array.from(container.querySelectorAll('[data-region-slot]'));
+    const rowSet = slotSets.get(cell.row) ?? new Set<string>();
+    rowSet.add(slots.map((n) => n.getAttribute('data-region-slot')).sort().join(','));
+    slotSets.set(cell.row, rowSet);
+
+    // D5 (4): the DOM order of the top-level slots is the settled literal.
+    const order = slots
+      .map((n) => {
+        const id = n.getAttribute('data-region-slot');
+        return id + (n.getAttribute('data-visible') === 'false' ? '°' : '') + (n.hasAttribute('data-anchor') ? '▲' : '');
+      })
+      .join(', ');
+    expect([cell.name, order]).toEqual([cell.name, ORDER_LITERALS[`${cell.row} ${cell.moment}`]]);
+
+    // D5 (3): every tenant renders inside the slot of its declared host.
+    for (const el of Array.from(container.querySelectorAll('[data-tenant]'))) {
+      const id = el.getAttribute('data-tenant') as TenantId;
+      expect([cell.name, id, slotId(el)]).toEqual([cell.name, id, REGION_TENANTS[id].host]);
+      tenantsSeen.add(id);
+    }
+
+    // D5 (2): every live region sits in a slot that is visible in this cell (an announcer
+    // in a hidden slot says nothing). A node outside every slot is a layer's.
+    for (const el of Array.from(container.querySelectorAll(LIVE))) {
+      const slot = slotOf(el);
+      if (!slot) continue;
+      const id = slot.getAttribute('data-region-slot') as RegionId;
+      expect([cell.name, id, slot.getAttribute('data-visible')]).toEqual([cell.name, id, 'true']);
+      expect([cell.name, id, ANNOUNCING_REGIONS.has(id)]).toEqual([cell.name, id, true]);
+    }
+
+    // D5 (6): a region is collapsible in this cell exactly when its dock shows a handle.
+    // A collapsible placement with no FoldSpec has no dock at all: red here.
+    for (const id of FOLDABLE_REGIONS) {
+      const slot = container.querySelector(`[data-region-slot="${id}"]`);
+      if (!slot) continue; // hosted inside another region's slot: not a dock of its own
+      const dock = slot.querySelector('[data-foldable]');
+      const collapsible = getPlacement(row, id, cell.moment).collapsible === true;
+      expect([cell.name, id, dock?.getAttribute('data-foldable')]).toEqual([cell.name, id, String(collapsible)]);
+      const handle = dock?.querySelector(':scope > button[aria-expanded]') ?? null;
+      expect([cell.name, id, handle !== null]).toEqual([cell.name, id, collapsible]);
+      foldChecked[collapsible ? 'collapsible' : 'inert'] += 1;
+    }
+  });
+
+  it('D5 (1): within a row the slot-id set is identical across moments (a preset hides, never unmounts)', () => {
+    expect(slotSets.size).toBe(3);
+    for (const [row, sets] of slotSets) expect([row, sets.size]).toEqual([row, 1]);
+  });
+
+  it('D5 is not vacuous: tenants were checked, and the fold check saw both a handle and an inert dock', () => {
+    expect(tenantsSeen.size).toBeGreaterThanOrEqual(3);
+    expect(foldChecked.collapsible).toBeGreaterThan(0);
+    expect(foldChecked.inert).toBeGreaterThan(0);
   });
 
   it('is not vacuous: every consuming region was compared against a row-declared variant at least once', () => {
     for (const region of CONSUMING) expect([region, checked[region] ?? 0]).not.toEqual([region, 0]);
+  });
+});
+
+/**
+ * Kage A9c-2 IMPORTANT-5: a live region that REMOUNTS across a layout flip is
+ * re-announced by a screen reader, and the unit tests of a region in isolation cannot
+ * see it (the AI-off status pill used to sit at a different tree position in the
+ * `band` and `overlay` TopBar, so every Story <-> Table switch destroyed and recreated
+ * it). One real-page assertion, over EVERY live region the page mounts, in both
+ * directions of the flip: the same DOM nodes before and after.
+ */
+describe('/play real-page: live regions survive a layout flip (never remount)', () => {
+  it.each([
+    ['AI assist off (the pill is the announcer)', 'off'],
+    ['AI assist full (NarratorStrip is the announcer)', 'full'],
+  ] as const)('%s: every live region is the same node after Story -> Table -> Auto', async (_n, level) => {
+    setPhone(false);
+    (dnd.getSession as jest.Mock).mockResolvedValue({ ...SESSION, ai_assist_level: level });
+    (dnd.getParticipants as jest.Mock).mockResolvedValue(PARTY);
+    const { container } = renderPlay(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+    const root = () => container.querySelector('[data-layout-resolved]') as HTMLElement;
+    await waitFor(() => expect(root()).toHaveAttribute('data-layout-resolved', 'story'));
+    const before = Array.from(container.querySelectorAll(LIVE));
+    // non-vacuous: the page really has live regions, and with AI off the pill is one of them
+    expect(before.length).toBeGreaterThan(3);
+    if (level === 'off') expect(before.some((n) => n.className.includes('aiOffStatus'))).toBe(true);
+
+    const flipTo = async (name: string, resolved: string) => {
+      fireEvent.click(screen.getByRole('button', { name: 'Appearance settings' }));
+      await act(async () => {
+        fireEvent.click(screen.getByRole('radio', { name }));
+      });
+      await waitFor(() => expect(root()).toHaveAttribute('data-layout-resolved', resolved));
+      fireEvent.keyDown(screen.getByRole('dialog', { name: 'Appearance' }), { key: 'Escape' });
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Appearance' })).toBeNull());
+    };
+    // As a SET: a flip reorders the slots (Table puts the stage before the log), and a
+    // keyed reorder MOVES a node, which is not a remount. Index-for-index would be wrong.
+    const sameNodes = () => {
+      const now = new Set(Array.from(container.querySelectorAll(LIVE)));
+      expect(now.size).toBe(before.length);
+      before.forEach((node, i) => {
+        const label = `${i} ${node.getAttribute('role') ?? 'aria-live'} ${String(node.className)}`;
+        expect([label, node.isConnected, now.has(node)]).toEqual([label, true, true]);
+      });
+    };
+
+    await flipTo('Table', 'table');
+    expect(container.querySelector('[data-region="topBar"]')).toHaveAttribute('data-variant', 'overlay');
+    sameNodes();
+    await flipTo('Auto', 'story');
+    expect(container.querySelector('[data-region="topBar"]')).toHaveAttribute('data-variant', 'band');
+    sameNodes();
   });
 });
