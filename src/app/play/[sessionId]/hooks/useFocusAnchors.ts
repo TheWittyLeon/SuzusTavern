@@ -38,11 +38,22 @@
  * rescue effect added here must keep the stranding gate, or the ordering
  * stops being harmless.
  *
+ * A9d-2 F2 (build brief §5, Iro A9d-1 MINOR-2): a LAYOUT change can strand focus too. The one move React cannot keep
+ * is a node that lands somewhere `inert` (Table's docked sheet becoming the closed phone drawer) or an element that
+ * stops existing (the stage's fold handle going inert at desktop width): focus drops to <body>. One more rescue,
+ * same gate as the rest: when the resolved layout id changes and focus is on <body> after the commit, the scene
+ * head takes it. The head is outside every fold body (F1), so it is always there to take it.
+ * NOT when the layout changed because the MOMENT did (Auto: combat starting or ending flips Story <-> Table): that
+ * flip has rescues of its own (the begin-encounter and turn-flip ones above), scoped to a LOCAL cause, and a poll
+ * that starts another player's fight must not move a user who is on <body> (Iro CRITICAL-1's provenance rule;
+ * play.solo-dm-cast-rail pins both).
+ *
  * `dialogRef`/Tab-trap `onKeyDown` are NOT here — those are `<Drawer>`'s
  * own concern (step 2), unrelated to this cluster.
  */
 import { useEffect, useRef, type MutableRefObject } from 'react';
 import { useToast } from '@/components/Toast';
+import type { LayoutId } from '../presets';
 
 export interface UseFocusAnchorsResult {
   endCombatBtnRef: MutableRefObject<HTMLButtonElement | null>;
@@ -62,6 +73,8 @@ export function useFocusAnchors(
   // drives the composer-refocus rescue below. Composer.tsx can no longer
   // own this itself once `combat`/ActionBar leaves its props.
   combatIsActive: boolean,
+  // A9d-2 F2: the resolved layout id (`usePlayLayout`), the trigger of the layout-change rescue below.
+  layoutId: LayoutId,
 ): UseFocusAnchorsResult {
   const { toast } = useToast();
 
@@ -172,6 +185,19 @@ export function useFocusAnchors(
       }
     }
   }, [combatIsActive]);
+
+  // A9d-2 F2 — see the header. Not on the first render (nothing changed), only on an id change.
+  const prevLayoutRef = useRef({ layoutId, combatIsActive });
+  useEffect(() => {
+    const was = prevLayoutRef.current;
+    prevLayoutRef.current = { layoutId, combatIsActive };
+    if (was.layoutId === layoutId || was.combatIsActive !== combatIsActive) return;
+    requestAnimationFrame(() => {
+      const active = document.activeElement;
+      if (active != null && active !== document.body) return;
+      sceneHeadRef.current?.focus({ preventScroll: true });
+    });
+  }, [layoutId, combatIsActive, sceneHeadRef]);
 
   return {
     endCombatBtnRef,
