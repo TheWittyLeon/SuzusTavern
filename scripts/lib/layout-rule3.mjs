@@ -22,12 +22,11 @@ const ENTRY_DIRS = [`${PLAY_DIR}/regions/`, `${PLAY_DIR}/tenants/`];
  * `page.tsx` is an entry too (Kage A9c-2 IMPORTANT-3): it passes DiceTray,
  * MemberSheetPanel, TweaksPanel and others straight into `regions` / `tenants`, so
  * a component only the page imports is still rendered inside a slot. The page's
- * own imports are followed to the bottom of the component tree.
+ * own imports are followed to the bottom of the component tree. So is every
+ * region/tenant entry's (A9d N2: the old two-hop cap let a `position:fixed` child
+ * of a shared component, e.g. Button, sit one hop past the walk).
  */
 export const PAGE_ENTRY = `${PLAY_DIR}/page.tsx`;
-
-/** How many @/components hops are followed from a region/tenant file. */
-export const COMPONENT_HOPS = 2;
 
 /** Declared layer hosts: they ARE the layer, `position: fixed` is their job. */
 export const LAYER_HOSTS = Object.freeze([
@@ -119,23 +118,23 @@ function resolveSpecifier(from, spec) {
 export function reachableCss(files) {
   const css = new Set();
   const seen = new Set();
-  const visit = (file, hopsLeft) => {
+  const visit = (file) => {
     if (seen.has(file) || !files.has(file)) return;
     seen.add(file);
     for (const m of files.get(file).matchAll(IMPORT_RE)) {
       const target = resolveSpecifier(file, m[2]);
       if (!target) continue;
       if (/\.css$/.test(target)) { if (files.has(target)) css.add(target); continue; }
-      if (hopsLeft > 0 && target.startsWith('src/components/')) {
+      if (target.startsWith('src/components/')) {
         const tsx = [`${target}.tsx`, `${target}.ts`].find((p) => files.has(p));
-        if (tsx) visit(tsx, hopsLeft - 1);
+        if (tsx) visit(tsx);
       }
     }
   };
   for (const f of files.keys()) {
-    if (ENTRY_DIRS.some((d) => f.startsWith(d)) && /\.tsx?$/.test(f)) visit(f, COMPONENT_HOPS);
+    if (ENTRY_DIRS.some((d) => f.startsWith(d)) && /\.tsx?$/.test(f)) visit(f);
   }
-  visit(PAGE_ENTRY, Infinity);
+  visit(PAGE_ENTRY);
   return css;
 }
 

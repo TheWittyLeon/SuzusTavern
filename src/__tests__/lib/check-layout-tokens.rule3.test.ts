@@ -9,7 +9,6 @@
  */
 import {
   ANCHORED_MENUS,
-  COMPONENT_HOPS,
   IN_REGION_MODALS,
   LAYER_HOSTS,
   PLAY_CSS,
@@ -129,15 +128,25 @@ describe('Rule 3 (ii): no position: fixed reachable from regions/ and tenants/',
     expect(v).toEqual([]);
   });
 
-  it(`the reach is ${COMPONENT_HOPS} component hops, pinned: a stylesheet a third hop away is out of scope`, () => {
+  it('a region entry walks unbounded too: a fixed stylesheet FOUR component hops down is red (N2; the two-hop cap is deleted)', () => {
     const v = mutate((m) => {
       m.set(`${PLAY}/regions/ZzzNew.tsx`, `import A from '@/components/ZzA';\nexport default A;\n`);
       m.set('src/components/ZzA.tsx', `import B from '@/components/ZzB';\nexport default B;\n`);
       m.set('src/components/ZzB.tsx', `import C from '@/components/ZzC';\nexport default C;\n`);
-      m.set('src/components/ZzC.tsx', `import s from './ZzC.module.css';\nexport default s;\n`);
-      m.set('src/components/ZzC.module.css', `.root { position: fixed; }\n`);
+      m.set('src/components/ZzC.tsx', `import D from '@/components/ZzD';\nexport default D;\n`);
+      m.set('src/components/ZzD.tsx', `import s from './ZzD.module.css';\nexport default s;\n`);
+      m.set('src/components/ZzD.module.css', `.root { position: fixed; }\n`);
     });
-    expect(v).toEqual([]);
+    expect(red(v)).toBe(true);
+  });
+
+  it('the Button control: a fixed stylesheet planted under Button (a leaf every region renders through) is red', () => {
+    const v = mutate((m) => {
+      expect(m.has('src/components/Button.tsx')).toBe(true); // fixture sanity
+      m.set('src/components/Button.tsx', `import s from './Button.module.css';\n${m.get('src/components/Button.tsx')}\nvoid s;\n`);
+      m.set('src/components/Button.module.css', `.zzFloat { position: fixed; }\n`);
+    });
+    expect(red(v)).toBe(true);
   });
 
   it('an exemption that matches nothing is stale and red (the modal portaled or was deleted)', () => {
