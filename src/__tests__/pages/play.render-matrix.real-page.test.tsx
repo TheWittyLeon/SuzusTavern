@@ -35,6 +35,8 @@ jest.mock('../../lib/api/dnd', () => ({
   getGrounding: jest.fn(() => Promise.resolve(null)),
   getCombatState: jest.fn(() => Promise.resolve(null)),
   getCharacterSheet: jest.fn(() => Promise.resolve(null)),
+  // the table's characterBlock mounts MemberSheetPanel, which reads class feature text
+  getCatalog: jest.fn(() => Promise.resolve({ items: [] })),
   postSessionEvent: jest.fn(() => Promise.resolve({ seq: 1 })),
   pauseSession: jest.fn(),
   resumeSession: jest.fn(),
@@ -101,6 +103,62 @@ const PARTY: Participant[] = [
     character: { character_id: 'c1', name: 'Kestrel', char_class: 'Ranger', level: 4, current_hp: 27, max_hp: 34, ac: 16 },
   },
 ];
+/**
+ * The combat cells need a CASTER at the table: `castSpellPanel` is the second actionBar
+ * tenant, and "the X-card stays last" (below) says nothing unless something sits before
+ * it. The viewer (`dm_alice`, AI table so not a human DM) is bound to the combatant
+ * `c1`; her sheet is a spellcaster's.
+ */
+const CASTER_PARTY: Participant[] = [
+  {
+    username: 'dm_alice',
+    is_dm: true,
+    character: { character_id: 'c1', name: 'Kestrel', char_class: 'Wizard', level: 4, current_hp: 27, max_hp: 34, ac: 16 },
+  },
+  {
+    username: 'kes',
+    is_dm: false,
+    character: { character_id: 'c2', name: 'Pip', char_class: 'Ranger', level: 4, current_hp: 30, max_hp: 30, ac: 15 },
+  },
+];
+const CASTER_SHEET = {
+  character_id: 'c1',
+  owner_username: 'dm_alice',
+  name: 'Kestrel',
+  race: 'Human',
+  subrace: '',
+  char_class: 'Wizard',
+  subclass: '',
+  level: 4,
+  background: 'Sage',
+  alignment: '',
+  ability_scores: {
+    strength: { score: 8, modifier: -1 },
+    dexterity: { score: 14, modifier: 2 },
+    constitution: { score: 12, modifier: 1 },
+    intelligence: { score: 16, modifier: 3 },
+    wisdom: { score: 10, modifier: 0 },
+    charisma: { score: 10, modifier: 0 },
+  },
+  hp: { current: 27, max: 34, temp: 0 },
+  ac: 16,
+  initiative: 2,
+  proficiency_bonus: 2,
+  speed: 30,
+  xp: 2700,
+  xp_next: 6500,
+  hit_dice_remaining: 4,
+  proficient_saves: ['intelligence', 'wisdom'],
+  proficient_skills: [],
+  skills: [],
+  class_features: [],
+  conditions: [],
+  spellcasting: { ability: 'intelligence', save_dc: 13, attack_bonus: 5 },
+  spell_slots: { '1': { max: 4, used: 0, remaining: 4 }, '2': { max: 3, used: 0, remaining: 3 } },
+  is_spellcaster: true,
+  inventory: [],
+  inventory_weight: 0,
+};
 const COMBAT = {
   combat_id: 'combat-1',
   session_id: 's1',
@@ -188,7 +246,8 @@ describe('/play real-page render matrix (4 desktop + 2 phone)', () => {
     if (cell.pref) window.localStorage.setItem('tavern.layout', cell.pref);
     const combat = cell.moment === 'combat';
     (dnd.getSession as jest.Mock).mockResolvedValue({ ...SESSION, ...(combat ? { active_combat_id: 'combat-1' } : {}) });
-    (dnd.getParticipants as jest.Mock).mockResolvedValue(PARTY);
+    (dnd.getParticipants as jest.Mock).mockResolvedValue(combat ? CASTER_PARTY : PARTY);
+    (dnd.getCharacterSheet as jest.Mock).mockResolvedValue(combat ? CASTER_SHEET : null);
     (dnd.getCombatState as jest.Mock).mockResolvedValue(combat ? COMBAT : null);
 
     const { container } = renderPlay(<PlayPage />);
@@ -238,6 +297,18 @@ describe('/play real-page render matrix (4 desktop + 2 phone)', () => {
       expect([cell.name, id, slotId(el)]).toEqual([cell.name, id, REGION_TENANTS[id].host]);
       tenantsSeen.add(id);
     }
+
+    // Kage A9c-2 S2: the X-card stays LAST in its bar: the last tenant of its host slot, and
+    // the last tab stop in that slot, so a sighted or keyboard user finds it at the same end in
+    // every cell. Moving `safetyControls` ahead of another actionBar tenant in TENANT_IDS, or a
+    // control after it, is the regression.
+    const xcard = container.querySelector('[data-tenant="safetyControls"]');
+    expect([cell.name, xcard !== null]).toEqual([cell.name, true]);
+    const xhost = xcard!.closest('[data-region-slot]')!;
+    const hostTenants = Array.from(xhost.querySelectorAll('[data-tenant]'));
+    expect([cell.name, hostTenants[hostTenants.length - 1]?.getAttribute('data-tenant')]).toEqual([cell.name, 'safetyControls']);
+    const stops = Array.from(xhost.querySelectorAll('button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])'));
+    expect([cell.name, xcard!.contains(stops[stops.length - 1])]).toEqual([cell.name, true]);
 
     // D5 (2): every live region sits in a slot that is visible in this cell (an announcer
     // in a hidden slot says nothing). A node outside every slot is a layer's.
