@@ -602,11 +602,12 @@ const STORY_ROW: LayoutRow = {
   // (Kage's A9c-2 review measurement), so the cap is not the lever here at all.
   // Measured inner log (a:storyLog, desktop 1440x900) after A9d R-1 lever 2 (the recap strip
   // steps aside in combat): g 226, caster cell l 213, and the X-card-raised caster cell k 105.
-  // The recap lever took every cell without the X-card banner past 200. The banner (a raised
-  // safety row above the stage) is what is left on k.
-  // debt: the harness combat floor stays 100px, not 200: Story's X-card-raised cell (k-story-combat-caster-xcard) measures 105px inner (plain cells 213-226).
+  // The recap lever took every cell without the X-card banner past 200, and the harness combat floor is 210
+  // (A9d-2; plain cells 213-226 here). The banner (a raised safety row above the stage) is what is left on k,
+  // which the harness judges against its own banner floor (100), not an exemption.
+  // debt: Story's X-card-raised combat cell (k-story-combat-caster-xcard) is judged against a 100px banner floor, not the 200px target: it measures 105px inner.
   // ceiling: 105px on a 900px desktop with the X-card banner up, ~3 narration rows; the banner and the stage's 290px track both stay.
-  // until: Aoi rules the banner-up combat cell (an inline X-card, or the stage giving the banner its rows), or the harness floor models the banner as its own moment (Backlog TAV-COMBAT-LOG-FLOOR-200); then raise COMBAT to 200.
+  // until: Aoi rules the banner-up combat cell (an inline X-card, or the stage giving the banner its rows), Backlog TAV-COMBAT-LOG-FLOOR-200; then raise the harness's banner combat floor to 200.
   rows: {
     exploring: 'auto auto minmax(0,1fr) auto auto max-content',
     combat: 'auto auto fit-content(290px) minmax(0,1fr) auto max-content',
@@ -710,10 +711,11 @@ const TABLE_ROW: LayoutRow = {
   // content probed at a 900px cap), so it always fills its 400px cap.
   // Measured inner log (a:storyLog, desktop 1440x900) after A9d R-1 lever 2 (the recap strip
   // steps aside in combat): b 242, i 242, monster-turn c 217, and the X-card-raised caster cell j 134.
-  // The recap lever took every cell without the X-card banner past 200.
-  // debt: the harness combat floor stays 100px, not 200: Table's X-card-raised cell (j-combat-caster-xcard) measures 134px inner (plain cells 217-242).
+  // The recap lever took every cell without the X-card banner past 200, and the harness combat floor is 210
+  // (A9d-2; plain cells 217-242 here).
+  // debt: Table's X-card-raised combat cell (j-combat-caster-xcard) is judged against a 100px banner floor, not the 200px target: it measures 134px inner.
   // ceiling: 134px on a 900px desktop with the X-card banner up; the banner and the stage's 400px track both stay.
-  // until: Aoi rules the banner-up combat cell, or the harness floor models the banner as its own moment (Backlog TAV-COMBAT-LOG-FLOOR-200); then raise COMBAT to 200.
+  // until: Aoi rules the banner-up combat cell, or the dice tray leaves the stage (step 11), Backlog TAV-COMBAT-LOG-FLOOR-200; then raise the harness's banner combat floor to 200.
   // debt: Table's `offers` (`list`, one full-width button per offer) is capped at 120px and scrolls inside it; uncapped, 3-4 offers starve the log.
   // ceiling: 3+ offers scroll in a 120px box, in the table·exploring cell only (offers are hidden in combat).
   // until: Table's offers take the `chips` form (step 11 Table checkpoint) or the stage track is content-sized.
