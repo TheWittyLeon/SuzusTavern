@@ -332,6 +332,18 @@ export interface TenantPlacement {
  *                         wrongly called it non-announcing.
  *   NOT announcing: `diceTray` (DiceTray.tsx — no match), `safetyControls`
  *   (plain button + copy, no match).
+ *
+ * `safetyControls` host (A9b fix round 1, Miko Imp-5 + Aoi B2): `actionBar`,
+ * not `sceneStage`. The stage is a capped (`minmax(0,400px)` in Table
+ * combat), scrolling slot; the X-card sat below its fold. The invariant is
+ * that the X-card raise control is on screen without scrolling the page or
+ * any nested container, in every row x moment — so its host must be a
+ * placed, always-visible region whose rows are all `auto` (content-sized,
+ * never a capped scroller). `actionBar` is the bottom band in every row,
+ * has the horizontal room beside the combat buttons (no extra height in
+ * combat), and in exploring the control is what justifies the otherwise
+ * empty track. Pinned in `play-preset-registry.test.ts`. NOT `safetyBanner`:
+ * that slot must be 0px when no signal is active (the live-region band).
  */
 export const REGION_TENANTS: Record<TenantId, TenantPlacement> = {
   sessionRecap: { host: 'storyLog', announces: true },
@@ -342,7 +354,7 @@ export const REGION_TENANTS: Record<TenantId, TenantPlacement> = {
   castSpellPanel: { host: 'storyLog', announces: true },
   nextPartOffer: { host: 'storyLog', announces: true },
   diceTray: { host: 'sceneStage', announces: false },
-  safetyControls: { host: 'sceneStage', announces: false },
+  safetyControls: { host: 'actionBar', announces: false },
 };
 
 export type Moment = 'exploring' | 'combat';

@@ -500,9 +500,33 @@
   margin-bottom: 18px;
 }
 
+/* The X-card control (R23 safety floor). A9b fix round 1 (Miko Imp-5 + Aoi
+   B2): it is a tenant of `actionBar`, NOT `sceneStage` — the stage is a
+   capped, scrolling slot and the X-card sat below its fold in Table/combat.
+   `actionBar` sits in an `auto` track at the bottom of every row x moment,
+   so it is always on screen, never inside a scroller. Compact on purpose
+   (label + the 44px button, no card chrome): the copy that used to sit
+   beside it is now the button's accessible description. */
+.slot:has(> [data-tenant="safetyControls"]) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--density-gap);
+  padding-block: 4px;
+}
+
+.slot:has(> [data-tenant="safetyControls"]) > :not([data-tenant]) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .safety {
-  margin-top: auto;
-  padding: var(--density-pad);
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  padding: 4px 4px 4px 12px;
   border-radius: 12px;
   background: color-mix(in oklab, var(--bad) 8%, transparent);
   border: 1px solid color-mix(in oklab, var(--bad) 24%, transparent);
@@ -514,16 +538,9 @@
   text-transform: uppercase;
   /* contrast-safe red text on the tinted error surface (was --bad → 3.87:1 on Dusk) */
   color: var(--bad-ink);
-  margin-bottom: 4px;
 }
 
-.safetyBody {
-  font-size: 12px;
-  color: var(--ink-2);
-  margin: 0 0 8px;
-}
-
-.safetyBtns button {
+.safety button {
   /* X-card is the highest-consequence control on the screen — full 44px target. */
   height: 44px;
   padding: 0 16px;
@@ -538,7 +555,7 @@
   cursor: pointer;
 }
 
-.safetyBtns button:hover {
+.safety button:hover {
   color: var(--ink);
   border-color: var(--bad);
 }

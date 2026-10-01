@@ -35,6 +35,7 @@ import {
   LAYOUT_ROWS_BY_ID,
   REGION_VARIANTS,
   REGION_IDS,
+  REGION_TENANTS,
   VARIANTS_NOT_EMITTED_BY_PRESETS,
   getPlacement,
   type LayoutRow,
@@ -611,6 +612,85 @@ describe('TAV-PLAY-SHELL presets.ts — layer/host and area are mutually exclusi
       }
     }
   }
+});
+
+/** Splits a `grid-template-rows` value into tracks, keeping `minmax(0,1fr)` /
+ *  `fit-content(300px)` intact (a comma or space inside parens is not a
+ *  track boundary). */
+function trackList(value: string): string[] {
+  const tracks: string[] = [];
+  let depth = 0;
+  let cur = '';
+  for (const ch of value.trim()) {
+    if (ch === '(') depth++;
+    if (ch === ')') depth--;
+    if (/\s/.test(ch) && depth === 0) {
+      if (cur) tracks.push(cur);
+      cur = '';
+    } else cur += ch;
+  }
+  if (cur) tracks.push(cur);
+  return tracks;
+}
+
+/** 0-based indices of the area rows (lines of the `areas` string) that name `area`. */
+function rowsSpannedBy(areasValue: string, area: string): number[] {
+  return [...areasValue.matchAll(/"([^"]*)"/g)]
+    .map((m, i) => (m[1].trim().split(/\s+/).includes(area) ? i : -1))
+    .filter((i) => i >= 0);
+}
+
+describe('TAV-PLAY-SHELL presets.ts — the X-card control is always on screen (A9b Imp-5 + Aoi B2)', () => {
+  // Invariant (coordinator, 2026-09-30): the X-card raise control is visible
+  // inside the viewport WITHOUT scrolling the page or any nested container,
+  // in every row x moment. At the data level that means its host region is
+  // (1) placed directly (not hosted by another region, not a layer),
+  // (2) visible, and (3) lives only in `auto` rows — a content-sized track
+  // is never a capped, scrolling box (`minmax(0,400px)` sceneStage was).
+  // The browser half (real geometry at 1440x900 and 390x844) is
+  // `tools/ui-audit`'s `capture-play.mjs --assert-layout` check c:xCard.
+  const host = REGION_TENANTS.safetyControls.host;
+
+  for (const row of LAYOUT_ROWS) {
+    for (const moment of MOMENTS) {
+      it(`${row.id}/${moment}: safetyControls' host "${host}" is placed, visible, and sits only in auto rows`, () => {
+        const placement = getPlacement(row, host, moment);
+        expect(placement.layer).not.toBe(true);
+        expect(placement.host).toBeUndefined();
+        expect(placement.area).not.toBeNull();
+        expect(placement.visible).not.toBe(false);
+
+        const spanned = rowsSpannedBy(row.areas[moment], placement.area as string);
+        expect(spanned.length).toBeGreaterThan(0);
+        const tracks = trackList(row.rows[moment]);
+        for (const i of spanned) {
+          expect({ row: row.id, moment, line: i, track: tracks[i] }).toEqual({
+            row: row.id,
+            moment,
+            line: i,
+            track: 'auto',
+          });
+        }
+      });
+    }
+  }
+
+  it('the host is not the stage: the control may never ride the scrolling scene slot again', () => {
+    // Direct pin of the regression (a named-region compare is acceptable in
+    // a regression pin, not in code): safetyControls was a sceneStage tenant.
+    expect(host).not.toBe('sceneStage');
+  });
+
+  it('DiceTray stays a placed, reachable tenant (host is a placed region in every row x moment)', () => {
+    const diceHost = REGION_TENANTS.diceTray.host;
+    for (const row of LAYOUT_ROWS) {
+      for (const moment of MOMENTS) {
+        const p = getPlacement(row, diceHost, moment);
+        expect(p.area).not.toBeNull();
+        expect(p.visible).not.toBe(false);
+      }
+    }
+  });
 });
 
 describe('TAV-PLAY-SHELL presets.ts — getPlacement', () => {
