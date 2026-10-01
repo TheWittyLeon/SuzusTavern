@@ -250,7 +250,10 @@ export default function ActionBar({
   const actionSpent = actionSpentProp === true;
 
   // Attack is disabled when: busy, no targets, not the player's turn, dying,
-  // or the action is already spent this turn.
+  // or the action is already spent this turn. The native `disabled` attribute
+  // is the ONE mechanism for every verb (it already blocks dispatched clicks);
+  // the onClick carries no second JS guard (A9c-2 D6, carry (c)) — pinned for
+  // all five verbs + Cast by play.actionbar-disabled-model.test.tsx.
   const attackDisabled = busy || targets.length === 0 || notYourTurn || isDying || actionSpent;
   // Dodge/dash are also gated on turn + dying.
   const actionDisabled = busy || notYourTurn || isDying;
@@ -323,7 +326,7 @@ export default function ActionBar({
           ref={attackBtnRef}
           type="button"
           className={targetOpen ? `${styles.action} ${styles.actionOn}` : styles.action}
-          onClick={() => !attackDisabled && setTargetOpen((o) => !o)}
+          onClick={() => setTargetOpen((o) => !o)}
           disabled={attackDisabled}
           aria-disabled={attackDisabled}
           aria-expanded={targetOpen}
