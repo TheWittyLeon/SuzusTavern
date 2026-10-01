@@ -594,19 +594,13 @@ const STORY_ROW: LayoutRow = {
   // quick-check list (>=556px of content, probed with the cap at 900px), so the
   // track sits at its 290px cap, and it STAYS at 290 with the tray out of the stage
   // (Kage's A9c-2 review measurement), so the cap is not the lever here at all.
-  // Measured inner log (a:storyLog, story·combat g), by lever, after the empty
-  // announcer tenants left the flex flow (116 -> 132, `h:emptyTenants`):
-  //   as shipped (gap removed)            132
-  //   + recap strip out of the log slot   194   <- the only lever that moves Story
-  //   + dice tray out of the stage        132   (no effect: the track stays 290)
-  // The recap strip is the largest lever. Even with it gone Story is ~6px short of
-  // 200 on the plain cell (g: 194); that last 6px is the turn banner / slot padding,
-  // an Aoi layout call, not a code lever claimed here. The lowest non-exempt combat
-  // cell is the Story CASTER cell (l-story-combat-caster) at 119: the Cast handle
-  // took 12px of it, so with the strip out it is still ~19px short (181), not ~6.
-  // debt: Story/combat storyLog is 132px inner (caster cell l: 119) vs the 200px combat-floor target (a:storyLog), harness floor stays 100.
-  // ceiling: 200 needs the recap strip out of the log slot (194) plus ~6px of turn-banner/padding chrome; the stage cannot give it, the track stays 290.
-  // until: the recap strip is no longer rendered inside the combat log slot AND Aoi rules the remaining ~6px (plain cell) / ~19px (caster cell l) (Backlog TAV-COMBAT-LOG-FLOOR-200).
+  // Measured inner log (a:storyLog, desktop 1440x900) after A9d R-1 lever 2 (the recap strip
+  // steps aside in combat): g 226, caster cell l 213, and the X-card-raised caster cell k 105.
+  // The recap lever took every cell without the X-card banner past 200. The banner (a raised
+  // safety row above the stage) is what is left on k.
+  // debt: the harness combat floor stays 100px, not 200: Story's X-card-raised cell (k-story-combat-caster-xcard) measures 105px inner (plain cells 213-226).
+  // ceiling: 105px on a 900px desktop with the X-card banner up, ~3 narration rows; the banner and the stage's 290px track both stay.
+  // until: Aoi rules the banner-up combat cell (an inline X-card, or the stage giving the banner its rows), or the harness floor models the banner as its own moment (Backlog TAV-COMBAT-LOG-FLOOR-200); then raise COMBAT to 200.
   rows: {
     exploring: 'auto auto minmax(0,1fr) auto auto max-content',
     combat: 'auto auto fit-content(290px) minmax(0,1fr) auto max-content',
@@ -708,19 +702,12 @@ const TABLE_ROW: LayoutRow = {
   // A9c-2 D7: `fit-content(400px)` (was `minmax(0,400px)`), same lever, same 0px
   // returned: the stage holds the dice tray and its quick-check list (>=680px of
   // content probed at a 900px cap), so it always fills its 400px cap.
-  // Measured inner log (a:storyLog; Table b = the plain combat cell, Table c =
-  // c-combat-monster-turn, whose deficit is the action bar's off-turn line, 106px
-  // against 82; the caster cell i measures 148, the same as b), by lever, after the empty announcer tenants
-  // left the flex flow (+16px, `h:emptyTenants`):
-  //   as shipped, gap removed                 148 (b)  123 (c)
-  //   + dice tray out of the stage            186      161
-  //   + recap strip out (tray still in)       210      185
-  //   + both                                  248      223
-  // The recap strip is the largest lever: alone it takes b past 200 (210). The
-  // monster-turn cell c needs BOTH the strip and the tray out of the stage to pass 200.
-  // debt: Table/combat storyLog is 123-148px inner (c, the monster-turn cell, is the 123) vs the 200px combat-floor target (a:storyLog), harness floor stays 100.
-  // ceiling: the recap strip in the log slot plus (monster-turn cell c only) the dice tray in the stage hold c at 123 against 223 with both gone; neither is movable from this track.
-  // until: the recap strip is no longer rendered inside the combat log slot (reaches 200 on the plain cell), and the dice tray leaves the stage in combat (monster-turn cell c) (Backlog TAV-COMBAT-LOG-FLOOR-200).
+  // Measured inner log (a:storyLog, desktop 1440x900) after A9d R-1 lever 2 (the recap strip
+  // steps aside in combat): b 242, i 242, monster-turn c 217, and the X-card-raised caster cell j 134.
+  // The recap lever took every cell without the X-card banner past 200.
+  // debt: the harness combat floor stays 100px, not 200: Table's X-card-raised cell (j-combat-caster-xcard) measures 134px inner (plain cells 217-242).
+  // ceiling: 134px on a 900px desktop with the X-card banner up; the banner and the stage's 400px track both stay.
+  // until: Aoi rules the banner-up combat cell, or the harness floor models the banner as its own moment (Backlog TAV-COMBAT-LOG-FLOOR-200); then raise COMBAT to 200.
   // debt: Table's `offers` (`list`, one full-width button per offer) is capped at 120px and scrolls inside it; uncapped, 3-4 offers starve the log.
   // ceiling: 3+ offers scroll in a 120px box, in the table·exploring cell only (offers are hidden in combat).
   // until: Table's offers take the `chips` form (step 11 Table checkpoint) or the stage track is content-sized.
@@ -795,9 +782,11 @@ const TABLE_ROW: LayoutRow = {
 // story slot changes height):
 //   exploring 241 = 160 inner log + 12 slot edge (6px border each side) + 6 stack gap
 //                   + 63 "Previously on..." recap
-//   combat    277 = the same 241 + 30 status line + the gaps it adds
-// The combat recap is the A9d-2 F3 lever: when "Previously on..." steps aside in combat
-// the combat floor drops by about 69 and 277 is re-derived. Party minimum 91 = 14 label
+//   combat    208 = 160 inner log + 12 slot edge + 6 stack gap + 30 status line (no recap:
+//                   "Previously on..." steps aside in combat, A9d R-1 lever 2, so the 63 + its
+//                   6px gap that the pre-lever 277 paid are gone; measured at 390x844: the combat
+//                   log inner is the track minus 48)
+// Party minimum 91 = 14 label
 // + 8 gap + 57 tile row + 12 slot edge: one tile row, which is also why a focused tile's
 // caption (about 28px below the tile) does not fit and is clipped by the band at its minimum.
 const PHONE_ROW: LayoutRow = {
@@ -820,7 +809,7 @@ const PHONE_ROW: LayoutRow = {
     exploring:
       'max-content max-content minmax(91px,var(--play-optional,auto)) fit-content(var(--play-optional,20vh)) minmax(var(--play-floor,241px),1fr) max-content max-content max-content',
     combat:
-      'max-content max-content minmax(91px,var(--play-optional,auto)) fit-content(var(--play-optional,34vh)) minmax(var(--play-floor,277px),1fr) max-content max-content',
+      'max-content max-content minmax(91px,var(--play-optional,auto)) fit-content(var(--play-optional,34vh)) minmax(var(--play-floor,208px),1fr) max-content max-content',
   },
   areas: {
     exploring: `"safetyBanner safetyBanner"

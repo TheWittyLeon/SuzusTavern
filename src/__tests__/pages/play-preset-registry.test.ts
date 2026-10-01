@@ -719,7 +719,7 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
       'max-content',
       'minmax(91px,var(--play-optional,auto))',
       'fit-content(var(--play-optional,34vh))',
-      'minmax(var(--play-floor,277px),1fr)',
+      'minmax(var(--play-floor,208px),1fr)',
       'max-content',
       'max-content',
     ]);
