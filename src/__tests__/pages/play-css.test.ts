@@ -191,6 +191,15 @@ describe('Play.module.css', () => {
       expect(rule).not.toMatch(/data-layout|story|table|phone/i);
     });
 
+    it('on /play only, the DOCUMENT turns off overscroll on the y axis (no pull-to-refresh); the story log is left alone so log-to-page chaining stays (Tora A9d-1 MAJOR-2)', () => {
+      const rule = strip(blockFrom(':global(html):has(.grid) {'));
+      expect(rule).toMatch(/overscroll-behavior-y:\s*none/);
+      expect(rule).not.toMatch(/overscroll-behavior-x|overscroll-behavior:/);
+      // The log is a nested scroller and keeps the default (chain): no overscroll rule on any ChatLog class.
+      const chat = strip(fs.readFileSync(path.resolve(process.cwd(), 'src/components/ChatLog.module.css'), 'utf8'));
+      expect(chat).not.toMatch(/overscroll-behavior/);
+    });
+
     it('the Appearance dialog is bounded by the viewport and scrolls inside', () => {
       const tweaks = fs.readFileSync(path.resolve(process.cwd(), 'src/components/TweaksPanel.module.css'), 'utf8');
       const panel = strip(tweaks.slice(tweaks.indexOf('.panel {')));

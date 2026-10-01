@@ -78,4 +78,16 @@ describe('Drawer.module.css', () => {
       expect(bare).not.toMatch(/mobileFallback/);
     });
   });
+
+  describe('A9d-2 (Tora A9d-1 MAJOR-2) — scroll containment', () => {
+    const strip = (t: string) => t.replace(/\/\*[\s\S]*?\*\//g, '');
+
+    it('the drawer contains its own overscroll, so reaching its end never scrolls the page behind it', () => {
+      expect(strip(blockFrom('.drawer {'))).toMatch(/overscroll-behavior:\s*contain/);
+    });
+
+    it('the scrim starts no touch pan: touch-action none (a tap still fires onClick)', () => {
+      expect(strip(blockFrom('.scrim {'))).toMatch(/touch-action:\s*none/);
+    });
+  });
 });

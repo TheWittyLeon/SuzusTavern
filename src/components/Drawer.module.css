@@ -11,6 +11,9 @@
   width: min(380px, 90vw);
   padding: var(--density-pad);
   overflow-y: auto;
+  /* A9d-2 (Tora A9d-1 MAJOR-2): scrolling the drawer to its end must not chain into the page behind
+     it (at a reflow size the page scrolls, and was left somewhere else when the drawer closed). */
+  overscroll-behavior: contain;
   background: var(--bg-2);
   border-left: 1px solid var(--line);
   box-shadow: var(--shadow-pop);
@@ -27,6 +30,9 @@
   inset: 0;
   z-index: 899;
   background: var(--scrim-soft);
+  /* A9d-2 (Tora A9d-1 MAJOR-2): the scrim is not a scroller, so a drag on it scrolled the page behind
+     the drawer. No touch pan or zoom starts here; a tap still fires onClick (close). */
+  touch-action: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
