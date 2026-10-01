@@ -37,7 +37,8 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  min-height: 32px;
+  /* 44px policy (Iro A9c-2 MINOR-1): the Cast handle is a touch target like the bar's verbs. */
+  min-height: 44px;
   padding: 0;
   background: transparent;
   border: none;
@@ -121,6 +122,7 @@
 .castBtn {
   flex-shrink: 0;
   height: 38px;
+  min-height: 44px;
 }
 
 .notYourTurn {
