@@ -34,7 +34,8 @@
  * the new falling-edge test below mirrors.
  */
 import React from 'react';
-import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
+import { screen, fireEvent, act, waitFor } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { GroundingData, NarrationEvent, Participant, Session } from '@/lib/api/types';
 
@@ -205,7 +206,7 @@ beforeEach(() => {
 describe('TAVERN PLAY-UI NITS (a)+(b) — begin-combat button render gate + busy-disabled', () => {
   it('(1) a scene with no authored encounter never renders the begin-combat button', async () => {
     mockGetGrounding.mockResolvedValue(GROUNDING_NO_ENCOUNTER);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     // Wait for the scene to actually load before asserting absence —
     // otherwise this would trivially pass on the pre-fetch render too.
@@ -219,7 +220,7 @@ describe('TAVERN PLAY-UI NITS (a)+(b) — begin-combat button render gate + busy
 
   it('(2) a scene with an authored encounter renders the button, labeled "Stand and fight"', async () => {
     mockGetGrounding.mockResolvedValue(GROUNDING_WITH_ENCOUNTER);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
 
     expect(
@@ -232,7 +233,7 @@ describe('TAVERN PLAY-UI NITS (a)+(b) — begin-combat button render gate + busy
     mockGetGrounding.mockResolvedValue(GROUNDING_WITH_ENCOUNTER);
     mockGetSession.mockResolvedValue({ ...SESSION, ai_assist_level: 'full' });
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
 
     const fightBtn = await screen.findByRole('button', { name: /Stand and fight/i });
@@ -259,7 +260,7 @@ describe('TAVERN PLAY-UI NITS (a)+(b) — begin-combat button render gate + busy
 
   it('(4) idle with an encounter: button is enabled and calls combatFromScene once on click', async () => {
     mockGetGrounding.mockResolvedValue(GROUNDING_WITH_ENCOUNTER);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
 
     const fightBtn = await screen.findByRole('button', { name: /Stand and fight/i });
@@ -284,7 +285,7 @@ describe('Iro-A11y CRITICAL-1 — falling-edge focus recovery when the button un
     // combatId is set; the slot settles on `null`, not a replacement "In
     // combat" UI, which is what actually exercises the falling edge in
     // isolation (no second control to also claim focus).
-    const { container } = render(<PlayPage />);
+    const { container } = renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
 
     const fightBtn = await screen.findByRole('button', { name: /Stand and fight/i });
@@ -313,7 +314,7 @@ describe('Iro-A11y CRITICAL-1 — falling-edge focus recovery when the button un
 
   it('does not refocus on initial mount even though the button starts out visible', async () => {
     mockGetGrounding.mockResolvedValue(GROUNDING_WITH_ENCOUNTER);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
     await screen.findByRole('button', { name: /Stand and fight/i });
 

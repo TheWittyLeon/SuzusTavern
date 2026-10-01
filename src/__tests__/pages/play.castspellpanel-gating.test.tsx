@@ -20,7 +20,8 @@
  * sees it.
  */
 import React from 'react';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { screen, waitFor, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { Session, Participant, CombatState, CombatParticipantState, CharacterSheet } from '@/lib/api/types';
 
@@ -247,7 +248,7 @@ describe('T6 — CastSpellPanel mount gate (page-level, per-axis)', () => {
     mGetCharacterSheet.mockResolvedValue(casterSheet());
     mGetCombatState.mockResolvedValue(ACTIVE_COMBAT);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await waitFor(() => expect(screen.getByText('Cast a spell')).toBeInTheDocument());
   });
 
@@ -257,7 +258,7 @@ describe('T6 — CastSpellPanel mount gate (page-level, per-axis)', () => {
     mGetCharacterSheet.mockResolvedValue(casterSheet({ is_spellcaster: false, spell_slots: {} }));
     mGetCombatState.mockResolvedValue(ACTIVE_COMBAT);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     // Wait for the sheet fetch to actually land before asserting the negative,
     // so this isn't just "hasn't rendered yet" racing the assertion.
     await waitFor(() => expect(mGetCharacterSheet).toHaveBeenCalled());
@@ -272,7 +273,7 @@ describe('T6 — CastSpellPanel mount gate (page-level, per-axis)', () => {
     mGetParticipants.mockResolvedValue(PARTY_WITH_CASTER);
     mGetCharacterSheet.mockResolvedValue(casterSheet());
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await waitFor(() => expect(mGetCharacterSheet).toHaveBeenCalled());
     await act(async () => {
       await Promise.resolve();
@@ -292,7 +293,7 @@ describe('T6 — CastSpellPanel mount gate (page-level, per-axis)', () => {
     mGetCharacterSheet.mockResolvedValue(casterSheet());
     mGetCombatState.mockResolvedValue(ACTIVE_COMBAT);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await waitFor(() => expect(screen.getByText('Cast a spell')).toBeInTheDocument());
   });
 
@@ -303,7 +304,7 @@ describe('T6 — CastSpellPanel mount gate (page-level, per-axis)', () => {
     mGetParticipants.mockResolvedValue([{ username: 'leon', is_dm: true, character: null }]);
     mGetCombatState.mockResolvedValue(ACTIVE_COMBAT);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await waitFor(() => expect(mGetCombatState).toHaveBeenCalled());
     await act(async () => {
       await Promise.resolve();

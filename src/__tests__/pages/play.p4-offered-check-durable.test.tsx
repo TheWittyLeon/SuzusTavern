@@ -23,7 +23,8 @@
  *     without an offer.
  */
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { EngineSessionEvent, EventsPage, GroundingData, Participant, Session } from '@/lib/api/types';
 
@@ -221,7 +222,7 @@ describe('durable poll offered_check — authored skill (parity with the SSE pat
   it('highlights the existing authored .checkWrap chip', async () => {
     jest.useFakeTimers();
     try {
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
 
       mockGetSessionEventsPage.mockResolvedValue({
@@ -250,7 +251,7 @@ describe('durable poll offered_check — freeform skill (Miko-QA "the sleeper bu
   it('a skill NOT in authored availableChecks is not dropped — it surfaces via the freeform "Attempt {skill}" affordance', async () => {
     jest.useFakeTimers();
     try {
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
 
       // `survival` is not in GROUNDING_STEALTH_ONLY.checks — the pre-Phase-4
@@ -308,7 +309,7 @@ describe('durable poll offered_check — freeform skill (Miko-QA "the sleeper bu
   it('a later beat with no offer at all clears the freeform affordance (mirrors narrate()\'s per-beat clear)', async () => {
     jest.useFakeTimers();
     try {
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
 
       mockGetSessionEventsPage.mockResolvedValue({
@@ -349,7 +350,7 @@ describe('durable poll — no offered_check present (legacy path unaffected)', (
 
     jest.useFakeTimers();
     try {
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
 
       mockGetSessionEventsPage.mockResolvedValue({

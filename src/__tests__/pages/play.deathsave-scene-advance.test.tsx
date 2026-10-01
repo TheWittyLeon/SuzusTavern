@@ -52,7 +52,8 @@
  * the client does IF/WHEN the engine adds it there, not what happens now.
  */
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { CombatState, GroundingData, NarrationEvent, Participant, Session } from '@/lib/api/types';
 
@@ -298,7 +299,7 @@ describe('TAV-DEATHSAVE-SCENE-ADVANCE — death-save reads scene_advance like at
       state: COMBAT_STATE_ENDED,
       scene_advance: { from_scene: 'everfree_flight', to_scene: 'everfree_zecoras_hut', outcome: 'rescue' },
     });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await clickDeathSave();
@@ -342,7 +343,7 @@ describe('TAV-DEATHSAVE-SCENE-ADVANCE — death-save reads scene_advance like at
       },
       // No scene_advance key at all — the overwhelming majority of rolls.
     });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await clickDeathSave();
@@ -370,7 +371,7 @@ describe('WF-O-OUTCOMELINE (T2) — outcome_line renders on a scene_advance; onl
       scene_advance: { from_scene: 'everfree_flight', to_scene: 'everfree_zecoras_hut', outcome: 'rescue' },
       outcome_line: OUTCOME_LINE,
     });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await clickDeathSave();
@@ -401,7 +402,7 @@ describe('WF-O-OUTCOMELINE (T2) — outcome_line renders on a scene_advance; onl
       scene_advance: { from_scene: 'everfree_flight', to_scene: 'everfree_zecoras_hut', outcome: 'rescue' },
       outcome_line: 'x'.repeat(401),
     });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await clickDeathSave();
@@ -428,7 +429,7 @@ describe('WF-O-OUTCOMELINE (T2) — outcome_line renders on a scene_advance; onl
       scene_advance: { from_scene: 'everfree_flight', to_scene: 'everfree_zecoras_hut', outcome: 'rescue' },
       outcome_line: 'x'.repeat(401),
     });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await clickDeathSave();
@@ -451,7 +452,7 @@ describe('WF-O-OUTCOMELINE (T2) — outcome_line renders on a scene_advance; onl
       scene_advance: { from_scene: 'everfree_flight', to_scene: 'everfree_zecoras_hut', outcome: 'victory' },
       outcome_line: OUTCOME_LINE,
     });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() =>
@@ -483,7 +484,7 @@ describe('WF-O-OUTCOMELINE (T2) — outcome_line renders on a scene_advance; onl
       scene_advance: { from_scene: 'everfree_flight', to_scene: 'everfree_zecoras_hut', outcome: 'flee' },
       outcome_line: OUTCOME_LINE,
     });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'End turn' })).toBeInTheDocument());
@@ -509,7 +510,7 @@ describe('TAV-ARRIVAL-ON-AUTO-ADVANCE — playArrivalLine reachable from combat-
       // No outcome_line authored on THIS resolution — arrival_line is the
       // only authored content for the seam.
     });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await clickDeathSave();
@@ -535,7 +536,7 @@ describe('TAV-ARRIVAL-ON-AUTO-ADVANCE — playArrivalLine reachable from combat-
       scene_advance: { from_scene: 'everfree_flight', to_scene: 'everfree_zecoras_hut', outcome: 'rescue' },
       outcome_line: OUTCOME_LINE,
     });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await clickDeathSave();
@@ -561,7 +562,7 @@ describe('TAV-ARRIVAL-ON-AUTO-ADVANCE — playArrivalLine reachable from combat-
       state: COMBAT_STATE_ENDED,
       scene_advance: { from_scene: 'everfree_flight', to_scene: 'everfree_zecoras_hut', outcome: 'rescue' },
     });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await clickDeathSave();
@@ -582,7 +583,7 @@ describe('Miko QA (2026-08-18 batch validation, revised) — outcome_line bounda
       scene_advance: { from_scene: 'everfree_flight', to_scene: 'everfree_zecoras_hut', outcome: 'rescue' },
       outcome_line: line400,
     });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await clickDeathSave();
@@ -611,7 +612,7 @@ describe('Miko QA (2026-08-18 batch validation, revised) — outcome_line bounda
       scene_advance: null,
       outcome_line: OUTCOME_LINE,
     });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() =>
@@ -659,7 +660,7 @@ describe('T1 LIVE PATH (Kage-CR re-review 2026-08-18) — onEndCombat, not just 
       scene_advance: null,
       outcome_line: OUTCOME_LINE,
     });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     const endBtn = await screen.findByRole('button', { name: /End combat — choose outcome/i });

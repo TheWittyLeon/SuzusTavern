@@ -30,7 +30,8 @@
  * under the mutant, GREEN on `main`.
  */
 import React from 'react';
-import { render, screen, act } from '@testing-library/react';
+import { screen, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { EngineSessionEvent, EventsPage, Participant, Session } from '@/lib/api/types';
 
@@ -213,7 +214,7 @@ describe('seq-ordering — durable branch — advance-after / retry-on-throw', (
       throw new Error('synthetic mid-batch failure');
     });
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
 
     // Tick 1: throws. Caught by the poll's own try/catch — non-fatal, but

@@ -18,6 +18,7 @@
  */
 import React from 'react';
 import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 
 // ── Page-level mocks (needed for PlayPage integration tests) -----------------
@@ -198,7 +199,7 @@ function setupPlayWithCombat(session: Session = HUMAN_DM_SESSION) {
 describe('S5.4 — PlayPage integration: DM Override control render gate', () => {
   it('S5.4-AC1: override button and visibility toggle render for isDm + human + active combat', async () => {
     setupPlayWithCombat();
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await waitFor(() =>
       expect(screen.queryByRole('button', { name: /DM Override/i })).toBeInTheDocument(),
     );
@@ -209,7 +210,7 @@ describe('S5.4 — PlayPage integration: DM Override control render gate', () =>
 
   it('S5.4-AC3: override control absent when dm_mode=ai (AI DM)', async () => {
     setupPlayWithCombat(AI_SESSION);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await waitFor(() => expect(mockGetSession).toHaveBeenCalled());
     await act(async () => { await Promise.resolve(); });
     expect(screen.queryByRole('button', { name: /DM Override/i })).not.toBeInTheDocument();
@@ -332,7 +333,7 @@ describe('S5.4-AC4 — DmNarrationPanel: submit override with attack payload', (
 describe('S5.4 — PlayPage integration: visibility toggle', () => {
   it('S5.4-AC8: toggle posts policy and updates local checkbox state', async () => {
     setupPlayWithCombat();
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await waitFor(() =>
       expect(screen.queryByRole('checkbox', { name: /Show my overrides to players/i })).toBeInTheDocument(),
     );

@@ -30,7 +30,8 @@
  *       always running in the background at other intervals.
  */
 import React from 'react';
-import { render, screen, act, fireEvent, within } from '@testing-library/react';
+import { screen, act, fireEvent, within } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { GroundingData, Participant, Session } from '@/lib/api/types';
 
@@ -172,7 +173,7 @@ describe('A5 — revealText prefers-reduced-motion short-circuit (hooks/useNarra
     // replaces wholesale, silently orphaning the spy.
     const setIntervalSpy = jest.spyOn(window, 'setInterval');
     try {
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByRole('textbox');
 
       const input = screen.getByRole('textbox');

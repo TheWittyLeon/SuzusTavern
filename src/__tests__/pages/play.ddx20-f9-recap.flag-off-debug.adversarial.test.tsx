@@ -17,7 +17,8 @@
  * call outside its gate. This is that tripwire.
  */
 import React from 'react';
-import { render, screen, act, fireEvent } from '@testing-library/react';
+import { screen, act, fireEvent } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { EngineSessionEvent, Participant, Session } from '@/lib/api/types';
 import { DURABLE_GENERATION_ENABLED } from '@/lib/config';
@@ -169,7 +170,7 @@ describe('QA break-it — flag-OFF console.debug tripwire (HARD REQUIREMENT #1 e
     try {
       jest.useFakeTimers();
       try {
-        render(<PlayPage />);
+        renderPlay(<PlayPage />);
         await screen.findByText('Test Table');
         await flush();
 

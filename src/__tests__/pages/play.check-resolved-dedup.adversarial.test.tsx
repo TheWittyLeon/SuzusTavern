@@ -17,7 +17,8 @@
  *      different later event.
  */
 import React from 'react';
-import { render, screen, act, within } from '@testing-library/react';
+import { screen, act, within } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type {
   EngineSessionEvent,
@@ -220,7 +221,7 @@ describe('F4/CHECK-DOUBLE-RENDER — flag-ON durable poll dedup', () => {
 
     jest.useFakeTimers();
     try {
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
       await flush();
 
@@ -263,7 +264,7 @@ describe('F4/CHECK-DOUBLE-RENDER — flag-ON durable poll dedup', () => {
 
     jest.useFakeTimers();
     try {
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
       await flush();
 
@@ -298,7 +299,7 @@ describe('F4/CHECK-DOUBLE-RENDER — flag-ON durable poll dedup', () => {
 
     jest.useFakeTimers();
     try {
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
       await flush();
 

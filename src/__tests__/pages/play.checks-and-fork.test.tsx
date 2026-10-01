@@ -25,7 +25,8 @@
  * for the aria-wiring tests), not a visibility gate.
  */
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act, within } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type {
   CombatState,
@@ -263,7 +264,7 @@ beforeEach(() => {
 describe('P1-PLAYFIX — fork scene choice buttons (C10)', () => {
   it('renders both auto:false labelled transitions as distinct buttons, on rehydrated mid-graph load', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_FORK);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     await waitFor(() =>
       expect(
@@ -281,7 +282,7 @@ describe('P1-PLAYFIX — fork scene choice buttons (C10)', () => {
       from_scene: 'slice_everfree_fork',
       to_scene: 'slice_everfree_zecora',
     });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     const zecoraBtn = await screen.findByRole('button', { name: /Follow the smoke/i });
     await act(async () => {
@@ -298,7 +299,7 @@ describe('P1-PLAYFIX — fork scene choice buttons (C10)', () => {
       from_scene: 'slice_everfree_fork',
       to_scene: 'slice_everfree_ponyville',
     });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     const ponyvilleBtn = await screen.findByRole('button', { name: /Follow the path/i });
     await act(async () => {
@@ -314,7 +315,7 @@ describe('P1-PLAYFIX — fork scene choice buttons (C10)', () => {
 describe('TEST-NULL-TOSCENE — terminal transition renders sane completion copy, never "null"', () => {
   it('an unlabelled terminal exit renders "Conclude the adventure", never "Move on → null"', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_TERMINAL);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     const btn = await screen.findByRole('button', { name: /Conclude the adventure/i });
     expect(btn.textContent).not.toMatch(/null/i);
@@ -326,7 +327,7 @@ describe('TEST-NULL-TOSCENE — terminal transition renders sane completion copy
       ...GROUNDING_TERMINAL,
       transitions: [{ to: null, label: 'End the tale' }],
     });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     expect(await screen.findByRole('button', { name: /End the tale/i })).toBeInTheDocument();
   });
@@ -343,7 +344,7 @@ describe('TEST-NULL-TOSCENE — terminal transition renders sane completion copy
         ends_adventure: true,
         completed: true,
       });
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
 
       const btn = await screen.findByRole('button', { name: /Conclude the adventure/i });
       await act(async () => {
@@ -372,7 +373,7 @@ describe('TEST-NULL-TOSCENE — terminal transition renders sane completion copy
       ends_adventure: true,
       completed: true,
     });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     const btn = await screen.findByRole('button', { name: /Conclude the adventure/i });
     await act(async () => {
@@ -398,7 +399,7 @@ describe('TEST-NULL-TOSCENE — terminal transition renders sane completion copy
 describe('P1-PLAYFIX — check affordance (C11)', () => {
   it('D1a: rehydrating from grounding alone surfaces BOTH authored alternatives — no narrator invite required; inviting one only highlights it, the other stays available', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_TIMBERWOLF);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     // On bare load — no offer yet — both authored alternatives are already
@@ -438,7 +439,7 @@ describe('P1-PLAYFIX — check affordance (C11)', () => {
     // REFRESH, not from the check response itself.
     mGetGrounding.mockResolvedValueOnce(GROUNDING_TIMBERWOLF).mockResolvedValue(GROUNDING_FORK);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     // D1a: the button is already player-invocable without an invite; this
     // call just exercises the offer path too (harmless — see the helper's
     // own doc comment) so the invite/highlight machinery stays covered.
@@ -477,7 +478,7 @@ describe('P1-PLAYFIX — check affordance (C11)', () => {
     (dnd.getCombatState as jest.MockedFunction<typeof dnd.getCombatState>).mockResolvedValue(
       COMBAT_STATE_ACTIVE,
     );
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     await screen.findByText(/mlp everfree leon|Mlp Everfree Leon/i).catch(() => null);
     await waitFor(() => {
@@ -488,7 +489,7 @@ describe('P1-PLAYFIX — check affordance (C11)', () => {
 
   it('does NOT render a check row when the scene offers none', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_FORK);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('button', { name: /Follow the smoke/i });
     expect(screen.queryByRole('button', { name: /^Attempt/i })).not.toBeInTheDocument();
   });
@@ -501,7 +502,7 @@ describe('P1-PLAYFIX — check affordance (C11)', () => {
     });
     mResolveCheck.mockRejectedValue(err);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     // D1a: not required for the button to appear (it's player-invocable on
     // load), but exercises the offer/highlight path alongside the refusal.
     await offerCheck('stealth', 12);
@@ -523,7 +524,7 @@ describe('P1-PLAYFIX — check affordance (C11)', () => {
     });
     mResolveCheck.mockRejectedValue(err);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     const stealthBtn = await screen.findByRole('button', { name: /Attempt Stealth/i });
     await act(async () => {
       fireEvent.click(stealthBtn);
@@ -568,7 +569,7 @@ describe('F4/CHECK-DOUBLE-RENDER — flag-OFF poll never re-appends check_resolv
 
     jest.useFakeTimers();
     try {
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       const stealthBtn = await screen.findByRole('button', { name: /Attempt Stealth/i });
       await act(async () => {
         fireEvent.click(stealthBtn);
@@ -621,7 +622,7 @@ describe('F4/CHECK-DOUBLE-RENDER — flag-OFF poll never re-appends check_resolv
 describe('P1-PLAYFIX Ship 2 — stranded focus recovery (CRITICAL-1)', () => {
   it('the scene heading is a stable, programmatically-focusable anchor', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_TIMBERWOLF);
-    const { container } = render(<PlayPage />);
+    const { container } = renderPlay(<PlayPage />);
     await waitFor(() =>
       expect(container.querySelector('[aria-label^="Scene:"]')).not.toBeNull(),
     );
@@ -643,7 +644,7 @@ describe('P1-PLAYFIX Ship 2 — stranded focus recovery (CRITICAL-1)', () => {
       description: 'Stealth check (DC 12): 15 — success.',
     });
 
-    const { container } = render(<PlayPage />);
+    const { container } = renderPlay(<PlayPage />);
     // D1a: not required for the button to appear; exercises the invite path too.
     await offerCheck('stealth', 12);
     const stealthBtn = await screen.findByRole('button', { name: /Attempt Stealth/i });
@@ -674,7 +675,7 @@ describe('P1-PLAYFIX Ship 2 — stranded focus recovery (CRITICAL-1)', () => {
       to_scene: 'slice_everfree_timberwolf',
     });
 
-    const { container } = render(<PlayPage />);
+    const { container } = renderPlay(<PlayPage />);
     const zecoraBtn = await screen.findByRole('button', { name: /Follow the smoke/i });
 
     act(() => zecoraBtn.focus());
@@ -707,7 +708,7 @@ describe('P1-PLAYFIX Ship 2 — check-note aria wiring + group labels', () => {
 
   it('wires aria-describedby to a sr-only note span when the check has a note', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_WITH_NOTE);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     // Establishes the invite/highlight; the button itself is already
     // rendered pre-invite under D1a (single-check scene, so offering it
     // makes it THE offered check).
@@ -727,7 +728,7 @@ describe('P1-PLAYFIX Ship 2 — check-note aria wiring + group labels', () => {
 
   it('references only the offered-check sr-only span (never a note id) when the check has no note', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_TIMBERWOLF);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await offerCheck('stealth', 12);
 
     const stealthBtn = await screen.findByRole('button', { name: /Attempt Stealth, DC 12/i });
@@ -743,7 +744,7 @@ describe('P1-PLAYFIX Ship 2 — check-note aria wiring + group labels', () => {
 
   it('groups the skill-check row and scene-transition row with role="group" + labels', async () => {
     mGetGrounding.mockResolvedValueOnce(GROUNDING_TIMBERWOLF);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await offerCheck('stealth', 12);
     await screen.findByRole('button', { name: /Attempt Stealth/i });
     expect(screen.getByRole('group', { name: 'Skill check' })).toBeInTheDocument();
@@ -751,7 +752,7 @@ describe('P1-PLAYFIX Ship 2 — check-note aria wiring + group labels', () => {
 
   it('groups the scene-transition row with role="group" + label', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_FORK);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('button', { name: /Follow the smoke/i });
     expect(screen.getByRole('group', { name: 'Scene transition' })).toBeInTheDocument();
   });
@@ -768,7 +769,7 @@ describe('P1-PLAYFIX Ship 2 — check-note aria wiring + group labels', () => {
 describe('TAV-PLAY-SHELL step 4 — no composer-adjacent check duplicate (A13: one placement only)', () => {
   it('renders each authored check exactly ONCE, identically under the default query and a hidden:true query', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_TIMBERWOLF);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await waitFor(() => {
@@ -787,7 +788,7 @@ describe('TAV-PLAY-SHELL step 4 — no composer-adjacent check duplicate (A13: o
 
   it('mounts no aria-hidden "Attempt ..." button anywhere in the tree', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_TIMBERWOLF);
-    const { container } = render(<PlayPage />);
+    const { container } = renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
     await screen.findByRole('button', { name: /Attempt Stealth, DC 12/i });
 
@@ -804,7 +805,7 @@ describe('TAV-PLAY-SHELL step 4 — no composer-adjacent check duplicate (A13: o
 
   it('renders no "Attempt" button near the composer when the scene offers no checks', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_FORK);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('button', { name: /Follow the smoke/i });
     expect(screen.queryAllByRole('button', { name: /^Attempt/i, hidden: true })).toHaveLength(0);
   });
@@ -815,7 +816,7 @@ describe('TAV-PLAY-SHELL step 4 — no composer-adjacent check duplicate (A13: o
     (dnd.getCombatState as jest.MockedFunction<typeof dnd.getCombatState>).mockResolvedValue(
       COMBAT_STATE_ACTIVE,
     );
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     await screen.findByRole('textbox');
     await waitFor(() => {
@@ -844,7 +845,7 @@ describe('P1-PLAYFIX Ship 2 — check id uniqueness (Iro MINOR-1)', () => {
 
   it('renders two distinct buttons for the same skill at different DCs, each with its own unique note id', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_SAME_SKILL_TWO_DCS);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     // D1a: both authored DCs for this skill are already rendered pre-invite;
     // offering the skill (dc is validated engine-side, not by the offer)
     // additionally highlights both as offered (see the assertion below).
@@ -886,7 +887,7 @@ describe('P1-PLAYFIX Ship 2 — check id uniqueness (Iro MINOR-1)', () => {
 describe('P1-PLAYFIX-2 / D1a — authored checks are player-invoked, not DM-gated', () => {
   it('renders "Attempt {skill}" for every authored check as soon as the scene loads, with no narrator offer at all', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_TIMBERWOLF);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     // Authored (grounding.checks has stealth + survival) and already
@@ -899,7 +900,7 @@ describe('P1-PLAYFIX-2 / D1a — authored checks are player-invoked, not DM-gate
 
   it('highlights only the skill Suzu invites, without hiding the sibling authored check', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_TIMBERWOLF);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await offerCheck('stealth', 12);
 
     const stealthBtn = await screen.findByRole('button', { name: /Attempt Stealth, DC 12/i });

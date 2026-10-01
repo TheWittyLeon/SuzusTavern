@@ -37,7 +37,8 @@
  *      on console.debug at all).
  */
 import React from 'react';
-import { render, screen, act, within, fireEvent } from '@testing-library/react';
+import { screen, act, within, fireEvent } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type {
   EngineSessionEvent,
@@ -285,7 +286,7 @@ describe('QA break-it — F9 seed and opening_narrated (grounding-dependent, mou
 
     jest.useFakeTimers();
     try {
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
       await flush();
 
@@ -350,7 +351,7 @@ describe('QA break-it — poll-vs-rehydration ordering race', () => {
 
     jest.useFakeTimers();
     try {
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       // getSession() (not deferred) resolves on its own — state flips to
       // 'ok', arming the poll interval — WITHOUT rehydration having started
       // its own state changes yet (grounding/participants/rawEvents are all
@@ -433,7 +434,7 @@ describe('QA break-it — journalEvents dedup does not cover within-tick duplica
     const debugSpy = jest.spyOn(console, 'debug').mockImplementation(() => {});
     jest.useFakeTimers();
     try {
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
       await flush();
 
@@ -506,7 +507,7 @@ describe('QA break-it — journalEvents dedup does not cover within-tick duplica
     const debugSpy = jest.spyOn(console, 'debug').mockImplementation(() => {});
     jest.useFakeTimers();
     try {
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
       await flush();
 

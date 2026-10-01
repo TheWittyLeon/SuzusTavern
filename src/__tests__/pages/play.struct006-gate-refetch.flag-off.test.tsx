@@ -12,7 +12,8 @@
  * The durable (prod) path is pinned in play.struct006-gate-refetch.test.tsx.
  */
 import React from 'react';
-import { render, screen, act } from '@testing-library/react';
+import { screen, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type {
   EngineSessionEvent,
@@ -186,7 +187,7 @@ describe('STRUCT-006 flag-OFF poll — beat_resolved re-fetches grounding', () =
   afterEach(() => jest.useRealTimers());
 
   it('a poll carrying a beat_resolved event triggers a grounding re-fetch', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
     await act(async () => {
       jest.advanceTimersByTime(200);
@@ -205,7 +206,7 @@ describe('STRUCT-006 flag-OFF poll — beat_resolved re-fetches grounding', () =
   });
 
   it('a poll carrying a check_resolved event triggers a grounding re-fetch', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
     await act(async () => {
       jest.advanceTimersByTime(200);
@@ -242,7 +243,7 @@ describe('Tora-Gesture CRITICAL-1 — poll-driven check removal rescues focus (f
 
   it('focus is not silently stranded on <body> when a background poll resolves the focused check', async () => {
     mockGetGrounding.mockResolvedValue(grounding([{ skill: 'survival', dc: 13 }]));
-    const { container } = render(<PlayPage />);
+    const { container } = renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
     await act(async () => {
       jest.advanceTimersByTime(200);

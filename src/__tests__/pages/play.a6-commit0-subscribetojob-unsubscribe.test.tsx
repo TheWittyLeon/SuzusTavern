@@ -31,7 +31,8 @@
  * still points at it. That is the exact line under test.
  */
 import React from 'react';
-import { render, screen, fireEvent, act, within } from '@testing-library/react';
+import { screen, fireEvent, act, within } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { EventsPage, Session, Participant } from '@/lib/api/types';
 
@@ -230,7 +231,7 @@ describe('A6 commit 0 — subscribeToJob unsubscribe (Miko-QA A5 survivor)', () 
 
     jest.useFakeTimers();
     try {
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
 
       // 1. Start job-1 via a real combat action, not gated on `talking`

@@ -24,7 +24,8 @@
  * on the actor_required 401 (raised before the engine is even reached).
  */
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { CombatState, GroundingData, NarrationEvent, Participant, Session } from '@/lib/api/types';
 
@@ -214,7 +215,7 @@ describe('TAV-COMBAT-NO-ACTION-REMAINING-UNMAPPED — attack path (inline catch)
         state: COMBAT_STATE,
       }),
     );
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() =>
       expect(screen.getAllByRole('button', { name: /Attack/i }).length).toBeGreaterThan(0),
@@ -245,7 +246,7 @@ describe('TAV-COMBAT-NO-ACTION-REMAINING-UNMAPPED — dodge/dash/endturn path (o
         state: COMBAT_STATE,
       }),
     );
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() => expect(screen.getByRole('button', { name: 'Dodge' })).toBeInTheDocument());
 
@@ -263,7 +264,7 @@ describe('TAV-401-ACTOR-REQUIRED-UNMAPPED — actor_required 401', () => {
     mDodge.mockRejectedValue(
       realProxyRefusal(401, 'Actor identity required.', { reason: 'actor_required' }),
     );
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() => expect(screen.getByRole('button', { name: 'Dodge' })).toBeInTheDocument());
 
@@ -280,7 +281,7 @@ describe('TAV-COMBAT reworded fallback — genuinely unmapped refusal (network/a
   it('a network-style refusal with NO reason and NO body falls back to the reworded (non-miss-language) copy', async () => {
     const err = makeApiError(0, 'network');
     mDodge.mockRejectedValue(err);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() => expect(screen.getByRole('button', { name: 'Dodge' })).toBeInTheDocument());
 

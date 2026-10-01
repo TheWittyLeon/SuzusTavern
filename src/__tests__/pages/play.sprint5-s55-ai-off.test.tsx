@@ -22,6 +22,7 @@
  */
 import React from 'react';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 
 // ── Page-level mocks -----------------------------------------------------------
@@ -63,16 +64,9 @@ jest.mock('../../lib/theme/ThemeProvider', () => {
   return {
     ThemeProvider: ({ children }: { children: React.ReactNode }) =>
       React.createElement(React.Fragment, null, children),
+    // `layout` is read by usePlayLayout through useTheme (A9c C6 retired the
+    // useThemeOptional fallback this mock used to feed it through).
     useTheme: () => ({
-      vibe: 'dusk-tavern',
-      setVibe: jest.fn(),
-      density: 'cozy',
-      setDensity: jest.fn(),
-    }),
-    // TAV-PLAY-SHELL step 6b, commit C4: usePlayLayout's own fallback hook
-    // (hooks/usePlayLayout.ts) — this file mocks the whole module, so it
-    // must supply this export too, same shape as the real one (ctx or null).
-    useThemeOptional: () => ({
       vibe: 'dusk-tavern',
       layout: 'auto',
       setVibe: jest.fn(),
@@ -186,7 +180,7 @@ function setupPlayPage(session: Session) {
 describe('S5.5-AC1 — ai_assist_level=off hides the Suzu narrator panel', () => {
   it('renders the ai-off status bar instead of NarratorStrip idle text', async () => {
     setupPlayPage(makeSession('off'));
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     await waitFor(() => expect(mockGetSession).toHaveBeenCalled());
     await act(async () => { await Promise.resolve(); });
@@ -204,7 +198,7 @@ describe('S5.5-AC1 — ai_assist_level=off hides the Suzu narrator panel', () =>
 describe('S5.5-AC2 — streamDmNarration is never called when ai_assist_level=off', () => {
   it('mounts + player sends a message: zero streamDmNarration calls', async () => {
     setupPlayPage(makeSession('off', 'human'));
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     await waitFor(() => expect(mockGetSession).toHaveBeenCalled());
     await act(async () => { await Promise.resolve(); });
@@ -228,7 +222,7 @@ describe('S5.5-AC2 — streamDmNarration is never called when ai_assist_level=of
     // Simulate an AI-mode session that somehow has ai_assist_level='off'
     // (the engine would normally snap this, but the client gate should still hold).
     setupPlayPage(makeSession('off', 'ai'));
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     await waitFor(() => expect(mockGetSession).toHaveBeenCalled());
     await act(async () => { await Promise.resolve(); });
@@ -257,7 +251,7 @@ describe('S5.5-AC3 — NarratorStrip renders for ai_assist_level=full', () => {
     // hang. The page calls narrate() which calls streamDmNarration.
     // The opening narration only fires when there's grounding; since mockGetGrounding
     // returns null, narrate() won't fire. The NarratorStrip should still show.
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     await waitFor(() => expect(mockGetSession).toHaveBeenCalled());
 
@@ -278,7 +272,7 @@ describe('S5.5-AC3 — NarratorStrip renders for ai_assist_level=full', () => {
 describe('S5.5-AC4 — assist mode: NarratorStrip renders', () => {
   it('shows NarratorStrip for assist level (not hidden like off)', async () => {
     setupPlayPage(makeSession('assist', 'ai'));
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     await waitFor(() => expect(mockGetSession).toHaveBeenCalled());
 
@@ -301,7 +295,7 @@ describe('S5.5-AC4 — assist mode: NarratorStrip renders', () => {
     setupPlayPage(makeSession('assist', 'ai'));
     // Provide a minimal async iterator response so SessionRecap's call doesn't hang.
     mockStreamDmNarration.mockImplementation(async function* () { /* no-op */ });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     await waitFor(() => expect(mockGetSession).toHaveBeenCalled());
     await act(async () => { await Promise.resolve(); });
@@ -493,7 +487,7 @@ describe('S5.5-AC9 — ai gate reads session.ai_assist_level (server truth)', ()
   it('switching session fixture between off and full changes NarratorStrip presence', async () => {
     // Test 1: off session — panel hidden.
     setupPlayPage(makeSession('off', 'ai'));
-    const { unmount } = render(<PlayPage />);
+    const { unmount } = renderPlay(<PlayPage />);
     await waitFor(() => expect(mockGetSession).toHaveBeenCalled());
     await act(async () => { await Promise.resolve(); });
     expect(screen.queryByText(/Suzu is setting the scene/i)).not.toBeInTheDocument();
@@ -501,7 +495,7 @@ describe('S5.5-AC9 — ai gate reads session.ai_assist_level (server truth)', ()
 
     // Test 2: full session — panel visible.
     setupPlayPage(makeSession('full', 'ai'));
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await waitFor(() => expect(mockGetSession).toHaveBeenCalled());
     await waitFor(() => {
       expect(screen.getByText(/Suzu is setting the scene/i)).toBeInTheDocument();

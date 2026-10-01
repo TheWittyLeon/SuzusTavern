@@ -16,7 +16,8 @@
  * play.ddx26-xcard.test.tsx (postXCard).
  */
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { CombatState, GroundingData, Participant, Session } from '@/lib/api/types';
 
@@ -205,7 +206,7 @@ afterEach(() => {
 describe('A9c C1 — the X-card is reachable in every state the combat verbs are gated by', () => {
   it('combat, NOT my turn: X-card reachable while Attack is gated (positive control)', async () => {
     mGetCombatState.mockResolvedValue(combat('p_gob1'));
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     const btn = await xCard();
     await waitFor(() => {
@@ -216,7 +217,7 @@ describe('A9c C1 — the X-card is reachable in every state the combat verbs are
   });
 
   it('combat, my turn: X-card reachable (the ungated baseline)', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     const btn = await xCard();
     await waitFor(() => expect(screen.getByRole('button', { name: 'Attack' })).toBeEnabled());
@@ -225,7 +226,7 @@ describe('A9c C1 — the X-card is reachable in every state the combat verbs are
 
   it('combat verb IN FLIGHT (combatBusy): X-card reachable and still posts', async () => {
     mAttack.mockImplementation(() => new Promise(() => {})); // never settles: combatBusy stays true
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     const btn = await xCard();
 
@@ -246,7 +247,7 @@ describe('A9c C1 — the X-card is reachable in every state the combat verbs are
 
   it('session PAUSED (sessionLocked): X-card reachable', async () => {
     mGetSession.mockResolvedValue(session({ status: 'paused' }));
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     const btn = await xCard();
     expectReachable(btn);
@@ -254,7 +255,7 @@ describe('A9c C1 — the X-card is reachable in every state the combat verbs are
 
   it('session ENDED (sessionLocked): X-card reachable', async () => {
     mGetSession.mockResolvedValue(session({ status: 'ended' }));
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     const btn = await xCard();
     expectReachable(btn);
@@ -267,7 +268,7 @@ describe('A9c C1 — the X-card own in-flight raise uses aria-disabled, never na
     mPostXCard.mockImplementation(
       () => new Promise((res) => { resolveRaise = res as (v: unknown) => void; }) as ReturnType<typeof dnd.postXCard>,
     );
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     const btn = await xCard();
 
@@ -300,7 +301,7 @@ describe('A9c C1 — the X-card own in-flight raise uses aria-disabled, never na
 
 describe('A9c C1 — the X-card consequence copy is its accessible description (Iro A9b MINOR-1)', () => {
   it('aria-describedby resolves to the visible-in-DOM hint text', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     const btn = await xCard();
     expect(btn).toHaveAccessibleDescription(/pause · rewind · suzu listens/i);

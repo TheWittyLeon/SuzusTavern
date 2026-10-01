@@ -12,7 +12,8 @@
  * resolves to 'ok' underneath it.
  */
 import React from 'react';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { screen, waitFor, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { Participant, Session } from '@/lib/api/types';
 
@@ -141,7 +142,7 @@ describe('PlayPage — genuinely logged out (no crash, no leaked session UI)', (
       retryAuth: jest.fn(),
     });
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login'));
 
@@ -178,7 +179,7 @@ describe('PlayPage — failed silent refresh (authError), the never-before-teste
       retryAuth: jest.fn(),
     });
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     expect(
       await screen.findByRole('heading', { name: /your session has ended/i }),
@@ -200,7 +201,7 @@ describe('PlayPage — failed silent refresh (authError), the never-before-teste
       retryAuth,
     });
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     const retryButton = await screen.findByRole('button', { name: /try again/i });
     retryButton.click();
@@ -219,7 +220,7 @@ describe('PlayPage — resolving state uses the bounded skeleton, never renders 
       retryAuth: jest.fn(),
     });
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     // Iro-A11y MAJOR-1: wrapper is the landmark only (no aria-label) — the
     // loading announcement lives in PageSkeleton's role="status".
@@ -239,7 +240,7 @@ describe('PlayPage — positive control: a real user still reaches the real sess
       retryAuth: jest.fn(),
     });
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     // "Velka" legitimately appears more than once once real content mounts
     // (party list + elsewhere) — getAllByText tolerates that; the point is

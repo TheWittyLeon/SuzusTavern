@@ -20,7 +20,8 @@
  * Attempt shows a busy state it never earned.
  */
 import React from 'react';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { screen, fireEvent, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 
 jest.mock('next/navigation', () => ({
@@ -132,7 +133,7 @@ describe('A6 commit 0 — useSceneState internals bundle wiring (Kage-CR A5 IMPO
     });
     mockAdvanceScene.mockImplementation(() => advanceGate);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     const moveOnBtn = await screen.findByRole('button', { name: /Head to the clearing/i });
     const attemptBtn = await screen.findByRole('button', { name: /Attempt Perception, DC 12/i });
 

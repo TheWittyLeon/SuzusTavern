@@ -35,6 +35,7 @@
 
 import React from 'react';
 import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 
 // ── Standard mocks (mirrors existing sprint5 test files) ─────────────────────
@@ -253,7 +254,7 @@ function setupPlayPage(session: Session, combatState: CombatState | null = null)
 describe('ADV-S5.5A — dice roll auto-narration suppressed when ai_assist_level=off', () => {
   it('rolling a d20 does not call streamDmNarration', async () => {
     setupPlayPage(AI_OFF_SESSION);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     await waitFor(() => expect(mockGetSession).toHaveBeenCalled());
     await act(async () => { await Promise.resolve(); });
@@ -292,7 +293,7 @@ describe('ADV-S5.5B — scene advance narrate() call is suppressed when ai=off',
     mockGetGrounding.mockResolvedValue(grounding);
     mockAdvanceScene.mockResolvedValue({ from_scene: 'scene-1', to_scene: 'scene-2' });
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     await waitFor(() => expect(mockGetSession).toHaveBeenCalled());
     await act(async () => { await Promise.resolve(); });
@@ -332,7 +333,7 @@ describe('ADV-S5.5C — combat start (beginEncounter) does not call streamDmNarr
     });
     mockGetCombatState.mockResolvedValue(ACTIVE_COMBAT);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     await waitFor(() => expect(mockGetSession).toHaveBeenCalled());
     await act(async () => { await Promise.resolve(); });
@@ -353,7 +354,7 @@ describe('ADV-S5.5D — stale client state: server truth wins on re-mount', () =
   it('first mount ai=off hides narrator, second mount ai=full shows it', async () => {
     // Mount 1: off — NarratorStrip must be absent.
     setupPlayPage({ ...AI_FULL_SESSION, ai_assist_level: 'off', dm_mode: 'human' } as Session);
-    const { unmount } = render(<PlayPage />);
+    const { unmount } = renderPlay(<PlayPage />);
     await waitFor(() => expect(mockGetSession).toHaveBeenCalled());
     await act(async () => { await Promise.resolve(); });
     expect(screen.queryByText(/Suzu is setting the scene/i)).not.toBeInTheDocument();
@@ -370,7 +371,7 @@ describe('ADV-S5.5D — stale client state: server truth wins on re-mount', () =
     mockGetCombatState.mockResolvedValue(null);
     mockGetCharacterSheet.mockResolvedValue(null);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await waitFor(() => expect(mockGetSession).toHaveBeenCalled());
     await waitFor(() => {
       expect(screen.getByText(/Suzu is setting the scene/i)).toBeInTheDocument();
@@ -397,7 +398,7 @@ describe('ADV-S5.5E — openScene: ai=off client-render path does not call strea
     // No prior opening_narrated event — so openScene SHOULD fire.
     mockGetSessionEvents.mockResolvedValue([]);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     await waitFor(() => expect(mockGetSession).toHaveBeenCalled());
     await act(async () => { await Promise.resolve(); });
@@ -1106,7 +1107,7 @@ describe('ADV-S5.2A — DM narration submit: 5xx error preserves text; zero LLM 
       Object.assign(new Error('Service unavailable'), { status: 503 }),
     );
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     await waitFor(() =>
       expect(screen.queryByRole('tab', { name: /DM Narration/i })).toBeInTheDocument(),
@@ -1138,7 +1139,7 @@ describe('ADV-S5.2B — empty DM narration submit: postSessionEvent not called',
   it('clicking Send with empty textarea does not call postSessionEvent or streamDmNarration', async () => {
     setupPlayPage(AI_OFF_SESSION);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     await waitFor(() =>
       expect(screen.queryByRole('tab', { name: /DM Narration/i })).toBeInTheDocument(),
@@ -1178,7 +1179,7 @@ describe('ADV-S5.5G — DM seat gating: monster panel absent for non-DM seat', (
     setupPlayPage(NOT_MY_SESSION, ACTIVE_COMBAT);
     mockGetSession.mockResolvedValue({ ...NOT_MY_SESSION, active_combat_id: 'c1' });
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     await waitFor(() => expect(mockGetSession).toHaveBeenCalled());
     await act(async () => { await Promise.resolve(); });

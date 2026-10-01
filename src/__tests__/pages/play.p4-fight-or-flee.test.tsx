@@ -15,7 +15,8 @@
  *     copy-only, no logic change to `beginEncounter`.
  */
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { GroundingData, NarrationEvent, Participant, Session } from '@/lib/api/types';
 
@@ -170,7 +171,7 @@ beforeEach(() => {
 describe('Package B — "Stand and fight" reframe', () => {
   it('a scene with an authored combat encounter shows "Stand and fight" instead of the generic label', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_WITH_ENCOUNTER);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
 
     expect(
@@ -186,7 +187,7 @@ describe('Package B — "Stand and fight" reframe', () => {
 
   it('a scene with NO authored encounter renders no begin-combat button at all (regression pin — dedicated render-gate coverage lives in play.combat-begin-gate.test.tsx)', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_NO_ENCOUNTER);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Outskirts');
 
     expect(screen.queryByRole('button', { name: /^Begin an encounter$/i })).not.toBeInTheDocument();
@@ -195,7 +196,7 @@ describe('Package B — "Stand and fight" reframe', () => {
 
   it('clicking "Stand and fight" drives the SAME combatFromScene -> rollInitiative flow as "Begin an encounter" — no logic change', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_WITH_ENCOUNTER);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
 
     const fightBtn = await screen.findByRole('button', { name: /Stand and fight/i });
@@ -219,7 +220,7 @@ describe('Iro-A11y MAJOR-2 — toast on the sceneHasEncounter rising edge', () =
     // never fire an unrelated narration row.
     mGetSession.mockResolvedValue({ ...SESSION, ai_assist_level: 'full' });
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
 
     // Mount value has no encounter — the button is entirely absent (render
@@ -276,7 +277,7 @@ describe('Iro-A11y MAJOR-2 — toast on the sceneHasEncounter rising edge', () =
       encounter_id: 'everfree_timberwolves',
     });
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
 
     expect(mockToast).not.toHaveBeenCalledWith(expect.objectContaining({ tone: 'warn' }));

@@ -18,7 +18,8 @@
  * unrelated Award-XP test.
  */
 import React from 'react';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { screen, waitFor, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { Session, Participant } from '@/lib/api/types';
 
@@ -153,7 +154,7 @@ describe('T12 — GrantCurrencyPanel mount gate (page-level, per-axis)', () => {
   it('renders for the DM seat (AI dm_mode) when a participant has a bound character (positive control)', async () => {
     mockUsername = 'dm_alice';
     setup(BASE_SESSION, BOUND_CHAR_PARTY);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     expect(await screen.findByText('Grant gold')).toBeInTheDocument();
     expect(screen.getByLabelText('Character')).toBeInTheDocument();
@@ -163,7 +164,7 @@ describe('T12 — GrantCurrencyPanel mount gate (page-level, per-axis)', () => {
   it('also renders for a HUMAN dm_mode DM seat — isDm does not depend on dm_mode (mirrors Award XP)', async () => {
     mockUsername = 'dm_alice';
     setup({ ...BASE_SESSION, dm_mode: 'human' }, BOUND_CHAR_PARTY);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     expect(await screen.findByText('Grant gold')).toBeInTheDocument();
   });
@@ -171,7 +172,7 @@ describe('T12 — GrantCurrencyPanel mount gate (page-level, per-axis)', () => {
   it('never renders for a non-DM player, even when a participant has a bound character', async () => {
     mockUsername = 'alex';
     setup(BASE_SESSION, BOUND_CHAR_PARTY);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     await waitFor(() => expect(mockGetParticipants).toHaveBeenCalled());
     await settle();
@@ -186,7 +187,7 @@ describe('T12 — GrantCurrencyPanel mount gate (page-level, per-axis)', () => {
   it('DM seat but NO participant has a bound character: the panel shows an accessible empty-state, no interactive Grant controls (page-level integration of the component-level gate)', async () => {
     mockUsername = 'dm_alice';
     setup(BASE_SESSION, NO_BOUND_CHAR_PARTY);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     await waitFor(() => expect(mockGetParticipants).toHaveBeenCalled());
     await settle();

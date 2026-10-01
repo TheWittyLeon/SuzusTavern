@@ -27,7 +27,8 @@
  * escalate_dc key-remount.
  */
 import React from 'react';
-import { render, screen, act } from '@testing-library/react';
+import { screen, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type {
   EngineSessionEvent,
@@ -188,7 +189,7 @@ afterEach(() => {
 describe('Tora-Gesture CRITICAL-1 — poll-driven check removal rescues focus', () => {
   it('focus is not silently stranded on <body> when a background poll resolves the focused check', async () => {
     mGetGrounding.mockResolvedValue(grounding([{ skill: 'survival', dc: 13 }]));
-    const { container } = render(<PlayPage />);
+    const { container } = renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
     await act(async () => {
       jest.advanceTimersByTime(200);

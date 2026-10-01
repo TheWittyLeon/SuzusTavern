@@ -64,7 +64,8 @@
  */
 import React from 'react';
 import { execSync } from 'node:child_process';
-import { render, screen, act } from '@testing-library/react';
+import { screen, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { EngineSessionEvent, GroundingData, Participant, Session } from '@/lib/api/types';
 
@@ -232,7 +233,7 @@ describe('QA drive-by finding — rehydratedRef never resets, freezing the trans
       Promise.resolve(args[0] === 's2' ? [...EVENTS_B] : [...EVENTS_A]),
     );
 
-    const { rerender } = render(<PlayPage />);
+    const { rerender } = renderPlay(<PlayPage />);
     await screen.findByText('Table A');
     await flush();
 

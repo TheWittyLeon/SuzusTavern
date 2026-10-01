@@ -50,7 +50,8 @@
  *   5. beat2 completes and finalizes normally.
  */
 import React from 'react';
-import { render, screen, within, waitFor, fireEvent, act } from '@testing-library/react';
+import { screen, within, waitFor, fireEvent, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { GroundingData, NarrationEvent, Participant, Session } from '@/lib/api/types';
 
@@ -202,7 +203,7 @@ describe('Tora CRITICAL-1 — stream-row resurrection race (TAV-S1-ABORT-CLEAR)'
 
     mStream.mockImplementationOnce(predecessorGen).mockImplementationOnce(successorGen);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     const input = await screen.findByRole('textbox');
     const log = await screen.findByRole('log');
 
@@ -308,7 +309,7 @@ describe('Tora CRITICAL-1 sibling — clearStreamNarration row removal (Kage-CR 
 
     mStream.mockImplementationOnce(erroringGen);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     const input = await screen.findByRole('textbox');
     const log = await screen.findByRole('log');
 

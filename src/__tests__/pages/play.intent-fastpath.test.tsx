@@ -31,7 +31,8 @@
  *     beat also signals sceneAdvanced.
  */
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { GroundingData, NarrationEvent, Participant, Session } from '@/lib/api/types';
 
@@ -211,7 +212,7 @@ describe('P1-PLAYFIX-2 §A.3 — fast-path transition intent', () => {
       from_scene: 'slice_everfree_navigate',
       to_scene: 'slice_everfree_timberwolf',
     });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('I head deeper');
@@ -240,7 +241,7 @@ describe('P1-PLAYFIX-2 §A.3 — fast-path transition intent', () => {
 
   it('does not route when there is no authored transition to match (falls through to narrate)', async () => {
     mGetGrounding.mockResolvedValue({ ...GROUNDING_SINGLE_EDGE, transitions: [] });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('I head deeper');
@@ -257,7 +258,7 @@ describe('P1-PLAYFIX-2 §A.3 — fast-path transition intent', () => {
 describe('P1-PLAYFIX-2 gate fix (Kage #3 / Miko DEFECT-1) — checks never fast-path', () => {
   it('"I sneak past it" does NOT call resolveCheck — it falls through to narrate() with the raw player text (fast-path is movement-only)', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_STEALTH_ONLY);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('I sneak past it');
@@ -275,7 +276,7 @@ describe('P1-PLAYFIX-2 gate fix (Kage #3 / Miko DEFECT-1) — checks never fast-
 
   it('atmospheric text containing a check-adjacent word ("creepy") also never calls resolveCheck', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_STEALTH_ONLY);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('This place feels creepy, honestly.');
@@ -289,7 +290,7 @@ describe('P1-PLAYFIX-2 gate fix (Kage #3 / Miko DEFECT-1) — checks never fast-
 describe('P1-PLAYFIX-2 §A.3 — ambiguous / roleplay text falls through to narrate()', () => {
   it('a phrase matching no authored affordance sends the raw text through narrate(), unchanged', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_SINGLE_EDGE);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('I hum a little tune to myself.');
@@ -305,7 +306,7 @@ describe('P1-PLAYFIX-2 §A.3 — ambiguous / roleplay text falls through to narr
 
   it('an ambiguous "I move on" at a fork falls through to narrate() rather than guessing a branch', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_FORK);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('button', { name: /Follow the smoke/i });
 
     await sendMessage('I move on');
@@ -329,7 +330,7 @@ describe('P1-PLAYFIX-2 §A.5/§A.6 — offered_check surfaces the matching affor
       },
       { kind: 'done' },
     ]);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     // Free text that names no scene affordance — always reaches narrate()
@@ -370,7 +371,7 @@ describe('P1-PLAYFIX-2 §A.5/§A.6 — offered_check surfaces the matching affor
       { kind: 'chunk', text: 'Something about the ground catches your eye.', offeredCheck: { skill: 'survival' } },
       { kind: 'done' },
     ]);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('I look around curiously.');
@@ -411,7 +412,7 @@ describe('P1-PLAYFIX-2 §A.5/§A.6 — offered_check surfaces the matching affor
       },
       { kind: 'done' },
     ]);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     // Ambiguous text — reaches narrate() rather than the transition fast-path.
@@ -440,7 +441,7 @@ describe('P1-PLAYFIX-2 §A.5/§A.7 — a narrate() sceneAdvanced signal refreshe
       },
       { kind: 'done' },
     ]);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     // Ambiguous text (not the fast-path phrase) so the beat reaches narrate().
@@ -468,7 +469,7 @@ describe('P1-PLAYFIX-2 §A.5/§A.7 — a narrate() sceneAdvanced signal refreshe
       },
       { kind: 'done' },
     ]);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     const callsBefore = mGetGrounding.mock.calls.length;
@@ -487,7 +488,7 @@ describe('P1-PLAYFIX-2 §A.5/§A.7 — a narrate() sceneAdvanced signal refreshe
 describe('P1-PLAYFIX-2 gate fix (Iro CRITICAL-1) — narrate() refocuses a stranded scene heading', () => {
   it('moves focus to the scene heading when a sceneAdvanced refresh unmounts the check button the player was on', async () => {
     mGetGrounding.mockResolvedValueOnce(GROUNDING_STEALTH_ONLY).mockResolvedValue(GROUNDING_FORK);
-    const { container } = render(<PlayPage />);
+    const { container } = renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     // DM-gated (Leon, explicit): establish Suzu's in-fiction offer first so
@@ -536,7 +537,7 @@ describe('P1-PLAYFIX-2 gate fix (Iro CRITICAL-1) — narrate() refocuses a stran
 describe('P1-PLAYFIX-2 §A.3 — fork renders two distinct buttons (regression)', () => {
   it('both authored fork branches render as separate labelled buttons', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_FORK);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /Follow the smoke — southeast/i })).toBeInTheDocument(),

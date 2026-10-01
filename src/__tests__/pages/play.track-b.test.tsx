@@ -10,7 +10,8 @@
  */
 
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { CombatState, Participant, Session } from '@/lib/api/types';
 
@@ -282,7 +283,7 @@ describe('B1-4 — per-user isPlayerTurn', () => {
     mGetParticipants.mockResolvedValue(PARTY_ALICE);
     mGetCombatState.mockResolvedValue(COMBAT_VELKA_ACTIVE);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     // When it's Velka's turn (alice's character), the Attack button must be enabled.
@@ -298,7 +299,7 @@ describe('B1-4 — per-user isPlayerTurn', () => {
     mGetParticipants.mockResolvedValue(PARTY_TWO_PLAYERS);
     mGetCombatState.mockResolvedValue(COMBAT_MIRA_ACTIVE);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     // It's Mira's turn (bob's character, entity_id='c2'); alice's entity_id='c1' → off turn.
@@ -315,7 +316,7 @@ describe('B1-4 — per-user isPlayerTurn', () => {
     mGetParticipants.mockResolvedValue(PARTY_TWO_PLAYERS);
     mGetCombatState.mockResolvedValue(COMBAT_MIRA_ACTIVE);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     // TAV-NARRATION-DECOUPLE: the SAME status text also VISUALLY appears
@@ -339,7 +340,7 @@ describe('B1-4 — per-user isPlayerTurn', () => {
     mGetParticipants.mockResolvedValue(PARTY_ALICE);
     mGetCombatState.mockResolvedValue(COMBAT_GOBLIN_ACTIVE);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() => {
@@ -353,7 +354,7 @@ describe('B1-4 — per-user isPlayerTurn', () => {
     mGetParticipants.mockResolvedValue(PARTY_ALICE);
     mGetCombatState.mockResolvedValue(COMBAT_VELKA_ACTIVE);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() => {
@@ -367,7 +368,7 @@ describe('B1-4 — per-user isPlayerTurn', () => {
     mGetParticipants.mockResolvedValue(PARTY_ALICE);
     mGetCombatState.mockResolvedValue(COMBAT_VELKA_ACTIVE);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() => {
@@ -385,7 +386,7 @@ describe('B1-4 — per-user isPlayerTurn', () => {
     mGetParticipants.mockResolvedValue(partyNoBind);
     mGetCombatState.mockResolvedValue(COMBAT_VELKA_ACTIVE);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() => {
@@ -405,7 +406,7 @@ describe('B2-4 — rebind affordance in party panel', () => {
     mGetSession.mockResolvedValue(SESSION);
     mGetParticipants.mockResolvedValue(PARTY_ALICE);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() => {
@@ -418,7 +419,7 @@ describe('B2-4 — rebind affordance in party panel', () => {
     mGetParticipants.mockResolvedValue(PARTY_ALICE);
     mGetCombatState.mockResolvedValue(COMBAT_VELKA_ACTIVE);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() => {
@@ -431,7 +432,7 @@ describe('B2-4 — rebind affordance in party panel', () => {
     mGetSession.mockResolvedValue(SESSION);
     mGetParticipants.mockResolvedValue(PARTY_ALICE);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() => {
@@ -456,7 +457,7 @@ describe('B3-1 — outcome chooser', () => {
     mGetParticipants.mockResolvedValue(PARTY_ALICE);
     mGetCombatState.mockResolvedValue(COMBAT_VELKA_ACTIVE);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() =>
@@ -481,7 +482,7 @@ describe('B3-1 — outcome chooser', () => {
     mGetParticipants.mockResolvedValue(PARTY_ALICE);
     mGetCombatState.mockResolvedValue(COMBAT_VELKA_ACTIVE);  // goblin is alive
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() =>
@@ -502,7 +503,7 @@ describe('B3-1 — outcome chooser', () => {
     mGetParticipants.mockResolvedValue(PARTY_ALICE);
     mGetCombatState.mockResolvedValue(COMBAT_GOBLIN_DEAD);  // goblin is dead
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() =>
@@ -523,7 +524,7 @@ describe('B3-1 — outcome chooser', () => {
     mGetParticipants.mockResolvedValue(PARTY_ALICE);
     mGetCombatState.mockResolvedValue(COMBAT_VELKA_ACTIVE);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() =>
@@ -545,7 +546,7 @@ describe('B3-1 — outcome chooser', () => {
     mGetParticipants.mockResolvedValue(PARTY_ALICE);
     mGetCombatState.mockResolvedValue(COMBAT_VELKA_ACTIVE);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() =>
@@ -567,7 +568,7 @@ describe('B3-1 — outcome chooser', () => {
     mGetParticipants.mockResolvedValue(PARTY_ALICE);
     mGetCombatState.mockResolvedValue(COMBAT_VELKA_ACTIVE);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() =>
@@ -589,7 +590,7 @@ describe('B3-1 — outcome chooser', () => {
     mGetParticipants.mockResolvedValue(PARTY_ALICE);
     mGetCombatState.mockResolvedValue(COMBAT_VELKA_ACTIVE);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() =>
@@ -611,7 +612,7 @@ describe('B3-1 — outcome chooser', () => {
     mGetParticipants.mockResolvedValue(PARTY_ALICE);
     mGetCombatState.mockResolvedValue(COMBAT_VELKA_ACTIVE);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() =>
@@ -649,7 +650,7 @@ describe('B3-1 — outcome chooser', () => {
       scene_advance: { from_scene: 'cave_mouth', to_scene: 'cave_exit', outcome: 'retreat' },
     });
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() =>
@@ -688,7 +689,7 @@ describe('B3-1 — outcome chooser', () => {
       }),
     );
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() =>
@@ -736,7 +737,7 @@ describe('B3-1 — outcome chooser', () => {
       scene_advance: null, // no authored parley block → null
     });
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() =>
@@ -773,7 +774,7 @@ describe('Iro MEDIUM-2 — persistent turn-status live region', () => {
     mGetParticipants.mockResolvedValue(PARTY_ALICE);
     mGetCombatState.mockResolvedValue(COMBAT_VELKA_ACTIVE);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() => {
@@ -806,7 +807,7 @@ describe('Iro MEDIUM-2 — persistent turn-status live region', () => {
     mGetParticipants.mockResolvedValue(PARTY_TWO_PLAYERS);
     mGetCombatState.mockResolvedValue(COMBAT_MIRA_ACTIVE);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     // The persistent turn-status region (role=status aria-atomic=true,
@@ -836,7 +837,7 @@ describe('Tora MAJOR-2 — outcome chooser Escape', () => {
     mGetParticipants.mockResolvedValue(PARTY_ALICE);
     mGetCombatState.mockResolvedValue(COMBAT_VELKA_ACTIVE);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() =>
@@ -876,7 +877,7 @@ describe('Tora MINOR-1 — chooser stays open on error', () => {
       }),
     );
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() =>

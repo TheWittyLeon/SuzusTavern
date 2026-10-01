@@ -24,7 +24,8 @@
  * were untested in r1.
  */
 import React from 'react';
-import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
+import { screen, waitFor, fireEvent, within } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { CombatState, Participant, Session, Character } from '@/lib/api/types';
 
@@ -179,7 +180,7 @@ describe('UIR2-TAV-11 r2 — human-DM overlays (DmNarrationPanel / DmOverrideMod
 
   it('[PROVEN leak #1] a monster attack-target menu leaking Escape must not close the Award-XP popover', async () => {
     setup();
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await openAwardXp();
@@ -205,7 +206,7 @@ describe('UIR2-TAV-11 r2 — human-DM overlays (DmNarrationPanel / DmOverrideMod
   it('[leak #4, same shape as PROVEN #2] a busy DM Override modal leaking Escape must not close the Award-XP popover', async () => {
     setup();
     mSubmitOverride.mockReturnValue(new Promise(() => {})); // never resolves -> submitting stays true
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await openAwardXp();
@@ -320,7 +321,7 @@ describe('UIR2-TAV-11 r2 — Composer player attack-target menu', () => {
 
   it('[leak #3, structurally identical to PROVEN #1] a player attack-target menu leaking Escape must not close the Award-XP popover', async () => {
     setup();
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await openAwardXp();
@@ -380,7 +381,7 @@ describe('UIR2-TAV-11 r2 — RebindCharacterButton', () => {
   it('[PROVEN leak #2] a busy rebind popover leaking Escape must not close the Award-XP popover', async () => {
     setup();
     mBindCharacter.mockReturnValue(new Promise(() => {})); // never resolves -> busy stays true
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await openAwardXp();
@@ -433,7 +434,7 @@ describe('UIR2-TAV-11 r2 — document-level Award-XP fallback busy-strand legs',
 
   it('endSessionConfirm being open blocks the fallback (idle, no active combat)', async () => {
     setup();
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await openAwardXp();
@@ -452,7 +453,7 @@ describe('UIR2-TAV-11 r2 — document-level Award-XP fallback busy-strand legs',
 
   it('journalOpen being true blocks the fallback', async () => {
     setup();
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await openAwardXp();
@@ -467,7 +468,7 @@ describe('UIR2-TAV-11 r2 — document-level Award-XP fallback busy-strand legs',
   it("sessionActionBusy==='xp' blocks the fallback (no sibling overlay open)", async () => {
     setup();
     mAwardSessionXp.mockReturnValue(new Promise(() => {})); // never resolves -> sessionActionBusy stays 'xp'
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     const xpForm = await openAwardXp();
@@ -486,7 +487,7 @@ describe('UIR2-TAV-11 r2 — document-level Award-XP fallback busy-strand legs',
 
   it('control: Escape from outside all overlays still closes the Award-XP popover', async () => {
     setup();
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await openAwardXp();
@@ -507,7 +508,7 @@ describe('UIR2-TAV-11 r2 — document-level Award-XP fallback busy-strand legs',
   it("[Miko P1] a direct Escape on the xpForm node itself (not document) stays gated on sessionActionBusy==='xp' — the form must NOT close mid-award", async () => {
     setup();
     mAwardSessionXp.mockReturnValue(new Promise(() => {})); // never resolves -> sessionActionBusy stays 'xp'
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     const xpForm = await openAwardXp();
@@ -613,7 +614,7 @@ describe('UIR2-TAV-11 r3 — DmNarrationPanel attack-menu focus-on-open', () => 
 
   it('[Miko r2 re-gate, PROVEN] opening the attack-target menu moves focus into it, so a real Escape (dispatched at whatever has focus) is consumed by the menu and never reaches the Award-XP fallback', async () => {
     setup();
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await openAwardXp();

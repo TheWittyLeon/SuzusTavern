@@ -19,7 +19,8 @@
  * The flag-OFF/SSE mirror lives in play.struct006-gate-refetch.flag-off.test.tsx.
  */
 import React from 'react';
-import { render, screen, act } from '@testing-library/react';
+import { screen, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { EngineSessionEvent, EventsPage, Participant, Session } from '@/lib/api/types';
 
@@ -158,7 +159,7 @@ beforeEach(() => {
 });
 
 async function mountAndSettle(): Promise<number> {
-  render(<PlayPage />);
+  renderPlay(<PlayPage />);
   await screen.findByText('Test Table');
   // Let the mount-time grounding fetch + first (empty) poll settle before
   // baselining, mirroring the DDX-22 poll-churn test's baselining step.

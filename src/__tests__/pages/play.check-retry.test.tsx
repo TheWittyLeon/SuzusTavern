@@ -24,7 +24,8 @@
  *       covered in play.checks-and-fork.test.tsx's CRITICAL-1 block).
  */
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act, within } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { GroundingData, Participant, SceneCheck, Session } from '@/lib/api/types';
 
@@ -166,7 +167,7 @@ describe('item 20 — a resolved check is fully hidden', () => {
         },
       ]),
     );
-    const { container } = render(<PlayPage />);
+    const { container } = renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await waitFor(() => {
@@ -207,7 +208,7 @@ describe('item 21 — a locked check stays visible, Tab-reachable, and aria-disa
         },
       ]),
     );
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     const btn = await screen.findByRole('button', { name: /Survival, DC 13 — closed/i });
     expect(btn).not.toBeDisabled();
@@ -240,7 +241,7 @@ describe('item 21 — a locked check stays visible, Tab-reachable, and aria-disa
         },
       ]),
     );
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     const btn = await screen.findByRole('button', { name: /Survival, DC 13 — closed/i });
     expect(within(btn).getByText('A critical failure closed this approach.')).toBeInTheDocument();
   });
@@ -262,7 +263,7 @@ describe('item 22 — last-attempt label', () => {
         },
       ]),
     );
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('button', { name: /Attempt Survival, DC 13 — last attempt/i });
   });
 
@@ -279,7 +280,7 @@ describe('item 22 — last-attempt label', () => {
         },
       ]),
     );
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     const btn = await screen.findByRole('button', { name: /Attempt Survival, DC 13/i });
     expect(btn).not.toHaveTextContent(/last attempt/i);
   });
@@ -299,7 +300,7 @@ describe('item 23 — success payoff signal', () => {
       mechanics: 'Survival check: rolled 14 + 2 = 16 vs DC 13 — success.',
       description: 'Survival check (DC 13): 16 — success.',
     });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     const btn = await screen.findByRole('button', { name: /Attempt Survival/i });
     await act(async () => {
@@ -325,7 +326,7 @@ describe('item 23 — success payoff signal', () => {
       mechanics: 'Survival check: rolled 2 + 2 = 5 vs DC 13 — failure.',
       description: 'Survival check (DC 13): 5 — failure.',
     });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     const btn = await screen.findByRole('button', { name: /Attempt Survival/i });
     await act(async () => {
@@ -353,7 +354,7 @@ describe('item 23 — success payoff signal', () => {
       mechanics: 'Survival check: rolled 14 + 2 = 16 vs DC 13 — success.',
       description: 'Survival check (DC 13): 16 — success.',
     });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     const btn = await screen.findByRole('button', { name: /Attempt Survival/i });
     await act(async () => {
@@ -385,7 +386,7 @@ describe('item 24 — 409 refusals surface curated toast copy', () => {
         },
       }),
     );
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     const btn = await screen.findByRole('button', { name: /Attempt Survival/i });
     await act(async () => {
@@ -411,7 +412,7 @@ describe('item 24 — 409 refusals surface curated toast copy', () => {
         },
       }),
     );
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     const btn = await screen.findByRole('button', { name: /Attempt Survival/i });
     await act(async () => {
@@ -432,7 +433,7 @@ describe('item 24 — 409 refusals surface curated toast copy', () => {
 describe('item 26 — flag-off dormancy', () => {
   it('a check with no state/attempts_used/max_attempts/lock_reason field renders exactly as today', async () => {
     mGetGrounding.mockResolvedValue(grounding([{ skill: 'survival', dc: 13 }]));
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     const btn = await screen.findByRole('button', { name: /^Attempt Survival, DC 13$/i });
     expect(btn).not.toBeDisabled();
@@ -468,7 +469,7 @@ describe('item 27 — focus rescue when a check hides itself by resolving', () =
       description: 'Survival check (DC 13): 16 — success.',
     });
 
-    const { container } = render(<PlayPage />);
+    const { container } = renderPlay(<PlayPage />);
     const btn = await screen.findByRole('button', { name: /Attempt Survival/i });
 
     act(() => btn.focus());

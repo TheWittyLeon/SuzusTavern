@@ -24,7 +24,8 @@
  * Both paths are exercised below.
  */
 import React from "react";
-import { render, screen, waitFor, act } from "@testing-library/react";
+import { screen, waitFor, act } from "@testing-library/react";
+import { renderPlay } from "@/test-utils/renderPlay";
 import "@testing-library/jest-dom";
 import type { Session, Participant } from "@/lib/api/types";
 
@@ -188,7 +189,7 @@ describe("P1-READALOUD gate logic (fire-once contract)", () => {
   });
 
   it("getSessionEvents is consulted on mount when grounding has a scene", async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
     await act(async () => { await new Promise((r) => setTimeout(r, 80)); });
     expect(mGetSessionEvents).toHaveBeenCalledWith("sess-opening", expect.anything());
@@ -198,7 +199,7 @@ describe("P1-READALOUD gate logic (fire-once contract)", () => {
     mGetSessionEvents.mockResolvedValue([
       { event_type: "opening_narrated", description: "Scene already opened." },
     ]);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
     await act(async () => { await new Promise((r) => setTimeout(r, 80)); });
 
@@ -210,7 +211,7 @@ describe("P1-READALOUD gate logic (fire-once contract)", () => {
     mGetSessionEvents.mockResolvedValue([
       { event_type: "scene_advance", description: "The party moved deeper in." },
     ]);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
     await act(async () => { await new Promise((r) => setTimeout(r, 80)); });
 
@@ -220,7 +221,7 @@ describe("P1-READALOUD gate logic (fire-once contract)", () => {
 
   it("does NOT fire when grounding has no scene_id (freeform session)", async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_FREEFORM);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
     await act(async () => { await new Promise((r) => setTimeout(r, 80)); });
 
@@ -239,7 +240,7 @@ describe("P1-READALOUD renders verbatim for AI/full sessions", () => {
   });
 
   it("renders boxed_text verbatim as a read_aloud row — no LLM stream on open", async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
 
     await waitFor(() =>
@@ -256,7 +257,7 @@ describe("P1-READALOUD renders verbatim for AI/full sessions", () => {
   });
 
   it("does NOT call streamDmNarration for the opening (no AI opening call)", async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
     await act(async () => { await new Promise((r) => setTimeout(r, 120)); });
 
@@ -270,7 +271,7 @@ describe("P1-READALOUD renders verbatim for AI/full sessions", () => {
   });
 
   it("includes adventure title in the read-aloud block", async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
 
     await waitFor(() =>
@@ -279,7 +280,7 @@ describe("P1-READALOUD renders verbatim for AI/full sessions", () => {
   });
 
   it("includes the hook in the read-aloud block", async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
 
     await waitFor(() =>
@@ -288,7 +289,7 @@ describe("P1-READALOUD renders verbatim for AI/full sessions", () => {
   });
 
   it("writes opening_narrated with source:'read_aloud_verbatim'", async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
 
     await waitFor(() =>
@@ -313,7 +314,7 @@ describe("P1-READALOUD renders verbatim for AI-off sessions (same path)", () => 
   });
 
   it("renders boxed_text verbatim without calling narration stream", async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
 
     await waitFor(() =>
@@ -323,7 +324,7 @@ describe("P1-READALOUD renders verbatim for AI-off sessions (same path)", () => 
   });
 
   it("writes opening_narrated with source:'read_aloud_verbatim' on AI-off", async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
 
     await waitFor(() =>
@@ -339,7 +340,7 @@ describe("P1-READALOUD renders verbatim for AI-off sessions (same path)", () => 
 
   it("postSessionEvent failure is non-fatal — page stays functional", async () => {
     mPostSessionEvent.mockRejectedValue(new Error("network down"));
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
 
     await waitFor(() =>
@@ -352,7 +353,7 @@ describe("P1-READALOUD renders verbatim for AI-off sessions (same path)", () => 
     mGetSessionEvents.mockResolvedValue([
       { event_type: "opening_narrated", description: "Already ran." },
     ]);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
     await act(async () => { await new Promise((r) => setTimeout(r, 80)); });
 
@@ -365,7 +366,7 @@ describe("P1-READALOUD renders verbatim for AI-off sessions (same path)", () => 
       { event_type: "session_start", description: "Session started." },
       { event_type: "character_bound", description: "Velka bound." },
     ]);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
 
     await waitFor(() =>
@@ -384,7 +385,7 @@ describe("P1-READALOUD renders verbatim for human-DM sessions", () => {
   });
 
   it("renders boxed_text verbatim for a human-DM session without calling LLM", async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
 
     await waitFor(() =>
@@ -394,7 +395,7 @@ describe("P1-READALOUD renders verbatim for human-DM sessions", () => {
   });
 
   it("writes opening_narrated marker on human-DM session", async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
 
     await waitFor(() =>
@@ -416,7 +417,7 @@ describe("P1-READALOUD opening_lines — optional NPC dialogue", () => {
 
   it("renders each opening_line as a read_aloud_line row with speaker and dialogue", async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_WITH_OPENING_LINES);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
 
     // Both NPC lines should appear verbatim
@@ -433,7 +434,7 @@ describe("P1-READALOUD opening_lines — optional NPC dialogue", () => {
 
   it("does NOT render NPC dialogue rows when opening_lines is empty", async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_WITH_SCENE); // opening_lines: []
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
 
     // Wait for boxed_text to confirm open fired
@@ -448,7 +449,7 @@ describe("P1-READALOUD opening_lines — optional NPC dialogue", () => {
 
   it("renders boxed_text block first, then opening_lines after", async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_WITH_OPENING_LINES);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
 
     await waitFor(() => {
@@ -466,7 +467,7 @@ describe("P1-READALOUD opening_lines — optional NPC dialogue", () => {
 
   it("opening_narrated marker is still written when opening_lines are present", async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_WITH_OPENING_LINES);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
 
     await waitFor(() =>
@@ -488,7 +489,7 @@ describe("P1-READALOUD idempotency — re-mount does not re-fire", () => {
       { event_type: "opening_narrated", description: "Scene was opened before." },
     ]);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
     await act(async () => { await new Promise((r) => setTimeout(r, 100)); });
 

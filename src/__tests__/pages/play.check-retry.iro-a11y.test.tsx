@@ -43,7 +43,8 @@
  * always-live ChatLog region as Finding A, one row above it.
  */
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { GroundingData, Participant, SceneCheck, Session } from '@/lib/api/types';
 
@@ -165,7 +166,7 @@ describe('Iro-A11y MAJOR-2 — success-payoff toast is the one spoken channel', 
       mechanics: 'Survival check: rolled 14 + 2 = 16 vs DC 13 — success.',
       description: 'Survival check (DC 13): 16 — success.',
     });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     const btn = await screen.findByRole('button', { name: /Attempt Survival/i });
     await act(async () => {

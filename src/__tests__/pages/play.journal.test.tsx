@@ -12,7 +12,8 @@
  *   - the drawer is NOT a dialog (no role) while merely the active mobile tab
  */
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { screen, fireEvent, waitFor } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { EngineSessionEvent, Participant, Session } from '@/lib/api/types';
 
@@ -119,7 +120,7 @@ beforeEach(() => {
 
 describe('Journal — 4th mobile tab', () => {
   it('switches alongside Story/Party/Scene and controls the journal pane', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     const story = screen.getByRole('button', { name: /story/i });
@@ -138,7 +139,7 @@ describe('Journal — 4th mobile tab', () => {
   });
 
   it('is not a dialog while merely the active mobile tab', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     const journalTab = screen.getByRole('button', { name: 'Journal' });
@@ -155,7 +156,7 @@ describe('Journal — 4th mobile tab', () => {
   });
 
   it('Close on the mobile tab falls back to Story, not a no-op (Kage-CR A7 IMPORTANT-4)', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     const journalTab = screen.getByRole('button', { name: 'Journal' });
@@ -170,7 +171,7 @@ describe('Journal — 4th mobile tab', () => {
 
 describe('Journal — desktop drawer', () => {
   it('opens with dialog semantics and moves focus to the close button', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     const toggle = screen.getByRole('button', { name: 'Open journal' });
@@ -194,7 +195,7 @@ describe('Journal — desktop drawer', () => {
   });
 
   it('Escape closes the drawer and returns focus to the toggle button', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     const toggle = screen.getByRole('button', { name: 'Open journal' });
@@ -217,7 +218,7 @@ describe('Journal — desktop drawer', () => {
   });
 
   it('the close button closes the drawer and returns focus to the toggle button', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     const toggle = screen.getByRole('button', { name: 'Open journal' });
@@ -238,7 +239,7 @@ describe('Journal — desktop drawer', () => {
   });
 
   it('clicking the scrim closes the drawer', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     const toggle = screen.getByRole('button', { name: 'Open journal' });
@@ -262,7 +263,7 @@ describe('Journal — desktop drawer', () => {
   });
 
   it('Tab does not escape the drawer while open (focus trap)', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     const toggle = screen.getByRole('button', { name: 'Open journal' });
@@ -280,7 +281,7 @@ describe('Journal — desktop drawer', () => {
   });
 
   it('Tab from the last focusable wraps forward to the close button (Iro MINOR-3)', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     const toggle = screen.getByRole('button', { name: 'Open journal' });

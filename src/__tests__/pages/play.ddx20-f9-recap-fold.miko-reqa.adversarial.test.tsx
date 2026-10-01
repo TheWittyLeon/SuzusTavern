@@ -58,7 +58,8 @@
  *      functions.
  */
 import React from 'react';
-import { render, screen, act, within, fireEvent } from '@testing-library/react';
+import { screen, act, within, fireEvent } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type {
   EngineSessionEvent,
@@ -310,7 +311,7 @@ describe('QA re-verify — journalSeenSeqsRef does not go stale across a same-in
 
     jest.useFakeTimers();
     try {
-      const { rerender } = render(<PlayPage />);
+      const { rerender } = renderPlay(<PlayPage />);
       await screen.findByText('Table A');
       await flush();
 
@@ -389,7 +390,7 @@ describe('QA re-verify — the `?? 0` collapse: two GENUINELY DISTINCT null-seq 
 
     jest.useFakeTimers();
     try {
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
       await flush();
 
@@ -445,7 +446,7 @@ describe('QA re-verify — React.StrictMode double-invoke purity (new technique:
     const debugSpy = jest.spyOn(console, 'debug').mockImplementation(() => {});
     jest.useFakeTimers();
     try {
-      render(
+      renderPlay(
         <React.StrictMode>
           <PlayPage />
         </React.StrictMode>,

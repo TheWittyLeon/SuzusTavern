@@ -60,7 +60,8 @@
  * with no DOM/click/disabled involved at all.
  */
 import React from 'react';
-import { render, screen, act, fireEvent } from '@testing-library/react';
+import { screen, act, fireEvent } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { OffersProps } from '@/app/play/[sessionId]/regions/Offers';
 
@@ -220,7 +221,7 @@ async function flush() {
 describe('A1b MINOR-4 — onMoveOn / onAttemptCheck isSessionLocked gate, invoked directly', () => {
   it('the native `disabled` belt is present on BOTH affordances (context, not the assertion under test)', async () => {
     setup();
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     const moveOnBtn = await screen.findByRole('button', { name: /Head to the clearing/i });
     const attemptBtn = await screen.findByRole('button', { name: /Attempt Perception, DC 12/i });
     expect(moveOnBtn).toBeDisabled();
@@ -229,7 +230,7 @@ describe('A1b MINOR-4 — onMoveOn / onAttemptCheck isSessionLocked gate, invoke
 
   it('onMoveOn (useScene.ts:619) refuses to advance the scene while the session is paused, called directly (not through the disabled button)', async () => {
     setup();
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('button', { name: /Head to the clearing/i });
 
     expect(capturedOffersProps).not.toBeNull();
@@ -243,7 +244,7 @@ describe('A1b MINOR-4 — onMoveOn / onAttemptCheck isSessionLocked gate, invoke
 
   it('onAttemptCheck (useScene.ts:725) refuses to resolve a check while the session is paused, called directly (not through the disabled button)', async () => {
     setup();
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('button', { name: /Attempt Perception, DC 12/i });
 
     expect(capturedOffersProps).not.toBeNull();
@@ -259,7 +260,7 @@ describe('A1b MINOR-4 — onMoveOn / onAttemptCheck isSessionLocked gate, invoke
 describe('A5 IMPORTANT-5 — onMoveOn / onAttemptCheck talking gate, invoked directly', () => {
   it('onMoveOn (useSceneActions.ts:172) refuses to advance the scene while a beat is talking, called directly (not through the disabled button)', async () => {
     setupActiveTalking();
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('button', { name: /Head to the clearing/i });
 
     // Drive talking=true via a REAL in-flight beat (composer send), not a
@@ -283,7 +284,7 @@ describe('A5 IMPORTANT-5 — onMoveOn / onAttemptCheck talking gate, invoked dir
 
   it('onAttemptCheck (useSceneActions.ts:274) refuses to resolve a check while a beat is talking, called directly (not through the disabled button)', async () => {
     setupActiveTalking();
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('button', { name: /Attempt Perception, DC 12/i });
 
     const input = screen.getByRole('textbox');

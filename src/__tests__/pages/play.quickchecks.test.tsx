@@ -6,7 +6,8 @@
  * that a sheet-fetch failure degrades gracefully (no NaN, no crash).
  */
 import React from "react";
-import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
+import { screen, waitFor, fireEvent, act } from "@testing-library/react";
+import { renderPlay } from "@/test-utils/renderPlay";
 import "@testing-library/jest-dom";
 import type { Session, Participant } from "@/lib/api/types";
 
@@ -145,7 +146,7 @@ beforeEach(() => {
 
 /** Helper: render and navigate to the Scene pane where DiceTray lives. */
 async function renderAndOpenScene() {
-  render(<PlayPage />);
+  renderPlay(<PlayPage />);
   await screen.findByText("Test Table");
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: /scene/i }));
@@ -175,7 +176,7 @@ describe("A2 - real character quick-checks", () => {
     mGetParticipants.mockResolvedValue(PARTY_WITH_CHARACTER);
     mGetCharacterSheet.mockResolvedValue(SHEET_WITH_SKILLS);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("Test Table");
 
     await waitFor(() =>

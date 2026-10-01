@@ -31,7 +31,8 @@
  *      path).
  */
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type {
   EngineSessionEvent,
@@ -228,7 +229,7 @@ describe('adversarial 1 — unknown lock_reason falls back gracefully', () => {
         },
       ]),
     );
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     const btn = await screen.findByRole('button', { name: /Survival, DC 13 — closed/i });
     // SPEC CHANGE (Iro-A11y MAJOR-3/MAJOR-4, 2026-07-28): a purely-locked
     // check is aria-disabled, not native disabled -- see
@@ -263,7 +264,7 @@ describe('adversarial 2 — partial wire payload (state absent, counters present
         },
       ]),
     );
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     // Renders enabled (not locked) -- isLocked only checks state === 'locked'.
     const btn = await screen.findByRole('button', { name: /Attempt Survival, DC 13/i });
     expect(btn).not.toBeDisabled();
@@ -317,7 +318,7 @@ describe('adversarial 3 — double-fetch measurement (inline + poll echo)', () =
       event_seq: 42,
     });
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
     await act(async () => {
       jest.advanceTimersByTime(200);
@@ -406,7 +407,7 @@ describe('adversarial 4 — a non-acting client sees the rail update but gets no
 
   it('a check_resolved event observed only via poll (never through this client\'s own resolveCheck) refreshes grounding without firing the payoff toast', async () => {
     mGetGrounding.mockResolvedValueOnce(grounding([{ skill: 'survival', dc: 13 }]));
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
     await act(async () => {
       jest.advanceTimersByTime(200);
@@ -477,7 +478,7 @@ describe('adversarial 5 — rapid double-click issues exactly one resolveCheck c
           resolvePromise = resolve;
         }),
     );
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     const btn = await screen.findByRole('button', { name: /Attempt Survival/i });
 
     // Two clicks fired in the SAME act() batch, before either await settles
@@ -523,7 +524,7 @@ describe('adversarial 6 — a DC change (escalate_dc) remounts the check button 
       description: 'Survival check (DC 13): 8 — failure.',
       event_seq: 5,
     });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     const before = await screen.findByRole('button', { name: /Attempt Survival, DC 13/i });
     act(() => before.focus());
     expect(before).toHaveFocus();
@@ -574,7 +575,7 @@ describe('adversarial 7 — hostile authored text never becomes markup', () => {
     mGetGrounding.mockResolvedValue(
       grounding([{ skill: 'survival', dc: 13, note: hostile }]),
     );
-    const { container } = render(<PlayPage />);
+    const { container } = renderPlay(<PlayPage />);
     await screen.findByRole('button', { name: /Attempt Survival/i });
 
     // No actual <img> element was injected into the DOM.

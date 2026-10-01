@@ -25,7 +25,8 @@
  * test asserts on never appears. RED under the mutant, GREEN on `main`.
  */
 import React from 'react';
-import { render, screen, act } from '@testing-library/react';
+import { screen, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { EngineSessionEvent, Participant, Session } from '@/lib/api/types';
 
@@ -204,7 +205,7 @@ afterEach(() => {
 
 describe('seq-ordering — flag-OFF (live) branch — advance-after / retry-on-throw', () => {
   it('a synchronous throw mid-batch does not move the cursor past an unrendered event, and the next tick recovers it', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
 
     // The event appears on the wire (a roll fired by another client) once

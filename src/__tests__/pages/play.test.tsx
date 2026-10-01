@@ -9,7 +9,8 @@
  *   - spawnMonster is NOT called from beginEncounter
  */
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act, within } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { CharacterSheet, NarrationEvent, Participant, Session } from '@/lib/api/types';
 
@@ -160,7 +161,7 @@ beforeEach(() => {
 
 describe('Play page', () => {
   it('loads the session and renders its title + party', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     expect(await screen.findByText('The Hollow Tide')).toBeInTheDocument();
     // B2-4: "Velka" now appears in both PartyPanel and the rebind section label.
     const velkaEls = await screen.findAllByText('Velka');
@@ -242,7 +243,7 @@ describe('Play page', () => {
     // the party card is clicked.
     mGetCharacterSheet.mockResolvedValue(VELKA_SHEET);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() => expect(mGetCharacterSheet).toHaveBeenCalled());
     const callsBeforeClick = mGetCharacterSheet.mock.calls.length;
@@ -282,7 +283,7 @@ describe('Play page', () => {
           : Promise.reject(new Error('not found')),
     );
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     const card = screen.getByRole('button', { name: /Grask/ });
@@ -299,7 +300,7 @@ describe('Play page', () => {
   });
 
   it('mobile view tabs switch Story / Party / Scene (party reachable on mobile)', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     const story = screen.getByRole('button', { name: /story/i });
@@ -320,7 +321,7 @@ describe('Play page', () => {
   });
 
   it('Say → streams DM narration into the chat log', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     const input = screen.getByRole('textbox');
@@ -340,7 +341,7 @@ describe('Play page', () => {
   });
 
   it('OOC messages never reach the AI pipeline', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     fireEvent.click(screen.getByRole('tab', { name: 'OOC' }));
@@ -354,7 +355,7 @@ describe('Play page', () => {
 
   it('shows a fallback when the session is missing', async () => {
     mGetSession.mockResolvedValue(null as unknown as Session);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     expect(await screen.findByText(/That table has closed/i)).toBeInTheDocument();
   });
 
@@ -365,7 +366,7 @@ describe('Play page', () => {
     });
     streamOnce([{ kind: 'chunk', text: 'Your blade finds the gap.' }, { kind: 'done' }]);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await act(async () => {
@@ -386,7 +387,7 @@ describe('Play page', () => {
       yield { kind: 'done' as const };
     });
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     const input = screen.getByRole('textbox');
@@ -410,7 +411,7 @@ describe('Play page', () => {
       yield { kind: 'done' as const };
     });
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     const input = screen.getByRole('textbox');
@@ -433,7 +434,7 @@ describe('Play page', () => {
       yield { kind: 'done' as const };
     });
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     const input = screen.getByRole('textbox');
@@ -466,7 +467,7 @@ describe('ADV-6 — beginEncounter', () => {
 
   /** Helper: render, wait for session, click the begin-combat button. */
   async function clickBeginEncounter() {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     const btn = screen.getByRole('button', { name: /stand and fight/i });
     await act(async () => {
@@ -560,7 +561,7 @@ describe('ADV-6 — beginEncounter', () => {
     let resolve!: (v: typeof FROM_SCENE_RESULT) => void;
     mCombatFromScene.mockReturnValue(new Promise((r) => { resolve = r; }));
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     const btn = screen.getByRole('button', { name: /stand and fight/i });
 

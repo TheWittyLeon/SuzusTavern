@@ -19,7 +19,8 @@
  *   - human-DM client_key dedup (ledger rule 4)
  */
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act, within } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { EngineSessionEvent, EventsPage, Participant, Session } from '@/lib/api/types';
 
@@ -218,7 +219,7 @@ describe('durable turn happy path', () => {
       yield { kind: 'done' };
     });
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
 
     await sendMessage('I push the door open.');
@@ -272,7 +273,7 @@ describe('durable turn happy path', () => {
       dm_mode: 'human',
       ai_assist_level: 'off',
     });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
 
     await sendMessage('I look around.');
@@ -295,7 +296,7 @@ describe('409-busy pivot', () => {
       yield { kind: 'done' };
     });
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
 
     await sendMessage('Second message while Suzu is busy.');
@@ -342,7 +343,7 @@ describe('deduped-resume — no double-append', () => {
 
     jest.useFakeTimers();
     try {
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
 
       const input = screen.getByRole('textbox');
@@ -436,7 +437,7 @@ describe('TAV-NARRATION-DECOUPLE Phase 2 — poll-claim race NO LONGER pops in w
 
     jest.useFakeTimers();
     try {
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
 
       const input = screen.getByRole('textbox');
@@ -541,7 +542,7 @@ describe('TAV-NARRATION-DECOUPLE Phase 2 — durable happy path streams token-by
 
     jest.useFakeTimers();
     try {
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
 
       const input = screen.getByRole('textbox');
@@ -624,7 +625,7 @@ describe('TAV-NARRATION-DECOUPLE Phase 2 — abort/failure clears the precreated
       yield { kind: 'error', error: 'generation failed' };
     });
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
 
     await sendMessage('I try something risky.');
@@ -655,7 +656,7 @@ describe('TAV-NARRATION-DECOUPLE Phase 2 — resume/reload path scoped OFF precr
 
     jest.useFakeTimers();
     try {
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
 
       mockGetSessionEventsPage.mockResolvedValue({
@@ -717,7 +718,7 @@ describe('TAV-NARRATION-DECOUPLE — NarratorStrip no longer carries narration t
       yield { kind: 'done' };
     });
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
     // Scene banner shows on mount, before any turn is sent.
     await screen.findByText('The Sunken Archive — Find the missing ledger.');
@@ -753,7 +754,7 @@ describe("don't-re-POST rule (stateless poll-discovery)", () => {
 
     jest.useFakeTimers();
     try {
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
 
       mockGetSessionEventsPage.mockResolvedValue({
@@ -798,7 +799,7 @@ describe("don't-re-POST rule (stateless poll-discovery)", () => {
 
     jest.useFakeTimers();
     try {
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
 
       const pendingPage: EventsPage = {
@@ -849,7 +850,7 @@ describe('turn_key lifecycle', () => {
 
     jest.useFakeTimers();
     try {
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
 
       const input = screen.getByRole('textbox');
@@ -898,7 +899,7 @@ describe('turn_key lifecycle', () => {
       yield { kind: 'error', error: 'generation failed' };
     });
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
 
     await sendMessage('I attempt a risky climb.');
@@ -931,7 +932,7 @@ describe('turn_key lifecycle', () => {
 describe('human-DM client_key dedup (ledger rule 4)', () => {
   async function renderAsHumanDm() {
     mockGetSession.mockResolvedValue(HUMAN_DM_SESSION);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await waitFor(() =>
       expect(screen.queryByRole('tab', { name: /DM Narration/i })).toBeInTheDocument(),
     );

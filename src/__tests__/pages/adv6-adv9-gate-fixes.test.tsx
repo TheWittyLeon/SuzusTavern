@@ -10,6 +10,7 @@
 
 import React from 'react';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { Participant, Session, User } from '@/lib/api/types';
 
@@ -363,7 +364,7 @@ describe('Iro MINOR-1 — beginEncounter button aria-busy', () => {
   });
 
   it('button has aria-busy=false when not busy', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     const btn = screen.getByRole('button', { name: /stand and fight/i });
@@ -375,7 +376,7 @@ describe('Iro MINOR-1 — beginEncounter button aria-busy', () => {
     let resolve!: (v: typeof FROM_SCENE_RESULT) => void;
     mCombatFromScene.mockReturnValue(new Promise((r) => { resolve = r; }));
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     const btn = screen.getByRole('button', { name: /stand and fight/i });

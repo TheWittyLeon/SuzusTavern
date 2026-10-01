@@ -26,7 +26,8 @@
  * handoff report for the captured red-first output).
  */
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act, within } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { EngineSessionEvent, EventsPage, Participant, Session } from '@/lib/api/types';
 
@@ -280,7 +281,7 @@ describe('DDX-20 F9 — reload does not double-render (§2.2 ledger seed)', () =
 
     jest.useFakeTimers();
     try {
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
       await flush();
 
@@ -345,7 +346,7 @@ describe('DDX-20 recap guard — a durable recap event never hijacks an active n
 
     jest.useFakeTimers();
     try {
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
       // Scoped to the transcript's `role="log"` region — the chat log's own
       // streaming row is the ONLY place narration renders today
@@ -437,7 +438,7 @@ describe('DDX-20 journalEvents — merge-by-seq, no unbounded duplication (§2.4
 
     jest.useFakeTimers();
     try {
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
       await flush();
 

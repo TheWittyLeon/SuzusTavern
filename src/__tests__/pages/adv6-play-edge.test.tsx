@@ -12,7 +12,8 @@
  */
 
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { Participant, Session } from '@/lib/api/types';
 
@@ -126,7 +127,7 @@ beforeEach(() => {
 });
 
 async function clickBeginEncounter() {
-  render(<PlayPage />);
+  renderPlay(<PlayPage />);
   await screen.findByText('The Hollow Tide');
   const btn = screen.getByRole('button', { name: /stand and fight/i });
   await act(async () => {

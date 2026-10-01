@@ -17,7 +17,8 @@
  * other player.
  */
 import React from 'react';
-import { render, screen, waitFor, act, fireEvent } from '@testing-library/react';
+import { screen, waitFor, act, fireEvent } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { Session, Participant, CombatState, CombatParticipantState, CharacterSheet } from '@/lib/api/types';
 
@@ -251,7 +252,7 @@ describe('TAV-SOLO-DM-CAST-RAIL — GM-PC coexistence', () => {
     mGetCharacterSheet.mockResolvedValue(casterSheet());
     mGetCombatState.mockResolvedValue(COMBAT_PC_TURN);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     // Player rail: CastSpellPanel + Composer's Attack action. Composer's own
     // Attack toggle button's accessible name is the bare "Attack" (distinct
@@ -275,7 +276,7 @@ describe('TAV-SOLO-DM-CAST-RAIL — GM-PC coexistence', () => {
     mGetCharacterSheet.mockResolvedValue(casterSheet());
     mGetCombatState.mockResolvedValue(COMBAT_MONSTER_TURN);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Attack (not your turn)' })).toBeInTheDocument(),
@@ -290,7 +291,7 @@ describe('TAV-SOLO-DM-CAST-RAIL — GM-PC coexistence', () => {
     mGetParticipants.mockResolvedValue(PARTY_DM_ONLY);
     mGetCombatState.mockResolvedValue(COMBAT_MONSTER_TURN);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     await waitFor(() => expect(mGetCombatState).toHaveBeenCalled());
     await act(async () => {
@@ -411,7 +412,7 @@ describe('Iro CRITICAL-1 — turn-flip refocus is scoped to the local-click prov
     mGetCharacterSheet.mockResolvedValue(casterSheet());
     mGetCombatState.mockResolvedValue(COMBAT_MONSTER_TURN);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     const skipBtn = await screen.findByRole('button', { name: 'Skip monster turn' });
     // Simulate the browser's own synchronous "clicking a button focuses it"
@@ -461,7 +462,7 @@ describe('Iro CRITICAL-1 — turn-flip refocus is scoped to the local-click prov
         Promise.resolve(++combatCall === 1 ? COMBAT_ENEMY_TURN_TWO_PC : COMBAT_ALLY_TURN),
       );
 
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByRole('textbox');
       await waitFor(() => expect(mGetCombatState).toHaveBeenCalledTimes(1));
 
@@ -507,7 +508,7 @@ describe('Iro CRITICAL-1 — turn-flip refocus is scoped to the local-click prov
     mGetCharacterSheet.mockResolvedValue(casterSheet());
     mGetCombatState.mockResolvedValue(COMBAT_ENEMY_TURN_TWO_PC);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     const skipBtn = await screen.findByRole('button', { name: 'Skip monster turn' });
     act(() => skipBtn.focus());

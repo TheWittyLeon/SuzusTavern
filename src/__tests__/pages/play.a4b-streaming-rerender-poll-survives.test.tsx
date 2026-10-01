@@ -63,7 +63,8 @@
  * inspection).
  */
 import React from 'react';
-import { render, screen, act, fireEvent } from '@testing-library/react';
+import { screen, act, fireEvent } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { Participant, Session } from '@/lib/api/types';
 
@@ -182,7 +183,7 @@ afterEach(() => {
 
 describe('A4b item 3 — the events poll survives real streaming re-render pressure', () => {
   it('a fresh getSessionEventsRaw call lands mid-stream, beyond the one-time mount rehydration call, despite 20 separate chunk-driven re-renders landing faster than the poll interval', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
 
     // Baseline AFTER mount settles (the rehydration effect's own one-shot

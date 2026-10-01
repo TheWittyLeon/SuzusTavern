@@ -17,7 +17,8 @@
  * must behave exactly as it does today.
  */
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { GroundingData, NarrationEvent, Participant, Session } from '@/lib/api/types';
 
@@ -170,7 +171,7 @@ describe('DM-ARRIVAL-NARRATION — client-driven advance', () => {
     // First grounding fetch = the scene we are on; the post-advance refresh
     // returns the destination.
     mGetGrounding.mockResolvedValueOnce(SCENE_FLIGHT).mockResolvedValue(SCENE_HUT);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('I press forward');
@@ -187,7 +188,7 @@ describe('DM-ARRIVAL-NARRATION — client-driven advance', () => {
     // Regression lock for every scene authored before this feature: absence
     // must be the ordinary path, not a degraded one.
     mGetGrounding.mockResolvedValueOnce(SCENE_FLIGHT).mockResolvedValue(SCENE_HUT_NO_ARRIVAL);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('I press forward');
@@ -205,7 +206,7 @@ describe('DM-ARRIVAL-NARRATION — client-driven advance', () => {
     // own sceneAdvancedSignal fires for the same seam and refreshes grounding
     // again. Both paths call playArrivalLine; only one row may result.
     mGetGrounding.mockResolvedValueOnce(SCENE_FLIGHT).mockResolvedValue(SCENE_HUT);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('I press forward');
@@ -245,7 +246,7 @@ describe('DM-ARRIVAL-NARRATION — server-INTENT advance', () => {
       },
       { kind: 'done' },
     ]);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('I keep running towards the light');
@@ -263,7 +264,7 @@ describe('DM-ARRIVAL-NARRATION — server-INTENT advance', () => {
   it('does not play an arrival line on a beat that did NOT advance the scene', async () => {
     mGetGrounding.mockResolvedValue(SCENE_HUT);
     streamOnce([{ kind: 'chunk', text: 'You take the room in.' }, { kind: 'done' }]);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('I look around');

@@ -19,7 +19,8 @@
  * fires for the same transition.
  */
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act, within } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { GroundingData, NarrationEvent, Participant, Session } from '@/lib/api/types';
 
@@ -193,7 +194,7 @@ async function sendMessage(text: string) {
 describe('C3 rescue-transition line — client-driven advance (Move on)', () => {
   it('present: plays the destination rescue-transition line as Suzu narration, not read_aloud', async () => {
     mGetGrounding.mockResolvedValueOnce(SCENE_FIGHT).mockResolvedValue(SCENE_HUT);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('I press forward');
@@ -214,7 +215,7 @@ describe('C3 rescue-transition line — client-driven advance (Move on)', () => 
 
   it('absent: no key on the wire renders nothing extra — today\'s behaviour is unchanged', async () => {
     mGetGrounding.mockResolvedValueOnce(SCENE_FIGHT).mockResolvedValue(SCENE_HUT_NO_RESCUE_LINE);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('I press forward');
@@ -225,7 +226,7 @@ describe('C3 rescue-transition line — client-driven advance (Move on)', () => 
 
   it('explicit null: treated identically to absent, never an empty-line row or a crash', async () => {
     mGetGrounding.mockResolvedValueOnce(SCENE_FIGHT).mockResolvedValue(SCENE_HUT_EXPLICIT_NULL);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('I press forward');
@@ -236,7 +237,7 @@ describe('C3 rescue-transition line — client-driven advance (Move on)', () => 
 
   it('>400 chars: the render path refuses to play an over-ceiling line', async () => {
     mGetGrounding.mockResolvedValueOnce(SCENE_FIGHT).mockResolvedValue(SCENE_HUT_TOO_LONG);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('I press forward');
@@ -250,7 +251,7 @@ describe('C3 rescue-transition line — client-driven advance (Move on)', () => 
   it('>400 chars: warns to the console instead of dropping the line without a trace', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     mGetGrounding.mockResolvedValueOnce(SCENE_FIGHT).mockResolvedValue(SCENE_HUT_TOO_LONG);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('I press forward');
@@ -265,7 +266,7 @@ describe('C3 rescue-transition line — client-driven advance (Move on)', () => 
   it('absent/blank/null lines do NOT warn — only the length-drop path does', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     mGetGrounding.mockResolvedValueOnce(SCENE_FIGHT).mockResolvedValue(SCENE_HUT_NO_RESCUE_LINE);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('I press forward');
@@ -281,7 +282,7 @@ describe('C3 rescue-transition line — client-driven advance (Move on)', () => 
     // no rescue line at all — the C3 line plays ALONGSIDE that beat, it
     // never substitutes for the arrival_line-specific "replace" ruling.
     mGetGrounding.mockResolvedValueOnce(SCENE_FIGHT).mockResolvedValue(SCENE_HUT);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('I press forward');
@@ -306,7 +307,7 @@ describe('C3 rescue-transition line — server-INTENT advance', () => {
       },
       { kind: 'done' },
     ]);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('I keep running');
@@ -320,7 +321,7 @@ describe('C3 rescue-transition line — server-INTENT advance', () => {
 
   it('does not replay the rescue line when a second path signals the SAME advance', async () => {
     mGetGrounding.mockResolvedValueOnce(SCENE_FIGHT).mockResolvedValue(SCENE_HUT);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('I press forward');

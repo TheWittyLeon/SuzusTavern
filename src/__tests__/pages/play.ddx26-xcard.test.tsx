@@ -20,7 +20,8 @@
  *     dropping it to <body> (Iro MAJOR-2)
  */
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { Session, Participant, EngineSessionEvent } from '@/lib/api/types';
 
@@ -164,7 +165,7 @@ describe('DDX-26 — X-card durable safety banner', () => {
     jest.useFakeTimers();
     try {
       mockGetSession.mockResolvedValue(makeSession({ dm_username: 'suzu' })); // not leon
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await act(async () => {
         await Promise.resolve();
         await Promise.resolve();
@@ -190,7 +191,7 @@ describe('DDX-26 — X-card durable safety banner', () => {
     jest.useFakeTimers();
     try {
       mockGetSession.mockResolvedValue(makeSession({ dm_username: 'leon' })); // leon IS the DM
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await act(async () => {
         await Promise.resolve();
         await Promise.resolve();
@@ -215,7 +216,7 @@ describe('DDX-26 — X-card durable safety banner', () => {
 
   it('rehydration: an unresolved, undismissed x_card in history shows the banner on mount', async () => {
     mockGetSessionEventsRaw.mockResolvedValue([xCardEvent()]);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     await waitFor(() => expect(screen.getByText(BANNER_TEXT)).toBeInTheDocument());
   });
@@ -224,7 +225,7 @@ describe('DDX-26 — X-card durable safety banner', () => {
     jest.useFakeTimers();
     try {
       mockGetSessionEventsRaw.mockResolvedValue([xCardEvent({ seq: 5 })]);
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await act(async () => {
         await Promise.resolve();
         await Promise.resolve();
@@ -265,7 +266,7 @@ describe('DDX-26 — X-card durable safety banner', () => {
     jest.useFakeTimers();
     try {
       mockGetSessionEventsRaw.mockResolvedValue([xCardEvent({ seq: 5 })]);
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await act(async () => {
         await Promise.resolve();
         await Promise.resolve();
@@ -298,7 +299,7 @@ describe('DDX-26 — X-card durable safety banner', () => {
       }),
     );
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     const xCardBtn = await screen.findByRole('button', { name: /^X-card$/i });
 
     await act(async () => {
@@ -327,7 +328,7 @@ describe('DDX-26 — X-card durable safety banner', () => {
     mockGetSession.mockResolvedValue(makeSession({ dm_username: 'suzu' })); // not leon
     mockPostXCard.mockResolvedValue({ event: { seq: 9, kind: 'x_card', actor: 'leon' } });
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     const xCardBtn = await screen.findByRole('button', { name: /^X-card$/i });
 
     await act(async () => {
@@ -346,7 +347,7 @@ describe('DDX-26 — X-card durable safety banner', () => {
   it('UIR2-TAV-25: a failed raise still surfaces an error toast (no banner event to show instead)', async () => {
     mockPostXCard.mockRejectedValue(new Error('network'));
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     const xCardBtn = await screen.findByRole('button', { name: /^X-card$/i });
 
     await act(async () => {
@@ -364,7 +365,7 @@ describe('DDX-26 — X-card durable safety banner', () => {
     mockGetSession.mockResolvedValue(makeSession({ dm_username: 'suzu' })); // not leon
     mockPostXCard.mockResolvedValue({ event: { seq: 9, kind: 'x_card', actor: 'leon' } });
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     const xCardBtn = await screen.findByRole('button', { name: /^X-card$/i });
 
     // No poll tick fired — this is purely the optimistic path off the
@@ -382,7 +383,7 @@ describe('DDX-26 — X-card durable safety banner', () => {
     jest.useFakeTimers();
     try {
       mockGetSessionEventsRaw.mockResolvedValue([xCardEvent({ seq: 5 })]);
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await act(async () => {
         await Promise.resolve();
         await Promise.resolve();
@@ -411,7 +412,7 @@ describe('DDX-26 — X-card durable safety banner', () => {
 
   it('Iro CRITICAL-1: the banner renders regardless of the active mobile tab', async () => {
     mockGetSessionEventsRaw.mockResolvedValue([xCardEvent()]);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     await waitFor(() => expect(screen.getByText(BANNER_TEXT)).toBeInTheDocument());
 
@@ -430,7 +431,7 @@ describe('DDX-26 — X-card durable safety banner', () => {
     jest.useFakeTimers();
     try {
       mockGetSession.mockResolvedValue(makeSession({ dm_username: 'suzu' })); // not leon
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await act(async () => {
         await Promise.resolve();
         await Promise.resolve();
@@ -461,7 +462,7 @@ describe('DDX-26 — X-card durable safety banner', () => {
 
   it('Iro MAJOR-2: dismiss restores focus to the permanent banner wrapper, not <body>', async () => {
     mockGetSessionEventsRaw.mockResolvedValue([xCardEvent({ seq: 5 })]);
-    const { container } = render(<PlayPage />);
+    const { container } = renderPlay(<PlayPage />);
 
     await waitFor(() => expect(screen.getByText(BANNER_TEXT)).toBeInTheDocument());
 

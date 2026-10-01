@@ -17,6 +17,7 @@
  */
 import React from 'react';
 import { render, screen } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 
 jest.mock('next/navigation', () => ({
@@ -95,7 +96,7 @@ describe('skip-link targets exist on the password-recovery pages', () => {
 
 describe('skip-link targets on /play (A9c C5, Iro A9b)', () => {
   it('#main-content is the story <main> (the one main landmark), focusable, and the only one', async () => {
-    const { container } = render(<PlayPage />);
+    const { container } = renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     expect(container.querySelectorAll('#main-content')).toHaveLength(1);
     assertSkipTargetPresent(container);
@@ -107,7 +108,7 @@ describe('skip-link targets on /play (A9c C5, Iro A9b)', () => {
   });
 
   it('exploring: the action bar slot is the focusable #play-actions target but has no content, so no "Skip to actions" link is offered', async () => {
-    const { container } = render(<PlayPage />);
+    const { container } = renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     const target = container.querySelectorAll('#play-actions');
     expect(target).toHaveLength(1);

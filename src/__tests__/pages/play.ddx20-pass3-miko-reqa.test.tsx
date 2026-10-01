@@ -25,7 +25,8 @@
  *     holds and doesn't silently resubmit stale/wrong content.
  */
 import React from 'react';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { screen, fireEvent, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { Session, Participant, EventsPage } from '@/lib/api/types';
 
@@ -212,7 +213,7 @@ describe('re-QA (1): the `talking` gate on onSend structurally prevents a compos
       scene_advance: null,
     });
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
 
     const endTurnBtn = await screen.findByRole('button', { name: /^End turn$/i });
@@ -271,7 +272,7 @@ describe('re-QA (2): reload-resume-discovery\'s documented "worst case = no-op R
 
     jest.useFakeTimers();
     try {
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
 
       await act(async () => {

@@ -24,7 +24,8 @@
  * staleness signal.
  */
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { GroundingData, Participant, SceneCheck, Session } from '@/lib/api/types';
 
@@ -174,7 +175,7 @@ describe('Tora-Gesture MAJOR-1 — a stale-grounding check self-corrects after a
         },
       }),
     );
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     const btn = await screen.findByRole('button', { name: /Attempt Survival/i });
 

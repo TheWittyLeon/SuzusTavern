@@ -15,7 +15,8 @@
  *      a live threat.
  */
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { CombatState, GroundingData, NarrationEvent, Participant, Session } from '@/lib/api/types';
 
@@ -149,7 +150,7 @@ async function sendMessage(text: string) {
 describe('TAV-COMBAT-VERB-NO-MECHANICS — the turn is withheld', () => {
   it('the filed repro no longer reaches the narrator, and says why', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_UNSTARTED_ENCOUNTER);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage(
@@ -178,7 +179,7 @@ describe('TAV-COMBAT-VERB-NO-MECHANICS — the turn is withheld', () => {
 
   it('announces out of band and lands focus on the control it names', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_UNSTARTED_ENCOUNTER);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('I attack');
@@ -195,7 +196,7 @@ describe('TAV-COMBAT-VERB-NO-MECHANICS — the turn is withheld', () => {
 
   it('a plain roleplay turn on the SAME scene still narrates normally', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_UNSTARTED_ENCOUNTER);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('I hold still and listen for where it is');
@@ -219,7 +220,7 @@ describe('TAV-COMBAT-VERB-NO-MECHANICS — gating', () => {
       ...GROUNDING_UNSTARTED_ENCOUNTER,
       encounter_state: { enc_timberwolf: { status: 'resolved_victory' } },
     });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('I attack the timberwolf');
@@ -233,7 +234,7 @@ describe('TAV-COMBAT-VERB-NO-MECHANICS — gating', () => {
       ...GROUNDING_UNSTARTED_ENCOUNTER,
       encounter: { ...GROUNDING_UNSTARTED_ENCOUNTER.encounter, kind: 'social' },
     } as GroundingData);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('I attack');
@@ -246,7 +247,7 @@ describe('TAV-COMBAT-VERB-NO-MECHANICS — gating', () => {
       ...GROUNDING_UNSTARTED_ENCOUNTER,
       encounter: null,
     });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('I attack');
@@ -263,7 +264,7 @@ describe('TAV-COMBAT-VERB-NO-MECHANICS — ordering vs the movement fast-path', 
     // authored exit, so with the guard placed AFTER matchKeywordIntent the
     // player would be walked past a live threat on an attack declaration.
     mGetGrounding.mockResolvedValue(GROUNDING_UNSTARTED_ENCOUNTER);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('I press forward and attack the timberwolf');
@@ -281,7 +282,7 @@ describe('TAV-COMBAT-VERB-NO-MECHANICS — ordering vs the movement fast-path', 
       from_scene: 'everfree_flight',
       to_scene: 'everfree_zecoras_hut',
     });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('I press forward');
@@ -330,7 +331,7 @@ describe('TAV-COMBAT-VERB-NO-MECHANICS — ordering vs the movement fast-path', 
     (dnd.getCombatState as jest.MockedFunction<typeof dnd.getCombatState>).mockResolvedValue(
       activeCombat,
     );
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('I press forward');
@@ -384,7 +385,7 @@ describe('TAV-COMBAT-VERB-NO-MECHANICS — ordering vs the movement fast-path', 
     (dnd.getCombatState as jest.MockedFunction<typeof dnd.getCombatState>).mockResolvedValue(
       betweenTurnsCombat,
     );
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('I press forward');

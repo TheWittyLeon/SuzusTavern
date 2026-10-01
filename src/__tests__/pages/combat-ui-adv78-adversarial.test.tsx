@@ -17,7 +17,8 @@
  */
 
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { CombatState, GroundingData, NarrationEvent, Participant, Session } from '@/lib/api/types';
 
@@ -258,7 +259,7 @@ describe('seqRef guard — stale poll must not overwrite a fresh mutation respon
       state: COMBAT_STATE_AFTER_MUTATION,
     });
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     // Wait for initial state to render.
@@ -329,7 +330,7 @@ describe('endCombat error paths — graceful degradation', () => {
       }),
     );
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /End combat/i })).toBeInTheDocument(),
@@ -351,7 +352,7 @@ describe('endCombat error paths — graceful degradation', () => {
       apiError(503, 'Engine unreachable'),
     );
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /End combat/i })).toBeInTheDocument(),
@@ -379,7 +380,7 @@ describe('"Move on" error paths — graceful degradation', () => {
     });
     mAdvanceScene.mockRejectedValue(apiError(503, 'Engine down'));
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /Enter the tunnel/i })).toBeInTheDocument(),
@@ -412,7 +413,7 @@ describe('Double-tap latch — rapid second tap must not fire the action twice',
     );
 
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     // Open the attack target menu.
@@ -453,7 +454,7 @@ describe('Double-tap latch — rapid second tap must not fire the action twice',
     );
 
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /End combat/i })).toBeInTheDocument(),
@@ -501,7 +502,7 @@ describe('End-turn turn-gate — disabled when not player turn', () => {
     mGetCombatState.mockResolvedValue(goblinTurnState);
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() => {
@@ -528,7 +529,7 @@ describe('End-turn turn-gate — disabled when not player turn', () => {
     mGetCombatState.mockResolvedValue(goblinTurnState);
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     // The endTurn import (from dnd) should never fire — button is disabled.
@@ -553,7 +554,7 @@ describe('Poll cleanup on unmount', () => {
       return Promise.resolve(COMBAT_STATE_ACTIVE);
     });
 
-    const { unmount } = render(<PlayPage />);
+    const { unmount } = renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     // Let a poll tick.

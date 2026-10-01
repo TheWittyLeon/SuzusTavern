@@ -56,7 +56,8 @@
  * mirrors play.ddx20-durable-turn.test.tsx.
  */
 import React from 'react';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { screen, fireEvent, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type {
   EngineSessionEvent,
@@ -300,7 +301,7 @@ describe('Question A1 (positive control) — a durable job THIS client is active
       await new Promise(() => {}); // never completes — talking stays true
     });
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
     const fightBtn = await screen.findByRole('button', { name: /Stand and fight/i });
     expect(fightBtn).not.toBeDisabled();
@@ -337,7 +338,7 @@ describe('Question A2 — FINDING: the "tail dropped, job still active" resume w
       yield { kind: 'chunk', text: 'Suzu starts narrating, then the tail dies.' };
     });
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
     const fightBtn = await screen.findByRole('button', { name: /Stand and fight/i });
 
@@ -368,7 +369,7 @@ describe('Question B — grounding degradation straddling a scene transition (du
   afterEach(() => jest.useRealTimers());
 
   async function mountWithEncounter() {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
     expect(await screen.findByRole('button', { name: /Stand and fight/i })).toBeInTheDocument();
   }
@@ -419,7 +420,7 @@ describe('Question C — sessionLocked (new 3rd term) engages the gate mid-sessi
   afterEach(() => jest.useRealTimers());
 
   it('the session-status poll observing status=paused disables "Stand and fight"', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
     const fightBtn = await screen.findByRole('button', { name: /Stand and fight/i });
     expect(fightBtn).not.toBeDisabled();
@@ -440,7 +441,7 @@ describe('Question A (4th term) — rollBusy engages the gate', () => {
       }),
     );
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
     const fightBtn = await screen.findByRole('button', { name: /Stand and fight/i });
     expect(fightBtn).not.toBeDisabled();

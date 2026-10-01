@@ -24,7 +24,8 @@
  * misattributed to the first poll tick below.
  */
 import React, { Profiler } from 'react';
-import { render, screen, act, fireEvent, waitFor } from '@testing-library/react';
+import { screen, act, fireEvent, waitFor } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { EngineSessionEvent, Participant, Session } from '@/lib/api/types';
 
@@ -134,7 +135,7 @@ describe('DDX-22 review-fix — journal poll must not re-render on a no-op tick'
       mockGetSessionEventsRaw.mockImplementation(() => Promise.resolve([...EVENTS]));
 
       const onRender = jest.fn();
-      render(
+      renderPlay(
         <Profiler id="play-ddx22-journal-poll-probe" onRender={onRender}>
           <PlayPage />
         </Profiler>,
@@ -187,7 +188,7 @@ describe('DDX-22 review-fix — journal poll must not re-render on a no-op tick'
       mockGetSessionEvents.mockResolvedValue([]);
       mockGetSessionEventsRaw.mockResolvedValue([...EVENTS]);
 
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('The Hollow Tide');
 
       // A genuinely new recap event arrives on the next tick.

@@ -34,7 +34,8 @@
  * would mask that exact distinction.
  */
 import React from 'react';
-import { render, screen, within, waitFor, fireEvent, act } from '@testing-library/react';
+import { screen, within, waitFor, fireEvent, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { GroundingData, NarrationEvent, Participant, Session } from '@/lib/api/types';
 
@@ -174,7 +175,7 @@ describe('DM-STREAM — narrate() streamMode chunk handling', () => {
       { kind: 'chunk', text: 'You wade toward the water.', streamMode: true },
       { kind: 'done' },
     ]);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     // Deliberately NOT a MOVE_ON_PHRASES/HEAD_MOVE_PHRASES match (see
@@ -202,7 +203,7 @@ describe('DM-STREAM — narrate() streamMode chunk handling', () => {
   it('runs the fake-typewriter reveal into the chat streaming row for a chunk with no stream_mode key (TAV-NARRATION-DECOUPLE: retargeted off the removed narratorText bar, timing unchanged)', async () => {
     const setIntervalSpy = jest.spyOn(window, 'setInterval');
     streamOnce([{ kind: 'chunk', text: 'Hello there' }, { kind: 'done' }]);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('I look around.');
@@ -253,7 +254,7 @@ describe('DM-STREAM — narrate() streamMode chunk handling', () => {
 
     jest.useFakeTimers();
     try {
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByRole('textbox');
 
       const input = screen.getByRole('textbox');
@@ -299,7 +300,7 @@ describe('DM-STREAM — narrate() streamMode chunk handling', () => {
       { kind: 'chunk', text: 'Hello there, traveler. Welcome.', streamMode: true },
       { kind: 'done' },
     ]);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('I look around.');
@@ -328,7 +329,7 @@ describe('DM-STREAM — narrate() streamMode chunk handling', () => {
       { kind: 'chunk', text: 'You wade toward the sound of water.', streamMode: true },
       { kind: 'done' },
     ]);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     // Not a MOVE_ON_PHRASES/HEAD_MOVE_PHRASES match — see comment above.
@@ -355,7 +356,7 @@ describe('DM-STREAM — narrate() streamMode chunk handling', () => {
       },
       { kind: 'done' },
     ]);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     await sendMessage('I push toward the ridge.');
@@ -382,7 +383,7 @@ describe('T1 (TAV-S1) — screen-reader flood fix: aria-hidden stream row + fina
       await gate;
       yield { kind: 'done' };
     });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('textbox');
 
     const input = screen.getByRole('textbox');

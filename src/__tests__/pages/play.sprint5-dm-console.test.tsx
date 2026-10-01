@@ -21,6 +21,7 @@
  */
 import React from 'react';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 
 jest.mock('next/navigation', () => ({
@@ -199,7 +200,7 @@ describe('S5.2 — DM narration composer mode swap', () => {
   });
 
   it('S5.2-AC1: human-DM seat shows DM Narration + OOC tabs; hides Say and Act', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await waitFor(() =>
       expect(screen.queryByRole('tab', { name: /DM Narration/i })).toBeInTheDocument(),
     );
@@ -210,7 +211,7 @@ describe('S5.2 — DM narration composer mode swap', () => {
   });
 
   it('S5.2-AC2: submit handler calls postSessionEvent with dm_narration kind, ZERO streamDmNarration calls', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await waitFor(() =>
       expect(screen.queryByRole('tab', { name: /DM Narration/i })).toBeInTheDocument(),
     );
@@ -235,7 +236,7 @@ describe('S5.2 — DM narration composer mode swap', () => {
 
   it('S5.2-AC3: AI-mode session shows Say/Act/OOC unchanged', async () => {
     mockGetSession.mockResolvedValue(AI_SESSION);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await waitFor(() =>
       expect(screen.queryByRole('tab', { name: /^Say$/i })).toBeInTheDocument(),
     );
@@ -250,7 +251,7 @@ describe('S5.2 — DM narration composer mode swap', () => {
       Object.assign(new Error('Network error'), { status: 503 }),
     );
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await waitFor(() =>
       expect(screen.queryByRole('tab', { name: /DM Narration/i })).toBeInTheDocument(),
     );
@@ -283,7 +284,7 @@ describe('S5.2 — DM narration composer mode swap', () => {
       Object.assign(new Error('refresh unavailable'), { status: 502, code: 'refresh_unavailable' }),
     );
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await waitFor(() =>
       expect(screen.queryByRole('tab', { name: /DM Narration/i })).toBeInTheDocument(),
     );
@@ -309,7 +310,7 @@ describe('S5.2 — DM narration composer mode swap', () => {
       Object.assign(new Error('unauthorized'), { status: 422, code: 'unauthorized' }),
     );
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await waitFor(() =>
       expect(screen.queryByRole('tab', { name: /DM Narration/i })).toBeInTheDocument(),
     );
@@ -337,7 +338,7 @@ describe('S5.2 — DM narration composer mode swap', () => {
       new Promise<{ seq: number }>((r) => { resolveSend = () => r({ seq: 2 }); }),
     );
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await waitFor(() =>
       expect(screen.queryByRole('tab', { name: /DM Narration/i })).toBeInTheDocument(),
     );
@@ -369,7 +370,7 @@ describe('S5.2 — DM narration composer mode swap', () => {
       new Promise<{ seq: number }>((r) => { resolveSend = () => r({ seq: 2 }); }),
     );
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await waitFor(() =>
       expect(screen.queryByRole('tab', { name: /DM Narration/i })).toBeInTheDocument(),
     );
@@ -418,7 +419,7 @@ describe('S5.3 — DM monster control panel', () => {
 
   it('S5.3-AC1: renders monster control panel for isDm + human + active combat', async () => {
     setupWithCombat();
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await waitFor(() =>
       expect(screen.queryByRole('region', { name: /Monster control/i })).toBeInTheDocument(),
     );
@@ -457,7 +458,7 @@ describe('S5.3 — DM monster control panel', () => {
     mockGetCombatState.mockResolvedValue(ACTIVE_COMBAT_STATE);
     mockGetCharacterSheet.mockResolvedValue(null);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     // Wait for session to load.
     await waitFor(() =>
       expect(mockGetSession).toHaveBeenCalled(),
@@ -469,7 +470,7 @@ describe('S5.3 — DM monster control panel', () => {
 
   it('S5.3-AC4: Attack dropdown lists living PC participants', async () => {
     setupWithCombat();
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await waitFor(() =>
       expect(screen.queryByRole('button', { name: /Attack — pick target/i })).toBeInTheDocument(),
     );
@@ -484,7 +485,7 @@ describe('S5.3 — DM monster control panel', () => {
   it('S5.3-AC5: Attack fires npcAction with correct body; streamDmNarration never called', async () => {
     setupWithCombat();
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await waitFor(() =>
       expect(screen.queryByRole('button', { name: /Attack — pick target/i })).toBeInTheDocument(),
     );
@@ -511,7 +512,7 @@ describe('S5.3 — DM monster control panel', () => {
 
   it('S5.3-AC6: Skip fires npcAction with action:skip', async () => {
     setupWithCombat();
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await waitFor(() =>
       expect(screen.queryByRole('button', { name: /Skip monster turn/i })).toBeInTheDocument(),
     );
@@ -529,7 +530,7 @@ describe('S5.3 — DM monster control panel', () => {
 
   it('S5.3-AC7: Speak-as-NPC posts dm_narration event with data.npc_name', async () => {
     setupWithCombat();
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await waitFor(() =>
       expect(screen.queryByRole('button', { name: /Speak as Goblin/i })).toBeInTheDocument(),
     );
@@ -563,7 +564,7 @@ describe('S5.3 — DM monster control panel', () => {
     });
     mockNpcAction.mockRejectedValue(err);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await waitFor(() =>
       expect(screen.queryByRole('button', { name: /Skip monster turn/i })).toBeInTheDocument(),
     );

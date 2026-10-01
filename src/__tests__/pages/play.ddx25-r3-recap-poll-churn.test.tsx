@@ -26,7 +26,8 @@
  * live testing exposed as missing, it doesn't repeat those.
  */
 import React, { Profiler } from 'react';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { screen, waitFor, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 
 jest.mock('next/navigation', () => ({
@@ -179,7 +180,7 @@ describe('DDX-25 R3 — no-op session-status poll ticks must not re-fire the rec
       // `fetch().json()`, even when the server has nothing new to report.
       mockGetSession.mockImplementation(() => Promise.resolve({ ...BASE_SESSION }));
 
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('The Hollow Tide');
       await waitFor(() => expect(mockGetSession).toHaveBeenCalledTimes(1));
 
@@ -221,7 +222,7 @@ describe('DDX-25 R3 — no-op session-status poll ticks must not re-fire the rec
       mockGetSession.mockImplementation(() => Promise.resolve({ ...BASE_SESSION }));
       const onRender = jest.fn();
 
-      render(
+      renderPlay(
         <Profiler id="play-r3-wiring-probe" onRender={onRender}>
           <PlayPage />
         </Profiler>,
@@ -269,7 +270,7 @@ describe('DDX-25 R3 — no-op session-status poll ticks must not re-fire the rec
         .mockResolvedValueOnce({ ...BASE_SESSION })
         .mockResolvedValue({ ...BASE_SESSION, status: 'paused' });
 
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('The Hollow Tide');
       await waitFor(() => expect(mockStreamDmNarration).toHaveBeenCalledTimes(1));
       expect(screen.queryByText(/Session paused by the DM/i)).not.toBeInTheDocument();

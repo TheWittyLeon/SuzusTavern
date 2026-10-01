@@ -14,7 +14,8 @@
  *   4. Advisory, not blocking: Dodge/Dash/End-turn stay enabled.
  */
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { CombatState, Participant, Session } from '@/lib/api/types';
 
@@ -178,7 +179,7 @@ beforeEach(() => {
 describe('F3/COMBAT-NO-AUTO-RESOLVE — prompt fires when the sole hostile is down', () => {
   it('shows the "All enemies are down" banner and its "Wrap up" button opens the SAME outcome chooser', async () => {
     mGetCombatState.mockResolvedValue(COMBAT_ALL_DOWN);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     const banner = await screen.findByText(/All enemies are down/i);
@@ -196,7 +197,7 @@ describe('F3/COMBAT-NO-AUTO-RESOLVE — prompt fires when the sole hostile is do
 
   it('advisory only — Dodge/Dash/End turn stay enabled while the prompt is showing', async () => {
     mGetCombatState.mockResolvedValue(COMBAT_ALL_DOWN);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await screen.findByText(/All enemies are down/i);
 
@@ -214,7 +215,7 @@ describe('F3/COMBAT-NO-AUTO-RESOLVE — prompt fires when the sole hostile is do
 describe('F3/COMBAT-NO-AUTO-RESOLVE — never fires outside the exact trigger condition', () => {
   it('does NOT fire while a hostile is still alive', async () => {
     mGetCombatState.mockResolvedValue(COMBAT_HOSTILE_ALIVE);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() =>
       expect(screen.getAllByRole('button', { name: /Attack/i }).length).toBeGreaterThan(0),
@@ -224,7 +225,7 @@ describe('F3/COMBAT-NO-AUTO-RESOLVE — never fires outside the exact trigger co
 
   it('does NOT fire once combat has ended (targetableFoes is also empty here, for a different reason)', async () => {
     mGetCombatState.mockResolvedValue(COMBAT_ENDED);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() => expect(mGetCombatState).toHaveBeenCalled());
     await act(async () => {
@@ -236,7 +237,7 @@ describe('F3/COMBAT-NO-AUTO-RESOLVE — never fires outside the exact trigger co
 
   it('does NOT fire before combat starts (no combatId at all)', async () => {
     mGetSession.mockResolvedValue({ ...SESSION_WITH_COMBAT, active_combat_id: null });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     // TAVERN PLAY-UI NITS (2026-07-23 pre-flight playthrough) item a: the
     // begin-combat button now only renders when the scene has an authored
@@ -264,7 +265,7 @@ describe('F3/COMBAT-NO-AUTO-RESOLVE — never fires outside the exact trigger co
 describe('Iro MAJOR-1 — outcome chooser refocuses the actual opener on dismiss', () => {
   it('open via "Wrap up" → Escape → focus returns to "Wrap up"', async () => {
     mGetCombatState.mockResolvedValue(COMBAT_ALL_DOWN);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     const promptBtn = await screen.findByRole('button', { name: /wrap up the fight/i });
@@ -283,7 +284,7 @@ describe('Iro MAJOR-1 — outcome chooser refocuses the actual opener on dismiss
 
   it('open via "Wrap up" → Cancel → focus returns to "Wrap up"', async () => {
     mGetCombatState.mockResolvedValue(COMBAT_ALL_DOWN);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     const promptBtn = await screen.findByRole('button', { name: /wrap up the fight/i });
@@ -304,7 +305,7 @@ describe('Iro MAJOR-1 — outcome chooser refocuses the actual opener on dismiss
 
   it('regression pin: open via "End" → Escape → focus returns to "End" (unchanged)', async () => {
     mGetCombatState.mockResolvedValue(COMBAT_ALL_DOWN);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     const endBtn = await screen.findByRole('button', { name: /End combat — choose outcome/i });

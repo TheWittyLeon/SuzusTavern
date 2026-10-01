@@ -17,7 +17,8 @@
  *            entered, then calls awardSessionXp with the trimmed reason.
  */
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act, within } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 
 jest.mock('next/navigation', () => ({
@@ -156,7 +157,7 @@ function setup(session: Session = BASE_SESSION, participants: Participant[] = DM
 }
 
 async function renderAndWaitForControls() {
-  render(<PlayPage />);
+  renderPlay(<PlayPage />);
   await waitFor(() =>
     expect(screen.queryByRole('group', { name: /Session controls/i })).toBeInTheDocument(),
   );
@@ -176,7 +177,7 @@ describe('DDX-25 — Session controls: DM gate', () => {
   it('DDX25-AC1b: non-DM player never sees the Session controls group', async () => {
     mockUsername = 'bob';
     setup(BASE_SESSION, [{ username: 'bob', is_dm: false, character: null }]);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await waitFor(() => expect(mockGetSession).toHaveBeenCalled());
     await act(async () => {
       await Promise.resolve();
@@ -268,7 +269,7 @@ describe('DDX-25 — paused state disables player input', () => {
   it('DDX25-AC4a: a paused session shows the banner and disables the composer', async () => {
     mockUsername = 'dm_alice';
     setup({ ...BASE_SESSION, status: 'paused' });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await waitFor(() =>
       expect(screen.getByText(/Session paused by the DM/i)).toBeInTheDocument(),
     );
@@ -279,7 +280,7 @@ describe('DDX-25 — paused state disables player input', () => {
   it('DDX25-AC4b: an active session leaves the composer enabled and shows no banner', async () => {
     mockUsername = 'dm_alice';
     setup({ ...BASE_SESSION, status: 'active' });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await waitFor(() => expect(mockGetSession).toHaveBeenCalled());
     await act(async () => {
       await Promise.resolve();

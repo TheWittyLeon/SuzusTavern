@@ -18,7 +18,8 @@
  * explicitly (not assumed) via `getAllByRole('complementary')`'s count.
  */
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { Session, Participant } from '@/lib/api/types';
 
@@ -106,7 +107,7 @@ beforeEach(() => {
 
 describe('TAV-PLAY-LANDMARKS', () => {
   it('the party pane resolves as a named complementary landmark: "Party and initiative"', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     expect(
       screen.getByRole('complementary', { name: 'Party and initiative' }),
@@ -114,13 +115,13 @@ describe('TAV-PLAY-LANDMARKS', () => {
   });
 
   it('the scene pane resolves as a named complementary landmark: "Scene"', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     expect(screen.getByRole('complementary', { name: 'Scene' })).toBeInTheDocument();
   });
 
   it('exactly 2 complementary landmarks in the default render state — the journal pane is closed/inert (not the mobile tab), so it does not surface as a 3rd', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     // Wait for the async session-notes fetch (journal pane data) to settle so
     // the count below reflects the steady-state render, not an in-flight one.

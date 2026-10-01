@@ -49,7 +49,8 @@
  * no longer the leading suspect for the one recurrence Kage saw.
  */
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act, within } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { EngineSessionEvent, EventsPage, Participant, Session } from '@/lib/api/types';
 
@@ -216,7 +217,7 @@ describe('ADVERSARIAL — concurrent double-submit races the busy-guard', () => 
         }),
     );
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
 
     const input = screen.getByRole('textbox');
@@ -257,7 +258,7 @@ describe('ADVERSARIAL — reload mid-turn reconstructs purely from poll (mocked)
 
     jest.useFakeTimers();
     try {
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
 
       mockGetSessionEventsPage.mockResolvedValueOnce({
@@ -358,7 +359,7 @@ describe('ADVERSARIAL — reload mid-turn reconstructs purely from poll (mocked)
 
     jest.useFakeTimers();
     try {
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
 
       // First poll tick: discovers the in-flight job and subscribes —
@@ -479,7 +480,7 @@ describe('ADVERSARIAL — poll-only failure detection (design §4d, second bulle
 
     jest.useFakeTimers();
     try {
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
 
       const input = screen.getByRole('textbox');

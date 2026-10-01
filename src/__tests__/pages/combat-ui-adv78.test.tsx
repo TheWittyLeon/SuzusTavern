@@ -14,7 +14,8 @@
  */
 
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { CombatState, GroundingData, NarrationEvent, Participant, Session } from '@/lib/api/types';
 
@@ -299,7 +300,7 @@ describe('CUI-10 — API client exports', () => {
 describe('CUI-11 — InitiativeTracker renders from CombatState', () => {
   it('shows combatant names from the engine state', async () => {
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() => {
       // Both Velka and Goblin may appear multiple times (PartyPanel + Tracker).
@@ -310,7 +311,7 @@ describe('CUI-11 — InitiativeTracker renders from CombatState', () => {
 
   it('marks the active-turn combatant with aria-current', async () => {
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() => {
       // Find the listitem (in the tracker) that has aria-current and contains "Velka".
@@ -325,7 +326,7 @@ describe('CUI-11 — InitiativeTracker renders from CombatState', () => {
 
   it('shows the round number from CombatState', async () => {
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() => {
       expect(screen.getAllByText(/round 1/i).length).toBeGreaterThan(0);
@@ -334,7 +335,7 @@ describe('CUI-11 — InitiativeTracker renders from CombatState', () => {
 
   it('shows HP as meter on participants', async () => {
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() => {
       const meters = screen.getAllByRole('meter');
@@ -348,7 +349,7 @@ describe('CUI-11 — InitiativeTracker renders from CombatState', () => {
 describe('CUI-11 — target picker filters to living enemies', () => {
   async function openAttackMenu() {
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() => {
       expect(screen.getAllByRole('button', { name: /Attack/i }).length).toBeGreaterThan(0);
@@ -390,7 +391,7 @@ describe('CUI-11 — target picker filters to living enemies', () => {
     };
     mGetCombatState.mockResolvedValue(deadGoblinState);
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() => {
       // Attack should be disabled when no targets.
@@ -408,7 +409,7 @@ describe('CUI-11 — target picker filters to living enemies', () => {
 describe('CUI-11 — attack sends target_id to the engine', () => {
   it('attack sends the participant_id as target_id', async () => {
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() =>
       expect(screen.getAllByRole('button', { name: /Attack/i }).length).toBeGreaterThan(0),
@@ -442,7 +443,7 @@ describe('CUI-11 — off-turn disables attack/dodge/dash', () => {
     // Hold the off-turn state: make the auto monster-turn driver a no-op so the
     // goblin-turn state persists for the disabled-UI assertion.
     mMonsterTurn.mockResolvedValue(null as never);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() => {
       const attackBtns = screen.queryAllByRole('button', { name: /Attack/i });
@@ -459,7 +460,7 @@ describe('CUI-11 — off-turn disables attack/dodge/dash', () => {
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
     // No-op the auto monster-turn driver so the off-turn state persists.
     mMonsterTurn.mockResolvedValue(null as never);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() => {
       expect(screen.getByText(/Waiting for your turn/i)).toBeInTheDocument();
@@ -477,7 +478,7 @@ describe('CUI-11 — refused action surfaces reason', () => {
         data: { reason: 'not_your_turn', state: COMBAT_STATE_GOBLIN_TURN },
       }),
     );
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() =>
       expect(screen.getAllByRole('button', { name: /Attack/i }).length).toBeGreaterThan(0),
@@ -501,7 +502,7 @@ describe('CUI-11 — refused action surfaces reason', () => {
         data: { reason: 'target_down', state: COMBAT_STATE },
       }),
     );
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() =>
       expect(screen.getAllByRole('button', { name: /Attack/i }).length).toBeGreaterThan(0),
@@ -528,7 +529,7 @@ describe('CUI-11 — monster turn reflected in log', () => {
       message: '[MONSTER] Goblin attacks Velka for 4.',
       state: COMBAT_STATE,
     });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() =>
       expect(screen.getAllByRole('button', { name: /End turn/i }).length).toBeGreaterThan(0),
@@ -554,7 +555,7 @@ describe('CUI-12 — scene_advance auto-flow', () => {
     });
     mGetGrounding.mockResolvedValue(GROUNDING_WITH_TRANSITION);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() =>
       expect(screen.getAllByRole('button', { name: /Attack/i }).length).toBeGreaterThan(0),
@@ -581,7 +582,7 @@ describe('CUI-12 — scene_advance auto-flow', () => {
     mMonsterTurn.mockResolvedValue({ message: undefined, state: COMBAT_STATE_ENDED });
     mGetGrounding.mockResolvedValue(GROUNDING_WITH_TRANSITION);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() =>
       expect(screen.getAllByRole('button', { name: /End turn/i }).length).toBeGreaterThan(0),
@@ -605,7 +606,7 @@ describe('CUI-12 — scene_advance auto-flow', () => {
 describe('CUI-13 — End combat button calls endCombat', () => {
   it('clicking "End" opens the outcome chooser and picking Unresolved calls endCombat', async () => {
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     // Wait for the End button (aria-label has "End combat — choose outcome").
     await waitFor(() =>
@@ -629,7 +630,7 @@ describe('CUI-13 — End combat button calls endCombat', () => {
 
   it('logs "Combat ended." after picking an outcome', async () => {
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /End combat/i })).toBeInTheDocument(),
@@ -652,7 +653,7 @@ describe('CUI-13 — End combat button calls endCombat', () => {
 describe('ADV-7T — Move on button', () => {
   it('appears when grounding has a valid transition and no combat is active', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_WITH_TRANSITION);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /Enter the tunnel/i })).toBeInTheDocument(),
@@ -661,7 +662,7 @@ describe('ADV-7T — Move on button', () => {
 
   it('calls advanceScene with the correct to_scene', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_WITH_TRANSITION);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /Enter the tunnel/i })).toBeInTheDocument(),
@@ -677,7 +678,7 @@ describe('ADV-7T — Move on button', () => {
   it('does NOT appear when combat is active', async () => {
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
     mGetGrounding.mockResolvedValue(GROUNDING_WITH_TRANSITION);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() => {
       // The "Move on" transition button should not appear during active combat.
@@ -687,7 +688,7 @@ describe('ADV-7T — Move on button', () => {
 
   it('does NOT appear when grounding has no transitions', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_NO_TRANSITION);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     // Give the page time to fully settle.
     await waitFor(() =>
@@ -698,7 +699,7 @@ describe('ADV-7T — Move on button', () => {
   it('shows toast on freeform_session 400 refusal', async () => {
     mGetGrounding.mockResolvedValue(GROUNDING_WITH_TRANSITION);
     mAdvanceScene.mockRejectedValue(apiError(400, 'freeform_session'));
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /Enter the tunnel/i })).toBeInTheDocument(),
@@ -722,7 +723,7 @@ describe('ADV-7T — Move on button', () => {
 describe('Poll loop', () => {
   it('polls getCombatState every 4s while combat is active and tab is visible', async () => {
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     // Initial load fetches once.
@@ -737,7 +738,7 @@ describe('Poll loop', () => {
   });
 
   it('does not poll when combat is null (no active combat)', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     const calls = mGetCombatState.mock.calls.length;
@@ -749,7 +750,7 @@ describe('Poll loop', () => {
   it('poll stops when combat state is ended', async () => {
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
     mGetCombatState.mockResolvedValue(COMBAT_STATE_ENDED);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     const calls = mGetCombatState.mock.calls.length;
@@ -773,7 +774,7 @@ describe('PartyPanel — live HP from CombatState', () => {
     };
     mGetCombatState.mockResolvedValue(stateWithHigherHp);
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     // Party panel shows 9/10 (from combatState), not 8/10 (from session load).
     await waitFor(() =>
@@ -806,7 +807,7 @@ describe('InitiativeTracker — downed PC indicator', () => {
     };
     mGetCombatState.mockResolvedValue(downedState);
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() => {
       // The downed indicator (↓) should be present in the tracker.
@@ -865,7 +866,7 @@ describe('Combat-UX Fixes 2026-07-27, Fix B — death-save UI', () => {
   it('shows "Roll death save" + pips when the active PC is mine and dying', async () => {
     mGetCombatState.mockResolvedValue(COMBAT_STATE_DYING);
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Roll death save/i })).toBeInTheDocument();
@@ -885,7 +886,7 @@ describe('Combat-UX Fixes 2026-07-27, Fix B — death-save UI', () => {
   it('Iro MAJOR-1: failure pips are NOT color-only — distinct shape + visible numeric readout', async () => {
     mGetCombatState.mockResolvedValue(COMBAT_STATE_DYING);
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Roll death save/i })).toBeInTheDocument();
@@ -916,7 +917,7 @@ describe('Combat-UX Fixes 2026-07-27, Fix B — death-save UI', () => {
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
     // No-op the auto monster-turn driver so the goblin-turn state persists.
     mMonsterTurn.mockResolvedValue(null as never);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() => {
       expect(screen.getAllByRole('button', { name: /Attack/i }).length).toBeGreaterThan(0);
@@ -927,7 +928,7 @@ describe('Combat-UX Fixes 2026-07-27, Fix B — death-save UI', () => {
   it('does NOT show "Roll death save" when the active PC is mine but not dying', async () => {
     mGetCombatState.mockResolvedValue(COMBAT_STATE);
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() => {
       expect(screen.getAllByRole('button', { name: /Attack/i }).length).toBeGreaterThan(0);
@@ -938,7 +939,7 @@ describe('Combat-UX Fixes 2026-07-27, Fix B — death-save UI', () => {
   it('Attack/Dodge/Dash render disabled-visible (not removed) while dying', async () => {
     mGetCombatState.mockResolvedValue(COMBAT_STATE_DYING);
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Roll death save/i })).toBeInTheDocument();
@@ -960,7 +961,7 @@ describe('Combat-UX Fixes 2026-07-27, Fix B — death-save UI', () => {
       message: 'You roll a 14. Success! (2 successes, 2 failures)',
       state: COMBAT_STATE_DYING,
     });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     const rollBtn = await screen.findByRole('button', { name: /Roll death save/i });
     await act(async () => { fireEvent.click(rollBtn); });
@@ -978,7 +979,7 @@ describe('Combat-UX Fixes 2026-07-27, Iro MAJOR-2 — dying turn-status text', (
   it('announces "Your turn — you are down. Roll a death save." (not the generic label), styled as your-turn', async () => {
     mGetCombatState.mockResolvedValue(COMBAT_STATE_DYING);
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     const status = await screen.findByText('Your turn — you are down. Roll a death save.');
     expect(status).toBeInTheDocument();
@@ -998,7 +999,7 @@ describe('Combat-UX Fixes 2026-07-27, Iro MAJOR-2 — dying turn-status text', (
   it('still shows the plain "Your turn!" label when active and mine but not dying', async () => {
     mGetCombatState.mockResolvedValue(COMBAT_STATE);
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     const status = await screen.findByText('Your turn!');
     expect(status).toHaveAttribute('role', 'status');
@@ -1040,7 +1041,7 @@ describe('Combat-UX Fixes 2026-07-27 §UI-states "Dead" — dead-PC notice', () 
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
     // No-op the auto monster-turn driver so the fixture's state persists.
     mMonsterTurn.mockResolvedValue(null as never);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     const notice = await screen.findByText('Your character has died.');
     expect(notice).toBeInTheDocument();
@@ -1050,7 +1051,7 @@ describe('Combat-UX Fixes 2026-07-27 §UI-states "Dead" — dead-PC notice', () 
   it('does NOT show the dead-PC notice when my PC is alive', async () => {
     mGetCombatState.mockResolvedValue(COMBAT_STATE);
     mGetSession.mockResolvedValue(SESSION_WITH_COMBAT);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await waitFor(() => {
       expect(screen.getAllByRole('button', { name: /Attack/i }).length).toBeGreaterThan(0);

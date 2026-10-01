@@ -15,7 +15,8 @@
  * rather than imported — test files in this repo are self-contained.
  */
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { CombatState, GroundingData, Participant, Session } from '@/lib/api/types';
 
@@ -198,7 +199,7 @@ beforeEach(() => {
 describe('deadStatus (A2) — "Your character has died." row', () => {
   it('is present in the DOM, with content, when my PC is dead', async () => {
     mGetCombatState.mockResolvedValue(COMBAT_STATE_MY_PC_DEAD);
-    const { container } = render(<PlayPage />);
+    const { container } = renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     const row = await screen.findByText('Your character has died.');
     expect(row).toHaveAttribute('role', 'status');
@@ -212,7 +213,7 @@ describe('deadStatus (A2) — "Your character has died." row', () => {
   // pattern: the wrapper mounts unconditionally, only the text is gated.
   it('stays mounted (empty) when my PC is alive, matching .durableRetryRow\'s pattern — TAV-PLAY-A11Y-DEADSTATUS-NOT-ALWAYS-MOUNTED', async () => {
     mGetCombatState.mockResolvedValue(COMBAT_STATE_ALIVE);
-    const { container } = render(<PlayPage />);
+    const { container } = renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await screen.findAllByRole('button', { name: /Attack/i });
     const row = container.querySelector('.deadStatus');
@@ -232,7 +233,7 @@ describe('deadStatus (A2) — "Your character has died." row', () => {
   // "mount unconditionally" fix still renders (empty).
   it('stays mounted (empty) once combat has ended even though my PC is (still) dead -- proves "gate the wrapper on combatIsActive" is not the fix', async () => {
     mGetCombatState.mockResolvedValue({ ...COMBAT_STATE_MY_PC_DEAD, state: 'ended' });
-    const { container } = render(<PlayPage />);
+    const { container } = renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() => {
@@ -250,7 +251,7 @@ describe('deadStatus (A2) — "Your character has died." row', () => {
 describe('durableRetryRow (A2) — durable-turn retry-after-failed row', () => {
   it('is present in the DOM (empty) when DURABLE_GENERATION_ENABLED is on and no job has failed', async () => {
     mGetCombatState.mockResolvedValue(COMBAT_STATE_ALIVE);
-    const { container } = render(<PlayPage />);
+    const { container } = renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
     await screen.findAllByRole('button', { name: /Attack/i });
     const row = container.querySelector('.durableRetryRow');

@@ -30,7 +30,8 @@
  *   - Mobile widths (320/360/414) — jsdom has no layout engine.
  */
 import React from "react";
-import { render, screen, waitFor, act } from "@testing-library/react";
+import { screen, waitFor, act } from "@testing-library/react";
+import { renderPlay } from "@/test-utils/renderPlay";
 import "@testing-library/jest-dom";
 import type { Session, Participant } from "@/lib/api/types";
 
@@ -178,7 +179,7 @@ describe("P1-READALOUD adversarial - hasFiction gate (AI-full)", () => {
     mGetSessionEvents.mockResolvedValue([
       { event_type: "scene_advance", description: "The party moved deeper in." },
     ]);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
     await act(async () => {
       await new Promise((r) => setTimeout(r, 100));
@@ -193,7 +194,7 @@ describe("P1-READALOUD adversarial - hasFiction gate (AI-full)", () => {
     mGetSessionEvents.mockResolvedValue([
       { event_type: "encounter_resolved", description: "Goblins defeated." },
     ]);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
     await act(async () => {
       await new Promise((r) => setTimeout(r, 100));
@@ -209,7 +210,7 @@ describe("P1-READALOUD adversarial - hasFiction gate (AI-full)", () => {
       { event_type: "encounter_resolved", description: "Skeletons crumbled." },
       { event_type: "xp_award", description: "25 XP awarded." },
     ]);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
     await act(async () => {
       await new Promise((r) => setTimeout(r, 100));
@@ -223,7 +224,7 @@ describe("P1-READALOUD adversarial - hasFiction gate (AI-full)", () => {
     mGetSessionEvents.mockResolvedValue([
       { event_type: "future_unknown_kind", description: "Something happened." },
     ]);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
     await act(async () => {
       await new Promise((r) => setTimeout(r, 100));
@@ -252,7 +253,7 @@ describe("P1-READALOUD adversarial - failure injection", () => {
     mGetSession.mockResolvedValue(SESSION_AI_OFF);
     mGetGrounding.mockResolvedValue(null);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
     await act(async () => {
       await new Promise((r) => setTimeout(r, 100));
@@ -267,7 +268,7 @@ describe("P1-READALOUD adversarial - failure injection", () => {
     mGetSession.mockResolvedValue(SESSION_AI_OFF);
     mGetGrounding.mockResolvedValue(GROUNDING_FREEFORM);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
     await act(async () => {
       await new Promise((r) => setTimeout(r, 100));
@@ -288,7 +289,7 @@ describe("P1-READALOUD adversarial - state and flags", () => {
       { event_type: "opening_narrated", description: "Scene was already opened." },
     ]);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
     await act(async () => {
       await new Promise((r) => setTimeout(r, 100));
@@ -306,7 +307,7 @@ describe("P1-READALOUD adversarial - state and flags", () => {
       { event_type: "opening_narrated", description: "Scene was already opened." },
     ]);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
     await act(async () => {
       await new Promise((r) => setTimeout(r, 100));
@@ -324,7 +325,7 @@ describe("P1-READALOUD adversarial - state and flags", () => {
       { event_type: "character_bound", description: "Velka bound." },
     ]);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
 
     // Verbatim block should render
@@ -338,7 +339,7 @@ describe("P1-READALOUD adversarial - state and flags", () => {
     mGetGrounding.mockResolvedValue(GROUNDING_FREEFORM);
     mGetSessionEvents.mockResolvedValue([]);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
     await act(async () => {
       await new Promise((r) => setTimeout(r, 100));
@@ -365,7 +366,7 @@ describe("P1-READALOUD adversarial - state and flags", () => {
     mGetSession.mockResolvedValue(SESSION_AI_OFF);
     mGetGrounding.mockResolvedValue(groundingWithMalformedLine);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");
 
     // Both lines' text will still be appended (we pass them through).

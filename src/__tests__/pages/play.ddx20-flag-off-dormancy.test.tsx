@@ -18,7 +18,8 @@
  * dedicated, explicitly-named DDX-20 regression gate a reviewer can point at.
  */
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { EngineSessionEvent, NarrationEvent, Participant, Session } from '@/lib/api/types';
 import { DURABLE_GENERATION_ENABLED } from '@/lib/config';
@@ -196,7 +197,7 @@ describe('DDX-20 flag-off dormancy — HARD REQUIREMENT #1', () => {
   });
 
   it('a DM turn POSTs via the legacy streamDmNarration — postDmTurn/subscribeDmJob are never called', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
 
     const input = screen.getByRole('textbox');
@@ -215,7 +216,7 @@ describe('DDX-20 flag-off dormancy — HARD REQUIREMENT #1', () => {
     jest.useFakeTimers();
     try {
       mockGetSessionEventsRaw.mockResolvedValue([rollEvent(1, 'perception')]);
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
 
       await act(async () => {
@@ -236,7 +237,7 @@ describe('DDX-20 flag-off dormancy — HARD REQUIREMENT #1', () => {
     jest.useFakeTimers();
     try {
       mockGetSessionEventsRaw.mockResolvedValue([]);
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
 
       // Simulate durable rows a flag-ON engine COULD already be emitting
@@ -267,7 +268,7 @@ describe('DDX-20 flag-off dormancy — HARD REQUIREMENT #1', () => {
     jest.useFakeTimers();
     try {
       mockGetSessionEventsRaw.mockResolvedValue([]);
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
 
       mockGetSessionEventsRaw.mockResolvedValue([rollEvent(9, 'perception')]);
@@ -290,7 +291,7 @@ describe('DDX-20 flag-off dormancy — HARD REQUIREMENT #1', () => {
   // fully dormant too, not just the poll/SSE plumbing Pass 1 already proved. ──
 
   it('never mints or persists a turn_key to localStorage on a normal send', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
 
     const input = screen.getByRole('textbox');
@@ -307,7 +308,7 @@ describe('DDX-20 flag-off dormancy — HARD REQUIREMENT #1', () => {
     jest.useFakeTimers();
     try {
       mockGetSessionEventsRaw.mockResolvedValue([]);
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
 
       // Even if a durable-shaped pending_generation-like signal somehow
@@ -336,7 +337,7 @@ describe('DDX-20 flag-off dormancy — HARD REQUIREMENT #1', () => {
       dm_mode: 'human',
       ai_assist_level: 'off',
     });
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await waitFor(() =>
       expect(screen.queryByRole('tab', { name: /DM Narration/i })).toBeInTheDocument(),
     );

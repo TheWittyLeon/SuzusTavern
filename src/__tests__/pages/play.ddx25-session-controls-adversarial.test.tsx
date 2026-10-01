@@ -49,7 +49,8 @@
  *          refreshSessionAfterAction's own comment in the play page.
  */
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act, within } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 
 jest.mock('next/navigation', () => ({
@@ -205,7 +206,7 @@ describe('DDX-25 adversarial — paused session, same-tab gaps', () => {
         checks: [],
       });
 
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       const moveOnBtn = await screen.findByRole('button', { name: /Head to the clearing/i });
 
       // Fixed: `disabled={sceneAdvanceBusy || talking || sessionLocked}` now
@@ -248,7 +249,7 @@ describe('DDX-25 adversarial — paused session, same-tab gaps', () => {
         skills: [{ name: 'perception', ability: 'wisdom', modifier: 3 }],
       });
 
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       // Quick-checks resolve asynchronously off the bound character's sheet.
       const rollBtn = await screen.findByRole('button', {
         name: /Roll Perception check, modifier \+3/i,
@@ -291,7 +292,7 @@ describe('DDX-25 adversarial — paused session, same-tab gaps', () => {
         ],
       );
 
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       // Fixed: RebindCharacterButtonProps now accepts `sessionLocked`, and
       // the play page passes the render-scope `sessionLocked` const through.
       // The tooltip/accessible name changes to explain why (same convention
@@ -323,7 +324,7 @@ describe('DDX-25 adversarial — paused session, same-tab gaps', () => {
         checks: [{ skill: 'perception', dc: 12 }],
       });
 
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('The Hollow Tide');
 
       mockStreamDmNarration.mockImplementation(async function* () {
@@ -408,7 +409,7 @@ describe('DDX-25 adversarial — paused session, same-tab gaps', () => {
         ],
       });
 
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('The Hollow Tide');
       await flush();
 
@@ -441,7 +442,7 @@ describe('DDX-25 adversarial — cross-tab / non-acting-viewer propagation (HEAD
       mockGetSession.mockResolvedValueOnce({ ...BASE_SESSION, status: 'active' });
       mockGetSession.mockResolvedValue({ ...BASE_SESSION, status: 'paused' });
 
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('The Hollow Tide');
       await waitFor(() => expect(mockGetSession).toHaveBeenCalledTimes(1));
       expect(screen.queryByText(/Session paused by the DM/i)).not.toBeInTheDocument();
@@ -473,7 +474,7 @@ describe('DDX-25 adversarial — cross-tab / non-acting-viewer propagation (HEAD
         ],
       );
 
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('The Hollow Tide');
       const calls = mockGetSession.mock.calls.length;
 
@@ -496,7 +497,7 @@ describe('DDX-25 adversarial — double-submit race probe', () => {
       mockUsername = 'dm_alice';
       setup(BASE_SESSION, [{ username: 'dm_alice', is_dm: true, character: null }]);
 
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       const pauseBtn = await screen.findByRole('button', { name: /^Pause$/i });
 
       // Both dispatches inside ONE outer act(): React 18 batches synchronous
@@ -524,7 +525,7 @@ describe('DDX-25 adversarial — double-submit race probe', () => {
       mockUsername = 'dm_alice';
       setup(BASE_SESSION, [{ username: 'dm_alice', is_dm: true, character: null }]);
 
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       fireEvent.click(await screen.findByRole('button', { name: /Award XP/i }));
       const form = await screen.findByRole('form', { name: /Award session XP/i });
       fireEvent.change(within(form).getByLabelText(/XP amount/i), {
@@ -555,7 +556,7 @@ describe('DDX-25 adversarial — double-submit race probe', () => {
       mockUsername = 'dm_alice';
       setup(BASE_SESSION, [{ username: 'dm_alice', is_dm: true, character: null }]);
 
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       fireEvent.click(await screen.findByRole('button', { name: /^End session$/i }));
       const confirmBtn = await screen.findByRole('button', { name: /^End it$/i });
 
@@ -590,7 +591,7 @@ describe('DDX-25 adversarial — engine refusal / refetch-failure degradation', 
     mockGetSession.mockResolvedValueOnce({ ...BASE_SESSION, status: 'active' });
     mockGetSession.mockResolvedValueOnce({ ...BASE_SESSION, status: 'paused' });
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     const pauseBtn = await screen.findByRole('button', { name: /^Pause$/i });
 
     await act(async () => {
@@ -615,7 +616,7 @@ describe('DDX-25 adversarial — engine refusal / refetch-failure degradation', 
     mockGetSession.mockResolvedValueOnce(BASE_SESSION); // mount
     mockGetSession.mockRejectedValueOnce(new Error('network blip')); // post-pause refetch
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     const pauseBtn = await screen.findByRole('button', { name: /^Pause$/i });
 
     await act(async () => {
@@ -671,7 +672,7 @@ describe('TAV-PLAY-INPUT-LOCK-NO-FEEDBACK — disabledReason precedence (paused 
       yield { kind: 'done' as const };
     });
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     const input = screen.getByRole('textbox', { name: /Compose/i });
@@ -719,7 +720,7 @@ describe('TAV-PLAY-INPUT-LOCK-NO-FEEDBACK — disabledReason precedence (paused 
       [{ username: 'dm_alice', is_dm: true, character: null }],
     );
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     const input = screen.getByRole('textbox', { name: /Compose/i });
@@ -767,7 +768,7 @@ describe('TAV-PLAY-INPUT-LOCK-NO-FEEDBACK — human DM never sees "Suzu is narra
       skills: [{ name: 'perception', ability: 'wisdom', modifier: 3 }],
     });
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     const rollBtn = await screen.findByRole('button', {
       name: /Roll Perception check, modifier \+3/i,
     });

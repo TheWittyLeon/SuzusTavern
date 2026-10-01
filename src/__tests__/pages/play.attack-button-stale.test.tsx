@@ -16,7 +16,8 @@
  * Fixtures/mocks modeled on combat-ui-adv78.test.tsx (same page-level seam).
  */
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { CombatState, GroundingData, Participant, Session } from '@/lib/api/types';
 
@@ -194,7 +195,7 @@ afterEach(() => {
 describe('TAV-ATTACK-BUTTON-STALE — attack disables once the action is spent', () => {
   it('action_available:false on my active-turn PC → Attack disabled with the spent-action reason', async () => {
     mGetCombatState.mockResolvedValue(combatState(false));
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() => {
@@ -208,7 +209,7 @@ describe('TAV-ATTACK-BUTTON-STALE — attack disables once the action is spent',
 
   it('action_available:true → Attack enabled (positive control: the disable really keys off the wire field)', async () => {
     mGetCombatState.mockResolvedValue(combatState(true));
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() => {
@@ -219,7 +220,7 @@ describe('TAV-ATTACK-BUTTON-STALE — attack disables once the action is spent',
 
   it('field absent (older payload) → Attack stays enabled — back-compat, never wrongly locked', async () => {
     mGetCombatState.mockResolvedValue(combatState(undefined));
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() => {

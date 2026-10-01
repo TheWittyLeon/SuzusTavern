@@ -10,7 +10,8 @@
  * play.castspellpanel-gating.test.tsx's harness (its inverse condition).
  */
 import React from 'react';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { screen, waitFor, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { Session, Participant, CombatState, CombatParticipantState, CharacterSheet } from '@/lib/api/types';
 
@@ -225,7 +226,7 @@ describe('T7 — ConditionsPanel mount gate (page-level)', () => {
     mGetParticipants.mockResolvedValue([{ username: 'leon', is_dm: true, character: null }]);
     mGetCombatState.mockResolvedValue(ACTIVE_COMBAT);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await waitFor(() => expect(screen.getByText('Conditions')).toBeInTheDocument());
     // Apply form + at least one DM-only remove control on the already-poisoned Goblin.
     expect(screen.getByLabelText('Condition')).toBeInTheDocument();
@@ -238,7 +239,7 @@ describe('T7 — ConditionsPanel mount gate (page-level)', () => {
     mGetCharacterSheet.mockResolvedValue(nonCasterSheet());
     mGetCombatState.mockResolvedValue(ACTIVE_COMBAT);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await waitFor(() => expect(mGetCombatState).toHaveBeenCalled());
     await act(async () => {
       await Promise.resolve();

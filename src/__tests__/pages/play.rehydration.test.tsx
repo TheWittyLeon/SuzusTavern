@@ -8,7 +8,8 @@
  * reconciliation (on-scene vs advanced), and resilience to a null events read.
  */
 import React from 'react';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { screen, waitFor, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { Session, Participant, EngineSessionEvent } from '@/lib/api/types';
 
@@ -175,7 +176,7 @@ describe('PLAY-PERSIST rehydration — restores persisted turns on mount', () =>
       { event_type: 'narration', description: 'The door creaks open, revealing a dim hall.' },
     ]);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() =>
@@ -215,7 +216,7 @@ describe('PLAY-PERSIST rehydration — restores persisted turns on mount', () =>
       { event_type: 'player_action', description: 'I push open the door.' },
     ]);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() =>
@@ -238,7 +239,7 @@ describe('PLAY-PERSIST rehydration — restores persisted turns on mount', () =>
       { event_type: 'player_action', description: 'I push open the door.' },
     ]);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() =>
@@ -257,7 +258,7 @@ describe('PLAY-PERSIST rehydration — restores persisted turns on mount', () =>
       { event_type: 'narration', description: 'The door creaks open, revealing a dim hall.' },
     ]);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() =>
@@ -274,7 +275,7 @@ describe('PLAY-PERSIST rehydration — fresh session (no events)', () => {
     mGetSessionEventsRaw.mockResolvedValue([]);
     mGetSessionEvents.mockResolvedValue([]);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() =>
@@ -296,7 +297,7 @@ describe('PLAY-PERSIST rehydration — resilience', () => {
     mGetSessionEventsRaw.mockResolvedValue(null);
     mGetSessionEvents.mockResolvedValue([]);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     // Page renders fine and the fresh-session opening still fires (unchanged
@@ -315,7 +316,7 @@ describe('PLAY-PERSIST rehydration — resilience', () => {
       { event_type: 'player_action', description: 'I push open the door.' },
     ]);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     await waitFor(() =>
@@ -346,7 +347,7 @@ describe('PLAY-PERSIST rehydration — resilience', () => {
     ]);
     mGetSessionEvents.mockResolvedValue([]);
 
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     // Normal load — NOT the error/notfound fallback.

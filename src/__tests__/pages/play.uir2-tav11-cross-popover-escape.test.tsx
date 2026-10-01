@@ -16,7 +16,8 @@
  * through to close Award-XP.
  */
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act, within } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { CombatState, Participant, Session } from '@/lib/api/types';
 
@@ -144,7 +145,7 @@ function setup() {
 describe('UIR2-TAV-11 cross-popover Escape leak (Miko-QA gate)', () => {
   it('a busy combat-outcome chooser swallowing Escape must not leak through and close the Award-XP popover', async () => {
     setup();
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     // Open the Award-XP popover first.
@@ -180,7 +181,7 @@ describe('UIR2-TAV-11 cross-popover Escape leak (Miko-QA gate)', () => {
 
   it('control: Escape from outside the form still closes the Award-XP popover when no sibling overlay is open', async () => {
     setup();
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
     const trigger = screen.getByRole('button', { name: /Award XP/i });

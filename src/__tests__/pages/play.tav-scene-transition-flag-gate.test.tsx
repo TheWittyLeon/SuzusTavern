@@ -24,7 +24,8 @@
  * in the engine repo (tests/test_seed_adventure_authoring.py).
  */
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { GroundingData, NarrationEvent, Participant, Session } from '@/lib/api/types';
 
@@ -175,7 +176,7 @@ const CONTROL_LABEL = /Just walk away/i;
 describe('TAV-SCENE-TRANSITION-LEAKS-FLAG-SLUG — the Tavern trusts the server-filtered list', () => {
   it('the server stripped the gated exit: it is absent, control still shows', async () => {
     mGetGrounding.mockResolvedValue(groundingFromServer({}, SERVED_WITHOUT_GATED));
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     await waitFor(() =>
       expect(screen.getByRole('button', { name: CONTROL_LABEL })).toBeInTheDocument(),
@@ -187,7 +188,7 @@ describe('TAV-SCENE-TRANSITION-LEAKS-FLAG-SLUG — the Tavern trusts the server-
     mGetGrounding.mockResolvedValue(
       groundingFromServer({ lookout_spotted: true }, SERVED_WITH_GATED),
     );
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     await waitFor(() =>
       expect(screen.getByRole('button', { name: GATED_LABEL })).toBeInTheDocument(),
@@ -203,7 +204,7 @@ describe('TAV-SCENE-TRANSITION-LEAKS-FLAG-SLUG — the Tavern trusts the server-
 
   it('flags ABSENT for a served gated exit: still renders (no client re-filtering)', async () => {
     mGetGrounding.mockResolvedValue(groundingFromServer({}, SERVED_WITH_GATED));
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     await waitFor(() =>
       expect(screen.getByRole('button', { name: GATED_LABEL })).toBeInTheDocument(),
@@ -214,7 +215,7 @@ describe('TAV-SCENE-TRANSITION-LEAKS-FLAG-SLUG — the Tavern trusts the server-
     mGetGrounding.mockResolvedValue(
       groundingFromServer({ lookout_spotted: false }, SERVED_WITH_GATED),
     );
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     await waitFor(() =>
       expect(screen.getByRole('button', { name: GATED_LABEL })).toBeInTheDocument(),
@@ -225,7 +226,7 @@ describe('TAV-SCENE-TRANSITION-LEAKS-FLAG-SLUG — the Tavern trusts the server-
     const grounding = groundingFromServer({}, SERVED_WITH_GATED);
     delete (grounding as { flags?: Record<string, unknown> }).flags;
     mGetGrounding.mockResolvedValue(grounding);
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     await waitFor(() =>
       expect(screen.getByRole('button', { name: GATED_LABEL })).toBeInTheDocument(),
@@ -236,7 +237,7 @@ describe('TAV-SCENE-TRANSITION-LEAKS-FLAG-SLUG — the Tavern trusts the server-
     mGetGrounding.mockResolvedValue(
       groundingFromServer({ lookout_spotted: true }, SERVED_WITH_GATED),
     );
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     const btn = await screen.findByRole('button', { name: GATED_LABEL });
     expect(btn).toHaveTextContent('Ambush the lookout first');
@@ -257,7 +258,7 @@ describe('TAV-SCENE-TRANSITION-LEAKS-FLAG-SLUG — the Tavern trusts the server-
         { to: 'exit', label: 'Lead the crew out', requires_encounter_resolved: 'krell_band' },
       ]),
     );
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     // Wait for grounding to have been consumed at all, so this cannot pass
     // merely because the page had not finished loading.
@@ -281,7 +282,7 @@ describe('TAV-SCENE-TRANSITION-LEAKS-FLAG-SLUG — the Tavern trusts the server-
         { to: 'exit', label: 'Just walk away' },
       ]),
     );
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
 
     await waitFor(() =>
       expect(screen.getByRole('button', { name: CONTROL_LABEL })).toBeInTheDocument(),

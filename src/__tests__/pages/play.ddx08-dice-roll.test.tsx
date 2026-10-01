@@ -8,7 +8,8 @@
  * same-tick double-click.
  */
 import React from 'react';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { Session, Participant, EngineSessionEvent } from '@/lib/api/types';
 
@@ -197,7 +198,7 @@ beforeEach(() => {
 });
 
 async function renderAndOpenScene() {
-  render(<PlayPage />);
+  renderPlay(<PlayPage />);
   await screen.findByText('Test Table');
   await act(async () => {
     fireEvent.click(screen.getByRole('button', { name: /scene/i }));
@@ -312,7 +313,7 @@ describe('DDX-08 / T3 — dice roll is server-authoritative', () => {
     jest.useFakeTimers();
     try {
       mockGetSessionEventsRaw.mockResolvedValue([]);
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
 
       // Simulate a roll fired by a DIFFERENT client — this tab's own onRoll
@@ -415,7 +416,7 @@ describe('DDX-08 / T3 — dice roll is server-authoritative', () => {
     jest.useFakeTimers();
     try {
       mockGetSessionEventsRaw.mockResolvedValue([]);
-      render(<PlayPage />);
+      renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
 
       // The engine's GET /events has no "since seq" filter — every tick
@@ -454,7 +455,7 @@ describe('DDX-08 / T3 — dice roll is server-authoritative', () => {
     jest.useFakeTimers();
     try {
       mockGetSessionEventsRaw.mockResolvedValue([]);
-      const { unmount } = render(<PlayPage />);
+      const { unmount } = renderPlay(<PlayPage />);
       await screen.findByText('Test Table');
 
       await act(async () => {

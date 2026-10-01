@@ -11,7 +11,8 @@
  * rerender, not a viewport resize (jsdom has none).
  */
 import React from 'react';
-import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react';
+import { screen, fireEvent, act, waitFor, within } from '@testing-library/react';
+import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { CharacterSheet, CombatState, Participant, Session } from '@/lib/api/types';
 
@@ -26,8 +27,8 @@ jest.mock('../../lib/useReducedMotion', () => ({ useReducedMotion: () => true })
 jest.mock('../../lib/theme/ThemeProvider', () => ({
   ThemeProvider: ({ children }: { children: React.ReactNode }) =>
     React.createElement(React.Fragment, null, children),
-  useTheme: () => ({ vibe: 'dusk-tavern', setVibe: jest.fn(), density: 'cozy', setDensity: jest.fn() }),
-  useThemeOptional: () => ({
+  // `layout` is read by usePlayLayout through useTheme (A9c C6 retired useThemeOptional).
+  useTheme: () => ({
     vibe: 'dusk-tavern',
     layout: mockLayoutPref,
     setVibe: jest.fn(),
@@ -128,14 +129,14 @@ async function selectBob() {
 describe('characterBlock singleton -- docked (Table) vs Drawer (Story)', () => {
   it('positive control: Story pinned, selecting a member opens the sheet as a modal dialog', async () => {
     mockLayoutPref = 'story';
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await selectBob();
     const dlg = await screen.findByRole('dialog', { name: /Wrenna the Unmistakable|Character sheet/ });
     expect(within(dlg).getByRole('button', { name: /Close character sheet/i })).toBeInTheDocument();
   });
 
   it('Table pinned: the sheet is docked (heading present), and there is exactly ONE Close button and no dialog', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await selectBob();
     expect(await screen.findByRole('heading', { name: /Wrenna the Unmistakable/ })).toBeInTheDocument();
     expect(screen.queryByRole('dialog', { name: /character sheet|Wrenna/i })).not.toBeInTheDocument();
@@ -151,7 +152,7 @@ describe('characterBlock singleton -- docked (Table) vs Drawer (Story)', () => {
    * `.failing`.
    */
   test('DEFECT A9b-1: Table -> Story after a docked selection must not surface a modal dialog', async () => {
-    const { rerender } = render(<PlayPage />);
+    const { rerender } = renderPlay(<PlayPage />);
     await selectBob();
     mockLayoutPref = 'story';
     // a fresh element makes PlayPage re-run usePlayLayout against the new pref
@@ -168,7 +169,7 @@ describe('characterBlock singleton -- docked (Table) vs Drawer (Story)', () => {
    * "Close character sheet" and then leaves the sheet there).
    */
   test('DEFECT A9b-1b: the docked sheet\'s Close button visibly changes the panel', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await selectBob();
     await screen.findByRole('heading', { name: /Wrenna the Unmistakable/ });
     await act(async () => {
@@ -193,12 +194,12 @@ describe('docked member sheet (Table) -- A9b fix round 1', () => {
   });
 
   it('Imp-1: with nobody picked, the dock shows the viewer\'s OWN sheet (not an empty header)', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     expect(await screen.findByRole('heading', { name: /Torvin the Undaunted/ })).toBeInTheDocument();
   });
 
   it('Imp-1: the Drawer is mounted but inert while docked -- no dialog, no panel inside it', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('heading', { name: /Torvin the Undaunted/ });
     const drawer = document.getElementById('play-pane-member-sheet');
     expect(drawer).not.toBeNull();
@@ -207,7 +208,7 @@ describe('docked member sheet (Table) -- A9b fix round 1', () => {
   });
 
   it('B1: Close folds the rail to a strip; the strip gets focus; re-opening returns the sheet and focuses Close', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('heading', { name: /Torvin the Undaunted/ });
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Close character sheet/i })); });
     expect(screen.queryByRole('heading', { name: /Torvin the Undaunted/ })).not.toBeInTheDocument();
@@ -220,7 +221,7 @@ describe('docked member sheet (Table) -- A9b fix round 1', () => {
   });
 
   it('B1: picking a party member while the rail is folded unfolds it onto that member', async () => {
-    render(<PlayPage />);
+    renderPlay(<PlayPage />);
     await screen.findByRole('heading', { name: /Torvin the Undaunted/ });
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Close character sheet/i })); });
     await selectBob();
@@ -230,7 +231,7 @@ describe('docked member sheet (Table) -- A9b fix round 1', () => {
 
   it('A5: Story drawer open -> Table keeps the SAME drawer node mounted, closed, and docks the sheet; back to Story it does NOT reopen', async () => {
     mockLayoutPref = 'story';
-    const { rerender } = render(<PlayPage />);
+    const { rerender } = renderPlay(<PlayPage />);
     await selectBob();
     await screen.findByRole('dialog', { name: /Wrenna the Unmistakable|Character sheet/ });
     const drawerBefore = document.getElementById('play-pane-member-sheet');
