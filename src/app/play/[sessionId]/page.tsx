@@ -1613,7 +1613,7 @@ export default function PlayPage() {
   };
 
   const tenants: Partial<Record<TenantId, ReactNode>> = {
-    sessionRecap: <SessionRecapTenant session={session} username={username} />,
+    sessionRecap: <SessionRecapTenant session={session} username={username} stepAside={combatIsActive} />,
     sessionPausedEnded: <SessionPausedEndedTenant isEnded={isEnded} isPaused={isPaused} />,
     turnStatus: (
       <TurnStatusTenant

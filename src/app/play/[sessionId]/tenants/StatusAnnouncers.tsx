@@ -32,15 +32,19 @@ import styles from '../Play.module.css';
 export interface SessionRecapTenantProps {
   session: Session | null;
   username: string | null;
+  /** True while combat is active: the strip steps aside (A9d F3) but stays mounted, so the
+   *  wrapper is still a live region and the strip keeps its fetch and its `dismissed` state.
+   *  It is still in the Journal's Recap history. */
+  stepAside?: boolean;
 }
 
 /** FIX-8 (MEDIUM-2): aria-label on the live region so AT announces the
  *  context ("Session recap") before reading the content changes. */
-export function SessionRecapTenant({ session, username }: SessionRecapTenantProps) {
+export function SessionRecapTenant({ session, username, stepAside }: SessionRecapTenantProps) {
   return (
     <div aria-live="polite" aria-label="Session recap" data-tenant="sessionRecap">
       {session && (
-        <SessionRecap key={session.session_id} session={session} username={username} variant="strip" />
+        <SessionRecap key={session.session_id} session={session} username={username} variant="strip" hidden={stepAside} />
       )}
     </div>
   );

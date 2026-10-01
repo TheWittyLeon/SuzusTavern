@@ -111,9 +111,21 @@ describe('Play.module.css', () => {
         .filter((m) => /:empty/.test(m[1]));
       expect(selectors.length).toBeGreaterThan(0);
       for (const [, sel, body] of selectors) {
-        expect(sel.trim()).toBe('.slotStack > [data-tenant]:empty');
+        // A9d F3: two named forms, each scoped to [data-tenant]: an empty tenant, and a tenant whose
+        // only element children are hidden (the recap wrapper while its strip steps aside).
+        const forms = sel.split(',').map((f) => f.trim());
+        expect(forms).toEqual([
+          '.slotStack > [data-tenant]:empty',
+          '.slotStack > [data-tenant]:has(> [hidden]):not(:has(> :not([hidden])))',
+        ]);
         expect(body).toMatch(/position:\s*absolute/);
       }
+    });
+
+    it('the hidden-children form requires AT LEAST ONE hidden child: a text-only tenant (turnStatus) has no element child and must stay in flow (A9d F3)', () => {
+      // Without `:has(> [hidden])`, `:not(:has(> :not([hidden])))` is true of any tenant with no
+      // element children, and the stack rule would clip its text to 1x1.
+      expect(strip(css)).toMatch(/\.slotStack > \[data-tenant\]:has\(> \[hidden\]\):not\(:has\(> :not\(\[hidden\]\)\)\)/);
     });
 
     it('the X-card host wraps instead of overflowing, and the control stays a 44px target (Imp-5)', () => {

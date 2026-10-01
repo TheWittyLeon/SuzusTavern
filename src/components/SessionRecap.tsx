@@ -25,9 +25,13 @@ export interface SessionRecapProps {
   username?: string | null;
   /** 'card' = dashboard (open); 'strip' = play top (collapsible + dismissible). */
   variant?: 'card' | 'strip';
+  /** Steps the rendered strip aside WITHOUT unmounting it: the fetch, the AI latch, `open` and
+   *  `dismissed` all live in this component, so unmounting would refetch and forget a dismissal.
+   *  The play shell sets it while combat is active (the recap stays in the Journal). */
+  hidden?: boolean;
 }
 
-export default function SessionRecap({ session, username, variant = 'card' }: SessionRecapProps) {
+export default function SessionRecap({ session, username, variant = 'card', hidden }: SessionRecapProps) {
   const [recap, setRecap] = useState<RecapResult | null>(null);
   const [aiText, setAiText] = useState<string | null>(null);
   const [open, setOpen] = useState(variant === 'card');
@@ -144,6 +148,7 @@ export default function SessionRecap({ session, username, variant = 'card' }: Se
     <section
       className={variant === 'strip' ? styles.strip : styles.card}
       aria-labelledby={headId}
+      hidden={hidden}
     >
       <div className={styles.head}>
         {variant === 'strip' ? (

@@ -224,8 +224,15 @@
    A9d 0b (Kage A9c-2 N1): scoped to `[data-tenant]`. ChatLog's `role="log"` root is a
    direct child of this stack with no `data-tenant`, and it is `:empty` when the
    transcript has no rows; the bare `:empty` clipped the focusable log itself to 1x1 (an
-   invisible tab stop). Every announcer tenant carries `data-tenant` on its root. */
-.slotStack > [data-tenant]:empty {
+   invisible tab stop). Every announcer tenant carries `data-tenant` on its root.
+   A9d F3: the second selector is a tenant whose only element children are `hidden` (the
+   recap wrapper while the strip steps aside in combat): it keeps its live wrapper and its
+   mounted strip but paints nothing, so it pays no gap either. `:has(> [hidden])` is
+   load-bearing: a text-only tenant (`turnStatus`, `sessionPausedEnded`) has no element
+   child at all, and `:not(:has(> :not([hidden])))` alone would take it out of flow and clip
+   its text. */
+.slotStack > [data-tenant]:empty,
+.slotStack > [data-tenant]:has(> [hidden]):not(:has(> :not([hidden]))) {
   position: absolute;
   width: 1px;
   height: 1px;

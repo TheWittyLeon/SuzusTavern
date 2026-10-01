@@ -202,4 +202,33 @@ describe('SessionRecap', () => {
     // The ugly slug with suffix must NOT appear.
     expect(screen.queryByText(/the_hollow_tide_cave-9f3a/)).not.toBeInTheDocument();
   });
+
+  it('A9d F3: `hidden` steps the strip aside WITHOUT unmounting it: no refetch, and a dismissal survives the round trip', async () => {
+    mGetEvents.mockResolvedValue([
+      { event_type: 'scene_advance', description: 'You crossed the underground river.' },
+    ]);
+    const session = makeSession({ ai_assist_level: 'off' });
+    const { rerender, container } = render(<SessionRecap session={session} username="leon" variant="strip" />);
+    await screen.findByRole('button', { name: /previously on/i });
+    const section = container.querySelector('section') as HTMLElement;
+
+    // Combat: the SAME node carries `hidden`; it leaves the a11y tree and paints nothing.
+    rerender(<SessionRecap session={session} username="leon" variant="strip" hidden />);
+    expect(container.querySelector('section')).toBe(section);
+    expect(section).toHaveAttribute('hidden');
+    expect(screen.queryByRole('button', { name: /previously on/i })).toBeNull();
+
+    // Combat ends: back, and the digest was not fetched a second time (a remount would).
+    rerender(<SessionRecap session={session} username="leon" variant="strip" hidden={false} />);
+    expect(section).not.toHaveAttribute('hidden');
+    expect(await screen.findByRole('button', { name: /previously on/i })).toBeInTheDocument();
+    expect(mGetEvents).toHaveBeenCalledTimes(1);
+
+    // A dismissal made before combat is still a dismissal after it.
+    screen.getByRole('button', { name: /dismiss recap/i }).click();
+    await waitFor(() => expect(container.querySelector('section')).toBeNull());
+    rerender(<SessionRecap session={session} username="leon" variant="strip" hidden />);
+    rerender(<SessionRecap session={session} username="leon" variant="strip" hidden={false} />);
+    expect(container.querySelector('section')).toBeNull();
+  });
 });
