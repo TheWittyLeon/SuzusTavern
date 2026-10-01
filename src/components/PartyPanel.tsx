@@ -191,7 +191,10 @@ export default function PartyPanel({
               {c && (
                 <div className={styles.stats}>
                   {hp != null && max != null && (
-                    <div className={styles.mono}>
+                    // Iro A9c-2 obs.: the meter above already says "{hp} of {max} hit points"
+                    // (aria-valuetext); the visible text is aria-hidden so a tile's name reads
+                    // HP once, not "27 of 34 hit points 27/34".
+                    <div className={styles.mono} aria-hidden="true">
                       {hp}/{max}
                     </div>
                   )}

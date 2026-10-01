@@ -275,32 +275,50 @@
   border: 0;
 }
 
-/* Iro A9c-2 MINOR-5 (1.3.1 / 2.4.7): a sighted keyboard user sees only the initial. On
-   :focus-visible the name shows as a caption under the strip. It is anchored to the STRIP
-   (`.list`), not the tile: a label centred on a tile at the pane's edge is cut off by the
-   pane (measured, 107 of 124px). Absolute, so there is no layout shift; the words stay in
-   the DOM either way, so the accessible name is unchanged. */
-.strip .list {
+/* Iro A9c-2 MINOR-5 (1.3.1 / 2.4.7) + N-1: a sighted keyboard user sees only the initial. On
+   :focus-visible the name shows as a caption anchored to the FOCUSED TILE (`.link`), centred
+   under it, so on a strip that wraps to two rows it is never under a neighbour's tile (the
+   old strip-anchored caption landed ~62px from its tile). The width is capped at two tile
+   widths and the words wrap, so a long name stays whole and the caption centre stays inside
+   its tile; the first and last tile flip to the list edge so a caption never leaves the
+   pane (a tile-centred label at the pane's edge was cut off, measured 107 of 124px).
+   Absolute, so there is no layout shift; the words stay in the DOM either way, so the
+   accessible name is unchanged. */
+.strip .link {
   position: relative;
 }
 
 .strip .link:focus-visible .nameRow {
   top: 100%;
-  left: 0;
-  width: auto;
-  max-width: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 88px;
   height: auto;
   margin: 2px 0 0;
-  padding: 2px 8px;
+  padding: 2px 6px;
   clip: auto;
   z-index: 2;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: center;
   background: var(--card-solid);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-xs);
   color: var(--ink);
   font-size: 12px;
+}
+
+.strip .list > li:first-child .link:focus-visible .nameRow {
+  left: 0;
+  transform: none;
+}
+
+.strip .list > li:last-child:not(:first-child) .link:focus-visible .nameRow {
+  left: auto;
+  right: 0;
+  transform: none;
 }
 
 .strip .badgeRow {

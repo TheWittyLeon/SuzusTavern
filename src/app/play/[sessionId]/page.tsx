@@ -1250,15 +1250,9 @@ export default function PlayPage() {
     beginCombatRef,
   ]);
 
-  // NOTE (TAV-PLAY-INPUT-LOCK-NO-FEEDBACK review, 2026-08-01): the composer
-  // lock (`talking`/paused/ended/`dmNarrationPending`) strands keyboard focus
-  // on <body> when it disables the control the user was on — a real gap (Iro
-  // MAJOR-1), deliberately NOT patched inline here: a naive rising-edge
-  // refocus fires on session load and teleports the DM to the scene heading
-  // on every send (Kage IMPORTANT-3). Tracked as its own story
-  // (TAV-COMPOSER-FOCUS-STRAND) with the design constraints: route through
-  // refocusSceneHeadIfStranded's provenance flag, restore toward the
-  // composer/ChatLog on the falling edge, and pin it with a test.
+  // The composer lock (`talking`/paused/ended/`dmNarrationPending`) no longer strands
+  // focus: locked controls stay focusable and say so (`aria-disabled`, `lockProps` in
+  // src/lib/a11y/lockProps.ts, used by Composer and CastSpellPanel; Iro A9c-2 N-2).
 
   // TAV-PLAY-SHELL step 6b, commit C4 (build brief §6.2): resolves the
   // layout PRESET (not just its id) for the current moment. `moment` is
@@ -1494,7 +1488,8 @@ export default function PlayPage() {
     // end state), not a bug. Rendered only when NOT a layer (table); the
     // Drawer (in `layers` below) renders it when it IS a layer (story/phone).
     characterBlock: !characterBlockIsLayer ? memberSheetPanelNode : undefined,
-    suzuPresence: <SuzuPresence variant={variantFor(row, 'suzuPresence', moment)} talking={talking} />,
+    // R10: with AI assist off the presence is absent (the slot stays mounted, empty).
+    suzuPresence: showSuzuPanel ? <SuzuPresence variant={variantFor(row, 'suzuPresence', moment)} talking={talking} /> : undefined,
     storyLog: (
       <>
         <StoryLog

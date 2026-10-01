@@ -350,6 +350,37 @@ describe('/play real-page render matrix (4 desktop + 2 phone)', () => {
   });
 });
 
+
+/**
+ * R10 / A9d F-2: with `ai_assist_level: 'off'` Suzu's presence is absent, in every cell
+ * (the DM is a human; a figure beside the log says a persona is narrating). The slot
+ * stays mounted so a later toggle needs no remount. The AI-on mounts above carry the
+ * positive control: the same cells DO render `[data-region="suzuPresence"]`.
+ */
+describe('/play real-page: AI assist off renders no Suzu presence (R10)', () => {
+  it.each(CELLS.filter((c) => c.moment === 'exploring'))('$name: no suzuPresence region; the log still renders', async (cell) => {
+    setPhone(cell.phone);
+    if (cell.pref) window.localStorage.setItem('tavern.layout', cell.pref);
+    (dnd.getSession as jest.Mock).mockResolvedValue({ ...SESSION, dm_mode: 'human', ai_assist_level: 'off' });
+    (dnd.getParticipants as jest.Mock).mockResolvedValue(PARTY);
+    const { container } = renderPlay(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+    await waitFor(() => expect(container.querySelector('[data-layout-resolved]')).toHaveAttribute('data-layout-resolved', cell.row));
+    expect(container.querySelector('[data-region="suzuPresence"]')).toBeNull();
+    expect(container.querySelector('[role="log"]')).not.toBeNull();
+  });
+
+  it('positive control: the same page with AI assist full DOES render it (desktop story)', async () => {
+    setPhone(false);
+    window.localStorage.setItem('tavern.layout', 'story');
+    (dnd.getSession as jest.Mock).mockResolvedValue(SESSION);
+    (dnd.getParticipants as jest.Mock).mockResolvedValue(PARTY);
+    const { container } = renderPlay(<PlayPage />);
+    await screen.findByText('The Hollow Tide');
+    await waitFor(() => expect(container.querySelector('[data-region="suzuPresence"]')).not.toBeNull());
+  });
+});
+
 /**
  * Kage A9c-2 IMPORTANT-5: a live region that REMOUNTS across a layout flip is
  * re-announced by a screen reader, and the unit tests of a region in isolation cannot

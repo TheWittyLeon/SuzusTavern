@@ -94,6 +94,19 @@ describe('PartyPanel consumes its variant', () => {
     expect(tile.querySelector('[aria-hidden]')?.textContent).toBe('K');
   });
 
+  it.each(['rail', 'strip', undefined] as const)(
+    '%s: a tile\'s accessible name reads the hit points once, not "27 of 34 hit points 27/34" (Iro A9c-2 obs.)',
+    (variant) => {
+      render(<PartyPanel participants={PARTY} selfUsername="kes" variant={variant} />);
+      // getByRole's `name` is the computed accessible name: the meter says it once, the visible
+      // text is aria-hidden, so nothing reads "27/34" after "27 of 34 hit points".
+      const tile = screen.getByRole('button', { name: /Kestrel Ashwood.*27 of 34 hit points\s+AC 16$/ });
+      expect(screen.queryByRole('button', { name: /27\/34/ })).toBeNull();
+      // the visible "27/34" is still painted for sighted users, just not announced twice
+      expect(tile.querySelector('[aria-hidden="true"]:not([class*="avatar"])')?.textContent).toBe('27/34');
+    },
+  );
+
   it('unset: the original card, no variant marker', () => {
     const { container } = render(<PartyPanel participants={PARTY} selfUsername="kes" />);
     expect(container.firstElementChild).not.toHaveAttribute('data-variant');
