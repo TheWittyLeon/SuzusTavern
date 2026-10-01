@@ -21,7 +21,6 @@ function Bar({
     label: 'Bar',
     orientation,
     itemCount: count,
-    isDisabled: (i) => disabled.includes(i),
   });
   return (
     <div {...bar.toolbarProps}>
@@ -99,7 +98,7 @@ describe('useRovingToolbar — the contract', () => {
     expect(b0).toHaveFocus();
   });
 
-  it('natively disabled items are stepped over and are never the tab stop', () => {
+  it('natively disabled items are stepped over by the arrow keys and Home', () => {
     render(<Bar disabled={[1, 2]} />);
     const b = (i: number) => screen.getByRole('button', { name: `b${i}` });
     b(0).focus();
@@ -107,13 +106,6 @@ describe('useRovingToolbar — the contract', () => {
     expect(b(3)).toHaveFocus();
     key(b(3), 'Home');
     expect(b(0)).toHaveFocus();
-  });
-
-  it('when the active item is disabled the first enabled item is the tab stop; all disabled = no stop', () => {
-    const { rerender } = render(<Bar disabled={[0]} />);
-    expect(stops().map((b) => b.textContent)).toEqual(['b1']);
-    rerender(<Bar disabled={[0, 1, 2, 3]} />);
-    expect(stops()).toEqual([]);
   });
 
   it('focus and click on an item make it the tab stop (Safari does not focus a clicked button)', () => {
@@ -197,7 +189,7 @@ describe('DiceTray — three toolbars, three tab stops (Iro IMPORTANT-2)', () =>
 
 describe('useRovingToolbar — a 2D grid (`columns`, Iro A9c-1 MINOR-2)', () => {
   function Grid({ disabled = [] as number[] }) {
-    const bar = useRovingToolbar({ label: 'Grid', itemCount: 6, columns: 3, isDisabled: (i) => disabled.includes(i) });
+    const bar = useRovingToolbar({ label: 'Grid', itemCount: 6, columns: 3 });
     return (
       <div {...bar.toolbarProps}>
         {Array.from({ length: 6 }, (_, i) => (

@@ -18,9 +18,9 @@
  *    (a 2D grid of items in reading order) Left/Right still step through the items
  *    (wrapping) and Up/Down move one ROW, stopping at the first/last row; the
  *    container then states no `aria-orientation`, since it has no single axis
- *    (Iro A9c-1 MINOR-2). Items that are
- *    NATIVELY disabled are skipped (they cannot take focus). `aria-disabled`
- *    items stay reachable by design.
+ *    (Iro A9c-1 MINOR-2). `aria-disabled`
+ *    items stay reachable by design; an element that is natively `:disabled` is
+ *    stepped over by the arrow keys.
  *  - Focus or click on an item makes it the active one (Safari does not focus a
  *    button on click, so click is handled too). Both are delegated at the
  *    container: no per-item handlers to compose with the caller's own.
@@ -44,9 +44,6 @@ export interface RovingToolbarOptions {
   /** Items laid out in rows of this many (reading order): adds Up/Down by row
    *  and drops `aria-orientation`. Absent = a one-axis toolbar. */
   columns?: number;
-  /** True for an item that is natively disabled this pass (it is never the
-   *  tab stop and arrow keys step over it). */
-  isDisabled?: (index: number) => boolean;
 }
 
 const ITEM_ATTR = 'data-roving-item';
@@ -66,22 +63,14 @@ export function useRovingToolbar({
   orientation = 'horizontal',
   itemCount,
   columns,
-  isDisabled,
 }: RovingToolbarOptions) {
   const [active, setActive] = useState(0);
 
-  // The tab stop: the active item, unless it is gone or disabled, then the first enabled one.
-  const clamped = Math.min(active, Math.max(itemCount - 1, 0));
-  let tabStop = clamped;
-  if (isDisabled?.(clamped)) {
-    tabStop = -1;
-    for (let i = 0; i < itemCount; i += 1) {
-      if (!isDisabled(i)) {
-        tabStop = i;
-        break;
-      }
-    }
-  }
+  // The tab stop is the active item (clamped if the list shrank under it). A caller never
+  // marks an item natively `disabled` in a toolbar: that drops focus to <body> (A9c-2
+  // Finding 1); use `aria-disabled` and keep the item reachable. Arrow keys still step over
+  // a `:disabled` element they find in the DOM.
+  const tabStop = Math.min(active, Math.max(itemCount - 1, 0));
 
   const activate = (el: HTMLElement | null) => {
     if (el) setActive(Number(el.getAttribute(ITEM_ATTR)));
