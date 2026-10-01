@@ -203,13 +203,22 @@ const PAGE = join(ROOT, PAGE_REL);
 // code lines (the S6 fix banking ratchet headroom ahead of C4's shell
 // commit, per the build brief's R-3 risk mitigation). No DOM/behaviour
 // change -- every id/class/role/aria attribute is byte-identical.
+// -> 900 (A9b commit C3, build brief §6.6, carry (b)): `<ActionBar/>`
+// lifted out of `Composer` -- it moves from Composer.tsx's own JSX (which
+// the ratchet never counted) to a sibling of `<Composer/>` directly in
+// page.tsx (`data-region="actionBar"` needs a grid area a node nested
+// inside `.composer` can't reach, step 6's whole point). Net +2 code lines
+// here, fully absorbed by C2's -48 headroom (898 -> 900, still 46 under
+// the pre-C2 946) -- exactly the "C2 banks headroom ahead of C4" mitigation
+// the build brief's R-3 names, spent one commit early. Raised, not
+// lowered, and said why, per this file's own rule.
 // Update this value, in the SAME commit, whenever page.tsx's actual
 // non-comment, non-blank line count drops below it. Never raise it
 // silently -- unless the growth is deliberate and reviewed, in which case
 // raise it in the same commit and say why (this file's own rule, restated
 // correctly per the A7 pre-merge ratchet ruling: the runbook's "may only go
 // down" was a paraphrase that was never this file's actual rule).
-export const RATCHET_CEILING = 898;
+export const RATCHET_CEILING = 900;
 
 /**
  * Pure: counts lines the way `wc -l` does (newline-byte count). Exported so

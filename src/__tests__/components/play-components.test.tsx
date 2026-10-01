@@ -10,6 +10,7 @@ import NarratorStrip from '@/components/NarratorStrip';
 import ChatLog, { type LogRow } from '@/components/ChatLog';
 import DiceTray from '@/components/DiceTray';
 import Composer from '@/components/Composer';
+import ActionBar from '@/app/play/[sessionId]/regions/ActionBar';
 import PartyPanel from '@/components/PartyPanel';
 import InitiativeTracker, { type InitEntry } from '@/components/InitiativeTracker';
 import type { Participant } from '@/lib/api/types';
@@ -491,14 +492,17 @@ describe('Composer', () => {
     expect(onMode).toHaveBeenCalledWith('act');
   });
 
+});
+
+// TAV-PLAY-SHELL step 6b, commit C3 (carry (b), build brief §6.6): ActionBar
+// lifted out of Composer -- a sibling in the caller's JSX now, not a child
+// via a `combat` prop. The five cases below used to exercise ActionBar
+// THROUGH Composer's `combat` prop; they now render ActionBar directly,
+// same assertions, same queries (role/name — the relocation is name-neutral).
+describe('ActionBar (lifted out of Composer at step 6b commit C3)', () => {
   it('combat action rail attacks a chosen target (passes id as payload)', () => {
     const onAction = jest.fn();
-    render(
-      <Composer
-        {...base}
-        combat={{ targets: [{ id: 'g1', name: 'Goblin' }], onAction, busy: false }}
-      />,
-    );
+    render(<ActionBar targets={[{ id: 'g1', name: 'Goblin' }]} onAction={onAction} busy={false} />);
     fireEvent.click(screen.getByRole('button', { name: /Attack/i }));
     const menu = screen.getByRole('menu');
     // CUI-11: payload is now the participant_id, not the name.
@@ -507,12 +511,7 @@ describe('Composer', () => {
   });
 
   it('A11Y-PANEL-SEMANTICS: the action rail group is labelled via aria-labelledby pointing at its visible .railLabel kicker, not a separately-authored aria-label string', () => {
-    render(
-      <Composer
-        {...base}
-        combat={{ targets: [{ id: 'g1', name: 'Goblin' }], onAction: jest.fn(), busy: false }}
-      />,
-    );
+    render(<ActionBar targets={[{ id: 'g1', name: 'Goblin' }]} onAction={jest.fn()} busy={false} />);
     const rail = screen.getByRole('group', { name: 'Your character’s actions' });
     const label = screen.getByText('Your character’s actions');
     expect(rail.getAttribute('aria-label')).toBeNull();
@@ -523,14 +522,11 @@ describe('Composer', () => {
   it('disables Attack when isPlayerTurn is false', () => {
     const onAction = jest.fn();
     render(
-      <Composer
-        {...base}
-        combat={{
-          targets: [{ id: 'g1', name: 'Goblin' }],
-          onAction,
-          busy: false,
-          isPlayerTurn: false,
-        }}
+      <ActionBar
+        targets={[{ id: 'g1', name: 'Goblin' }]}
+        onAction={onAction}
+        busy={false}
+        isPlayerTurn={false}
       />,
     );
     const attackBtn = screen.getByRole('button', { name: /Attack.*not your turn/i });
@@ -543,14 +539,11 @@ describe('Composer', () => {
 
   it('shows refused reason text when refusedReason is set', () => {
     render(
-      <Composer
-        {...base}
-        combat={{
-          targets: [{ id: 'g1', name: 'Goblin' }],
-          onAction: jest.fn(),
-          busy: false,
-          refusedReason: "It's not your turn.",
-        }}
+      <ActionBar
+        targets={[{ id: 'g1', name: 'Goblin' }]}
+        onAction={jest.fn()}
+        busy={false}
+        refusedReason="It's not your turn."
       />,
     );
     expect(screen.getByRole('alert')).toHaveTextContent("It's not your turn.");
@@ -558,14 +551,11 @@ describe('Composer', () => {
 
   it('shows "Waiting for your turn" notice when isPlayerTurn is false', () => {
     render(
-      <Composer
-        {...base}
-        combat={{
-          targets: [{ id: 'g1', name: 'Goblin' }],
-          onAction: jest.fn(),
-          busy: false,
-          isPlayerTurn: false,
-        }}
+      <ActionBar
+        targets={[{ id: 'g1', name: 'Goblin' }]}
+        onAction={jest.fn()}
+        busy={false}
+        isPlayerTurn={false}
       />,
     );
     expect(screen.getByText(/Waiting for your turn/i)).toBeInTheDocument();

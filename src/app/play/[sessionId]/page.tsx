@@ -62,6 +62,7 @@ import PageSkeleton from '@/components/PageSkeleton';
 import { type LogRow } from '@/components/ChatLog';
 import DiceTray from '@/components/DiceTray';
 import Composer, { type ComposeMode } from '@/components/Composer';
+import ActionBar from './regions/ActionBar';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Drawer from '@/components/Drawer';
 import SafetyBanner from './regions/SafetyBanner';
@@ -448,8 +449,10 @@ export default function PlayPage() {
   // header for the full scope (the 5 stable anchor refs + the two
   // rAF-after-commit stranding-rescue effects + the adjacent rising-edge
   // toast, all one cluster in the decomposition plan's §1.13).
-  const { endCombatBtnRef, lastOpenerRef, beginCombatRef, composerRailAnchorRef, dmPanelAnchorRef } =
-    useFocusAnchors(isDying, sceneHasEncounter, combatId, sceneHeadRef);
+  const {
+    endCombatBtnRef, lastOpenerRef, beginCombatRef, composerRailAnchorRef, dmPanelAnchorRef,
+    composerTextareaAnchorRef,
+  } = useFocusAnchors(isDying, sceneHasEncounter, combatId, sceneHeadRef, combatIsActive);
 
   // TAV-PLAY-SHELL step 5, hook 7 of ~9 (Amendment A §A.2 row 7):
   // narration. Composed BELOW useSceneState (narrate() reads
@@ -1689,39 +1692,41 @@ export default function PlayPage() {
           availableModes={composerModes}
           pending={dmNarrationPending}
           sendError={mode === 'dm_narration' ? dmNarrationError : null}
-          railRef={composerRailAnchorRef}
-          localTurnActionRef={localTurnActionRef}
-          combat={
-            // S5.2: human DM doesn't see the player action rail (Attack/Dodge/etc.).
-            // The DmNarrationPanel above handles monster control separately —
-            // UNLESS the DM also has a bound character (isDmPlayingOwnPc), in
-            // which case they get the rail for their own PC's turn too.
-            isHumanDM && !isDmPlayingOwnPc
-              ? null
-              : combatIsActive
+          textareaAnchorRef={composerTextareaAnchorRef}
+        />
+        {/* TAV-PLAY-SHELL step 6b, commit C3 (carry (b), build brief §6.6):
+            ActionBar lifted out of Composer -- a sibling now, not a child,
+            since data-region="actionBar" needs a grid area a node nested
+            inside .composer can't reach. Same mount condition as before
+            (S5.2: human DM doesn't see the player action rail -- the
+            DmCombatControls panel above handles monster control separately
+            -- UNLESS the DM also has a bound character/isDmPlayingOwnPc). */}
+        {!(isHumanDM && !isDmPlayingOwnPc) && combatIsActive && (
+          <ActionBar
+            targets={targetableFoes}
+            onAction={onCombatAction}
+            // DDX-25: reuse the rail's existing `busy` gate (same disabled
+            // styling/aria as an in-flight combat action) to also lock it
+            // out while the session is paused/ended.
+            busy={combatBusy || sessionLocked}
+            isPlayerTurn={isPlayerTurn}
+            refusedReason={refusedReason}
+            // Combat-UX Fixes 2026-07-27, Fix B.
+            isDying={isDying}
+            // TAV-ATTACK-BUTTON-STALE: server-side action economy.
+            actionSpent={myActionSpent}
+            deathSaves={
+              activeParticipant?.death_saves
                 ? {
-                    targets: targetableFoes,
-                    onAction: onCombatAction,
-                    // DDX-25: reuse the rail's existing `busy` gate (same
-                    // disabled styling/aria as an in-flight combat action) to
-                    // also lock it out while the session is paused/ended.
-                    busy: combatBusy || sessionLocked,
-                    isPlayerTurn,
-                    refusedReason,
-                    // Combat-UX Fixes 2026-07-27, Fix B.
-                    isDying,
-                    // TAV-ATTACK-BUTTON-STALE: server-side action economy.
-                    actionSpent: myActionSpent,
-                    deathSaves: activeParticipant?.death_saves
-                      ? {
-                          successes: activeParticipant.death_saves.successes,
-                          failures: activeParticipant.death_saves.failures,
-                        }
-                      : null,
+                    successes: activeParticipant.death_saves.successes,
+                    failures: activeParticipant.death_saves.failures,
                   }
                 : null
-          }
-        />
+            }
+            outerRailRef={composerRailAnchorRef}
+            localTurnActionRef={localTurnActionRef}
+          />
+        )}
       </main>
 
       {/* RIGHT — scene + "Move on" + dice + safety */}

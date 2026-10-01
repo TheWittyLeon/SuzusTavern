@@ -4,52 +4,24 @@
  *
  * Say / Act / OOC mode tabs change placeholder + routing: Say & Act go to Suzu's
  * DM pipeline; OOC stays at the table (never sent to the AI). Enter sends,
- * Shift+Enter is a newline. When combat is active `ActionBar` (below, wrapped
- * from `regions/ActionBar.tsx`) exposes the engine-backed combat actions
- * (attack with target picker, dodge, dash, end turn); spell casting in combat
- * (ST-066) is deferred.
+ * Shift+Enter is a newline.
  *
- * TAV-PLAY-SHELL step 8 (decomposition plan §2.3/§5): the action rail itself
- * — formerly a private `ActionRail` function in this file — moved verbatim to
- * `regions/ActionBar.tsx`. This file now WRAPS it in the exact spot it always
- * rendered (first child of `.composer`); Composer's own props are unchanged.
- * `ComposerCombat` is kept as a type alias onto `ActionBarProps` (minus the
- * two refs Composer supplies itself) rather than a second, hand-copied field
- * list — one shape, one owner.
- *
- * ADV-7/8 (CUI-11): CombatTarget now mirrors CombatParticipantState fields so the
- * target picker can display live HP and filter by can_be_targeted. The onAction
- * callback receives the participant_id (not the name) as payload for attack so the
- * play page can send target_id to the engine (name fallback retained for compat).
- *
- * A8 fix round, Kage-CR IMPORTANT-3 (2026-09-28): the import below is the
- * only one in all of src/components/ that reaches into src/app/ — every
- * other region depends on src/components/ the other way — and ActionBar's
- * stylesheet is still Composer.module.css (see regions/ActionBar.tsx's own
- * header). The Omit-based ComposerCombat alias is the right call and isn't
- * itself the debt: it deletes together with the import in one edit at step
- * 6/11, with no second field list to reconcile. What fights step 6 is
- * placement — data-region="actionBar" sits on a node nested inside
- * .composer, so a grid area supplied from the play root can't reach it.
- *
- * debt: ActionBar renders as Composer's child, so a shared component
- * imports a route-private region and borrows its stylesheet.
- * ceiling: fine while page.tsx is ActionBar's only transitive caller.
- * until: step 6/11 renders ActionBar from the shell and combat leaves ComposerProps.
+ * TAV-PLAY-SHELL step 6b, commit C3 (carry (b), build brief §6.6): `ActionBar`
+ * (the combat action rail — attack with target picker, dodge, dash, end turn;
+ * spell casting in combat, ST-066, is deferred) used to render as this
+ * component's first child via a `combat` prop (step 8). It is now a SIBLING
+ * of `<Composer/>` in the caller's own JSX — `data-region="actionBar"`
+ * (`regions/ActionBar.tsx`) needs a grid area a node nested inside
+ * `.composer` can't reach (step 6's whole point). `ComposerProps` no longer
+ * carries `combat`/`railRef`/`localTurnActionRef` at all; the caller renders
+ * `<ActionBar/>` directly and owns those refs itself. Retires this file's own
+ * `debt:` marker (A8) — its `until:` has fired.
  */
-import { useEffect, useRef, type RefObject } from 'react';
+import { useRef, type RefObject } from 'react';
 import Icon from '@/components/Icon';
-import ActionBar, { type ActionBarProps } from '@/app/play/[sessionId]/regions/ActionBar';
 import styles from './Composer.module.css';
 
 export type ComposeMode = 'say' | 'act' | 'ooc' | 'dm_narration';
-
-/** The data half of `ActionBarProps` — everything Composer's caller supplies
- *  via the `combat` prop. The two refs (`outerRailRef`/`localTurnActionRef`)
- *  are NOT part of this: Composer supplies those itself from its own
- *  `railRef`/`localTurnActionRef` props, so they are never duplicated in the
- *  `combat` object a caller builds. */
-export type ComposerCombat = Omit<ActionBarProps, 'outerRailRef' | 'localTurnActionRef'>;
 
 export interface ComposerProps {
   value: string;
@@ -58,7 +30,6 @@ export interface ComposerProps {
   onMode: (m: ComposeMode) => void;
   onSend: () => void;
   disabled?: boolean;
-  combat?: ComposerCombat | null;
   /** Override the available mode tabs. Defaults to ['say','act','ooc'].
    *  Human-DM sessions supply ['dm_narration','ooc']. */
   availableModes?: [ComposeMode, string][];
@@ -77,19 +48,12 @@ export interface ComposerProps {
    *  falls back to "Sending…" (Miko-QA find: the human-DM send round-trip
    *  locks via `pending` alone). */
   disabledReason?: string | null;
-  /** Tora MAJOR-2: exposes ActionBar's own container so the play page
-   *  can refocus it if a turn-transition disables the button the user was
-   *  just on, stranding focus on <body> (mirrors the sceneHeadRef tabIndex={-1}
-   *  anchor pattern already used for scene/transition mutations). Passed
-   *  straight through to `ActionBar`'s `outerRailRef` prop. */
-  railRef?: RefObject<HTMLDivElement | null>;
-  /** Iro CRITICAL-1: provenance flag for the play page's turn-flip refocus
-   *  effect. Set to true synchronously, at click time and BEFORE the mutation
-   *  fires, when focus was inside ActionBar — so the effect can tell "my own
-   *  disabling click stranded focus" apart from "combatState just arrived via
-   *  the poll" (which never sets this). Passed straight through to
-   *  `ActionBar`'s `localTurnActionRef` prop. */
-  localTurnActionRef?: RefObject<boolean>;
+  /** TAV-PLAY-SHELL step 6b commit C3 (Iro MEDIUM-3, re-homed to
+   *  `useFocusAnchors`): the caller's stable anchor for the composer
+   *  textarea, so the play page can refocus it when ActionBar unmounts
+   *  (combat ends) and keyboard focus would otherwise drop to <body>.
+   *  Optional — every other caller is unaffected. */
+  textareaAnchorRef?: RefObject<HTMLTextAreaElement | null>;
 }
 
 const PLACEHOLDER: Record<ComposeMode, string> = {
@@ -112,13 +76,11 @@ export default function Composer({
   onMode,
   onSend,
   disabled = false,
-  combat = null,
   availableModes,
   sendError = null,
   pending = false,
   disabledReason = null,
-  railRef,
-  localTurnActionRef,
+  textareaAnchorRef,
 }: ComposerProps) {
   // Use caller-supplied mode list if provided; default to the standard 3-tab set.
   const MODES = availableModes ?? DEFAULT_MODES;
@@ -138,28 +100,12 @@ export default function Composer({
   // selection) to the newly-active tab — APG tablist contract (Iro S3.4).
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const prevCombatRef = useRef<ComposerCombat | null>(null);
   // MINOR-3: synchronous latch prevents a fast double-click from firing onSend twice.
   // The Enter path is already guarded by canSend; this closes the onClick gap.
   const pendingRef = useRef(false);
 
-  // A11Y (Iro MEDIUM-3): when ActionBar unmounts (combat ends), keyboard focus is
-  // dropped to <body>. Detect the null transition and restore focus to the textarea
-  // — the next logical interaction point after combat ends.
-  useEffect(() => {
-    const prev = prevCombatRef.current;
-    if (prev !== null && combat === null) {
-      // Only steal focus if it was last inside the Composer area (don't yank from unrelated UI).
-      textareaRef.current?.focus();
-    }
-    prevCombatRef.current = combat;
-  }, [combat]);
-
   return (
     <div className={styles.composer}>
-      {combat && (
-        <ActionBar {...combat} outerRailRef={railRef} localTurnActionRef={localTurnActionRef} />
-      )}
       {/* S5.2: inline error banner — text is preserved in the textarea on error. */}
       {sendError && (
         <div
@@ -235,7 +181,10 @@ export default function Composer({
           ))}
         </div>
         <textarea
-          ref={textareaRef}
+          ref={(el) => {
+            textareaRef.current = el;
+            if (textareaAnchorRef) textareaAnchorRef.current = el;
+          }}
           className={styles.input}
           placeholder={lockReason ?? (PLACEHOLDER[mode] ?? '')}
           value={value}

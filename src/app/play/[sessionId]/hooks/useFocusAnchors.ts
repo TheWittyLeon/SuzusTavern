@@ -50,6 +50,7 @@ export interface UseFocusAnchorsResult {
   beginCombatRef: MutableRefObject<HTMLButtonElement | null>;
   composerRailAnchorRef: MutableRefObject<HTMLDivElement | null>;
   dmPanelAnchorRef: MutableRefObject<HTMLElement | null>;
+  composerTextareaAnchorRef: MutableRefObject<HTMLTextAreaElement | null>;
 }
 
 export function useFocusAnchors(
@@ -57,6 +58,10 @@ export function useFocusAnchors(
   sceneHasEncounter: boolean,
   combatId: string | null,
   sceneHeadRef: MutableRefObject<HTMLDivElement | null>,
+  // TAV-PLAY-SHELL step 6b, commit C3 (carry (b), Iro MEDIUM-3 re-home):
+  // drives the composer-refocus rescue below. Composer.tsx can no longer
+  // own this itself once `combat`/ActionBar leaves its props.
+  combatIsActive: boolean,
 ): UseFocusAnchorsResult {
   const { toast } = useToast();
 
@@ -81,6 +86,12 @@ export function useFocusAnchors(
   // newly-enabled rail so refocus can land there instead of a full re-tab.
   const composerRailAnchorRef = useRef<HTMLDivElement>(null);
   const dmPanelAnchorRef = useRef<HTMLElement>(null);
+
+  // Iro MEDIUM-3 (re-homed from Composer.tsx, TAV-PLAY-SHELL step 6b
+  // commit C3, carry (b) — ActionBar's lift out of Composer): registers
+  // the composer textarea as a stable anchor so the rescue below can
+  // refocus it, mirroring composerRailAnchorRef/dmPanelAnchorRef above.
+  const composerTextareaAnchorRef = useRef<HTMLTextAreaElement>(null);
 
   // TAV-BUSY-DISABLED-FOCUS-PARK (1.7 audit): the "Roll death save" row —
   // button AND pips — is gated purely on `isDying`, so the roll that SAVES
@@ -138,11 +149,30 @@ export function useFocusAnchors(
     beginEncounterVisibleRef.current = nowVisible;
   }, [combatId, sceneHasEncounter, sceneHeadRef]);
 
+  // Iro MEDIUM-3 (re-homed from Composer.tsx, TAV-PLAY-SHELL step 6b
+  // commit C3): when ActionBar unmounts (combat ends), keyboard focus is
+  // dropped to <body> — fire from the SAME `combatIsActive` falling edge
+  // Composer's own prior `combat === null` transition fired from (the two
+  // are driven by the same state one hop up). Moved VERBATIM — unconditional,
+  // synchronous (no rAF/stranding gate, unlike the three effects above):
+  // Composer's original effect never checked `document.activeElement`
+  // either (its comment claimed to, the code didn't), and this is a
+  // behaviour-preserving relocation, not a redesign of the rescue itself.
+  const prevCombatIsActiveRef = useRef(combatIsActive);
+  useEffect(() => {
+    const was = prevCombatIsActiveRef.current;
+    prevCombatIsActiveRef.current = combatIsActive;
+    if (was && !combatIsActive) {
+      composerTextareaAnchorRef.current?.focus();
+    }
+  }, [combatIsActive]);
+
   return {
     endCombatBtnRef,
     lastOpenerRef,
     beginCombatRef,
     composerRailAnchorRef,
     dmPanelAnchorRef,
+    composerTextareaAnchorRef,
   };
 }
