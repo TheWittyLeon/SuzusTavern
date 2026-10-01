@@ -791,6 +791,15 @@ const TABLE_ROW: LayoutRow = {
 // that as the `reflow` class (375x667, 720x450, 320x256).
 // ---------------------------------------------------------------------------
 
+// Floor arithmetic (measured at 390x844, `probe-floor`; re-derive when a tenant in the
+// story slot changes height):
+//   exploring 241 = 160 inner log + 12 slot edge (6px border each side) + 6 stack gap
+//                   + 63 "Previously on..." recap
+//   combat    277 = the same 241 + 30 status line + the gaps it adds
+// The combat recap is the A9d-2 F3 lever: when "Previously on..." steps aside in combat
+// the combat floor drops by about 69 and 277 is re-derived. Party minimum 91 = 14 label
+// + 8 gap + 57 tile row + 12 slot edge: one tile row, which is also why a focused tile's
+// caption (about 28px below the tile) does not fit and is clipped by the band at its minimum.
 const PHONE_ROW: LayoutRow = {
   id: 'phone',
   vars: { '--play-slot-edge': 'var(--space-3)', '--play-slot-pad': '0px' },
