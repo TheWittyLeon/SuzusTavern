@@ -19,57 +19,29 @@ import styles from './Drawer.module.css';
  * effects, but `aria-hidden` IS honored by dom-accessibility-api's
  * isInaccessible() in both real browsers and this repo's test environment.
  *
- * A6 — presence (`open || visible`, see I1 below) drives the visual open
- * class, the scrim AND `inert`/`aria-hidden`, so the three can never
- * desync. `open` alone drives dialog SEMANTICS (role/aria-modal/tabIndex/
- * the Esc+Tab-trap keydown handler) — this is what lets the Journal pane
- * be `visible` (mobile tab active) without being a `dialog` at all, while
- * the member-sheet drawer (no separate mobile presentation) simply passes
- * the same value for both.
+ * A6 — `open` drives the visual open class, the scrim, `inert`/`aria-hidden`
+ * AND dialog semantics (role/aria-modal/tabIndex/the Esc+Tab-trap keydown
+ * handler) together, so they can never desync.
  *
- * `open`/`visible` are DELIBERATELY two separate props, not one collapsed
- * into the other — see A6 above; a caller with no second presentation
- * (member-sheet today) passes the same boolean for both, which is one
- * caller-side line, not a second code path in here.
- *
- * Kage-CR I1 (2026-09-21): `open=true, visible=false` is representable at
- * the type level and, unhandled, would render role="dialog" +
- * aria-hidden={true} + inert — a dialog with focus landing inside a
- * subtree marked inaccessible, no scrim. No caller produces it today, but
- * it was latent. `open` therefore implies presence: the component derives
- * `isVisible = open || visible` and uses THAT for class/scrim/aria-hidden/
- * inert, so the bad DOM state is unreachable regardless of what a caller
- * passes — `open` without `visible` is now just `visible` with an
- * inconsistent prop, not a broken render. A dev-only warning still flags
- * the inconsistent call so the caller bug (if any) is visible.
+ * A9d E4: ONE presentation at every width. Until then the Journal had a second,
+ * in-flow mobile-tab presentation below 880px, which is why `open` and a
+ * separate `visible` existed (a pane could be presented without being a dialog)
+ * and why Kage I1's `open`-without-`visible` state needed a guard. Both props'
+ * reason is gone: `visible` and `mobileTabFallback` are deleted, `isVisible =
+ * open`, and the bad state is unrepresentable rather than guarded.
  */
 
 export interface DrawerProps {
   /** DOM id on the `<aside>` — also this drawer's stable identity for tests/CSS. */
   id: string;
-  /** Dialog semantics active: role="dialog", aria-modal, Tab-trap, Escape-to-close. */
+  /** Presented as a dialog: role="dialog", aria-modal, Tab-trap, Escape-to-close, scrim, and not `inert`. */
   open: boolean;
-  /** Mounted-and-presented (may be true while `open` is false — see A6 above). */
-  visible: boolean;
   /** id of the heading inside `children` that names this drawer (children own their own heading). */
   labelledBy: string;
   onClose: () => void;
   /** The close button lives inside `children`; the drawer focuses it on open and traps Tab within it. */
   closeButtonRef: RefObject<HTMLButtonElement | null>;
-  /**
-   * True for a drawer that hands off to an in-flow mobile-tab pane below
-   * the play shell's phone breakpoint (today: the Journal only) instead of
-   * staying a fixed overlay at every width (the member-sheet drawer has no
-   * such fallback and stays fixed everywhere — Play.module.css's own
-   * comment on `.memberSheetDrawer` says so explicitly). Gates the fixed/
-   * slide-over geometry to `PLAY_PHONE_QUERY`'s complement; below that
-   * width both flip back to normal flow so the caller's own mobile-pane
-   * `className` (below) can lay it out instead.
-   */
-  mobileTabFallback?: boolean;
-  /** Caller-owned class(es) layered on the `<aside>` — e.g. the Journal's
-   *  own `.journalPane`, which Play.module.css's `.showJournal .journalPane`
-   *  mobile rule still targets for the in-flow pane layout. */
+  /** Caller-owned class(es) layered on the `<aside>`. */
   className?: string;
   children: ReactNode;
 }
@@ -86,39 +58,14 @@ const DRAWER_FOCUSABLE_SELECTOR =
 export default function Drawer({
   id,
   open,
-  visible,
   labelledBy,
   onClose,
   closeButtonRef,
-  mobileTabFallback = false,
   className,
   children,
 }: DrawerProps) {
   const dialogRef = useRef<HTMLElement>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
-
-  // I1: `open` implies presence — see the doc comment above. Every render
-  // decision below that used to read `visible` reads `isVisible` instead,
-  // so `open=true, visible=false` can never produce a hidden-but-dialog
-  // DOM state.
-  const isVisible = open || visible;
-
-  // Kage-CR round-2 re-review (2026-09-21): the inconsistent-props warning
-  // used to live directly in the render body, which is (a) an impure side
-  // effect during render (fires on every render pass, twice under
-  // StrictMode's intentional double-invoke) and (b) outside React's own
-  // "effects are for side effects" convention every other side effect in
-  // this file already follows. Moved into an effect so it fires once per
-  // actual commit of the inconsistent state, not once per render pass.
-  useEffect(() => {
-    if (process.env.NODE_ENV !== 'production' && open && !visible) {
-      console.warn(
-        `Drawer id="${id}": open=true but visible=false — treating as visible ` +
-          `(open implies presence). Pass visible={open} (or visible={true}) ` +
-          'at the call site to make this explicit.',
-      );
-    }
-  }, [id, open, visible]);
 
   // Focus management on open/close — remember whatever was focused before
   // opening, focus the drawer's close button after paint, restore focus on
@@ -135,9 +82,7 @@ export default function Drawer({
     };
   }, [open, closeButtonRef]);
 
-  // Esc + a generic Tab-trap, wired only while acting as a dialog (`open`) —
-  // never while merely `visible` (e.g. the Journal's mobile tab pane, which
-  // is a plain pane, not a dialog).
+  // Esc + a generic Tab-trap, wired only while `open`.
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -168,7 +113,7 @@ export default function Drawer({
 
   return (
     <>
-      {isVisible && (
+      {open && (
         <div
           // The scrim has no natural accessible role/name to query by (it's
           // a bare click-catcher) — data-testid is this repo's established
@@ -180,7 +125,7 @@ export default function Drawer({
           // longer uses) when the two hand-rolled scrims were consolidated
           // into this component.
           data-testid={`${id}-scrim`}
-          className={mobileTabFallback ? styles.scrimMobileFallback : styles.scrim}
+          className={styles.scrim}
           onClick={onClose}
         />
       )}
@@ -188,18 +133,16 @@ export default function Drawer({
         id={id}
         ref={dialogRef}
         className={[
-          mobileTabFallback ? styles.drawerMobileFallback : styles.drawer,
-          isVisible ? styles.drawerOpen : '',
+          styles.drawer,
+          open ? styles.drawerOpen : '',
           className ?? '',
         ]
           .filter(Boolean)
           .join(' ')}
         role={open ? 'dialog' : undefined}
         aria-modal={open ? true : undefined}
-        // Unconditional (not `open ? ... : undefined`) so the region is
-        // named in a non-dialog presentation too (e.g. the Journal's mobile
-        // tab) — harmless when `inert`/`aria-hidden` removes it from the
-        // tree entirely.
+        // Unconditional: harmless when `inert`/`aria-hidden` removes it from
+        // the tree entirely.
         aria-labelledby={labelledBy}
         // Belt-and-suspenders: `inert` is the real mechanism, but jsdom
         // does not implement its side effects at all (confirmed: neither
@@ -208,8 +151,8 @@ export default function Drawer({
         // still surface in a role-based test query. aria-hidden alone IS
         // honored by dom-accessibility-api's isInaccessible(), so pairing
         // them is correct in both real browsers and this test environment.
-        aria-hidden={isVisible ? undefined : true}
-        inert={!isVisible}
+        aria-hidden={open ? undefined : true}
+        inert={!open}
         tabIndex={open ? -1 : undefined}
         onKeyDown={open ? onKeyDown : undefined}
       >

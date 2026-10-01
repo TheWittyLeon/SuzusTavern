@@ -247,13 +247,16 @@ const PAGE = join(ROOT, PAGE_REL);
 // pays in advance for D3's TopBar `settings` mount (+2).
 // -> 864 (A9c-2 D3): `<TweaksPanel />` passed to TopBar's `settings` slot
 // (import + prop), the layout picker's `/play` mount. Net +2, paid by the -10.
+// -> 834 (A9d E4): the Story/Scene/Journal mobile tab bar, `mobileView` state,
+// its re-pin effect, `mobileClass` and the Drawer `visible`/`mobileTabFallback`/
+// `className` props, and the now-unused `Icon` import, are gone with the one-drawer-presentation change. Net -30.
 // Update this value, in the SAME commit, whenever page.tsx's actual
 // non-comment, non-blank line count drops below it. Never raise it
 // silently -- unless the growth is deliberate and reviewed, in which case
 // raise it in the same commit and say why (this file's own rule, restated
 // correctly per the A7 pre-merge ratchet ruling: the runbook's "may only go
 // down" was a paraphrase that was never this file's actual rule).
-export const RATCHET_CEILING = 864;
+export const RATCHET_CEILING = 834;
 
 /**
  * Pure: counts lines the way `wc -l` does (newline-byte count). Exported so

@@ -24,11 +24,10 @@
  *     the DATA layer instead: `safetyBanner` is placed (non-null area) in
  *     every row × moment by `play-preset-registry.test.ts`'s full-row pin
  *     and its own 🟡-3 literal `areas` pins.
- *   - A11: `.mobileTabs` is shell chrome pending A9d (this file's own
- *     `debt:` marker) — permanently `display:none` now (its own
- *     UNCHANGED base rule, no media-query override re-enables it below
- *     880px any more), so there is no visible mobile tab bar for a
- *     44px-touch-target / overflow-x:auto safety-net rule to apply to.
+ *   - A11 (rewritten again, A9d E4): the `.mobileTabs` display:none pin is
+ *     replaced by the absence pin at the end of this file. E4 deletes the bar,
+ *     the 880px pane switch and the Drawer's `visible`/`mobileTabFallback`
+ *     second presentation. Named exception in E4's commit message.
  */
 import fs from 'fs';
 import path from 'path';
@@ -175,17 +174,16 @@ describe('Play.module.css', () => {
     });
   });
 
-  describe('A11 — the mobile tab bar is shell chrome, hidden pending A9d (C4 rewrite — see this file\'s own header)', () => {
-    it('.mobileTabs has no @media (max-width: 880px) override re-enabling it — its own base rule stays display:none at every width', () => {
-      const mobileBlock = blockFrom('@media (max-width: 880px) {');
-      expect(mobileBlock).not.toMatch(/\.mobileTabs\s*\{/);
-      const baseRule = blockFrom('.mobileTabs {');
-      expect(baseRule).toMatch(/display:\s*none/);
+  describe('A9d E4 — one drawer presentation: the mobile tab bar and the 880px pane switch are gone', () => {
+    it('Play.module.css carries no width @media near the phone breakpoint, no .mobileTabs, no in-flow .journalPane / .showJournal (the phone layout is a data row; the breakpoint lives in breakpoints.ts)', () => {
+      const bare = css.replace(/\/\*[\s\S]*?\*\//g, '');
+      expect(bare).not.toMatch(/@media\s*\(\s*(?:min|max)-width:\s*(?:880|881)px/);
+      expect(bare).not.toMatch(/\.mobileTabs\b/);
+      expect(bare).not.toMatch(/\.journalPane\b|\.showJournal\b/);
     });
 
-    it('carries the debt: marker for the hidden-but-mounted state, with a trigger', () => {
-      expect(css).toMatch(/debt:[^\n]*mobile tab bar/);
-      expect(css).toMatch(/until:[^\n]*A9d/);
+    it('the mobile-tab-bar debt: marker went with the bar (nothing is hidden-but-mounted any more)', () => {
+      expect(css).not.toMatch(/debt:[^\n]*mobile tab bar/);
     });
   });
 });

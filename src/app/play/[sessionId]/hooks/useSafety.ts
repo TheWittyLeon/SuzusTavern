@@ -75,7 +75,7 @@ export function useSafety(session: Session | null): UseSafetyResult {
   const [xCardBusy, setXCardBusy] = useState(false);
   // Iro MAJOR-2: the banner wrapper is a PERMANENT, always-mounted anchor
   // (see page.tsx's SafetyBanner call site — only its children toggle) so
-  // it's stable regardless of `mobileView`, mirroring the
+  // it's stable at every width, mirroring the
   // sceneHeadRef/endCombatBtnRef refocus convention. Dismiss unmounts the
   // focused Dismiss button; refocusing this wrapper (tabIndex={-1}) before
   // that unmount lands focus here instead of dropping it to <body>.

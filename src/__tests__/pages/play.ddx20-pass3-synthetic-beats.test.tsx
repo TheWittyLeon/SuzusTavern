@@ -283,11 +283,9 @@ async function flush() {
 }
 
 async function renderAndOpenScene() {
+  // A9d E4: the DiceTray is always mounted (no mobile Scene tab to open first).
   renderPlay(<PlayPage />);
   await screen.findByText('Test Table');
-  await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: /scene/i }));
-  });
 }
 
 beforeEach(() => {

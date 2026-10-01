@@ -446,11 +446,7 @@ describe('Question A (4th term) — rollBusy engages the gate', () => {
     const fightBtn = await screen.findByRole('button', { name: /Stand and fight/i });
     expect(fightBtn).not.toBeDisabled();
 
-    // DiceTray lives in the mobile "Scene" tab pane (mirrors
-    // play.ddx08-dice-roll.test.tsx's renderAndOpenScene helper).
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /scene/i }));
-    });
+    // A9d E4: the DiceTray is always mounted (the mobile Scene tab is gone).
     const d20btn = await screen.findByRole('button', { name: /^Roll d20$/i });
     await act(async () => {
       fireEvent.click(d20btn);

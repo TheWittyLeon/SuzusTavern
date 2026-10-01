@@ -22,6 +22,7 @@
 import React from 'react';
 import { screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { renderPlay } from '@/test-utils/renderPlay';
+import { PLAY_PHONE_QUERY } from '@/lib/breakpoints';
 import '@testing-library/jest-dom';
 import type { Session, Participant, EngineSessionEvent } from '@/lib/api/types';
 
@@ -410,21 +411,26 @@ describe('DDX-26 — X-card durable safety banner', () => {
     }
   });
 
-  it('Iro CRITICAL-1: the banner renders regardless of the active mobile tab', async () => {
-    mockGetSessionEventsRaw.mockResolvedValue([xCardEvent()]);
-    renderPlay(<PlayPage />);
-
-    await waitFor(() => expect(screen.getByText(BANNER_TEXT)).toBeInTheDocument());
-
-    // Switch off the Story tab (where the banner used to live, inside
-    // .center) onto Party, then Scene — the hoisted banner must stay visible
-    // on every tab, including the raiser's own (Scene, where the X-card
-    // button lives).
-    fireEvent.click(screen.getByRole('button', { name: /^Party$/i }));
-    expect(screen.getByText(BANNER_TEXT)).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: /^Scene$/i }));
-    expect(screen.getByText(BANNER_TEXT)).toBeInTheDocument();
+  it('Iro CRITICAL-1 (A9d E4: the mobile tabs are gone): the banner renders on a phone-width layout too, because it is a shell slot, not a pane', async () => {
+    const realMatchMedia = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query === PLAY_PHONE_QUERY,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => true,
+    })) as unknown as typeof window.matchMedia;
+    try {
+      mockGetSessionEventsRaw.mockResolvedValue([xCardEvent()]);
+      renderPlay(<PlayPage />);
+      await waitFor(() => expect(screen.getByText(BANNER_TEXT)).toBeInTheDocument());
+      expect(screen.queryByRole('button', { name: /^(Party|Scene|Story)$/i })).not.toBeInTheDocument();
+    } finally {
+      window.matchMedia = realMatchMedia;
+    }
   });
 
   it('Kage-CR A4b IMP-2: a polled x_card also lands a transcript row, not just the banner', async () => {

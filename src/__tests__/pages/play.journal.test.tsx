@@ -4,16 +4,18 @@
  * Covers what only the full page can prove (JournalPane.test.tsx covers
  * section derivation + notes in isolation; journal.test.ts covers the pure
  * derivation functions):
- *   - the 4th mobile tab switches like the existing three (aria-pressed)
- *   - the desktop drawer toggle opens it with dialog semantics + moves focus
+ *   - the drawer toggle opens it with dialog semantics + moves focus
  *     to the close button
  *   - Escape / the close button / the scrim all close it and return focus to
  *     the toggle button (ConfirmDialog's focus-restore convention)
- *   - the drawer is NOT a dialog (no role) while merely the active mobile tab
+ *   - A9d E4: a PHONE gets the same presentation (there is no 4th mobile tab and
+ *     no in-flow pane any more): the toggle opens a dialog, Escape returns focus
+ *     to it, and no Story/Scene/Journal tab bar exists
  */
 import React from 'react';
 import { screen, fireEvent, waitFor } from '@testing-library/react';
 import { renderPlay } from '@/test-utils/renderPlay';
+import { PLAY_PHONE_QUERY } from '@/lib/breakpoints';
 import '@testing-library/jest-dom';
 import type { EngineSessionEvent, Participant, Session } from '@/lib/api/types';
 
@@ -57,7 +59,7 @@ jest.mock('../../lib/api/dnd', () => ({
   setFlag: jest.fn(),
   bindCharacter: jest.fn(() => Promise.resolve({ campaign_id: 's1', username: 'alice', role: 'player', character_id: 1 })),
   listMyCharacters: jest.fn(() => Promise.resolve([])),
-  // DDX-22 Phase 3: JournalPane mounts (drawer open / mobile tab active) and
+  // DDX-22 Phase 3: JournalPane mounts (drawer open) and
   // GETs the caller's own note. Default to "no note yet" so opening the
   // journal in these wiring/focus tests stays hermetic — none of them assert
   // on note content.
@@ -118,58 +120,58 @@ beforeEach(() => {
   mGetSessionEventsRaw.mockResolvedValue(EVENTS);
 });
 
-describe('Journal — 4th mobile tab', () => {
-  it('switches alongside Story/Party/Scene and controls the journal pane', async () => {
-    renderPlay(<PlayPage />);
-    await screen.findByText('The Hollow Tide');
-
-    const story = screen.getByRole('button', { name: /story/i });
-    // Exact name: the mobile tab's accessible name is "Journal" (icon +
-    // visible text); the desktop toggle's is "Open journal" (aria-label) —
-    // /journal/i would ambiguously match both.
-    const journalTab = screen.getByRole('button', { name: 'Journal' });
-
-    expect(story).toHaveAttribute('aria-pressed', 'true');
-    expect(journalTab).toHaveAttribute('aria-pressed', 'false');
-    expect(journalTab).toHaveAttribute('aria-controls', 'play-pane-journal');
-
-    fireEvent.click(journalTab);
-    expect(journalTab).toHaveAttribute('aria-pressed', 'true');
-    expect(story).toHaveAttribute('aria-pressed', 'false');
+describe('Journal — phone (A9d E4: one drawer presentation at every width)', () => {
+  const realMatchMedia = window.matchMedia;
+  beforeEach(() => {
+    window.matchMedia = ((query: string) => ({
+      matches: query === PLAY_PHONE_QUERY,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => true,
+    })) as unknown as typeof window.matchMedia;
+  });
+  afterEach(() => {
+    window.matchMedia = realMatchMedia;
   });
 
-  it('is not a dialog while merely the active mobile tab', async () => {
+  it('has no Story/Scene/Journal tab bar: the journal is reached through the one toggle, which opens a dialog', async () => {
     renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
 
-    const journalTab = screen.getByRole('button', { name: 'Journal' });
-    fireEvent.click(journalTab);
+    // The retired tab bar's buttons were named exactly Story / Scene / Journal.
+    expect(screen.queryByRole('button', { name: 'Journal' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^story$/i })).not.toBeInTheDocument();
+
+    const toggle = screen.getByRole('button', { name: 'Open journal' });
+    toggle.focus();
+    fireEvent.click(toggle);
 
     const pane = document.getElementById('play-pane-journal');
+    expect(pane).toHaveAttribute('role', 'dialog');
+    expect(pane).toHaveAttribute('aria-modal', 'true');
+    const closeBtn = screen.getByRole('button', { name: 'Close journal' });
+    await waitFor(() => expect(closeBtn).toHaveFocus());
+
+    fireEvent.keyDown(closeBtn, { key: 'Escape' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
     expect(pane).not.toHaveAttribute('role', 'dialog');
-    expect(pane).not.toHaveAttribute('aria-modal');
-    // Kage-CR A7 IMPORTANT-4: the mobile tab is presented via `visible`
-    // (Drawer's `isVisible = open || visible`), not `open` — a pane the
-    // user is looking at must never be `inert`/`aria-hidden`.
-    expect(pane).not.toHaveAttribute('aria-hidden', 'true');
-    expect(pane).not.toHaveAttribute('inert');
+    await waitFor(() => expect(toggle).toHaveFocus());
   });
 
-  it('Close on the mobile tab falls back to Story, not a no-op (Kage-CR A7 IMPORTANT-4)', async () => {
+  it('closed, the journal is inert and hidden from the tree (it is never an in-flow pane)', async () => {
     renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');
-
-    const journalTab = screen.getByRole('button', { name: 'Journal' });
-    fireEvent.click(journalTab);
-
-    const closeBtn = screen.getByRole('button', { name: 'Close journal' });
-    fireEvent.click(closeBtn);
-
-    expect(journalTab).toHaveAttribute('aria-pressed', 'false');
+    const pane = document.getElementById('play-pane-journal');
+    expect(pane).toHaveAttribute('aria-hidden', 'true');
+    expect(pane).toHaveAttribute('inert');
   });
 });
 
-describe('Journal — desktop drawer', () => {
+describe('Journal — drawer', () => {
   it('opens with dialog semantics and moves focus to the close button', async () => {
     renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');

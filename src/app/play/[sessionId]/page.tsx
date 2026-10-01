@@ -56,7 +56,6 @@ import { matchCombatIntent, matchKeywordIntent } from '@/lib/dnd/intentFastPath'
 import { DURABLE_GENERATION_ENABLED } from '@/lib/config';
 import type { Participant } from '@/lib/api/types';
 import type { QuickCheck } from '@/components/DiceTray';
-import Icon from '@/components/Icon';
 import Pill from '@/components/Pill';
 import PageSkeleton from '@/components/PageSkeleton';
 import { type LogRow } from '@/components/ChatLog';
@@ -96,7 +95,7 @@ import { useSceneActions } from './hooks/useSceneActions';
 import { useCombatActions } from './hooks/useCombatActions';
 import { useSessionEvents } from './hooks/useSessionEvents';
 import { useMemberSheetDrawer } from './hooks/useMemberSheetDrawer';
-import { useJournalDrawer, type MobileView } from './hooks/useJournalDrawer';
+import { useJournalDrawer } from './hooks/useJournalDrawer';
 import { useFocusAnchors } from './hooks/useFocusAnchors';
 import { usePlayLayout } from './hooks/usePlayLayout';
 import { useRegionFolds } from './hooks/useRegionFolds';
@@ -284,22 +283,14 @@ export default function PlayPage() {
   const [modeSynced, setModeSynced] = useState(false);
   // advantage moved into useDice (TAV-PLAY-SHELL step 5 hook 8, Amendment A
   // §A.2 row 8, A6) -- see that hook's destructure below.
-  //
-  // `mobileView` has no owning hook yet (plan §1.13/step 6, `usePlayLayout`
-  // territory -- not built this pass): the JS is width-blind, panes are
-  // hidden by `display:none` in Play.module.css's own media query, and
-  // nothing else in JS reads the viewport. Stays page.tsx-local; both
-  // useJournalDrawer (below) and the mobile tab bar (JSX) read/write it as
-  // a plain param.
-  const [mobileView, setMobileView] = useState<MobileView>('log');
 
   // TAV-PLAY-SHELL step 5, A7: the journal drawer (plan §1.9). Owns
   // journalEvents/journalSeenSeqsRef (A7 carry item (b) -- resolves the
   // `debt:` marker on useSessionEvents.ts's own handlers interface),
-  // open/visible/closeButtonRef (via useDrawer), and the close handler
-  // (which also falls the mobile tab back to Story) -- see that hook's own
-  // header for the full DDX-22 scope.
-  const journalDrawer = useJournalDrawer(mobileView, setMobileView);
+  // open/closeButtonRef (via useDrawer), and the close handler
+  // -- see that hook's own header for the full DDX-22 scope. A9d E4: one
+  // presentation at every width, no parameters.
+  const journalDrawer = useJournalDrawer();
 
   // Iro MEDIUM-2: persistent turn-status text so one mounted live region mutates
   // in place instead of two regions mounting/unmounting on every poll cycle.
@@ -823,17 +814,8 @@ export default function PlayPage() {
   // (TAV-PLAY-SHELL step 5 hook 5a) — same deps ([combatId] only), same
   // load-bearing comment, unchanged, in that hook's own file now.
 
-  // Re-pin the chat to the latest line when returning to the Story view.
-  // chatLogRef listed (TAV-PLAY-SHELL A3): now sourced from useTranscript's
-  // destructure, so exhaustive-deps can no longer prove it's a stable ref
-  // object the way a page.tsx-local useRef() call is. Same object identity
-  // every render either way — zero behaviour change.
-  useEffect(() => {
-    if (mobileView === 'log') chatLogRef.current?.scrollToBottom('instant');
-  }, [mobileView, chatLogRef]);
-
   // journalVisible/closeJournal moved into useJournalDrawer (TAV-PLAY-SHELL
-  // A7, plan §1.9) -- see the journalDrawer.visible/journalDrawer.onClose
+  // A7, plan §1.9) -- see the journalDrawer.open/journalDrawer.onClose
   // destructure/JSX call sites below. closeMemberSheet/onSelectMember moved
   // into useMemberSheetDrawer (A7, plan §1.8) -- see
   // memberSheetDrawer.onClose/memberSheetDrawer.onSelectMember below. Both
@@ -1368,15 +1350,6 @@ export default function PlayPage() {
     </Pill>
   ) : statusPill;
 
-  const mobileClass =
-    mobileView === 'scene'
-      ? styles.showScene
-      : mobileView === 'party'
-        ? styles.showParty
-        : mobileView === 'journal'
-          ? styles.showJournal
-          : styles.showLog;
-
   // selfPcId now comes from useCombatState's destructure above.
 
   // TAV-PLAY-SHELL step 6b, commit C4 (build brief §6.5) — `characterBlock`
@@ -1721,75 +1694,21 @@ export default function PlayPage() {
       foldSpecs={FOLD_SPECS}
       foldedRegions={foldedRegions}
       onToggleFold={onToggleFold}
-      className={mobileClass}
-      chrome={
-        /* mobile tab bar — shell chrome (plan §5 step 6; A9d deletes it,
-           see Play.module.css's own debt: marker on the @media block). */
-        <div className={styles.mobileTabs} role="group" aria-label="Play view">
-          <button
-            type="button"
-            className={mobileView === 'log' ? styles.tabOn : undefined}
-            aria-pressed={mobileView === 'log'}
-            aria-controls="main-content"
-            onClick={() => setMobileView('log')}
-          >
-            <Icon name="Chat" size={13} aria-hidden /> Story
-          </button>
-          <button
-            type="button"
-            className={mobileView === 'party' ? styles.tabOn : undefined}
-            aria-pressed={mobileView === 'party'}
-            aria-controls="play-pane-party"
-            onClick={() => setMobileView('party')}
-          >
-            <Icon name="Users" size={13} aria-hidden /> Party
-          </button>
-          <button
-            type="button"
-            className={mobileView === 'scene' ? styles.tabOn : undefined}
-            aria-pressed={mobileView === 'scene'}
-            aria-controls="play-pane-scene"
-            onClick={() => setMobileView('scene')}
-          >
-            <Icon name="Map" size={13} aria-hidden /> Scene
-          </button>
-          {/* DDX-22: 4th mobile tab — joins the existing group exactly like the
-              three above (same aria-pressed/aria-controls/44px-target shape). */}
-          <button
-            type="button"
-            className={mobileView === 'journal' ? styles.tabOn : undefined}
-            aria-pressed={mobileView === 'journal'}
-            aria-controls={journalDrawer.id}
-            onClick={() => setMobileView('journal')}
-          >
-            <Icon name="Lantern" size={13} aria-hidden /> Journal
-          </button>
-        </div>
-      }
       layers={
         <>
-          {/* TAV-PLAY-SHELL step 2: both drawers below now go through the
-              shared <Drawer> primitive (src/components/Drawer.tsx) — see its
-              own doc comment for the full A5 (always mounted)/A6 (`visible`
-              drives class+scrim+inert, `open` drives dialog semantics)
-              reasoning this replaces verbatim from the two hand-rolled
-              <aside>s that used to be here. */}
+          {/* Both drawers go through the shared <Drawer> primitive
+              (src/components/Drawer.tsx): always mounted (A5), `open` drives
+              class + scrim + `inert` + dialog semantics together (A6). One
+              presentation at every width (A9d E4). */}
 
-          {/* DDX-22: Journal / Memory pane — right-edge slide-over drawer on
-              desktop + 4th mobile tab. `className` still carries
-              `.journalPane`, which `Play.module.css`'s `.showJournal
-              .journalPane` mobile rule targets — `PlayShell`'s own
-              `className` prop (above) is what still gets `.showJournal` onto
-              an ancestor now that `.left/.center/.right` are gone. */}
+          {/* DDX-22: Journal / Memory pane — right-edge slide-over at every
+              width, opened from the header's "Open journal" toggle. */}
           <Drawer
             id={journalDrawer.id}
             open={journalDrawer.open}
-            visible={journalDrawer.visible}
             labelledBy={JOURNAL_HEADING_ID}
             onClose={journalDrawer.onClose}
             closeButtonRef={journalDrawer.closeButtonRef}
-            mobileTabFallback
-            className={styles.journalPane}
           >
             <JournalPane
               sessionId={sessionId}
@@ -1801,10 +1720,8 @@ export default function PlayPage() {
           </Drawer>
 
           {/* TAV-PARTY-INLINE-SHEET: a right-edge slide-over drawer for a
-              selected party member's sheet — unlike the Journal drawer has no
-              separate mobile-tab presentation to reconcile with, so `open`
-              and `visible` are simply the same value: it's the fixed drawer
-              at any viewport width. ALWAYS mounted (A5) — its CONTENT is the panel
+              selected party member's sheet, the same presentation as the
+              Journal. ALWAYS mounted (A5) — its CONTENT is the panel
               only when `characterBlock` is a LAYER this row (story/phone);
               table docks the panel into `regions.characterBlock` instead
               (mutually exclusive, see that singleton's own comment above),
@@ -1812,7 +1729,6 @@ export default function PlayPage() {
           <Drawer
             id={memberSheetDrawer.id}
             open={memberSheetDrawer.open}
-            visible={memberSheetDrawer.open}
             labelledBy={MEMBER_SHEET_HEADING_ID}
             onClose={memberSheetDrawer.onClose}
             closeButtonRef={memberSheetDrawer.closeButtonRef}

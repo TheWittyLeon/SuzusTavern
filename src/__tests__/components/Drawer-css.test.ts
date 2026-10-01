@@ -26,6 +26,10 @@
  * re-break is the real-browser capture (I6), not this file — this file
  * only catches the narrower, already-observed shape (the reset missing or
  * reverting to a non-compound selector).
+ *
+ * A9d E4: the media-gated `.drawerMobileFallback` pair is deleted (one
+ * presentation at every width), so C1's precondition no longer exists; the
+ * last case below pins that absence instead of the compound-selector shape.
  */
 import fs from 'fs';
 import path from 'path';
@@ -57,17 +61,6 @@ describe('Drawer.module.css', () => {
     throw new Error(`unbalanced braces reading "${headerNeedle}"`);
   }
 
-  /** Every `property: value;` pair inside a block, as a sorted array —
-   *  order-independent so declaration reordering isn't a false positive. */
-  function declarations(block: string): string[] {
-    const body = block.slice(block.indexOf('{') + 1, block.lastIndexOf('}'));
-    return body
-      .split(';')
-      .map((d) => d.replace(/\s+/g, ' ').trim())
-      .filter(Boolean)
-      .sort();
-  }
-
   describe('C1 regression — every closed-state transform has a reachable open-state reset in the same cascade scope', () => {
     it('.drawer (unconditional) pairs with .drawerOpen (unconditional, equal specificity, later source order — valid because nothing else contests it)', () => {
       const drawerBlock = blockFrom('.drawer {');
@@ -79,26 +72,10 @@ describe('Drawer.module.css', () => {
       expect(css.indexOf('.drawerOpen {')).toBeGreaterThan(css.indexOf('.drawer {'));
     });
 
-    it('.drawerMobileFallback (media-gated) pairs with a compound .drawerMobileFallback.drawerOpen reset in the SAME media block — a bare .drawerOpen would tie on specificity and lose on source order, which is exactly what C1 was', () => {
-      const mediaBlock = blockFrom('@media (min-width: 881px) {');
-      expect(mediaBlock).toMatch(/\.drawerMobileFallback\s*\{[^}]*transform:\s*translateX\(100%\)/);
-      // The reset must be the COMPOUND selector, inside this same block —
-      // not a bare `.drawerOpen` (which is what broke) and not outside it.
-      expect(mediaBlock).toMatch(/\.drawerMobileFallback\.drawerOpen\s*\{\s*transform:\s*none;?\s*\}/);
-    });
-  });
-
-  describe('mobileTabFallback duplication stays declaration-identical (commit message\'s own claim, now enforced rather than asserted in prose)', () => {
-    it('.drawer and .drawerMobileFallback share the exact same geometry declarations', () => {
-      expect(declarations(blockFrom('.drawerMobileFallback {'))).toEqual(
-        declarations(blockFrom('.drawer {')),
-      );
-    });
-
-    it('.scrim and .scrimMobileFallback share the exact same declarations', () => {
-      expect(declarations(blockFrom('.scrimMobileFallback {'))).toEqual(
-        declarations(blockFrom('.scrim {')),
-      );
+    it('there is NO width @media in the file: one presentation at every width, so no media-gated transform exists to out-rank the reset (the C1 defect needed a second, media-gated rule at equal specificity)', () => {
+      const bare = css.replace(/\/\*[\s\S]*?\*\//g, '');
+      expect(bare).not.toMatch(/@media\s*\(\s*(?:min|max)-width/);
+      expect(bare).not.toMatch(/mobileFallback/);
     });
   });
 });

@@ -37,15 +37,13 @@
  * mechanism as check-color-tokens.mjs (a `design-token-exempt` comment
  * within 10 lines back) rather than inventing a second one.
  *
- * Rule 2 — breakpoint drift. `src/lib/breakpoints.ts`'s
+ * Rule 2 — one source of the phone breakpoint. `src/lib/breakpoints.ts`'s
  * PLAY_PHONE_MAX_WIDTH is the one source of truth for /play's 880px
- * breakpoint; CSS can't read a custom property inside an `@media` feature
- * query, so every file in DRIFT_CHECK_FILES still carries the literal
- * independently. This rule fails if ANY of them drifts from
- * breakpoints.ts's own number — checked per file, not as a combined set
- * (Kage-CR I8, 2026-09-21 re-review: this used to check only
- * Play.module.css, so Drawer.module.css's own copy of the same literal —
- * the one the C1 fix hangs off — could drift silently).
+ * breakpoint (presets.ts rows + useMediaQuery); CSS can't read a custom
+ * property inside an `@media` feature query, so the two CSS files that used
+ * to carry a copy (Play.module.css, Drawer.module.css) no longer do, and this
+ * rule fails if a literal near it reappears in either (A9d E4; it used to
+ * require the copies to match, Kage-CR I8).
  *
  * Rule 3 — a region never re-decides its own placement: no layout-attribute
  * selectors in any CSS, no `position: fixed` reachable from regions/ and
@@ -157,20 +155,18 @@ for (const file of scopeFiles()) {
   }
 }
 
-// Rule 2 — breakpoint drift, independent of SCOPE_GLOBS (these files and
-// breakpoints.ts all already exist; this is a drift check, not a
-// retrofit-discipline check, so it is safe to run unconditionally).
+// Rule 2 — one source of the phone breakpoint, independent of SCOPE_GLOBS.
 //
-// Kage-CR I8 (2026-09-21 re-review): this used to check ONLY
-// Play.module.css. Drawer.module.css:57's `@media (min-width: 881px)` —
-// the literal this branch introduced, and the one the C1 fix hangs off —
-// sat outside the guard entirely: drifting it to 961 while leaving
-// breakpoints.ts and Play.module.css at 880 exited 0 clean, while Chromium
-// at 900px silently lost the drawer's desktop chrome (position: static,
-// x=0, w=900 instead of the 380px slide-over). DRIFT_CHECK_FILES is every
-// file whose own `@media` literal must independently match
-// PLAY_PHONE_MAX_WIDTH — checked PER FILE, not as a combined set, so one
-// file drifting while another still matches cannot hide behind the other.
+// History: this rule used to require each of Play.module.css and
+// Drawer.module.css to carry its OWN `@media` literal matching
+// PLAY_PHONE_MAX_WIDTH (Kage-CR I8, 2026-09-21: a drifted Drawer copy exited 0
+// clean). A9d E4 deleted both literals: the phone layout is a DATA row
+// (presets.ts, switched by useMediaQuery(PLAY_PHONE_QUERY)) and the Drawer has
+// ONE presentation at every width. A per-file "must contain one" check on a
+// file with none would fail forever, so the rule inverts: DRIFT_CHECK_FILES is
+// every file that must NOT carry an `@media` width literal at (or one pixel
+// either side of) PLAY_PHONE_MAX_WIDTH. A literal reappearing there is a second
+// source of the breakpoint, which is exactly what drifts. Checked per file.
 const DRIFT_CHECK_FILES = [
   'src/app/play/[sessionId]/Play.module.css',
   'src/components/Drawer.module.css',
@@ -181,18 +177,19 @@ const constMatch = /PLAY_PHONE_MAX_WIDTH\s*=\s*(\d+)/.exec(breakpointsSrc);
 if (!constMatch) {
   drift.push({ file: 'src/lib/breakpoints.ts', issue: 'PLAY_PHONE_MAX_WIDTH constant not found — did it get renamed?' });
 } else {
-  const expected = constMatch[1];
+  const expected = Number(constMatch[1]);
   for (const relPath of DRIFT_CHECK_FILES) {
     const cssPath = join(ROOT, relPath);
     if (!existsSync(cssPath)) continue;
-    const css = readFileSync(cssPath, 'utf8');
-    const mediaWidths = [...css.matchAll(/@media\s*\(\s*(?:min|max)-width:\s*(\d+)px\s*\)/g)]
+    // Comments stripped: prose that mentions the retired literal is not a rule.
+    const css = readFileSync(cssPath, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const stray = [...css.matchAll(/@media\s*\(\s*(?:min|max)-width:\s*(\d+)px\s*\)/g)]
       .map((m) => m[1])
-      .filter((w) => Number(w) === Number(expected) || Math.abs(Number(w) - Number(expected)) === 1); // 880/881 pair
-    if (mediaWidths.length === 0) {
+      .filter((w) => Math.abs(Number(w) - expected) <= 1); // 880/881 pair
+    if (stray.length > 0) {
       drift.push({
         file: relPath,
-        issue: `no @media rule near ${expected}px found — breakpoints.ts says PLAY_PHONE_MAX_WIDTH=${expected} but ${relPath}'s own literal has drifted (or been removed)`,
+        issue: `@media width literal ${stray.join(', ')}px near PLAY_PHONE_MAX_WIDTH=${expected} — the phone breakpoint lives only in src/lib/breakpoints.ts (presets.ts rows + useMediaQuery); a CSS copy is a second source that can drift`,
       });
     }
   }

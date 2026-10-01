@@ -6,7 +6,7 @@
  * that a sheet-fetch failure degrades gracefully (no NaN, no crash).
  */
 import React from "react";
-import { screen, waitFor, fireEvent, act } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import { renderPlay } from "@/test-utils/renderPlay";
 import "@testing-library/jest-dom";
 import type { Session, Participant } from "@/lib/api/types";
@@ -146,11 +146,9 @@ beforeEach(() => {
 
 /** Helper: render and navigate to the Scene pane where DiceTray lives. */
 async function renderAndOpenScene() {
+  // A9d E4: the DiceTray is always mounted (no mobile Scene tab to open first).
   renderPlay(<PlayPage />);
   await screen.findByText("Test Table");
-  await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name: /scene/i }));
-  });
 }
 
 describe("A2 - real character quick-checks", () => {

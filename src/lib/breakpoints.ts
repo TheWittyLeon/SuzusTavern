@@ -1,17 +1,16 @@
 /**
  * TAV-PLAY-SHELL step 1 — breakpoint constants.
  *
- * `/play` has exactly one width breakpoint today, 880px, hardcoded twice in
- * Play.module.css (the `.mobileTabs`/mobile-pane switch and its neighbouring
- * `@media (min-width: 881px)` rule). `resolveLayout` (step 6, decomposition
- * plan §3.3) needs the SAME number in JS, so this is the one source of truth
- * — both JS (via `useMediaQuery`, `src/lib/useMediaQuery.ts` — reused as-is,
- * not reimplemented) and `scripts/check-layout-tokens.mjs` read it from here.
+ * `/play` has exactly one width breakpoint, 880px. `resolveLayout` (step 6,
+ * decomposition plan §3.3) switches the phone row on it in JS (via
+ * `useMediaQuery`, `src/lib/useMediaQuery.ts` — reused as-is, not
+ * reimplemented), so this is the one source of truth.
  *
  * CSS custom properties cannot be used inside an `@media` feature query
- * (no browser resolves `var()` there), so Play.module.css's own `@media`
- * rules still carry the literal 880/881. `check-layout-tokens.mjs` is what
- * keeps those in sync with this file — it parses both and fails on drift.
+ * (no browser resolves `var()` there). Until A9d E4 Play.module.css and
+ * Drawer.module.css carried their own 880/881 copies; both are gone, and
+ * `scripts/check-layout-tokens.mjs` (Rule 2) now fails if a literal near this
+ * number reappears in either, rather than keeping copies in sync.
  *
  * Deliberately ONE export. The repo has 20 distinct breakpoints across 71
  * CSS files (measured 2026-09-21); consolidating all of them is 2.0

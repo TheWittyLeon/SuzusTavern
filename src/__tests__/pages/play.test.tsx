@@ -299,27 +299,6 @@ describe('Play page', () => {
     expect(screen.getByText('The Hollow Tide')).toBeInTheDocument();
   });
 
-  it('mobile view tabs switch Story / Party / Scene (party reachable on mobile)', async () => {
-    renderPlay(<PlayPage />);
-    await screen.findByText('The Hollow Tide');
-
-    const story = screen.getByRole('button', { name: /story/i });
-    const party = screen.getByRole('button', { name: /party/i });
-    const scene = screen.getByRole('button', { name: /scene/i });
-
-    expect(story).toHaveAttribute('aria-pressed', 'true');
-    expect(party).toHaveAttribute('aria-pressed', 'false');
-
-    fireEvent.click(party);
-    expect(party).toHaveAttribute('aria-pressed', 'true');
-    expect(story).toHaveAttribute('aria-pressed', 'false');
-    expect(scene).toHaveAttribute('aria-pressed', 'false');
-
-    fireEvent.click(scene);
-    expect(scene).toHaveAttribute('aria-pressed', 'true');
-    expect(party).toHaveAttribute('aria-pressed', 'false');
-  });
-
   it('Say → streams DM narration into the chat log', async () => {
     renderPlay(<PlayPage />);
     await screen.findByText('The Hollow Tide');

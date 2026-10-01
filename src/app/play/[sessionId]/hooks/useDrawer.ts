@@ -10,10 +10,9 @@
  * Everything ELSE `<Drawer>` needs is already owned internally by
  * `src/components/Drawer.tsx` as of step 2 (see that file's own header):
  * `dialogRef`, the Tab-trap `onKeyDown`, and the open/close focus-remember-
- * and-restore effect. `visible` and a `close()` with its own side effects
- * are genuinely per-drawer (member-sheet's close also resets
- * `selectedIsSelf`; journal's close also falls the mobile tab back to
- * Story, and its `visible` folds in `mobileView`) — see
+ * and-restore effect. A `close()` with its own side effects
+ * is genuinely per-drawer (member-sheet's close also resets
+ * `selectedIsSelf`) — see
  * `useMemberSheetDrawer`/`useJournalDrawer`, both built on this primitive,
  * for that domain-specific layer.
  *

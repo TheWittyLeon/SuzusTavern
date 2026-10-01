@@ -973,11 +973,6 @@
   outline-offset: 2px;
 }
 
-/* ── mobile tabs ── */
-.mobileTabs {
-  display: none;
-}
-
 /* ── fallback (notfound/error) ── */
 .fallback {
   max-width: 480px;
@@ -1191,55 +1186,10 @@
   border: none;
 }
 
-/* TAV-PLAY-SHELL step 2: the Journal-pane and member-sheet drawer geometry
-   that used to live here (.journalDrawer/.journalDrawerOpen/.journalScrim,
-   .memberSheetDrawer/.memberSheetDrawerOpen/.memberSheetScrim — themselves
-   byte-for-byte identical except for the >880px gate) moved to
-   src/components/Drawer.module.css's .drawer/.drawerMobileFallback variants,
-   consolidated behind the shared <Drawer> primitive. `.journalPane` below
-   (the mobile in-flow pane layout) is unchanged — Drawer's `mobileTabFallback`
-   prop is what hands off to it below the breakpoint. */
-
-/* ── mobile: single column, tab-switch story ↔ scene ── */
-/**
- * TAV-PLAY-SHELL step 6b, commit C4 (build brief §7 C4, R-2 / Amendment
- * B.5 point 2): below 880px the shell now resolves the PHONE row
- * (`resolveLayout`'s own rule, "phone has one layout, full stop") and
- * `--play-areas`/`--play-columns`/`--play-rows` drive `.grid` directly —
- * the old `.grid` override (grid-template-columns/rows/areas: 'tabs'/
- * 'banner'/'pane') is DELETED; there is no longer a separate "mobile grid
- * shape" to hand-maintain in parallel with the row data. `.mobileTabs` has
- * no area in the phone row and keeps its DEFAULT `display:none` (declared
- * above, outside any media query) — the tab-switcher is retired
- * VISUALLY (every region shows at once, scrollable, in the phone row's
- * own order) while its DOM/`aria-pressed` state machine stays mounted,
- * because `play.journal.test.tsx`'s mobile-tab cases still drive it and
- * jsdom applies no CSS, so they stay green regardless.
- *
- * debt: the phone Journal opens as an invisible modal holding focus; party/initiative/scene/dice are unreachable on phone (the mobile tab bar that switched them is hidden, but still mounted because play.journal.test.tsx's mobile-tab cases drive its DOM + aria-pressed state machine).
- * ceiling: phone is NOT a usable /play (Aoi Imp-4, Miko FAIL); hidden-but-mounted, main only — do NOT deploy between A9b and A9d.
- * until: A9d deletes mobileView, journalVisible collapses into the resolver, and the phone row gets its own party/initiative/scene/dice surfaces.
- *
- * `.journalToggleBtn`'s own mobile `display:none` override is ALSO
- * deleted (it existed only because the toggle used to live inside the
- * tab-switched `.left` pane — `topBar` is its own always-visible region
- * now, not nested inside any tab-switched pane). The toggle still opens the
- * Journal on a phone, but see the debt above: it opens as an invisible
- * modal holding focus, which is NOT "reachable" in any useful sense.
- */
-@media (max-width: 880px) {
-  /* DDX-22: the journal becomes a plain in-flow pane on mobile when the
-     journal tab is active — UNCHANGED mechanism (`mobileView`/
-     `journalVisible`/`Drawer.mobileTabFallback` are explicitly not
-     touched at this step, Amendment B.5 point 2); only `.left`/`.center`/
-     `.right`'s shared selector list is gone, since those classes retire. */
-  .journalPane {
-    display: none;
-  }
-  .showJournal .journalPane {
-    display: flex;
-    flex-direction: column;
-    padding: var(--density-pad);
-    overflow-y: auto;
-  }
-}
+/* TAV-PLAY-SHELL step 2 / A9d E4: the Journal and member-sheet drawer geometry
+   lives in src/components/Drawer.module.css, one presentation (a right-edge
+   slide-over) at every width. There is no phone tab bar, no `.show*` pane class
+   and no in-flow `.journalPane` layout any more: below 880px the shell resolves
+   the PHONE row (`--play-areas`/`--play-columns`/`--play-rows` drive `.grid`
+   directly, presets.ts owns the shape) and the Journal opens from the header's
+   "Open journal" toggle like it does everywhere else. */

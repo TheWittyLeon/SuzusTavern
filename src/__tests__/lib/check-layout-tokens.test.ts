@@ -94,7 +94,7 @@ describe('check-layout-tokens.mjs', () => {
     expect(status).toBe(0);
   });
 
-  describe('I8 (2026-09-21 re-review) — Rule 2 checks Drawer.module.css independently of Play.module.css', () => {
+  describe('Rule 2 (A9d E4) — the phone breakpoint has ONE source; a CSS copy reappearing fails, per file', () => {
     let originalDrawerCss: string;
 
     beforeEach(() => {
@@ -105,15 +105,24 @@ describe('check-layout-tokens.mjs', () => {
       writeFileSync(DRAWER_CSS, originalDrawerCss);
     });
 
-    it('catches Drawer.module.css\'s @media literal drifting (881 -> 961) while Play.module.css and breakpoints.ts stay at 880 -- the exact scenario the pre-fix script exited 0 on (Kage-CR measured Chromium losing the desktop drawer chrome at 900px under that drift)', () => {
-      const mutated = originalDrawerCss.replace('@media (min-width: 881px)', '@media (min-width: 961px)');
-      expect(mutated).not.toBe(originalDrawerCss); // fixture sanity: the replace must have actually matched something
-      writeFileSync(DRAWER_CSS, mutated);
+    it('passes on the tree as committed (neither file carries the literal)', () => {
+      expect(runScript().status).toBe(0);
+    });
 
-      const { status, output } = runScript();
-      expect(status).toBe(1);
-      expect(output).toContain('src/components/Drawer.module.css');
-      expect(output).toMatch(/no @media rule near 880px found/);
+    it.each(['@media (min-width: 881px)', '@media (max-width: 880px)'])(
+      'fails when Drawer.module.css regains %s -- a second source of the breakpoint (the I8 drift shape, Kage-CR 2026-09-21: a copy that can go 881 -> 961 unseen)',
+      (literal) => {
+        writeFileSync(DRAWER_CSS, `${originalDrawerCss}\n${literal} {\n  .drawer { width: 100%; }\n}\n`);
+        const { status, output } = runScript();
+        expect(status).toBe(1);
+        expect(output).toContain('src/components/Drawer.module.css');
+        expect(output).toMatch(/phone breakpoint lives only in src\/lib\/breakpoints\.ts/);
+      },
+    );
+
+    it('ignores the literal inside a comment (prose about the retired copy is not a rule)', () => {
+      writeFileSync(DRAWER_CSS, `${originalDrawerCss}\n/* was @media (min-width: 881px) */\n`);
+      expect(runScript().status).toBe(0);
     });
   });
 });

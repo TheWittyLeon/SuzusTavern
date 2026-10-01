@@ -115,19 +115,10 @@ export interface PlayShellProps {
   /** Regions the user has folded (absent = open, R20). */
   foldedRegions?: ReadonlySet<RegionId>;
   onToggleFold?: (id: RegionId) => void;
-  /** `.mobileTabs` until A9d — shell chrome, not a region or a tenant. */
-  chrome?: ReactNode;
   /** The two `<Drawer>`s + `<ConfirmDialog>` — overlay hosts, outside the
    *  grid; position within this root doesn't matter (they are
    *  fixed/portal-adjacent), kept trailing for file readability. */
   layers?: ReactNode;
-  /** Additive, merged with `.grid` — today's one caller is `mobileView`'s
-   *  `showJournal` class (Amendment B.5 point 2: `mobileView`/
-   *  `journalVisible` are explicitly NOT touched at 6b), which
-   *  `Play.module.css`'s `.showJournal .journalPane` rule still needs on
-   *  an ANCESTOR of the Journal drawer (rendered via `layers`) for the
-   *  phone-width in-flow fallback. */
-  className?: string;
 }
 
 interface LandmarkSpec {
@@ -184,9 +175,7 @@ export default function PlayShell({
   foldSpecs,
   foldedRegions,
   onToggleFold,
-  chrome,
   layers,
-  className,
 }: PlayShellProps) {
   // Tenants grouped by host, in TENANT_IDS declaration order (the tenth
   // tenant is one presets.ts row — no code change here).
@@ -297,7 +286,7 @@ export default function PlayShell({
     <ScrollKeeper orderKey={orderKey} rootRef={rootRef}>
       <div
         ref={rootRef}
-        className={className ? `${styles.grid} ${className}` : styles.grid}
+        className={styles.grid}
         data-layout-resolved={row.id}
         data-moment={moment}
         style={
@@ -309,7 +298,6 @@ export default function PlayShell({
         }
       >
         {skipLinks}
-        {chrome}
         {slots}
         {layers}
       </div>
