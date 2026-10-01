@@ -114,6 +114,54 @@ describe('PlayShell — minimal render matrix (build brief §7 C4, pin 1+2)', ()
     expect(slot?.getAttribute('style') ?? '').not.toMatch(/display/);
   });
 
+  // A9b Imp-2: the stub rows above give every region an area, which is why
+  // the shell's old `area == null` skip (unmounting `offers` in combat) was
+  // invisible here. This row reproduces the REAL shape: `offers` is
+  // `{area:null, visible:false}` in combat only.
+  function absentInCombatRow(): LayoutRow {
+    const row = stubRow('story');
+    row.regions.offers = {
+      default: { area: 'offers' },
+      combat: { area: null, visible: false },
+    };
+    row.areas.combat = `"${REGION_IDS.filter((id) => id !== 'offers').join(' ')}"`;
+    return row;
+  }
+
+  it('an area-less region (offers in combat) stays MOUNTED as a hidden, area-less slot', () => {
+    const { container } = render(
+      <PlayShell row={absentInCombatRow()} moment="combat" regions={stubRegionNodes()} tenants={{}} />,
+    );
+    const slot = container.querySelector('[data-region-slot="offers"]') as HTMLElement | null;
+    expect(slot).not.toBeNull();
+    expect(slot).toHaveAttribute('data-visible', 'false');
+    expect(slot).not.toHaveAttribute('data-area');
+    expect(slot!.style.gridArea).toBe('');
+    expect(slot).toHaveTextContent('offers');
+    expect(slot!.getAttribute('style') ?? '').not.toMatch(/display/);
+    const ids = Array.from(container.querySelectorAll('[data-region-slot]')).map((el) => el.getAttribute('data-region-slot'));
+    expect(ids.sort()).toEqual([...REGION_IDS].sort());
+  });
+
+  it('an area-less region keeps its state across exploring -> combat -> exploring (no remount on the hidden edge)', () => {
+    function Counter() {
+      const [n, setN] = useState(0);
+      return <button type="button" data-testid="offers-state" onClick={() => setN((c) => c + 1)}>{n}</button>;
+    }
+    const row = absentInCombatRow();
+    const regions = { ...stubRegionNodes(), offers: <Counter /> };
+    const { rerender, getByTestId } = render(
+      <PlayShell row={row} moment="exploring" regions={regions} tenants={{}} />,
+    );
+    const node = getByTestId('offers-state');
+    fireEvent.click(node);
+    rerender(<PlayShell row={row} moment="combat" regions={regions} tenants={{}} />);
+    expect(getByTestId('offers-state')).toBe(node);
+    rerender(<PlayShell row={row} moment="exploring" regions={regions} tenants={{}} />);
+    expect(getByTestId('offers-state')).toBe(node);
+    expect(node).toHaveTextContent('1');
+  });
+
   /**
    * Mutation control, hand-run (same discipline as play-preset-registry.
    * test.ts's own trailing comment block): temporarily changed `story`'s

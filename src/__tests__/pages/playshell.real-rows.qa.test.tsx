@@ -142,11 +142,11 @@ describe('PlayShell on the REAL rows -- announcers stay mounted in a visible hos
    * `{area:null, visible:false}` in combat, and the shell skips `area == null`,
    * so the node is NOT hidden-but-mounted, it is unmounted. The brief says a
    * `visible:false` region keeps its slot with `.slotHidden`. `test.failing`
-   * so the suite stays green today and goes RED the moment Ren-Dev fixes it
-   * (then delete the `.failing`).
+   * Fixed in A9b fix round 1 (Imp-2): the shell now emits a hidden-mounted
+   * slot for an area-less, host-less, non-layer region.
    */
-  test.failing.each(LAYOUT_ROWS.map((r) => [r.id, r] as const))(
-    'DEFECT A9b-7: %s/combat -- offers stays MOUNTED (hidden), not unmounted',
+  it.each(LAYOUT_ROWS.map((r) => [r.id, r] as const))(
+    'A9b-7: %s/combat -- offers stays MOUNTED (hidden), not unmounted',
     (_id, row) => {
       const { container } = render(
         <PlayShell row={row} moment="combat" regions={regionNodes()} tenants={tenantNodes()} />,

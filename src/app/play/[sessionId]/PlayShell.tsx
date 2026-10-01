@@ -33,11 +33,14 @@
  *     component, or — for `tableControls` at 6b, which has none yet — an
  *     in-flow placement `page.tsx` builds into another region's own node,
  *     per that region's own `debt:` marker) renders it.
- *   - genuinely absent (`area`/`host`/`layer` all unset) -> rendered
- *     nowhere. Reachable only for a NON-announcing region (`offers`
- *     during combat) — the R3 guards (presets.ts's own host/visible
- *     checks, play-data-region-contract.test.ts's tenant guards) already
- *     make this unreachable for anything `ANNOUNCING_REGIONS` lists.
+ *   - genuinely absent (`area`/`host`/`layer` all unset, e.g. `offers`
+ *     during combat) -> a MOUNTED `.slotHidden` node with
+ *     `data-visible="false"` and no grid area: presets place, they never
+ *     unmount (A9b Imp-2 — this used to be skipped, which unmounted the
+ *     region and dropped its state on every combat edge). It is appended
+ *     after the placed slots, in REGION_IDS order, under the same
+ *     `key={regionId}` the placed slot has, so a moment switch toggles it
+ *     between the two forms without a remount.
  *
  * **DOM order is derived from the row's own `areas` string** (build brief
  * §7 C5, row-major, first appearance of each token) — not a hand-
@@ -184,19 +187,11 @@ export default function PlayShell({
     hostedRegionsByHost.set(placement.host, list);
   }
 
-  const slots: ReactNode[] = [];
-  for (const regionId of deriveDomOrder(row.areas[moment])) {
-    const placement = getPlacement(row, regionId, moment);
-    // `host != null` / `layer === true` / genuinely absent: nothing of its
-    // own in the grid (see this file's header for all three).
-    if (placement.host != null || placement.layer === true || placement.area == null) {
-      continue;
-    }
-
-    const hidden = placement.visible === false;
+  const slotFor = (regionId: RegionId, area: string | null) => {
+    const hidden = area == null || getPlacement(row, regionId, moment).visible === false;
     const landmark = LANDMARKS[regionId];
     const Tag = landmark?.as ?? 'div';
-    const className = [
+    const slotClass = [
       styles.slot,
       landmark?.layoutClassName,
       hidden ? styles.slotHidden : null,
@@ -204,22 +199,37 @@ export default function PlayShell({
       .filter(Boolean)
       .join(' ');
 
-    slots.push(
+    return (
       <Tag
         key={regionId}
         id={landmark?.id}
         aria-label={landmark?.['aria-label']}
-        className={className}
-        style={{ gridArea: placement.area }}
+        className={slotClass}
+        style={area == null ? undefined : { gridArea: area }}
         data-region-slot={regionId}
-        data-area={placement.area}
+        data-area={area ?? undefined}
         data-visible={!hidden}
       >
         {regions[regionId]}
         {hostedRegionsByHost.get(regionId)}
         {tenantsByHost.get(regionId)}
-      </Tag>,
+      </Tag>
     );
+  };
+
+  const slots: ReactNode[] = [];
+  for (const regionId of deriveDomOrder(row.areas[moment])) {
+    const placement = getPlacement(row, regionId, moment);
+    // Hosted / layered: nothing of its own in the grid (see this file's
+    // header). An area-less region is handled by the mounted-hidden pass.
+    if (placement.host != null || placement.layer === true || placement.area == null) continue;
+    slots.push(slotFor(regionId, placement.area));
+  }
+  for (const regionId of REGION_IDS) {
+    const placement = getPlacement(row, regionId, moment);
+    if (placement.host != null || placement.layer === true || placement.area != null) continue;
+    if (regions[regionId] === undefined) continue;
+    slots.push(slotFor(regionId, null));
   }
 
   return (
