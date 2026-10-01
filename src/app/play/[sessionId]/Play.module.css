@@ -609,12 +609,11 @@
   color: var(--bad-ink);
   font-size: 11px;
   cursor: pointer;
-  /* A11Y (Iro HIGH-2): previous comment claimed "≥44px via content-box padding trick"
-     but min-height:26px + padding:4px×2 = 34px — 10px short.
-     Fix: min-height:36px + padding:4px×2 = 44px exactly. box-sizing stays content-box
-     so padding is additive (the original intent, just the wrong min-height value). */
-  box-sizing: content-box;
-  min-height: 36px;
+  /* A11Y (Iro HIGH-2): >=44px tall. A9d-2: and wide, as a border-box 44x44 (below). */
+  box-sizing: border-box;
+  /* A9d-2 (Tora A9d-1 MINOR-1): 44 in BOTH axes (it was 42px wide); border-box so the number is the target. */
+  min-height: 44px;
+  min-inline-size: 44px;
 }
 
 .endCombatBtn:hover:not(:disabled) {
