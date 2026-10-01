@@ -316,12 +316,15 @@
   border-radius: 2px;
 }
 
+/* A9c C2 (Amendment C.7): `fixed`, not `absolute` -- the actionBar slot clips
+   (`overflow-y:auto`), so an absolute menu opening above the rail was invisible.
+   ActionBar.tsx places it from the Attack button's rect (inline left/bottom/
+   maxHeight); the rail's DOM position is unchanged. */
 .pop {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 0;
+  position: fixed;
   z-index: 20;
   min-width: 220px;
+  overflow-y: auto;
   background: var(--bg-2);
   border: 1px solid var(--line);
   border-radius: 12px;

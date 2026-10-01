@@ -30,7 +30,7 @@
  * minus combat" end state (plan §2.3's `Composer` row) are both step
  * 6/11 territory (S3 pause), not this commit.
  */
-import { useEffect, useId, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import Icon from '@/components/Icon';
 import { consumeEscape } from '@/lib/a11y/escapeConsume';
 import styles from '@/components/Composer.module.css';
@@ -85,6 +85,9 @@ export interface ActionBarProps {
   localTurnActionRef?: RefObject<boolean>;
 }
 
+/** Gap between the Attack button and its target menu, and the viewport margin. */
+const POP_GAP = 6;
+
 export default function ActionBar({
   targets,
   onAction,
@@ -106,6 +109,45 @@ export default function ActionBar({
   // — avoids the rail's accessible name being sourced twice (once from the
   // string literal, once from the visible text node with the same words).
   const railUid = useId();
+
+  // A9c C2 (build brief §1, Amendment C.7): the `actionBar` slot is a clip
+  // boundary (`overflow-y:auto`), so an absolutely positioned menu opening
+  // ABOVE the rail landed in negative overflow and was invisible in every
+  // combat cell (measured at f2168da: popup 220x102, visible 220x0). The menu
+  // is `position:fixed`, placed from the Attack button's rect, which escapes
+  // the slot without moving it in the DOM (the focus/Escape/arrow pins hold).
+  // Opens upward like before, clamped into the viewport.
+  const [popPos, setPopPos] = useState<{ left: number; bottom: number; maxHeight: number } | null>(null);
+  const placePop = useCallback(() => {
+    const btn = attackBtnRef.current;
+    if (!btn) return;
+    const r = btn.getBoundingClientRect();
+    const vw = document.documentElement.clientWidth;
+    const vh = document.documentElement.clientHeight;
+    const w = menuRef.current?.offsetWidth ?? 0;
+    const next = {
+      left: Math.max(POP_GAP, Math.min(r.left, vw - w - POP_GAP)),
+      bottom: vh - r.top + POP_GAP,
+      maxHeight: Math.max(0, r.top - 2 * POP_GAP),
+    };
+    setPopPos((prev) =>
+      prev && prev.left === next.left && prev.bottom === next.bottom && prev.maxHeight === next.maxHeight
+        ? prev
+        : next,
+    );
+  }, []);
+  // Layout effect: placed before the first paint, so the menu never flashes at
+  // its unplaced position. Re-placed on resize and on any ancestor scroll.
+  useLayoutEffect(() => {
+    if (!targetOpen) return;
+    placePop();
+    window.addEventListener('resize', placePop);
+    window.addEventListener('scroll', placePop, true);
+    return () => {
+      window.removeEventListener('resize', placePop);
+      window.removeEventListener('scroll', placePop, true);
+    };
+  }, [targetOpen, placePop]);
 
   const notYourTurn = isPlayerTurn === false;
 
@@ -408,6 +450,7 @@ export default function ActionBar({
           aria-label="Attack — pick a target"
           ref={menuRef}
           onKeyDown={onMenuKeyDown}
+          style={popPos ?? undefined}
         >
           {targets.map((t) => (
             <button
