@@ -12,8 +12,8 @@ import type { RegionVariant } from '../variants';
  *
  * `variant` (Amendment B.3's `suzuPresence: ['compact','full']` union) maps
  * to `SuzuDM`'s own `size` prop — Story/Table emit `'full'` (a full-height
- * column, so the larger presence), Phone emits `'compact'` (an icon inside
- * the header, hosted by `topBar`). Sizes are a starting point for Aoi/step
+ * column, so the larger presence), Phone emits `'compact'` (a small figure in
+ * its own column at the end of the header line, A9d E2). Sizes are a starting point for Aoi/step
  * 9's checkpoint pass (plan §2.3: step 9 "only adds `mood`"), not final
  * pixel values — `'full'` matches the original `NarratorStrip` call's
  * `size={56}` so desktop's visual size is unchanged at 6b.

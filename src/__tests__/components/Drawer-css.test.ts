@@ -16,13 +16,12 @@
  * instead of shipping invisibly.
  *
  * What this file CANNOT see (Kage-CR round-2 re-review, 2026-09-21): it is
- * a text-shape guard, not a cascade evaluator. It checks that the reset is
- * the COMPOUND selector `.drawerMobileFallback.drawerOpen`, but it cannot
- * tell that a DIFFERENT rule with the SAME specificity would re-break C1 —
- * e.g. `.drawerMobileFallback.journalPane { transform: translateX(100%) }`
- * is also (0,2,0) and, added after the fix, puts the drawer back off-screen
- * at x=1440 in a real browser while every assertion here stays green
- * (Kage measured this). The real defence against a same-specificity
+ * a text-shape guard, not a cascade evaluator. It checks the open reset's
+ * shape, but it cannot tell that a DIFFERENT rule with the SAME specificity
+ * would re-break C1 (a later `.x.y { transform: translateX(100%) }` at
+ * equal specificity puts the drawer back off-screen in a real browser
+ * while every assertion here stays green; Kage measured this with the
+ * compound `.drawerMobileFallback` selector A9d E4 deleted). The real defence against a same-specificity
  * re-break is the real-browser capture (I6), not this file — this file
  * only catches the narrower, already-observed shape (the reset missing or
  * reverting to a non-compound selector).

@@ -41,8 +41,6 @@ export interface DrawerProps {
   onClose: () => void;
   /** The close button lives inside `children`; the drawer focuses it on open and traps Tab within it. */
   closeButtonRef: RefObject<HTMLButtonElement | null>;
-  /** Caller-owned class(es) layered on the `<aside>`. */
-  className?: string;
   children: ReactNode;
 }
 
@@ -75,7 +73,6 @@ export default function Drawer({
   labelledBy,
   onClose,
   closeButtonRef,
-  className,
   children,
 }: DrawerProps) {
   const dialogRef = useRef<HTMLElement>(null);
@@ -163,13 +160,7 @@ export default function Drawer({
       <aside
         id={id}
         ref={dialogRef}
-        className={[
-          styles.drawer,
-          open ? styles.drawerOpen : '',
-          className ?? '',
-        ]
-          .filter(Boolean)
-          .join(' ')}
+        className={open ? `${styles.drawer} ${styles.drawerOpen}` : styles.drawer}
         role={open ? 'dialog' : undefined}
         aria-modal={open ? true : undefined}
         // Unconditional: harmless when `inert`/`aria-hidden` removes it from

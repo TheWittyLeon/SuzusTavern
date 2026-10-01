@@ -7,9 +7,7 @@
  * shows a waveform while Suzu narrates. Roll rows render the shared <Die>.
  */
 import {
-  forwardRef,
   useCallback,
-  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -143,22 +141,13 @@ export interface ChatLogProps {
   'data-region'?: string;
 }
 
-/** Imperative handle so the play screen can re-pin the log after a mobile
- *  tab switch (display:none resets scrollTop; the rows effect won't re-fire). */
-export interface ChatLogHandle {
-  scrollToBottom: (behavior?: ScrollBehavior) => void;
-}
-
-const ChatLog = forwardRef<ChatLogHandle, ChatLogProps>(function ChatLog(
-  {
-    rows,
-    thinking = false,
-    thinkingLabel = 'Suzu is composing…',
-    participants = [],
-    'data-region': dataRegion,
-  },
-  handleRef,
-) {
+export default function ChatLog({
+  rows,
+  thinking = false,
+  thinkingLabel = 'Suzu is composing…',
+  participants = [],
+  'data-region': dataRegion,
+}: ChatLogProps) {
   const ref = useRef<HTMLDivElement>(null);
   // True when the user is scrolled to (near) the bottom. We only auto-pin when
   // they are — so scrolling UP to re-read history isn't yanked back down by a
@@ -192,8 +181,6 @@ const ChatLog = forwardRef<ChatLogHandle, ChatLogProps>(function ChatLog(
     if (!el) return;
     atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   }, []);
-
-  useImperativeHandle(handleRef, () => ({ scrollToBottom: pin }), [pin]);
 
   // TAV-CHATLOG-REPIN-AFTER-RESIZE (A9d commit 0a). "Stick to the bottom" is
   // decided AT COMMIT TIME: a layout effect runs after the DOM mutation and
@@ -358,6 +345,4 @@ const ChatLog = forwardRef<ChatLogHandle, ChatLogProps>(function ChatLog(
       )}
     </div>
   );
-});
-
-export default ChatLog;
+}

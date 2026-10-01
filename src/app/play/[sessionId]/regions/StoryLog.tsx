@@ -1,17 +1,16 @@
 'use client';
 
-import { forwardRef } from 'react';
 import type { Participant } from '@/lib/api/types';
-import ChatLog, { type ChatLogHandle, type LogRow } from '@/components/ChatLog';
+import ChatLog, { type LogRow } from '@/components/ChatLog';
 
 /**
  * TAV-PLAY-SHELL step 3 — pure region extraction (decomposition plan §2.3:
  * "StoryLog | survives as-is: ChatLog"). ChatLog itself is untouched and
- * already self-contained; this is a thin forwardRef wrapper so the region
- * boundary exists as its own file/name, matching the other six regions,
- * without changing ChatLog's own imperative-handle contract (page.tsx's
- * `chatLogRef.current?.scrollToBottom(...)` calls keep working unchanged —
- * the ref forwards straight through).
+ * already self-contained; this is a thin wrapper so the region boundary exists
+ * as its own file/name, matching the other six regions. (It forwarded ChatLog's
+ * imperative `scrollToBottom` handle until A9d-2: its only caller was the
+ * mobile-tab re-pin that E4 deleted, so the handle, the ref and the forwarding
+ * went with it.)
  *
  * I4 (Kage-CR/Miko-QA, 2026-09-21 review): `data-region="storyLog"` now
  * reaches ChatLog's actual root via a purely additive optional prop on
@@ -29,13 +28,9 @@ export interface StoryLogProps {
   participants?: Participant[];
 }
 
-const StoryLog = forwardRef<ChatLogHandle, StoryLogProps>(function StoryLog(
-  { rows, thinking, thinkingLabel, participants },
-  ref,
-) {
+export default function StoryLog({ rows, thinking, thinkingLabel, participants }: StoryLogProps) {
   return (
     <ChatLog
-      ref={ref}
       rows={rows}
       thinking={thinking}
       thinkingLabel={thinkingLabel}
@@ -43,6 +38,4 @@ const StoryLog = forwardRef<ChatLogHandle, StoryLogProps>(function StoryLog(
       data-region="storyLog"
     />
   );
-});
-
-export default StoryLog;
+}
