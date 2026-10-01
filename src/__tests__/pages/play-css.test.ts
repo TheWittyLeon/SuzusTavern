@@ -79,12 +79,17 @@ describe('Play.module.css', () => {
       expect(values).toEqual(['var(--play-areas)']);
     });
 
-    it('.xCardBanner is placed in that area and collapses via :empty, never display:none/visibility:hidden', () => {
-      const banner = blockFrom('.xCardBanner {');
-      expect(banner).toMatch(/grid-area:\s*banner/);
+    it('.xCardBanner collapses to zero footprint via :empty, never display:none/visibility:hidden (it stays in the a11y tree)', () => {
+      // A9b Min-8: the old first assertion pinned `.xCardBanner { grid-area: banner }`,
+      // which is dead CSS (the banner is a child of the safetyBanner SLOT, which owns the
+      // grid area; a non-grid-item's grid-area does nothing). The live invariant is the
+      // zero-footprint empty state below, and the slot's own collapse (.slot:empty rule).
       const bannerEmpty = blockFrom('.xCardBanner:empty {');
       expect(bannerEmpty).not.toMatch(/display:\s*none/);
       expect(bannerEmpty).not.toMatch(/visibility:\s*hidden/);
+      expect(bannerEmpty).toMatch(/padding:\s*0/);
+      expect(bannerEmpty).toMatch(/border:\s*none/);
+      expect(bannerEmpty).toMatch(/margin-bottom:\s*0/);
     });
   });
 
