@@ -50,7 +50,6 @@ export function titleCaseSkill(skill: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-/** `HH:MM` timestamp (locale default) stamped onto every transcript row. */
 /** The ActionBar's death-save tally from the active combatant, or null when it has none. */
 export function deathSaveTally(
   p: Pick<CombatParticipantState, 'death_saves'> | null | undefined,
@@ -58,6 +57,43 @@ export function deathSaveTally(
   return p?.death_saves ? { successes: p.death_saves.successes, failures: p.death_saves.failures } : null;
 }
 
+/**
+ * TAV-COMBAT-VERB-NO-MECHANICS — the precise gate for the combat-verb guard,
+ * deliberately NOT `sceneHasEncounter` (true after the fight is over; refusing
+ * "I attack" over a resolved encounter would be wrong). Mirrors NekoNova's
+ * `core/dm_narrator.py::combat_encounter_unstarted`: kind must be `combat`, and
+ * the encounter must have NO `encounter_state` entry at all (an entry is stamped
+ * `unresolved` the moment combat starts and `resolved_*` after, so presence
+ * either way means "not our case"). `grounding.encounter_state` is the
+ * flattened `campaign.progress.encounter_state` (dnd.ts normalizeGrounding).
+ */
+export function isCombatEncounterUnstarted(grounding: GroundingData | null): boolean {
+  const enc = grounding?.encounter;
+  if (!enc || typeof enc !== 'object') return false;
+  if (enc.kind !== 'combat') return false;
+  const encId = typeof enc.id === 'string' ? enc.id : '';
+  if (!encId) return false;
+  const encState = grounding?.encounter_state;
+  if (!encState || typeof encState !== 'object') return true;
+  return !(encId in encState);
+}
+
+/**
+ * The scene's authored creature names, for the guard's tier-2 (targeted)
+ * matcher. `monsters_resolved` is projected flavor-only by the engine
+ * (project_monster_for_wire) and is present pre-combat. Defensive: any
+ * non-array/odd shape yields [].
+ */
+export function groundingCreatureNames(grounding: GroundingData | null): string[] {
+  const raw = (grounding?.encounter as { monsters_resolved?: unknown } | null | undefined)
+    ?.monsters_resolved;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((m) => (m && typeof m === 'object' ? (m as { name?: unknown }).name : undefined))
+    .filter((n): n is string => typeof n === 'string' && n.length > 0);
+}
+
+/** `HH:MM` timestamp (locale default) stamped onto every transcript row. */
 export function nowStamp(): string {
   return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }

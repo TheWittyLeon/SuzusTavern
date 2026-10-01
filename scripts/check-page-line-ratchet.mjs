@@ -240,13 +240,18 @@ const PAGE = join(ROOT, PAGE_REL);
 // -> 872 (A9c-2 D2): the six-line death-save tally object literal on
 // `<ActionBar>` is `deathSaveTally(activeParticipant)` (format.ts), paying
 // for the two `variant={variantFor(...)}` lines (offers, actionBar). Net -5.
+// -> 862 (A9c-2 D3, extraction): the combat-verb guard's two `grounding`
+// derivations (`combatEncounterUnstarted`, `sceneCreatureNames`, 17 code
+// lines) are the pure `isCombatEncounterUnstarted`/`groundingCreatureNames`
+// in format.ts, one `useMemo` line each. Net -10 after the wider import. This
+// pays in advance for D3's TopBar `settings` mount (+2).
 // Update this value, in the SAME commit, whenever page.tsx's actual
 // non-comment, non-blank line count drops below it. Never raise it
 // silently -- unless the growth is deliberate and reviewed, in which case
 // raise it in the same commit and say why (this file's own rule, restated
 // correctly per the A7 pre-merge ratchet ruling: the runbook's "may only go
 // down" was a paraphrase that was never this file's actual rule).
-export const RATCHET_CEILING = 872;
+export const RATCHET_CEILING = 862;
 
 /**
  * Pure: counts lines the way `wc -l` does (newline-byte count). Exported so

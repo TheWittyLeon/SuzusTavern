@@ -76,7 +76,13 @@ import SuzuPresence from './regions/SuzuPresence';
 import PlayShell from './PlayShell';
 import { FOLD_SPECS } from './foldSpecs';
 import { getPlacement, variantFor, type Moment, type RegionId, type TenantId } from './presets';
-import { buildReadAloudBlock, deathSaveTally, scanXCardTracking } from './format';
+import {
+  buildReadAloudBlock,
+  deathSaveTally,
+  groundingCreatureNames,
+  isCombatEncounterUnstarted,
+  scanXCardTracking,
+} from './format';
 import { useSessionLifecycle } from './hooks/useSessionLifecycle';
 import { useMyCharacter } from './hooks/useMyCharacter';
 import { useRebindRefresh } from './hooks/useRebindRefresh';
@@ -1085,48 +1091,12 @@ export default function PlayPage() {
   // needed below: the effect only reads `sceneHasEncounter`/`combatId`
   // state, never the DOM, so it fires identically whether the button's
   // presence is driven by a text swap or a real mount.
-  // TAV-COMBAT-VERB-NO-MECHANICS — the precise gate for the combat-verb
-  // guard, deliberately NOT `sceneHasEncounter`. That flag is only "this
-  // scene authors an encounter block", which stays true after the fight is
-  // over; refusing "I attack" over a resolved encounter and pointing at
-  // "Stand and fight" would be actively wrong. This mirrors NekoNova's
-  // `core/dm_narrator.py::combat_encounter_unstarted` exactly — kind must be
-  // `combat`, and the encounter must have NO `encounter_state` entry at all
-  // (an entry is stamped `unresolved` the moment combat starts and becomes
-  // `resolved_*` after, so PRESENCE either way means "not our case").
-  // `grounding.encounter_state` is the flattened
-  // `campaign.progress.encounter_state` (see dnd.ts normalizeGrounding),
-  // i.e. the same dict the engine hands the narrator.
-  //
-  // `combatEncounterUnstarted`/`sceneCreatureNames` below read `grounding`
-  // (from useScene's destructure above) but stay in page.tsx -- they exist
-  // for the combat-verb guard (plan §1.4) and read `grounding`, a tier-6
-  // concern neither useCombatState (tier 5, composed above useScene) nor
-  // useCombatActions (composed after useScene, but not named as this
-  // derivation's owner in Amendment A §A.6) can claim -- not scene's either.
-  const combatEncounterUnstarted = useMemo(() => {
-    const enc = grounding?.encounter;
-    if (!enc || typeof enc !== 'object') return false;
-    if (enc.kind !== 'combat') return false;
-    const encId = typeof enc.id === 'string' ? enc.id : '';
-    if (!encId) return false;
-    const encState = grounding?.encounter_state;
-    if (!encState || typeof encState !== 'object') return true;
-    return !(encId in encState);
-  }, [grounding]);
-
-  // The scene's authored creature names, for the guard's tier-2 (targeted)
-  // matcher. `monsters_resolved` is projected flavor-only by the engine
-  // (project_monster_for_wire) and is present pre-combat — see
-  // creatureKeywords' doc block. Defensive: any non-array/odd shape yields [].
-  const sceneCreatureNames = useMemo<string[]>(() => {
-    const raw = (grounding?.encounter as { monsters_resolved?: unknown } | null | undefined)
-      ?.monsters_resolved;
-    if (!Array.isArray(raw)) return [];
-    return raw
-      .map((m) => (m && typeof m === 'object' ? (m as { name?: unknown }).name : undefined))
-      .filter((n): n is string => typeof n === 'string' && n.length > 0);
-  }, [grounding]);
+  // TAV-COMBAT-VERB-NO-MECHANICS — the combat-verb guard's gate and the scene's
+  // authored creature names (plan §1.4). Both are pure reads of `grounding`
+  // (format.ts); they stay here because `grounding` is a tier-6 concern neither
+  // useCombatState nor useCombatActions owns (Amendment A §A.6).
+  const combatEncounterUnstarted = useMemo(() => isCombatEncounterUnstarted(grounding), [grounding]);
+  const sceneCreatureNames = useMemo(() => groundingCreatureNames(grounding), [grounding]);
 
   // The "Begin an encounter"->"Stand and fight" rising-edge toast
   // (prevSceneHasEncounterRef) and its Iro-A11y CRITICAL-1 falling-edge
