@@ -9,8 +9,8 @@
 import {
   forwardRef,
   useCallback,
-  useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   type ReactNode,
@@ -195,7 +195,15 @@ const ChatLog = forwardRef<ChatLogHandle, ChatLogProps>(function ChatLog(
 
   useImperativeHandle(handleRef, () => ({ scrollToBottom: pin }), [pin]);
 
-  useEffect(() => {
+  // TAV-CHATLOG-REPIN-AFTER-RESIZE (A9d commit 0a). "Stick to the bottom" is
+  // decided AT COMMIT TIME: a layout effect runs after the DOM mutation and
+  // before the rendering step's deferred scroll event, so `atBottom` is still
+  // the pre-commit truth. A passive effect ran after that event had been
+  // dispatched: when ScrollKeeper's restore (or the rows commit itself) grew
+  // the content inside the frame, onScroll saw a gap >= 80px, flipped
+  // `atBottom` false, and the pin was skipped ("116px from the end").
+  // useLayoutEffect is safe under SSR on React 19 (no warning).
+  useLayoutEffect(() => {
     if (atBottom.current) pin();
   }, [rows, thinking, pin]);
 
