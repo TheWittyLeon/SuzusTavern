@@ -807,7 +807,7 @@ describe('TAV-PLAY-SHELL presets.ts — the X-card control is always on screen (
     expect(host).not.toBe('sceneStage');
   });
 
-  it('DiceTray stays a placed, reachable tenant (host is a placed region in every row x moment)', () => {
+  it("DiceTray's host is a placed region in every row x moment", () => {
     const diceHost = REGION_TENANTS.diceTray.host;
     for (const row of LAYOUT_ROWS) {
       for (const moment of MOMENTS) {

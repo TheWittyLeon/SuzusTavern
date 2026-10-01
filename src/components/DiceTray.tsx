@@ -12,6 +12,7 @@
  * display name/modifier so the request names a real sheet skill.
  */
 import Icon, { type IconName } from '@/components/Icon';
+import { useRovingToolbar } from '@/lib/a11y/useRovingToolbar';
 import styles from './DiceTray.module.css';
 
 export type Advantage = 'none' | 'adv' | 'dis';
@@ -49,6 +50,8 @@ const DICE: { sides: number; icon: IconName }[] = [
   { sides: 20, icon: 'D20' },
 ];
 
+const ADVANTAGES: Advantage[] = ['adv', 'none', 'dis'];
+
 function signed(n: number): string {
   return n >= 0 ? `+${n}` : `${n}`;
 }
@@ -60,13 +63,29 @@ export default function DiceTray({
   onAdvantage,
   disabled = false,
 }: DiceTrayProps) {
+  // A9c C5 (Iro IMPORTANT-2): three toolbars, one tab stop each, instead of
+  // 6 + N + 3 stops in front of the composer. Names, roles-of-the-buttons and
+  // `aria-pressed` are unchanged.
+  const dice = useRovingToolbar({
+    label: 'Dice',
+    itemCount: DICE.length,
+    isDisabled: () => disabled,
+  });
+  const checks = useRovingToolbar({
+    label: 'Quick checks',
+    orientation: 'vertical',
+    itemCount: quickChecks.length,
+    isDisabled: () => disabled,
+  });
+  const adv = useRovingToolbar({ label: 'Roll modifier', itemCount: ADVANTAGES.length });
   return (
     <div className={styles.tray}>
       <div className={styles.label}>Roll</div>
-      <div className={styles.diceGrid}>
-        {DICE.map(({ sides, icon }) => (
+      <div className={styles.diceGrid} {...dice.toolbarProps}>
+        {DICE.map(({ sides, icon }, i) => (
           <button
             key={sides}
+            {...dice.itemProps(i)}
             type="button"
             className={styles.die}
             aria-label={`Roll d${sides}`}
@@ -84,31 +103,34 @@ export default function DiceTray({
           <div className={styles.label} style={{ marginTop: 16 }}>
             Quick checks
           </div>
-          <ul className={styles.checks}>
-            {quickChecks.map((q) => (
-              <li key={q.name}>
-                {/* FIX-7 (Iro HIGH-1): aria-label conveys action + skill + modifier
-                    so screen readers announce "Roll Perception check, modifier +3"
-                    rather than just reading the visible label + modifier as separate
-                    elements. Mirrors the aria-label="Roll d20" pattern on dice buttons. */}
-                <button
-                  type="button"
-                  className={styles.checkRow}
-                  aria-label={`Roll ${q.name} check, modifier ${q.mod >= 0 ? '+' : ''}${q.mod}`}
-                  onClick={() => onRoll({ kind: 'check', skill: q.skill, label: q.name })}
-                  disabled={disabled}
-                >
-                  <span>{q.name}</span>
-                  <b className={styles.mono}>{signed(q.mod)}</b>
-                </button>
-              </li>
-            ))}
-          </ul>
+          <div {...checks.toolbarProps}>
+            <ul className={styles.checks}>
+              {quickChecks.map((q, i) => (
+                <li key={q.name}>
+                  {/* FIX-7 (Iro HIGH-1): aria-label conveys action + skill + modifier
+                      so screen readers announce "Roll Perception check, modifier +3"
+                      rather than just reading the visible label + modifier as separate
+                      elements. Mirrors the aria-label="Roll d20" pattern on dice buttons. */}
+                  <button
+                    type="button"
+                    {...checks.itemProps(i)}
+                    className={styles.checkRow}
+                    aria-label={`Roll ${q.name} check, modifier ${q.mod >= 0 ? '+' : ''}${q.mod}`}
+                    onClick={() => onRoll({ kind: 'check', skill: q.skill, label: q.name })}
+                    disabled={disabled}
+                  >
+                    <span>{q.name}</span>
+                    <b className={styles.mono}>{signed(q.mod)}</b>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
         </>
       )}
 
-      <div className={styles.advRow} role="group" aria-label="Roll modifier">
-        {(['adv', 'none', 'dis'] as Advantage[]).map((a) => {
+      <div className={styles.advRow} {...adv.toolbarProps}>
+        {ADVANTAGES.map((a, i) => {
           // UIR2-TAV-24: full word kept as the button's accessible name
           // (aria-label) — only the VISIBLE label shortens. "disadvantage"
           // (12 chars) was the one pill that didn't fit its ~1/3 share of the
@@ -124,6 +146,7 @@ export default function DiceTray({
             <button
               key={a}
               type="button"
+              {...adv.itemProps(i)}
               className={advantage === a ? `${styles.advPill} ${styles.advOn}` : styles.advPill}
               aria-pressed={advantage === a}
               aria-label={full}

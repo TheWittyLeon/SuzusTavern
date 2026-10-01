@@ -111,14 +111,20 @@ interface LandmarkSpec {
   as: 'aside' | 'main';
   id: string;
   'aria-label'?: string;
+  /** `-1` makes the landmark a programmatic focus target (a skip-link target
+   *  must be focusable or the browser's sequential-focus start point does not
+   *  move, and the next Tab leaves from the top of the page). */
+  tabIndex?: number;
   /** Additional scroll/stack treatment layered on top of `.slot`. */
   layoutClassName: string;
 }
 
 /** Rule 3: the landmark element IS the slot — three entries, and the
- *  names are the accessibility contract (unchanged from pre-shell page.tsx:
- *  `#play-pane-party`/`#play-pane-story`/`#play-pane-scene`, same
- *  `aria-label`s, same exactly-2-`complementary`-plus-1-`main` count). */
+ *  names are the accessibility contract (same `aria-label`s, same
+ *  exactly-2-`complementary`-plus-1-`main` count). A9c C5: the `main` landmark
+ *  is the global skip link's target, so the story slot carries `#main-content`
+ *  (was `#play-pane-story`; the grid root used to carry it, which made "skip
+ *  to main content" land on the whole page, chrome and all). */
 const LANDMARKS: Partial<Record<RegionId, LandmarkSpec>> = {
   partyStrip: {
     as: 'aside',
@@ -128,7 +134,8 @@ const LANDMARKS: Partial<Record<RegionId, LandmarkSpec>> = {
   },
   storyLog: {
     as: 'main',
-    id: 'play-pane-story',
+    id: 'main-content',
+    tabIndex: -1,
     layoutClassName: styles.slotStack,
   },
   sceneStage: {
@@ -137,6 +144,13 @@ const LANDMARKS: Partial<Record<RegionId, LandmarkSpec>> = {
     'aria-label': 'Scene',
     layoutClassName: styles.slotScroll,
   },
+};
+
+/** In-page skip targets beyond the global "Skip to main content" (layout.tsx).
+ *  Keyed by region so a link is rendered only while its target is a visible
+ *  slot; the id lives on the slot element, the label here. */
+const SKIP_TARGETS: Partial<Record<RegionId, { id: string; label: string }>> = {
+  actionBar: { id: 'play-actions', label: 'Skip to actions' },
 };
 
 export default function PlayShell({
@@ -199,7 +213,8 @@ export default function PlayShell({
     return (
       <Tag
         key={regionId}
-        id={landmark?.id}
+        id={landmark?.id ?? SKIP_TARGETS[regionId]?.id}
+        tabIndex={landmark?.tabIndex ?? (SKIP_TARGETS[regionId] ? -1 : undefined)}
         aria-label={landmark?.['aria-label']}
         className={slotClass}
         style={area == null ? undefined : { gridArea: area }}
@@ -232,11 +247,18 @@ export default function PlayShell({
     .map((entry) => (entry.kind === 'hosted' ? `${entry.host}>${entry.id}` : `${entry.kind}:${entry.id}`))
     .join(',');
 
+  // "Skip to actions": only while the target slot is a visible, placed one.
+  const skipLinks = (Object.keys(SKIP_TARGETS) as RegionId[]).flatMap((regionId) => {
+    const target = SKIP_TARGETS[regionId];
+    const placement = getPlacement(row, regionId, moment);
+    const shown = target && placement.area != null && placement.visible !== false && regions[regionId] !== undefined;
+    return shown ? [<a key={target.id} className="skip-link" href={`#${target.id}`}>{target.label}</a>] : [];
+  });
+
   return (
     <ScrollKeeper orderKey={orderKey} rootRef={rootRef}>
       <div
         ref={rootRef}
-        id="main-content"
         className={className ? `${styles.grid} ${className}` : styles.grid}
         data-layout-resolved={row.id}
         data-moment={moment}
@@ -248,6 +270,7 @@ export default function PlayShell({
           } as React.CSSProperties
         }
       >
+        {skipLinks}
         {chrome}
         {slots}
         {layers}

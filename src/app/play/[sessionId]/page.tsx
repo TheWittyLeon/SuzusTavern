@@ -1805,7 +1805,7 @@ export default function PlayPage() {
             type="button"
             className={mobileView === 'log' ? styles.tabOn : undefined}
             aria-pressed={mobileView === 'log'}
-            aria-controls="play-pane-story"
+            aria-controls="main-content"
             onClick={() => setMobileView('log')}
           >
             <Icon name="Chat" size={13} aria-hidden /> Story

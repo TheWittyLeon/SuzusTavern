@@ -275,3 +275,44 @@ describe('A9c C4 — no DESKTOP region remounts across the 12 ordered desktop tr
     }
   });
 });
+
+/**
+ * A9c C5 — the six literal DOM orders (build brief §4.1) against the RENDERED
+ * DOM. Same literals as play-slot-order.test.ts on purpose: that file pins the
+ * function, this one pins what PlayShell emits from it, so a mutation at either
+ * seam goes red. Token notation: `°` hidden slot, `▲` overlay, `⊃(a,b)` hosted.
+ */
+const ORDER_PIN: Record<string, string> = {
+  'story/exploring': 'safetyBanner topBar partyStrip suzuPresence storyLog sceneStage offers composer actionBar',
+  'story/combat': 'safetyBanner topBar partyStrip suzuPresence sceneStage storyLog offers° composer actionBar',
+  'table/exploring':
+    'safetyBanner partyStrip topBar▲ sceneStage characterBlock suzuPresence storyLog offers composer actionBar',
+  'table/combat':
+    'safetyBanner partyStrip topBar▲ sceneStage characterBlock suzuPresence storyLog offers° composer actionBar',
+  'phone/exploring': 'safetyBanner topBar⊃(partyStrip,suzuPresence) sceneStage storyLog offers composer actionBar',
+  'phone/combat': 'safetyBanner topBar⊃(partyStrip,suzuPresence) sceneStage storyLog offers° composer actionBar',
+};
+
+function domOrder(container: HTMLElement): string {
+  const root = container.querySelector('[data-layout-resolved]') as HTMLElement;
+  return Array.from(root.children)
+    .filter((el) => el.hasAttribute('data-region-slot'))
+    .map((slot) => {
+      const id = slot.getAttribute('data-region-slot')!;
+      const mark = slot.getAttribute('data-visible') === 'false' ? '°' : slot.hasAttribute('data-anchor') ? '▲' : '';
+      const hosted = Array.from(slot.querySelectorAll('[data-probe-region]'))
+        .map((el) => el.getAttribute('data-probe-region')!)
+        .filter((rid) => rid !== id);
+      return `${id}${mark}${hosted.length ? `⊃(${hosted.join(',')})` : ''}`;
+    })
+    .join(' ');
+}
+
+describe('A9c C5 — the rendered DOM order equals the six pinned literals (§4.1)', () => {
+  it.each(COMBOS)('%#: row x moment', (row, moment) => {
+    const { container } = render(
+      <PlayShell row={row} moment={moment} regions={regionNodes()} tenants={{}} />,
+    );
+    expect(domOrder(container)).toBe(ORDER_PIN[`${row.id}/${moment}`]);
+  });
+});

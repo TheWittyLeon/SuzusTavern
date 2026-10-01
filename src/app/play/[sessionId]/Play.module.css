@@ -26,6 +26,10 @@
   /* No full-bleed ::before here — overflow-x is clipped to avoid the phantom
      horizontal scroll the .aurora layer once caused. */
   overflow: hidden;
+  /* A9c C5: the "Skip to actions" link is absolutely positioned (globals
+     `.skip-link`, off-canvas until focused); this makes the grid the box it
+     is positioned and clipped against, not the page. */
+  position: relative;
 }
 
 .kicker {

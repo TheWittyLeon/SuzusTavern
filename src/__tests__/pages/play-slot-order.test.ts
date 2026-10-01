@@ -227,3 +227,51 @@ describe('A9c C3 — snapshotScroll / restoreScroll (pure halves)', () => {
     expect(snapshotScroll(null)).toEqual([]);
   });
 });
+
+/**
+ * A9c C5 — the six literal DOM orders (build brief §4.1). A literal, not a
+ * derivation: a derivation would move with the code it is meant to pin. Token
+ * notation: `°` hidden slot (mounted, no area), `▲` overlay (anchored in
+ * another region's area), `⊃(a,b)` regions hosted by the one before it. Read
+ * by Iro as the tab/reading order each layout promises; the same six strings
+ * are pinned against the rendered DOM in playshell.real-rows.qa.test.tsx.
+ */
+const ORDER_PIN: Record<string, string> = {
+  'story/exploring': 'safetyBanner topBar partyStrip suzuPresence storyLog sceneStage offers composer actionBar',
+  'story/combat': 'safetyBanner topBar partyStrip suzuPresence sceneStage storyLog offers° composer actionBar',
+  'table/exploring':
+    'safetyBanner partyStrip topBar▲ sceneStage characterBlock suzuPresence storyLog offers composer actionBar',
+  'table/combat':
+    'safetyBanner partyStrip topBar▲ sceneStage characterBlock suzuPresence storyLog offers° composer actionBar',
+  'phone/exploring': 'safetyBanner topBar⊃(partyStrip,suzuPresence) sceneStage storyLog offers composer actionBar',
+  'phone/combat': 'safetyBanner topBar⊃(partyStrip,suzuPresence) sceneStage storyLog offers° composer actionBar',
+};
+
+function formatOrder(row: LayoutRow, moment: Moment): string {
+  const entries = slotOrder(row, moment);
+  const hostedBy = new Map<string, string[]>();
+  for (const e of entries) if (e.kind === 'hosted') hostedBy.set(e.host, [...(hostedBy.get(e.host) ?? []), e.id]);
+  return entries
+    .filter((e) => e.kind !== 'hosted')
+    .map((e) => {
+      const mark = e.kind === 'hidden' ? '°' : e.kind === 'overlay' ? '▲' : '';
+      const hosted = hostedBy.get(e.id);
+      return `${e.id}${mark}${hosted ? `⊃(${hosted.join(',')})` : ''}`;
+    })
+    .join(' ');
+}
+
+describe('A9c C5 — slotOrder() on the real rows equals the six pinned literals (§4.1)', () => {
+  it('there is exactly one literal per real row x moment', () => {
+    const keys = LAYOUT_ROWS.flatMap((r) => MOMENTS.map((m) => `${r.id}/${m}`));
+    expect(Object.keys(ORDER_PIN).sort()).toEqual(keys.sort());
+  });
+
+  for (const row of LAYOUT_ROWS) {
+    for (const moment of MOMENTS) {
+      it(`${row.id}/${moment}`, () => {
+        expect(formatOrder(row, moment)).toBe(ORDER_PIN[`${row.id}/${moment}`]);
+      });
+    }
+  }
+});

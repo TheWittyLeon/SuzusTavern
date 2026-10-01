@@ -290,7 +290,7 @@ describe('usePlayLayout — data-layout-resolved/data-moment reflect resolveLayo
   it("<PlayShell>'s own data-layout-resolved/data-moment reflect row.id/moment verbatim (PlayShell never calls resolveLayout itself)", () => {
     const row = stubRow('table');
     render(<PlayShell row={row} moment="combat" regions={stubRegionNodes()} tenants={{}} />);
-    const el = document.getElementById('main-content');
+    const el = document.querySelector('[data-layout-resolved]');
     expect(el).toHaveAttribute('data-layout-resolved', 'table');
     expect(el).toHaveAttribute('data-moment', 'combat');
   });
