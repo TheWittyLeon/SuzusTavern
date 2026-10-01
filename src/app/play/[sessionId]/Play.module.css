@@ -131,16 +131,26 @@
 .slot[data-overlaid='true'] {
   isolation: isolate;
 }
-/* The owner RESERVES the edge its overlay sits on, so its own first (or last)
-   line is never under the overlay's box (A9c-2 D7; harness check e:topBar:overText
-   is the proof, measured). The overlay bar's height is a token, not a mirror:
+/* The owner RESERVES the edge its overlay sits on, so nothing of its own is ever
+   under the overlay's box (A9c-2 D7; harness checks e:topBar:overText and
+   e:topBar:overText:scrolled are the proof, measured).
+   The reserve is a MARGIN on the owner, not padding inside it (Kage A9c-2
+   IMPORTANT-4). The owner is also the scroll container: padding inside a scroller
+   is only blank at scrollTop 0, and scrolled content then passes straight under
+   the bar (measured: stage heading at scrollTop ~100, the dice labels at ~400).
+   A margin moves the scroller's own top edge below the bar, so the viewport never
+   overlaps it at ANY scroll position, and the bar's backing stops being the thing
+   that hides the overlap. The owner's own padding (--density-gap) is the clearance
+   under the bar. The overlay bar's height is a token, not a mirror:
    `.topBarOverlay` takes `height: var(--overlay-bar-h)` from the same declaration,
-   so the reserve cannot drift from the box it clears. */
+   and `.slotOverlay`'s margin is the same --space-4 added here, so the reserve
+   cannot drift from the box it clears. data-overlay-edges lists the edges, so any
+   anchor works without a CSS edit. */
 .slot[data-overlay-edges~='top'] {
-  padding-block-start: calc(var(--overlay-bar-h) + 2 * var(--space-4));
+  margin-block-start: calc(var(--overlay-bar-h) + var(--space-4));
 }
 .slot[data-overlay-edges~='bottom'] {
-  padding-block-end: calc(var(--overlay-bar-h) + 2 * var(--space-4));
+  margin-block-end: calc(var(--overlay-bar-h) + var(--space-4));
 }
 
 /* partyStrip's and sceneStage's slots ARE the landmark `<aside>` elements
@@ -276,8 +286,8 @@
 }
 
 /* A9c C4: TopBar `overlay` variant (Table) — one line over the stage: exit,
-   title, status pill, journal toggle. Translucent token-tinted backing so the
-   scene reads through it. NarratorStrip stays mounted in an `sr-only`
+   title, status pill, journal toggle. Token-tinted backing (see the `debt:` on
+   its `background`). NarratorStrip stays mounted in an `sr-only`
    wrapper, so the region still announces (R3). */
 .topBarOverlay {
   display: flex;
@@ -290,8 +300,8 @@
      computed from this same token (`.slot[data-overlay-edges]`). */
   box-sizing: border-box;
   height: var(--overlay-bar-h);
-  /* debt: backing is 94%, not the mock's 78%, as a belt over the stage's reserve. ceiling: the scene reads through only 6%; the mock's 78% look is not delivered.
-     until: Aoi rules the scene-through-the-bar look, now that the stage reserves the bar's box (D7), and the backing can return toward the mock. */
+  /* debt: backing is 94%, not the mock's 78%. ceiling: the stage's scroller now starts BELOW the bar (margin reserve), so nothing is under the bar to read through it; the mock's scene-through-the-bar look is not delivered, and the opacity no longer hides an overlap.
+     until: Aoi rules the scene-through-the-bar look (scene art full-bleed behind the bar), at which point the bar overlays content again and e:topBar:overText:scrolled is the guard for lowering it. */
   background: color-mix(in oklab, var(--bg) 94%, transparent);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
