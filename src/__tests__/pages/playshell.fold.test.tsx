@@ -26,7 +26,18 @@ const COMBOS: Array<[string, LayoutRow, Moment]> = LAYOUT_ROWS.flatMap((row) =>
 
 function regionNodes(): Partial<Record<RegionId, React.ReactNode>> {
   const out: Partial<Record<RegionId, React.ReactNode>> = {};
-  for (const id of REGION_IDS) out[id] = <span data-probe-region={id}>{id}</span>;
+  for (const id of REGION_IDS) {
+    const body = FOLD_SPECS[id]?.body;
+    // A region whose spec declares a fold body renders one, as the real region does (A9d-2 F1).
+    out[id] = body ? (
+      <span data-probe-region={id}>
+        {id}
+        <span id={body} data-fold-body data-probe-fold-body={id} />
+      </span>
+    ) : (
+      <span data-probe-region={id}>{id}</span>
+    );
+  }
   return out;
 }
 
@@ -171,7 +182,10 @@ describe('PlayShell fold state', () => {
         foldedRegions={new Set<RegionId>(['sceneStage'])}
       />,
     );
-    expect(document.querySelector('[data-probe-region="sceneStage"]')).not.toBeVisible();
+    // A9d-2 F1: the fold hides the stage's BODY (CSS, jsdom applies none); the region's own
+    // node stays in the page and the panel is not `hidden`.
+    expect(document.querySelector('[data-probe-region="sceneStage"]')).toBeVisible();
+    expect(document.querySelector('[data-probe-fold-body="sceneStage"]')?.closest('[data-folded="true"]')).not.toBeNull();
     const tray = document.querySelector('[data-probe-tenant="diceTray"]') as HTMLElement;
     expect(tray).toBeVisible();
     expect(tray.closest('[data-foldable]')).toBeNull();

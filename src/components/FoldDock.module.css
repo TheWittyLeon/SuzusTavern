@@ -22,6 +22,11 @@
   height: 100%;
 }
 
+/* A fold with a declared body hides ONLY that part (FoldDock `body`, A9d-2 F1). */
+.dock[data-folded='true'] [data-fold-body] {
+  display: none;
+}
+
 /* 44x44 (Iro A9b MINOR-2): the target IS the box, no padding trick. */
 .handle {
   display: grid;

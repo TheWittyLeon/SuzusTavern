@@ -18,6 +18,11 @@ import styles from '../Play.module.css';
  * null` for exactly this reason). Does not include the skill-check/
  * transition chips below it — that's a different concern (Offers, next).
  */
+/** The part of the stage that folds (A9d-2 F1): the picture only, and from step 12 the
+ *  map. The head, the encounter controls and both announcers sit OUTSIDE it, so a folded
+ *  stage still announces and can still end the fight. `foldSpecs` reads this id. */
+export const SCENE_STAGE_BODY_ID = 'play-scene-stage-body';
+
 export interface SceneStageProps {
   sceneName: string | null;
   objective: string | null;
@@ -79,9 +84,11 @@ export default function SceneStage({
         {sceneName && <p className={styles.sceneName}>{sceneName}</p>}
         {objective && <span className={styles.sceneObjective}>{objective}</span>}
       </div>
-      <div className={styles.scenePlaceholder}>
-        <Icon name="Map" size={22} aria-hidden />
-        <span>The tactical map arrives in a later sprint. Suzu narrates the scene above.</span>
+      <div id={SCENE_STAGE_BODY_ID} data-fold-body>
+        <div className={styles.scenePlaceholder}>
+          <Icon name="Map" size={22} aria-hidden />
+          <span>The tactical map arrives in a later sprint. Suzu narrates the scene above.</span>
+        </div>
       </div>
 
       {/* Active combat: show combat note + B3-1 outcome chooser. */}
