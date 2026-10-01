@@ -256,8 +256,10 @@ describe('DDX-25 adversarial — paused session, same-tab gaps', () => {
       });
 
       // Fixed: `DiceTray disabled={talking || combatBusy || sessionLocked}`
-      // now blocks the click before it ever reaches onRoll.
-      expect(rollBtn).toBeDisabled();
+      // now blocks the click before it ever reaches onRoll. Disabled is native
+      // OR aria-disabled (A9c-2 Iro IMPORTANT-1 moves it to aria-disabled so the
+      // focused die keeps focus); the click below is the real assertion.
+      expect(rollBtn.matches(':disabled') || rollBtn.getAttribute('aria-disabled') === 'true').toBe(true);
 
       await act(async () => {
         fireEvent.click(rollBtn);

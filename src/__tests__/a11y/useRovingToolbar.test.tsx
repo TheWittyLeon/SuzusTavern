@@ -187,8 +187,10 @@ describe('DiceTray — three toolbars, three tab stops (Iro IMPORTANT-2)', () =>
     expect(onAdvantage).toHaveBeenCalledWith('dis');
   });
 
-  it('disabled tray: dice and checks have no tab stop (natively disabled), the modifier pills still do', () => {
+  it('disabled tray: the modifier pills still have their tab stop', () => {
+    // A9c-2 Iro IMPORTANT-1 moved the dice/checks from native `disabled` to
+    // `aria-disabled` (they now keep a tab stop); this pin holds either way.
     render(<DiceTray onRoll={jest.fn()} quickChecks={CHECKS} onAdvantage={jest.fn()} disabled />);
-    expect(stops().map((b) => b.getAttribute('aria-label'))).toEqual(['advantage']);
+    expect(stops().map((b) => b.getAttribute('aria-label'))).toContain('advantage');
   });
 });
