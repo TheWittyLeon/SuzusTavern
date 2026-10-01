@@ -107,6 +107,16 @@ describe('Play.module.css', () => {
       expect(rule).not.toMatch(/display:\s*none|visibility:\s*hidden/);
     });
 
+    it('the out-of-flow rule for empty announcers is scoped to [data-tenant], so the story log itself (no data-tenant, :empty at zero rows) is never clipped (A9d 0b, Kage N1)', () => {
+      const selectors = [...strip(css).matchAll(/([^{}]*\.slotStack[^{}]*)\{([^}]*)\}/g)]
+        .filter((m) => /:empty/.test(m[1]));
+      expect(selectors.length).toBeGreaterThan(0);
+      for (const [, sel, body] of selectors) {
+        expect(sel.trim()).toBe('.slotStack > [data-tenant]:empty');
+        expect(body).toMatch(/position:\s*absolute/);
+      }
+    });
+
     it('the X-card host wraps instead of overflowing, and the control stays a 44px target (Imp-5)', () => {
       const host = strip(blockFrom('.slot:has(> [data-tenant="safetyControls"]) {'));
       expect(host).toMatch(/flex-wrap:\s*wrap/);
