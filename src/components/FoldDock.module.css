@@ -1,0 +1,27 @@
+/* The open panel asks for more width than any track cap, so a
+   `fit-content(<cap>)` column (presets.ts owns the cap) resolves to the cap;
+   `max-width: 100%` then pins it to what the track actually grants. Folded,
+   only the strip is in the track and `fit-content` shrinks it to one icon. */
+.panel {
+  width: 100vw;
+  max-width: 100%;
+  height: 100%;
+}
+
+.strip {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-xs);
+  /* A11Y-BUTTON-BORDER-CONTRAST: clickable — --line-strong clears 1.4.11. */
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.strip:hover {
+  border-color: color-mix(in oklab, var(--accent) 35%, transparent);
+  color: var(--ink);
+}

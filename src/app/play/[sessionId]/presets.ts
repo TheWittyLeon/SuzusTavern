@@ -569,8 +569,11 @@ const TABLE_ROW: LayoutRow = {
     // `auto` lets an `ai_assist_level:'off'` session's empty slot collapse
     // instead of holding open a dead 150px column (see STORY_ROW's
     // identical column-1 comment).
-    exploring: '160px auto minmax(0,1fr) 300px',
-    combat: '160px auto minmax(0,1fr) 300px',
+    // A9b fix round 1: column 4 is `characterBlock`'s docked rail
+    // (R20) — `fit-content` so FOLDING it (FoldDock) gives the space back;
+    // 300px is the open cap, owned here and nowhere else.
+    exploring: '160px auto minmax(0,1fr) fit-content(300px)',
+    combat: '160px auto minmax(0,1fr) fit-content(300px)',
   },
   rows: {
     exploring: 'auto 218px minmax(0,1fr) auto auto auto',

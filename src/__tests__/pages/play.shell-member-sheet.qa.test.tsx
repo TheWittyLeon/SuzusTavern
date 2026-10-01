@@ -150,7 +150,7 @@ describe('characterBlock singleton -- docked (Table) vs Drawer (Story)', () => {
    * stealing focus. `test.failing`: green today, RED when fixed -> delete the
    * `.failing`.
    */
-  test.failing('DEFECT A9b-1: Table -> Story after a docked selection must not surface a modal dialog', async () => {
+  test('DEFECT A9b-1: Table -> Story after a docked selection must not surface a modal dialog', async () => {
     const { rerender } = render(<PlayPage />);
     await selectBob();
     mockLayoutPref = 'story';
@@ -167,7 +167,7 @@ describe('characterBlock singleton -- docked (Table) vs Drawer (Story)', () => {
    * with no effect is a dead control (a11y: a button that announces
    * "Close character sheet" and then leaves the sheet there).
    */
-  test.failing('DEFECT A9b-1b: the docked sheet\'s Close button visibly changes the panel', async () => {
+  test('DEFECT A9b-1b: the docked sheet\'s Close button visibly changes the panel', async () => {
     render(<PlayPage />);
     await selectBob();
     await screen.findByRole('heading', { name: /Wrenna the Unmistakable/ });
@@ -175,5 +175,74 @@ describe('characterBlock singleton -- docked (Table) vs Drawer (Story)', () => {
       fireEvent.click(screen.getByRole('button', { name: /Close character sheet/i }));
     });
     expect(screen.queryByRole('heading', { name: /Wrenna the Unmistakable/ })).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * A9b fix round 1 (Miko Imp-1 / Aoi B1) -- the docked sheet is its own
+ * presentation: default = the viewer's OWN sheet, Close FOLDS the rail
+ * (never a no-op), nothing here is ever a modal, and the Drawer stays
+ * mounted across a placement switch (A5).
+ */
+describe('docked member sheet (Table) -- A9b fix round 1', () => {
+  const ALICE_SHEET = { ...BOB_SHEET, character_id: 'c1', owner_username: 'alice', name: 'Torvin the Undaunted' } as CharacterSheet;
+  beforeEach(() => {
+    m(dnd.getCharacterSheet).mockImplementation((id: string) =>
+      Promise.resolve(id === 'c1' ? ALICE_SHEET : BOB_SHEET),
+    );
+  });
+
+  it('Imp-1: with nobody picked, the dock shows the viewer\'s OWN sheet (not an empty header)', async () => {
+    render(<PlayPage />);
+    expect(await screen.findByRole('heading', { name: /Torvin the Undaunted/ })).toBeInTheDocument();
+  });
+
+  it('Imp-1: the Drawer is mounted but inert while docked -- no dialog, no panel inside it', async () => {
+    render(<PlayPage />);
+    await screen.findByRole('heading', { name: /Torvin the Undaunted/ });
+    const drawer = document.getElementById('play-pane-member-sheet');
+    expect(drawer).not.toBeNull();
+    expect(within(drawer as HTMLElement).queryByRole('heading', { hidden: true })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: /character sheet|Torvin|Wrenna/i })).not.toBeInTheDocument();
+  });
+
+  it('B1: Close folds the rail to a strip; the strip gets focus; re-opening returns the sheet and focuses Close', async () => {
+    render(<PlayPage />);
+    await screen.findByRole('heading', { name: /Torvin the Undaunted/ });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Close character sheet/i })); });
+    expect(screen.queryByRole('heading', { name: /Torvin the Undaunted/ })).not.toBeInTheDocument();
+    const strip = screen.getByRole('button', { name: /Open character sheet/i });
+    expect(strip).toHaveFocus();
+    await act(async () => { fireEvent.click(strip); });
+    expect(await screen.findByRole('heading', { name: /Torvin the Undaunted/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Close character sheet/i })).toHaveFocus();
+    expect(screen.queryByRole('button', { name: /Open character sheet/i })).not.toBeInTheDocument();
+  });
+
+  it('B1: picking a party member while the rail is folded unfolds it onto that member', async () => {
+    render(<PlayPage />);
+    await screen.findByRole('heading', { name: /Torvin the Undaunted/ });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Close character sheet/i })); });
+    await selectBob();
+    expect(await screen.findByRole('heading', { name: /Wrenna the Unmistakable/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Open character sheet/i })).not.toBeInTheDocument();
+  });
+
+  it('A5: Story drawer open -> Table keeps the SAME drawer node mounted, closed, and docks the sheet; back to Story it does NOT reopen', async () => {
+    mockLayoutPref = 'story';
+    const { rerender } = render(<PlayPage />);
+    await selectBob();
+    await screen.findByRole('dialog', { name: /Wrenna the Unmistakable|Character sheet/ });
+    const drawerBefore = document.getElementById('play-pane-member-sheet');
+
+    mockLayoutPref = 'table';
+    await act(async () => { rerender(<PlayPage />); });
+    expect(document.getElementById('play-pane-member-sheet')).toBe(drawerBefore);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /Close character sheet/i })).toHaveLength(1);
+
+    mockLayoutPref = 'story';
+    await act(async () => { rerender(<PlayPage />); });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 });

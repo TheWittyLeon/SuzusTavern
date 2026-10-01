@@ -123,6 +123,12 @@ export default function MemberSheetPanel({
         </p>
       )}
 
+      {/* A9b: a docked panel with nobody picked and no character of the
+          viewer's own — say so instead of leaving a titled, empty box. */}
+      {!loading && !error && !sheet && (
+        <p className={styles.status}>Pick a party member to see their sheet.</p>
+      )}
+
       {!loading && !error && sheet && (
         <>
           {/* LVL (Aoi gap B): FIRST thing in the body — what a top-to-bottom

@@ -93,6 +93,7 @@ const mockAdvanceScene = jest.fn<Promise<unknown>, unknown[]>();
 const mockResolveCheck = jest.fn<Promise<unknown>, unknown[]>();
 
 jest.mock('../../lib/api/dnd', () => ({
+  getCatalog: () => Promise.resolve({ system: 'dnd5e', content_type: 'class', items: [], total: 0, limit: 100, offset: 0 }),
   getSession: (...args: Parameters<AnyFn>) => mockGetSession(...args),
   getSessionEvents: (...args: Parameters<AnyFn>) => mockGetSessionEvents(...args),
   getSessionEventsRaw: (...args: Parameters<AnyFn>) => mockGetSessionEventsRaw(...args),

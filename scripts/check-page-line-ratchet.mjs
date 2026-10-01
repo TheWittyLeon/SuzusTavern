@@ -229,7 +229,7 @@ const PAGE = join(ROOT, PAGE_REL);
 // raise it in the same commit and say why (this file's own rule, restated
 // correctly per the A7 pre-merge ratchet ruling: the runbook's "may only go
 // down" was a paraphrase that was never this file's actual rule).
-export const RATCHET_CEILING = 919;
+export const RATCHET_CEILING = 918;
 
 /**
  * Pure: counts lines the way `wc -l` does (newline-byte count). Exported so

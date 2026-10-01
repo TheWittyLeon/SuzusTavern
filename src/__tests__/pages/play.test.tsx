@@ -369,7 +369,7 @@ describe('Play page', () => {
     await screen.findByText('The Hollow Tide');
 
     await act(async () => {
-      const attackBtn = screen.queryByRole('button', { name: /Attack/i });
+      const attackBtn = screen.queryByRole('button', { name: /^Attack\b/i });
       if (attackBtn) fireEvent.click(attackBtn);
     });
 

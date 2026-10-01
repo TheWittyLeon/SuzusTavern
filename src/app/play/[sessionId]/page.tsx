@@ -92,6 +92,7 @@ import { useJournalDrawer, type MobileView } from './hooks/useJournalDrawer';
 import { useFocusAnchors } from './hooks/useFocusAnchors';
 import { usePlayLayout } from './hooks/usePlayLayout';
 import JournalPane, { JOURNAL_HEADING_ID } from '@/components/JournalPane';
+import FoldDock from '@/components/FoldDock';
 import MemberSheetPanel, { MEMBER_SHEET_HEADING_ID } from '@/components/MemberSheetPanel';
 import NextPartOffer from '@/components/NextPartOffer';
 import {
@@ -307,7 +308,8 @@ export default function PlayPage() {
   // journal drawer's own events. See that hook's own header for the full
   // scope (selectedMemberSheet/-Name/-IsSelf/-Loading/-Error,
   // onSelectMember, onClose).
-  const memberSheetDrawer = useMemberSheetDrawer(username, mySheet);
+  // (called below, after `usePlayLayout` -- it needs the resolved `characterBlock`
+  // placement; A9b fix round 1.)
 
   // TAV-PLAY-SHELL step 5, hook 5a of ~9 (decomposition plan §2.2, amended by
   // Amendment A §A.2 row 5 / §A.6): combat's state half. Composed ABOVE
@@ -1291,6 +1293,8 @@ export default function PlayPage() {
   // maps `<PlayShell>` renders from.
   const moment: Moment = combatIsActive ? 'combat' : 'exploring';
   const { row } = usePlayLayout(moment);
+  const characterBlockIsLayer = getPlacement(row, 'characterBlock', moment).layer === true;
+  const memberSheetDrawer = useMemberSheetDrawer(username, mySheet, !characterBlockIsLayer);
 
   // ── auth gate (UIR2-TAV-3) ──────────────────────────────────────────────────
   // A SEPARATE, earlier guard from the session `state` machine below — this
@@ -1412,19 +1416,8 @@ export default function PlayPage() {
   // (`MEMBER_SHEET_HEADING_ID`) — rendering it BOTH inside the Drawer AND
   // docked in the table rail simultaneously would violate that and duplicate
   // the id. The two renders are therefore mutually exclusive on this one
-  // flag, which the row itself decides.
-  const characterBlockIsLayer = getPlacement(row, 'characterBlock', moment).layer === true;
-  const memberSheetPanelNode = (
-    <MemberSheetPanel
-      sheet={memberSheetDrawer.selectedMemberSheet}
-      loading={memberSheetDrawer.memberSheetLoading}
-      error={memberSheetDrawer.memberSheetError}
-      memberName={memberSheetDrawer.selectedMemberName}
-      isSelf={memberSheetDrawer.selectedMemberIsSelf}
-      onClose={memberSheetDrawer.onClose}
-      closeButtonRef={memberSheetDrawer.closeButtonRef}
-    />
-  );
+  // flag, which the row itself decides (resolved above, beside `usePlayLayout`).
+  const memberSheetPanelNode = <MemberSheetPanel {...memberSheetDrawer.panelProps} />;
 
   const suzuPresenceVariant = getPlacement(row, 'suzuPresence', moment).variant as
     | 'compact'
@@ -1561,7 +1554,17 @@ export default function PlayPage() {
     // implementation until step 7 — correct for the contract (R21 is the
     // end state), not a bug. Rendered only when NOT a layer (table); the
     // Drawer (in `layers` below) renders it when it IS a layer (story/phone).
-    characterBlock: !characterBlockIsLayer ? memberSheetPanelNode : undefined,
+    characterBlock: !characterBlockIsLayer ? (
+      <FoldDock
+        folded={memberSheetDrawer.folded}
+        onUnfold={memberSheetDrawer.onUnfold}
+        openLabel="Open character sheet"
+        icon="Scroll"
+        focusOnOpenRef={memberSheetDrawer.closeButtonRef}
+      >
+        {memberSheetPanelNode}
+      </FoldDock>
+    ) : undefined,
     suzuPresence: <SuzuPresence variant={suzuPresenceVariant} talking={talking} />,
     storyLog: (
       <>
@@ -1900,22 +1903,21 @@ export default function PlayPage() {
               selected party member's sheet — unlike the Journal drawer has no
               separate mobile-tab presentation to reconcile with, so `open`
               and `visible` are simply the same value: it's the fixed drawer
-              at any viewport width. Rendered only when `characterBlock` is a
-              LAYER this row (story/phone) — table docks `MemberSheetPanel`
-              directly into `regions.characterBlock` instead (mutually
-              exclusive, see that singleton's own comment above). */}
-          {characterBlockIsLayer && (
-            <Drawer
-              id={memberSheetDrawer.id}
-              open={memberSheetDrawer.open}
-              visible={memberSheetDrawer.open}
-              labelledBy={MEMBER_SHEET_HEADING_ID}
-              onClose={memberSheetDrawer.onClose}
-              closeButtonRef={memberSheetDrawer.closeButtonRef}
-            >
-              {memberSheetPanelNode}
-            </Drawer>
-          )}
+              at any viewport width. ALWAYS mounted (A5) — its CONTENT is the panel
+              only when `characterBlock` is a LAYER this row (story/phone);
+              table docks the panel into `regions.characterBlock` instead
+              (mutually exclusive, see that singleton's own comment above),
+              and `memberSheetDrawer.open` is false while docked. */}
+          <Drawer
+            id={memberSheetDrawer.id}
+            open={memberSheetDrawer.open}
+            visible={memberSheetDrawer.open}
+            labelledBy={MEMBER_SHEET_HEADING_ID}
+            onClose={memberSheetDrawer.panelProps.onClose}
+            closeButtonRef={memberSheetDrawer.closeButtonRef}
+          >
+            {characterBlockIsLayer ? memberSheetPanelNode : null}
+          </Drawer>
 
           {/* DDX-25: portal-rendered to document.body (ConfirmDialog does this
               internally) — position in the tree doesn't matter; kept here after

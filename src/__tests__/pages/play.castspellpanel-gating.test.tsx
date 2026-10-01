@@ -42,6 +42,7 @@ jest.mock('../../lib/useReducedMotion', () => ({
 }));
 
 jest.mock('../../lib/api/dnd', () => ({
+  getCatalog: jest.fn(() => Promise.resolve({ system: 'dnd5e', content_type: 'class', items: [], total: 0, limit: 100, offset: 0 })),
   getSession: jest.fn(),
   getSessionEvents: jest.fn(() => Promise.resolve([])),
   getSessionEventsRaw: jest.fn(() => Promise.resolve(null)),
