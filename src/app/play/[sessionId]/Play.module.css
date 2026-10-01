@@ -76,7 +76,7 @@
      out of a 868px grid; across the five slots of the centre column that
      was the budget the story log lost. Inline padding keeps the pad. */
   padding-block: var(--play-slot-pad, var(--density-gap));
-  padding-inline: var(--density-pad);
+  padding-inline: var(--play-slot-inline, var(--density-pad));
   /* A9d: a row that spends less than the density gap per slot (phone) sets
      `--play-slot-edge` and zeroes `--play-slot-pad`: the same space as a transparent
      BORDER. A scroll container paints its content into its padding, so a band
@@ -409,6 +409,28 @@
   .topBarCompact .aiOffStatus {
     flex: 1 0 100%;
     justify-content: flex-start;
+  }
+}
+/* Below 367px the EXPLORING pill (103px) no longer fits beside the controls under a
+   title that ellipsises: measured, it ran across the journal toggle (7px at 390 and
+   22px at 375 with the old 22px slot inset; over both buttons at 320). The line is
+   split instead: exit and the two toggles on the first, the title and its pill on a
+   second that takes the full width. 367 is where the title wrapper still leaves the
+   pill room: wrapper = viewport - 24 (slot inset) - 56 (presence column) - 26 (bar
+   padding) - 138 (three 46px controls) - 30 (gaps) = viewport - 274, and the pill may
+   spill into the 10px gap beside it, so it fits while viewport - 274 + 10 >= 103.
+   The 375 and 390 sizes keep one line; no fit-class cell pays a second one. */
+@media (max-width: 366px) {
+  .topBarCompact .sessionHead {
+    flex-wrap: wrap;
+    row-gap: var(--space-3);
+  }
+  .topBarCompact .sessionTitleWrap {
+    order: 1;
+    flex: 1 0 100%;
+  }
+  .topBarCompact .journalToggleBtn {
+    margin-left: auto;
   }
 }
 

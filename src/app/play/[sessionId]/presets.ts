@@ -802,7 +802,7 @@ const TABLE_ROW: LayoutRow = {
 // caption (about 28px below the tile) does not fit and is clipped by the band at its minimum.
 const PHONE_ROW: LayoutRow = {
   id: 'phone',
-  vars: { '--play-slot-edge': 'var(--space-3)', '--play-slot-pad': '0px' },
+  vars: { '--play-slot-edge': 'var(--space-3)', '--play-slot-pad': '0px', '--play-slot-inline': 'var(--space-6)' },
   // Column 2 is `suzuPresence`'s track: 0px when she is absent (AI assist off).
   columns: {
     exploring: 'minmax(0,1fr) auto',

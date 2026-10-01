@@ -730,6 +730,7 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
     expect(LAYOUT_ROWS_BY_ID.phone.vars).toEqual({
       '--play-slot-edge': 'var(--space-3)',
       '--play-slot-pad': '0px',
+      '--play-slot-inline': 'var(--space-6)',
     });
     expect(LAYOUT_ROWS_BY_ID.story.vars).toBeUndefined();
     expect(LAYOUT_ROWS_BY_ID.table.vars).toBeUndefined();
