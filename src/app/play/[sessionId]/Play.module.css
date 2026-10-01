@@ -264,7 +264,6 @@
    footprint when inactive WITHOUT display:none/visibility:hidden, either of
    which would also remove it from the accessibility tree. */
 .xCardBanner {
-  grid-area: banner;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -994,21 +993,5 @@
     flex-direction: column;
     padding: var(--density-pad);
     overflow-y: auto;
-  }
-}
-
-/* Iro CRITICAL-2: at 360px/320px widths, 4 pills (Story/Party/Scene/Journal
-   — "Journal" is the longest label) exceed the ~336px actually available
-   after .mobileTabs's own 12px×2 padding, clipped by .grid's overflow:hidden
-   with no wrap/scroll. Tighten the tightest case specifically: shave
-   horizontal padding + the icon/label gap so all 4 fit without scrolling on
-   most narrow phones; .mobileTabs's own overflow-x:auto above is the
-   safety net for anything narrower still. The 44px min-height touch target
-   is untouched — only horizontal padding/gap shrink. */
-@media (max-width: 400px) {
-  .mobileTabs button {
-    padding-left: 8px;
-    padding-right: 8px;
-    gap: 4px;
   }
 }
