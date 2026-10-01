@@ -101,6 +101,9 @@ export interface FoldSpec {
   /** Heading id that names the folded panel; omit when an enclosing landmark
    *  already names it (the stage is the "Scene" aside). */
   labelledBy?: string;
+  /** Id of the `[data-fold-body]` part that folds; the rest of the region never does
+   *  (A9d-2 F1, Amendment D.4). Absent = the whole region folds. */
+  body?: string;
 }
 
 export interface PlayShellProps {

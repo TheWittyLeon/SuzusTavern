@@ -25,6 +25,11 @@ import styles from './FoldDock.module.css';
  * 44px, so a `fit-content(<cap>)` column follows the fold with no row-data
  * change and no second copy of the width (the cap lives in `presets.ts`).
  *
+ * With `body`, only the part carrying `data-fold-body` folds (`.dock[data-folded='true']
+ * [data-fold-body]` in the stylesheet); the panel itself is never `hidden`, so a
+ * region's head, controls and live regions stay reachable (Iro A9d-1 IMPORTANT-1: a
+ * folded stage must not take End combat and its announcer out of the page).
+ *
  * `foldable={false}` is the same tree in an inert mode (no handle, never
  * hidden, no landmark, `display: contents` so the children lay out as if the
  * dock were not there). The shell uses it where a region is collapsible in
@@ -46,6 +51,11 @@ export interface FoldDockProps {
    *  `region` landmark labelled by it; when absent (the stage is already the
    *  "Scene" aside) the panel is a plain container — no duplicate landmark. */
   labelledBy?: string;
+  /** Id of a `[data-fold-body]` part INSIDE `children` that is the only thing a fold
+   *  hides (A9d-2 F1). The panel is then never `hidden`: everything else in it stays
+   *  rendered, in the AX tree and focusable, and the handle's `aria-controls` names the
+   *  body. Absent = the whole panel folds. */
+  body?: string;
   /** Default true. False = inert (see above). */
   foldable?: boolean;
   children: ReactNode;
@@ -57,6 +67,7 @@ export default function FoldDock({
   label,
   icon,
   labelledBy,
+  body,
   foldable = true,
   children,
 }: FoldDockProps) {
@@ -75,7 +86,7 @@ export default function FoldDock({
           className={styles.handle}
           aria-label={label}
           aria-expanded={!folded}
-          aria-controls={panelId}
+          aria-controls={body ?? panelId}
           title={`${folded ? 'Open' : 'Fold'} ${label.toLowerCase()}`}
           onClick={onToggle}
         >
@@ -93,7 +104,7 @@ export default function FoldDock({
       <div
         id={panelId}
         className={styles.panel}
-        hidden={isFolded}
+        hidden={isFolded && body === undefined}
         role={landmarkLabelledBy ? 'region' : undefined}
         aria-labelledby={landmarkLabelledBy ? `${nameId} ${landmarkLabelledBy}` : undefined}
       >

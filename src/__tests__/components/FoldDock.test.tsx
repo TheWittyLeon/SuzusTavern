@@ -46,6 +46,41 @@ describe('FoldDock', () => {
     expect(document.getElementById('h')).not.toBeVisible();
   });
 
+  describe('with a fold body (A9d-2 F1)', () => {
+    function bodyDock(folded: boolean) {
+      return render(
+        <FoldDock folded={folded} onToggle={() => {}} label="Scene stage" icon="Map" body="the-body">
+          <p id="head">head</p>
+          <div id="the-body" data-fold-body>picture</div>
+          <button type="button">End</button>
+        </FoldDock>,
+      );
+    }
+
+    it('aria-controls names the BODY, and folding never hides the panel or anything outside the body', () => {
+      bodyDock(true);
+      const handle = screen.getByRole('button', { name: 'Scene stage' });
+      expect(handle).toHaveAttribute('aria-expanded', 'false');
+      expect(handle).toHaveAttribute('aria-controls', 'the-body');
+      // The panel is not hidden: head and End stay rendered and in the AX tree.
+      expect(document.querySelector('[hidden]')).toBeNull();
+      expect(screen.getByRole('button', { name: 'End' })).toBeVisible();
+      expect(document.getElementById('head')).toBeVisible();
+      // The stylesheet hides only the body, keyed on the dock's folded state.
+      expect(document.querySelector('[data-folded="true"] [data-fold-body]')).toBe(document.getElementById('the-body'));
+    });
+
+    it('without a body the whole panel folds, as before (control: the `body` prop is what changes it)', () => {
+      render(
+        <FoldDock folded onToggle={() => {}} label="Scene stage" icon="Map">
+          <button type="button">End</button>
+        </FoldDock>,
+      );
+      expect(screen.getByRole('button', { name: 'Scene stage' }).getAttribute('aria-controls')).not.toBe('the-body');
+      expect(document.querySelector('[hidden]')).not.toBeNull();
+    });
+  });
+
   it('pressing the handle calls onToggle and keeps focus on it', () => {
     const { onToggle } = dock();
     const handle = screen.getByRole('button', { name: 'Character sheet' });

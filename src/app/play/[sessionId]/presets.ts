@@ -890,7 +890,6 @@ export const FOLDABLE_REGIONS: ReadonlySet<RegionId> = new Set(
 export const FOLDABLE_ANNOUNCERS: Partial<Record<RegionId, string>> = {
   characterBlock:
     'its announcers report only the sheet\'s own loading/error; a folded sheet has nothing to say',
-  // debt: folding phone's stage silences its combatNote/autoResolvePrompt announcers. ceiling: phone only, a user-initiated fold, persisted per user. until: A9d (Tora) decides the phone stage fold.
   sceneStage:
-    'phone only: folding the stage silences combatNote/autoResolvePrompt (see the marker above)',
+    'its announcers and focus anchors sit outside its fold body: only the picture folds (FoldSpec.body, A9d-2 F1)',
 };
