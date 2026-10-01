@@ -30,6 +30,7 @@ describe('text controls a player focuses on a phone are at least 16px (no iOS fo
     ['the composer textarea', 'src/components/Composer.module.css', '.input'],
     ['the Journal notes textarea', 'src/components/JournalPane.module.css', '.notesTextarea'],
     ['the Cast picker selects', 'src/components/CastSpellPanel.module.css', '.select'],
+    ['the DM currency grant select and amount (a DM on a phone)', 'src/components/GrantCurrencyPanel.module.css', '.select,\n.input'],
   ])('%s', (_n, file, selector) => {
     expect(fontPx(block(read(file), selector))).toBeGreaterThanOrEqual(16);
   });

@@ -72,6 +72,9 @@ const ENGINE_COMBAT_REASON_STATUS_KEYS = [
   'invalid_condition',
   'db_unavailable',
   'error',
+  // A9d-2 (F3 re-verify IMPORTANT-A): the DM's /monster-turn refusal, engine/combat.py::COMBAT_REASON_STATUS
+  // ("monster_statblock_unresolved": 500) at engine branch `homebrew-monsters-1001` @ ca57e00.
+  'monster_statblock_unresolved',
   // ── B8b move verb (design §3.4), engine/combat.py::COMBAT_REASON_STATUS ──
   'positioning_disabled',
   'no_space',
