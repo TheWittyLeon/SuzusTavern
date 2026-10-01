@@ -608,11 +608,13 @@ const STORY_ROW: LayoutRow = {
   //   + recap strip out of the log slot   194   <- the only lever that moves Story
   //   + dice tray out of the stage        132   (no effect: the track stays 290)
   // The recap strip is the largest lever. Even with it gone Story is ~6px short of
-  // 200; that last 6px is the turn banner / slot padding, an Aoi layout call, not
-  // a code lever claimed here.
-  // debt: Story/combat storyLog is 132px inner vs the 200px combat-floor target (a:storyLog), harness floor stays 100.
+  // 200 on the plain cell (g: 194); that last 6px is the turn banner / slot padding,
+  // an Aoi layout call, not a code lever claimed here. The lowest non-exempt combat
+  // cell is the Story CASTER cell (l-story-combat-caster) at 119: the Cast handle
+  // took 12px of it, so with the strip out it is still ~19px short (181), not ~6.
+  // debt: Story/combat storyLog is 132px inner (caster cell l: 119) vs the 200px combat-floor target (a:storyLog), harness floor stays 100.
   // ceiling: 200 needs the recap strip out of the log slot (194) plus ~6px of turn-banner/padding chrome; the stage cannot give it, the track stays 290.
-  // until: the recap strip is no longer rendered inside the combat log slot AND Aoi rules the remaining ~6px (Backlog TAV-COMBAT-LOG-FLOOR-200).
+  // until: the recap strip is no longer rendered inside the combat log slot AND Aoi rules the remaining ~6px (plain cell) / ~19px (caster cell l) (Backlog TAV-COMBAT-LOG-FLOOR-200).
   rows: {
     exploring: 'auto auto minmax(0,1fr) auto auto max-content',
     combat: 'auto auto fit-content(290px) minmax(0,1fr) auto max-content',
@@ -714,18 +716,19 @@ const TABLE_ROW: LayoutRow = {
   // A9c-2 D7: `fit-content(400px)` (was `minmax(0,400px)`), same lever, same 0px
   // returned: the stage holds the dice tray and its quick-check list (>=680px of
   // content probed at a 900px cap), so it always fills its 400px cap.
-  // Measured inner log (a:storyLog; Table b = the plain combat cell, Table c = the
-  // caster cell with the Cast panel), by lever, after the empty announcer tenants
+  // Measured inner log (a:storyLog; Table b = the plain combat cell, Table c =
+  // c-combat-monster-turn, whose deficit is the action bar's off-turn line, 106px
+  // against 82; the caster cell i measures 148, the same as b), by lever, after the empty announcer tenants
   // left the flex flow (+16px, `h:emptyTenants`):
   //   as shipped, gap removed                 148 (b)  123 (c)
   //   + dice tray out of the stage            186      161
   //   + recap strip out (tray still in)       210      185
   //   + both                                  248      223
   // The recap strip is the largest lever: alone it takes b past 200 (210). The
-  // caster cell c needs BOTH the strip and the tray out of the stage to pass 200.
-  // debt: Table/combat storyLog is 123-148px inner vs the 200px combat-floor target (a:storyLog), harness floor stays 100.
-  // ceiling: the recap strip in the log slot plus (caster cell only) the dice tray in the stage hold the caster cell at 123 against 223 with both gone; neither is movable from this track.
-  // until: the recap strip is no longer rendered inside the combat log slot (reaches 200 on the plain cell), and the dice tray leaves the stage in combat (caster cell) (Backlog TAV-COMBAT-LOG-FLOOR-200).
+  // monster-turn cell c needs BOTH the strip and the tray out of the stage to pass 200.
+  // debt: Table/combat storyLog is 123-148px inner (c, the monster-turn cell, is the 123) vs the 200px combat-floor target (a:storyLog), harness floor stays 100.
+  // ceiling: the recap strip in the log slot plus (monster-turn cell c only) the dice tray in the stage hold c at 123 against 223 with both gone; neither is movable from this track.
+  // until: the recap strip is no longer rendered inside the combat log slot (reaches 200 on the plain cell), and the dice tray leaves the stage in combat (monster-turn cell c) (Backlog TAV-COMBAT-LOG-FLOOR-200).
   // debt: Table's `offers` (`list`, one full-width button per offer) is capped at 120px and scrolls inside it; uncapped, 3-4 offers starve the log.
   // ceiling: 3+ offers scroll in a 120px box, in the table·exploring cell only (offers are hidden in combat).
   // until: Table's offers take the `chips` form (step 11 Table checkpoint) or the stage track is content-sized.
