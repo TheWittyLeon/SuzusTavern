@@ -190,7 +190,7 @@ describe('A11Y-BUTTON-BORDER-CONTRAST: --line-strong meets WCAG 1.4.11 (3:1 non-
 })
 
 describe('A11Y-BUTTON-BORDER-CONTRAST: flagged buttons use --line-strong, not the low-contrast --line', () => {
-  it('.xCardBannerDismiss and .safetyBtns button border on --line-strong', () => {
+  it('.xCardBannerDismiss and .safety button border on --line-strong', () => {
     const playCss = fs.readFileSync(
       path.resolve(
         process.cwd(),
@@ -199,7 +199,7 @@ describe('A11Y-BUTTON-BORDER-CONTRAST: flagged buttons use --line-strong, not th
       'utf8',
     )
     const xCardBlock = playCss.match(/\.xCardBannerDismiss\s*\{([\s\S]*?)\}/)?.[1] ?? ''
-    const safetyBlock = playCss.match(/\.safetyBtns button\s*\{([\s\S]*?)\}/)?.[1] ?? ''
+    const safetyBlock = playCss.match(/\.safety button\s*\{([\s\S]*?)\}/)?.[1] ?? ''
     expect(xCardBlock).toContain('var(--line-strong)')
     expect(xCardBlock).not.toContain('border: 1px solid var(--line);')
     expect(safetyBlock).toContain('var(--line-strong)')
