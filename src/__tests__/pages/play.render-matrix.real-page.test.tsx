@@ -10,7 +10,7 @@
  * here and nowhere else.
  */
 import React from 'react';
-import { screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { Session, Participant } from '@/lib/api/types';
