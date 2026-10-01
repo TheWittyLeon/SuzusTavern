@@ -61,10 +61,10 @@ describe('overlay owners reserve the overlaid edge', () => {
     expect(slot(render(<PlayShell row={both} moment="exploring" regions={regions()} tenants={{}} />).container, 'sceneStage')).toHaveAttribute('data-overlay-edges', 'bottom top');
   });
 
-  it('the stylesheet pads each edge by the SAME height token the overlay bar takes', () => {
+  it('the stylesheet reserves each edge (as a MARGIN, so it holds at every scroll position) by the SAME height token the overlay bar takes', () => {
     const css = readFileSync(path.join(process.cwd(), 'src/app/play/[sessionId]/Play.module.css'), 'utf8');
-    expect(css).toMatch(/\.slot\[data-overlay-edges~='top'\]\s*\{[^}]*padding-block-start:\s*calc\(var\(--overlay-bar-h\)/);
-    expect(css).toMatch(/\.slot\[data-overlay-edges~='bottom'\]\s*\{[^}]*padding-block-end:\s*calc\(var\(--overlay-bar-h\)/);
+    expect(css).toMatch(/\.slot\[data-overlay-edges~='top'\]\s*\{[^}]*margin-block-start:\s*calc\(var\(--overlay-bar-h\)/);
+    expect(css).toMatch(/\.slot\[data-overlay-edges~='bottom'\]\s*\{[^}]*margin-block-end:\s*calc\(var\(--overlay-bar-h\)/);
     expect(css).toMatch(/\.topBarOverlay\s*\{[^}]*height:\s*var\(--overlay-bar-h\)/);
     expect(css).toMatch(/--overlay-bar-h:\s*\d+px/);
   });
