@@ -1133,6 +1133,30 @@ describe('CastSpellPanel — success toast', () => {
 
     expect(await screen.findByText('Cast Cure Wounds.')).toBeInTheDocument();
   });
+
+  it('the cast is carried by ONE role=status; the only other live node is the toast viewport that contains it (Iro MINOR-7)', async () => {
+    mockCastSpell.mockResolvedValue({ message: 'You heal Twilight for 8 HP.' });
+    mockGetSheet.mockResolvedValue(SHEET);
+    renderPanel();
+    await flush();
+
+    selectSpell('Cure Wounds');
+    fireEvent.click(screen.getByRole('button', { name: 'Cast Cure Wounds' }));
+    await flush();
+    await screen.findByText('Cast Cure Wounds.');
+
+    const carriers = Array.from(
+      document.querySelectorAll('[aria-live], [role="status"], [role="alert"], [role="log"]'),
+    ).filter((n) => n.textContent?.includes('Cast Cure Wounds.'));
+    // Two nodes, nested: the viewport (aria-live container) and the one toast inside it.
+    expect(carriers).toHaveLength(2);
+    const [outer, inner] = carriers;
+    expect(outer.getAttribute('data-component')).toBe('ToastViewport');
+    expect(inner.getAttribute('role')).toBe('status');
+    expect(outer.contains(inner)).toBe(true);
+    // No second status node (the panel's own announcers do not echo the toast).
+    expect(screen.getAllByRole('status').filter((n) => n.textContent?.includes('Cast Cure Wounds.'))).toHaveLength(1);
+  });
 });
 
 describe('CastSpellPanel — refetch failure after a successful cast (D2 pattern)', () => {
