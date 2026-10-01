@@ -225,8 +225,16 @@ export default function PlayShell({
 
   // C4 (C.1): the areas an overlay sits on. Their owner slots get
   // `data-overlaid` + `isolation:isolate` (and ONLY they do — never `.slot`).
-  const overlaidAreas = new Set<string>();
-  for (const entry of order) if (entry.kind === 'overlay') overlaidAreas.add(entry.area);
+  // Each also records the EDGES its overlays sit on (`top`/`bottom`, read off the
+  // anchor): the owner reserves that edge so its own first/last line is never under
+  // the overlay's box (A9c-2 D7, harness check e:topBar:overText).
+  const overlaidAreas = new Map<string, Set<string>>();
+  for (const entry of order) {
+    if (entry.kind !== 'overlay') continue;
+    const edges = overlaidAreas.get(entry.area) ?? new Set<string>();
+    edges.add(entry.anchor.split('-')[0]);
+    overlaidAreas.set(entry.area, edges);
+  }
 
   const slotFor = (regionId: RegionId, area: string | null, anchor?: Anchor) => {
     const hidden = area == null || getPlacement(row, regionId, moment).visible === false;
@@ -268,6 +276,9 @@ export default function PlayShell({
         data-area={area ?? undefined}
         data-anchor={anchor}
         data-overlaid={anchor == null && area != null && overlaidAreas.has(area) ? 'true' : undefined}
+        data-overlay-edges={
+          anchor == null && area != null && overlaidAreas.has(area) ? [...overlaidAreas.get(area)!].sort().join(' ') : undefined
+        }
         data-visible={!hidden}
       >
         {body}

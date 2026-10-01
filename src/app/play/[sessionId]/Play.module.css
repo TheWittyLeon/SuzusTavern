@@ -10,6 +10,8 @@
  * while loading.
  */
 .grid {
+  /* The overlay bar's height (see `.topBarOverlay`, `.slot[data-overlay-edges]`). */
+  --overlay-bar-h: 64px;
   display: grid;
   grid-template-areas: var(--play-areas);
   grid-template-columns: var(--play-columns);
@@ -128,6 +130,17 @@
    map tokens) under the overlay. */
 .slot[data-overlaid='true'] {
   isolation: isolate;
+}
+/* The owner RESERVES the edge its overlay sits on, so its own first (or last)
+   line is never under the overlay's box (A9c-2 D7; harness check e:topBar:overText
+   is the proof, measured). The overlay bar's height is a token, not a mirror:
+   `.topBarOverlay` takes `height: var(--overlay-bar-h)` from the same declaration,
+   so the reserve cannot drift from the box it clears. */
+.slot[data-overlay-edges~='top'] {
+  padding-block-start: calc(var(--overlay-bar-h) + 2 * var(--space-4));
+}
+.slot[data-overlay-edges~='bottom'] {
+  padding-block-end: calc(var(--overlay-bar-h) + 2 * var(--space-4));
 }
 
 /* partyStrip's and sceneStage's slots ARE the landmark `<aside>` elements
@@ -252,9 +265,12 @@
   padding: var(--space-4) var(--space-6);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  /* 94%, not the mock's 78%: the stage's own scene heading sits under this box
-     (the overlay lifts over the stage's first line, A9c-2 D7 will reserve it)
-     and at 78% the two read as one garbled line (seen in the C4 harness shot). */
+  /* Fixed height (one line, the title ellipsises): the owner's reserve is
+     computed from this same token (`.slot[data-overlay-edges]`). */
+  box-sizing: border-box;
+  height: var(--overlay-bar-h);
+  /* debt: backing is 94%, not the mock's 78%, as a belt over the stage's reserve. ceiling: the scene reads through only 6%; the mock's 78% look is not delivered.
+     until: Aoi rules the scene-through-the-bar look, now that the stage reserves the bar's box (D7), and the backing can return toward the mock. */
   background: color-mix(in oklab, var(--bg) 94%, transparent);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
