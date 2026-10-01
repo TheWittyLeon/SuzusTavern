@@ -230,6 +230,10 @@
   display: block;
 }
 
+.rail .you {
+  margin-inline-start: 6px;
+}
+
 .rail .rightCol {
   grid-column: 2;
   margin-top: 0;
