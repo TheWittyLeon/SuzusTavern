@@ -109,7 +109,7 @@
  *        The mockup's parts table says "Hidden while exploring" — D3/R3
  *        require it stay mounted-and-visible so an announcing region
  *        never goes dark (the X-card/Iro CRITICAL-1 precedent); only its
- *        density changes (`'inline'` exploring, `'panel'` combat).
+ *        variant changes (`'inline'` exploring, `'panel'` combat).
  *
  * Amendment A (2026-09-28) on `Offers`/combat: "the region's visibility
  * during combat becomes a Placement row (`regions.offers.combat =
@@ -220,34 +220,56 @@ export const ANNOUNCING_REGIONS: ReadonlySet<RegionId> = new Set<RegionId>([
 ]);
 
 /**
- * Kage-CR IMPORTANT-6 (2026-09-30): `Placement.density` is deliberately
+ * Amendment B.3 (2026-09-30, Sora-Arch — answers Kage-CR 🟡-5/6/7): the
+ * three `variant` unions, reconciled. `Placement.variant` is deliberately
  * opaque to the shell (Guard 1, plan §3.5, "an opaque string to the shell
- * and a union inside the region") — but nothing recorded which values are
- * legal for which region, so a typo or an unsupported value was
- * undetectable by `tsc` and by every test. This table is that missing
- * union, one entry per region that actually has a density axis, derived
- * from the plan's declared per-region unions (§2.3) and this row data
- * (reconciled against three divergences found in review — see each
- * region's own `regions.*` comment for its specific fix):
- *  - `characterBlock` — was `'rail'` in `table` (a third, unplanned value
- *    — R21 says "full sheet + five tabs") and unset in `story`/`phone`
- *    (plan §2.4: "compact = card/drawer"). Now `'full'` / `'compact'`.
- *  - `suzuPresence` is deliberately ABSENT from this table: its real prop
- *    is `size` (plan §2.3: "{mood, size, caption?, aiOff}"), not
- *    `density` — the opaque `density` field carries its value today for
- *    lack of a dedicated slot, but the axis name is wrong, so validating
- *    it against a "density" union would assert the wrong thing.
+ * and a union inside the region") — this table is the missing record of
+ * which values are legal for which region, so a typo or an unsupported
+ * value is caught by the guard below instead of being undetectable by
+ * `tsc` and by every test.
+ *  - `suzuPresence: ['compact','full']` — Kage's option (i). The B.1 rename
+ *    removes the objection that excluded it at A9a ("its real prop is
+ *    `size`, so validating it against a *density* union asserts the wrong
+ *    thing") — presence size **is** a presentational variant: Story's
+ *    "figure beside the story" and Table's "framed speaker portrait" differ
+ *    in LOOK, not on the size axis. A third value with one emitter would
+ *    repeat the `'vitals'` mistake below.
+ *  - `characterBlock: ['compact','full','rail']` — `'rail'` is R20's
+ *    FOLDED state, reached at runtime from the persisted fold pref (A9c),
+ *    and declared in `VARIANTS_NOT_EMITTED_BY_PRESETS` below as not emitted
+ *    by any preset row — a declaration, not the accident that killed
+ *    `actionBar`'s `'full'`.
+ *  - `actionBar: ['chips','bar']` — 🟡-7 taken whole. `'vitals'` was the
+ *    name of a DATA prop (`ActionBarProps.vitals`), not a variant; `'full'`
+ *    had no emitter. "Vitals only while exploring" is the bar's own
+ *    response to an empty `actions` array (data), which is what it already
+ *    does — R16's "phone gains the action bar in combat" is therefore
+ *    expressed by the bar's CONTENT, and the registry stops claiming a
+ *    moment difference it cannot deliver.
  * A9b/A9c derive each region's own prop union from this
- * (`(typeof REGION_DENSITIES)['offers'][number]`) instead of
- * hand-writing it a second time.
+ * (`(typeof REGION_VARIANTS)['offers'][number]`) instead of hand-writing it
+ * a second time.
  */
-export const REGION_DENSITIES = {
+export const REGION_VARIANTS = {
   partyStrip: ['strip', 'rail'],
   sceneStage: ['inline', 'panel', 'hero'],
   offers: ['chips', 'list'],
-  characterBlock: ['compact', 'full'],
-  actionBar: ['vitals', 'chips', 'full'],
+  characterBlock: ['compact', 'full', 'rail'],
+  actionBar: ['chips', 'bar'],
+  suzuPresence: ['compact', 'full'],
 } as const satisfies Partial<Record<RegionId, readonly string[]>>;
+
+/**
+ * Amendment B.3: union members that are legal but never emitted by a
+ * preset ROW — reached only at runtime, from a persisted preference. A
+ * guard below asserts every `REGION_VARIANTS` member is either emitted by
+ * some row or named here; an un-exempted, un-emitted member is a dead slot
+ * (the durability red flag "declared field with zero readers" pointed the
+ * other way — a declared UNION member nobody can reach).
+ */
+export const VARIANTS_NOT_EMITTED_BY_PRESETS: Partial<Record<RegionId, readonly string[]>> = {
+  characterBlock: ['rail'],
+};
 
 export type Moment = 'exploring' | 'combat';
 export type LayoutId = 'story' | 'table' | 'phone';
@@ -256,9 +278,19 @@ export interface Placement {
   /** Grid-area name; null = not placed in the grid this moment (either a
    *  `layer` or genuinely absent, e.g. `offers` during combat). */
   area: string | null;
-  /** Passed straight to the region. Opaque to the shell (Guard 1, plan
-   *  §3.5) — a region's own prop type is the only thing that interprets it. */
-  density?: string;
+  /**
+   * Amendment B.1 (2026-09-30, Sora-Arch — answers Kage-CR 🟡-8): renamed
+   * from `density`. `theme.ts`'s site-wide density axis (`DENSITIES`,
+   * `data-density`, `--density-pad`/`--density-gap`) already owns that
+   * word, and `'compact'` is a legal member of BOTH vocabularies — a region
+   * reading `--density-pad` from the cascade while also receiving
+   * `density="compact"` as a placement input is ambiguous by construction.
+   * `variant` is the repo's existing word for a presentational form of one
+   * component (`SessionRecap variant="strip"`) — reuse beats invention.
+   * Passed straight to the region. Opaque to the shell (Guard 1, plan
+   * §3.5) — a region's own prop type is the only thing that interprets it.
+   */
+  variant?: string;
   /** default true; false = display:none, still mounted. Never set true→false
    *  on an `ANNOUNCING_REGIONS` member — see file header. */
   visible?: boolean;
@@ -284,11 +316,24 @@ export interface LayoutRow {
   label: string;
   /** The grid-template-areas value. */
   areas: Record<Moment, string>;
-  /** The grid-template-columns value. Row heights are deliberately NOT part
-   *  of this contract (no `rows` field) — sizing per area is a step-6b/
-   *  Aoi-UI CSS concern (`--stage-w`/`--stage-h` etc., plan §4.1), not
-   *  preset data. */
+  /** The grid-template-columns value. Per-area sizing (`--stage-w`/
+   *  `--stage-h` etc., plan §4.1) is a step-6b/Aoi-UI CSS concern, not
+   *  preset data — but TRACK sizing (this field and `rows` below) is the
+   *  same kind of thing as `columns` already was, one track list per
+   *  moment. */
   columns: Record<Moment, string>;
+  /**
+   * Amendment B.2 (2026-09-30, Sora-Arch — a gap, not a preference):
+   * grid-template-rows, beside `columns`. `/play` is
+   * `height: calc(100dvh - var(--env-banner-h))` with `overflow: hidden`
+   * (`Play.module.css`) — today the three panes are the scroll containers;
+   * once regions are grid items, `auto`-sized bands in a fixed-height grid
+   * CLIP (no `1fr`, nothing scrolls). Guard S1 extends: the track count
+   * here equals the line count in `areas[moment]`. Values are Aoi/step-11's
+   * to tune at the post-A9d checkpoint — this field makes that a row edit,
+   * not a CSS hunt.
+   */
+  rows: Record<Moment, string>;
   regions: Record<RegionId, Partial<Record<Moment, Placement>> & { default: Placement }>;
 }
 
@@ -323,8 +368,23 @@ const STORY_ROW: LayoutRow = {
   id: 'story',
   label: 'Story',
   columns: {
-    exploring: '200px minmax(0,1fr) 280px',
-    combat: '200px minmax(0,1fr) 280px',
+    // Amendment B §5 "aiOff edge": column 1 is `suzuPresence`'s track.
+    // `TopBar` only renders `NarratorStrip` (and therefore `SuzuDM`) when
+    // `showSuzuPanel` — an `ai_assist_level:'off'` session leaves this
+    // column empty. `auto` lets an empty slot collapse instead of holding
+    // open a dead 200px column (the same shape as IMPORTANT-5's dead
+    // 280px, one column over). Column 3 (S-c): `280px` was sized for the
+    // exploring-moment stage card; combat now holds a party rail there
+    // instead — `200px` fits the rail without the extra width the stage
+    // card wanted. Checkpoint settles the exact value; this is data.
+    exploring: 'auto minmax(0,1fr) 280px',
+    combat: 'auto minmax(0,1fr) 200px',
+  },
+  // Amendment B.2: grid-template-rows, one track per `areas` line. Starting
+  // values (build brief §7 C1) — Aoi/step 11 tunes them at the checkpoint.
+  rows: {
+    exploring: 'auto auto minmax(0,1fr) auto auto auto',
+    combat: 'auto auto minmax(0,340px) minmax(0,1fr) auto auto',
   },
   areas: {
     exploring: `"safetyBanner safetyBanner safetyBanner"
@@ -335,7 +395,7 @@ const STORY_ROW: LayoutRow = {
                 "suzuPresence actionBar    sceneStage"`,
     // Plan §3.2's illustrative snippet says combat "adds actionBar" —
     // stale: `actionBar` is placed in BOTH moments (Kage-CR Q1 ruling,
-    // see the `regions.actionBar` entry below); only its density changes.
+    // see the `regions.actionBar` entry below); only its variant changes.
     // What combat actually does here is move `sceneStage` above `storyLog`
     // and gate `offers` off (Amendment A, a data gate in useScene, not a
     // rendering choice). Kage-CR IMPORTANT-5 (2026-09-30, option (c)):
@@ -357,38 +417,38 @@ const STORY_ROW: LayoutRow = {
     topBar: { default: { area: 'topBar' } },
     // Kage-CR IMPORTANT-5 (2026-09-30, option (c)): exploring keeps the
     // header-row strip; combat gives it column 3 full-height as a rail
-    // (same density Table's characterBlock rail would use) rather than
+    // (same variant Table's characterBlock rail would use) rather than
     // leaving a dead 280px track.
     partyStrip: {
-      default: { area: 'partyStrip', density: 'strip' },
-      combat: { area: 'partyStrip', density: 'rail' },
+      default: { area: 'partyStrip', variant: 'strip' },
+      combat: { area: 'partyStrip', variant: 'rail' },
     },
-    suzuPresence: { default: { area: 'suzuPresence' } },
+    // Amendment B.3 (🟡-5, Kage's option (i)): presence size IS preset
+    // data — Story gives it a full-height column, so it emits `'full'`.
+    suzuPresence: { default: { area: 'suzuPresence', variant: 'full' } },
     sceneStage: {
-      default: { area: 'sceneStage', density: 'panel' },
-      combat: { area: 'sceneStage', density: 'hero' },
+      default: { area: 'sceneStage', variant: 'panel' },
+      combat: { area: 'sceneStage', variant: 'hero' },
     },
     storyLog: { default: { area: 'storyLog' } },
     offers: {
-      default: { area: 'offers', density: 'chips' },
+      default: { area: 'offers', variant: 'chips' },
       combat: { area: null, visible: false },
     },
     // R16: Story's sheet is "in a drawer" — never docked in this preset.
-    // Kage-CR IMPORTANT-6 (2026-09-30): density reconciled to plan §2.4
+    // Kage-CR IMPORTANT-6 (2026-09-30): variant reconciled to plan §2.4
     // ("compact = card/drawer") — was unset.
-    characterBlock: { default: { area: null, layer: true, density: 'compact' } },
-    // Kage-CR Q1 ruling (2026-09-30, overrules Miko's R16-literal defect):
-    // Amendment A already hides `offers` during combat, so dropping the
-    // bar too would leave Story-combat with NO way to act at all — that
-    // forces the data, no Leon needed. Placed in BOTH moments (`areas`
-    // strings already carry the token, unchanged); only the density
-    // changes: 'vitals' while exploring (no combat verbs to offer),
-    // 'chips' in combat (R16's "offers inline" idiom, now rendered by the
-    // bar itself since `offers` is gone).
-    actionBar: {
-      default: { area: 'actionBar', density: 'vitals' },
-      combat: { area: 'actionBar', density: 'chips' },
-    },
+    characterBlock: { default: { area: null, layer: true, variant: 'compact' } },
+    // Amendment B.3 (🟡-7, supersedes the Kage-CR Q1 ruling's density
+    // split): `actionBar`'s union is now `['chips','bar']` — Story emits
+    // `'chips'` in BOTH moments (R16's "offers inline" idiom; `'vitals'`
+    // was the name of a DATA prop, not a variant, and is deleted).
+    // "Vitals only while exploring" is the bar's own response to an empty
+    // `actions` array, which keeps Q1's reasoning intact: Amendment A
+    // already hides `offers` during combat, so the bar stays the one way
+    // to act in Story-combat either way. Placed in BOTH moments; `areas`
+    // strings already carry the token, unchanged.
+    actionBar: { default: { area: 'actionBar', variant: 'chips' } },
     composer: { default: { area: 'composer' } },
     tableControls: { default: { area: null, layer: true } },
     safetyBanner: { default: { area: 'safetyBanner' } },
@@ -401,18 +461,26 @@ const STORY_ROW: LayoutRow = {
 // `.bar{display:flex}` under `[data-layout="table"]`, unlike phone/story).
 // R20: the docked sheet is a COLLAPSIBLE RAIL — "docked open by default,
 // with a handle that folds it to a thin strip", same in both moments.
-// `collapsible: true` is the fold mechanism; `density: 'full'` is R21's
+// `collapsible: true` is the fold mechanism; `variant: 'full'` is R21's
 // "full sheet + five tabs" (Kage-CR IMPORTANT-4, 2026-09-30 — the docked
 // state is the full sheet, collapsible is what makes it a RAIL when
-// folded, not a separate density value).
+// folded, not a separate variant value).
 // ---------------------------------------------------------------------------
 
 const TABLE_ROW: LayoutRow = {
   id: 'table',
   label: 'Table',
   columns: {
-    exploring: '160px 150px minmax(0,1fr) 300px',
-    combat: '160px 150px minmax(0,1fr) 300px',
+    // Amendment B §5 "aiOff edge": column 2 is `suzuPresence`'s track —
+    // `auto` lets an `ai_assist_level:'off'` session's empty slot collapse
+    // instead of holding open a dead 150px column (see STORY_ROW's
+    // identical column-1 comment).
+    exploring: '160px auto minmax(0,1fr) 300px',
+    combat: '160px auto minmax(0,1fr) 300px',
+  },
+  rows: {
+    exploring: 'auto 218px minmax(0,1fr) auto auto auto',
+    combat: 'auto minmax(0,400px) minmax(0,1fr) auto auto',
   },
   areas: {
     exploring: `"safetyBanner safetyBanner safetyBanner safetyBanner"
@@ -433,16 +501,19 @@ const TABLE_ROW: LayoutRow = {
     // Kage-CR CRITICAL-2 (2026-09-30): a declared co-occupancy, not a
     // duplicate area string — topBar renders INSIDE sceneStage's area.
     topBar: { default: { area: null, host: 'sceneStage' } },
-    partyStrip: { default: { area: 'partyStrip', density: 'rail' } },
-    suzuPresence: { default: { area: 'suzuPresence' } },
-    sceneStage: { default: { area: 'sceneStage', density: 'hero' } },
+    partyStrip: { default: { area: 'partyStrip', variant: 'rail' } },
+    // Amendment B.3 (🟡-5): presence size is preset data — Table gives it
+    // a "framed speaker portrait" treatment, `'full'`.
+    suzuPresence: { default: { area: 'suzuPresence', variant: 'full' } },
+    sceneStage: { default: { area: 'sceneStage', variant: 'hero' } },
     storyLog: { default: { area: 'storyLog' } },
     offers: {
-      default: { area: 'offers', density: 'list' },
+      default: { area: 'offers', variant: 'list' },
       combat: { area: null, visible: false },
     },
-    characterBlock: { default: { area: 'characterBlock', density: 'full', collapsible: true } },
-    actionBar: { default: { area: 'actionBar' } },
+    characterBlock: { default: { area: 'characterBlock', variant: 'full', collapsible: true } },
+    // Amendment B.3 (🟡-7): `'bar'`, Table's bottom-always treatment.
+    actionBar: { default: { area: 'actionBar', variant: 'bar' } },
     composer: { default: { area: 'composer' } },
     tableControls: { default: { area: null, layer: true } },
     safetyBanner: { default: { area: 'safetyBanner' } },
@@ -456,7 +527,7 @@ const TABLE_ROW: LayoutRow = {
 // always-mounted presence icon, R10's bound "presence must not cost story
 // space on a phone" — mirrors the mockup's `.pl.phone .party`/`.suzu`
 // living inside/over `.hdr`, not a separate row).
-// `sceneStage` density per plan §4.2's 390-wide column (never hidden —
+// `sceneStage` variant per plan §4.2's 390-wide column (never hidden —
 // `inline` while exploring, `panel` in combat, both collapsible).
 // ---------------------------------------------------------------------------
 
@@ -466,6 +537,10 @@ const PHONE_ROW: LayoutRow = {
   columns: {
     exploring: '1fr',
     combat: '1fr',
+  },
+  rows: {
+    exploring: 'auto auto auto minmax(0,1fr) auto auto auto',
+    combat: 'auto auto minmax(0,34vh) minmax(0,1fr) auto auto',
   },
   areas: {
     exploring: `"safetyBanner"
@@ -486,22 +561,25 @@ const PHONE_ROW: LayoutRow = {
     topBar: { default: { area: 'topBar' } },
     // Kage-CR CRITICAL-2 (2026-09-30): declared co-occupancies of `topBar`,
     // not duplicate area strings — both render INSIDE topBar's area.
-    partyStrip: { default: { area: null, host: 'topBar', density: 'strip' } },
-    suzuPresence: { default: { area: null, host: 'topBar', density: 'compact' } },
+    partyStrip: { default: { area: null, host: 'topBar', variant: 'strip' } },
+    suzuPresence: { default: { area: null, host: 'topBar', variant: 'compact' } },
     sceneStage: {
-      default: { area: 'sceneStage', density: 'inline', collapsible: true },
-      combat: { area: 'sceneStage', density: 'panel', collapsible: true },
+      default: { area: 'sceneStage', variant: 'inline', collapsible: true },
+      combat: { area: 'sceneStage', variant: 'panel', collapsible: true },
     },
     storyLog: { default: { area: 'storyLog' } },
     offers: {
-      default: { area: 'offers', density: 'chips' },
+      default: { area: 'offers', variant: 'chips' },
       combat: { area: null, visible: false },
     },
     // R16 (Phone = Story's arrangement): sheet is a drawer, never docked.
-    // Kage-CR IMPORTANT-6 (2026-09-30): density reconciled to plan §2.4
+    // Kage-CR IMPORTANT-6 (2026-09-30): variant reconciled to plan §2.4
     // ("compact = card/drawer") — was unset.
-    characterBlock: { default: { area: null, layer: true, density: 'compact' } },
-    actionBar: { default: { area: 'actionBar' } },
+    characterBlock: { default: { area: null, layer: true, variant: 'compact' } },
+    // Amendment B.3 (🟡-7): `'bar'`, matching Table — the bar's own
+    // content (not the registry) is what expresses R16's "Phone gains the
+    // action bar in combat".
+    actionBar: { default: { area: 'actionBar', variant: 'bar' } },
     composer: { default: { area: 'composer' } },
     tableControls: { default: { area: null, layer: true } },
     safetyBanner: { default: { area: 'safetyBanner' } },

@@ -24,11 +24,19 @@
  * submit surface S3 (ruled later than both R16 and the mockup) forbids:
  * "ActionBar stays the single place that submits a combat action." The
  * two cases below are inverted accordingly: Story places `actionBar` in
- * BOTH moments, gaining only a density change (`'vitals'` exploring,
- * `'chips'` combat) — see `presets.ts`'s own `regions.actionBar` comment
- * for the ruling text. The other six cases are Miko's, unchanged.
+ * BOTH moments — see `presets.ts`'s own `regions.actionBar` comment for
+ * the ruling text. The other six cases are Miko's, unchanged.
  *
- * These assertions run against the REAL registry (no mutation) — every
+ * Amendment B.3 (A9b C1, 2026-09-30, Sora-Arch, answers Kage-CR 🟡-7):
+ * supersedes this file's own `'vitals'`/`'chips'` density split -- `'vitals'`
+ * was the name of a DATA prop (`ActionBarProps.vitals`), never a density/
+ * variant, and the union is now `['chips','bar']`. Story emits `'chips'` in
+ * BOTH moments; "vitals only while exploring" is the bar's own response to
+ * an empty `actions` array (data), which keeps this file's Q1 reasoning
+ * intact -- Amendment A still hides `offers` during combat, so the bar
+ * stays the one way to act in Story-combat either way.
+ *
+ * These assertions run against the REAL registry (no mutation) -- every
  * one below reflects the live, ruled state at HEAD.
  */
 import { LAYOUT_ROWS_BY_ID, REGION_IDS, getPlacement } from '../../app/play/[sessionId]/presets';
@@ -54,17 +62,17 @@ describe('play-preset-registry — ruling fidelity (Miko-QA, R16)', () => {
     ]);
   });
 
-  it('Story places actionBar in BOTH moments, with density "vitals" exploring / "chips" combat (Kage-CR Q1 ruling, 2026-09-30: overrules the R16-literal reading — Amendment A already removes `offers` in combat, so dropping the bar too would leave Story-combat with no way to act at all)', () => {
+  it('Story places actionBar in BOTH moments, with variant "chips" (Kage-CR Q1 ruling, 2026-09-30, carried forward by Amendment B.3: overrules the R16-literal reading — Amendment A already removes `offers` in combat, so dropping the bar too would leave Story-combat with no way to act at all)', () => {
     const row = LAYOUT_ROWS_BY_ID.story;
     const exploring = getPlacement(row, 'actionBar', 'exploring');
     const combat = getPlacement(row, 'actionBar', 'combat');
     expect(exploring.area).toBe('actionBar');
-    expect(exploring.density).toBe('vitals');
+    expect(exploring.variant).toBe('chips');
     expect(combat.area).toBe('actionBar');
-    expect(combat.density).toBe('chips');
+    expect(combat.variant).toBe('chips');
   });
 
-  it('Story’s grid-template-areas names "actionBar" in both moments — unchanged by the Q1 fix, which is a density change only, never an area/token edit', () => {
+  it('Story’s grid-template-areas names "actionBar" in both moments — unchanged by the Q1 fix / Amendment B.3, both of which are variant changes only, never an area/token edit', () => {
     const row = LAYOUT_ROWS_BY_ID.story;
     expect(row.areas.exploring).toMatch(/\bactionBar\b/);
     expect(row.areas.combat).toMatch(/\bactionBar\b/);

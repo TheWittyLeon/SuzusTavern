@@ -33,8 +33,9 @@ import {
   ANNOUNCING_REGIONS,
   LAYOUT_ROWS,
   LAYOUT_ROWS_BY_ID,
-  REGION_DENSITIES,
+  REGION_VARIANTS,
   REGION_IDS,
+  VARIANTS_NOT_EMITTED_BY_PRESETS,
   getPlacement,
   type LayoutRow,
   type Moment,
@@ -256,17 +257,17 @@ describe('TAV-PLAY-SHELL presets.ts — grid co-occupancy (CRITICAL-2): no undec
  * accidental addition all go red in the same assertion.
  */
 /**
- * Kage-CR 🟡-4 (2026-09-30 fix round, carried to A9b): folds density/host/
+ * Kage-CR 🟡-4 (2026-09-30 fix round, carried to A9b): folds variant/host/
  * layer/visible/collapsible into ONE composite string per placement, in a
  * fixed field order, instead of `pinnedValue`'s old area-or-host-or-null.
  * A DROPPED field (not just a wrong one) now changes the string, so the
  * full row pin below reds on it too — this is what N4 needs, since the
- * per-region density loop further down only ever checks a value that is
+ * per-region variant loop further down only ever checks a value that is
  * PRESENT (an absent one is always legal there by construction).
  */
 function pinnedValue(p: Placement): string {
   const parts: string[] = [p.area != null ? p.area : p.host != null ? `host:${p.host}` : 'null'];
-  if (p.density !== undefined) parts.push(`density:${p.density}`);
+  if (p.variant !== undefined) parts.push(`variant:${p.variant}`);
   if (p.visible !== undefined) parts.push(`visible:${p.visible}`);
   if (p.layer !== undefined) parts.push(`layer:${p.layer}`);
   if (p.collapsible !== undefined) parts.push(`collapsible:${p.collapsible}`);
@@ -274,50 +275,62 @@ function pinnedValue(p: Placement): string {
 }
 
 /**
- * Kage-CR 🟡-4 (2026-09-30 fix round): regions allowed to carry a density
- * value with NO entry in `REGION_DENSITIES` yet, and the exact value(s)
- * tolerated for each — an EXPLICIT allowlist, never a silent
- * `if (!allowed) return`, so a future un-exempted region's dropped-union-
- * entry still reds. Today this is exactly one region: `suzuPresence`
- * (Kage-CR 🟡-5/IMPORTANT-5's own open finding — `phone.suzuPresence.
- * density` is already `'compact'` in real data, on an axis the plan's own
- * §2.3 calls wrong, "its real prop is `size`, not `density`"). This C0
- * guard-fix lands ahead of Amendment B (A9b's C1), which is where 🟡-5
- * actually gets resolved by declaring `suzuPresence: ['compact','full']` in
- * `REGION_DENSITIES` — at which point this exemption's only member is gone
- * and should be deleted along with it, not left as a dead `Record`.
+ * Amendment B (C1, 2026-09-30): the C0 fix round's `DENSITY_GUARD_EXEMPTIONS`
+ * carried exactly one member — `suzuPresence: ['compact']` — as a named,
+ * value-scoped tolerance for 🟡-5's then-open gap (`phone.suzuPresence`'s
+ * real data had a value with no `REGION_DENSITIES` entry at all). Amendment
+ * B.3 resolves 🟡-5 by declaring `suzuPresence: ['compact','full']` in
+ * `REGION_VARIANTS` below, so that exemption's only member is now a
+ * declared value — the exemption constant is deleted in the same commit
+ * that fires its own `until:`, not left as a dead, empty `Record`.
  */
-const DENSITY_GUARD_EXEMPTIONS: Partial<Record<RegionId, readonly string[]>> = {
-  suzuPresence: ['compact'],
-};
-
-describe('TAV-PLAY-SHELL presets.ts — density values are declared, as an invariant over EVERY region (🟡-4, inverts IMPORTANT-6)', () => {
-  it('REGION_DENSITIES is non-empty and every key is a real RegionId', () => {
-    const keys = Object.keys(REGION_DENSITIES) as (keyof typeof REGION_DENSITIES)[];
+describe('TAV-PLAY-SHELL presets.ts — variant values are declared, as an invariant over EVERY region (🟡-4, inverts IMPORTANT-6)', () => {
+  it('REGION_VARIANTS is non-empty and every key is a real RegionId', () => {
+    const keys = Object.keys(REGION_VARIANTS) as (keyof typeof REGION_VARIANTS)[];
     expect(keys.length).toBeGreaterThan(0);
     for (const id of keys) expect(REGION_IDS).toContain(id);
   });
 
-  // Kage-CR 🟡-4: the old loop iterated `Object.keys(REGION_DENSITIES)` —
-  // the known-good list — so a region with NO entry there (and no
-  // exemption) could carry ANY density value, including a typo'd one, and
-  // nothing would ever check it (N7). Iterating every REGION_IDS member
-  // instead makes "undeclared region, present value" a checked state
-  // rather than an unreachable one.
+  // Kage-CR 🟡-4: the old loop iterated `Object.keys(REGION_VARIANTS)` —
+  // the known-good list — so a region with NO entry there could carry ANY
+  // variant value, including a typo'd one, and nothing would ever check it
+  // (N7). Iterating every REGION_IDS member instead makes "undeclared
+  // region, present value" a checked state rather than an unreachable one.
   for (const row of LAYOUT_ROWS) {
     for (const region of REGION_IDS) {
       for (const moment of MOMENTS) {
-        it(`${row.id}/${moment}: "${region}"'s density, if present, is from a declared region (or a named exemption) with a declared value`, () => {
-          const density = getPlacement(row, region, moment).density;
-          if (density === undefined) return; // a region needn't emit one
-          const allowed: readonly string[] | undefined =
-            (REGION_DENSITIES as Partial<Record<RegionId, readonly string[]>>)[region] ??
-            DENSITY_GUARD_EXEMPTIONS[region];
+        it(`${row.id}/${moment}: "${region}"'s variant, if present, is from a declared region with a declared value`, () => {
+          const variant = getPlacement(row, region, moment).variant;
+          if (variant === undefined) return; // a region needn't emit one
+          const allowed: readonly string[] | undefined = (
+            REGION_VARIANTS as Partial<Record<RegionId, readonly string[]>>
+          )[region];
           expect(allowed).toBeDefined();
-          expect(allowed).toContain(density);
+          expect(allowed).toContain(variant);
         });
       }
     }
+  }
+});
+
+describe('TAV-PLAY-SHELL presets.ts — every REGION_VARIANTS member is emitted by some row or declared not-emitted (Amendment B.3)', () => {
+  const VARIANT_REGIONS = Object.keys(REGION_VARIANTS) as (keyof typeof REGION_VARIANTS)[];
+  for (const region of VARIANT_REGIONS) {
+    it(`"${region}": every declared variant is emitted by some row × moment, or listed in VARIANTS_NOT_EMITTED_BY_PRESETS`, () => {
+      const emitted = new Set<string>();
+      for (const row of LAYOUT_ROWS) {
+        for (const moment of MOMENTS) {
+          const v = getPlacement(row, region, moment).variant;
+          if (v !== undefined) emitted.add(v);
+        }
+      }
+      const exempt = new Set<string>(
+        (VARIANTS_NOT_EMITTED_BY_PRESETS as Partial<Record<RegionId, readonly string[]>>)[region] ?? [],
+      );
+      const allowed: readonly string[] = REGION_VARIANTS[region];
+      const unaccounted = allowed.filter((v) => !emitted.has(v) && !exempt.has(v));
+      expect(unaccounted).toEqual([]);
+    });
   }
 });
 
@@ -331,13 +344,13 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
   it('story/exploring', () => {
     expect(pin(LAYOUT_ROWS_BY_ID.story, 'exploring')).toEqual({
       topBar: 'topBar',
-      partyStrip: 'partyStrip density:strip',
-      sceneStage: 'sceneStage density:panel',
-      suzuPresence: 'suzuPresence',
+      partyStrip: 'partyStrip variant:strip',
+      sceneStage: 'sceneStage variant:panel',
+      suzuPresence: 'suzuPresence variant:full',
       storyLog: 'storyLog',
-      offers: 'offers density:chips',
-      characterBlock: 'null density:compact layer:true',
-      actionBar: 'actionBar density:vitals',
+      offers: 'offers variant:chips',
+      characterBlock: 'null variant:compact layer:true',
+      actionBar: 'actionBar variant:chips',
       composer: 'composer',
       tableControls: 'null layer:true',
       safetyBanner: 'safetyBanner',
@@ -347,13 +360,13 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
   it('story/combat', () => {
     expect(pin(LAYOUT_ROWS_BY_ID.story, 'combat')).toEqual({
       topBar: 'topBar',
-      partyStrip: 'partyStrip density:rail',
-      sceneStage: 'sceneStage density:hero',
-      suzuPresence: 'suzuPresence',
+      partyStrip: 'partyStrip variant:rail',
+      sceneStage: 'sceneStage variant:hero',
+      suzuPresence: 'suzuPresence variant:full',
       storyLog: 'storyLog',
       offers: 'null visible:false',
-      characterBlock: 'null density:compact layer:true',
-      actionBar: 'actionBar density:chips',
+      characterBlock: 'null variant:compact layer:true',
+      actionBar: 'actionBar variant:chips',
       composer: 'composer',
       tableControls: 'null layer:true',
       safetyBanner: 'safetyBanner',
@@ -363,13 +376,13 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
   it('table/exploring', () => {
     expect(pin(LAYOUT_ROWS_BY_ID.table, 'exploring')).toEqual({
       topBar: 'host:sceneStage',
-      partyStrip: 'partyStrip density:rail',
-      sceneStage: 'sceneStage density:hero',
-      suzuPresence: 'suzuPresence',
+      partyStrip: 'partyStrip variant:rail',
+      sceneStage: 'sceneStage variant:hero',
+      suzuPresence: 'suzuPresence variant:full',
       storyLog: 'storyLog',
-      offers: 'offers density:list',
-      characterBlock: 'characterBlock density:full collapsible:true',
-      actionBar: 'actionBar',
+      offers: 'offers variant:list',
+      characterBlock: 'characterBlock variant:full collapsible:true',
+      actionBar: 'actionBar variant:bar',
       composer: 'composer',
       tableControls: 'null layer:true',
       safetyBanner: 'safetyBanner',
@@ -379,13 +392,13 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
   it('table/combat', () => {
     expect(pin(LAYOUT_ROWS_BY_ID.table, 'combat')).toEqual({
       topBar: 'host:sceneStage',
-      partyStrip: 'partyStrip density:rail',
-      sceneStage: 'sceneStage density:hero',
-      suzuPresence: 'suzuPresence',
+      partyStrip: 'partyStrip variant:rail',
+      sceneStage: 'sceneStage variant:hero',
+      suzuPresence: 'suzuPresence variant:full',
       storyLog: 'storyLog',
       offers: 'null visible:false',
-      characterBlock: 'characterBlock density:full collapsible:true',
-      actionBar: 'actionBar',
+      characterBlock: 'characterBlock variant:full collapsible:true',
+      actionBar: 'actionBar variant:bar',
       composer: 'composer',
       tableControls: 'null layer:true',
       safetyBanner: 'safetyBanner',
@@ -395,13 +408,13 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
   it('phone/exploring', () => {
     expect(pin(LAYOUT_ROWS_BY_ID.phone, 'exploring')).toEqual({
       topBar: 'topBar',
-      partyStrip: 'host:topBar density:strip',
-      sceneStage: 'sceneStage density:inline collapsible:true',
-      suzuPresence: 'host:topBar density:compact',
+      partyStrip: 'host:topBar variant:strip',
+      sceneStage: 'sceneStage variant:inline collapsible:true',
+      suzuPresence: 'host:topBar variant:compact',
       storyLog: 'storyLog',
-      offers: 'offers density:chips',
-      characterBlock: 'null density:compact layer:true',
-      actionBar: 'actionBar',
+      offers: 'offers variant:chips',
+      characterBlock: 'null variant:compact layer:true',
+      actionBar: 'actionBar variant:bar',
       composer: 'composer',
       tableControls: 'null layer:true',
       safetyBanner: 'safetyBanner',
@@ -411,13 +424,13 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
   it('phone/combat', () => {
     expect(pin(LAYOUT_ROWS_BY_ID.phone, 'combat')).toEqual({
       topBar: 'topBar',
-      partyStrip: 'host:topBar density:strip',
-      sceneStage: 'sceneStage density:panel collapsible:true',
-      suzuPresence: 'host:topBar density:compact',
+      partyStrip: 'host:topBar variant:strip',
+      sceneStage: 'sceneStage variant:panel collapsible:true',
+      suzuPresence: 'host:topBar variant:compact',
       storyLog: 'storyLog',
       offers: 'null visible:false',
-      characterBlock: 'null density:compact layer:true',
-      actionBar: 'actionBar',
+      characterBlock: 'null variant:compact layer:true',
+      actionBar: 'actionBar variant:bar',
       composer: 'composer',
       tableControls: 'null layer:true',
       safetyBanner: 'safetyBanner',
@@ -528,11 +541,18 @@ function areaColumnCount(areasValue: string): number {
   return firstRow ? firstRow[1].trim().split(/\s+/).length : 0;
 }
 
-/** Whitespace-token count of a `grid-template-columns` value. Safe for this
- *  file's declared tracks today: none contains a space (`minmax(0,1fr)`
- *  tokenises as one), per Kage-CR S1's own note. */
+/** Whitespace-token count of a `grid-template-columns` (or `-rows`) value.
+ *  Safe for this file's declared tracks today: none contains a space
+ *  (`minmax(0,1fr)` tokenises as one), per Kage-CR S1's own note. */
 function columnsTokenCount(columnsValue: string): number {
   return columnsValue.trim().split(/\s+/).length;
+}
+
+/** The number of quoted rows (lines) in a `grid-template-areas` value —
+ *  same parse as `gridTemplateAreaProblems`'s own `rows`, exposed for the
+ *  `rows` field cross-check below (Amendment B.2). */
+function areaRowCount(areasValue: string): number {
+  return [...areasValue.matchAll(/"([^"]*)"/g)].length;
 }
 
 describe('TAV-PLAY-SHELL presets.ts — columns/areas agree on track count (S1)', () => {
@@ -545,6 +565,22 @@ describe('TAV-PLAY-SHELL presets.ts — columns/areas agree on track count (S1)'
     for (const moment of MOMENTS) {
       it(`${row.id}/${moment}: columns has exactly as many tracks as areas has columns`, () => {
         expect(columnsTokenCount(row.columns[moment])).toBe(areaColumnCount(row.areas[moment]));
+      });
+    }
+  }
+});
+
+describe('TAV-PLAY-SHELL presets.ts — rows/areas agree on track count (Amendment B.2, extends S1)', () => {
+  // Amendment B.2: `rows` is `grid-template-rows`, one track per `areas`
+  // LINE (not column) — without an explicit track list every band is
+  // `auto` in a fixed-height, `overflow:hidden` grid, and content clips.
+  // Putting the track list in CSS keyed on `[data-layout-resolved]
+  // [data-moment]` instead (the plan §3.1 option B this rejects, one axis
+  // over) would let the CSS and the row disagree with nothing to catch it.
+  for (const row of LAYOUT_ROWS) {
+    for (const moment of MOMENTS) {
+      it(`${row.id}/${moment}: rows has exactly as many tracks as areas has lines`, () => {
+        expect(columnsTokenCount(row.rows[moment])).toBe(areaRowCount(row.areas[moment]));
       });
     }
   }
@@ -614,14 +650,15 @@ describe('TAV-PLAY-SHELL presets.ts — getPlacement', () => {
       id: 'story',
       label: 'probe',
       columns: { exploring: '1fr', combat: '1fr' },
+      rows: { exploring: 'auto', combat: 'auto' },
       areas: { exploring: '"x"', combat: '"x"' },
       regions: Object.fromEntries(
         REGION_IDS.map((id) => [
           id,
           id === 'sceneStage'
             ? {
-                default: { area: 'x', collapsible: true, density: 'panel' },
-                // Deliberately omits `collapsible`/`density`.
+                default: { area: 'x', collapsible: true, variant: 'panel' },
+                // Deliberately omits `collapsible`/`variant`.
                 combat: { area: 'x' },
               }
             : { default: { area: null } },
@@ -630,7 +667,7 @@ describe('TAV-PLAY-SHELL presets.ts — getPlacement', () => {
     };
     const resolved = getPlacement(probeRow, 'sceneStage', 'combat');
     expect(resolved.collapsible).toBeUndefined();
-    expect(resolved.density).toBeUndefined();
+    expect(resolved.variant).toBeUndefined();
   });
 });
 
@@ -721,12 +758,12 @@ describe('TAV-PLAY-SHELL presets.ts — getPlacement', () => {
  *      stayed green. Reverted immediately; full 131-case file
  *      reconfirmed green.
  *
- * IMPORTANT-6's density-declaration guard, sanity check (not one of
+ * IMPORTANT-6's variant-declaration guard, sanity check (not one of
  * Kage-CR's named mutations, but the same discipline):
  *
- *  Typo control — changed `story.regions.offers.default.density` from
+ *  Typo control — changed `story.regions.offers.default.variant` from
  *      `'chips'` to `'chipss'`. Reddened exactly 1 case (`story/
- *      exploring: "offers"'s density is undefined or a declared
+ *      exploring: "offers"'s variant is undefined or a declared
  *      member`), with the failure message listing the allowed set
  *      (`["chips", "list"]`). Reverted immediately; full 171-case file
  *      reconfirmed green.
