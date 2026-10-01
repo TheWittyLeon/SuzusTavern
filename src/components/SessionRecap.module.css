@@ -36,6 +36,10 @@
   margin: 0;
 }
 .sub {
+  /* A9d: the phone row sets `--play-recap-sub: none` (row data, presets.ts): the scene head
+     above already names the scene, and the subtitle is what wrapped the strip to two lines at
+     390px. Unset everywhere else (dashboard card, Story, Table), so it stays `inline`. */
+  display: var(--play-recap-sub, inline);
   color: var(--ink-3);
   font-weight: 400;
   font-size: 13px;

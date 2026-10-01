@@ -287,3 +287,11 @@ describe('Play.module.css', () => {
     });
   });
 });
+
+describe('SessionRecap.module.css — the phone strip is one line (A9d)', () => {
+  it('the scene subtitle reads the row var --play-recap-sub and defaults to inline (dashboard, Story and Table keep it)', () => {
+    const recapCss = fs.readFileSync(path.resolve(process.cwd(), 'src/components/SessionRecap.module.css'), 'utf8');
+    const rule = recapCss.replace(/\/\*[\s\S]*?\*\//g, '').match(/\.sub\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(rule).toMatch(/display:\s*var\(--play-recap-sub,\s*inline\)/);
+  });
+});

@@ -731,6 +731,7 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
       '--play-slot-edge': 'var(--space-3)',
       '--play-slot-pad': '0px',
       '--play-slot-inline': 'var(--space-6)',
+      '--play-recap-sub': 'none',
     });
     expect(LAYOUT_ROWS_BY_ID.story.vars).toBeUndefined();
     expect(LAYOUT_ROWS_BY_ID.table.vars).toBeUndefined();
