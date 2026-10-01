@@ -87,6 +87,14 @@ describe('PartyPanel consumes its variant', () => {
     expect(screen.getByRole('button', { name: /Kestrel Ashwood/ })).toBeInTheDocument();
   });
 
+  it('strip: the avatar initial is aria-hidden, so the tile name starts with the name, not "KKestrel" (Iro MINOR-5)', () => {
+    render(<PartyPanel participants={PARTY} selfUsername="kes" variant="strip" />);
+    const tile = screen.getByRole('button', { name: /Kestrel Ashwood/ });
+    expect(tile.accessibleName ?? tile.getAttribute('aria-label') ?? '').not.toMatch(/^K\s*Kestrel/);
+    expect(screen.getByRole('button', { name: /^Kestrel Ashwood/ })).toBe(tile);
+    expect(tile.querySelector('[aria-hidden]')?.textContent).toBe('K');
+  });
+
   it('unset: the original card, no variant marker', () => {
     const { container } = render(<PartyPanel participants={PARTY} selfUsername="kes" />);
     expect(container.firstElementChild).not.toHaveAttribute('data-variant');
