@@ -811,15 +811,16 @@ describe('TAV-PLAY-SHELL presets.ts — the X-card control is always on screen (
   // inside the viewport WITHOUT scrolling the page or any nested container,
   // in every row x moment. At the data level that means its host region is
   // (1) placed directly (not hosted by another region, not a layer),
-  // (2) visible, and (3) lives only in `auto` rows — a content-sized track
-  // is never a capped, scrolling box (`minmax(0,400px)` sceneStage was).
+  // (2) visible, and (3) lives only in content-sized rows (`auto`, or A9c-2 D0's
+  // `max-content`) — never a capped, scrolling box (`minmax(0,400px)` sceneStage
+  // was).
   // The browser half (real geometry at 1440x900 and 390x844) is
   // `tools/ui-audit`'s `capture-play.mjs --assert-layout` check c:xCard.
   const host = REGION_TENANTS.safetyControls.host;
 
   for (const row of LAYOUT_ROWS) {
     for (const moment of MOMENTS) {
-      it(`${row.id}/${moment}: safetyControls' host "${host}" is placed, visible, and sits only in auto rows`, () => {
+      it(`${row.id}/${moment}: safetyControls' host "${host}" is placed, visible, and sits only in content-sized rows`, () => {
         const placement = getPlacement(row, host, moment);
         expect(placement.layer).not.toBe(true);
         expect(placement.host).toBeUndefined();
@@ -834,7 +835,7 @@ describe('TAV-PLAY-SHELL presets.ts — the X-card control is always on screen (
             row: row.id,
             moment,
             line: i,
-            track: 'auto',
+            track: expect.stringMatching(/^(auto|max-content)$/),
           });
         }
       });
