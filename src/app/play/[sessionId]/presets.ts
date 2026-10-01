@@ -443,6 +443,79 @@ export function getPlacement(row: LayoutRow, region: RegionId, moment: Moment): 
   return entry[moment] ?? entry.default;
 }
 
+/**
+ * A9c C3 (build brief §3-§4, Amendment C.2) — the DOM order of `/play`'s
+ * regions for one row x moment, as data. Pure, beside `getPlacement`; the shell
+ * (`PlayShell`) only ever walks this list, it never derives order itself.
+ *
+ * Moved here from `PlayShell.deriveDomOrder` so the order can be pinned as
+ * literals in the registry test (and on the real page) instead of being an
+ * implementation detail of a component.
+ *
+ * Rules:
+ *   1. Row-major, first appearance of each token in `row.areas[moment]` (the
+ *      visual order: focus order follows what the eye sees, WCAG 2.4.3).
+ *      Only tokens that name a `REGION_IDS` member placed in the grid
+ *      (`area != null`, not hosted, not a layer) become a `slot`.
+ *   2. C.2: an area-less, non-layer, non-hosted region (`offers` in combat) is
+ *      a `hidden` slot, emitted IMMEDIATELY AFTER its nearest `REGION_IDS`
+ *      predecessor already in the sequence. Appending it last made the
+ *      composer and the action bar shift one place on every moment flip (three
+ *      DOM moves on a Story combat edge, one of them the composer); this
+ *      makes the hidden slot's position stable, so a moment flip moves none
+ *      of the visible regions.
+ *   3. A region hosted by another (`placement.host`) is `hosted`: it has no
+ *      slot of its own, the shell renders it INSIDE the host's slot, in
+ *      `REGION_IDS` order. Layers (`layer: true`) own no DOM slot and are
+ *      not listed.
+ */
+export type SlotEntry =
+  | { id: RegionId; kind: 'slot' | 'hidden' }
+  | { id: RegionId; kind: 'hosted'; host: RegionId };
+
+export function slotOrder(row: LayoutRow, moment: Moment): SlotEntry[] {
+  const regionIds: ReadonlySet<string> = new Set(REGION_IDS);
+  const seen = new Set<string>();
+  const tokens: RegionId[] = [];
+  for (const quotedRow of row.areas[moment].matchAll(/"([^"]*)"/g)) {
+    for (const token of quotedRow[1].trim().split(/\s+/)) {
+      if (token === '.' || seen.has(token) || !regionIds.has(token)) continue;
+      seen.add(token);
+      tokens.push(token as RegionId);
+    }
+  }
+
+  const order: SlotEntry[] = [];
+  for (const id of tokens) {
+    const placement = getPlacement(row, id, moment);
+    if (placement.host != null || placement.layer === true || placement.area == null) continue;
+    order.push({ id, kind: 'slot' });
+  }
+
+  // C.2: hidden (area-less) slots, in REGION_IDS order, each after its nearest
+  // predecessor already in the sequence (a later hidden region may therefore
+  // follow an earlier hidden one); at the front if it has none.
+  REGION_IDS.forEach((id, index) => {
+    const placement = getPlacement(row, id, moment);
+    if (placement.host != null || placement.layer === true || placement.area != null) return;
+    let insertAt = 0;
+    for (let i = index - 1; i >= 0; i--) {
+      const at = order.findIndex((entry) => entry.id === REGION_IDS[i]);
+      if (at !== -1) {
+        insertAt = at + 1;
+        break;
+      }
+    }
+    order.splice(insertAt, 0, { id, kind: 'hidden' });
+  });
+
+  for (const id of REGION_IDS) {
+    const { host } = getPlacement(row, id, moment);
+    if (host != null) order.push({ id, kind: 'hosted', host });
+  }
+  return order;
+}
+
 // ---------------------------------------------------------------------------
 // STORY — R16: "story column, sheet in a drawer, offers inline". Columns
 // reuse today's real proportions in spirit (`Play.module.css`'s current

@@ -42,18 +42,17 @@
  *     `key={regionId}` the placed slot has, so a moment switch toggles it
  *     between the two forms without a remount.
  *
- * **DOM order is derived from the row's own `areas` string** (build brief
- * §7 C5, row-major, first appearance of each token) — not a hand-
- * maintained constant. This is the durable shape: DOM order tracks
- * visual order in every row automatically, focus order is correct by
- * construction (WCAG 2.4.3/1.3.2), and the tenth region's DOM position is
- * decided by where its token sits in the `areas` string — a row, not
- * code. A region whose token never appears in the string this moment
- * (hosted, layered, or genuinely absent) is naturally excluded from this
- * derivation — it was never going to get a top-level slot regardless of
- * order (see the four-kinds dispatch above). C4 shipped this as an
- * explicit `DOM_ORDER` constant (today's document order, a measurement
- * baseline); this commit replaces it.
+ * **DOM order is `slotOrder(row, moment)`** (`presets.ts`, A9c C3/C.2): row-
+ * major first appearance of each token in the row's own `areas` string, with
+ * a hidden (area-less) slot emitted right after its nearest `REGION_IDS`
+ * predecessor rather than appended last. It is data (pinned as literals in
+ * the registry test), so DOM order tracks visual order in every row and the
+ * tenth region's position is decided by its token in the `areas` string — a
+ * row, not code. This component only walks the list.
+ *
+ * **`ScrollKeeper`** wraps the root: a slot MOVE resets a scroller to 0, so
+ * every scroller under a region slot is snapshotted before a commit that
+ * changes the order and restored after (`ScrollKeeper.tsx`).
  *
  * `key={regionId}` on every slot (rule 1): without a stable key a row
  * switch reorders children by array position and React remounts them —
@@ -64,17 +63,18 @@
  * three entries, and the names are the accessibility contract, pinned by
  * `play.tav-play-landmarks.test.tsx` / `play.tav3-auth-gate.test.tsx`.
  */
-import { Fragment, type ReactNode } from 'react';
+import { Fragment, useRef, type ReactNode } from 'react';
 import {
-  REGION_IDS,
   REGION_TENANTS,
   TENANT_IDS,
   getPlacement,
+  slotOrder,
   type LayoutRow,
   type Moment,
   type RegionId,
   type TenantId,
 } from './presets';
+import ScrollKeeper from './ScrollKeeper';
 import styles from './Play.module.css';
 
 export interface PlayShellProps {
@@ -97,27 +97,6 @@ export interface PlayShellProps {
    *  an ANCESTOR of the Journal drawer (rendered via `layers`) for the
    *  phone-width in-flow fallback. */
   className?: string;
-}
-
-/**
- * Build brief §7 C5 — row-major, first-appearance order of every token in
- * `areasValue` (a `grid-template-areas` value: one or more `"..."`
- * quoted rows, space-separated tokens, `.` for an empty cell). A token
- * repeated across a rectangular span (the common case: a region spanning
- * several rows/columns) is deduplicated to its FIRST occurrence only — a
- * second entry would duplicate the key in the caller's slot list.
- */
-function deriveDomOrder(areasValue: string): RegionId[] {
-  const seen = new Set<string>();
-  const order: RegionId[] = [];
-  for (const quotedRow of areasValue.matchAll(/"([^"]*)"/g)) {
-    for (const token of quotedRow[1].trim().split(/\s+/)) {
-      if (token === '.' || seen.has(token)) continue;
-      seen.add(token);
-      order.push(token as RegionId);
-    }
-  }
-  return order;
 }
 
 interface LandmarkSpec {
@@ -163,6 +142,7 @@ export default function PlayShell({
 }: PlayShellProps) {
   // Tenants grouped by host, in TENANT_IDS declaration order (the tenth
   // tenant is one presets.ts row — no code change here).
+  const rootRef = useRef<HTMLDivElement>(null);
   const tenantsByHost = new Map<RegionId, ReactNode[]>();
   for (const tenantId of TENANT_IDS) {
     const node = tenants[tenantId];
@@ -173,18 +153,21 @@ export default function PlayShell({
     tenantsByHost.set(host, list);
   }
 
+  // One derivation for the whole DOM shape (A9c C3): top-level slots, hidden
+  // slots and hosted regions all come from `slotOrder`.
+  const order = slotOrder(row, moment);
+
   // Regions hosted by ANOTHER region (e.g. table.topBar -> sceneStage,
-  // phone.partyStrip/suzuPresence -> topBar), grouped the same way, in
-  // REGION_IDS declaration order.
+  // phone.partyStrip/suzuPresence -> topBar), grouped by host, in slotOrder's
+  // (REGION_IDS) order.
   const hostedRegionsByHost = new Map<RegionId, ReactNode[]>();
-  for (const regionId of REGION_IDS) {
-    const placement = getPlacement(row, regionId, moment);
-    if (placement.host == null) continue;
-    const node = regions[regionId];
+  for (const entry of order) {
+    if (entry.kind !== 'hosted') continue;
+    const node = regions[entry.id];
     if (node === undefined) continue;
-    const list = hostedRegionsByHost.get(placement.host) ?? [];
-    list.push(<Fragment key={regionId}>{node}</Fragment>);
-    hostedRegionsByHost.set(placement.host, list);
+    const list = hostedRegionsByHost.get(entry.host) ?? [];
+    list.push(<Fragment key={entry.id}>{node}</Fragment>);
+    hostedRegionsByHost.set(entry.host, list);
   }
 
   const slotFor = (regionId: RegionId, area: string | null) => {
@@ -217,38 +200,41 @@ export default function PlayShell({
     );
   };
 
+  // A hidden slot is a MOUNTED `.slotHidden` node with `data-visible="false"`
+  // and no grid area: presets place, they never unmount (A9b Imp-2). Same
+  // `key={regionId}` as the placed form, so a moment switch toggles between the
+  // two without a remount.
   const slots: ReactNode[] = [];
-  for (const regionId of deriveDomOrder(row.areas[moment])) {
-    const placement = getPlacement(row, regionId, moment);
-    // Hosted / layered: nothing of its own in the grid (see this file's
-    // header). An area-less region is handled by the mounted-hidden pass.
-    if (placement.host != null || placement.layer === true || placement.area == null) continue;
-    slots.push(slotFor(regionId, placement.area));
+  for (const entry of order) {
+    if (entry.kind === 'hosted') continue;
+    if (entry.kind === 'hidden' && regions[entry.id] === undefined) continue;
+    slots.push(slotFor(entry.id, entry.kind === 'hidden' ? null : getPlacement(row, entry.id, moment).area));
   }
-  for (const regionId of REGION_IDS) {
-    const placement = getPlacement(row, regionId, moment);
-    if (placement.host != null || placement.layer === true || placement.area != null) continue;
-    if (regions[regionId] === undefined) continue;
-    slots.push(slotFor(regionId, null));
-  }
+  // The precise trigger for a DOM move (ScrollKeeper): slot order + hosting.
+  const orderKey = order
+    .map((entry) => (entry.kind === 'hosted' ? `${entry.host}>${entry.id}` : `${entry.kind}:${entry.id}`))
+    .join(',');
 
   return (
-    <div
-      id="main-content"
-      className={className ? `${styles.grid} ${className}` : styles.grid}
-      data-layout-resolved={row.id}
-      data-moment={moment}
-      style={
-        {
-          '--play-areas': row.areas[moment],
-          '--play-columns': row.columns[moment],
-          '--play-rows': row.rows[moment],
-        } as React.CSSProperties
-      }
-    >
-      {chrome}
-      {slots}
-      {layers}
-    </div>
+    <ScrollKeeper orderKey={orderKey} rootRef={rootRef}>
+      <div
+        ref={rootRef}
+        id="main-content"
+        className={className ? `${styles.grid} ${className}` : styles.grid}
+        data-layout-resolved={row.id}
+        data-moment={moment}
+        style={
+          {
+            '--play-areas': row.areas[moment],
+            '--play-columns': row.columns[moment],
+            '--play-rows': row.rows[moment],
+          } as React.CSSProperties
+        }
+      >
+        {chrome}
+        {slots}
+        {layers}
+      </div>
+    </ScrollKeeper>
   );
 }
