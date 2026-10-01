@@ -162,6 +162,27 @@
   overflow: hidden;
 }
 
+/* A9c-2 fix round 1 (Kage IMPORTANT-1): an always-mounted announcer tenant with no
+   text (`deadStatus`, `durableRetryRow`, the recap wrapper) is a zero-height flex
+   ITEM, and a flex `gap` is paid per item, not per pixel: an empty `deadStatus`
+   cost one --density-gap (16px) of the story log in combat (measured 132 -> 148px).
+   `:empty` out of flow is the established announcer idiom (`.sr-only`, which
+   `sessionPausedEnded` already swaps to when idle): it keeps the node mounted and in
+   the a11y tree (never display:none / visibility:hidden, which drop a live region)
+   and pays no gap. The slot is `position:relative` (above) so it cannot stretch the
+   document. A rule on the stack, not a className swap per tenant: the next
+   always-mounted announcer needs no edit. */
+.slotStack > :empty {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+
 /* Kage: the "DM controls" role="group" wrapper around DmNarrationPanel +
    ConditionsPanel is a single flex child of .center, so .center's own
    density-gap no longer applies between the two panels it wraps — restore
