@@ -16,11 +16,13 @@
  * who never opened the picker tracks their device theme in real time.
  * `color-scheme` itself is handled declaratively per `data-vibe` in globals.css.
  */
+import type { RegionId } from '@/app/play/[sessionId]/presets';
 import {
   createContext,
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -30,15 +32,19 @@ import {
   DEFAULT_VIBE,
   DEFAULT_VIBE_PREF,
   DENSITY_KEY,
+  FOLDS_KEY,
   LAYOUT_KEY,
   VIBE_KEY,
   isDensity,
   isLayoutPref,
   isVibe,
   isVibePref,
+  parseFolds,
   prefersLight,
   resolveVibe,
+  serializeFolds,
   type Density,
+  type Folds,
   type LayoutPref,
   type Vibe,
   type VibePref,
@@ -61,6 +67,9 @@ interface ThemeContextValue {
    *  until: A9c adds the TweaksPanel layout picker that calls setLayout.
    */
   layout: LayoutPref;
+  /** R20 (A9c C7): the docked regions the user has folded. Absent = open. */
+  folds: Folds;
+  setFold: (region: RegionId, folded: boolean) => void;
   setVibe: (v: VibePref) => void;
   setDensity: (d: Density) => void;
   setLayout: (l: LayoutPref) => void;
@@ -97,6 +106,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [vibePref, setVibePref] = useState<VibePref>(DEFAULT_VIBE_PREF);
   const [density, setDensityState] = useState<Density>(DEFAULT_DENSITY);
   const [layout, setLayoutState] = useState<LayoutPref>(DEFAULT_LAYOUT_PREF);
+  const [folds, setFoldsState] = useState<Folds>({});
+  const foldsRef = useRef<Folds>({});
 
   // Sync React state with what the no-flash script already painted.
   useEffect(() => {
@@ -145,6 +156,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       const storedLayout = safeGet(LAYOUT_KEY);
       if (isLayoutPref(storedLayout)) setLayoutState(storedLayout);
     }
+
+    // R20: folds are storage-only (no attribute — nothing paints before React).
+    foldsRef.current = parseFolds(safeGet(FOLDS_KEY));
+    setFoldsState(foldsRef.current);
   }, []);
 
   // While following the system, react to live OS light/dark changes.
@@ -203,9 +218,23 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setLayoutState(l);
   }, []);
 
+  const setFold = useCallback((region: RegionId, folded: boolean) => {
+    // Computed from a ref, not from the `folds` closure: two folds set in one
+    // tick must not clobber each other, and with storage unavailable the
+    // in-memory state is the only copy.
+    const next = { ...foldsRef.current };
+    if (folded) next[region] = true;
+    else delete next[region];
+    const raw = serializeFolds(next);
+    if (raw === null) safeRemove(FOLDS_KEY);
+    else safeSet(FOLDS_KEY, raw);
+    foldsRef.current = next;
+    setFoldsState(next);
+  }, []);
+
   return (
     <ThemeContext.Provider
-      value={{ vibe, vibePref, density, layout, setVibe, setDensity, setLayout }}
+      value={{ vibe, vibePref, density, layout, folds, setVibe, setDensity, setLayout, setFold }}
     >
       {children}
     </ThemeContext.Provider>

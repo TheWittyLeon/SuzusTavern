@@ -9,6 +9,13 @@
  *
  * Pref is pinned via a mutable ThemeProvider mock so a row switch is a
  * rerender, not a viewport resize (jsdom has none).
+ *
+ * A9c C7 (a named exception to "pins do not move with their code"): the docked
+ * sheet no longer has a Close that folds. The fold is the shell's disclosure
+ * handle ("Character sheet", aria-expanded), so the docked Close / strip cases
+ * below became handle cases. The control is replaced by design (brief 5.2,
+ * Kage S6). The mock now keeps the REAL provider (so `folds`/`setFold` are real
+ * and persist) and overrides only `layout`.
  */
 import React from 'react';
 import { screen, fireEvent, act, waitFor, within } from '@testing-library/react';
@@ -24,18 +31,14 @@ jest.mock('../../lib/auth/AuthProvider', () => ({
   useAuth: () => ({ user: { id: 1, username: 'alice', email: null } }),
 }));
 jest.mock('../../lib/useReducedMotion', () => ({ useReducedMotion: () => true }));
-jest.mock('../../lib/theme/ThemeProvider', () => ({
-  ThemeProvider: ({ children }: { children: React.ReactNode }) =>
-    React.createElement(React.Fragment, null, children),
-  // `layout` is read by usePlayLayout through useTheme (A9c C6 retired useThemeOptional).
-  useTheme: () => ({
-    vibe: 'dusk-tavern',
-    layout: mockLayoutPref,
-    setVibe: jest.fn(),
-    density: 'cozy',
-    setDensity: jest.fn(),
-  }),
-}));
+jest.mock('../../lib/theme/ThemeProvider', () => {
+  const actual = jest.requireActual('../../lib/theme/ThemeProvider');
+  return {
+    ...actual,
+    // `layout` is read by usePlayLayout through useTheme; everything else is real.
+    useTheme: () => ({ ...actual.useTheme(), layout: mockLayoutPref }),
+  };
+});
 
 jest.mock('../../lib/api/dnd', () => ({
   getSession: jest.fn(),
@@ -110,8 +113,13 @@ const COMBAT: CombatState = {
 
 const m = (f: unknown) => f as jest.Mock;
 
+afterEach(() => {
+  window.localStorage.removeItem('tavern.folds');
+});
+
 beforeEach(() => {
   jest.clearAllMocks();
+  window.localStorage.removeItem('tavern.folds');
   mockLayoutPref = 'table';
   m(dnd.getSession).mockResolvedValue({ ...SESSION, active_combat_id: 'combat-42' });
   m(dnd.getParticipants).mockResolvedValue(PARTY);
@@ -135,12 +143,17 @@ describe('characterBlock singleton -- docked (Table) vs Drawer (Story)', () => {
     expect(within(dlg).getByRole('button', { name: /Close character sheet/i })).toBeInTheDocument();
   });
 
-  it('Table pinned: the sheet is docked (heading present), and there is exactly ONE Close button and no dialog', async () => {
+  it('Table pinned: the sheet is docked (heading present) behind ONE fold handle, with no Close button and no dialog', async () => {
     renderPlay(<PlayPage />);
     await selectBob();
     expect(await screen.findByRole('heading', { name: /Wrenna the Unmistakable/ })).toBeInTheDocument();
     expect(screen.queryByRole('dialog', { name: /character sheet|Wrenna/i })).not.toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: /Close character sheet/i })).toHaveLength(1);
+    // Kage S6 / Aoi B1: docked, the panel has no Close (a "Close" that only folded was a second control).
+    expect(screen.queryByRole('button', { name: /Close character sheet/i })).not.toBeInTheDocument();
+    // Kage IMP-4: the handle exists because the SHELL reads `collapsible`; drop it from the row and this goes red.
+    const handle = screen.getByRole('button', { name: 'Character sheet' });
+    expect(handle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getAllByRole('button', { name: 'Character sheet' })).toHaveLength(1);
   });
 
   /**
@@ -162,18 +175,16 @@ describe('characterBlock singleton -- docked (Table) vs Drawer (Story)', () => {
   });
 
   /**
-   * DEFECT A9b-1b. The docked panel carries a Close button wired to
-   * Drawer's onClose, which only flips `open`. In the docked row nothing
-   * reads `open`, so the control does nothing observable. A visible control
-   * with no effect is a dead control (a11y: a button that announces
-   * "Close character sheet" and then leaves the sheet there).
+   * DEFECT A9b-1b (retired by design, A9c C7). The docked panel's Close was a
+   * dead control, then a fold-only one. The control that folds the dock is now
+   * the handle, and it must visibly change the panel.
    */
-  test('DEFECT A9b-1b: the docked sheet\'s Close button visibly changes the panel', async () => {
+  test('DEFECT A9b-1b: the docked sheet\'s fold handle visibly changes the panel', async () => {
     renderPlay(<PlayPage />);
     await selectBob();
     await screen.findByRole('heading', { name: /Wrenna the Unmistakable/ });
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /Close character sheet/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Character sheet' }));
     });
     expect(screen.queryByRole('heading', { name: /Wrenna the Unmistakable/ })).not.toBeInTheDocument();
   });
@@ -181,7 +192,7 @@ describe('characterBlock singleton -- docked (Table) vs Drawer (Story)', () => {
 
 /**
  * A9b fix round 1 (Miko Imp-1 / Aoi B1) -- the docked sheet is its own
- * presentation: default = the viewer's OWN sheet, Close FOLDS the rail
+ * presentation: default = the viewer's OWN sheet, the fold HANDLE folds it
  * (never a no-op), nothing here is ever a modal, and the Drawer stays
  * mounted across a placement switch (A5).
  */
@@ -207,26 +218,49 @@ describe('docked member sheet (Table) -- A9b fix round 1', () => {
     expect(screen.queryByRole('dialog', { name: /character sheet|Torvin|Wrenna/i })).not.toBeInTheDocument();
   });
 
-  it('B1: Close folds the rail to a strip; the strip gets focus; re-opening returns the sheet and focuses Close', async () => {
+  it('B1: the handle folds the rail and keeps focus (same node, both states); pressing it again re-opens the sheet', async () => {
     renderPlay(<PlayPage />);
     await screen.findByRole('heading', { name: /Torvin the Undaunted/ });
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Close character sheet/i })); });
+    const handle = screen.getByRole('button', { name: 'Character sheet' });
+    handle.focus();
+    await act(async () => { fireEvent.click(handle); });
     expect(screen.queryByRole('heading', { name: /Torvin the Undaunted/ })).not.toBeInTheDocument();
-    const strip = screen.getByRole('button', { name: /Open character sheet/i });
-    expect(strip).toHaveFocus();
-    await act(async () => { fireEvent.click(strip); });
+    expect(handle).toHaveAttribute('aria-expanded', 'false');
+    expect(handle).toHaveAttribute('title', 'Open character sheet');
+    expect(screen.getByRole('button', { name: 'Character sheet' })).toBe(handle);
+    expect(handle).toHaveFocus();
+    await act(async () => { fireEvent.click(handle); });
     expect(await screen.findByRole('heading', { name: /Torvin the Undaunted/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Close character sheet/i })).toHaveFocus();
-    expect(screen.queryByRole('button', { name: /Open character sheet/i })).not.toBeInTheDocument();
+    expect(handle).toHaveAttribute('aria-expanded', 'true');
+    expect(handle).toHaveAttribute('title', 'Fold character sheet');
+    expect(handle).toHaveFocus();
   });
 
-  it('B1: picking a party member while the rail is folded unfolds it onto that member', async () => {
+  it('R20: a fold is remembered per user -- it survives an unmount/remount (tavern.folds)', async () => {
+    const first = renderPlay(<PlayPage />);
+    await screen.findByRole('heading', { name: /Torvin the Undaunted/ });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Character sheet' })); });
+    expect(JSON.parse(window.localStorage.getItem('tavern.folds') as string)).toEqual(['characterBlock']);
+    first.unmount();
+
+    renderPlay(<PlayPage />);
+    const handle = await screen.findByRole('button', { name: 'Character sheet' });
+    await waitFor(() => expect(handle).toHaveAttribute('aria-expanded', 'false'));
+    expect(screen.queryByRole('heading', { name: /Torvin the Undaunted/ })).not.toBeInTheDocument();
+
+    // Absent means open: re-opening deletes the key rather than writing a default.
+    await act(async () => { fireEvent.click(handle); });
+    expect(window.localStorage.getItem('tavern.folds')).toBeNull();
+  });
+
+  it('B1: picking a party member while the rail is folded un-folds it onto that member', async () => {
     renderPlay(<PlayPage />);
     await screen.findByRole('heading', { name: /Torvin the Undaunted/ });
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Close character sheet/i })); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Character sheet' })); });
+    expect(screen.getByRole('button', { name: 'Character sheet' })).toHaveAttribute('aria-expanded', 'false');
     await selectBob();
     expect(await screen.findByRole('heading', { name: /Wrenna the Unmistakable/ })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Open character sheet/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Character sheet' })).toHaveAttribute('aria-expanded', 'true');
   });
 
   it('A5: Story drawer open -> Table keeps the SAME drawer node mounted, closed, and docks the sheet; back to Story it does NOT reopen', async () => {
@@ -240,7 +274,8 @@ describe('docked member sheet (Table) -- A9b fix round 1', () => {
     await act(async () => { rerender(<PlayPage />); });
     expect(document.getElementById('play-pane-member-sheet')).toBe(drawerBefore);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: /Close character sheet/i })).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: /Close character sheet/i })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Character sheet' })).toHaveLength(1);
 
     mockLayoutPref = 'story';
     await act(async () => { rerender(<PlayPage />); });

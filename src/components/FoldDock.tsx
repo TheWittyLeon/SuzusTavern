@@ -1,81 +1,87 @@
 'use client';
 
-import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
+import { useId, type ReactNode } from 'react';
 import Icon, { type IconName } from '@/components/Icon';
 import styles from './FoldDock.module.css';
 
 /**
- * R20's foldable dock (TAV-PLAY-SHELL, A9b fix round 1) — a docked region
- * whose preset placement is `collapsible: true`. Open, it renders `children`;
- * folded, the children stay MOUNTED but `hidden` (a singleton's heading id
- * and its inner state survive the fold) and a thin strip with a re-open
- * button stands in. The strip is what lets the grid track give the space
- * back: the row's column is `fit-content(<cap>)`, and this component's open
- * panel asks for more than any cap while the strip asks for ~one icon, so
- * the TRACK follows the fold with no row-data change and no second copy of
- * the width (the cap lives in `presets.ts` only).
+ * R20's foldable dock (TAV-PLAY-SHELL; A9b fix round 1, rebuilt A9c C7 as a
+ * DISCLOSURE) — a region whose preset placement is `collapsible: true`.
  *
- * Generic on purpose: nothing here knows it holds a character sheet — the
- * tenth collapsible region is a prop set, not another component.
+ * ONE handle button, present in both states, is the whole control:
+ * `aria-label` is the stable `label` ("Character sheet"), `aria-expanded`
+ * says which state it is in, `aria-controls` names the panel, and `title`
+ * says what a press does ("Fold …" / "Open …"). It is the same DOM node in
+ * both states, so focus stays on it across a toggle by construction — the
+ * old two-button focus juggling (`focusOnOpenRef`) is gone.
  *
- * Focus: the control that folds lives inside `children`, so a fold would
- * strand focus on a now-hidden button; folding moves it to the strip's
- * button, and unfolding FROM the strip moves it to `focusOnOpenRef` (the
- * children's close button). Unfolding any other way (e.g. picking a party
- * member) leaves focus where the user put it.
+ * Open, the panel renders `children`; folded, the children stay MOUNTED but
+ * `hidden` (a singleton's heading id and its inner state survive the fold).
+ * The panel asks for more width than any track cap and the handle asks for
+ * 44px, so a `fit-content(<cap>)` column follows the fold with no row-data
+ * change and no second copy of the width (the cap lives in `presets.ts`).
+ *
+ * `foldable={false}` is the same tree in an inert mode (no handle, never
+ * hidden, no landmark, `display: contents` so the children lay out as if the
+ * dock were not there). The shell uses it where a region is collapsible in
+ * SOME row but not this one, so a row switch changes the dock's mode and
+ * never its place in the tree: the region's state survives (presets place,
+ * they never unmount).
+ *
+ * Generic on purpose: nothing here knows what it holds. The shell is its only
+ * caller (`PlayShell` reads `collapsible` and wraps the region's own node), so
+ * the tenth collapsible region is a preset row plus a `FoldSpec`, not code.
  */
 export interface FoldDockProps {
   folded: boolean;
-  onUnfold: () => void;
-  /** Accessible name of the strip's re-open button. */
-  openLabel: string;
+  onToggle: () => void;
+  /** Accessible name of the handle, stable across states. */
+  label: string;
   icon: IconName;
-  /** Receives focus when the strip's button re-opens the dock. */
-  focusOnOpenRef?: RefObject<HTMLElement | null>;
+  /** Id of the heading that names the panel. When given the panel is a
+   *  `region` landmark labelled by it; when absent (the stage is already the
+   *  "Scene" aside) the panel is a plain container — no duplicate landmark. */
+  labelledBy?: string;
+  /** Default true. False = inert (see above). */
+  foldable?: boolean;
   children: ReactNode;
 }
 
 export default function FoldDock({
   folded,
-  onUnfold,
-  openLabel,
+  onToggle,
+  label,
   icon,
-  focusOnOpenRef,
+  labelledBy,
+  foldable = true,
   children,
 }: FoldDockProps) {
-  const stripRef = useRef<HTMLButtonElement>(null);
-  const wasFolded = useRef(folded);
-  const unfoldedFromStrip = useRef(false);
-
-  useEffect(() => {
-    if (folded && !wasFolded.current) stripRef.current?.focus();
-    else if (!folded && wasFolded.current && unfoldedFromStrip.current) {
-      focusOnOpenRef?.current?.focus();
-    }
-    unfoldedFromStrip.current = false;
-    wasFolded.current = folded;
-  }, [folded, focusOnOpenRef]);
-
+  const panelId = useId();
+  const isFolded = foldable && folded;
   return (
-    <>
-      <div className={styles.panel} hidden={folded}>
+    <div className={styles.dock} data-foldable={foldable} data-folded={isFolded}>
+      <div
+        id={panelId}
+        className={styles.panel}
+        hidden={isFolded}
+        role={foldable && labelledBy ? 'region' : undefined}
+        aria-labelledby={foldable ? labelledBy : undefined}
+      >
         {children}
       </div>
-      {folded && (
+      {foldable && (
         <button
-          ref={stripRef}
           type="button"
-          className={styles.strip}
-          aria-label={openLabel}
-          aria-expanded={false}
-          onClick={() => {
-            unfoldedFromStrip.current = true;
-            onUnfold();
-          }}
+          className={styles.handle}
+          aria-label={label}
+          aria-expanded={!folded}
+          aria-controls={panelId}
+          title={`${folded ? 'Open' : 'Fold'} ${label.toLowerCase()}`}
+          onClick={onToggle}
         >
           <Icon name={icon} size={18} aria-hidden />
         </button>
       )}
-    </>
+    </div>
   );
 }

@@ -63,7 +63,9 @@ export interface MemberSheetPanelProps {
    *  no way to act on it is a dead end, so the self view gets a callout
    *  that points at the one surface that CAN resolve pending choices. */
   isSelf?: boolean;
-  onClose: () => void;
+  /** The Drawer's close. ABSENT means no Close button: docked, the fold handle
+   *  is the control, and a "Close" that only folds was a second one (Kage S6). */
+  onClose?: () => void;
   closeButtonRef?: RefObject<HTMLButtonElement | null>;
 }
 
@@ -100,15 +102,17 @@ export default function MemberSheetPanel({
         <h2 id={MEMBER_SHEET_HEADING_ID} className={styles.heading}>
           <Icon name="Scroll" size={16} aria-hidden /> {heading}
         </h2>
-        <button
-          type="button"
-          ref={closeButtonRef}
-          className={styles.closeBtn}
-          onClick={onClose}
-          aria-label="Close character sheet"
-        >
-          <Icon name="Close" size={14} aria-hidden />
-        </button>
+        {onClose && (
+          <button
+            type="button"
+            ref={closeButtonRef}
+            className={styles.closeBtn}
+            onClick={onClose}
+            aria-label="Close character sheet"
+          >
+            <Icon name="Close" size={14} aria-hidden />
+          </button>
+        )}
       </div>
 
       {loading && (

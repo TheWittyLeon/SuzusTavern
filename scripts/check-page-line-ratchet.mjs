@@ -230,13 +230,16 @@ const PAGE = join(ROOT, PAGE_REL);
 // -> 901 (A9c-1 commit C4, brief §6): `suzuPresenceVariant`'s hand-written
 // 4-line `as` union is gone (the region's prop type IS the registry's; the
 // read is `variantFor(...)` inline), net -3 after `topBar`'s variant prop.
+// -> 897 (A9c-1 commit C7, brief §5): the by-name `<FoldDock>` wrap is gone
+// (the shell reads `collapsible`), and the fold wiring is one hook call
+// (`useRegionFolds`) plus the labels-only `foldSpecs.ts`. Net -4.
 // Update this value, in the SAME commit, whenever page.tsx's actual
 // non-comment, non-blank line count drops below it. Never raise it
 // silently -- unless the growth is deliberate and reviewed, in which case
 // raise it in the same commit and say why (this file's own rule, restated
 // correctly per the A7 pre-merge ratchet ruling: the runbook's "may only go
 // down" was a paraphrase that was never this file's actual rule).
-export const RATCHET_CEILING = 901;
+export const RATCHET_CEILING = 897;
 
 /**
  * Pure: counts lines the way `wc -l` does (newline-byte count). Exported so

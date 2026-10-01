@@ -38,6 +38,8 @@ import {
   REGION_IDS,
   REGION_TENANTS,
   VARIANTS_NOT_EMITTED_BY_PRESETS,
+  FOLDABLE_ANNOUNCERS,
+  FOLDABLE_REGIONS,
   getPlacement,
   type LayoutRow,
   type Moment,
@@ -459,6 +461,44 @@ describe('TAV-PLAY-SHELL presets.ts — every REGION_VARIANTS member is emitted 
       expect(unaccounted).toEqual([]);
     });
   }
+});
+
+describe('A9c C7 — a fold hides the region\'s own announcers (R3): every foldable announcer is listed with a reason (build brief 5.5)', () => {
+  const collapsibleSomewhere = (id: RegionId) =>
+    LAYOUT_ROWS.some((row) => MOMENTS.some((m) => getPlacement(row, id, m).collapsible === true));
+
+  it('FOLDABLE_REGIONS is exactly the regions collapsible in some row x moment (derived, never hand-listed)', () => {
+    expect([...FOLDABLE_REGIONS].sort()).toEqual(REGION_IDS.filter(collapsibleSomewhere).sort());
+    expect(FOLDABLE_REGIONS.size).toBeGreaterThan(0);
+  });
+
+  it('every collapsible ANNOUNCING region has a non-empty FOLDABLE_ANNOUNCERS reason, and no entry is stale', () => {
+    const needing = REGION_IDS.filter((id) => ANNOUNCING_REGIONS.has(id) && collapsibleSomewhere(id));
+    for (const id of needing) {
+      expect({ id, reason: (FOLDABLE_ANNOUNCERS[id] ?? '').length > 0 }).toEqual({ id, reason: true });
+    }
+    expect(Object.keys(FOLDABLE_ANNOUNCERS).sort()).toEqual([...needing].sort());
+  });
+
+  it('the guard bites: a collapsible announcer with no entry is detected (control: table.storyLog collapsible)', () => {
+    const mutated = {
+      ...LAYOUT_ROWS.find((r) => r.id === 'table')!,
+      regions: {
+        ...LAYOUT_ROWS.find((r) => r.id === 'table')!.regions,
+        storyLog: { default: { area: 'storyLog', collapsible: true } },
+      },
+    } as LayoutRow;
+    const collapsible = REGION_IDS.filter((id) =>
+      MOMENTS.some((m) => getPlacement(mutated, id, m).collapsible === true),
+    );
+    const unlisted = collapsible.filter((id) => ANNOUNCING_REGIONS.has(id) && !(id in FOLDABLE_ANNOUNCERS));
+    expect(unlisted).toEqual(['storyLog']);
+  });
+
+  it('characterBlock no longer has a \'rail\' variant: the fold is the shell\'s mechanism, not a second one (Amendment C.4)', () => {
+    expect(REGION_VARIANTS.characterBlock).toEqual(['compact', 'full']);
+    expect(VARIANTS_NOT_EMITTED_BY_PRESETS).toEqual({});
+  });
 });
 
 describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 composite): every RegionId is where it should be, with every other field intact', () => {

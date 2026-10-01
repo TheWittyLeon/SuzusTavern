@@ -11,6 +11,9 @@
   justify-content: space-between;
   gap: 10px;
   flex-shrink: 0;
+  /* Docked in a FoldDock, the fold handle floats over this corner; the dock
+     publishes how much room it takes. In the Drawer the var is unset. */
+  padding-inline-end: var(--fold-handle-reserve, 0px);
 }
 
 .heading {

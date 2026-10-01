@@ -61,6 +61,17 @@
  * every scroller under a region slot is snapshotted before a commit that
  * changes the order and restored after (`ScrollKeeper.tsx`).
  *
+ * **Folding (A9c C7, build brief §5):** this component is the ONE reader of
+ * `Placement.collapsible`. A region in `FOLDABLE_REGIONS` (collapsible in any
+ * row) that has a `foldSpecs` entry is wrapped in a `FoldDock` in EVERY row —
+ * foldable where the placement says so, inert elsewhere — so the dock's mode
+ * changes on a row switch and its place in the tree never does. Only the
+ * region's OWN node is wrapped: hosted regions and tenants stay outside the
+ * fold. A collapsible placement with no spec renders unfolded (never
+ * silently unfoldable); the real-page matrix reds it. Fold state is the
+ * caller's (`foldedRegions`/`onToggleFold`, from ThemeProvider), so the shell
+ * stays provider-free for the render matrix.
+ *
  * `key={regionId}` on every slot (rule 1): without a stable key a row
  * switch reorders children by array position and React remounts them —
  * the map's lost canvas, the scrolled log jumping to the top (R18). Slots
@@ -71,7 +82,10 @@
  * `play.tav-play-landmarks.test.tsx` / `play.tav3-auth-gate.test.tsx`.
  */
 import { Fragment, useRef, type ReactNode } from 'react';
+import FoldDock from '@/components/FoldDock';
+import type { IconName } from '@/components/Icon';
 import {
+  FOLDABLE_REGIONS,
   REGION_TENANTS,
   TENANT_IDS,
   getPlacement,
@@ -85,6 +99,15 @@ import {
 import ScrollKeeper from './ScrollKeeper';
 import styles from './Play.module.css';
 
+/** Copy and icon for a region's fold handle — labels only, no behaviour. */
+export interface FoldSpec {
+  label: string;
+  icon: IconName;
+  /** Heading id that names the folded panel; omit when an enclosing landmark
+   *  already names it (the stage is the "Scene" aside). */
+  labelledBy?: string;
+}
+
 export interface PlayShellProps {
   row: LayoutRow;
   moment: Moment;
@@ -92,6 +115,11 @@ export interface PlayShellProps {
    *  already live — the shell never imports a region. */
   regions: Partial<Record<RegionId, ReactNode>>;
   tenants: Partial<Record<TenantId, ReactNode>>;
+  /** Handle copy for every region that is collapsible in some row. */
+  foldSpecs?: Partial<Record<RegionId, FoldSpec>>;
+  /** Regions the user has folded (absent = open, R20). */
+  foldedRegions?: ReadonlySet<RegionId>;
+  onToggleFold?: (id: RegionId) => void;
   /** `.mobileTabs` until A9d — shell chrome, not a region or a tenant. */
   chrome?: ReactNode;
   /** The two `<Drawer>`s + `<ConfirmDialog>` — overlay hosts, outside the
@@ -158,6 +186,9 @@ export default function PlayShell({
   moment,
   regions,
   tenants,
+  foldSpecs,
+  foldedRegions,
+  onToggleFold,
   chrome,
   layers,
   className,
@@ -200,6 +231,21 @@ export default function PlayShell({
   const slotFor = (regionId: RegionId, area: string | null, anchor?: Anchor) => {
     const hidden = area == null || getPlacement(row, regionId, moment).visible === false;
     const landmark = LANDMARKS[regionId];
+    const regionNode = regions[regionId];
+    const foldSpec = FOLDABLE_REGIONS.has(regionId) ? foldSpecs?.[regionId] : undefined;
+    const body =
+      foldSpec && regionNode !== undefined ? (
+        <FoldDock
+          {...foldSpec}
+          foldable={getPlacement(row, regionId, moment).collapsible === true}
+          folded={foldedRegions?.has(regionId) ?? false}
+          onToggle={() => onToggleFold?.(regionId)}
+        >
+          {regionNode}
+        </FoldDock>
+      ) : (
+        regionNode
+      );
     const Tag = landmark?.as ?? 'div';
     const slotClass = [
       styles.slot,
@@ -224,7 +270,7 @@ export default function PlayShell({
         data-overlaid={anchor == null && area != null && overlaidAreas.has(area) ? 'true' : undefined}
         data-visible={!hidden}
       >
-        {regions[regionId]}
+        {body}
         {hostedRegionsByHost.get(regionId)}
         {tenantsByHost.get(regionId)}
       </Tag>

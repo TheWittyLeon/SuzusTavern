@@ -13,7 +13,7 @@
  * lands on the light `candlelit` palette instead of the dark default.
  * `color-scheme` is set declaratively per `data-vibe` in globals.css.
  */
-import type { LayoutId, Moment } from '@/app/play/[sessionId]/presets';
+import type { LayoutId, Moment, RegionId } from '@/app/play/[sessionId]/presets';
 
 export const VIBES = ['hearthlight', 'dusk-tavern', 'candlelit', 'aetheric', 'moonlit-grove'] as const;
 export type Vibe = (typeof VIBES)[number];
@@ -45,6 +45,36 @@ export const LAYOUT_KEY = 'tavern.layout';
 
 export function isLayoutPref(v: string | null | undefined): v is LayoutPref {
   return v != null && (LAYOUT_PREFS as readonly string[]).includes(v);
+}
+
+/**
+ * R20 (A9c C7): which docked regions the user has folded, "remembered per
+ * user" beside look/layout/density. Stored as a JSON array of region ids.
+ * ABSENT MEANS OPEN (R20: docked open by default) — the same convention as
+ * `'auto'` layout and `'system'` vibe: a default is never written. Parsing is
+ * tolerant: anything that is not an array of strings is "nothing folded".
+ * Ids this build does not know are KEPT, inert: the shell reads a fold by a
+ * placed region's id, so a stale id changes nothing, and keeping it means an
+ * older build does not erase a newer build's fold. (Deliberately no
+ * `REGION_IDS` import: this module is in the global layout's bundle and
+ * `presets.ts` is not.)
+ */
+export const FOLDS_KEY = 'tavern.folds';
+
+export type Folds = Partial<Record<RegionId, true>>;
+
+export function parseFolds(raw: string | null): Folds {
+  if (raw == null) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return {};
+  }
+  if (!Array.isArray(parsed)) return {};
+  const folds: Folds = {};
+  for (const id of parsed) if (typeof id === 'string') folds[id as RegionId] = true;
+  return folds;
 }
 
 /** Ultimate fallback vibe when the OS preference is unavailable (SSR / no matchMedia).
@@ -166,3 +196,9 @@ export function resolveLayout(pref: LayoutPref, isPhone: boolean, moment: Moment
  * (plan §3.4), not this app-wide script's.
  */
 export const NO_FLASH_SCRIPT = `(function(){try{var d=document.documentElement,v=localStorage.getItem('${VIBE_KEY}'),n=localStorage.getItem('${DENSITY_KEY}'),l=localStorage.getItem('${LAYOUT_KEY}');if(v!=='hearthlight'&&v!=='dusk-tavern'&&v!=='candlelit'&&v!=='aetheric'&&v!=='moonlit-grove'){v=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches)?'candlelit':'hearthlight';}d.setAttribute('data-vibe',v);if(n==='compact'||n==='cozy'||n==='airy')d.setAttribute('data-density',n);if(l==='story'||l==='table')d.setAttribute('data-layout',l);}catch(e){}})();`;
+
+/** The inverse of `parseFolds`; an empty set is the absent key (see FOLDS_KEY). */
+export function serializeFolds(folds: Folds): string | null {
+  const ids = Object.keys(folds).filter((id) => folds[id as RegionId]);
+  return ids.length === 0 ? null : JSON.stringify(ids.sort());
+}

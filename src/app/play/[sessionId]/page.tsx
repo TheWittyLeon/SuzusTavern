@@ -74,6 +74,7 @@ import StoryLog from './regions/StoryLog';
 import TopBar from './regions/TopBar';
 import SuzuPresence from './regions/SuzuPresence';
 import PlayShell from './PlayShell';
+import { FOLD_SPECS } from './foldSpecs';
 import { getPlacement, variantFor, type Moment, type RegionId, type TenantId } from './presets';
 import { buildReadAloudBlock, scanXCardTracking } from './format';
 import { useSessionLifecycle } from './hooks/useSessionLifecycle';
@@ -91,8 +92,8 @@ import { useMemberSheetDrawer } from './hooks/useMemberSheetDrawer';
 import { useJournalDrawer, type MobileView } from './hooks/useJournalDrawer';
 import { useFocusAnchors } from './hooks/useFocusAnchors';
 import { usePlayLayout } from './hooks/usePlayLayout';
+import { useRegionFolds } from './hooks/useRegionFolds';
 import JournalPane, { JOURNAL_HEADING_ID } from '@/components/JournalPane';
-import FoldDock from '@/components/FoldDock';
 import MemberSheetPanel, { MEMBER_SHEET_HEADING_ID } from '@/components/MemberSheetPanel';
 import NextPartOffer from '@/components/NextPartOffer';
 import {
@@ -1294,8 +1295,10 @@ export default function PlayPage() {
   // maps `<PlayShell>` renders from.
   const moment: Moment = combatIsActive ? 'combat' : 'exploring';
   const { row } = usePlayLayout(moment);
+  const { foldedRegions, onToggleFold, unfold } = useRegionFolds();
+  const revealSheet = useCallback(() => unfold('characterBlock'), [unfold]);
   const characterBlockIsLayer = getPlacement(row, 'characterBlock', moment).layer === true;
-  const memberSheetDrawer = useMemberSheetDrawer(username, mySheet, !characterBlockIsLayer);
+  const memberSheetDrawer = useMemberSheetDrawer(username, mySheet, !characterBlockIsLayer, revealSheet);
 
   // ── auth gate (UIR2-TAV-3) ──────────────────────────────────────────────────
   // A SEPARATE, earlier guard from the session `state` machine below — this
@@ -1551,17 +1554,7 @@ export default function PlayPage() {
     // implementation until step 7 — correct for the contract (R21 is the
     // end state), not a bug. Rendered only when NOT a layer (table); the
     // Drawer (in `layers` below) renders it when it IS a layer (story/phone).
-    characterBlock: !characterBlockIsLayer ? (
-      <FoldDock
-        folded={memberSheetDrawer.folded}
-        onUnfold={memberSheetDrawer.onUnfold}
-        openLabel="Open character sheet"
-        icon="Scroll"
-        focusOnOpenRef={memberSheetDrawer.closeButtonRef}
-      >
-        {memberSheetPanelNode}
-      </FoldDock>
-    ) : undefined,
+    characterBlock: !characterBlockIsLayer ? memberSheetPanelNode : undefined,
     suzuPresence: <SuzuPresence variant={variantFor(row, 'suzuPresence', moment)} talking={talking} />,
     storyLog: (
       <>
@@ -1796,6 +1789,9 @@ export default function PlayPage() {
       moment={moment}
       regions={regions}
       tenants={tenants}
+      foldSpecs={FOLD_SPECS}
+      foldedRegions={foldedRegions}
+      onToggleFold={onToggleFold}
       className={mobileClass}
       chrome={
         /* mobile tab bar — shell chrome (plan §5 step 6; A9d deletes it,
@@ -1889,7 +1885,7 @@ export default function PlayPage() {
             open={memberSheetDrawer.open}
             visible={memberSheetDrawer.open}
             labelledBy={MEMBER_SHEET_HEADING_ID}
-            onClose={memberSheetDrawer.panelProps.onClose}
+            onClose={memberSheetDrawer.onClose}
             closeButtonRef={memberSheetDrawer.closeButtonRef}
           >
             {characterBlockIsLayer ? memberSheetPanelNode : null}

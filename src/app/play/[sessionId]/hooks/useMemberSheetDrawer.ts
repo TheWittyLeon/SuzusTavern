@@ -27,13 +27,18 @@
  *     sheet is never a modal, and a stale `open` set while the sheet was a
  *     Drawer is cleared in the render the sheet docks, so docked -> Story
  *     cannot resurrect it as an unrequested modal (A9b-1).
- *   - docked, the Close button FOLDS the rail (`folded`; R20, the row is
- *     `collapsible:true`) instead of flipping a flag nothing reads (A9b-1b);
- *     picking a party member unfolds it.
+ *   - docked, the panel has NO Close (A9c C7, Kage S6): the shell's fold
+ *     handle is the control, and the fold state lives in ThemeProvider
+ *     (`folds`), not here. Picking a party member calls `onReveal`, supplied
+ *     by page.tsx (`() => setFold('characterBlock', false)`), so this hook
+ *     names no region.
  *   - docked with no member picked, the panel shows the viewer's OWN sheet
  *     (a docked panel with no selection was an empty "Character sheet"
  *     header over nothing); a viewer with no character gets the panel's own
  *     empty state.
+ * A9c C7 (Kage S9): a self-selection shows the LIVE `mySheet`, not the
+ * snapshot taken at click time, so a level-up or HP change while the sheet is
+ * open is visible without re-clicking.
  * `panelProps` is the one object `<MemberSheetPanel>` is rendered from, in
  * either presentation.
  */
@@ -48,9 +53,9 @@ export interface UseMemberSheetDrawerResult {
   id: string;
   /** The Drawer's dialog flag — never true while the sheet is docked. */
   open: boolean;
-  /** Docked rail folded to its strip (meaningful only while docked). */
-  folded: boolean;
-  onUnfold: () => void;
+  /** The Drawer's close handler (the Drawer is mounted in every row; only the
+   *  presentation where the sheet is a layer ever opens it). */
+  onClose: () => void;
   closeButtonRef: UseDrawerResult['closeButtonRef'];
   /** Everything `<MemberSheetPanel>` takes, resolved for this presentation. */
   panelProps: Pick<
@@ -64,9 +69,10 @@ export function useMemberSheetDrawer(
   username: string | null,
   mySheet: CharacterSheet | null,
   docked: boolean,
+  /** Docked: make the sheet visible again (un-fold) when a member is picked. */
+  onReveal: () => void,
 ): UseMemberSheetDrawerResult {
   const { id, open, setOpen, closeButtonRef } = useDrawer('play-pane-member-sheet');
-  const [folded, setFolded] = useState(false);
   // Docked => never a modal. Adjusting state during render (React's own
   // pattern for state derived from a prop) rather than an effect: an effect
   // would paint one frame of `open` on the new placement first.
@@ -80,17 +86,11 @@ export function useMemberSheetDrawer(
   const [memberSheetError, setMemberSheetError] = useState(false);
 
   const onClose = useCallback(() => {
-    // A9b-1b: docked, Close folds the rail; there is nothing to "close".
-    if (docked) {
-      setFolded(true);
-      return;
-    }
     setOpen(false);
     // Kage n3: don't leave the previous selection's self-flag lingering
     // between opens (always re-set on open, but stale state is stale state).
     setSelectedMemberIsSelf(false);
-  }, [docked, setOpen]);
-  const onUnfold = useCallback(() => setFolded(false), []);
+  }, [setOpen]);
 
   // TAV-PARTY-INLINE-SHEET: PartyPanel's card onClick. The viewer's own row
   // reuses the already-loaded `mySheet` (no extra hop); any other member's
@@ -101,7 +101,7 @@ export function useMemberSheetDrawer(
   const onSelectMember = useCallback(
     (p: Participant) => {
       if (!p.character) return;
-      if (docked) setFolded(false);
+      if (docked) onReveal();
       else setOpen(true);
       setSelectedMemberName(p.character.name ?? p.username);
       const isSelf = p.username.toLowerCase() === (username ?? '').toLowerCase();
@@ -125,24 +125,25 @@ export function useMemberSheetDrawer(
           setMemberSheetLoading(false);
         });
     },
-    [username, mySheet, docked, setOpen],
+    [username, mySheet, docked, onReveal, setOpen],
   );
 
   // Docked with nobody picked: the viewer's own sheet is the default view.
   const showOwn = docked && selectedMemberName === null && mySheet !== null;
+  const showLiveSelf = selectedMemberIsSelf && mySheet !== null;
   return {
     id,
     open,
-    folded,
-    onUnfold,
+    onClose,
     closeButtonRef,
     panelProps: {
-      sheet: showOwn ? mySheet : selectedMemberSheet,
+      sheet: showOwn || showLiveSelf ? mySheet : selectedMemberSheet,
       loading: memberSheetLoading,
       error: memberSheetError,
       memberName: showOwn ? mySheet.name : selectedMemberName,
       isSelf: showOwn || selectedMemberIsSelf,
-      onClose,
+      // Docked: no Close (the fold handle is the control). Drawer: the close.
+      onClose: docked ? undefined : onClose,
       closeButtonRef,
     },
     onSelectMember,

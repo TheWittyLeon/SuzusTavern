@@ -234,9 +234,11 @@ export { isRegionVariant };
  * (the durability red flag "declared field with zero readers" pointed the
  * other way — a declared UNION member nobody can reach).
  */
-export const VARIANTS_NOT_EMITTED_BY_PRESETS: Partial<Record<RegionId, readonly string[]>> = {
-  characterBlock: ['rail'],
-};
+export const VARIANTS_NOT_EMITTED_BY_PRESETS: Partial<Record<RegionId, readonly string[]>> = {};
+// (A9c C7, Amendment C.4: `characterBlock`'s `'rail'` was the only entry. The
+// fold is the shell's generic mechanism, so a folded sheet is the same
+// CharacterBlock behind its handle, not a second variant. The map stays so a
+// future runtime-only member has a declared home; its guard is unchanged.)
 
 /**
  * Amendment B.4 (2026-09-30, Sora-Arch — answers S6, the un-regioned
@@ -826,4 +828,35 @@ export const LAYOUT_ROWS_BY_ID: Record<LayoutId, LayoutRow> = {
   story: STORY_ROW,
   table: TABLE_ROW,
   phone: PHONE_ROW,
+};
+
+const MOMENT_LIST: readonly Moment[] = ['exploring', 'combat'];
+
+/**
+ * A9c C7 (build brief §5): every region whose placement is `collapsible` in
+ * ANY row x moment, DERIVED from the rows (the tenth foldable region is a row
+ * flag, never an edit here). The shell wraps these regions in a `FoldDock`
+ * in EVERY row — the dock is inert (`foldable={false}`) where the placement is
+ * not collapsible — so a row switch changes the dock's mode, never the tree,
+ * and the region's state survives (presets place, they never unmount).
+ */
+export const FOLDABLE_REGIONS: ReadonlySet<RegionId> = new Set(
+  REGION_IDS.filter((id) =>
+    LAYOUT_ROWS.some((row) => MOMENT_LIST.some((m) => getPlacement(row, id, m).collapsible === true)),
+  ),
+);
+
+/**
+ * R3 consequence of a fold (build brief §5.5): a fold hides the region's own
+ * announcers, just as a closed drawer does. Every region in
+ * `FOLDABLE_REGIONS` that is also an `ANNOUNCING_REGIONS` member must be
+ * listed here with the reason silencing it is safe; the registry guard fails
+ * an unlisted one (the control: make `table.storyLog` collapsible -> red).
+ */
+export const FOLDABLE_ANNOUNCERS: Partial<Record<RegionId, string>> = {
+  characterBlock:
+    'its announcers report only the sheet\'s own loading/error; a folded sheet has nothing to say',
+  // debt: folding phone's stage silences its combatNote/autoResolvePrompt announcers. ceiling: phone only, a user-initiated fold, persisted per user. until: A9d (Tora) decides the phone stage fold.
+  sceneStage:
+    'phone only: folding the stage silences combatNote/autoResolvePrompt (see the marker above)',
 };

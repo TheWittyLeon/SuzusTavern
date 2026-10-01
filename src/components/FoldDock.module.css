@@ -1,18 +1,33 @@
 /* The open panel asks for more width than any track cap, so a
    `fit-content(<cap>)` column (presets.ts owns the cap) resolves to the cap;
    `max-width: 100%` then pins it to what the track actually grants. Folded,
-   only the strip is in the track and `fit-content` shrinks it to one icon. */
+   only the handle is in flow and `fit-content` shrinks the track to it. */
+.dock {
+  position: relative;
+  height: 100%;
+  /* Open, the handle floats over the panel's top-end corner; the panel's own
+     header reserves this much room (see MemberSheetPanel .head). */
+  --fold-handle-reserve: 44px;
+}
+
+/* Inert mode: lay out as if the dock were not there. */
+.dock[data-foldable='false'],
+.dock[data-foldable='false'] > .panel {
+  display: contents;
+}
+
 .panel {
   width: 100vw;
   max-width: 100%;
   height: 100%;
 }
 
-.strip {
+/* 44x44 (Iro A9b MINOR-2): the target IS the box, no padding trick. */
+.handle {
   display: grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   border-radius: var(--radius-xs);
   /* A11Y-BUTTON-BORDER-CONTRAST: clickable — --line-strong clears 1.4.11. */
   border: 1px solid var(--line-strong);
@@ -21,7 +36,13 @@
   cursor: pointer;
 }
 
-.strip:hover {
+.dock:not([data-folded='true']) .handle {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+}
+
+.handle:hover {
   border-color: color-mix(in oklab, var(--accent) 35%, transparent);
   color: var(--ink);
 }

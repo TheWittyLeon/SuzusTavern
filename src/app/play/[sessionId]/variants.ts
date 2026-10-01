@@ -26,11 +26,11 @@
  *    "figure beside the story" and Table's "framed speaker portrait" differ
  *    in LOOK, not on the size axis. A third value with one emitter would
  *    repeat the `'vitals'` mistake below.
- *  - `characterBlock: ['compact','full','rail']` — `'rail'` is R20's
- *    FOLDED state, reached at runtime from the persisted fold pref (A9c),
- *    and declared in `VARIANTS_NOT_EMITTED_BY_PRESETS` below as not emitted
- *    by any preset row — a declaration, not the accident that killed
- *    `actionBar`'s `'full'`.
+ *  - `characterBlock: ['compact','full']` — R20's FOLDED state is NOT a
+ *    variant (A9c C7, Amendment C.4): the fold is the shell's generic
+ *    mechanism (`collapsible` + a `FoldDock`, state in ThemeProvider `folds`),
+ *    so a folded sheet is the same CharacterBlock behind its handle. A
+ *    `'rail'` value would be a second, sheet-only mechanism with no reader.
  *  - `actionBar: ['chips','bar']` — 🟡-7 taken whole. `'vitals'` was the
  *    name of a DATA prop (`ActionBarProps.vitals`), not a variant; `'full'`
  *    had no emitter. "Vitals only while exploring" is the bar's own
@@ -46,7 +46,7 @@ export const REGION_VARIANTS = {
   partyStrip: ['strip', 'rail'],
   sceneStage: ['inline', 'panel', 'hero'],
   offers: ['chips', 'list'],
-  characterBlock: ['compact', 'full', 'rail'],
+  characterBlock: ['compact', 'full'],
   actionBar: ['chips', 'bar'],
   suzuPresence: ['compact', 'full'],
   topBar: ['band', 'overlay'],
