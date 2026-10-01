@@ -42,6 +42,15 @@
   position: relative;
 }
 
+/* A9d-2 (Tora A9d-1 MAJOR-2, brief section 12.2): on /play only (the one page with a `.grid`), a fling at
+   the top of the story log must not pull-to-refresh a live session on Android Chrome. The y axis only, and only
+   the DOCUMENT: nested chaining stays (the log still hands its overscroll to the page, which a reflow size
+   needs to reach the composer and the X-card; the log is deliberately left alone). `:global(html)` because a
+   module selector needs a local class: `.grid` is the one. */
+:global(html):has(.grid) {
+  overscroll-behavior-y: none;
+}
+
 .kicker {
   font-size: 9px;
   letter-spacing: 0.16em;
