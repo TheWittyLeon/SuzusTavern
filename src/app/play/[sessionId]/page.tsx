@@ -76,7 +76,7 @@ import SuzuPresence from './regions/SuzuPresence';
 import PlayShell from './PlayShell';
 import { FOLD_SPECS } from './foldSpecs';
 import { getPlacement, variantFor, type Moment, type RegionId, type TenantId } from './presets';
-import { buildReadAloudBlock, scanXCardTracking } from './format';
+import { buildReadAloudBlock, deathSaveTally, scanXCardTracking } from './format';
 import { useSessionLifecycle } from './hooks/useSessionLifecycle';
 import { useMyCharacter } from './hooks/useMyCharacter';
 import { useRebindRefresh } from './hooks/useRebindRefresh';
@@ -1584,6 +1584,7 @@ export default function PlayPage() {
         transitionWrapRef={transitionWrapRef}
         sceneAdvanceBusy={sceneAdvanceBusy}
         onMoveOn={(to) => void onMoveOn(to)}
+        variant={variantFor(row, 'offers', moment)}
       />
     ),
     // S-d's sibling gap (build brief §5): `actionBar` is placed (non-null
@@ -1608,14 +1609,8 @@ export default function PlayPage() {
           isDying={isDying}
           // TAV-ATTACK-BUTTON-STALE: server-side action economy.
           actionSpent={myActionSpent}
-          deathSaves={
-            activeParticipant?.death_saves
-              ? {
-                  successes: activeParticipant.death_saves.successes,
-                  failures: activeParticipant.death_saves.failures,
-                }
-              : null
-          }
+          deathSaves={deathSaveTally(activeParticipant)}
+          variant={variantFor(row, 'actionBar', moment)}
           outerRailRef={composerRailAnchorRef}
           localTurnActionRef={localTurnActionRef}
         />

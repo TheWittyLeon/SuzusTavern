@@ -208,6 +208,28 @@
   font-style: italic;
 }
 
+/* A9c-2 D2: `chips` (Story) -- the kicker shares the row with the buttons; the
+   refusal / wait / death-save rows still take a full line of their own. The
+   buttons keep their 44px target (they are the same .action). */
+.railChips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px var(--density-gap);
+}
+
+.railChips .railLabel {
+  margin-bottom: 0;
+  flex: 0 0 auto;
+}
+
+.railChips .refusedReason,
+.railChips .notYourTurn,
+.railChips .deathSaveRow {
+  flex: 1 0 100%;
+  margin-top: 0;
+}
+
 .railBtns {
   display: flex;
   gap: var(--density-gap);

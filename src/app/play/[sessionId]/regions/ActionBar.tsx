@@ -34,6 +34,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type 
 import Icon from '@/components/Icon';
 import { consumeEscape } from '@/lib/a11y/escapeConsume';
 import styles from '@/components/Composer.module.css';
+import type { RegionVariant } from '../variants';
 
 export type CombatAction = 'attack' | 'dodge' | 'dash' | 'endturn' | 'deathsave';
 
@@ -83,6 +84,10 @@ export interface ActionBarProps {
    *  disabling click stranded focus" apart from "combatState just arrived via
    *  the poll" (which never sets this). */
   localTurnActionRef?: RefObject<boolean>;
+  /** A9c-2 D2: `bar` (default) is the rail above its buttons, as it always was;
+   *  `chips` puts the kicker inline with the buttons so a story column spends
+   *  one row. Same elements, same names, same live regions. */
+  variant?: RegionVariant<'actionBar'>;
 }
 
 /** Gap between the Attack button and its target menu, and the viewport margin. */
@@ -99,6 +104,7 @@ export default function ActionBar({
   actionSpent: actionSpentProp,
   outerRailRef,
   localTurnActionRef,
+  variant = 'bar',
 }: ActionBarProps) {
   const [targetOpen, setTargetOpen] = useState(false);
   const railRef = useRef<HTMLDivElement>(null);
@@ -256,7 +262,8 @@ export default function ActionBar({
 
   return (
     <div
-      className={styles.rail}
+      className={variant === 'chips' ? `${styles.rail} ${styles.railChips}` : styles.rail}
+      data-variant={variant}
       ref={(el) => {
         railRef.current = el;
         if (outerRailRef) outerRailRef.current = el;

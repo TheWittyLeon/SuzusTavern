@@ -41,7 +41,7 @@
  * "the poll never imports a sibling hook" (decomposition plan §2.2) rules
  * out for `useSessionEvents.ts` reaching into page.tsx).
  */
-import type { CombatState, EngineSessionEvent, GroundingData, Session } from '@/lib/api/types';
+import type { CombatParticipantState, CombatState, EngineSessionEvent, GroundingData, Session } from '@/lib/api/types';
 
 /** Title-case an engine skill slug ('sleight_of_hand' -> 'Sleight Of Hand'). */
 export function titleCaseSkill(skill: string): string {
@@ -51,6 +51,13 @@ export function titleCaseSkill(skill: string): string {
 }
 
 /** `HH:MM` timestamp (locale default) stamped onto every transcript row. */
+/** The ActionBar's death-save tally from the active combatant, or null when it has none. */
+export function deathSaveTally(
+  p: Pick<CombatParticipantState, 'death_saves'> | null | undefined,
+): { successes: number; failures: number } | null {
+  return p?.death_saves ? { successes: p.death_saves.successes, failures: p.death_saves.failures } : null;
+}
+
 export function nowStamp(): string {
   return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }

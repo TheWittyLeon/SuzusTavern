@@ -5,6 +5,7 @@ import type { SceneCheck, SceneTransition } from '@/lib/api/types';
 import type { RollTrigger } from '@/components/DiceTray';
 import Icon from '@/components/Icon';
 import { titleCaseSkill } from '../format';
+import type { RegionVariant } from '../variants';
 import styles from '../Play.module.css';
 
 /**
@@ -15,6 +16,13 @@ import styles from '../Play.module.css';
  * aria-hidden, composer-adjacent duplicate (TAV-CHECK-DISCOVERABILITY /
  * Phase-1 #6) stayed in page.tsx, untouched, until step 4 deleted it.
  * This component is now the SOLE placement — one component, one place.
+ *
+ * A9c-2 D2 (build brief 6): consumes its `variant` (the registry's union).
+ * `list` is the markup above, one full-width button per offer (Table, in its
+ * own scrolling 120px track). `chips` lays the SAME groups out as wrapped
+ * compact pills, the label inline, so a story column spends one row on them
+ * instead of a capped list. Same DOM, same groups, same accessible names:
+ * only the presentation differs.
  */
 
 const CHECK_LOCK_REASON_COPY: Record<string, string> = {
@@ -41,6 +49,7 @@ export interface OffersProps {
   transitionWrapRef: RefObject<HTMLDivElement | null>;
   sceneAdvanceBusy: boolean;
   onMoveOn: (to: string | null) => void;
+  variant?: RegionVariant<'offers'>;
 }
 
 export default function Offers({
@@ -61,9 +70,10 @@ export default function Offers({
   transitionWrapRef,
   sceneAdvanceBusy,
   onMoveOn,
+  variant = 'list',
 }: OffersProps) {
   return (
-    <div data-region="offers">
+    <div data-region="offers" data-variant={variant} className={variant === 'chips' ? styles.offersChips : undefined}>
       {/* P1-PLAYFIX §3.3.3 (S2.4): authored skill-check affordances — shown
           whenever the current scene has authored checks and no combat is
           active. D1a: every authored check for the scene is a

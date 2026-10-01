@@ -569,6 +569,38 @@
   cursor: not-allowed;
 }
 
+/* A9c-2 D2: the `chips` Offers variant. The two groups stay separate
+   role="group" blocks (the A13 single-group contract); the ROOT becomes the
+   wrapping row, each group a wrapping row of its own: label, then pills. */
+.offersChips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 6px var(--density-gap);
+}
+
+.offersChips .checkWrap,
+.offersChips .moveOnWrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 0;
+}
+
+.offersChips .checkLabel,
+.offersChips .moveOnLabel {
+  margin-bottom: 0;
+}
+
+.offersChips .checkBtn,
+.offersChips .moveOnBtn {
+  width: auto;
+  margin-bottom: 0;
+  padding: 0 14px;
+  border-radius: 999px;
+}
+
 /* Scene name in the right-pane scene header.
    FIX-8: now rendered as <p> (block) so AT pauses between name and objective;
    margin-left removed (was for inline span flow); top margin keeps visual rhythm. */

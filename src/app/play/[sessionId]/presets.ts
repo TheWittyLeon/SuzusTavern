@@ -574,26 +574,15 @@ const STORY_ROW: LayoutRow = {
   },
   // Amendment B.2: grid-template-rows, one track per `areas` line. Starting
   // values (build brief §7 C1) — Aoi/step 11 tunes them at the checkpoint.
-  // Ren-Dev, A9b self-check (found via live-browser measurement, not
-  // guessed): row 2 (`topBar`+`partyStrip`'s shared band) was `auto` —
-  // `PartyStrip.tsx` doesn't yet read its own `variant` prop (R25/S7's
-  // "strip" is supposed to mean a compact header-band representation;
-  // the component always renders the SAME full roster+rebind+initiative
-  // content regardless, same "contract ahead of implementation" shape as
-  // S-d's characterBlock) — measured at 502px tall. An `auto` track
-  // inflated to fit it, squeezing `storyLog`'s `minmax(0,1fr)` track to
-  // 0px (measured: the chat log was present in the DOM, `data-visible=
-  // "true"`, zero RENDERED height — the X-card-shaped failure one layer
-  // down, a layout collapse instead of a visibility one). Capped to a
-  // fixed `140px` (measured: the merged TopBar's own content is 113px);
-  // `partyStrip`'s slot already carries `.slotScroll` (`overflow-y:auto`)
-  // so its excess content scrolls within the band instead of inflating
-  // it. This is a ROW EDIT (data), not a CSS hunt or a PartyStrip
-  // rewrite — the real fix (a compact `'strip'` rendering PartyStrip.tsx
-  // doesn't implement yet) is Aoi/step-11 territory; flagged, not built
-  // here. `debt:` not used — the STARTING VALUES in this field are
-  // already understood repo-wide (build brief §7 C1) to be the Aoi/A9d
-  // checkpoint's own tuning target, not a hidden shortcut.
+  // History (A9b self-check, measured live): row 2 (`topBar` + `partyStrip`'s
+  // shared band) was `auto` while `PartyStrip` rendered the full roster
+  // whatever its variant, measured 502px, and squeezed `storyLog`'s
+  // `minmax(0,1fr)` to 0px; it was capped at `140px` as a stop-gap.
+  // A9c-2 D1 gave `partyStrip` its real `strip` form (a row of 44px tiles) and
+  // D2 gave `offers` its `chips` form, so both bands are content-sized again:
+  // row 2 and the offers row are `auto`, the cap and the `debt:` it carried
+  // are gone. A track still never shrinks below its content here because the
+  // stage is the only capped sibling and the log is the `1fr` that absorbs.
   // A9c-2 D0: the LAST track (the `actionBar` area, which hosts the X-card) is
   // `max-content`, not `auto`. A grid item that is a scroll container (every
   // `.slot`) has a minimum contribution of 0, so an `auto` track can be shrunk
@@ -601,15 +590,12 @@ const STORY_ROW: LayoutRow = {
   // `minmax(0,Npx)`) eats the free space: on phone with the X-card banner up it
   // lost 9px and the X-card was clipped (harness (c), 809..853 of 844).
   // `max-content` takes its base size from the content, so it is never shrunk.
-  // debt: `offers` is capped at 120px (a scrolling list; uncapped it is 315px
-  // and starves storyLog). ceiling: the offers list scrolls inside a 120px box.
-  // until: A9c ships the `chips` Offers variant (one compact row, no cap).
   // debt: Story/combat storyLog is ~102px inner vs the 240px browser floor (a:storyLog).
   // ceiling: log is 2-3 rows at 900px; the 290px stage cap = the hero scene's own height.
   // until: A9c moves the session header over the stage (`corner`) and trims stage chrome.
   rows: {
-    exploring: 'auto 140px minmax(0,1fr) fit-content(120px) auto max-content',
-    combat: 'auto 140px minmax(0,290px) minmax(0,1fr) auto max-content',
+    exploring: 'auto auto minmax(0,1fr) auto auto max-content',
+    combat: 'auto auto minmax(0,290px) minmax(0,1fr) auto max-content',
   },
   areas: {
     exploring: `"safetyBanner safetyBanner safetyBanner"
@@ -709,6 +695,9 @@ const TABLE_ROW: LayoutRow = {
   // debt: Table/combat storyLog is ~107-132px inner vs the 240px browser floor (a:storyLog).
   // ceiling: 3-4 rows at 900px; `minmax(0,400px)` grows to its cap whatever the stage holds, so lifting topBar over the stage (C4) returned nothing to the log.
   // until: A9c-2 D7 content-sizes the stage track (`fit-content(400px)`).
+  // debt: Table's `offers` (`list`, one full-width button per offer) is capped at 120px and scrolls inside it; uncapped, 3-4 offers starve the log.
+  // ceiling: 3+ offers scroll in a 120px box, in the table·exploring cell only (offers are hidden in combat).
+  // until: Table's offers take the `chips` form (step 11 Table checkpoint) or the stage track is content-sized.
   rows: {
     exploring: 'auto 218px minmax(0,1fr) fit-content(120px) auto max-content',
     combat: 'auto minmax(0,400px) minmax(0,1fr) auto max-content',
