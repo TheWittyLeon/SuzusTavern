@@ -22,6 +22,40 @@
   margin: 0;
 }
 
+/* A9c-2 D7: the optional fold (`disclosure` prop). The wrapper repeats the
+   panel's own column rhythm and must honour `hidden` explicitly: an author
+   `display:flex` would otherwise beat the UA's `[hidden]{display:none}`. */
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.body[hidden] {
+  display: none;
+}
+.disclosure {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+.chev,
+.chevOpen {
+  color: var(--ink-3);
+  transition: transform var(--dur-fast) var(--ease);
+}
+.chevOpen {
+  transform: rotate(90deg);
+}
+
 .emptyRow {
   font-size: 13px;
   color: var(--ink-3);

@@ -294,6 +294,14 @@ export interface TenantPlacement {
  *   deadStatus          — `role="status" aria-live="polite"`, always mounted (tenants/StatusAnnouncers.tsx).
  *   durableRetryRow     — `role="status" aria-live="polite"` (tenants/StatusAnnouncers.tsx).
  *   castSpellPanel      — CastSpellPanel.tsx's own 4 internal announcers (tenants/CastSpellTenant.tsx).
+ *                         Folded behind a disclosure by default (A9c-2 D7), so
+ *                         while folded they are `hidden` and say nothing:
+ *                         `turnStatus` stays the SOLE turn announcer (A4), and
+ *                         the panel's "Waiting for your turn…" is a visible
+ *                         echo of it, never the only channel. `announces`
+ *                         stays true: the host must still never be
+ *                         `visible:false` / a layer, or an UNFOLDED panel
+ *                         would stop announcing its load/empty/error states.
  *   nextPartOffer       — NextPartOffer.tsx: root is `<Card role="status">`
  *                         (an implicit live region, `aria-live="polite"`
  *                         by the ARIA spec default for `status`) — caught

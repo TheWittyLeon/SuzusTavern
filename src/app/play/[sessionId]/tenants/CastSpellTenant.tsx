@@ -1,6 +1,6 @@
 'use client';
 
-import type { Dispatch, SetStateAction } from 'react';
+import { useState, type Dispatch, type SetStateAction } from 'react';
 import type { CharacterSheet, CombatState } from '@/lib/api/types';
 import CastSpellPanel from '@/components/CastSpellPanel';
 
@@ -56,6 +56,12 @@ export default function CastSpellTenant({
   onStateRefresh,
   onBusyChange,
 }: CastSpellTenantProps) {
+  // A9c-2 D7 (lever 3): folded by default. Open, the panel is ~100px of selects
+  // in a content-sized `actionBar` track, which takes that height straight from
+  // the story log (44px inner on the worst combat cell, measured at e396625).
+  // The controls stay mounted behind the disclosure (CastSpellPanel `disclosure`),
+  // so nothing is refetched or lost by folding.
+  const [open, setOpen] = useState(false);
   if (
     !(
       (isDmPlayingOwnPc || !isHumanDM) &&
@@ -85,6 +91,7 @@ export default function CastSpellTenant({
         onSheetChanged={onSheetChanged}
         onStateRefresh={onStateRefresh}
         onBusyChange={onBusyChange}
+        disclosure={{ open, onToggle: () => setOpen((o) => !o) }}
       />
     </div>
   );
