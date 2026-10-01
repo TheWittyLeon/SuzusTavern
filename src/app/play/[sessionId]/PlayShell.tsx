@@ -39,9 +39,18 @@
  *     checks, play-data-region-contract.test.ts's tenant guards) already
  *     make this unreachable for anything `ANNOUNCING_REGIONS` lists.
  *
- * **DOM order in this commit is today's document order**, as an explicit
- * constant (`DOM_ORDER` below) — a measurement baseline, not a design.
- * C5 replaces it with an order derived from the row's own `areas` string.
+ * **DOM order is derived from the row's own `areas` string** (build brief
+ * §7 C5, row-major, first appearance of each token) — not a hand-
+ * maintained constant. This is the durable shape: DOM order tracks
+ * visual order in every row automatically, focus order is correct by
+ * construction (WCAG 2.4.3/1.3.2), and the tenth region's DOM position is
+ * decided by where its token sits in the `areas` string — a row, not
+ * code. A region whose token never appears in the string this moment
+ * (hosted, layered, or genuinely absent) is naturally excluded from this
+ * derivation — it was never going to get a top-level slot regardless of
+ * order (see the four-kinds dispatch above). C4 shipped this as an
+ * explicit `DOM_ORDER` constant (today's document order, a measurement
+ * baseline); this commit replaces it.
  *
  * `key={regionId}` on every slot (rule 1): without a stable key a row
  * switch reorders children by array position and React remounts them —
@@ -87,23 +96,26 @@ export interface PlayShellProps {
   className?: string;
 }
 
-/** Measurement baseline (not a design — see this file's header). Covers
- *  every `RegionId`; a region that is `layer:true` or genuinely absent in
- *  every row/moment (none today) would simply never reach the loop body's
- *  rendering branches, regardless of its position here. */
-const DOM_ORDER: readonly RegionId[] = [
-  'safetyBanner',
-  'topBar',
-  'partyStrip',
-  'characterBlock',
-  'suzuPresence',
-  'storyLog',
-  'offers',
-  'actionBar',
-  'composer',
-  'tableControls',
-  'sceneStage',
-];
+/**
+ * Build brief §7 C5 — row-major, first-appearance order of every token in
+ * `areasValue` (a `grid-template-areas` value: one or more `"..."`
+ * quoted rows, space-separated tokens, `.` for an empty cell). A token
+ * repeated across a rectangular span (the common case: a region spanning
+ * several rows/columns) is deduplicated to its FIRST occurrence only — a
+ * second entry would duplicate the key in the caller's slot list.
+ */
+function deriveDomOrder(areasValue: string): RegionId[] {
+  const seen = new Set<string>();
+  const order: RegionId[] = [];
+  for (const quotedRow of areasValue.matchAll(/"([^"]*)"/g)) {
+    for (const token of quotedRow[1].trim().split(/\s+/)) {
+      if (token === '.' || seen.has(token)) continue;
+      seen.add(token);
+      order.push(token as RegionId);
+    }
+  }
+  return order;
+}
 
 interface LandmarkSpec {
   as: 'aside' | 'main';
@@ -173,7 +185,7 @@ export default function PlayShell({
   }
 
   const slots: ReactNode[] = [];
-  for (const regionId of DOM_ORDER) {
+  for (const regionId of deriveDomOrder(row.areas[moment])) {
     const placement = getPlacement(row, regionId, moment);
     // `host != null` / `layer === true` / genuinely absent: nothing of its
     // own in the grid (see this file's header for all three).
