@@ -174,6 +174,69 @@ describe('Play.module.css', () => {
     });
   });
 
+  describe('A9d E5 — the action bar and the compact header fit a narrow slot (the browser half is capture-play --assert-layout: d / c / a on the phone cells)', () => {
+    const strip = (t: string) => t.replace(/\/\*[\s\S]*?\*\//g, '');
+    const composer = () =>
+      strip(fs.readFileSync(path.resolve(process.cwd(), 'src/components/Composer.module.css'), 'utf8'));
+
+    /** The `@container (max-width: 560px) { ... }` block of a stylesheet (brace-matched). */
+    function containerBlock(text: string): string {
+      const start = text.indexOf('@container (max-width: 560px) {');
+      if (start === -1) throw new Error('no @container (max-width: 560px) block');
+      let depth = 0;
+      for (let i = text.indexOf('{', start); i < text.length; i++) {
+        if (text[i] === '{') depth++;
+        else if (text[i] === '}' && --depth === 0) return text.slice(start, i + 1);
+      }
+      throw new Error('unbalanced');
+    }
+
+    it('Composer.module.css: below 560px of slot the kicker is visually hidden (clip, not display:none: the group keeps aria-labelledby on it)', () => {
+      const block = containerBlock(composer());
+      const label = block.slice(block.indexOf('.railLabel {'));
+      const decls = label.slice(0, label.indexOf('}'));
+      expect(decls).toMatch(/clip:\s*rect\(0,\s*0,\s*0,\s*0\)/);
+      expect(decls).toMatch(/position:\s*absolute/);
+      expect(decls).not.toMatch(/display:\s*none|visibility:\s*hidden/);
+    });
+
+    it('Composer.module.css: the verbs share one row, equal shares, icon over label, each still a 44px target', () => {
+      const block = containerBlock(composer());
+      expect(block).toMatch(/\.railBtns\s*\{[^}]*flex-wrap:\s*nowrap/);
+      const action = block.slice(block.indexOf('.action {'));
+      const decls = action.slice(0, action.indexOf('}'));
+      expect(decls).toMatch(/flex:\s*1 1 0/);
+      expect(decls).toMatch(/flex-direction:\s*column/);
+      expect(decls).toMatch(/min-width:\s*44px/);
+      // the 44px floor is the base rule's, and nothing in the narrow block lowers it
+      expect(decls).not.toMatch(/min-height/);
+      expect(composer()).toMatch(/\.action\s*\{[^}]*min-height:\s*44px/);
+    });
+
+    it('Play.module.css: in the same 560px query the rail takes the first row alone (basis 100%) so Cast + safety share the next', () => {
+      const block = strip(containerBlock(css));
+      expect(block).toMatch(
+        /\.slot:has\(> \[data-tenant="safetyControls"\]\) > :not\(\[data-tenant\]\)\s*\{[^}]*flex:\s*1 0 100%/,
+      );
+    });
+
+    it('the compact header cannot outgrow its box: the head shrinks (min-width:0), the title wrapper takes the rest, the pill rides beside the title', () => {
+      const text = strip(css);
+      expect(text).toMatch(/\.topBarCompact \.sessionHead\s*\{[^}]*flex:\s*1 1 0;[^}]*min-width:\s*0/);
+      expect(text).toMatch(/\.topBarCompact \.sessionTitleWrap\s*\{[^}]*min-width:\s*0/);
+    });
+
+    it('below 480px the pill stacks under the title and the AI-off pill takes its own line; it is a viewport @media, never a container query on the content-sized Table bar', () => {
+      const text = strip(css);
+      const start = text.indexOf('@media (max-width: 480px) {');
+      expect(start).toBeGreaterThan(-1);
+      const rest = text.slice(start);
+      expect(rest).toMatch(/\.topBarCompact \.sessionTitleWrap\s*\{[^}]*flex-direction:\s*column/);
+      expect(rest).toMatch(/\.topBarCompact \.aiOffStatus\s*\{[^}]*flex:\s*1 0 100%/);
+      expect(text).not.toMatch(/\.topBarCompact\s*\{[^}]*container-type/);
+    });
+  });
+
   describe('A9d E4 — one drawer presentation: the mobile tab bar and the 880px pane switch are gone', () => {
     it('Play.module.css carries no width @media near the phone breakpoint, no .mobileTabs, no in-flow .journalPane / .showJournal (the phone layout is a data row; the breakpoint lives in breakpoints.ts)', () => {
       const bare = css.replace(/\/\*[\s\S]*?\*\//g, '');

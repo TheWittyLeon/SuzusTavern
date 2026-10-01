@@ -357,6 +357,50 @@
 .topBarCompact .back {
   margin: 0;
 }
+/* A9d E5b: the compact header's content may never outgrow its box. The head takes
+   the line and may shrink (min-width:0), the title wrapper takes what the head
+   leaves, and the title ellipsises inside it; the pill rides beside the title. */
+.topBarCompact .sessionHead {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.topBarCompact .sessionTitleWrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.topBarCompact .sessionPill {
+  flex: 0 0 auto;
+}
+/* Below 480px the pill stacks UNDER the title inside the same 64px line, and the
+   AI-off pill takes a second line of its own (the line then grows past the token:
+   that wrap happens only on a phone, never on the overlaid Table bar, which is
+   desktop-wide). A viewport @media, not a container query: the Table bar's slot is
+   content-sized, and `container-type: inline-size` on a content-sized box collapses
+   it to 0 wide. 480 is Composer.module.css's own narrow breakpoint, not the shell's
+   880 (breakpoints.ts is the only copy of that one). */
+@media (max-width: 480px) {
+  .topBarCompact .sessionTitleWrap {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+  }
+  .topBarCompact .sessionTitle {
+    max-width: 100%;
+    line-height: 1.2;
+  }
+  .topBarCompact {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: var(--overlay-bar-h);
+  }
+  .topBarCompact .aiOffStatus {
+    flex: 1 0 100%;
+    justify-content: flex-start;
+  }
+}
 
 /* ── right pane ── */
 .sceneHead {
@@ -804,6 +848,13 @@
 }
 
 @container (max-width: 560px) {
+  /* A9d E5: the action rail takes the first row alone; Composer.module.css's own
+     narrow block lays its verbs out. The Cast disclosure and this safety block
+     (the `[data-tenant]` children) share the row below it. */
+  .slot:has(> [data-tenant="safetyControls"]) > :not([data-tenant]) {
+    flex: 1 0 100%;
+  }
+
   .safety {
     flex-wrap: wrap;
   }

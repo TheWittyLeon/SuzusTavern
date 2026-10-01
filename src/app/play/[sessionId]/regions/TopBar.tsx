@@ -107,15 +107,21 @@ export default function TopBar({
         <Link href="/lobby" className={styles.back} aria-label="Leave session">
           <Icon name="Chevron" size={14} style={{ transform: 'rotate(180deg)' }} />
         </Link>
-        <div>
+        <div className={styles.sessionTitleWrap}>
           {compact ? null : <div className={styles.kicker}>Session</div>}
           <div className={styles.sessionTitle}>{title}</div>
+          {/* compact: the visible pill, inside the title's wrapper so a narrow header
+              can stack it UNDER the title with one flex-direction (A9d E5b). `aria-hidden`
+              because NarratorStrip (in the `sr-only` wrapper below) already carries it —
+              one announcer per fact (A4). AI off has no NarratorStrip, so its pill is the
+              announcer and lives at the ROOT (below), not here: one tree position in both
+              variants. */}
+          {compact && showSuzuPanel ? (
+            <span aria-hidden="true" className={styles.sessionPill}>
+              {status}
+            </span>
+          ) : null}
         </div>
-        {/* compact: the visible pill. `aria-hidden` because NarratorStrip (in the
-            `sr-only` wrapper below) already carries it — one announcer per fact (A4).
-            AI off has no NarratorStrip, so its pill is the announcer and lives at the
-            ROOT (below), not here: one tree position in both variants. */}
-        {compact && showSuzuPanel ? <span aria-hidden="true">{status}</span> : null}
         {/* DDX-22: Journal drawer toggle — visible to every seat (not
             isDm-gated; the journal is a per-player surface, not a DM tool). */}
         <button
