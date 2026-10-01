@@ -69,15 +69,25 @@ export default function DiceTray({
   const dice = useRovingToolbar({
     label: 'Dice',
     itemCount: DICE.length,
-    isDisabled: () => disabled,
   });
   const checks = useRovingToolbar({
     label: 'Quick checks',
     orientation: 'vertical',
     itemCount: quickChecks.length,
-    isDisabled: () => disabled,
   });
   const adv = useRovingToolbar({ label: 'Roll modifier', itemCount: ADVANTAGES.length });
+  // Iro A9c-1 IMPORTANT-1: `aria-disabled`, never native `disabled`. Native
+  // disabled blurred the focused die on every roll (activeElement -> <body>)
+  // and the roving hook then had no tab stop until the roll settled. This is
+  // the X-card pattern: the button stays focusable, announces as disabled, and
+  // the click is swallowed here. The synchronous double-submit latch for a
+  // roll already in flight is `rollBusyRef` in useDice; this guard covers the
+  // other reasons the tray is off (talking, combat busy, session locked).
+  const press = (trigger: RollTrigger) => {
+    if (disabled) return;
+    onRoll(trigger);
+  };
+  const off = disabled || undefined;
   return (
     <div className={styles.tray}>
       <div className={styles.label}>Roll</div>
@@ -89,8 +99,8 @@ export default function DiceTray({
             type="button"
             className={styles.die}
             aria-label={`Roll d${sides}`}
-            onClick={() => onRoll({ kind: 'die', sides })}
-            disabled={disabled}
+            onClick={() => press({ kind: 'die', sides })}
+            aria-disabled={off}
           >
             <Icon name={icon} size={18} aria-hidden />
             <span>d{sides}</span>
@@ -116,8 +126,8 @@ export default function DiceTray({
                     {...checks.itemProps(i)}
                     className={styles.checkRow}
                     aria-label={`Roll ${q.name} check, modifier ${q.mod >= 0 ? '+' : ''}${q.mod}`}
-                    onClick={() => onRoll({ kind: 'check', skill: q.skill, label: q.name })}
-                    disabled={disabled}
+                    onClick={() => press({ kind: 'check', skill: q.skill, label: q.name })}
+                    aria-disabled={off}
                   >
                     <span>{q.name}</span>
                     <b className={styles.mono}>{signed(q.mod)}</b>
