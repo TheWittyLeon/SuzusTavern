@@ -153,17 +153,23 @@ export function useFocusAnchors(
   // commit C3): when ActionBar unmounts (combat ends), keyboard focus is
   // dropped to <body> — fire from the SAME `combatIsActive` falling edge
   // Composer's own prior `combat === null` transition fired from (the two
-  // are driven by the same state one hop up). Moved VERBATIM — unconditional,
-  // synchronous (no rAF/stranding gate, unlike the three effects above):
-  // Composer's original effect never checked `document.activeElement`
-  // either (its comment claimed to, the code didn't), and this is a
-  // behaviour-preserving relocation, not a redesign of the rescue itself.
+  // are driven by the same state one hop up). Synchronous (no rAF, unlike
+  // the three effects above: a layout-effect-time commit has already removed
+  // the unmounted ActionBar, so `activeElement` is settled by now). A9b fix
+  // round 1 (Min-7, Kage): it was moved verbatim from Composer UNGATED, and
+  // Composer's own comment claimed a `document.activeElement` check the code
+  // never had — so a human DM typing in another field when combat ended had
+  // focus pulled into the composer. Now it rescues only STRANDED focus
+  // (<body>/null), the same gate as the other rescues in this file.
   const prevCombatIsActiveRef = useRef(combatIsActive);
   useEffect(() => {
     const was = prevCombatIsActiveRef.current;
     prevCombatIsActiveRef.current = combatIsActive;
     if (was && !combatIsActive) {
-      composerTextareaAnchorRef.current?.focus();
+      const active = document.activeElement;
+      if (active == null || active === document.body) {
+        composerTextareaAnchorRef.current?.focus();
+      }
     }
   }, [combatIsActive]);
 
