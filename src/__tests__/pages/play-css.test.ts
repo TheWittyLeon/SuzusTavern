@@ -220,6 +220,11 @@ describe('Play.module.css', () => {
       );
     });
 
+    it('Play.module.css: the narrow safety block is capped to the bar (max-width:100%), so its one-line max-content cannot overhang a 320px slot into the scroll clip', () => {
+      const block = strip(containerBlock(css));
+      expect(block).toMatch(/\.safety\s*\{[^}]*flex-wrap:\s*wrap;[^}]*max-width:\s*100%/);
+    });
+
     it('a row that spends less per slot swaps padding for a transparent border (a scroller paints into its padding); the empty and overlay slots carry neither', () => {
       const text = strip(css);
       const slot = text.slice(text.indexOf('.slot {'), text.indexOf('\n}', text.indexOf('.slot {')));

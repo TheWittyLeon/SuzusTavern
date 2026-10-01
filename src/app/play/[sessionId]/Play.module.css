@@ -867,6 +867,11 @@
 
   .safety {
     flex-wrap: wrap;
+    /* `flex: 0 0 auto` sizes this to its one-line max-content (label + hint + button,
+       ~305px); on a 320px bar that overhung the slot by 7px and the slot's scroll
+       clip took the right border and the hint's edge. Cap it to the bar so the hint
+       wraps inside it. */
+    max-width: 100%;
   }
 
   .safetyHint {
