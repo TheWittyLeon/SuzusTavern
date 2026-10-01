@@ -406,7 +406,7 @@ export default function CastSpellPanel({
             }
             {...lockProps(castLocked, { busy })}
             disabled={!selectedSpell}
-            onClick={guardLocked(castLocked, () => void handleCast())}
+            onClick={(e) => guardLocked(castLocked, () => void handleCast())(e)}
           >
             {busy ? '…' : 'Cast'}
           </Button>

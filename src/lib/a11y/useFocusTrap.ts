@@ -135,6 +135,9 @@ export function useFocusTrap(
     return () => {
       container.removeEventListener('keydown', onKeyDown);
       document.removeEventListener('focusin', onFocusIn);
+      // Read at CLOSE time on purpose: the caller's restore target can mount after the
+      // trap opened, so a value copied at open would be stale.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
       const target = restoreFocusTo?.current ?? opener;
       if (target?.isConnected) target.focus();
     };

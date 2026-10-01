@@ -19,7 +19,7 @@
  */
 import { useRef, type RefObject } from 'react';
 import Icon from '@/components/Icon';
-import { guardLocked, lockProps } from '@/lib/a11y/lockProps';
+import { lockProps } from '@/lib/a11y/lockProps';
 import styles from './Composer.module.css';
 
 export type ComposeMode = 'say' | 'act' | 'ooc' | 'dm_narration';
