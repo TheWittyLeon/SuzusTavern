@@ -1,6 +1,6 @@
 'use client';
 
-import type { RefObject } from 'react';
+import type { FocusEvent, RefObject } from 'react';
 import type { SceneCheck, SceneTransition } from '@/lib/api/types';
 import type { RollTrigger } from '@/components/DiceTray';
 import Icon from '@/components/Icon';
@@ -54,6 +54,17 @@ export interface OffersProps {
   variant?: RegionVariant<'offers'>;
 }
 
+/**
+ * A9d-2 (Iro A9d-1 IMPORTANT-2): in `rows` each group is a horizontal scroller, and a chip the keyboard lands on
+ * that is only PARTLY visible is left where it is (Chromium and WebKit scroll a focused element into view only
+ * when it is wholly hidden), half under the edge fade with its ring clipped. Focus brings it wholly in:
+ * `nearest` on both axes moves nothing that is already visible, and never the page vertically. Other variants
+ * wrap or stack: nothing scrolls, nothing to do. (jsdom has no scrollIntoView: optional call.)
+ */
+function scrollChipIntoView(e: FocusEvent<HTMLButtonElement>) {
+  e.currentTarget.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+}
+
 /** `rows` is `chips` plus its scrolling-row layer (Play.module.css `.offersRows`). */
 const OFFERS_CLASS: Record<RegionVariant<'offers'>, string | undefined> = {
   list: undefined,
@@ -81,6 +92,7 @@ export default function Offers({
   onMoveOn,
   variant = 'list',
 }: OffersProps) {
+  const onChipFocus = variant === 'rows' ? scrollChipIntoView : undefined;
   return (
     <div data-region="offers" data-variant={variant} className={OFFERS_CLASS[variant]}>
       {/* P1-PLAYFIX §3.3.3 (S2.4): authored skill-check affordances — shown
@@ -141,6 +153,7 @@ export default function Offers({
                 aria-disabled={isLocked || checkBusy || talking || sessionLocked}
                 aria-describedby={describedBy}
                 title={c.note}
+                onFocus={onChipFocus}
               >
                 <Icon name="Check" size={13} aria-hidden />
                 {/* Iro Ship 2 MINOR-1: comma reads better in AT/TTS than parens. */}
@@ -195,6 +208,7 @@ export default function Offers({
             disabled={rollBusy || talking || combatBusy || sessionLocked}
             aria-busy={rollBusy || talking}
             aria-disabled={rollBusy || talking || combatBusy || sessionLocked}
+            onFocus={onChipFocus}
           >
             <Icon name="Check" size={13} aria-hidden />
             {`Attempt ${titleCaseSkill(freeformOfferedCheck)}`}
@@ -230,6 +244,7 @@ export default function Offers({
               disabled={sceneAdvanceBusy || talking || sessionLocked}
               aria-busy={sceneAdvanceBusy || talking}
               aria-disabled={sceneAdvanceBusy || talking || sessionLocked}
+              onFocus={onChipFocus}
             >
               <Icon name="Compass" size={13} aria-hidden />
               {/* TAV-SLICE-END-ADVANCE-NULL: an unlabelled terminal
