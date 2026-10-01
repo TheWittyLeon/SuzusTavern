@@ -44,8 +44,10 @@
 }
 
 /* On phones the Say/Act/OOC mode tabs are primary tap targets — lift to ≥44px
-   (desktop stays compact). (Tora S3.3 MINOR-2) */
-@media (max-width: 480px) {
+   (desktop stays compact). (Tora S3.3 MINOR-2) A9d-2: and on ANY touch device, whatever its width: a landscape phone
+   or a 200% zoom is a 720px-wide phone row with the 26px desktop toggles (found by the harness's (s) check at
+   720x450 once its phone contexts became touch devices). */
+@media (max-width: 480px), (pointer: coarse) {
   .mode {
     min-height: 44px;
     /* A9d-2 (Tora A9d-1 MINOR-1): Say / Act / OOC / the roll toggles measured 37-41px wide by 44px tall. */

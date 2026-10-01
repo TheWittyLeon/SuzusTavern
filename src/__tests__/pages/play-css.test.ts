@@ -267,6 +267,9 @@ describe('Play.module.css', () => {
     });
 
     it('a row that spends less per slot swaps padding for a transparent border (a scroller paints into its padding); the empty and overlay slots carry neither', () => {
+      // THIS PIN IS THE ONLY GUARD (Kage A9d-1 S5): reverting the border to padding reds no real-page check at the tip (the
+      // bands are measured by the harness, but nothing there paints a squeezed band's overflow into its padding). The effect was
+      // measured once (the stage's "ROLL" label under the scene head at its minimum); it is not gated by a browser pass.
       const text = strip(css);
       const slot = text.slice(text.indexOf('.slot {'), text.indexOf('\n}', text.indexOf('.slot {')));
       expect(slot).toMatch(/padding-block:\s*var\(--play-slot-pad, var\(--density-gap\)\)/);
