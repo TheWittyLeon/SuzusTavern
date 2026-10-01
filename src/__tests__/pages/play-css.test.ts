@@ -88,6 +88,27 @@ describe('Play.module.css', () => {
     });
   });
 
+  describe('A9b fix round 1 — slot footprint invariants (the browser half is capture-play --assert-layout)', () => {
+    const strip = (t: string) => t.replace(/\/\*[\s\S]*?\*\//g, '');
+
+    it('.slot is a containing block, so absolutely-positioned live regions cannot stretch the document (B3)', () => {
+      expect(strip(blockFrom('.slot {'))).toMatch(/position:\s*relative/);
+    });
+
+    it('a slot whose only child renders nothing has no padding, and is never display:none (Imp-3, Iro zero footprint)', () => {
+      const rule = blockFrom('.slot:empty,');
+      expect(rule).toMatch(/\.slot:has\(> :only-child:empty\)/);
+      expect(strip(rule)).toMatch(/padding:\s*0/);
+      expect(rule).not.toMatch(/display:\s*none|visibility:\s*hidden/);
+    });
+
+    it('the X-card host wraps instead of overflowing, and the control stays a 44px target (Imp-5)', () => {
+      const host = strip(blockFrom('.slot:has(> [data-tenant="safetyControls"]) {'));
+      expect(host).toMatch(/flex-wrap:\s*wrap/);
+      expect(strip(blockFrom('.safety button {'))).toMatch(/height:\s*44px/);
+    });
+  });
+
   describe('A11 — the mobile tab bar is shell chrome, hidden pending A9d (C4 rewrite — see this file\'s own header)', () => {
     it('.mobileTabs has no @media (max-width: 880px) override re-enabling it — its own base rule stays display:none at every width', () => {
       const mobileBlock = blockFrom('@media (max-width: 880px) {');

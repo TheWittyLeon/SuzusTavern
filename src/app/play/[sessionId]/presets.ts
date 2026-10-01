@@ -488,9 +488,15 @@ const STORY_ROW: LayoutRow = {
   // here. `debt:` not used — the STARTING VALUES in this field are
   // already understood repo-wide (build brief §7 C1) to be the Aoi/A9d
   // checkpoint's own tuning target, not a hidden shortcut.
+  // debt: `offers` is capped at 120px (a scrolling list; uncapped it is 315px
+  // and starves storyLog). ceiling: the offers list scrolls inside a 120px box.
+  // until: A9c ships the `chips` Offers variant (one compact row, no cap).
+  // debt: Story/combat storyLog is ~102px inner vs the 240px browser floor (a:storyLog).
+  // ceiling: log is 2-3 rows at 900px; the 290px stage cap = the hero scene's own height.
+  // until: A9c moves the session header over the stage (`corner`) and trims stage chrome.
   rows: {
-    exploring: 'auto 140px minmax(0,1fr) auto auto auto',
-    combat: 'auto 140px minmax(0,340px) minmax(0,1fr) auto auto',
+    exploring: 'auto 140px minmax(0,1fr) fit-content(120px) auto auto',
+    combat: 'auto 140px minmax(0,290px) minmax(0,1fr) auto auto',
   },
   areas: {
     exploring: `"safetyBanner safetyBanner safetyBanner"
@@ -587,8 +593,11 @@ const TABLE_ROW: LayoutRow = {
     exploring: '160px auto minmax(0,1fr) fit-content(300px)',
     combat: '160px auto minmax(0,1fr) fit-content(300px)',
   },
+  // debt: Table/combat storyLog is ~107-132px inner vs the 240px browser floor (a:storyLog).
+  // ceiling: 3-4 rows at 900px; the 400px stage cap holds the scene + in-flow session header + initiative (363px).
+  // until: A9c lifts topBar over the stage (mockup `.top{grid-area:stage}`), returning ~113px to the log.
   rows: {
-    exploring: 'auto 218px minmax(0,1fr) auto auto auto',
+    exploring: 'auto 218px minmax(0,1fr) fit-content(120px) auto auto',
     combat: 'auto minmax(0,400px) minmax(0,1fr) auto auto',
   },
   areas: {

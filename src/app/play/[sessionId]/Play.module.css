@@ -57,7 +57,27 @@
      slot, which is a no-op (no scrollbar) for one whose content already
      fits. */
   overflow-y: auto;
-  padding: var(--density-pad);
+  /* A9b fix round 1 (Imp-3): vertical padding is the gap token, not the
+     pad token. Every slot paid 2 x --density-pad (44px) of block padding
+     out of a 868px grid; across the five slots of the centre column that
+     was the budget the story log lost. Inline padding keeps the pad. */
+  padding-block: var(--density-gap);
+  padding-inline: var(--density-pad);
+  /* A9b fix round 1 (B3): the containing block for absolutely-positioned
+     descendants (the `.srOnly` live regions). On a `position:static`
+     overflow container they escape its clip and stretch the DOCUMENT's
+     scroll height (measured 1109/1179/945px against a 900px viewport),
+     pushing the action bar off-screen. */
+  position: relative;
+}
+
+/* A9b fix round 1 (Imp-3, Aoi B3): `.slot`'s padding defeated `:empty` — the
+   always-mounted safetyBanner announcer rendered nothing and still held a
+   44px band. A slot whose only child renders nothing has no footprint (it
+   stays mounted and in the a11y tree, unlike display:none). */
+.slot:empty,
+.slot:has(> :only-child:empty) {
+  padding: 0;
 }
 
 /* Build brief §1 mechanism 1 / §6.4: hidden = a CSS class, never an inline
