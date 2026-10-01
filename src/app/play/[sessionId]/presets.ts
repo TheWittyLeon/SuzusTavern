@@ -594,6 +594,13 @@ const STORY_ROW: LayoutRow = {
   // here. `debt:` not used — the STARTING VALUES in this field are
   // already understood repo-wide (build brief §7 C1) to be the Aoi/A9d
   // checkpoint's own tuning target, not a hidden shortcut.
+  // A9c-2 D0: the LAST track (the `actionBar` area, which hosts the X-card) is
+  // `max-content`, not `auto`. A grid item that is a scroll container (every
+  // `.slot`) has a minimum contribution of 0, so an `auto` track can be shrunk
+  // by the "maximize tracks" step when a greedy capped sibling (the stage's
+  // `minmax(0,Npx)`) eats the free space: on phone with the X-card banner up it
+  // lost 9px and the X-card was clipped (harness (c), 809..853 of 844).
+  // `max-content` takes its base size from the content, so it is never shrunk.
   // debt: `offers` is capped at 120px (a scrolling list; uncapped it is 315px
   // and starves storyLog). ceiling: the offers list scrolls inside a 120px box.
   // until: A9c ships the `chips` Offers variant (one compact row, no cap).
@@ -601,8 +608,8 @@ const STORY_ROW: LayoutRow = {
   // ceiling: log is 2-3 rows at 900px; the 290px stage cap = the hero scene's own height.
   // until: A9c moves the session header over the stage (`corner`) and trims stage chrome.
   rows: {
-    exploring: 'auto 140px minmax(0,1fr) fit-content(120px) auto auto',
-    combat: 'auto 140px minmax(0,290px) minmax(0,1fr) auto auto',
+    exploring: 'auto 140px minmax(0,1fr) fit-content(120px) auto max-content',
+    combat: 'auto 140px minmax(0,290px) minmax(0,1fr) auto max-content',
   },
   areas: {
     exploring: `"safetyBanner safetyBanner safetyBanner"
@@ -703,8 +710,8 @@ const TABLE_ROW: LayoutRow = {
   // ceiling: 3-4 rows at 900px; `minmax(0,400px)` grows to its cap whatever the stage holds, so lifting topBar over the stage (C4) returned nothing to the log.
   // until: A9c-2 D7 content-sizes the stage track (`fit-content(400px)`).
   rows: {
-    exploring: 'auto 218px minmax(0,1fr) fit-content(120px) auto auto',
-    combat: 'auto minmax(0,400px) minmax(0,1fr) auto auto',
+    exploring: 'auto 218px minmax(0,1fr) fit-content(120px) auto max-content',
+    combat: 'auto minmax(0,400px) minmax(0,1fr) auto max-content',
   },
   areas: {
     exploring: `"safetyBanner safetyBanner safetyBanner safetyBanner"
@@ -775,8 +782,8 @@ const PHONE_ROW: LayoutRow = {
   // same self-check pass) lets the excess scroll instead of bleeding
   // into `sceneStage`'s row below.
   rows: {
-    exploring: 'auto 160px auto minmax(0,1fr) auto auto auto',
-    combat: 'auto 160px minmax(0,34vh) minmax(0,1fr) auto auto',
+    exploring: 'auto 160px auto minmax(0,1fr) auto auto max-content',
+    combat: 'auto 160px minmax(0,34vh) minmax(0,1fr) auto max-content',
   },
   areas: {
     exploring: `"safetyBanner"
