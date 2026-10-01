@@ -124,8 +124,10 @@ export default function TopBar({
       </div>
       {/* overlay: NarratorStrip stays MOUNTED so topBar still announces (R3); it
           is redundant on screen (the stage shows the scene, suzuPresence shows
-          `talking`, turnStatus announces the turn). */}
-      {overlay ? narrator && <div className="sr-only">{narrator}</div> : narrator}
+          `talking`, turnStatus announces the turn). The wrapper is rendered in
+          BOTH variants and only its class toggles, so an Auto switch never
+          remounts NarratorStrip (a remount re-announces the scene). */}
+      {narrator && <div className={overlay ? 'sr-only' : undefined}>{narrator}</div>}
       {overlay || showSuzuPanel ? null : aiOff}
     </div>
   );

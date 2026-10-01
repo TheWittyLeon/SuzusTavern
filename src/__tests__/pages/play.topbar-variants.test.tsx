@@ -72,6 +72,17 @@ describe('A9c C4 — TopBar variants', () => {
     expect(screen.getAllByRole('status')).toHaveLength(1);
   });
 
+  it('NarratorStrip is the SAME node across an Auto switch band <-> overlay (a remount re-announces the scene; Kage A9c-1 S1)', () => {
+    const { rerender } = render(<TopBar {...base} />);
+    const before = screen.getByText('Cave Mouth');
+    rerender(<TopBar {...base} variant="overlay" />);
+    expect(screen.getByText('Cave Mouth')).toBe(before);
+    expect(before.closest('.sr-only')).not.toBeNull();
+    rerender(<TopBar {...base} />);
+    expect(screen.getByText('Cave Mouth')).toBe(before);
+    expect(before.closest('.sr-only')).toBeNull();
+  });
+
   it('band + ai-off keeps its single status region below the head (unchanged)', () => {
     render(<TopBar {...base} showSuzuPanel={false} />);
     expect(screen.getAllByRole('status')).toHaveLength(1);
