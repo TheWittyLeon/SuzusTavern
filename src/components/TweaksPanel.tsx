@@ -17,8 +17,10 @@
  *  - Trigger is a labelled icon button with aria-haspopup="dialog" + aria-expanded.
  *  - Options are NATIVE radio inputs grouped in <fieldset>/<legend> — free
  *    arrow-key roving, group semantics, and SR announcements.
- *  - The open panel is role="dialog" aria-modal, traps Tab, closes on Escape and
- *    outside-click, and restores focus to the trigger on close.
+ *  - The open panel is role="dialog" aria-modal, traps Tab (`useFocusTrap`: a radio
+ *    group is one tab stop, so the wrap points are the checked radios, not the first/
+ *    last input), closes on Escape and outside-click, and returns focus to the
+ *    trigger on EVERY close (Escape, backdrop, picking) via the hook's cleanup.
  */
 import {
   useCallback,
@@ -34,6 +36,7 @@ import { createPortal } from 'react-dom';
 import Icon from '@/components/Icon';
 import { PLAY_PHONE_QUERY } from '@/lib/breakpoints';
 import { consumeEscape } from '@/lib/a11y/escapeConsume';
+import { useFocusTrap } from '@/lib/a11y/useFocusTrap';
 import { useTheme } from '@/lib/theme/ThemeProvider';
 import { useMediaQuery } from '@/lib/useMediaQuery';
 import {
@@ -74,10 +77,11 @@ export default function TweaksPanel() {
   const uid = useId();
   const titleId = `${uid}-title`;
 
-  const close = useCallback((returnFocus = true) => {
-    setOpen(false);
-    if (returnFocus) triggerRef.current?.focus();
-  }, []);
+  // Focus returns to the trigger from the trap's cleanup, not from here: a close that
+  // focused the trigger before the dialog unmounted would have it pulled straight
+  // back by the trap's focusin backstop.
+  const close = useCallback(() => setOpen(false), []);
+  useFocusTrap(panelRef, open, { restoreFocusTo: triggerRef });
 
   // Place the fixed panel from the trigger, and keep it there while the page
   // resizes or scrolls (the trigger can sit in a scrolling region).
@@ -112,27 +116,6 @@ export default function TweaksPanel() {
   const onPanelKeyDown = useCallback(
     (e: ReactKeyboardEvent<HTMLDivElement>) => {
       consumeEscape(e, { onClose: () => close() });
-      if (e.key !== 'Tab') return;
-      // Trap Tab within the panel's focusable controls.
-      const focusables = panelRef.current?.querySelectorAll<HTMLElement>(
-        'input, button',
-      );
-      if (!focusables || focusables.length === 0) return;
-      // A control inside a `disabled` fieldset has no `disabled` attribute of its own.
-      const list = Array.from(focusables).filter(
-        (el) => !el.hasAttribute('disabled') && !el.closest('fieldset[disabled]'),
-      );
-      if (list.length === 0) return;
-      const first = list[0];
-      const last = list[list.length - 1];
-      const activeEl = document.activeElement as HTMLElement | null;
-      if (e.shiftKey && activeEl === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && activeEl === last) {
-        e.preventDefault();
-        first.focus();
-      }
     },
     [close],
   );
@@ -143,7 +126,7 @@ export default function TweaksPanel() {
           {/* Backdrop intercepts outside clicks (incl. the sibling UserMenu
               trigger) so only one popover is open at a time and aria-modal is
               truthful. Transparent — appearance settings shouldn't dim the page. */}
-          <div className={styles.backdrop} onClick={() => close(false)} aria-hidden />
+          <div className={styles.backdrop} onClick={close} aria-hidden />
           <div
             ref={panelRef}
             role="dialog"
