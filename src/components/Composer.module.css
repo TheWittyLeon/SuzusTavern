@@ -48,6 +48,8 @@
 @media (max-width: 480px) {
   .mode {
     min-height: 44px;
+    /* A9d-2 (Tora A9d-1 MINOR-1): Say / Act / OOC / the roll toggles measured 37-41px wide by 44px tall. */
+    min-inline-size: 44px;
   }
 }
 
@@ -61,6 +63,8 @@
   min-width: 0;
   resize: none;
   max-height: 120px;
+  /* A9d-2 (Tora A9d-1 MINOR-1): a 44px target (it was ~42px). */
+  min-height: 44px;
   /* 9px, not 10: the 16px font below is 2.8px taller than the 14px it replaced; the box stays the
      ~42px the two-row composer budgets for (A9d-2, Tora A9d-1 MAJOR-3). */
   padding: 9px 12px;

@@ -117,6 +117,9 @@
      in a 228px content column fit on one row (each ~80px) without
      forcing a wrap at this height. */
   min-height: 44px;
+  /* A9d-2 (Tora A9d-1 MINOR-1): "advantage" / "disadvantage" measured 41 / 38px wide. */
+  min-inline-size: 44px;
+  justify-content: center;
   display: inline-flex;
   align-items: center;
   padding: 4px 10px;
