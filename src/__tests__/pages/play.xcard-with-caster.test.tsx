@@ -12,6 +12,7 @@ import React from 'react';
 import { screen, waitFor, act, fireEvent, within } from '@testing-library/react';
 import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
+import { expectLocked } from '@/test-utils/locked';
 import type { Session, Participant, CombatState, CombatParticipantState, CharacterSheet } from '@/lib/api/types';
 
 jest.mock('next/navigation', () => ({
@@ -315,6 +316,6 @@ describe('A9c-2 D6 - X-card is independent of the cast tenant that now shares it
     expect(btn).toBeEnabled();
     expect(btn.closest('[role="group"]')).toBeNull();
     fireEvent.click(await screen.findByRole('button', { name: /Cast a spell/ }));
-    expect(await screen.findByRole('button', { name: /^Cast Sacred Flame/ })).toBeDisabled();
+    expectLocked(await screen.findByRole('button', { name: /^Cast Sacred Flame/ }));
   });
 });

@@ -36,6 +36,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import Button from '@/components/Button';
 import Icon from '@/components/Icon';
 import { useToast } from '@/components/Toast';
+import { guardLocked, lockProps } from '@/lib/a11y/lockProps';
 import { castSpell, getCharacterSheet, getKnownSpells } from '@/lib/api/dnd';
 import { engineErrorMessage } from '@/lib/dnd/engineError';
 import { CAST_REFUSAL_REASON_MAP } from '@/lib/dnd/engineReasons';
@@ -299,7 +300,16 @@ export default function CastSpellPanel({
   }
 
   const notYourTurn = !isPlayerTurn;
-  const castDisabled = busy || disabled || notYourTurn || !selectedSpell;
+  // Iro A9c-2 IMPORTANT-1: every TRANSIENT lock (in flight, someone else's turn,
+  // session paused) is `aria-disabled` + a guarded handler, never native `disabled`,
+  // so a keyboard user keeps focus on the Cast button / selects across a cast and
+  // a turn change. Native `disabled` stays for the one permanent state: no spell.
+  const controlsLocked = busy || disabled;
+  const castLocked = controlsLocked || notYourTurn;
+  const selectLock = lockProps(controlsLocked, { busy: false });
+  // A locked select must not open or change (mousedown opens it; a controlled
+  // value snaps back on an ignored change).
+  const noOpenWhenLocked = guardLocked<React.MouseEvent>(controlsLocked);
 
   const body = (
     <>
@@ -328,8 +338,9 @@ export default function CastSpellPanel({
               id={`${uid}-spell`}
               className={styles.select}
               value={selectedSlug}
-              disabled={busy || disabled}
-              onChange={(e) => setSelectedSlug(e.target.value)}
+              {...selectLock}
+              onMouseDown={noOpenWhenLocked}
+              onChange={guardLocked(controlsLocked, (e) => setSelectedSlug(e.target.value))}
             >
               {spells.map((s) => (
                 <option key={s.slug} value={s.slug}>
@@ -348,8 +359,9 @@ export default function CastSpellPanel({
                 id={`${uid}-slot`}
                 className={styles.select}
                 value={slotLevel ?? ''}
-                disabled={busy || disabled}
-                onChange={(e) => setSlotLevel(Number(e.target.value))}
+                {...selectLock}
+                onMouseDown={noOpenWhenLocked}
+                onChange={guardLocked(controlsLocked, (e) => setSlotLevel(Number(e.target.value)))}
               >
                 {slotOptions.map((lvl) => (
                   <option key={lvl} value={lvl}>
@@ -367,8 +379,9 @@ export default function CastSpellPanel({
               id={`${uid}-target`}
               className={styles.select}
               value={targetId}
-              disabled={busy || disabled}
-              onChange={(e) => setTargetId(e.target.value)}
+              {...selectLock}
+              onMouseDown={noOpenWhenLocked}
+              onChange={guardLocked(controlsLocked, (e) => setTargetId(e.target.value))}
             >
               <option value="">— no target —</option>
               {targets.map((p) => {
@@ -391,9 +404,9 @@ export default function CastSpellPanel({
                 ? `Cast ${selectedSpell?.name ?? 'spell'} (not your turn)`
                 : `Cast ${selectedSpell?.name ?? 'spell'}`
             }
-            aria-busy={busy}
-            disabled={castDisabled}
-            onClick={() => void handleCast()}
+            {...lockProps(castLocked, { busy })}
+            disabled={!selectedSpell}
+            onClick={guardLocked(castLocked, () => void handleCast())}
           >
             {busy ? '…' : 'Cast'}
           </Button>

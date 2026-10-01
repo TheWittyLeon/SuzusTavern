@@ -52,6 +52,7 @@ import React from 'react';
 import { screen, waitFor, fireEvent, act, within } from '@testing-library/react';
 import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
+import { expectLocked } from '@/test-utils/locked';
 
 jest.mock('next/navigation', () => ({
   useParams: () => ({ sessionId: 's1' }),
@@ -458,7 +459,7 @@ describe('DDX-25 adversarial — cross-tab / non-acting-viewer propagation (HEAD
 
       expect(mockGetSession).toHaveBeenCalledTimes(2);
       expect(screen.getByText(/Session paused by the DM/i)).toBeInTheDocument();
-      expect(screen.getByRole('textbox', { name: /Compose/i })).toBeDisabled();
+      expectLocked(screen.getByRole('textbox', { name: /Compose/i }));
     } finally {
       jest.useRealTimers();
     }
@@ -686,7 +687,7 @@ describe('TAV-PLAY-INPUT-LOCK-NO-FEEDBACK — disabledReason precedence (paused 
 
     try {
       // Sanity: the beat is genuinely in flight and the reason reflects it.
-      expect(input).toBeDisabled();
+      expectLocked(input);
       expect(input).toHaveAttribute(
         'placeholder',
         'Suzu is narrating — one moment…',
@@ -703,7 +704,7 @@ describe('TAV-PLAY-INPUT-LOCK-NO-FEEDBACK — disabledReason precedence (paused 
       // Still locked either way — but the REASON must now be the durable one
       // (the session stays paused after this beat ends; "one moment" would be
       // actively misleading once the DM has paused the table).
-      expect(input).toBeDisabled();
+      expectLocked(input);
       expect(input).toHaveAttribute('placeholder', 'Session is paused.');
     } finally {
       // Release the hung generator even on assertion failure so it doesn't
@@ -726,7 +727,7 @@ describe('TAV-PLAY-INPUT-LOCK-NO-FEEDBACK — disabledReason precedence (paused 
     await screen.findByText('The Hollow Tide');
 
     const input = screen.getByRole('textbox', { name: /Compose/i });
-    expect(input).toBeDisabled();
+    expectLocked(input);
     expect(input).toHaveAttribute('placeholder', 'This session has ended.');
   });
 });

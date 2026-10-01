@@ -19,6 +19,7 @@
  */
 import { useRef, type RefObject } from 'react';
 import Icon from '@/components/Icon';
+import { guardLocked, lockProps } from '@/lib/a11y/lockProps';
 import styles from './Composer.module.css';
 
 export type ComposeMode = 'say' | 'act' | 'ooc' | 'dm_narration';
@@ -191,7 +192,10 @@ export default function Composer({
           rows={1}
           aria-label={`Compose (${mode})`}
           title={lockReason ?? undefined}
-          disabled={disabled || pending}
+          // Iro A9c-2 IMPORTANT-1: a send/narration lock is `readOnly` +
+          // `aria-disabled`, never native `disabled` — that dropped focus to <body>
+          // on EVERY send (and on the Auto flip while Suzu narrates).
+          {...lockProps(locked, { textInput: true })}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -203,9 +207,10 @@ export default function Composer({
         <button
           type="button"
           className={styles.send}
-          disabled={!canSend}
+          // Not native `disabled` either: a keyboard user on Send loses focus the
+          // moment the draft clears (value -> empty -> !canSend).
+          {...lockProps(!canSend, { busy: pending })}
           aria-label={pending ? 'Sending…' : 'Send'}
-          aria-busy={pending}
           onClick={() => {
             if (!canSend || pendingRef.current) return;
             pendingRef.current = true;

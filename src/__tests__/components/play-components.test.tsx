@@ -5,6 +5,7 @@
 import React from 'react';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
+import { expectLocked, expectUnlocked } from '@/test-utils/locked';
 
 import NarratorStrip from '@/components/NarratorStrip';
 import ChatLog, { type LogRow } from '@/components/ChatLog';
@@ -354,9 +355,9 @@ describe('Composer', () => {
 
   it('disables send when empty and enables on text', () => {
     const { rerender } = render(<Composer {...base} />);
-    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+    expectLocked(screen.getByRole('button', { name: 'Send' }));
     rerender(<Composer {...base} value="hi" />);
-    expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled();
+    expectUnlocked(screen.getByRole('button', { name: 'Send' }));
   });
 
   // TAV-PLAY-INPUT-LOCK-NO-FEEDBACK (2026-08-01): a disabled composer must
@@ -368,7 +369,7 @@ describe('Composer', () => {
     expect(
       screen.getByPlaceholderText('Suzu is narrating — one moment…'),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText('Compose (say)')).toBeDisabled();
+    expectLocked(screen.getByLabelText('Compose (say)'));
   });
 
   it('keeps the normal mode placeholder when enabled, even with disabledReason set', () => {
@@ -426,14 +427,14 @@ describe('Composer', () => {
       />,
     );
     const textarea = screen.getByLabelText('Compose (say)');
-    expect(textarea).toBeDisabled(); // the lock IS active (disabled || pending)
+    expectLocked(textarea); // the lock IS active (disabled || pending)
     expect(textarea).toHaveAttribute('placeholder', 'Sending…');
   });
 
   it('falls back to "Sending…" on a pending-only lock with no reason supplied', () => {
     render(<Composer {...base} pending />);
     const textarea = screen.getByLabelText('Compose (say)');
-    expect(textarea).toBeDisabled();
+    expectLocked(textarea);
     expect(textarea).toHaveAttribute('placeholder', 'Sending…');
   });
 

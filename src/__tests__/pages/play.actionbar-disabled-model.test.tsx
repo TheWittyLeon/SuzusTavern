@@ -14,11 +14,14 @@
  *
  * Controls (mutate the consumer, see red, restore):
  *  - drop `disabled={actionDisabled}` from Dodge -> its three cases red;
- *  - drop `disabled={castDisabled}` from CastSpellPanel's button -> its cases red.
+ *  - drop the `guardLocked(castLocked, ...)` wrapper from CastSpellPanel's Cast onClick
+ *    -> its cases red. (Since A9c-2 IMPORTANT-1 Cast is `aria-disabled`, not native
+ *    `disabled`, so the guard is the thing that makes it inert.)
  */
 import React from 'react';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
+import { expectLocked } from '@/test-utils/locked';
 
 jest.mock('../../lib/api/dnd', () => ({
   getKnownSpells: jest.fn(),
@@ -156,7 +159,7 @@ describe("CastSpellPanel's submit is inert under every condition that disables i
     ['locked (session paused/ended, or another mutation in flight)', { isPlayerTurn: true, disabled: true }],
   ])('Cast is inert when %s', async (_label, over) => {
     const btn = await renderPanel(over);
-    expect(btn).toBeDisabled();
+    expectLocked(btn);
     fireEvent.click(btn);
     expect(cast).not.toHaveBeenCalled();
   });

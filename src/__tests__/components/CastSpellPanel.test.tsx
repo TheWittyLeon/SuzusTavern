@@ -10,6 +10,7 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
+import { expectLocked } from '@/test-utils/locked';
 
 jest.mock('../../lib/api/dnd', () => ({
   getKnownSpells: jest.fn(),
@@ -1051,7 +1052,7 @@ describe('CastSpellPanel — turn gating', () => {
   it('disables Cast and shows a waiting note when it is not the caster\'s turn', async () => {
     renderPanel({ isPlayerTurn: false });
     await flush();
-    expect(screen.getByRole('button', { name: /not your turn/i })).toBeDisabled();
+    expectLocked(screen.getByRole('button', { name: /not your turn/i }));
     expect(screen.getByText('Waiting for your turn…')).toBeInTheDocument();
   });
 });

@@ -91,9 +91,16 @@
   opacity: 1;
 }
 
-.input:disabled::placeholder {
+.input:disabled::placeholder,
+.input[aria-disabled='true']::placeholder {
   color: var(--ink-2);
   opacity: 1;
+}
+/* A transient lock (send in flight, Suzu narrating) is `aria-disabled` + `readOnly`,
+   not `:disabled`, so the textarea keeps focus (lib/a11y/lockProps). */
+.input[aria-disabled='true'] {
+  cursor: not-allowed;
+  color: var(--ink-2);
 }
 /* Forced-colors strips box-shadow → reinstate a real outline (Iro S3.4 MINOR-1). */
 @media (forced-colors: active) {
@@ -122,7 +129,8 @@
   cursor: pointer;
 }
 
-.send:disabled {
+.send:disabled,
+.send[aria-disabled='true'] {
   opacity: 0.4;
   cursor: not-allowed;
 }

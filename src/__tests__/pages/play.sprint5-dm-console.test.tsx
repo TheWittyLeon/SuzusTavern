@@ -23,6 +23,7 @@ import React from 'react';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
+import { expectLocked } from '@/test-utils/locked';
 
 jest.mock('next/navigation', () => ({
   useParams: () => ({ sessionId: 's1' }),
@@ -351,7 +352,7 @@ describe('S5.2 — DM narration composer mode swap', () => {
     });
 
     // While pending: textarea should be disabled.
-    await waitFor(() => expect(textarea).toBeDisabled());
+    await waitFor(() => expectLocked(textarea));
     // Resolve the request.
     await act(async () => { resolveSend(); });
   });
@@ -383,7 +384,7 @@ describe('S5.2 — DM narration composer mode swap', () => {
     });
 
     try {
-      await waitFor(() => expect(textarea).toBeDisabled());
+      await waitFor(() => expectLocked(textarea));
       // The draft is STILL in the field (cleared only on success) — which is
       // exactly why the placeholder channel alone could never carry the
       // reason on this path.

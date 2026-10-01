@@ -20,6 +20,7 @@ import React from 'react';
 import { screen, waitFor, fireEvent, act, within } from '@testing-library/react';
 import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
+import { expectLocked } from '@/test-utils/locked';
 
 jest.mock('next/navigation', () => ({
   useParams: () => ({ sessionId: 's1' }),
@@ -274,7 +275,7 @@ describe('DDX-25 — paused state disables player input', () => {
       expect(screen.getByText(/Session paused by the DM/i)).toBeInTheDocument(),
     );
     const textarea = screen.getByRole('textbox', { name: /Compose/i });
-    expect(textarea).toBeDisabled();
+    expectLocked(textarea);
   });
 
   it('DDX25-AC4b: an active session leaves the composer enabled and shows no banner', async () => {
