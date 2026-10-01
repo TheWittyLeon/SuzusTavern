@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 jest.mock('../../lib/api/dnd', () => ({
@@ -127,6 +127,24 @@ describe('SessionRecap', () => {
     const toggle = await screen.findByRole('button', { name: /previously on/i });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     expect(screen.getByRole('button', { name: /dismiss recap/i })).toBeInTheDocument();
+  });
+
+  it('A9d-2 (Iro MINOR-4): dismissing the strip moves focus to the landmark it sat in, not <body>', async () => {
+    mGetEvents.mockResolvedValue([
+      { event_type: 'scene_advance', description: 'You crossed the underground river.' },
+    ]);
+    const raf = jest.spyOn(window, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => { cb(0); return 0; });
+    render(
+      <main tabIndex={-1} aria-label="story">
+        <SessionRecap session={makeSession({ ai_assist_level: 'off' })} username="leon" variant="strip" />
+      </main>,
+    );
+    const dismiss = await screen.findByRole('button', { name: /dismiss recap/i });
+    dismiss.focus();
+    fireEvent.click(dismiss);
+    expect(screen.queryByRole('button', { name: /dismiss recap/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('main')).toHaveFocus();
+    raf.mockRestore();
   });
 
   it('DDX-25 R3: does NOT re-issue the AI recap when `session` is replaced by a new-but-equivalent object (e.g. a poll re-render), but DOES recap again for a genuinely new session', async () => {

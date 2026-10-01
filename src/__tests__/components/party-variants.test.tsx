@@ -194,7 +194,7 @@ describe('the strip caption sits ABOVE its tile, one line, and the label fades (
     expect(r).toMatch(/bottom:\s*calc\(100% \+ var\(--focus-ring-clearance\)\)/);
     expect(r).not.toMatch(/\btop:/);
     expect(r).toMatch(/white-space:\s*nowrap/);
-    expect(r).toMatch(/max-width:\s*88px/);
+    expect(r).toMatch(/max-width:\s*120px/);
     // the words ellipsise on the inner span (.name: nowrap + text-overflow), inside the capped box
     expect(rule('.name')).toMatch(/text-overflow:\s*ellipsis/);
   });
