@@ -485,11 +485,13 @@
 
 .scenePlaceholder {
   display: flex;
-  flex-direction: column;
+  /* A row's to set (the phone row says `row` and a slim pad): the placeholder is a stand-in until the map lands
+     (step 12), and at 112px it was the largest thing in a phone's stage band (A9d-2). Absent = the stacked box. */
+  flex-direction: var(--play-picture-dir, column);
   align-items: center;
   gap: 8px;
   text-align: center;
-  padding: var(--density-pad);
+  padding: var(--play-picture-pad, var(--density-pad));
   border-radius: 12px;
   background: color-mix(in oklab, var(--ink) 3%, transparent);
   border: 1px dashed var(--line);

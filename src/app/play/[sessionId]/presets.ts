@@ -806,6 +806,10 @@ const PHONE_ROW: LayoutRow = {
     // The dice are ONE row of six chips here, not 3x2: a two-row tray was ~66px more band than the
     // stage can spare (Tora A9d-1 MAJOR-1). DiceTray.module.css reads it; the tray's keys follow.
     '--play-dice-columns': '6',
+    // The scene picture's stand-in is one slim row on the phone (112px stacked), so the band that holds the
+    // controls is not mostly placeholder. Play.module.css `.scenePlaceholder` reads both.
+    '--play-picture-dir': 'row',
+    '--play-picture-pad': 'var(--space-3)',
   },
   // The banner floor: while the X-card banner is raised on a viewport the page does not scroll on
   // (`@media (min-height: 701px)` in Play.module.css), the story track yields down to THIS, not to 0:
@@ -817,13 +821,13 @@ const PHONE_ROW: LayoutRow = {
   // The stage's reflow minimum: where the page scrolls anyway the stage band takes the height its
   // CONTROLS need to be seen at rest, and its picture and quick checks scroll inside it (A9d-2, Tora
   // A9d-1 MAJOR-1; Play.module.css reads `--play-foldable-reflow-min` on a short viewport and applies it as
-  // the min-height of a foldable slot, which `fit-content` honours as its track minimum). 294 = the dice row's
-  // bottom edge at 281 (64 head + 112 picture block + 10 + 14 label + 10 + 58 chips, measured at 375x667) + 13
-  // (the slot's 12px of edge and a px of rounding); 378 = 365 + 13, the 68px combat note with End combat
+  // the min-height of a foldable slot, which `fit-content` honours as its track minimum). 232 = the dice row's
+  // bottom edge at 219 (64 head + 54 slim picture block + 10 + 14 label + 10 + 58 chips, measured at 390x664) + 13
+  // (the slot's 12px of edge and a px of rounding); 316 = 303 + 13, the 68px combat note with End combat
   // sitting above the dice in combat.
   momentVars: {
-    exploring: { '--play-banner-floor': '169px', '--play-foldable-reflow-min': '294px' },
-    combat: { '--play-banner-floor': '136px', '--play-foldable-reflow-min': '378px' },
+    exploring: { '--play-banner-floor': '169px', '--play-foldable-reflow-min': '232px' },
+    combat: { '--play-banner-floor': '136px', '--play-foldable-reflow-min': '316px' },
   },
   // Column 2 is `suzuPresence`'s track: 0px when she is absent (AI assist off).
   columns: {

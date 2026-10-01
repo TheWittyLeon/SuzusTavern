@@ -200,6 +200,12 @@ describe('Play.module.css', () => {
       expect(chat).not.toMatch(/overscroll-behavior/);
     });
 
+    it('the scene picture\'s stand-in takes its direction and padding from the row (the phone says one slim row), the stacked box otherwise', () => {
+      const rule = strip(blockFrom('.scenePlaceholder {'));
+      expect(rule).toMatch(/flex-direction:\s*var\(--play-picture-dir,\s*column\)/);
+      expect(rule).toMatch(/padding:\s*var\(--play-picture-pad,\s*var\(--density-pad\)\)/);
+    });
+
     it('the Appearance dialog is bounded by the viewport and scrolls inside', () => {
       const tweaks = fs.readFileSync(path.resolve(process.cwd(), 'src/components/TweaksPanel.module.css'), 'utf8');
       const panel = strip(tweaks.slice(tweaks.indexOf('.panel {')));

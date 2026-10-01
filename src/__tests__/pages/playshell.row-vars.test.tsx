@@ -23,8 +23,8 @@ describe('PlayShell emits a row\'s custom properties on .grid', () => {
   it('row.momentVars: the moment\'s own value is emitted, and it changes with the moment', () => {
     expect(grid(phone, 'exploring').style.getPropertyValue('--play-banner-floor')).toBe('169px');
     expect(grid(phone, 'combat').style.getPropertyValue('--play-banner-floor')).toBe('136px');
-    expect(grid(phone, 'exploring').style.getPropertyValue('--play-foldable-reflow-min')).toBe('294px');
-    expect(grid(phone, 'combat').style.getPropertyValue('--play-foldable-reflow-min')).toBe('378px');
+    expect(grid(phone, 'exploring').style.getPropertyValue('--play-foldable-reflow-min')).toBe('232px');
+    expect(grid(phone, 'combat').style.getPropertyValue('--play-foldable-reflow-min')).toBe('316px');
   });
 
   it('a row with neither emits only the three track lists', () => {
