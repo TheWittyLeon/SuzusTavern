@@ -811,8 +811,9 @@ describe('TAV-PLAY-SHELL presets.ts — the X-card control is always on screen (
   // inside the viewport WITHOUT scrolling the page or any nested container,
   // in every row x moment. At the data level that means its host region is
   // (1) placed directly (not hosted by another region, not a layer),
-  // (2) visible, and (3) lives only in content-sized rows (`auto`, or A9c-2 D0's
-  // `max-content`) — never a capped, scrolling box (`minmax(0,400px)` sceneStage
+  // (2) visible, and (3) lives only in content-sized rows (`max-content`: an `auto` bar
+  // track is shrinkable by the greedy stage track, which clipped the phone X-card
+  // while the banner was up, A9c-2 D0) — never a capped, scrolling box (`minmax(0,400px)` sceneStage
   // was).
   // The browser half (real geometry at 1440x900 and 390x844) is
   // `tools/ui-audit`'s `capture-play.mjs --assert-layout` check c:xCard.
@@ -835,7 +836,7 @@ describe('TAV-PLAY-SHELL presets.ts — the X-card control is always on screen (
             row: row.id,
             moment,
             line: i,
-            track: expect.stringMatching(/^(auto|max-content)$/),
+            track: 'max-content',
           });
         }
       });
