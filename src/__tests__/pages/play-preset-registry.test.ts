@@ -732,6 +732,7 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
       '--play-slot-pad': '0px',
       '--play-slot-inline': 'var(--space-6)',
       '--play-recap-sub': 'none',
+      '--play-dice-columns': '6',
     });
     expect(LAYOUT_ROWS_BY_ID.story.vars).toBeUndefined();
     expect(LAYOUT_ROWS_BY_ID.table.vars).toBeUndefined();
@@ -739,8 +740,8 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
 
   it('the phone row carries a banner floor per moment (exploring pays the recap chrome, combat the status line); desktop rows carry none', () => {
     expect(LAYOUT_ROWS_BY_ID.phone.momentVars).toEqual({
-      exploring: { '--play-banner-floor': '169px' },
-      combat: { '--play-banner-floor': '136px' },
+      exploring: { '--play-banner-floor': '169px', '--play-foldable-reflow-min': '294px' },
+      combat: { '--play-banner-floor': '136px', '--play-foldable-reflow-min': '378px' },
     });
     expect(LAYOUT_ROWS_BY_ID.story.momentVars).toBeUndefined();
     expect(LAYOUT_ROWS_BY_ID.table.momentVars).toBeUndefined();

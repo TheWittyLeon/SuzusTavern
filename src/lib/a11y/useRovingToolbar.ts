@@ -42,8 +42,10 @@ export interface RovingToolbarOptions {
   /** How many items the toolbar renders this pass. */
   itemCount: number;
   /** Items laid out in rows of this many (reading order): adds Up/Down by row
-   *  and drops `aria-orientation`. Absent = a one-axis toolbar. */
-  columns?: number;
+   *  and drops `aria-orientation`. Absent = a one-axis toolbar. A function is read when a
+   *  key is pressed, for a grid whose column count is the stylesheet's to decide (DiceTray,
+   *  A9d-2: a row may ask for one row of six). */
+  columns?: number | (() => number);
 }
 
 const ITEM_ATTR = 'data-roving-item';
@@ -81,7 +83,8 @@ export function useRovingToolbar({
     const current = itemOf(e.target, e.currentTarget);
     if (!current) return;
     const { next, prev } = columns ? KEYS.horizontal : KEYS[orientation];
-    const rowStep = columns && (e.key === 'ArrowDown' ? columns : e.key === 'ArrowUp' ? -columns : 0);
+    const cols = typeof columns === 'function' ? columns() : columns;
+    const rowStep = cols && (e.key === 'ArrowDown' ? cols : e.key === 'ArrowUp' ? -cols : 0);
     if (!rowStep && e.key !== next && e.key !== prev && e.key !== 'Home' && e.key !== 'End') return;
 
     if (rowStep) {

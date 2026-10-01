@@ -11,6 +11,7 @@
  * Quick-check rows carry the engine skill slug (`skill`) alongside the
  * display name/modifier so the request names a real sheet skill.
  */
+import { useRef } from 'react';
 import Icon, { type IconName } from '@/components/Icon';
 import { useRovingToolbar } from '@/lib/a11y/useRovingToolbar';
 import styles from './DiceTray.module.css';
@@ -57,7 +58,11 @@ function signed(n: number): string {
 }
 
 // Iro MINOR-2: the dice are a 3x2 grid; Up/Down step a row. One number drives
-// both the CSS columns and the hook's row step so they cannot drift.
+// both the CSS columns and the hook's row step so they cannot drift. A9d-2 (Tora
+// A9d-1 MAJOR-1): that number is a row's to set (`--play-dice-columns`, the phone row
+// says 6: one row of six chips). The stylesheet is the source; the tray reads the
+// column count the browser actually resolved, so the keys follow whatever the row
+// asked for. DICE_COLUMNS is the default (and what jsdom, which resolves no grid, gets).
 const DICE_COLUMNS = 3;
 
 export default function DiceTray({
@@ -70,10 +75,16 @@ export default function DiceTray({
   // A9c C5 (Iro IMPORTANT-2): three toolbars, one tab stop each, instead of
   // 6 + N + 3 stops in front of the composer. Names, roles-of-the-buttons and
   // `aria-pressed` are unchanged.
+  const gridRef = useRef<HTMLDivElement>(null);
   const dice = useRovingToolbar({
     label: 'Dice',
     itemCount: DICE.length,
-    columns: DICE_COLUMNS,
+    // Read when a key is pressed: the resolved track list ("113px 113px 113px") has one token per
+    // column. Nothing resolved (no layout engine, a detached node) is the default.
+    columns: () => {
+      const tracks = gridRef.current ? getComputedStyle(gridRef.current).gridTemplateColumns.trim().split(/\s+/) : [];
+      return tracks.length > 1 ? tracks.length : DICE_COLUMNS;
+    },
   });
   const checks = useRovingToolbar({
     label: 'Quick checks',
@@ -97,6 +108,7 @@ export default function DiceTray({
     <div className={styles.tray}>
       <div className={styles.label}>Roll</div>
       <div
+        ref={gridRef}
         className={styles.diceGrid}
         style={{ '--dice-columns': DICE_COLUMNS } as React.CSSProperties}
         {...dice.toolbarProps}

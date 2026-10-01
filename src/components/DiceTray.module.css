@@ -17,9 +17,17 @@
 }
 
 .diceGrid {
+  /* The column count is the ROW's to set (`--play-dice-columns`, emitted on `.grid` by
+     PlayShell; the phone row says 6: one row of six chips, A9d-2 Tora MAJOR-1). Absent, the
+     tray's own `--dice-columns` (3). DiceTray.tsx reads the resolved count back for its keys. */
+  --dice-cols: var(--play-dice-columns, var(--dice-columns, 3));
   display: grid;
-  grid-template-columns: repeat(var(--dice-columns, 3), 1fr);
-  gap: 8px;
+  grid-template-columns: repeat(var(--dice-cols), 1fr);
+  row-gap: 8px;
+  /* The gap gives way before a chip drops under 44px: whatever the container has left after
+     the columns' 44px each, shared between the gaps, never more than 8px (a 320px phone
+     leaves about 1px). */
+  column-gap: clamp(1px, calc((100% - var(--dice-cols) * 44px) / (var(--dice-cols) - 1)), 8px);
 }
 
 .die {

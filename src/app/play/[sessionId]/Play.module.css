@@ -99,7 +99,7 @@
    a floor/optional track can shrink the region to the handle and no further.
    Generic: it names a dock, never a region or a layout. */
 .slot:has(> [data-foldable='true']) {
-  min-height: calc(44px + 2 * var(--play-slot-edge, var(--density-gap)));
+  min-height: max(calc(44px + 2 * var(--play-slot-edge, var(--density-gap))), var(--play-foldable-min, 0px));
 }
 
 /* A9d E3 (build brief 2.3): safety yield. A9c section 8 ranks a raised safety
@@ -119,6 +119,20 @@
   .grid:has(> [data-region-slot='safetyBanner'] > :not(:empty)) {
     --play-floor: var(--play-banner-floor, 0px);
     --play-optional: 0px;
+  }
+}
+
+/* A9d-2 (Tora A9d-1 MAJOR-1): the dice and the combat controls never live in a band
+   that yields. On a viewport the page scrolls anyway (the reflow class, the complement of
+   the 701px boundary above) the grid's free space is negative, so every optional track sits
+   at its minimum and the stage was ~56px with its controls inside its own scroll. There the
+   stage band takes the row's `--play-foldable-reflow-min` (per moment, see `momentVars`): the
+   height its controls need, with the picture and the quick checks scrolling inside it. It is
+   the min-height of a foldable slot (above), which a `fit-content` track honours as its
+   minimum. A row with no such var (every desktop row) gets 0 and is untouched. */
+@media (max-height: 700px) {
+  .grid {
+    --play-foldable-min: var(--play-foldable-reflow-min, 0px);
   }
 }
 
