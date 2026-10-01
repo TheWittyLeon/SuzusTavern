@@ -43,6 +43,25 @@ export const DEFAULT_LAYOUT_PREF: LayoutPref = 'auto';
 
 export const LAYOUT_KEY = 'tavern.layout';
 
+/** Labels and hints for the TweaksPanel layout picker (A9c-2 D3). Here, beside
+ *  `VIBE_*`, because a lib module must not import a route's runtime values
+ *  (`presets.ts` is `/play`'s). Keyed by `LayoutPref`, so a fourth pref is a
+ *  compile error until it is described. */
+export const LAYOUT_PREF_LABELS: Record<LayoutPref, string> = {
+  auto: 'Auto',
+  story: 'Story',
+  table: 'Table',
+};
+
+export const LAYOUT_PREF_HINTS: Record<LayoutPref, string> = {
+  auto: 'Story while exploring, Table in combat',
+  story: 'Narration first, always',
+  table: 'Stage first, always',
+};
+
+/** Shown instead of the picker's effect on a phone, where R16 gives one layout. */
+export const LAYOUT_PHONE_NOTE = 'Phones use one layout.';
+
 export function isLayoutPref(v: string | null | undefined): v is LayoutPref {
   return v != null && (LAYOUT_PREFS as readonly string[]).includes(v);
 }

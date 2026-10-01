@@ -26,6 +26,7 @@ import { useCallback, useSyncExternalStore } from 'react';
 export function useMediaQuery(query: string): boolean {
   const subscribe = useCallback(
     (onStoreChange: () => void) => {
+      if (typeof window.matchMedia !== 'function') return () => {};
       const mq = window.matchMedia(query);
       mq.addEventListener('change', onStoreChange);
       window.addEventListener('resize', onStoreChange);
@@ -37,7 +38,12 @@ export function useMediaQuery(query: string): boolean {
     [query],
   );
 
-  const getSnapshot = useCallback(() => window.matchMedia(query).matches, [query]);
+  // An engine with no matchMedia reads as "does not match" (TweaksPanel mounts
+  // this on every page, and must still open there).
+  const getSnapshot = useCallback(
+    () => typeof window.matchMedia === 'function' && window.matchMedia(query).matches,
+    [query],
+  );
   const getServerSnapshot = useCallback(() => false, []);
 
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);

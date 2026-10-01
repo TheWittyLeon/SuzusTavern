@@ -86,6 +86,10 @@ const SCANNED_FILES = [
   'src/app/play/[sessionId]/PlayShell.tsx',
   'src/app/play/[sessionId]/tenants/StatusAnnouncers.tsx',
   'src/app/play/[sessionId]/tenants/CastSpellTenant.tsx',
+  // A9c-2 D3 (R23/A7): TweaksPanel is mounted from /play's TopBar now, so its
+  // Escape handling (formerly a raw `e.key === 'Escape'`) goes through
+  // `consumeEscape` — the document-level Award-XP fallback must not see it.
+  'src/components/TweaksPanel.tsx',
 ];
 
 /**

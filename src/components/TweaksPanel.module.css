@@ -31,12 +31,15 @@
   z-index: 59; /* below the panel, above the sticky topnav */
 }
 
+/* Portaled to document.body (TweaksPanel.tsx), so it is placed from the
+   trigger's rect: `top`/`left`/`max-height` come from the component. The viewport is its
+   only container, so it can never be clipped by the region that mounts the
+   trigger. */
 .panel {
-  position: absolute;
-  top: calc(100% + 10px);
-  right: 0;
+  position: fixed;
   z-index: 60; /* above the sticky topnav (which owns its own stacking context) */
   width: min(300px, calc(100vw - 24px));
+  overflow-y: auto;
   padding: var(--density-pad);
   display: flex;
   flex-direction: column;
@@ -164,6 +167,17 @@
      measured 4.46:1 on the aetheric optionBody tint (just under AA). --ink-2
      clears it on every palette. (Iro S3.1 MINOR-1) */
   color: var(--ink-2);
+}
+
+.groupHint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--ink-2);
+}
+/* A phone's picker is shown but inert (R16): dim the chips, keep the note legible. */
+.group:disabled .densityChip {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .densityRow {

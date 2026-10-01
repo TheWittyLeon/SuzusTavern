@@ -62,9 +62,8 @@ interface ThemeContextValue {
    *  the phone breakpoint and the current moment — neither of which this
    *  provider knows about, so it stores the raw preference only.
    *
-   *  debt: `layout`/`setLayout` persist now but have no UI caller yet.
-   *  ceiling: one persisted pref with zero callers; a second is the finding.
-   *  until: A9c adds the TweaksPanel layout picker that calls setLayout.
+   *  A9c-2 D3: the TweaksPanel Layout group calls `setLayout`, from TavernShell
+   *  and from `/play`'s TopBar settings slot.
    */
   layout: LayoutPref;
   /** R20 (A9c C7): the docked regions the user has folded. Absent = open. */
