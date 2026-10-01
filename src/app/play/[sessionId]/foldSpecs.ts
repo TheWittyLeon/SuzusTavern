@@ -7,5 +7,7 @@ import type { RegionId } from './presets';
  *  `labelledBy`: it is already the "Scene" aside. */
 export const FOLD_SPECS: Partial<Record<RegionId, FoldSpec>> = {
   characterBlock: { label: 'Character sheet', icon: 'Scroll', labelledBy: MEMBER_SHEET_HEADING_ID },
-  sceneStage: { label: 'Scene', icon: 'Map' },
+  // "Scene stage", not "Scene": the stage IS the "Scene" aside, and a button named like
+  // the landmark it controls is announced as the same thing twice (Iro A9c-1 MINOR-4).
+  sceneStage: { label: 'Scene stage', icon: 'Map' },
 };

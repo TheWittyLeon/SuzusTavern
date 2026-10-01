@@ -61,7 +61,12 @@ export default function FoldDock({
   children,
 }: FoldDockProps) {
   const panelId = useId();
+  const nameId = useId();
   const isFolded = foldable && folded;
+  // ONE decision for everything that names the panel (role, aria-labelledby and the
+  // prefix node): an inert dock (`foldable={false}`) can never take a role or a name,
+  // by construction here rather than by each attribute remembering to check (Iro A9c-1 MINOR-3).
+  const landmarkLabelledBy = foldable ? labelledBy : undefined;
   return (
     <div className={styles.dock} data-foldable={foldable} data-folded={isFolded}>
       {foldable && (
@@ -77,12 +82,20 @@ export default function FoldDock({
           <Icon name={icon} size={18} aria-hidden />
         </button>
       )}
+      {landmarkLabelledBy && (
+        // The region's name is "<label>: <heading>" ("Character sheet: Kestrel Ashwood"),
+        // not the bare heading: the type of thing is part of the name (WCAG 2.4.6).
+        // `hidden` is fine for an aria-labelledby target; it is never rendered.
+        <span id={nameId} hidden>
+          {label}:
+        </span>
+      )}
       <div
         id={panelId}
         className={styles.panel}
         hidden={isFolded}
-        role={foldable && labelledBy ? 'region' : undefined}
-        aria-labelledby={foldable ? labelledBy : undefined}
+        role={landmarkLabelledBy ? 'region' : undefined}
+        aria-labelledby={landmarkLabelledBy ? `${nameId} ${landmarkLabelledBy}` : undefined}
       >
         {children}
       </div>

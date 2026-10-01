@@ -59,7 +59,8 @@ describe('FoldDock', () => {
     const { rerender, ui } = dock();
     expect(screen.queryByRole('region')).not.toBeInTheDocument();
     rerender(ui({ labelledBy: 'h' }));
-    expect(screen.getByRole('region', { name: 'Sheet' })).toBeInTheDocument();
+    // MINOR-3: the type of thing is part of the name, not the bare heading
+    expect(screen.getByRole('region', { name: 'Character sheet: Sheet' })).toBeInTheDocument();
   });
 
   it('foldable={false} is inert: no handle, never hidden, no landmark, same tree position', () => {
@@ -70,5 +71,10 @@ describe('FoldDock', () => {
     expect(screen.queryByRole('region')).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Sheet' })).toBe(heading);
     expect(heading).toBeVisible();
+    // MINOR-3 guard: an inert dock takes no role, no name and renders no name node, folded or not
+    const panel = heading.parentElement as HTMLElement;
+    expect(panel).not.toHaveAttribute('role');
+    expect(panel).not.toHaveAttribute('aria-labelledby');
+    expect(document.querySelector('[hidden]')).toBeNull();
   });
 });

@@ -147,14 +147,16 @@ describe('PlayShell fold state', () => {
       />,
     );
     expect(container.querySelector('[data-probe-region="sceneStage"]')).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Scene' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Scene stage' })).not.toBeInTheDocument();
   });
 
   it('phone: the stage gets a handle, and no extra landmark (it is already the Scene aside)', () => {
     render(<PlayShell row={phone} moment="exploring" regions={regionNodes()} tenants={{}} foldSpecs={FOLD_SPECS} />);
-    const handle = screen.getByRole('button', { name: 'Scene' });
+    const handle = screen.getByRole('button', { name: 'Scene stage' });
     expect(handle).toHaveAttribute('aria-expanded', 'true');
     const scene = screen.getByRole('complementary', { name: 'Scene' });
+    // MINOR-4: the handle is not named like the landmark it controls
+    expect(handle).not.toHaveAccessibleName('Scene');
     expect(within(scene).queryByRole('region')).not.toBeInTheDocument();
   });
 
