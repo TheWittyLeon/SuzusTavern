@@ -206,9 +206,12 @@
    character ("K"). The name takes the line, AC and INIT sit under the bar. */
 .rail {
   margin-top: 12px;
+  /* half the card padding: the column is 160-200px and the name needs the width */
+  padding: calc(var(--density-pad) / 2);
 }
 
 .rail .entry {
+  padding-inline: 0;
   display: grid;
   grid-template-columns: auto 1fr;
   column-gap: 8px;

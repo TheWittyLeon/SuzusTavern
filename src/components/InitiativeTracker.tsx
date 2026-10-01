@@ -129,7 +129,7 @@ function StructuredTracker({
                 aria-hidden
               />
               <span className={styles.nameBlock}>
-                <span className={styles.name}>
+                <span className={styles.name} data-party-name={variant === 'rail' ? '' : undefined}>
                   {p.name}
                   {isYou && <span className={styles.you}>you</span>}
                   {isDowned && (
@@ -264,7 +264,7 @@ function LegacyTracker({
                 aria-hidden
               />
               <span className={styles.nameBlock}>
-                <span className={styles.name}>
+                <span className={styles.name} data-party-name={variant === 'rail' ? '' : undefined}>
                   {e.name}
                   {e.isYou && <span className={styles.you}>you</span>}
                 </span>

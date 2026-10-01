@@ -110,6 +110,17 @@ describe('InitiativeTracker stays mounted with both live regions in both variant
     expect(screen.getByRole('alert')).toHaveTextContent('Kestrel Ashwood is down');
     expect(screen.getAllByRole('meter').length).toBeGreaterThan(0);
   });
+
+  it('rail marks each initiative name data-party-name (harness check f measures it); strip does not', () => {
+    const rail = render(<InitiativeTracker participants={COMBAT.participants} round={2} selfParticipantId="pc1" variant="rail" />);
+    // the span also holds the "you" / downed badges, so match by prefix
+    const names = [...rail.container.querySelectorAll('[data-party-name]')].map((n) => n.textContent ?? '');
+    expect(names).toHaveLength(2);
+    expect(names[0]).toMatch(/^Kestrel Ashwood/);
+    expect(names[1]).toMatch(/^Goblin Skulker/);
+    const chips = render(<InitiativeTracker participants={COMBAT.participants} round={2} selfParticipantId="pc1" variant="strip" />);
+    expect(chips.container.querySelectorAll('[data-party-name]')).toHaveLength(0);
+  });
 });
 
 describe('PartyStrip passes its variant to all three children', () => {
