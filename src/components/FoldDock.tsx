@@ -87,7 +87,7 @@ export default function FoldDock({
         // not the bare heading: the type of thing is part of the name (WCAG 2.4.6).
         // `hidden` is fine for an aria-labelledby target; it is never rendered.
         <span id={nameId} hidden>
-          {label}:
+          {`${label}:`}
         </span>
       )}
       <div

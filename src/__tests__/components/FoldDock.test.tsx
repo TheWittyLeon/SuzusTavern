@@ -63,6 +63,14 @@ describe('FoldDock', () => {
     expect(screen.getByRole('region', { name: 'Character sheet: Sheet' })).toBeInTheDocument();
   });
 
+  it('the name prefix is ONE text node, so no engine joins "Character sheet" and ":" with a space (Iro MINOR-4)', () => {
+    const { container, rerender, ui } = dock();
+    rerender(ui({ labelledBy: 'h' }));
+    const prefix = container.querySelector('span[hidden]');
+    expect(prefix?.childNodes).toHaveLength(1);
+    expect(prefix?.textContent).toBe('Character sheet:');
+  });
+
   it('foldable={false} is inert: no handle, never hidden, no landmark, same tree position', () => {
     const { rerender, ui } = dock({ labelledBy: 'h' });
     const heading = screen.getByRole('heading', { name: 'Sheet' });
