@@ -65,7 +65,7 @@ describe('overlay owners reserve the overlaid edge', () => {
     const css = readFileSync(path.join(process.cwd(), 'src/app/play/[sessionId]/Play.module.css'), 'utf8');
     expect(css).toMatch(/\.slot\[data-overlay-edges~='top'\]\s*\{[^}]*margin-block-start:\s*calc\(var\(--overlay-bar-h\)/);
     expect(css).toMatch(/\.slot\[data-overlay-edges~='bottom'\]\s*\{[^}]*margin-block-end:\s*calc\(var\(--overlay-bar-h\)/);
-    expect(css).toMatch(/\.topBarOverlay\s*\{[^}]*height:\s*var\(--overlay-bar-h\)/);
+    expect(css).toMatch(/\.topBarCompact\s*\{[^}]*height:\s*var\(--overlay-bar-h\)/);
     expect(css).toMatch(/--overlay-bar-h:\s*\d+px/);
   });
 });

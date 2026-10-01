@@ -41,9 +41,7 @@ function syntheticRow(
 }
 
 const flat = (row: LayoutRow, moment: Moment) =>
-  slotOrder(row, moment).map((e) =>
-    e.kind === 'hosted' ? `${e.host}>${e.id}` : e.kind === 'hidden' ? `(${e.id})` : e.id,
-  );
+  slotOrder(row, moment).map((e) => (e.kind === 'hidden' ? `(${e.id})` : e.id));
 
 describe('A9c C3 — slotOrder(): the rules, on synthetic rows', () => {
   const hide = (): Placement => ({ area: null });
@@ -95,19 +93,6 @@ describe('A9c C3 — slotOrder(): the rules, on synthetic rows', () => {
     expect(order.slice(2, 4)).toEqual(['(sceneStage)', '(suzuPresence)']);
   });
 
-  it('rule 3: a hosted region has no slot of its own and is listed with its host', () => {
-    const row = syntheticRow('"topBar sceneStage"', {
-      partyStrip: { area: null, host: 'topBar' },
-    });
-    const entries = slotOrder(row, 'exploring');
-    expect(entries.find((e) => e.id === 'partyStrip')).toEqual({
-      id: 'partyStrip',
-      kind: 'hosted',
-      host: 'topBar',
-    });
-    expect(entries.filter((e) => e.id === 'partyStrip')).toHaveLength(1);
-  });
-
   it('a layer owns no DOM slot and is not listed', () => {
     const row = syntheticRow('"topBar"', { composer: { area: null, layer: true } });
     expect(slotOrder(row, 'exploring').some((e) => e.id === 'composer')).toBe(false);
@@ -131,11 +116,10 @@ describe('A9c C3 — slotOrder(): invariants on every real row x moment', () => 
         }
       });
 
-      it(`${row.id}/${moment}: kinds agree with the placement (slot=placed, hidden=area-less, hosted=host)`, () => {
+      it(`${row.id}/${moment}: kinds agree with the placement (slot=placed, hidden=area-less, overlay=anchored)`, () => {
         for (const e of slotOrder(row, moment)) {
           const p = getPlacement(row, e.id, moment);
-          if (e.kind === 'hosted') expect(p.host).toBe(e.host);
-          else if (e.kind === 'hidden') expect(p.area).toBeNull();
+          if (e.kind === 'hidden') expect(p.area).toBeNull();
           else expect(p.area).not.toBeNull();
         }
       });
@@ -231,7 +215,8 @@ describe('A9c C3 — snapshotScroll / restoreScroll (pure halves)', () => {
  * A9c C5 — the six literal DOM orders (build brief §4.1). A literal, not a
  * derivation: a derivation would move with the code it is meant to pin. Token
  * notation: `°` hidden slot (mounted, no area), `▲` overlay (anchored in
- * another region's area), `⊃(a,b)` regions hosted by the one before it. Read
+ * another region's area). A9d E2 retired `⊃` (hosted): every region is a
+ * top-level slot, so the phone row now lists them all. Read
  * by Iro as the tab/reading order each layout promises; the same six strings
  * are pinned against the rendered DOM in playshell.real-rows.qa.test.tsx.
  */
@@ -242,21 +227,14 @@ const ORDER_PIN: Record<string, string> = {
     'safetyBanner partyStrip topBar▲ sceneStage characterBlock suzuPresence storyLog offers composer actionBar',
   'table/combat':
     'safetyBanner partyStrip topBar▲ sceneStage characterBlock suzuPresence storyLog offers° composer actionBar',
-  'phone/exploring': 'safetyBanner topBar⊃(partyStrip,suzuPresence) sceneStage storyLog offers composer actionBar',
-  'phone/combat': 'safetyBanner topBar⊃(partyStrip,suzuPresence) sceneStage storyLog offers° composer actionBar',
+  'phone/exploring': 'safetyBanner topBar suzuPresence partyStrip sceneStage storyLog offers composer actionBar',
+  'phone/combat': 'safetyBanner topBar suzuPresence partyStrip sceneStage storyLog offers° composer actionBar',
 };
 
 function formatOrder(row: LayoutRow, moment: Moment): string {
   const entries = slotOrder(row, moment);
-  const hostedBy = new Map<string, string[]>();
-  for (const e of entries) if (e.kind === 'hosted') hostedBy.set(e.host, [...(hostedBy.get(e.host) ?? []), e.id]);
   return entries
-    .filter((e) => e.kind !== 'hosted')
-    .map((e) => {
-      const mark = e.kind === 'hidden' ? '°' : e.kind === 'overlay' ? '▲' : '';
-      const hosted = hostedBy.get(e.id);
-      return `${e.id}${mark}${hosted ? `⊃(${hosted.join(',')})` : ''}`;
-    })
+    .map((e) => `${e.id}${e.kind === 'hidden' ? '°' : e.kind === 'overlay' ? '▲' : ''}`)
     .join(' ');
 }
 

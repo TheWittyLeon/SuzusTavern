@@ -10,7 +10,7 @@
  * while loading.
  */
 .grid {
-  /* The overlay bar's height (see `.topBarOverlay`, `.slot[data-overlay-edges]`). */
+  /* The overlay bar's height (see `.topBarCompact`, `.slot[data-overlay-edges]`). */
   --overlay-bar-h: 64px;
   display: grid;
   grid-template-areas: var(--play-areas);
@@ -142,7 +142,7 @@
    overlaps it at ANY scroll position, and the bar's backing stops being the thing
    that hides the overlap. The owner's own padding (--density-gap) is the clearance
    under the bar. The overlay bar's height is a token, not a mirror:
-   `.topBarOverlay` takes `height: var(--overlay-bar-h)` from the same declaration,
+   `.topBarCompact` takes `height: var(--overlay-bar-h)` from the same declaration,
    and `.slotOverlay`'s margin is the same --space-4 added here, so the reserve
    cannot drift from the box it clears. data-overlay-edges lists the edges, so any
    anchor works without a CSS edit. */
@@ -289,11 +289,11 @@
   outline-offset: 1px;
 }
 
-/* A9c C4: TopBar `overlay` variant (Table) — one line over the stage: exit,
-   title, status pill, journal toggle. Token-tinted backing (see the `debt:` on
+/* A9c C4: TopBar `compact` variant (Table, over the stage; and the phone's header) — one
+   line: exit, title, status pill, journal toggle, settings. Token-tinted backing (see the `debt:` on
    its `background`). NarratorStrip stays mounted in an `sr-only`
    wrapper, so the region still announces (R3). */
-.topBarOverlay {
+.topBarCompact {
   display: flex;
   align-items: center;
   gap: var(--space-6);
@@ -310,22 +310,22 @@
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
 }
-.topBarOverlay .sessionTitle {
+.topBarCompact .sessionTitle {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
 }
-.topBarOverlay .sessionHead {
+.topBarCompact .sessionHead {
   margin: 0;
 }
-.topBarOverlay .aiOffStatus {
+.topBarCompact .aiOffStatus {
   padding: 0;
 }
-.topBarOverlay .journalToggleBtn {
+.topBarCompact .journalToggleBtn {
   margin: 0;
 }
-.topBarOverlay .back {
+.topBarCompact .back {
   margin: 0;
 }
 

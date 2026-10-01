@@ -5,7 +5,7 @@
  * region's root carries `data-variant === variantFor(row, region, moment)`.
  * That is the page wiring half of the contract: the component half (each region
  * stamps what it is handed and renders differently per member) is
- * `region-variants.contract.test.tsx`. A page that passes `variant="band"` to
+ * `region-variants.contract.test.tsx`. A page that passes `variant="full"` to
  * TopBar, or `variant="full"` to SuzuPresence, regardless of the row, is red
  * here and nowhere else.
  */
@@ -226,16 +226,16 @@ const foldChecked = { collapsible: 0, inert: 0 };
 /**
  * Plan 4.1 / build brief section 4.1: the settled DOM order of the top-level slots,
  * as LITERALS (a hidden slot is `o°`, an overlay `o▲`). Pinned here on the real
- * page and in the registry test on `slotOrder`; the phone's partyStrip and
- * suzuPresence are hosted inside topBar, so they are not top-level slots.
+ * page and in the registry test on `slotOrder` (A9d E2: every region, the phone's
+ * partyStrip and suzuPresence included, is a top-level slot).
  */
 const ORDER_LITERALS: Record<string, string> = {
   'story exploring': 'safetyBanner, topBar, partyStrip, suzuPresence, storyLog, sceneStage, offers, composer, actionBar',
   'story combat': 'safetyBanner, topBar, partyStrip, suzuPresence, sceneStage, storyLog, offers°, composer, actionBar',
   'table exploring': 'safetyBanner, partyStrip, topBar▲, sceneStage, characterBlock, suzuPresence, storyLog, offers, composer, actionBar',
   'table combat': 'safetyBanner, partyStrip, topBar▲, sceneStage, characterBlock, suzuPresence, storyLog, offers°, composer, actionBar',
-  'phone exploring': 'safetyBanner, topBar, sceneStage, storyLog, offers, composer, actionBar',
-  'phone combat': 'safetyBanner, topBar, sceneStage, storyLog, offers°, composer, actionBar',
+  'phone exploring': 'safetyBanner, topBar, suzuPresence, partyStrip, sceneStage, storyLog, offers, composer, actionBar',
+  'phone combat': 'safetyBanner, topBar, suzuPresence, partyStrip, sceneStage, storyLog, offers°, composer, actionBar',
 };
 const slotOf = (el: Element) => el.closest('[data-region-slot]');
 const slotId = (el: Element) => slotOf(el)?.getAttribute('data-region-slot') ?? null;
@@ -324,7 +324,7 @@ describe('/play real-page render matrix (4 desktop + 2 phone)', () => {
     // A collapsible placement with no FoldSpec has no dock at all: red here.
     for (const id of FOLDABLE_REGIONS) {
       const slot = container.querySelector(`[data-region-slot="${id}"]`);
-      if (!slot) continue; // hosted inside another region's slot: not a dock of its own
+      if (!slot) continue; // a layer: no slot, no dock of its own
       const dock = slot.querySelector('[data-foldable]');
       const collapsible = getPlacement(row, id, cell.moment).collapsible === true;
       expect([cell.name, id, dock?.getAttribute('data-foldable')]).toEqual([cell.name, id, String(collapsible)]);
@@ -385,7 +385,7 @@ describe('/play real-page: AI assist off renders no Suzu presence (R10)', () => 
  * Kage A9c-2 IMPORTANT-5: a live region that REMOUNTS across a layout flip is
  * re-announced by a screen reader, and the unit tests of a region in isolation cannot
  * see it (the AI-off status pill used to sit at a different tree position in the
- * `band` and `overlay` TopBar, so every Story <-> Table switch destroyed and recreated
+ * `full` and `compact` TopBar, so every Story <-> Table switch destroyed and recreated
  * it). One real-page assertion, over EVERY live region the page mounts, in both
  * directions of the flip: the same DOM nodes before and after.
  */
@@ -427,10 +427,10 @@ describe('/play real-page: live regions survive a layout flip (never remount)', 
     };
 
     await flipTo('Table', 'table');
-    expect(container.querySelector('[data-region="topBar"]')).toHaveAttribute('data-variant', 'overlay');
+    expect(container.querySelector('[data-region="topBar"]')).toHaveAttribute('data-variant', 'compact');
     sameNodes();
     await flipTo('Auto', 'story');
-    expect(container.querySelector('[data-region="topBar"]')).toHaveAttribute('data-variant', 'band');
+    expect(container.querySelector('[data-region="topBar"]')).toHaveAttribute('data-variant', 'full');
     sameNodes();
   });
 });

@@ -5,10 +5,10 @@
  * importing `../presets` (a region must not know which row placed it).
  *
  * The prop type of a consuming region IS the registry's:
- * `RegionVariant<'topBar'>` is `'band' | 'overlay'` because the array below
+ * `RegionVariant<'topBar'>` is `'full' | 'compact'` because the array below
  * says so, never because a component hand-wrote the same union a second time
- * (Kage S3). `topBar` joins in C4 (`band` = today's markup, Story and Phone;
- * `overlay` = the one-line header over the stage, Table).
+ * (Kage S3). `topBar` joins in C4 (`full` = the two-row header, Story;
+ * `compact` = the one-line header, Table over the stage and the phone).
  */
 
 /**
@@ -49,7 +49,7 @@ export const REGION_VARIANTS = {
   characterBlock: ['compact', 'full'],
   actionBar: ['chips', 'bar'],
   suzuPresence: ['compact', 'full'],
-  topBar: ['band', 'overlay'],
+  topBar: ['full', 'compact'],
 } as const satisfies Record<string, readonly string[]>;
 
 export type VariantRegionId = keyof typeof REGION_VARIANTS;

@@ -46,9 +46,9 @@ export interface TopBarProps {
   initiativeOrder: string[];
   status: ReactNode;
   statusPill: ReactNode;
-  /** The row's `variant` (`REGION_VARIANTS.topBar`): `band` is today's two-row
-   *  header (Story, Phone); `overlay` is the one-line form over the stage
-   *  (Table). Unset renders `band`. */
+  /** The row's `variant` (`REGION_VARIANTS.topBar`): `full` is the two-row
+   *  header (Story); `compact` is the one-line form (Table over the stage, and
+   *  the phone's header). Unset renders `full`. */
   variant?: RegionVariant<'topBar'>;
   /** A9c-2 D3 (R23): the page's Appearance trigger (`<TweaksPanel />`), rendered
    *  AFTER the journal toggle so the exit stays the first tab stop. `/play` is
@@ -75,10 +75,10 @@ export default function TopBar({
   initiativeOrder,
   status,
   statusPill,
-  variant = 'band',
+  variant = 'full',
   settings,
 }: TopBarProps) {
-  const overlay = variant === 'overlay';
+  const compact = variant === 'compact';
   const narrator = showSuzuPanel ? (
     <NarratorStrip
       talking={talking}
@@ -101,21 +101,21 @@ export default function TopBar({
     <div
       data-region="topBar"
       data-variant={variant}
-      className={overlay ? styles.topBarOverlay : undefined}
+      className={compact ? styles.topBarCompact : undefined}
     >
       <div className={styles.sessionHead}>
         <Link href="/lobby" className={styles.back} aria-label="Leave session">
           <Icon name="Chevron" size={14} style={{ transform: 'rotate(180deg)' }} />
         </Link>
         <div>
-          {overlay ? null : <div className={styles.kicker}>Session</div>}
+          {compact ? null : <div className={styles.kicker}>Session</div>}
           <div className={styles.sessionTitle}>{title}</div>
         </div>
-        {/* overlay: the visible pill. `aria-hidden` because NarratorStrip (in the
+        {/* compact: the visible pill. `aria-hidden` because NarratorStrip (in the
             `sr-only` wrapper below) already carries it — one announcer per fact (A4).
             AI off has no NarratorStrip, so its pill is the announcer and lives at the
             ROOT (below), not here: one tree position in both variants. */}
-        {overlay && showSuzuPanel ? <span aria-hidden="true">{status}</span> : null}
+        {compact && showSuzuPanel ? <span aria-hidden="true">{status}</span> : null}
         {/* DDX-22: Journal drawer toggle — visible to every seat (not
             isDm-gated; the journal is a per-player surface, not a DM tool). */}
         <button
@@ -131,14 +131,14 @@ export default function TopBar({
         </button>
         {settings && <div className={styles.settingsSlot}>{settings}</div>}
       </div>
-      {/* overlay: NarratorStrip stays MOUNTED so topBar still announces (R3); it
+      {/* compact: NarratorStrip stays MOUNTED so topBar still announces (R3); it
           is redundant on screen (the stage shows the scene, suzuPresence shows
           `talking`, turnStatus announces the turn). The wrapper is rendered in
           BOTH variants and only its class toggles, so an Auto switch never
           remounts NarratorStrip (a remount re-announces the scene). */}
-      {narrator && <div className={overlay ? 'sr-only' : undefined}>{narrator}</div>}
+      {narrator && <div className={compact ? 'sr-only' : undefined}>{narrator}</div>}
       {/* ONE tree position in both variants (Kage A9c-2 IMPORTANT-5): the AI-off pill is
-          a live region, and a node that moves between a band and an overlay position is
+          a live region, and a node that moves between a full and a compact position is
           destroyed and recreated by React, so every Story <-> Table switch re-announced
           it. Pinned on the real page by play.render-matrix.real-page.test.tsx. */}
       {showSuzuPanel ? null : aiOff}

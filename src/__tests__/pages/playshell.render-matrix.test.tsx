@@ -191,7 +191,7 @@ describe('PlayShell — no remount across a row switch (build brief §6.4 rule 1
   it('a stateful child of storyLog keeps its state across a row switch (key={regionId})', () => {
     const rowA = stubRow('story');
     // rowB removes an EARLIER region (characterBlock, index 3 of 11 in
-    // PlayShell's own DOM_ORDER) from the grid entirely (host, not area) —
+    // PlayShell's own DOM_ORDER) from the shell entirely (a layer owns no slot) —
     // so storyLog (index 5) shifts from array position 5 to 4 among
     // RENDERED slots between the two renders. Without `key`, React's
     // positional fallback would match storyLog's new position-4 element
@@ -200,7 +200,7 @@ describe('PlayShell — no remount across a row switch (build brief §6.4 rule 1
     // exists to prevent — row-position-only matching is deliberately NOT
     // enough for this control to be real (see the mutation note below).
     const rowB = stubRow('table');
-    rowB.regions.characterBlock = { default: { area: null, host: 'partyStrip' } };
+    rowB.regions.characterBlock = { default: { area: null, layer: true } };
     const regions = { ...stubRegionNodes(), storyLog: <StatefulMarker /> };
 
     const { rerender, getByTestId } = render(
@@ -226,8 +226,8 @@ describe('PlayShell — no remount across a row switch (build brief §6.4 rule 1
    * position with rowA) stayed GREEN even keyless -- a false negative:
    * React's positional fallback is sufficient when nothing shifts
    * position, so that version of the control proved nothing. Fixed by
-   * making rowB host `characterBlock` (index 3 of 11 in DOM_ORDER)
-   * instead of grid-placing it, which shifts storyLog from rendered
+   * making rowB a layer for `characterBlock` (index 3 of 11 in DOM_ORDER)
+   * instead of grid-placing it (was `host` before A9d E2), which shifts storyLog from rendered
    * position 5 to position 4. Re-ran keyless: RED --
    * `getByTestId('marker')` after the `rerender` no longer `===` the
    * original node, and its text content reset to `0` (state lost) --

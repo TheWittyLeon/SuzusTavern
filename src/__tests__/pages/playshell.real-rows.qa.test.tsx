@@ -68,9 +68,8 @@ describe('PlayShell on the REAL rows -- announcers stay mounted in a visible hos
       expect({ row: row.id, moment, id, count }).toEqual({ row: row.id, moment, id, count: 1 });
       expect(slot).not.toBeNull();
       expect(slot).toHaveAttribute('data-visible', 'true');
-      // the slot must be the region's own, or its declared host's
-      const expectedSlot = p.host ?? id;
-      expect(slot).toHaveAttribute('data-region-slot', expectedSlot);
+      // the slot must be the region's own (A9d E2: no hosted regions)
+      expect(slot).toHaveAttribute('data-region-slot', id);
     }
   });
 
@@ -136,15 +135,20 @@ describe('PlayShell on the REAL rows -- announcers stay mounted in a visible hos
     }
   });
 
-  it('phone: partyStrip and suzuPresence ride inside the topBar slot', () => {
+  it('phone: partyStrip and suzuPresence are their own top-level slots, not inside the topBar slot (A9d E2)', () => {
     const phone = LAYOUT_ROWS.find((r) => r.id === 'phone')!;
     for (const m of MOMENTS) {
       const { container, unmount } = render(
         <PlayShell row={phone} moment={m} regions={regionNodes()} tenants={tenantNodes()} />,
       );
       const bar = container.querySelector('[data-region-slot="topBar"]')!;
-      expect(bar.querySelector('[data-probe-region="partyStrip"]')).not.toBeNull();
-      expect(bar.querySelector('[data-probe-region="suzuPresence"]')).not.toBeNull();
+      expect(bar.querySelector('[data-probe-region="partyStrip"]')).toBeNull();
+      expect(bar.querySelector('[data-probe-region="suzuPresence"]')).toBeNull();
+      for (const id of ['partyStrip', 'suzuPresence']) {
+        const slot = container.querySelector(`[data-region-slot="${id}"]`)!;
+        expect(slot.parentElement).toBe(container.querySelector('[data-layout-resolved]'));
+        expect(slot.querySelector(`[data-probe-region="${id}"]`)).not.toBeNull();
+      }
       unmount();
     }
   });
@@ -212,15 +216,13 @@ describe('PlayShell on the REAL rows -- R18, no remount across a row/moment chan
   });
 });
 
-describe('A9c C4 — no DESKTOP region remounts across the 12 ordered desktop transitions (extends the two-region pin above to every region)', () => {
+describe('A9c C4 / A9d E2 — no region remounts across all 30 ordered row x moment transitions', () => {
   /**
-   * Phone rows host partyStrip/suzuPresence inside topBar (`host`): a changed
-   * parent is a remount. Phone <-> anything is therefore allowed to remount
-   * exactly those two.
+   * A9d E2 retired `host`: the phone's partyStrip/suzuPresence are top-level
+   * slots now, so a row switch only MOVES them. The phone exemption list
+   * (`REMOUNTS_ALLOWED_ON_PHONE`, with its debt marker) is gone; what pins the
+   * invariant is this test over every pair, phone included.
    */
-  // debt: phone's header-hosted partyStrip/suzuPresence remount when a row switch moves them. ceiling: those two regions only, phone <-> desktop and nothing else. until: A9d re-seats the phone header (the last `host` emitters), then this list is empty and goes.
-  const REMOUNTS_ALLOWED_ON_PHONE: readonly RegionId[] = ['partyStrip', 'suzuPresence'];
-
   function probes(log: string[]) {
     const out: Partial<Record<RegionId, React.ReactNode>> = {};
     for (const id of REGION_IDS) {
@@ -235,25 +237,23 @@ describe('A9c C4 — no DESKTOP region remounts across the 12 ordered desktop tr
     return out;
   }
 
-  const DESKTOP = LAYOUT_ROWS.filter((r) => r.id !== 'phone');
-  const desktopPairs: Array<[string, LayoutRow, Moment, LayoutRow, Moment]> = [];
-  const phonePairs: Array<[string, LayoutRow, Moment, LayoutRow, Moment]> = [];
+  const PAIRS30: Array<[string, LayoutRow, Moment, LayoutRow, Moment]> = [];
   for (const a of LAYOUT_ROWS) for (const ma of MOMENTS) for (const b of LAYOUT_ROWS) for (const mb of MOMENTS) {
     if (a === b && ma === mb) continue;
-    const entry: [string, LayoutRow, Moment, LayoutRow, Moment] = [`${a.id}/${ma} -> ${b.id}/${mb}`, a, ma, b, mb];
-    (a.id === 'phone' || b.id === 'phone' ? phonePairs : desktopPairs).push(entry);
+    PAIRS30.push([`${a.id}/${ma} -> ${b.id}/${mb}`, a, ma, b, mb]);
   }
 
-  it('there are exactly 12 ordered desktop transitions', () => {
-    expect(DESKTOP.length * MOMENTS.length * (DESKTOP.length * MOMENTS.length - 1)).toBe(12);
-    expect(desktopPairs).toHaveLength(12);
+  it('there are exactly 30 ordered transitions', () => {
+    const n = LAYOUT_ROWS.length * MOMENTS.length;
+    expect(n * (n - 1)).toBe(30);
+    expect(PAIRS30).toHaveLength(30);
   });
 
   /** A region that is a layer on either side has no shell slot there (page.tsx's Drawer hosts it): not a shell remount. */
   const slotted = (a: LayoutRow, ma: Moment, b: LayoutRow, mb: Moment, id: RegionId) =>
     getPlacement(a, id, ma).layer !== true && getPlacement(b, id, mb).layer !== true;
 
-  it.each(desktopPairs)('%s: every slotted region mounts exactly once', (_n, a, ma, b, mb) => {
+  it.each(PAIRS30)('%s: every slotted region mounts exactly once', (_n, a, ma, b, mb) => {
     const log: string[] = [];
     const regions = probes(log);
     const { rerender } = render(<PlayShell row={a} moment={ma} regions={regions} tenants={tenantNodes()} />);
@@ -263,24 +263,13 @@ describe('A9c C4 — no DESKTOP region remounts across the 12 ordered desktop tr
       expect({ id, mounts: log.filter((l) => l === id).length }).toEqual({ id, mounts: 1 });
     }
   });
-
-  it.each(phonePairs)('%s: only the allowed phone regions may remount', (_n, a, ma, b, mb) => {
-    const log: string[] = [];
-    const regions = probes(log);
-    const { rerender } = render(<PlayShell row={a} moment={ma} regions={regions} tenants={tenantNodes()} />);
-    rerender(<PlayShell row={b} moment={mb} regions={regions} tenants={tenantNodes()} />);
-    for (const id of REGION_IDS) {
-      if (!slotted(a, ma, b, mb, id) || REMOUNTS_ALLOWED_ON_PHONE.includes(id)) continue;
-      expect({ id, mounts: log.filter((l) => l === id).length }).toEqual({ id, mounts: 1 });
-    }
-  });
 });
 
 /**
  * A9c C5 — the six literal DOM orders (build brief §4.1) against the RENDERED
  * DOM. Same literals as play-slot-order.test.ts on purpose: that file pins the
  * function, this one pins what PlayShell emits from it, so a mutation at either
- * seam goes red. Token notation: `°` hidden slot, `▲` overlay, `⊃(a,b)` hosted.
+ * seam goes red. Token notation: `°` hidden slot, `▲` overlay.
  */
 const ORDER_PIN: Record<string, string> = {
   'story/exploring': 'safetyBanner topBar partyStrip suzuPresence storyLog sceneStage offers composer actionBar',
@@ -289,8 +278,8 @@ const ORDER_PIN: Record<string, string> = {
     'safetyBanner partyStrip topBar▲ sceneStage characterBlock suzuPresence storyLog offers composer actionBar',
   'table/combat':
     'safetyBanner partyStrip topBar▲ sceneStage characterBlock suzuPresence storyLog offers° composer actionBar',
-  'phone/exploring': 'safetyBanner topBar⊃(partyStrip,suzuPresence) sceneStage storyLog offers composer actionBar',
-  'phone/combat': 'safetyBanner topBar⊃(partyStrip,suzuPresence) sceneStage storyLog offers° composer actionBar',
+  'phone/exploring': 'safetyBanner topBar suzuPresence partyStrip sceneStage storyLog offers composer actionBar',
+  'phone/combat': 'safetyBanner topBar suzuPresence partyStrip sceneStage storyLog offers° composer actionBar',
 };
 
 function domOrder(container: HTMLElement): string {
@@ -300,10 +289,7 @@ function domOrder(container: HTMLElement): string {
     .map((slot) => {
       const id = slot.getAttribute('data-region-slot')!;
       const mark = slot.getAttribute('data-visible') === 'false' ? '°' : slot.hasAttribute('data-anchor') ? '▲' : '';
-      const hosted = Array.from(slot.querySelectorAll('[data-probe-region]'))
-        .map((el) => el.getAttribute('data-probe-region')!)
-        .filter((rid) => rid !== id);
-      return `${id}${mark}${hosted.length ? `⊃(${hosted.join(',')})` : ''}`;
+      return `${id}${mark}`;
     })
     .join(' ');
 }

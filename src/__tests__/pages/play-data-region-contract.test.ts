@@ -254,21 +254,10 @@ describe('TAV-PLAY-SHELL data-tenant contract (Amendment B.4)', () => {
 
 const MOMENTS: readonly Moment[] = ['exploring', 'combat'];
 
-/** Resolves whether `regionId` has a mount point (non-null `area`, directly
- *  or via a `host` chain) for `row`/`moment` — mirrors
- *  `play-preset-registry.test.ts`'s own co-occupancy guard, generalised to
- *  follow a chain rather than assuming one hop. */
+/** Whether `regionId` has a mount point (a non-null `area`) for `row`/`moment`.
+ *  A9d E2 retired `host`, so there is no chain to follow: one hop. */
 function hasGridMountPoint(row: (typeof LAYOUT_ROWS)[number], regionId: string, moment: Moment): boolean {
-  const seen = new Set<string>();
-  let current = regionId;
-  while (!seen.has(current)) {
-    seen.add(current);
-    const placement = getPlacement(row, current as Parameters<typeof getPlacement>[1], moment);
-    if (placement.area != null) return true;
-    if (placement.host == null) return false;
-    current = placement.host;
-  }
-  return false; // cycle — never legal, never reached by real data
+  return getPlacement(row, regionId as Parameters<typeof getPlacement>[1], moment).area != null;
 }
 
 describe('TAV-PLAY-SHELL tenant guards (Amendment B.4, R3 extended)', () => {

@@ -141,13 +141,10 @@ describe('TAV-PLAY-SHELL presets.ts — announces render-matrix (b, plan R3)', (
 
   // Kage-CR CRITICAL-1 (2026-09-30): the old guard read ONE field
   // (`visible`) and missed the undefined third state where `area: null`
-  // with no `layer`/`host` means the region has no mount point at all —
+  // with no `layer` means the region has no mount point at all —
   // silently never rendered anywhere. R3 requires a mount point, not
-  // merely the absence of `visible: false`. `host` counts as a mount
-  // point (CRITICAL-2): a hosted announcer mounts inside its host, which
-  // is itself placed — exercised for real by `table/*: "topBar"` and
-  // `phone/*: "partyStrip"` below, both ANNOUNCING_REGIONS members that
-  // are hosted rather than grid-placed.
+  // merely the absence of `visible: false`. (A9d E2 retired `host`, the third
+  // kind of mount point: every region is now grid-placed or a layer.)
   for (const row of LAYOUT_ROWS) {
     for (const region of ANNOUNCING_REGIONS) {
       for (const moment of MOMENTS) {
@@ -155,11 +152,8 @@ describe('TAV-PLAY-SHELL presets.ts — announces render-matrix (b, plan R3)', (
           const placement = getPlacement(row, region, moment);
           expect(placement.visible).not.toBe(false);
           // R3: an announcing region must have a mount point — a grid
-          // area, a layer, or a host (which must itself be placed —
-          // pinned separately by the grid co-occupancy guard below).
-          expect(
-            placement.area !== null || placement.layer === true || placement.host != null,
-          ).toBe(true);
+          // area or a layer.
+          expect(placement.area !== null || placement.layer === true).toBe(true);
         });
       }
     }
@@ -224,7 +218,7 @@ function coOccupancyViolations(row: LayoutRow, moment: Moment): string[] {
   return out;
 }
 
-/** C1-a. `anchor` needs an area to sit in and excludes `host` (re-parents, remounts) and `layer` (no slot). */
+/** C1-a. `anchor` needs an area to sit in and excludes `layer` (no slot). */
 function anchorShapeViolations(row: LayoutRow, moment: Moment): string[] {
   const out: string[] = [];
   for (const id of REGION_IDS) {
@@ -232,7 +226,6 @@ function anchorShapeViolations(row: LayoutRow, moment: Moment): string[] {
     if (p.anchor === undefined) continue;
     if (!(ANCHORS as readonly string[]).includes(p.anchor)) out.push(`${id}: unknown anchor ${p.anchor}`);
     if (p.area == null) out.push(`${id}: anchor without an area`);
-    if (p.host !== undefined) out.push(`${id}: anchor with host`);
     if (p.layer === true) out.push(`${id}: anchor on a layer`);
   }
   return out;
@@ -254,42 +247,41 @@ function anchorOwnerViolations(row: LayoutRow, moment: Moment): string[] {
   return out;
 }
 
+/**
+ * C1-d (A9d E2, Kage S8). The owner of an anchored area is never collapsible:
+ * folded, the owner shrinks to its handle row, so any corner of the overlay
+ * collides with the handle. Zero violations on the real rows.
+ */
+function anchorCollapsibleOwnerViolations(row: LayoutRow, moment: Moment): string[] {
+  const out: string[] = [];
+  for (const id of REGION_IDS) {
+    const p = getPlacement(row, id, moment);
+    if (p.anchor === undefined || p.area == null) continue;
+    for (const o of REGION_IDS) {
+      const q = getPlacement(row, o, moment);
+      if (q.area === p.area && q.anchor === undefined && q.collapsible === true) {
+        out.push(`${id} overlays ${o}, which is collapsible`);
+      }
+    }
+  }
+  return out;
+}
+
 describe('TAV-PLAY-SHELL presets.ts — grid co-occupancy (CRITICAL-2, rewritten by C1-b): one owner per area, the rest anchored', () => {
   // Kage-CR CRITICAL-2 (2026-09-30): `area` used to be overloaded — a
   // duplicate `area: 'x'` string across two regions was indistinguishable
-  // from a typo, with nothing in the data marking it intentional. `host`
-  // makes the third state explicit. Two invariants, written as
-  // "everything except declared exemptions" rather than a list of known
-  // violators, so a NEW accidental share reds the same way a known one
-  // does:
+  // from a typo, with nothing in the data marking it intentional. `anchor`
+  // makes the declared share explicit. Written as "everything except declared
+  // exemptions" rather than a list of known violators, so a NEW accidental
+  // share reds the same way a known one does:
   for (const row of LAYOUT_ROWS) {
     for (const moment of MOMENTS) {
-      it(`${row.id}/${moment}: every host names a region that is itself placed and VISIBLE this row × moment (🟡-2)`, () => {
-        for (const id of REGION_IDS) {
-          const placement = getPlacement(row, id, moment);
-          if (placement.host == null) continue;
-          expect(REGION_IDS).toContain(placement.host);
-          const hostPlacement = getPlacement(row, placement.host, moment);
-          expect(hostPlacement.area).not.toBeNull();
-          // Kage-CR 🟡-2 (2026-09-30 fix round, carried to A9b): the old
-          // guard only checked the host's `area`, not its `visible` — a
-          // host that is placed but `visible:false` still "has a mount
-          // point" by the old check, yet the hosted announcer silently
-          // stops announcing inside a display:none band. R3's own text:
-          // "this already happened once (X-card, Iro CRITICAL-1)" — this
-          // is that failure one field deeper. Control N2: `table.topBar.
-          // host='offers'` + `table.offers.default.visible=false` must go
-          // red here.
-          expect(hostPlacement.visible).not.toBe(false);
-        }
-      });
-
       // A9c C4 guard C1-b (Amendment C.1), replacing A9b's "unless one
-      // declares the other as host": per row x moment, each non-null area
+      // declares the other as host" (retired with `host`, A9d E2): per row x moment, each non-null area
       // has exactly ONE owner (a placement with no `anchor`); every other
       // region naming it carries an `anchor`, and the anchors on one area
       // are pairwise distinct (two overlays on one corner would stack on
-      // each other). Hosted regions have `area:null` and are unaffected.
+      // each other).
       // Written as "everything except the declared overlay", so a NEW
       // accidental share reds the same way a known one does.
       it(`${row.id}/${moment}: each area has exactly one owner; every other region on it is an anchored overlay with a distinct anchor (C1-b)`, () => {
@@ -299,9 +291,8 @@ describe('TAV-PLAY-SHELL presets.ts — grid co-occupancy (CRITICAL-2, rewritten
 
       // C1-a: `anchor` means "an overlay in somebody's area": it needs an
       // area to sit in, and it is exclusive of the two other ways a region
-      // can ride another one (`host` changes parent and remounts; `layer`
-      // has no slot at all).
-      it(`${row.id}/${moment}: an anchored region has an area, no host, and is not a layer (C1-a)`, () => {
+      // can ride another one (`layer` has no slot at all).
+      it(`${row.id}/${moment}: an anchored region has an area and is not a layer (C1-a)`, () => {
         expect(anchorShapeViolations(row, moment)).toEqual([]);
       });
 
@@ -336,18 +327,26 @@ describe('A9c C4 — guards C1-a/b/c go red on their controls', () => {
     }
   });
 
-  it('C1-a: table.topBar gains host:sceneStage -> red', () => {
-    const mutated = patch(table, 'topBar', { area: 'sceneStage', anchor: 'top-start', host: 'sceneStage' });
-    expect(anchorShapeViolations(mutated, 'combat')).toContain('topBar: anchor with host');
-  });
-
   it('C1-a: an anchor on a layer, or without an area, -> red', () => {
     expect(anchorShapeViolations(patch(table, 'topBar', { area: 'sceneStage', anchor: 'top-start', layer: true }), 'combat')).toContain('topBar: anchor on a layer');
     expect(anchorShapeViolations(patch(table, 'topBar', { area: null, anchor: 'top-start' }), 'combat')).toContain('topBar: anchor without an area');
   });
 
+  it('C1-d: no row x moment overlays a collapsible owner (A9d E2)', () => {
+    for (const row of LAYOUT_ROWS) {
+      for (const m of MOMENTS) {
+        expect(anchorCollapsibleOwnerViolations(row, m)).toEqual([]);
+      }
+    }
+  });
+
+  it('C1-d: table.sceneStage collapsible with the anchored topBar on it -> red', () => {
+    const mutated = patch(table, 'sceneStage', { ...getPlacement(table, 'sceneStage', 'exploring'), collapsible: true });
+    expect(anchorCollapsibleOwnerViolations(mutated, 'exploring')).toContain('topBar overlays sceneStage, which is collapsible');
+  });
+
   it('C1-b: dropping `anchor` from table.topBar -> red (two owners of sceneStage)', () => {
-    const mutated = patch(table, 'topBar', { area: 'sceneStage', variant: 'overlay' });
+    const mutated = patch(table, 'topBar', { area: 'sceneStage', variant: 'compact' });
     expect(coOccupancyViolations(mutated, 'exploring').join('\n')).toMatch(/"sceneStage": 2 owners/);
   });
 
@@ -380,21 +379,20 @@ describe('A9c C4 — guards C1-a/b/c go red on their controls', () => {
  * invisible. This is the full literal pin: every RegionId's resolved
  * value in every row × moment, compared with `toEqual` against a
  * hand-written object (not derived from the data being tested). A value
- * is the area string, `host:<id>` for a declared co-occupancy
- * (CRITICAL-2), or `null` for a layer/no-placement. A swap, a drop, or an
+ * is the area string, or `null` for a layer/no-placement. A swap, a drop, or an
  * accidental addition all go red in the same assertion.
  */
 /**
- * Kage-CR 🟡-4 (2026-09-30 fix round, carried to A9b): folds variant/host/
+ * Kage-CR 🟡-4 (2026-09-30 fix round, carried to A9b): folds variant/
  * layer/visible/collapsible into ONE composite string per placement, in a
- * fixed field order, instead of `pinnedValue`'s old area-or-host-or-null.
+ * fixed field order, instead of `pinnedValue`'s old area-or-null.
  * A DROPPED field (not just a wrong one) now changes the string, so the
  * full row pin below reds on it too — this is what N4 needs, since the
  * per-region variant loop further down only ever checks a value that is
  * PRESENT (an absent one is always legal there by construction).
  */
 function pinnedValue(p: Placement): string {
-  const parts: string[] = [p.area != null ? p.area : p.host != null ? `host:${p.host}` : 'null'];
+  const parts: string[] = [p.area != null ? p.area : 'null'];
   if (p.anchor !== undefined) parts.push(`anchor:${p.anchor}`);
   if (p.variant !== undefined) parts.push(`variant:${p.variant}`);
   if (p.visible !== undefined) parts.push(`visible:${p.visible}`);
@@ -513,7 +511,7 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
 
   it('story/exploring', () => {
     expect(pin(LAYOUT_ROWS_BY_ID.story, 'exploring')).toEqual({
-      topBar: 'topBar variant:band',
+      topBar: 'topBar variant:full',
       partyStrip: 'partyStrip variant:strip',
       sceneStage: 'sceneStage variant:panel',
       suzuPresence: 'suzuPresence variant:full',
@@ -529,7 +527,7 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
 
   it('story/combat', () => {
     expect(pin(LAYOUT_ROWS_BY_ID.story, 'combat')).toEqual({
-      topBar: 'topBar variant:band',
+      topBar: 'topBar variant:full',
       partyStrip: 'partyStrip variant:rail',
       sceneStage: 'sceneStage variant:hero',
       suzuPresence: 'suzuPresence variant:full',
@@ -545,7 +543,7 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
 
   it('table/exploring', () => {
     expect(pin(LAYOUT_ROWS_BY_ID.table, 'exploring')).toEqual({
-      topBar: 'sceneStage anchor:top-start variant:overlay',
+      topBar: 'sceneStage anchor:top-start variant:compact',
       partyStrip: 'partyStrip variant:rail',
       sceneStage: 'sceneStage variant:hero',
       suzuPresence: 'suzuPresence variant:full',
@@ -561,7 +559,7 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
 
   it('table/combat', () => {
     expect(pin(LAYOUT_ROWS_BY_ID.table, 'combat')).toEqual({
-      topBar: 'sceneStage anchor:top-start variant:overlay',
+      topBar: 'sceneStage anchor:top-start variant:compact',
       partyStrip: 'partyStrip variant:rail',
       sceneStage: 'sceneStage variant:hero',
       suzuPresence: 'suzuPresence variant:full',
@@ -577,10 +575,10 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
 
   it('phone/exploring', () => {
     expect(pin(LAYOUT_ROWS_BY_ID.phone, 'exploring')).toEqual({
-      topBar: 'topBar variant:band',
-      partyStrip: 'host:topBar variant:strip',
+      topBar: 'topBar variant:compact',
+      partyStrip: 'partyStrip variant:strip',
       sceneStage: 'sceneStage variant:inline collapsible:true',
-      suzuPresence: 'host:topBar variant:compact',
+      suzuPresence: 'suzuPresence variant:compact',
       storyLog: 'storyLog',
       offers: 'offers variant:chips',
       characterBlock: 'null variant:compact layer:true',
@@ -593,10 +591,10 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
 
   it('phone/combat', () => {
     expect(pin(LAYOUT_ROWS_BY_ID.phone, 'combat')).toEqual({
-      topBar: 'topBar variant:band',
-      partyStrip: 'host:topBar variant:strip',
+      topBar: 'topBar variant:compact',
+      partyStrip: 'partyStrip variant:strip',
       sceneStage: 'sceneStage variant:panel collapsible:true',
-      suzuPresence: 'host:topBar variant:compact',
+      suzuPresence: 'suzuPresence variant:compact',
       storyLog: 'storyLog',
       offers: 'null visible:false',
       characterBlock: 'null variant:compact layer:true',
@@ -672,25 +670,60 @@ describe('TAV-PLAY-SHELL presets.ts — row geometry is pinned as a literal (�
 
   it('phone/exploring', () => {
     expect(normalizeAreas(LAYOUT_ROWS_BY_ID.phone.areas.exploring)).toBe(
-      normalizeAreas(`"safetyBanner"
-                "topBar"
-                "sceneStage"
-                "storyLog"
-                "offers"
-                "composer"
-                "actionBar"`),
+      normalizeAreas(`"safetyBanner safetyBanner"
+                "topBar       suzuPresence"
+                "partyStrip   partyStrip"
+                "sceneStage   sceneStage"
+                "storyLog     storyLog"
+                "offers       offers"
+                "composer     composer"
+                "actionBar    actionBar"`),
     );
   });
 
   it('phone/combat', () => {
     expect(normalizeAreas(LAYOUT_ROWS_BY_ID.phone.areas.combat)).toBe(
-      normalizeAreas(`"safetyBanner"
-             "topBar"
-             "sceneStage"
-             "storyLog"
-             "composer"
-             "actionBar"`),
+      normalizeAreas(`"safetyBanner safetyBanner"
+             "topBar       suzuPresence"
+             "partyStrip   partyStrip"
+             "sceneStage   sceneStage"
+             "storyLog     storyLog"
+             "composer     composer"
+             "actionBar    actionBar"`),
     );
+  });
+});
+
+describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as literals (A9d E2)', () => {
+  // Three classes (build brief): WHOLE tracks are `max-content`; the log is a FLOOR
+  // (`minmax(var(--play-floor,N),1fr)`: the grid grows auto/fit-content tracks before
+  // `fr`, so without a floor the log starves); optional tracks use `--play-optional`
+  // as the growth limit. The log floor is the second pin on PHONE_STORY_LOG_MIN_PX.
+  it('phone/exploring', () => {
+    expect(trackList(LAYOUT_ROWS_BY_ID.phone.rows.exploring)).toEqual([
+      'max-content',
+      'max-content',
+      'minmax(52px,var(--play-optional,auto))',
+      'fit-content(var(--play-optional,20vh))',
+      'minmax(var(--play-floor,240px),1fr)',
+      'max-content',
+      'max-content',
+      'max-content',
+    ]);
+    expect(LAYOUT_ROWS_BY_ID.phone.columns.exploring).toBe('minmax(0,1fr) auto');
+  });
+
+  it('phone/combat', () => {
+    expect(trackList(LAYOUT_ROWS_BY_ID.phone.rows.combat)).toEqual([
+      'max-content',
+      'max-content',
+      'minmax(52px,var(--play-optional,auto))',
+      'fit-content(var(--play-optional,34vh))',
+      'minmax(var(--play-floor,224px),1fr)',
+      'max-content',
+      'max-content',
+    ]);
+    expect(LAYOUT_ROWS_BY_ID.phone.columns.combat).toBe('minmax(0,1fr) auto');
   });
 });
 
@@ -756,7 +789,7 @@ describe('TAV-PLAY-SHELL presets.ts — rows/areas agree on track count (Amendme
   }
 });
 
-describe('TAV-PLAY-SHELL presets.ts — layer/host and area are mutually exclusive (S2, 🟡-1)', () => {
+describe('TAV-PLAY-SHELL presets.ts — layer and area are mutually exclusive (S2, 🟡-1)', () => {
   // Kage-CR S2 (2026-09-30): `Placement.layer`'s own doc says "When true,
   // `area` is always null" — a doc-comment invariant with no guard. A
   // region that is both grid-placed AND a layer would render docked AND
@@ -773,10 +806,9 @@ describe('TAV-PLAY-SHELL presets.ts — layer/host and area are mutually exclusi
   for (const row of LAYOUT_ROWS) {
     for (const region of REGION_IDS) {
       for (const moment of MOMENTS) {
-        it(`${row.id}/${moment}: "${region}" is never both layer:true and grid-placed, and never both host-set and grid-placed`, () => {
+        it(`${row.id}/${moment}: "${region}" is never both layer:true and grid-placed`, () => {
           const placement = getPlacement(row, region, moment);
           if (placement.layer === true) expect(placement.area).toBeNull();
-          if (placement.host != null) expect(placement.area).toBeNull();
         });
       }
     }
@@ -827,7 +859,6 @@ describe('TAV-PLAY-SHELL presets.ts — the X-card control is always on screen (
       it(`${row.id}/${moment}: safetyControls' host "${host}" is placed, visible, and sits only in content-sized rows`, () => {
         const placement = getPlacement(row, host, moment);
         expect(placement.layer).not.toBe(true);
-        expect(placement.host).toBeUndefined();
         expect(placement.area).not.toBeNull();
         expect(placement.visible).not.toBe(false);
 
@@ -901,7 +932,6 @@ describe('TAV-PLAY-SHELL presets.ts — the action bar can host tenants (A9c-2 D
       it(`${row.id}/${moment}: actionBar is placed, visible and not a layer`, () => {
         const p = getPlacement(row, 'actionBar', moment);
         expect(p.layer).not.toBe(true);
-        expect(p.host).toBeUndefined();
         expect(p.area).not.toBeNull();
         expect(p.visible).not.toBe(false);
       });
@@ -1020,6 +1050,8 @@ describe('TAV-PLAY-SHELL presets.ts — getPlacement', () => {
  *
  * CRITICAL-2's grid co-occupancy guard, same discipline:
  *
+ *  (Historical — `host` was retired in A9d E2; the same shape is now pinned
+ *  by C1-a/C1-b/C1-d and the literal row pins.)
  *  Undo control — reverted `table.topBar`/`phone.partyStrip`/
  *      `phone.suzuPresence` from the fixed `host`-declared shape back to
  *      the ORIGINAL duplicate-`area`-string encoding (no `host` field at

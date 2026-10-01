@@ -77,13 +77,11 @@
  *    `.top{grid-area:stage}` — the title floats over the stage rather than
  *    taking its own row). No ruling contradicts this, so the mockup stands.
  *    A9c C4: encoded as `anchor: 'top-start'` on `area: 'sceneStage'`
- *    (Amendment C.1); the `host` encoding below was superseded.
- *    Kage-CR CRITICAL-2 (2026-09-30): originally encoded as a duplicate
- *    `area: 'sceneStage'` string, indistinguishable from a typo and with
- *    no stacking signal for step 6b — replaced with the explicit `host`
- *    field (see `Placement.host`'s own doc) once `phone.partyStrip`/
- *    `phone.suzuPresence` turned out to need the identical mechanism
- *    against `topBar`.
+ *    (Amendment C.1). Kage-CR CRITICAL-2 (2026-09-30) first encoded it as a
+ *    `host` field; A9c C4 superseded that for Table, and A9d E2 retired the
+ *    field with its last two emitters (phone's party strip and presence):
+ *    every region is a top-level slot in every row, so a row switch MOVES a
+ *    region and never re-parents (remounts) it.
  *  - `offers` has no dedicated grid area in the mockup at all (nested
  *    inside `.story`'s own flex column). Given `Offers` is a real,
  *    independently-mounted region (plan §2.3, code confirms), it gets its
@@ -368,11 +366,11 @@ export interface Placement {
    * A9c C4 (Amendment C.1): `area` names ANOTHER region's area this moment.
    * This region is its own keyed grid item there (never inside the owner's
    * scroller, so the owner's scroll position is untouched), self-aligned to
-   * this corner, stacked above the area's owner and content-sized. Replaces
-   * `host` for desktop co-occupancy: a hosted region changes parent on every
-   * row switch and so REMOUNTS; an anchored one is a top-level slot in every
-   * row and only moves. Requires `area != null`, no `host`, no `layer`
-   * (guard C1-a); the area's owner must be placed and never hidden (C1-c).
+   * this corner, stacked above the area's owner and content-sized. A
+   * top-level slot in every row, so a row switch only MOVES it. Requires
+   * `area != null` and no `layer` (guard C1-a); the area's owner must be
+   * placed and never hidden (C1-c), and never collapsible (C1-d: a folded
+   * owner shrinks to its handle row, so any corner collides).
    */
   anchor?: Anchor;
   /** default true; false = display:none, still mounted. Never set true→false
@@ -382,16 +380,6 @@ export interface Placement {
   /** Rendered as an overlay, outside the grid (D1). When true, `area` is
    *  always null — a layer has no grid position to speak of. */
   layer?: boolean;
-  /**
-   * Kage-CR CRITICAL-2 (2026-09-30): this region is not an independent
-   * grid item — it renders INSIDE the named region's area (a declared
-   * co-occupancy, today only Phone's party strip and presence icon living
-   * inside the header; desktop overlays use `anchor` instead, C4/C.1). The host must itself be placed (non-null `area`) in the
-   * same row × moment — enforced by the "grid co-occupancy" guard below.
-   * When set, `area` is always null: a hosted region has no grid
-   * position of its own, same convention as `layer`.
-   */
-  host?: RegionId;
 }
 
 export interface LayoutRow {
@@ -452,27 +440,27 @@ export function getPlacement(row: LayoutRow, region: RegionId, moment: Moment): 
  *   1. Row-major, first appearance of each token in `row.areas[moment]` (the
  *      visual order: focus order follows what the eye sees, WCAG 2.4.3).
  *      Only tokens that name a `REGION_IDS` member placed in the grid
- *      (`area != null`, not hosted, not a layer) become a `slot`.
- *   2. C.2: an area-less, non-layer, non-hosted region (`offers` in combat) is
+ *      (`area != null`, not a layer) become a `slot`.
+ *   2. C.2: an area-less, non-layer region (`offers` in combat) is
  *      a `hidden` slot, emitted IMMEDIATELY AFTER its nearest `REGION_IDS`
  *      predecessor already in the sequence. Appending it last made the
  *      composer and the action bar shift one place on every moment flip (three
  *      DOM moves on a Story combat edge, one of them the composer); this
  *      makes the hidden slot's position stable, so a moment flip moves none
  *      of the visible regions.
- *   3. A region hosted by another (`placement.host`) is `hosted`: it has no
- *      slot of its own, the shell renders it INSIDE the host's slot, in
- *      `REGION_IDS` order. Layers (`layer: true`) own no DOM slot and are
- *      not listed.
+ *   3. Layers (`layer: true`) own no DOM slot and are not listed.
  *   4. C4 (C.1): an ANCHORED region (`placement.anchor`) is an `overlay`: its
  *      own top-level slot, listed with the area it sits on — its `top-*`
  *      overlays, then the area's owner, then its `bottom-*` overlays (each
  *      group in `REGION_IDS` order). Never inside the owner's slot.
+ *
+ *   A9d E2: there is no `hosted` entry any more. `Placement.host` had two
+ *   emitters (phone's party strip and presence); both are top-level slots now,
+ *   so every region in the list is its own DOM node in every row.
  */
 export type SlotEntry =
   | { id: RegionId; kind: 'slot' | 'hidden' }
-  | { id: RegionId; kind: 'overlay'; anchor: Anchor; area: string }
-  | { id: RegionId; kind: 'hosted'; host: RegionId };
+  | { id: RegionId; kind: 'overlay'; anchor: Anchor; area: string };
 
 export function slotOrder(row: LayoutRow, moment: Moment): SlotEntry[] {
   const regionIds: ReadonlySet<string> = new Set(REGION_IDS);
@@ -489,8 +477,8 @@ export function slotOrder(row: LayoutRow, moment: Moment): SlotEntry[] {
   // Overlays (C.1) by the area they sit on, in REGION_IDS order.
   const overlaysByArea = new Map<string, Extract<SlotEntry, { kind: 'overlay' }>[]>();
   for (const id of REGION_IDS) {
-    const { area, anchor, host, layer } = getPlacement(row, id, moment);
-    if (anchor == null || area == null || host != null || layer === true) continue;
+    const { area, anchor, layer } = getPlacement(row, id, moment);
+    if (anchor == null || area == null || layer === true) continue;
     const list = overlaysByArea.get(area) ?? [];
     list.push({ id, kind: 'overlay', anchor, area });
     overlaysByArea.set(area, list);
@@ -499,7 +487,7 @@ export function slotOrder(row: LayoutRow, moment: Moment): SlotEntry[] {
   const order: SlotEntry[] = [];
   for (const id of tokens) {
     const placement = getPlacement(row, id, moment);
-    if (placement.host != null || placement.layer === true || placement.area == null) continue;
+    if (placement.layer === true || placement.area == null) continue;
     // An anchored region is placed through its owner's token, not its own.
     if (placement.anchor != null) continue;
     // Its top-* overlays, then its owner, then its bottom-* overlays: focus
@@ -515,7 +503,7 @@ export function slotOrder(row: LayoutRow, moment: Moment): SlotEntry[] {
   // follow an earlier hidden one); at the front if it has none.
   REGION_IDS.forEach((id, index) => {
     const placement = getPlacement(row, id, moment);
-    if (placement.host != null || placement.layer === true || placement.area != null) return;
+    if (placement.layer === true || placement.area != null) return;
     let insertAt = 0;
     for (let i = index - 1; i >= 0; i--) {
       const at = order.findIndex((entry) => entry.id === REGION_IDS[i]);
@@ -527,10 +515,6 @@ export function slotOrder(row: LayoutRow, moment: Moment): SlotEntry[] {
     order.splice(insertAt, 0, { id, kind: 'hidden' });
   });
 
-  for (const id of REGION_IDS) {
-    const { host } = getPlacement(row, id, moment);
-    if (host != null) order.push({ id, kind: 'hosted', host });
-  }
   return order;
 }
 
@@ -647,7 +631,7 @@ const STORY_ROW: LayoutRow = {
              "suzuPresence actionBar    partyStrip"`,
   },
   regions: {
-    topBar: { default: { area: 'topBar', variant: 'band' } },
+    topBar: { default: { area: 'topBar', variant: 'full' } },
     // Kage-CR IMPORTANT-5 (2026-09-30, option (c)): exploring keeps the
     // header-row strip; combat gives it column 3 full-height as a rail
     // (same variant Table's characterBlock rail would use) rather than
@@ -752,11 +736,11 @@ const TABLE_ROW: LayoutRow = {
   regions: {
     // Mirrors the mockup's `.top{grid-area:stage}` — the title floats over the
     // stage rather than owning a row. A9c C4 (Amendment C.1): ANCHORED, not
-    // hosted — its own keyed top-level slot in the stage's area, self-aligned
+    // anchored — its own keyed top-level slot in the stage's area, self-aligned
     // top-start. A host changed parent on every Auto switch and so remounted
     // TopBar (Kage S7); this only moves, and stays out of the stage's
     // scroller. `overlay` is the compact one-line form.
-    topBar: { default: { area: 'sceneStage', anchor: 'top-start', variant: 'overlay' } },
+    topBar: { default: { area: 'sceneStage', anchor: 'top-start', variant: 'compact' } },
     partyStrip: { default: { area: 'partyStrip', variant: 'rail' } },
     // Amendment B.3 (🟡-5): presence size is preset data — Table gives it
     // a "framed speaker portrait" treatment, `'full'`.
@@ -778,56 +762,64 @@ const TABLE_ROW: LayoutRow = {
 
 // ---------------------------------------------------------------------------
 // PHONE — R16: "ONE layout: A's [Story], gaining B's [Table] action bar in
-// combat." Single column; `partyStrip`/`suzuPresence` are declared
-// co-occupancies of `topBar` (CRITICAL-2 — inline avatar strip + a small
-// always-mounted presence icon, R10's bound "presence must not cost story
-// space on a phone" — mirrors the mockup's `.pl.phone .party`/`.suzu`
-// living inside/over `.hdr`, not a separate row).
-// `sceneStage` variant per plan §4.2's 390-wide column (never hidden —
-// `inline` while exploring, `panel` in combat, both collapsible).
+// combat." One column plus a presence column beside the header line; EVERY
+// region is its own top-level slot (A9d E2, Amendment D.1/D.3), so a row switch
+// moves regions and never re-parents them (`host` is retired). Track sizing is
+// three classes, stated once (Amendment D.3):
+//   WHOLE    `max-content`   safetyBanner, topBar, offers, composer, actionBar.
+//            What the user acts with or must read; never shrinks. (`max-content`
+//            on a scroll-container slot is A9c-2 D0's lesson: `auto` contributes 0.)
+//   FLOOR    `minmax(var(--play-floor,N),1fr)`   storyLog. N = the 160px inner
+//            floor (harness PHONE_STORY_LOG_MIN_PX) + that moment's slot chrome.
+//   OPTIONAL `var(--play-optional,…)` as the growth limit   partyStrip (minimum
+//            one tile row) and sceneStage (minimum its fold-handle row, see
+//            Play.module.css). They take spare room before the log grows past its
+//            floor and give it back first. The grid hands spare room to `auto`
+//            tracks BEFORE `fr` (probe-measured), so the floor is the story's only
+//            guarantee; a raised safety banner sets both variables to 0px
+//            (`.grid:has(...)` in Play.module.css) so the banner outranks the bands.
+// When whole + floor + optional minimums exceed the viewport the PAGE scrolls
+// (`.grid` clips the inline axis only) and nothing is cut off; the harness reads
+// that as the `reflow` class (375x667, 720x450, 320x256).
 // ---------------------------------------------------------------------------
 
 const PHONE_ROW: LayoutRow = {
   id: 'phone',
+  // Column 2 is `suzuPresence`'s track: 0px when she is absent (AI assist off).
   columns: {
-    exploring: '1fr',
-    combat: '1fr',
+    exploring: 'minmax(0,1fr) auto',
+    combat: 'minmax(0,1fr) auto',
   },
-  // Ren-Dev, A9b self-check: same finding as STORY_ROW's own comment on
-  // `rows` above — row 2 (`topBar`, HOSTING `partyStrip`+`suzuPresence`
-  // on phone — three pieces stacked in one slot, no separate scroll
-  // container of their own) was `auto` and measured at 680px (146 +
-  // 502 + 32) against a viewport with ~810px total to share across
-  // seven rows, squeezing `storyLog` to 44px. Capped to `160px`
-  // (phone's narrower column wraps topBar's own text more than
-  // desktop's 113px) — `.slot`'s own `overflow-y:auto` (added in this
-  // same self-check pass) lets the excess scroll instead of bleeding
-  // into `sceneStage`'s row below.
+  // Stage caps are plan §4.2's: combat 34vh ("default open"); exploring 20vh,
+  // standing in for the inline strip until step 11 reads the `inline` variant.
   rows: {
-    exploring: 'auto 160px auto minmax(0,1fr) auto auto max-content',
-    combat: 'auto 160px minmax(0,34vh) minmax(0,1fr) auto max-content',
+    exploring:
+      'max-content max-content minmax(52px,var(--play-optional,auto)) fit-content(var(--play-optional,20vh)) minmax(var(--play-floor,240px),1fr) max-content max-content max-content',
+    combat:
+      'max-content max-content minmax(52px,var(--play-optional,auto)) fit-content(var(--play-optional,34vh)) minmax(var(--play-floor,224px),1fr) max-content max-content',
   },
   areas: {
-    exploring: `"safetyBanner"
-                "topBar"
-                "sceneStage"
-                "storyLog"
-                "offers"
-                "composer"
-                "actionBar"`,
-    combat: `"safetyBanner"
-             "topBar"
-             "sceneStage"
-             "storyLog"
-             "composer"
-             "actionBar"`,
+    exploring: `"safetyBanner safetyBanner"
+                "topBar       suzuPresence"
+                "partyStrip   partyStrip"
+                "sceneStage   sceneStage"
+                "storyLog     storyLog"
+                "offers       offers"
+                "composer     composer"
+                "actionBar    actionBar"`,
+    combat: `"safetyBanner safetyBanner"
+             "topBar       suzuPresence"
+             "partyStrip   partyStrip"
+             "sceneStage   sceneStage"
+             "storyLog     storyLog"
+             "composer     composer"
+             "actionBar    actionBar"`,
   },
   regions: {
-    topBar: { default: { area: 'topBar', variant: 'band' } },
-    // Kage-CR CRITICAL-2 (2026-09-30): declared co-occupancies of `topBar`,
-    // not duplicate area strings — both render INSIDE topBar's area.
-    partyStrip: { default: { area: null, host: 'topBar', variant: 'strip' } },
-    suzuPresence: { default: { area: null, host: 'topBar', variant: 'compact' } },
+    // `compact`: the one-line header (exit, title, state pill, journal, settings).
+    topBar: { default: { area: 'topBar', variant: 'compact' } },
+    suzuPresence: { default: { area: 'suzuPresence', variant: 'compact' } },
+    partyStrip: { default: { area: 'partyStrip', variant: 'strip' } },
     sceneStage: {
       default: { area: 'sceneStage', variant: 'inline', collapsible: true },
       combat: { area: 'sceneStage', variant: 'panel', collapsible: true },

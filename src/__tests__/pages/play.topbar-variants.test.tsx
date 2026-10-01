@@ -2,8 +2,8 @@
  * TAV-PLAY-SHELL A9c-1 C4 — `topBar` variants (build brief §6) and
  * `variantFor`, the one read site for a placement's variant.
  *
- * `band` is today's markup (Story, Phone) and must not change; `overlay` is
- * the one-line header over the Table stage. The overlay keeps the single
+ * `full` is today's markup (Story) and must not change; `compact` is
+ * the one-line header over the Table stage. The compact variant keeps the single
  * announcer per fact (A4): NarratorStrip stays MOUNTED (R3, topBar still
  * announces) inside `sr-only`, and the visible pill is aria-hidden.
  */
@@ -36,25 +36,25 @@ const base: TopBarProps = {
 };
 
 describe('A9c C4 — TopBar variants', () => {
-  it('band (default): kicker present, NarratorStrip visible, pill not aria-hidden', () => {
+  it('full (default): kicker present, NarratorStrip visible, pill not aria-hidden', () => {
     const { container } = render(<TopBar {...base} />);
     expect(screen.getByText('Session')).toBeInTheDocument();
     expect(container.querySelector('.sr-only')).toBeNull();
-    expect(container.querySelector('[data-region="topBar"]')).toHaveAttribute('data-variant', 'band');
+    expect(container.querySelector('[data-region="topBar"]')).toHaveAttribute('data-variant', 'full');
     expect(screen.getByTestId('pill').closest('[aria-hidden="true"]')).toBeNull();
   });
 
-  it('overlay: no kicker; exit, title and journal toggle stay reachable; one line of controls', () => {
-    const { container } = render(<TopBar {...base} variant="overlay" />);
-    expect(container.querySelector('[data-region="topBar"]')).toHaveAttribute('data-variant', 'overlay');
+  it('compact: no kicker; exit, title and journal toggle stay reachable; one line of controls', () => {
+    const { container } = render(<TopBar {...base} variant="compact" />);
+    expect(container.querySelector('[data-region="topBar"]')).toHaveAttribute('data-variant', 'compact');
     expect(screen.queryByText('Session')).toBeNull();
     expect(screen.getByRole('link', { name: 'Leave session' })).toBeVisible();
     expect(screen.getByText('The Hollow Tide')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Open journal' })).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('overlay: NarratorStrip stays mounted in sr-only and the visible pill is aria-hidden (one announcer per fact, A4)', () => {
-    const { container } = render(<TopBar {...base} variant="overlay" />);
+  it('compact: NarratorStrip stays mounted in sr-only and the visible pill is aria-hidden (one announcer per fact, A4)', () => {
+    const { container } = render(<TopBar {...base} variant="compact" />);
     const hidden = container.querySelector('.sr-only');
     expect(hidden).not.toBeNull();
     expect(hidden).toHaveTextContent('Cave Mouth');
@@ -64,18 +64,18 @@ describe('A9c C4 — TopBar variants', () => {
     expect(pills.some((p) => p.closest('.sr-only'))).toBe(true);
   });
 
-  it('overlay + ai-off: no NarratorStrip; the status pill surfaces inline in its role=status region (R3)', () => {
-    const { container } = render(<TopBar {...base} variant="overlay" showSuzuPanel={false} />);
+  it('compact + ai-off: no NarratorStrip; the status pill surfaces inline in its role=status region (R3)', () => {
+    const { container } = render(<TopBar {...base} variant="compact" showSuzuPanel={false} />);
     expect(container.querySelector('.sr-only')).toBeNull();
     const status = screen.getByRole('status');
     expect(status).toContainElement(screen.getByTestId('pill'));
     expect(screen.getAllByRole('status')).toHaveLength(1);
   });
 
-  it('NarratorStrip is the SAME node across an Auto switch band <-> overlay (a remount re-announces the scene; Kage A9c-1 S1)', () => {
+  it('NarratorStrip is the SAME node across an Auto switch full <-> compact (a remount re-announces the scene; Kage A9c-1 S1)', () => {
     const { rerender } = render(<TopBar {...base} />);
     const before = screen.getByText('Cave Mouth');
-    rerender(<TopBar {...base} variant="overlay" />);
+    rerender(<TopBar {...base} variant="compact" />);
     expect(screen.getByText('Cave Mouth')).toBe(before);
     expect(before.closest('.sr-only')).not.toBeNull();
     rerender(<TopBar {...base} />);
@@ -84,7 +84,7 @@ describe('A9c C4 — TopBar variants', () => {
   });
 
   it('settings slot (D3): rendered after the journal toggle in both variants, absent when not passed; the exit stays first', () => {
-    for (const variant of ['band', 'overlay'] as const) {
+    for (const variant of ['full', 'compact'] as const) {
       const { unmount } = render(
         <TopBar {...base} variant={variant} settings={<button type="button">Gear</button>} />,
       );
@@ -99,7 +99,7 @@ describe('A9c C4 — TopBar variants', () => {
     expect(screen.queryByRole('button', { name: 'Gear' })).toBeNull();
   });
 
-  it('band + ai-off keeps its single status region below the head (unchanged)', () => {
+  it('full + ai-off keeps its single status region below the head (unchanged)', () => {
     render(<TopBar {...base} showSuzuPanel={false} />);
     expect(screen.getAllByRole('status')).toHaveLength(1);
   });
@@ -117,10 +117,10 @@ describe('A9c C4 — variantFor: the one typed read site', () => {
     }
   });
 
-  it('topBar: band on story and phone, overlay on table', () => {
-    expect(variantFor(LAYOUT_ROWS_BY_ID.story, 'topBar', 'exploring')).toBe('band');
-    expect(variantFor(LAYOUT_ROWS_BY_ID.phone, 'topBar', 'combat')).toBe('band');
-    expect(variantFor(LAYOUT_ROWS_BY_ID.table, 'topBar', 'combat')).toBe('overlay');
+  it('topBar: full on story, compact on phone and table', () => {
+    expect(variantFor(LAYOUT_ROWS_BY_ID.story, 'topBar', 'exploring')).toBe('full');
+    expect(variantFor(LAYOUT_ROWS_BY_ID.phone, 'topBar', 'combat')).toBe('compact');
+    expect(variantFor(LAYOUT_ROWS_BY_ID.table, 'topBar', 'combat')).toBe('compact');
   });
 
   it('throws, naming row, region and moment, on a value outside the region\'s union (a typo never renders as the default)', () => {

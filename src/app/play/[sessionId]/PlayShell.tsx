@@ -18,7 +18,7 @@
  * A9c's render matrix can mount this component directly, without a
  * `<ThemeProvider>`.
  *
- * Five placement kinds, one loop, per `getPlacement`:
+ * Four placement kinds, one loop, per `getPlacement`:
  *   - `area != null`             -> a grid-item slot (`.slot`), visible
  *     unless `visible === false` (`.slotHidden` — a CSS class, never an
  *     inline style: jsdom computes inline styles, dropping the node from
@@ -31,16 +31,12 @@
  *     elements ever gain stacking — never `.slot` generically, which would
  *     confine every in-slot `position:fixed` modal to its slot's stacking
  *     context (build brief §1).
- *   - `host != null`             -> nothing of its own; appended INSIDE
- *     the host's slot, after the host's own node (same mechanism tenants
- *     use — a hosted REGION and a TENANT are both "rides inside a placed
- *     region's slot", just declared in two different tables).
  *   - `layer === true`           -> nothing into the grid; the region's
  *     own overlay host (a `<Drawer>`, rendered by `page.tsx` outside this
  *     component, or — for `tableControls` at 6b, which has none yet — an
  *     in-flow placement `page.tsx` builds into another region's own node,
  *     per that region's own `debt:` marker) renders it.
- *   - genuinely absent (`area`/`host`/`layer` all unset, e.g. `offers`
+ *   - genuinely absent (`area`/`layer` unset, e.g. `offers`
  *     during combat) -> a MOUNTED `.slotHidden` node with
  *     `data-visible="false"` and no grid area: presets place, they never
  *     unmount (A9b Imp-2 — this used to be skipped, which unmounted the
@@ -66,8 +62,7 @@
  * row) that has a `foldSpecs` entry is wrapped in a `FoldDock` in EVERY row —
  * foldable where the placement says so, inert elsewhere — so the dock's mode
  * changes on a row switch and its place in the tree never does. Only the
- * region's OWN node is wrapped: hosted regions and tenants stay outside the
- * fold. A collapsible placement with no spec renders unfolded (never
+ * region's OWN node is wrapped: tenants stay outside the fold. A collapsible placement with no spec renders unfolded (never
  * silently unfoldable); the real-page matrix reds it. Fold state is the
  * caller's (`foldedRegions`/`onToggleFold`, from ThemeProvider), so the shell
  * stays provider-free for the render matrix.
@@ -207,21 +202,8 @@ export default function PlayShell({
   }
 
   // One derivation for the whole DOM shape (A9c C3): top-level slots, hidden
-  // slots and hosted regions all come from `slotOrder`.
+  // slots and overlays all come from `slotOrder`.
   const order = slotOrder(row, moment);
-
-  // Regions hosted by ANOTHER region (e.g. table.topBar -> sceneStage,
-  // phone.partyStrip/suzuPresence -> topBar), grouped by host, in slotOrder's
-  // (REGION_IDS) order.
-  const hostedRegionsByHost = new Map<RegionId, ReactNode[]>();
-  for (const entry of order) {
-    if (entry.kind !== 'hosted') continue;
-    const node = regions[entry.id];
-    if (node === undefined) continue;
-    const list = hostedRegionsByHost.get(entry.host) ?? [];
-    list.push(<Fragment key={entry.id}>{node}</Fragment>);
-    hostedRegionsByHost.set(entry.host, list);
-  }
 
   // C4 (C.1): the areas an overlay sits on. Their owner slots get
   // `data-overlaid` + `isolation:isolate` (and ONLY they do — never `.slot`).
@@ -282,7 +264,6 @@ export default function PlayShell({
         data-visible={!hidden}
       >
         {body}
-        {hostedRegionsByHost.get(regionId)}
         {tenantsByHost.get(regionId)}
       </Tag>
     );
@@ -294,15 +275,12 @@ export default function PlayShell({
   // two without a remount.
   const slots: ReactNode[] = [];
   for (const entry of order) {
-    if (entry.kind === 'hosted') continue;
     if (entry.kind === 'hidden' && regions[entry.id] === undefined) continue;
     if (entry.kind === 'overlay') slots.push(slotFor(entry.id, entry.area, entry.anchor));
     else slots.push(slotFor(entry.id, entry.kind === 'hidden' ? null : getPlacement(row, entry.id, moment).area));
   }
-  // The precise trigger for a DOM move (ScrollKeeper): slot order + hosting.
-  const orderKey = order
-    .map((entry) => (entry.kind === 'hosted' ? `${entry.host}>${entry.id}` : `${entry.kind}:${entry.id}`))
-    .join(',');
+  // The precise trigger for a DOM move (ScrollKeeper): slot order.
+  const orderKey = order.map((entry) => `${entry.kind}:${entry.id}`).join(',');
 
   // "Skip to actions": only while the target slot is a visible, placed one AND
   // renders something: its own region node or at least one tenant riding in it
