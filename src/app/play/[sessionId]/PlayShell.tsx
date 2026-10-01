@@ -298,6 +298,7 @@ export default function PlayShell({
             '--play-columns': row.columns[moment],
             '--play-rows': row.rows[moment],
             ...row.vars,
+            ...row.momentVars?.[moment],
           } as React.CSSProperties
         }
       >

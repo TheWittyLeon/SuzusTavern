@@ -412,6 +412,12 @@ export interface LayoutRow {
    * 2 x 16px is 224px of an 844px screen.
    */
   vars?: Readonly<Record<`--play-${string}`, string>>;
+  /**
+   * A9d-2 (Kage A9d-1 I-1): the same, per moment, for a number that differs between exploring and
+   * combat because the log slot's own chrome does (the recap strip exists in one, the status line in
+   * the other). Emitted after `vars`, so a moment's value wins. Absent = none.
+   */
+  momentVars?: Partial<Record<Moment, Readonly<Record<`--play-${string}`, string>>>>;
   regions: Record<RegionId, Partial<Record<Moment, Placement>> & { default: Placement }>;
 }
 
@@ -797,6 +803,16 @@ const PHONE_ROW: LayoutRow = {
     '--play-slot-inline': 'var(--space-6)',
     // The recap strip's scene subtitle is dropped on the phone: one line, not two (about -18px).
     '--play-recap-sub': 'none',
+  },
+  // The banner floor: while the X-card banner is raised on a viewport the page does not scroll on
+  // (`@media (min-height: 701px)` in Play.module.css), the story track yields down to THIS, not to 0:
+  // 88 inner (log padding 44 + one 42px narration row) + the same chrome as the floors above. 169 =
+  // 88 + 81 (exploring chrome: 12 edge + 6 gap + 63 recap); 136 = 88 + 48 (combat: 12 + 6 + 30 status).
+  // Measured 390x844: combat + banner leaves 146 for the track, exploring + banner 171 (harness shots j and
+  // p). Where the page scrolls anyway (reflow) the banner takes no yield and the full 160 floor holds.
+  momentVars: {
+    exploring: { '--play-banner-floor': '169px' },
+    combat: { '--play-banner-floor': '136px' },
   },
   // Column 2 is `suzuPresence`'s track: 0px when she is absent (AI assist off).
   columns: {
