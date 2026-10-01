@@ -598,12 +598,15 @@ const STORY_ROW: LayoutRow = {
   // `max-content` takes its base size from the content, so it is never shrunk.
   // A9c-2 D7: the combat stage track is `fit-content(290px)`, content-sized up to
   // R19's cap, instead of `minmax(0,290px)`, which grows to its cap whatever the
-  // stage holds. Measured at e396625 + the lever: it returns NOTHING today
-  // (story·combat log 116px before and after), because the stage's content (hero
-  // placeholder, combat prompt, the dice tray's two rows) already exceeds the cap.
+  // stage holds. Measured at the harness: it returns 0px today (story·combat log
+  // 116px before and after) because the stage holds the dice tray AND its
+  // quick-check list, which push it past the cap (>=556px of content, probed with
+  // the cap at 900px). With the tray taken out of the stage the stage is 268px,
+  // so the cap still does not bind, and the log is STILL 116px: the rest of the
+  // log slot is the recap strip (46px), the turn banner and padding.
   // debt: Story/combat storyLog is 116px inner vs the 200px combat-floor target (a:storyLog), harness floor stays 100.
-  // ceiling: the stage content is ~100-150px taller than its 290px cap; lowering the cap below R19 needs Aoi, so the log cannot take it.
-  // until: the stage's combat chrome shrinks (dice tray folded or moved to the bar, step 11) or Aoi re-rules the R19 stage cap (Backlog TAV-COMBAT-LOG-FLOOR-200).
+  // ceiling: reaching 200 needs ~84px more than the stage can give; the log slot's own chrome (recap strip, turn banner) is the next claim, not the stage.
+  // until: the recap strip folds away in combat, or the session header moves over the stage (Backlog TAV-COMBAT-LOG-FLOOR-200).
   rows: {
     exploring: 'auto auto minmax(0,1fr) auto auto max-content',
     combat: 'auto auto fit-content(290px) minmax(0,1fr) auto max-content',
@@ -702,11 +705,13 @@ const TABLE_ROW: LayoutRow = {
     exploring: '160px auto minmax(0,1fr) fit-content(300px)',
     combat: '160px auto minmax(0,1fr) fit-content(300px)',
   },
-  // A9c-2 D7: `fit-content(400px)` (was `minmax(0,400px)`), same lever and same
-  // measured result as Story's: 0px returned, the stage content exceeds the cap.
+  // A9c-2 D7: `fit-content(400px)` (was `minmax(0,400px)`), same lever, same 0px
+  // returned: the stage holds the dice tray and its quick-check list (>=680px of
+  // content probed at a 900px cap), so it always fills its 400px cap. With the
+  // tray out of the stage the log measured 209-234px on every table combat cell.
   // debt: Table/combat storyLog is 107-132px inner vs the 200px combat-floor target (a:storyLog), harness floor stays 100.
-  // ceiling: the stage content (hero placeholder + combat prompt + 2 dice rows, ~520px) exceeds the 400px cap, so content-sizing frees nothing.
-  // until: the stage's combat chrome shrinks (dice tray folded or moved to the bar, step 11) or Aoi re-rules the R19 stage cap (Backlog TAV-COMBAT-LOG-FLOOR-200).
+  // ceiling: the dice tray (+ quick checks) sits in the stage track, so the stage always fills its 400px cap and the log gets the remainder.
+  // until: the dice tray folds or leaves the stage in combat (Backlog TAV-COMBAT-LOG-FLOOR-200).
   // debt: Table's `offers` (`list`, one full-width button per offer) is capped at 120px and scrolls inside it; uncapped, 3-4 offers starve the log.
   // ceiling: 3+ offers scroll in a 120px box, in the table·exploring cell only (offers are hidden in combat).
   // until: Table's offers take the `chips` form (step 11 Table checkpoint) or the stage track is content-sized.
