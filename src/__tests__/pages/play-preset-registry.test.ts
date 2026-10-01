@@ -861,6 +861,22 @@ describe('TAV-PLAY-SHELL presets.ts — the X-card control is always on screen (
   });
 });
 
+describe('TAV-PLAY-SHELL presets.ts — no stage track grows to its cap (A9c-2 D7 lever 1)', () => {
+  // `minmax(0,Npx)` is the shape the grid's "maximize tracks" step grows to N
+  // whatever the content, so a capped stage built that way keeps its full
+  // height even when it holds less, and the story log never gets the difference.
+  // `fit-content(Npx)` keeps the same cap and sizes to content. Control: put
+  // `minmax(0,400px)` back in table.rows.combat -> red.
+  for (const row of LAYOUT_ROWS.filter((r) => r.id !== 'phone')) {
+    for (const moment of MOMENTS) {
+      it(`${row.id}/${moment}: no track is minmax(0,<N>px)`, () => {
+        const grows = trackList(row.rows[moment]).filter((t) => /^minmax\(0,\s*\d+px\)$/.test(t));
+        expect(grows).toEqual([]);
+      });
+    }
+  }
+});
+
 describe('TAV-PLAY-SHELL presets.ts — the action bar can host tenants (A9c-2 D6)', () => {
   // CastSpellPanel is the second player combat-submit surface and rides the
   // action bar (Leon's S3 ruling: the bar is the single place a combat action is

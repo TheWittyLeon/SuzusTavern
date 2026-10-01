@@ -303,7 +303,7 @@ export interface TenantPlacement {
  *   (plain button + copy, no match).
  *
  * `safetyControls` host (A9b fix round 1, Miko Imp-5 + Aoi B2): `actionBar`,
- * not `sceneStage`. The stage is a capped (`minmax(0,400px)` in Table
+ * not `sceneStage`. The stage is a capped (`fit-content(400px)` in Table
  * combat), scrolling slot; the X-card sat below its fold. The invariant is
  * that the X-card raise control is on screen without scrolling the page or
  * any nested container, in every row x moment — so its host must be a
@@ -585,15 +585,20 @@ const STORY_ROW: LayoutRow = {
   // `max-content`, not `auto`. A grid item that is a scroll container (every
   // `.slot`) has a minimum contribution of 0, so an `auto` track can be shrunk
   // by the "maximize tracks" step when a greedy capped sibling (the stage's
-  // `minmax(0,Npx)`) eats the free space: on phone with the X-card banner up it
+  // `minmax(0,Npx)` at the time; now `fit-content`) eats the free space: on phone with the X-card banner up it
   // lost 9px and the X-card was clipped (harness (c), 809..853 of 844).
   // `max-content` takes its base size from the content, so it is never shrunk.
-  // debt: Story/combat storyLog is ~102px inner vs the 240px browser floor (a:storyLog).
-  // ceiling: log is 2-3 rows at 900px; the 290px stage cap = the hero scene's own height.
-  // until: A9c moves the session header over the stage (`corner`) and trims stage chrome.
+  // A9c-2 D7: the combat stage track is `fit-content(290px)`, content-sized up to
+  // R19's cap, instead of `minmax(0,290px)`, which grows to its cap whatever the
+  // stage holds. Measured at e396625 + the lever: it returns NOTHING today
+  // (story·combat log 116px before and after), because the stage's content (hero
+  // placeholder, combat prompt, the dice tray's two rows) already exceeds the cap.
+  // debt: Story/combat storyLog is 116px inner vs the 200px combat-floor target (a:storyLog), harness floor stays 100.
+  // ceiling: the stage content is ~100-150px taller than its 290px cap; lowering the cap below R19 needs Aoi, so the log cannot take it.
+  // until: the stage's combat chrome shrinks (dice tray folded or moved to the bar, step 11) or Aoi re-rules the R19 stage cap (Backlog TAV-COMBAT-LOG-FLOOR-200).
   rows: {
     exploring: 'auto auto minmax(0,1fr) auto auto max-content',
-    combat: 'auto auto minmax(0,290px) minmax(0,1fr) auto max-content',
+    combat: 'auto auto fit-content(290px) minmax(0,1fr) auto max-content',
   },
   areas: {
     exploring: `"safetyBanner safetyBanner safetyBanner"
@@ -689,15 +694,17 @@ const TABLE_ROW: LayoutRow = {
     exploring: '160px auto minmax(0,1fr) fit-content(300px)',
     combat: '160px auto minmax(0,1fr) fit-content(300px)',
   },
-  // debt: Table/combat storyLog is ~107-132px inner vs the 240px browser floor (a:storyLog).
-  // ceiling: 3-4 rows at 900px; `minmax(0,400px)` grows to its cap whatever the stage holds, so lifting topBar over the stage (C4) returned nothing to the log.
-  // until: A9c-2 D7 content-sizes the stage track (`fit-content(400px)`).
+  // A9c-2 D7: `fit-content(400px)` (was `minmax(0,400px)`), same lever and same
+  // measured result as Story's: 0px returned, the stage content exceeds the cap.
+  // debt: Table/combat storyLog is 107-132px inner vs the 200px combat-floor target (a:storyLog), harness floor stays 100.
+  // ceiling: the stage content (hero placeholder + combat prompt + 2 dice rows, ~520px) exceeds the 400px cap, so content-sizing frees nothing.
+  // until: the stage's combat chrome shrinks (dice tray folded or moved to the bar, step 11) or Aoi re-rules the R19 stage cap (Backlog TAV-COMBAT-LOG-FLOOR-200).
   // debt: Table's `offers` (`list`, one full-width button per offer) is capped at 120px and scrolls inside it; uncapped, 3-4 offers starve the log.
   // ceiling: 3+ offers scroll in a 120px box, in the table·exploring cell only (offers are hidden in combat).
   // until: Table's offers take the `chips` form (step 11 Table checkpoint) or the stage track is content-sized.
   rows: {
     exploring: 'auto 218px minmax(0,1fr) fit-content(120px) auto max-content',
-    combat: 'auto minmax(0,400px) minmax(0,1fr) auto max-content',
+    combat: 'auto fit-content(400px) minmax(0,1fr) auto max-content',
   },
   areas: {
     exploring: `"safetyBanner safetyBanner safetyBanner safetyBanner"
