@@ -34,6 +34,13 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  LAYOUT_ROWS,
+  REGION_TENANTS,
+  TENANT_IDS,
+  getPlacement,
+  type Moment,
+} from '../../app/play/[sessionId]/presets';
 
 /** Strips /* ...  *\/ block comments (JSDoc and {/* JSX *\/} alike) so a
  *  history-explaining comment mentioning an OLD or CURRENT value (this
@@ -160,5 +167,159 @@ describe('TAV-PLAY-SHELL data-region contract', () => {
         owner.set(v, file);
       }
     }
+  });
+});
+
+/**
+ * TAV-PLAY-SHELL step 6b, commit C2 (Amendment B.4, answers S6) — the
+ * `data-tenant` contract, same shape as `REGION_ROWS`'s loop above: a
+ * tenant file is onboarded by adding one row, and the loop fails loudly if
+ * a `tenants/*.tsx` file has no row (ships uncovered) or a row points at a
+ * file that no longer exists (stale, surviving a rename/delete).
+ */
+const TENANTS_DIR = 'src/app/play/[sessionId]/tenants';
+
+const TENANT_ROWS: Record<string, Set<string>> = {
+  'StatusAnnouncers.tsx': new Set([
+    'sessionRecap',
+    'sessionPausedEnded',
+    'turnStatus',
+    'deadStatus',
+    'durableRetryRow',
+  ]),
+  'CastSpellTenant.tsx': new Set(['castSpellPanel']),
+};
+
+describe('TAV-PLAY-SHELL data-tenant contract (Amendment B.4)', () => {
+  describe('TENANT_ROWS loop — every tenant file carries every id its row declares', () => {
+    const files = fs
+      .readdirSync(path.resolve(process.cwd(), TENANTS_DIR))
+      .filter((f) => f.endsWith('.tsx'));
+
+    it('every .tsx file under tenants/ has a row in TENANT_ROWS (a new tenant ships covered, not silently unchecked)', () => {
+      const uncovered = files.filter((f) => !(f in TENANT_ROWS));
+      expect(uncovered).toEqual([]);
+    });
+
+    it('every row in TENANT_ROWS still points at a real file (no stale row surviving a rename/delete)', () => {
+      const stale = Object.keys(TENANT_ROWS).filter((f) => !files.includes(f));
+      expect(stale).toEqual([]);
+    });
+
+    for (const [file, ids] of Object.entries(TENANT_ROWS)) {
+      for (const id of ids) {
+        it(`${file} carries data-tenant="${id}"`, () => {
+          const src = readRegion(`${TENANTS_DIR}/${file}`);
+          expect(countOccurrences(src, `data-tenant="${id}"`)).toBeGreaterThanOrEqual(1);
+        });
+      }
+    }
+  });
+
+  // Three tenants (nextPartOffer, diceTray, safetyControls) carry
+  // data-tenant IN PLACE — no dedicated tenants/*.tsx file, per the build
+  // brief's §3 table ("the small ones... get the attribute in place, no
+  // move"). TENANT_ROWS only tracks files; these three are named here
+  // explicitly so the drift check below covers the FULL TENANT_IDS set.
+  const IN_PLACE_TENANT_IDS = ['nextPartOffer', 'diceTray', 'safetyControls'];
+
+  it('TENANT_IDS (presets.ts) and TENANT_ROWS + IN_PLACE_TENANT_IDS (this file) declare the identical set of ids — a drift either way is caught', () => {
+    const fromRows = new Set([
+      ...Object.values(TENANT_ROWS).flatMap((s) => [...s]),
+      ...IN_PLACE_TENANT_IDS,
+    ]);
+    expect([...fromRows].sort()).toEqual([...TENANT_IDS].sort());
+  });
+
+  it('nextPartOffer/diceTray/safetyControls carry data-tenant in place (no dedicated tenant file — attribute only, per build brief §3)', () => {
+    const pageSrc = readRegion('src/app/play/[sessionId]/page.tsx');
+    for (const id of IN_PLACE_TENANT_IDS) {
+      expect(countOccurrences(pageSrc, `data-tenant="${id}"`)).toBeGreaterThanOrEqual(1);
+    }
+  });
+});
+
+const MOMENTS: readonly Moment[] = ['exploring', 'combat'];
+
+/** Resolves whether `regionId` has a mount point (non-null `area`, directly
+ *  or via a `host` chain) for `row`/`moment` — mirrors
+ *  `play-preset-registry.test.ts`'s own co-occupancy guard, generalised to
+ *  follow a chain rather than assuming one hop. */
+function hasGridMountPoint(row: (typeof LAYOUT_ROWS)[number], regionId: string, moment: Moment): boolean {
+  const seen = new Set<string>();
+  let current = regionId;
+  while (!seen.has(current)) {
+    seen.add(current);
+    const placement = getPlacement(row, current as Parameters<typeof getPlacement>[1], moment);
+    if (placement.area != null) return true;
+    if (placement.host == null) return false;
+    current = placement.host;
+  }
+  return false; // cycle — never legal, never reached by real data
+}
+
+describe('TAV-PLAY-SHELL tenant guards (Amendment B.4, R3 extended)', () => {
+  for (const [tenantId, { host }] of Object.entries(REGION_TENANTS)) {
+    for (const row of LAYOUT_ROWS) {
+      for (const moment of MOMENTS) {
+        it(`${tenantId}/${row.id}/${moment}: host "${host}" resolves to a mount point`, () => {
+          // Control: point a tenant at `offers` (area:null during combat,
+          // no host of its own) → red.
+          expect(hasGridMountPoint(row, host, moment)).toBe(true);
+        });
+      }
+    }
+  }
+
+  // R3's own text: "a live region moves into a hideable band and silently
+  // stops announcing — this already happened once (X-card, Iro
+  // CRITICAL-1)." Caught here one field deeper than presets.ts's own
+  // `host` guard (C0 🟡-2): an ANNOUNCING TENANT's host must never be
+  // `visible:false` or `layer:true` in any row × moment, not merely
+  // "placed".
+  for (const [tenantId, { host, announces }] of Object.entries(REGION_TENANTS)) {
+    if (!announces) continue;
+    for (const row of LAYOUT_ROWS) {
+      for (const moment of MOMENTS) {
+        it(`${tenantId}/${row.id}/${moment}: announces:true, so host "${host}" is never visible:false and never layer:true`, () => {
+          // Control: REGION_TENANTS[tenantId].host -> 'offers' → red
+          // (offers.combat.visible === false in every row).
+          const hostPlacement = getPlacement(row, host, moment);
+          expect(hostPlacement.visible).not.toBe(false);
+          expect(hostPlacement.layer).not.toBe(true);
+        });
+      }
+    }
+  }
+});
+
+/**
+ * TAV-PLAY-SHELL step 6b, commit C2 (Amendment B.4) — the totality scan
+ * that closes S6 permanently. page.tsx, after this commit, delegates every
+ * live-region node to a declared region (`regions/*.tsx`) or tenant
+ * (`tenants/*.tsx`) file — both families are already forced to carry a row
+ * by the completeness loops above, so a NEW announcer added to either
+ * family ships covered automatically. The one file NOT covered by either
+ * loop is page.tsx itself: this asserts it carries zero raw
+ * `aria-live`/`role="status"`/`role="alert"` text, so a future announcer
+ * added directly there (rather than in the region/tenant it belongs to)
+ * fails this test instead of shipping silently undeclared. Controls: add a
+ * bare `<div aria-live="polite">` to page.tsx → red; add one to a declared
+ * tenant file (e.g. StatusAnnouncers.tsx) → green (that file is already
+ * required to carry a TENANT_ROWS entry, and this check doesn't scan it).
+ */
+describe('TAV-PLAY-SHELL announcer totality (Amendment B.4, closes S6 permanently)', () => {
+  it('page.tsx itself carries zero raw aria-live/role="status"/role="alert" nodes — every announcer lives in a declared region or tenant file', () => {
+    // readRegion only strips /* */ block comments — this check also needs
+    // // line comments stripped (several `aria-live`/`role` mentions in
+    // this file are explanatory `//` prose, not real JSX) so a comment
+    // mentioning the OLD inline shape can never satisfy a real violation.
+    const src = readRegion('src/app/play/[sessionId]/page.tsx').replace(/\/\/.*$/gm, '');
+    const found: string[] = [];
+    for (const re of [/aria-live=/g, /role="status"/g, /role="alert"/g]) {
+      const matches = src.match(re);
+      if (matches) found.push(`${re}: ${matches.length}`);
+    }
+    expect(found).toEqual([]);
   });
 });

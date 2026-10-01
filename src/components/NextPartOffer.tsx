@@ -13,6 +13,13 @@ export interface NextPartOfferProps {
    *  `series.next_status === 'ok'`. */
   next: SeriesNextAdventure | null;
   className?: string;
+  /** TAV-PLAY-SHELL step 6b (Amendment B.4, S6): purely additive
+   *  passthrough onto the root `<Card role="status">`, same pattern as
+   *  ChatLog's/NarratorStrip's own `'data-region'` prop — so `/play`
+   *  (its one caller) can mark this node as `REGION_TENANTS.nextPartOffer`
+   *  without this component owning any play-shell-specific knowledge.
+   *  Optional, no default — every other caller/test is unaffected. */
+  'data-tenant'?: string;
 }
 
 function partLabel(next: SeriesNextAdventure): string {
@@ -43,12 +50,17 @@ function partLabel(next: SeriesNextAdventure): string {
  * NEW table, not the seamless level-carrying rebind next-act would give —
  * no invented capability, no silent downgrade.
  */
-export default function NextPartOffer({ series, next, className = '' }: NextPartOfferProps) {
+export default function NextPartOffer({
+  series,
+  next,
+  className = '',
+  'data-tenant': dataTenant,
+}: NextPartOfferProps) {
   const cls = `${styles.card} ${className}`.trim();
 
   if (series.next_status === 'end_of_series') {
     return (
-      <Card className={cls} role="status" aria-labelledby="next-part-title">
+      <Card className={cls} role="status" aria-labelledby="next-part-title" data-tenant={dataTenant}>
         <div className={styles.head}>
           <Icon name="Crit" size={18} aria-hidden />
           <p id="next-part-title" className={styles.title}>
@@ -64,7 +76,7 @@ export default function NextPartOffer({ series, next, className = '' }: NextPart
 
   if (series.next_status === 'unresolved') {
     return (
-      <Card className={cls} role="status" aria-labelledby="next-part-title">
+      <Card className={cls} role="status" aria-labelledby="next-part-title" data-tenant={dataTenant}>
         <div className={styles.head}>
           <Icon name="Shield" size={18} aria-hidden />
           <p id="next-part-title" className={styles.title}>
@@ -83,7 +95,7 @@ export default function NextPartOffer({ series, next, className = '' }: NextPart
   if (!next) return null; // wire-shape guard — 'ok' always carries `next` per design doc §6.4
 
   return (
-    <Card className={cls} role="status" aria-labelledby="next-part-title">
+    <Card className={cls} role="status" aria-labelledby="next-part-title" data-tenant={dataTenant}>
       <div className={styles.head}>
         <Pill tone="lav">
           {series.title} &middot; Part {series.position} of {series.total} complete

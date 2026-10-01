@@ -271,6 +271,80 @@ export const VARIANTS_NOT_EMITTED_BY_PRESETS: Partial<Record<RegionId, readonly 
   characterBlock: ['rail'],
 };
 
+/**
+ * Amendment B.4 (2026-09-30, Sora-Arch — answers S6, the un-regioned
+ * nodes). §2.3's region table is not total: `page.tsx` renders several
+ * live-region nodes, `CastSpellPanel`, `NextPartOffer`, `DiceTray` and the
+ * safety/X-card block, none of which is independently placed and
+ * therefore none of which is a region.
+ *
+ * The distinction, stated once: *placed independently by a row ⇒ a
+ * REGION; rides inside a placed region ⇒ a TENANT; placed by its own
+ * overlay host ⇒ a LAYER; the root, the slots and (until A9d) the mobile
+ * tab bar ⇒ SHELL CHROME.*
+ *
+ * A tenant renders inside its host's slot element, carries
+ * `data-tenant="<id>"` and never a `data-region`. R3's rule extends: an
+ * announcing tenant's `host` must be a region that is placed and NEVER
+ * `visible: false` and NEVER `layer: true` in any row × moment — the
+ * X-card / Iro CRITICAL-1 failure caught one field deeper than 🟡-2
+ * caught it (presets.ts's own `host` guard, C0). `tableControls`'s two
+ * DOM pieces (`SessionControls`/`DmCombatControls`) are deliberately NOT
+ * here — `tableControls` is already a declared REGION (with `layer:true`
+ * in every row); their 6b placement is `PlayShell`'s own `debt:`-marked
+ * call-site decision (build brief §6.5), not a tenant declaration.
+ */
+export const TENANT_IDS = [
+  'sessionRecap',
+  'sessionPausedEnded',
+  'turnStatus',
+  'deadStatus',
+  'durableRetryRow',
+  'castSpellPanel',
+  'nextPartOffer',
+  'diceTray',
+  'safetyControls',
+] as const;
+
+export type TenantId = (typeof TENANT_IDS)[number];
+
+export interface TenantPlacement {
+  /** The region whose grid slot this tenant renders inside. */
+  host: RegionId;
+  /** Whether this tenant carries a live-region announcer of its own
+   *  (`aria-live` / `role="status"` / `role="alert"`) — grepped against
+   *  its actual source, same discipline as `ANNOUNCING_REGIONS` above. */
+  announces: boolean;
+}
+
+/**
+ * `announces` — grepped against each tenant's own file/JSX:
+ *   sessionRecap        — `aria-live="polite"` wrapper (tenants/StatusAnnouncers.tsx).
+ *   sessionPausedEnded  — `role="status" aria-live="polite"` (tenants/StatusAnnouncers.tsx).
+ *   turnStatus          — `role="status" aria-live="polite"`, combat-gated (tenants/StatusAnnouncers.tsx).
+ *   deadStatus          — `role="status" aria-live="polite"`, always mounted (tenants/StatusAnnouncers.tsx).
+ *   durableRetryRow     — `role="status" aria-live="polite"` (tenants/StatusAnnouncers.tsx).
+ *   castSpellPanel      — CastSpellPanel.tsx's own 4 internal announcers (tenants/CastSpellTenant.tsx).
+ *   nextPartOffer       — NextPartOffer.tsx: root is `<Card role="status">`
+ *                         (an implicit live region, `aria-live="polite"`
+ *                         by the ARIA spec default for `status`) — caught
+ *                         on re-grep; an earlier pass of this comment
+ *                         wrongly called it non-announcing.
+ *   NOT announcing: `diceTray` (DiceTray.tsx — no match), `safetyControls`
+ *   (plain button + copy, no match).
+ */
+export const REGION_TENANTS: Record<TenantId, TenantPlacement> = {
+  sessionRecap: { host: 'storyLog', announces: true },
+  sessionPausedEnded: { host: 'storyLog', announces: true },
+  turnStatus: { host: 'storyLog', announces: true },
+  deadStatus: { host: 'storyLog', announces: true },
+  durableRetryRow: { host: 'storyLog', announces: true },
+  castSpellPanel: { host: 'storyLog', announces: true },
+  nextPartOffer: { host: 'storyLog', announces: true },
+  diceTray: { host: 'sceneStage', announces: false },
+  safetyControls: { host: 'sceneStage', announces: false },
+};
+
 export type Moment = 'exploring' | 'combat';
 export type LayoutId = 'story' | 'table' | 'phone';
 

@@ -194,13 +194,22 @@ const PAGE = join(ROOT, PAGE_REL);
 // in the old unit; every entry from here on is in code lines. No source
 // line moved in this commit -- this is a metric swap plus its re-baseline,
 // not an extraction.
+// -> 898 (A9b commit C2, TAV-PLAY-SHELL step 6b, Amendment B.4/S6): the
+// five status-tenant divs (session recap, session paused/ended, turn
+// status, dead status, durable-retry row) moved verbatim to
+// tenants/StatusAnnouncers.tsx, and the CastSpellPanel group moved
+// verbatim to tenants/CastSpellTenant.tsx -- each site in page.tsx is now
+// one `<XyzTenant .../>` call instead of the original inline JSX. Net -48
+// code lines (the S6 fix banking ratchet headroom ahead of C4's shell
+// commit, per the build brief's R-3 risk mitigation). No DOM/behaviour
+// change -- every id/class/role/aria attribute is byte-identical.
 // Update this value, in the SAME commit, whenever page.tsx's actual
 // non-comment, non-blank line count drops below it. Never raise it
 // silently -- unless the growth is deliberate and reviewed, in which case
 // raise it in the same commit and say why (this file's own rule, restated
 // correctly per the A7 pre-merge ratchet ruling: the runbook's "may only go
 // down" was a paraphrase that was never this file's actual rule).
-export const RATCHET_CEILING = 946;
+export const RATCHET_CEILING = 898;
 
 /**
  * Pure: counts lines the way `wc -l` does (newline-byte count). Exported so

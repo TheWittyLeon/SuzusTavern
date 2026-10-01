@@ -59,8 +59,6 @@ import type { QuickCheck } from '@/components/DiceTray';
 import Icon from '@/components/Icon';
 import Pill from '@/components/Pill';
 import PageSkeleton from '@/components/PageSkeleton';
-import CastSpellPanel from '@/components/CastSpellPanel';
-import SessionRecap from '@/components/SessionRecap';
 import { type LogRow } from '@/components/ChatLog';
 import DiceTray from '@/components/DiceTray';
 import Composer, { type ComposeMode } from '@/components/Composer';
@@ -91,6 +89,14 @@ import { useFocusAnchors } from './hooks/useFocusAnchors';
 import JournalPane, { JOURNAL_HEADING_ID } from '@/components/JournalPane';
 import MemberSheetPanel, { MEMBER_SHEET_HEADING_ID } from '@/components/MemberSheetPanel';
 import NextPartOffer from '@/components/NextPartOffer';
+import {
+  SessionRecapTenant,
+  SessionPausedEndedTenant,
+  TurnStatusTenant,
+  DeadStatusTenant,
+  DurableRetryRowTenant,
+} from './tenants/StatusAnnouncers';
+import CastSpellTenant from './tenants/CastSpellTenant';
 import styles from './Play.module.css';
 
 /**
@@ -1567,18 +1573,10 @@ export default function PlayPage() {
           status={narratorStatusPill}
           statusPill={statusPill}
         />
-        {/* FIX-8 (MEDIUM-2): aria-label on the live region so AT announces the
-            context ("Session recap") before reading the content changes. */}
-        <div aria-live="polite" aria-label="Session recap">
-          {session && (
-            <SessionRecap
-              key={session.session_id}
-              session={session}
-              username={username}
-              variant="strip"
-            />
-          )}
-        </div>
+        {/* TAV-PLAY-SHELL step 6b, commit C2: the five status-tenant divs
+            below are extracted verbatim to tenants/StatusAnnouncers.tsx
+            (Amendment B.4, S6) — state/refs/handlers stay in page.tsx. */}
+        <SessionRecapTenant session={session} username={username} />
         <StoryLog
           ref={chatLogRef}
           rows={log}
@@ -1586,69 +1584,13 @@ export default function PlayPage() {
           thinkingLabel={resumeThinking ? "Resuming Suzu's turn…" : undefined}
           participants={participants}
         />
-        {/* DDX-25: ONE persistent live region for session pause/end — mirrors
-            the Iro MEDIUM-2 turn-status pattern just below (always mounted,
-            only the text/class swap in place) so AT users get exactly one
-            announcement on the transition, not a mount/unmount per render.
-            Visible to every seat, not just the DM — it's the reason the
-            composer/action rail below gets disabled. */}
-        <div
-          role="status"
-          aria-live="polite"
-          aria-atomic="true"
-          className={
-            isEnded
-              ? styles.sessionEndedStatus
-              : isPaused
-                ? styles.sessionPausedStatus
-                : 'sr-only'
-          }
-        >
-          {isEnded
-            ? 'Session ended. The DM can start a new one from the dashboard.'
-            : isPaused
-              ? "Session paused by the DM — you can't act until it resumes."
-              : ''}
-        </div>
-        {/* Iro MEDIUM-2: ONE persistent live region for turn status. Stays mounted
-            throughout combat; only the text and className change in place. This
-            prevents the 4s poll from re-triggering AT announcements on every
-            combatState object replacement when the text hasn't actually changed.
-            null text = hidden (opacity:0 + aria-hidden via CSS would also work,
-            but clearing text is the simplest AT-safe approach). */}
-        {combatIsActive && (
-          <div
-            role="status"
-            aria-live="polite"
-            aria-atomic="true"
-            className={
-              // Iro MAJOR-2: was an exact string match on 'Your turn!', which
-              // silently fell through to offTurnStatus styling for the new
-              // isDying label. Key off activeIsMine directly instead — both
-              // "your turn" variants (normal + dying) style as your-turn.
-              activeIsMine ? styles.myTurnStatus : styles.offTurnStatus
-            }
-          >
-            {turnStatusText}
-          </div>
-        )}
-        {/* Combat-UX Fixes 2026-07-27 §UI-states "Dead" row (Kage-CR/test-plan
-            §4.2, previously dropped): a dead PC never becomes the active-turn
-            participant again, so this can't reuse the turnStatusText live
-            region above — it needs its own always-checked gate keyed on the
-            viewer's own roster entry, independent of whose turn it is.
-            TAV-PLAY-A11Y-DEADSTATUS-NOT-ALWAYS-MOUNTED: the wrapper used to
-            be gated on `combatIsActive && isMyPcDead` too (not just its
-            text), which dropped the live region itself the instant combat
-            ended while isMyPcDead stayed true — a "mount whenever
-            combatIsActive" fix would still do that (Iro-A11y). Matches
-            .durableRetryRow's actual pattern below instead: the wrapper
-            mounts unconditionally; only the CONTENT is gated. Empty text
-            collapses to zero footprint via .deadStatus:empty in
-            Play.module.css. */}
-        <div role="status" aria-live="polite" aria-atomic="true" className={styles.deadStatus}>
-          {combatIsActive && isMyPcDead ? 'Your character has died.' : null}
-        </div>
+        <SessionPausedEndedTenant isEnded={isEnded} isPaused={isPaused} />
+        <TurnStatusTenant
+          combatIsActive={combatIsActive}
+          activeIsMine={activeIsMine}
+          turnStatusText={turnStatusText}
+        />
+        <DeadStatusTenant combatIsActive={combatIsActive} isMyPcDead={isMyPcDead} />
         {/* TAV-PLAY-SHELL step 3: region extracted verbatim to
             regions/TableControls.tsx's DmCombatControls export (Tora MAJOR-1
             DM-side combat controls: DmNarrationPanel + ConditionsPanel).
@@ -1682,82 +1624,43 @@ export default function PlayPage() {
           sessionLocked={sessionLocked}
           onCombatBusyChange={setCombatBusy}
         />
-        {/* T6 (DDX-12): cast-in-combat picker — bound caster only, during active
-            combat. Mirrors DmNarrationPanel's mount gate immediately above (same
-            spot in the layout, mutually exclusive: a human DM sees the monster
-            panel, a caster PC sees this) — UNLESS the DM also has a bound
-            character (TAV-SOLO-DM-CAST-RAIL's GM-PC pattern), in which case
-            both mount side by side. Disabled (not hidden) off-turn, same
-            convention as the ActionRail inside Composer below. */}
-        {(isDmPlayingOwnPc || !isHumanDM) &&
-          combatIsActive &&
-          combatState &&
-          combatId &&
-          myCharacterIdStr &&
-          mySheet?.is_spellcaster && (
-            // Tora MAJOR-1: CastSpellPanel is a "your character" control,
-            // grouped the same way as the DM controls above — pairs with
-            // Composer's own internally-labeled "Your character's actions"
-            // rail group just below.
-            <div role="group" aria-label="Your character's controls">
-              <CastSpellPanel
-                combatId={combatId}
-                characterId={myCharacterIdStr}
-                username={username ?? ''}
-                participants={combatState.participants}
-                spellSlots={mySheet.spell_slots}
-                isPlayerTurn={isPlayerTurn}
-                disabled={combatBusy || sessionLocked}
-                onCast={(text) => appendLog({ who: username ?? 'you', kind: 'system', text })}
-                onSheetChanged={setMySheet}
-                onStateRefresh={async () => {
-                  const cs = await getCombatState(combatId).catch(() => null);
-                  if (cs) {
-                    stateSeqRef.current += 1;
-                    setCombatState(cs);
-                  }
-                }}
-                onBusyChange={setCombatBusy}
-              />
-            </div>
-          )}
-        {/* DDX-20 §9/§4d — retry-after-failed affordance (flag-ON only;
-            jobFailed is never set on the flag-OFF path). Retrying mints a
-            FRESH turn_key (narrateDurable always does) — the failed one is
-            deduped-forever server-side. role="status" + aria-live="polite"
-            so a screen reader announces the failure + retry option once,
-            mirroring the file's other persistent live-region status rows
-            (e.g. the session-paused/ended banner above).
-            Iro MAJOR-1: PERMANENTLY mounted (contents toggle, not the
-            wrapper itself) with tabIndex={-1} — same xCardBannerRef pattern
-            as the safety-signal banner above. onRetryFailedTurn refocuses
-            this wrapper BEFORE unmounting the Retry button, so focus never
-            drops to <body>. .durableRetryRow:empty collapses it to zero
-            footprint (no padding/border/margin) without display:none/
-            visibility:hidden, which would also pull it out of the a11y tree. */}
-        {DURABLE_GENERATION_ENABLED && (
-          <div
-            ref={durableRetryRowRef}
-            tabIndex={-1}
-            className={styles.durableRetryRow}
-            role="status"
-            aria-live="polite"
-          >
-            {jobFailed && (
-              <>
-                <span id="durable-retry-message">Suzu&apos;s last reply didn&apos;t come through.</span>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={onRetryFailedTurn}
-                  aria-describedby="durable-retry-message"
-                >
-                  Retry
-                </button>
-              </>
-            )}
-          </div>
-        )}
+        {/* TAV-PLAY-SHELL step 6b, commit C2: region extracted verbatim to
+            tenants/CastSpellTenant.tsx (Amendment B.4, S6, build brief
+            §6.7 carry (a)). State/handlers stay in page.tsx. */}
+        <CastSpellTenant
+          isDmPlayingOwnPc={isDmPlayingOwnPc}
+          isHumanDM={isHumanDM}
+          combatIsActive={combatIsActive}
+          combatState={combatState}
+          combatId={combatId}
+          myCharacterIdStr={myCharacterIdStr}
+          mySheet={mySheet}
+          username={username}
+          isPlayerTurn={isPlayerTurn}
+          combatBusy={combatBusy}
+          sessionLocked={sessionLocked}
+          onCast={(text) => appendLog({ who: username ?? 'you', kind: 'system', text })}
+          onSheetChanged={setMySheet}
+          onStateRefresh={() => {
+            if (!combatId) return;
+            void (async () => {
+              const cs = await getCombatState(combatId).catch(() => null);
+              if (cs) {
+                stateSeqRef.current += 1;
+                setCombatState(cs);
+              }
+            })();
+          }}
+          onBusyChange={setCombatBusy}
+        />
+        {/* TAV-PLAY-SHELL step 6b, commit C2: region extracted verbatim to
+            tenants/StatusAnnouncers.tsx's DurableRetryRowTenant export
+            (Amendment B.4, S6). State/refs/handlers stay in page.tsx. */}
+        <DurableRetryRowTenant
+          durableRetryRowRef={durableRetryRowRef}
+          jobFailed={jobFailed}
+          onRetryFailedTurn={onRetryFailedTurn}
+        />
         <Composer
           value={msg}
           onChange={setMsg}
@@ -1897,14 +1800,20 @@ export default function PlayPage() {
             link built in Phase 1 (see NextPartOffer.tsx's own doc comment
             for why, given /next-act is broken tonight and unproxied). */}
         {adventureComplete && completionSeries && (
+          // TAV-PLAY-SHELL step 6b, commit C2 (Amendment B.4, S6): declared
+          // tenant of `storyLog`, attribute added in place — no move.
           <NextPartOffer
             series={completionSeries.series}
             next={completionSeries.next}
             className={styles.moveOnWrap}
+            data-tenant="nextPartOffer"
           />
         )}
 
-        <div className={styles.diceWrap}>
+        {/* TAV-PLAY-SHELL step 6b, commit C2 (Amendment B.4, S6): declared
+            tenant of `sceneStage`, attribute added to the existing wrapper
+            in place — no move. */}
+        <div className={styles.diceWrap} data-tenant="diceTray">
           {/* A2 — real character skill modifiers; null=loading or []=DM-only hide checks */}
           <DiceTray
             onRoll={onRoll}
@@ -1915,7 +1824,10 @@ export default function PlayPage() {
           />
         </div>
 
-        <div className={styles.safety}>
+        {/* TAV-PLAY-SHELL step 6b, commit C2 (Amendment B.4, S6): declared
+            tenant of `sceneStage`, attribute added to the existing wrapper
+            in place — no move. */}
+        <div className={styles.safety} data-tenant="safetyControls">
           <div className={styles.safetyLabel}>Safety</div>
           <p className={styles.safetyBody}>X-card · pause · rewind. Suzu listens.</p>
           <div className={styles.safetyBtns}>
