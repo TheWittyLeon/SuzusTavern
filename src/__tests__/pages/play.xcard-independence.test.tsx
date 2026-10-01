@@ -185,6 +185,10 @@ function expectReachable(btn: HTMLElement) {
   expect(btn).toBeEnabled();
   expect(btn).not.toHaveAttribute('disabled');
   expect(btn).not.toHaveAttribute('aria-disabled');
+  // Outside any role=group (Kage A9c-1 1): inside ActionBar's group (or the
+  // cast-spell group A9c-2 D6 moves in beside it) AT hears the X-card as one
+  // of the combat verbs and a group-level disable would take it down with them.
+  expect(btn.closest('[role="group"]')).toBeNull();
 }
 
 const xCard = () => screen.findByRole('button', { name: /^X-card$/i });
