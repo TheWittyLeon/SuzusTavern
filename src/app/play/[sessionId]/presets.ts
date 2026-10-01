@@ -456,9 +456,29 @@ const STORY_ROW: LayoutRow = {
   },
   // Amendment B.2: grid-template-rows, one track per `areas` line. Starting
   // values (build brief §7 C1) — Aoi/step 11 tunes them at the checkpoint.
+  // Ren-Dev, A9b self-check (found via live-browser measurement, not
+  // guessed): row 2 (`topBar`+`partyStrip`'s shared band) was `auto` —
+  // `PartyStrip.tsx` doesn't yet read its own `variant` prop (R25/S7's
+  // "strip" is supposed to mean a compact header-band representation;
+  // the component always renders the SAME full roster+rebind+initiative
+  // content regardless, same "contract ahead of implementation" shape as
+  // S-d's characterBlock) — measured at 502px tall. An `auto` track
+  // inflated to fit it, squeezing `storyLog`'s `minmax(0,1fr)` track to
+  // 0px (measured: the chat log was present in the DOM, `data-visible=
+  // "true"`, zero RENDERED height — the X-card-shaped failure one layer
+  // down, a layout collapse instead of a visibility one). Capped to a
+  // fixed `140px` (measured: the merged TopBar's own content is 113px);
+  // `partyStrip`'s slot already carries `.slotScroll` (`overflow-y:auto`)
+  // so its excess content scrolls within the band instead of inflating
+  // it. This is a ROW EDIT (data), not a CSS hunt or a PartyStrip
+  // rewrite — the real fix (a compact `'strip'` rendering PartyStrip.tsx
+  // doesn't implement yet) is Aoi/step-11 territory; flagged, not built
+  // here. `debt:` not used — the STARTING VALUES in this field are
+  // already understood repo-wide (build brief §7 C1) to be the Aoi/A9d
+  // checkpoint's own tuning target, not a hidden shortcut.
   rows: {
-    exploring: 'auto auto minmax(0,1fr) auto auto auto',
-    combat: 'auto auto minmax(0,340px) minmax(0,1fr) auto auto',
+    exploring: 'auto 140px minmax(0,1fr) auto auto auto',
+    combat: 'auto 140px minmax(0,340px) minmax(0,1fr) auto auto',
   },
   areas: {
     exploring: `"safetyBanner safetyBanner safetyBanner"
@@ -612,9 +632,19 @@ const PHONE_ROW: LayoutRow = {
     exploring: '1fr',
     combat: '1fr',
   },
+  // Ren-Dev, A9b self-check: same finding as STORY_ROW's own comment on
+  // `rows` above — row 2 (`topBar`, HOSTING `partyStrip`+`suzuPresence`
+  // on phone — three pieces stacked in one slot, no separate scroll
+  // container of their own) was `auto` and measured at 680px (146 +
+  // 502 + 32) against a viewport with ~810px total to share across
+  // seven rows, squeezing `storyLog` to 44px. Capped to `160px`
+  // (phone's narrower column wraps topBar's own text more than
+  // desktop's 113px) — `.slot`'s own `overflow-y:auto` (added in this
+  // same self-check pass) lets the excess scroll instead of bleeding
+  // into `sceneStage`'s row below.
   rows: {
-    exploring: 'auto auto auto minmax(0,1fr) auto auto auto',
-    combat: 'auto auto minmax(0,34vh) minmax(0,1fr) auto auto',
+    exploring: 'auto 160px auto minmax(0,1fr) auto auto auto',
+    combat: 'auto 160px minmax(0,34vh) minmax(0,1fr) auto auto',
   },
   areas: {
     exploring: `"safetyBanner"

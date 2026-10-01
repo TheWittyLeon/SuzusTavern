@@ -47,6 +47,16 @@
   min-width: 0;
   min-height: 0;
   overflow-x: clip;
+  /* Ren-Dev, A9b self-check (measured, not guessed): a grid item whose
+     content exceeds its (possibly `auto`-sized) track does NOT shrink —
+     it bleeds into the next track's visual space, since `.slot` had no
+     vertical overflow handling. Measured on phone's `topBar` slot (hosts
+     `partyStrip`+`suzuPresence`, no scroll container of its own): 680px
+     of content in a row sized well under that. `.slotScroll`/`.slotStack`
+     already had their own `overflow-y`; this generalises it to every
+     slot, which is a no-op (no scrollbar) for one whose content already
+     fits. */
+  overflow-y: auto;
   padding: var(--density-pad);
 }
 
