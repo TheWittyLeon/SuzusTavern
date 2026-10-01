@@ -104,27 +104,18 @@ describe('play-preset-registry — ruling fidelity (Miko-QA, R16)', () => {
 
 describe('play-preset-registry — REGION_IDS/RegionId union drift (Miko-QA)', () => {
   it('every LayoutRow’s `regions` object has exactly the keys in REGION_IDS — no more, no fewer (documents a gap, see note)', () => {
-    // NOTE (not a fix, a finding): this test can only compare REGION_IDS
-    // against the object keys actually WRITTEN in presets.ts's three row
-    // literals. If a new member is added to the `RegionId` union but
-    // omitted from REGION_IDS *and* from a row's `regions` literal, this
-    // test — and every test in play-preset-registry.test.ts that iterates
-    // REGION_IDS — stays green, because nothing here can see the TYPE
-    // union at runtime. Only `npx tsc --noEmit` catches that specific
-    // omission today, via `Record<RegionId, ...>`'s exhaustiveness check
-    // on the `regions` field — and only once someone DOES add a row entry
-    // (forced by that same tsc check) does REGION_IDS's silent omission
-    // become "region has full Placement data but is never iterated/
-    // rendered", which is invisible to both tsc and jest. Reproduced by
-    // hand: adding a 12th literal to the `RegionId` union alone (no other
-    // edit) reds 3 `tsc --noEmit` checks but leaves `jest
-    // play-preset-registry.test.ts` at 110/110 green. Recommended fix:
-    // derive `RegionId` FROM `REGION_IDS` (`export const REGION_IDS =
-    // [...] as const; export type RegionId = (typeof REGION_IDS)[number];`)
-    // — the exact pattern this same diff already uses for `VIBES`/`Vibe`,
-    // `DENSITIES`/`Density` and `LAYOUT_PREFS`/`LayoutPref` in theme.ts, a
-    // few lines away. That makes drift structurally impossible instead of
-    // relying on a human to keep two hand-written lists in sync.
+    // NOTE (Kage-CR S-a, 2026-09-30 fix round — replaces the note this
+    // comment used to carry, written before `RegionId` was derived from
+    // `REGION_IDS`). This test still covers the RUNTIME half: every row's
+    // `regions` object keys match REGION_IDS exactly, both directions, so
+    // a hand-edited row literal that drops or adds a key is caught here.
+    // The TYPE-drift half this note used to describe as open (a 12th
+    // `RegionId` union member with no `REGION_IDS` entry, reaching `jest`
+    // at 110/110 green) is now closed structurally: `RegionId` is derived
+    // FROM `REGION_IDS` (`presets.ts`'s `export type RegionId =
+    // (typeof REGION_IDS)[number]`), so that drift is a `npx tsc --noEmit`
+    // error via `Record<RegionId, ...>`'s exhaustiveness check on every
+    // row's `regions` field — not something this file needs to prove.
     for (const id of Object.keys(LAYOUT_ROWS_BY_ID.story.regions)) {
       expect(REGION_IDS).toContain(id);
     }

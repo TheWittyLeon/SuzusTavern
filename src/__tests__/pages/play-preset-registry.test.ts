@@ -39,6 +39,7 @@ import {
   type LayoutRow,
   type Moment,
   type Placement,
+  type RegionId,
 } from '../../app/play/[sessionId]/presets';
 
 const MOMENTS: readonly Moment[] = ['exploring', 'combat'];
@@ -204,13 +205,23 @@ describe('TAV-PLAY-SHELL presets.ts — grid co-occupancy (CRITICAL-2): no undec
   // does:
   for (const row of LAYOUT_ROWS) {
     for (const moment of MOMENTS) {
-      it(`${row.id}/${moment}: every host names a region that is itself placed this row × moment`, () => {
+      it(`${row.id}/${moment}: every host names a region that is itself placed and VISIBLE this row × moment (🟡-2)`, () => {
         for (const id of REGION_IDS) {
           const placement = getPlacement(row, id, moment);
           if (placement.host == null) continue;
           expect(REGION_IDS).toContain(placement.host);
           const hostPlacement = getPlacement(row, placement.host, moment);
           expect(hostPlacement.area).not.toBeNull();
+          // Kage-CR 🟡-2 (2026-09-30 fix round, carried to A9b): the old
+          // guard only checked the host's `area`, not its `visible` — a
+          // host that is placed but `visible:false` still "has a mount
+          // point" by the old check, yet the hosted announcer silently
+          // stops announcing inside a display:none band. R3's own text:
+          // "this already happened once (X-card, Iro CRITICAL-1)" — this
+          // is that failure one field deeper. Control N2: `table.topBar.
+          // host='offers'` + `table.offers.default.visible=false` must go
+          // red here.
+          expect(hostPlacement.visible).not.toBe(false);
         }
       });
 
@@ -244,27 +255,65 @@ describe('TAV-PLAY-SHELL presets.ts — grid co-occupancy (CRITICAL-2): no undec
  * (CRITICAL-2), or `null` for a layer/no-placement. A swap, a drop, or an
  * accidental addition all go red in the same assertion.
  */
-function pinnedValue(p: Placement): string | null {
-  if (p.area != null) return p.area;
-  if (p.host != null) return `host:${p.host}`;
-  return null;
+/**
+ * Kage-CR 🟡-4 (2026-09-30 fix round, carried to A9b): folds density/host/
+ * layer/visible/collapsible into ONE composite string per placement, in a
+ * fixed field order, instead of `pinnedValue`'s old area-or-host-or-null.
+ * A DROPPED field (not just a wrong one) now changes the string, so the
+ * full row pin below reds on it too — this is what N4 needs, since the
+ * per-region density loop further down only ever checks a value that is
+ * PRESENT (an absent one is always legal there by construction).
+ */
+function pinnedValue(p: Placement): string {
+  const parts: string[] = [p.area != null ? p.area : p.host != null ? `host:${p.host}` : 'null'];
+  if (p.density !== undefined) parts.push(`density:${p.density}`);
+  if (p.visible !== undefined) parts.push(`visible:${p.visible}`);
+  if (p.layer !== undefined) parts.push(`layer:${p.layer}`);
+  if (p.collapsible !== undefined) parts.push(`collapsible:${p.collapsible}`);
+  return parts.join(' ');
 }
 
-describe('TAV-PLAY-SHELL presets.ts — density values are declared (IMPORTANT-6)', () => {
-  const DENSITY_REGIONS = Object.keys(REGION_DENSITIES) as (keyof typeof REGION_DENSITIES)[];
+/**
+ * Kage-CR 🟡-4 (2026-09-30 fix round): regions allowed to carry a density
+ * value with NO entry in `REGION_DENSITIES` yet, and the exact value(s)
+ * tolerated for each — an EXPLICIT allowlist, never a silent
+ * `if (!allowed) return`, so a future un-exempted region's dropped-union-
+ * entry still reds. Today this is exactly one region: `suzuPresence`
+ * (Kage-CR 🟡-5/IMPORTANT-5's own open finding — `phone.suzuPresence.
+ * density` is already `'compact'` in real data, on an axis the plan's own
+ * §2.3 calls wrong, "its real prop is `size`, not `density`"). This C0
+ * guard-fix lands ahead of Amendment B (A9b's C1), which is where 🟡-5
+ * actually gets resolved by declaring `suzuPresence: ['compact','full']` in
+ * `REGION_DENSITIES` — at which point this exemption's only member is gone
+ * and should be deleted along with it, not left as a dead `Record`.
+ */
+const DENSITY_GUARD_EXEMPTIONS: Partial<Record<RegionId, readonly string[]>> = {
+  suzuPresence: ['compact'],
+};
 
+describe('TAV-PLAY-SHELL presets.ts — density values are declared, as an invariant over EVERY region (🟡-4, inverts IMPORTANT-6)', () => {
   it('REGION_DENSITIES is non-empty and every key is a real RegionId', () => {
-    expect(DENSITY_REGIONS.length).toBeGreaterThan(0);
-    for (const id of DENSITY_REGIONS) expect(REGION_IDS).toContain(id);
+    const keys = Object.keys(REGION_DENSITIES) as (keyof typeof REGION_DENSITIES)[];
+    expect(keys.length).toBeGreaterThan(0);
+    for (const id of keys) expect(REGION_IDS).toContain(id);
   });
 
+  // Kage-CR 🟡-4: the old loop iterated `Object.keys(REGION_DENSITIES)` —
+  // the known-good list — so a region with NO entry there (and no
+  // exemption) could carry ANY density value, including a typo'd one, and
+  // nothing would ever check it (N7). Iterating every REGION_IDS member
+  // instead makes "undeclared region, present value" a checked state
+  // rather than an unreachable one.
   for (const row of LAYOUT_ROWS) {
-    for (const region of DENSITY_REGIONS) {
+    for (const region of REGION_IDS) {
       for (const moment of MOMENTS) {
-        it(`${row.id}/${moment}: "${region}"'s density is undefined or a declared member`, () => {
+        it(`${row.id}/${moment}: "${region}"'s density, if present, is from a declared region (or a named exemption) with a declared value`, () => {
           const density = getPlacement(row, region, moment).density;
           if (density === undefined) return; // a region needn't emit one
-          const allowed: readonly string[] = REGION_DENSITIES[region];
+          const allowed: readonly string[] | undefined =
+            (REGION_DENSITIES as Partial<Record<RegionId, readonly string[]>>)[region] ??
+            DENSITY_GUARD_EXEMPTIONS[region];
+          expect(allowed).toBeDefined();
           expect(allowed).toContain(density);
         });
       }
@@ -272,9 +321,9 @@ describe('TAV-PLAY-SHELL presets.ts — density values are declared (IMPORTANT-6
   }
 });
 
-describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3): every RegionId is where it should be', () => {
-  function pin(row: LayoutRow, moment: Moment): Record<string, string | null> {
-    const out: Record<string, string | null> = {};
+describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 composite): every RegionId is where it should be, with every other field intact', () => {
+  function pin(row: LayoutRow, moment: Moment): Record<string, string> {
+    const out: Record<string, string> = {};
     for (const id of REGION_IDS) out[id] = pinnedValue(getPlacement(row, id, moment));
     return out;
   }
@@ -282,15 +331,15 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3): every Region
   it('story/exploring', () => {
     expect(pin(LAYOUT_ROWS_BY_ID.story, 'exploring')).toEqual({
       topBar: 'topBar',
-      partyStrip: 'partyStrip',
-      sceneStage: 'sceneStage',
+      partyStrip: 'partyStrip density:strip',
+      sceneStage: 'sceneStage density:panel',
       suzuPresence: 'suzuPresence',
       storyLog: 'storyLog',
-      offers: 'offers',
-      characterBlock: null,
-      actionBar: 'actionBar',
+      offers: 'offers density:chips',
+      characterBlock: 'null density:compact layer:true',
+      actionBar: 'actionBar density:vitals',
       composer: 'composer',
-      tableControls: null,
+      tableControls: 'null layer:true',
       safetyBanner: 'safetyBanner',
     });
   });
@@ -298,15 +347,15 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3): every Region
   it('story/combat', () => {
     expect(pin(LAYOUT_ROWS_BY_ID.story, 'combat')).toEqual({
       topBar: 'topBar',
-      partyStrip: 'partyStrip',
-      sceneStage: 'sceneStage',
+      partyStrip: 'partyStrip density:rail',
+      sceneStage: 'sceneStage density:hero',
       suzuPresence: 'suzuPresence',
       storyLog: 'storyLog',
-      offers: null,
-      characterBlock: null,
-      actionBar: 'actionBar',
+      offers: 'null visible:false',
+      characterBlock: 'null density:compact layer:true',
+      actionBar: 'actionBar density:chips',
       composer: 'composer',
-      tableControls: null,
+      tableControls: 'null layer:true',
       safetyBanner: 'safetyBanner',
     });
   });
@@ -314,15 +363,15 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3): every Region
   it('table/exploring', () => {
     expect(pin(LAYOUT_ROWS_BY_ID.table, 'exploring')).toEqual({
       topBar: 'host:sceneStage',
-      partyStrip: 'partyStrip',
-      sceneStage: 'sceneStage',
+      partyStrip: 'partyStrip density:rail',
+      sceneStage: 'sceneStage density:hero',
       suzuPresence: 'suzuPresence',
       storyLog: 'storyLog',
-      offers: 'offers',
-      characterBlock: 'characterBlock',
+      offers: 'offers density:list',
+      characterBlock: 'characterBlock density:full collapsible:true',
       actionBar: 'actionBar',
       composer: 'composer',
-      tableControls: null,
+      tableControls: 'null layer:true',
       safetyBanner: 'safetyBanner',
     });
   });
@@ -330,15 +379,15 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3): every Region
   it('table/combat', () => {
     expect(pin(LAYOUT_ROWS_BY_ID.table, 'combat')).toEqual({
       topBar: 'host:sceneStage',
-      partyStrip: 'partyStrip',
-      sceneStage: 'sceneStage',
+      partyStrip: 'partyStrip density:rail',
+      sceneStage: 'sceneStage density:hero',
       suzuPresence: 'suzuPresence',
       storyLog: 'storyLog',
-      offers: null,
-      characterBlock: 'characterBlock',
+      offers: 'null visible:false',
+      characterBlock: 'characterBlock density:full collapsible:true',
       actionBar: 'actionBar',
       composer: 'composer',
-      tableControls: null,
+      tableControls: 'null layer:true',
       safetyBanner: 'safetyBanner',
     });
   });
@@ -346,15 +395,15 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3): every Region
   it('phone/exploring', () => {
     expect(pin(LAYOUT_ROWS_BY_ID.phone, 'exploring')).toEqual({
       topBar: 'topBar',
-      partyStrip: 'host:topBar',
-      sceneStage: 'sceneStage',
-      suzuPresence: 'host:topBar',
+      partyStrip: 'host:topBar density:strip',
+      sceneStage: 'sceneStage density:inline collapsible:true',
+      suzuPresence: 'host:topBar density:compact',
       storyLog: 'storyLog',
-      offers: 'offers',
-      characterBlock: null,
+      offers: 'offers density:chips',
+      characterBlock: 'null density:compact layer:true',
       actionBar: 'actionBar',
       composer: 'composer',
-      tableControls: null,
+      tableControls: 'null layer:true',
       safetyBanner: 'safetyBanner',
     });
   });
@@ -362,17 +411,103 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3): every Region
   it('phone/combat', () => {
     expect(pin(LAYOUT_ROWS_BY_ID.phone, 'combat')).toEqual({
       topBar: 'topBar',
-      partyStrip: 'host:topBar',
-      sceneStage: 'sceneStage',
-      suzuPresence: 'host:topBar',
+      partyStrip: 'host:topBar density:strip',
+      sceneStage: 'sceneStage density:panel collapsible:true',
+      suzuPresence: 'host:topBar density:compact',
       storyLog: 'storyLog',
-      offers: null,
-      characterBlock: null,
+      offers: 'null visible:false',
+      characterBlock: 'null density:compact layer:true',
       actionBar: 'actionBar',
       composer: 'composer',
-      tableControls: null,
+      tableControls: 'null layer:true',
       safetyBanner: 'safetyBanner',
     });
+  });
+});
+
+/**
+ * Kage-CR 🟡-3 (2026-09-30 fix round, carried to A9b): none of the checks
+ * above pin row GEOMETRY — IMPORTANT-5's option (c) (Story-combat's
+ * `partyStrip` taking column 3 full-height as a rail, instead of leaving it
+ * a dead 280px track) is reachable only by reading the literal `areas`
+ * string, and a revert of just that one column is invisible to every other
+ * check here: the token count is unchanged, the rectangle check passes (one
+ * cell is still a rectangle), (e)'s two set-membership directions both
+ * still hold, and the full row pin above records the AREA NAME per region,
+ * never the geometry those names are arranged into. Six literal pins (one
+ * per row × moment), whitespace-normalised so indentation is free to vary,
+ * close that hole. Control N3: revert column 3 of `story.areas.combat`
+ * (rows 2-5) back to `.` must go red.
+ */
+function normalizeAreas(areasValue: string): string {
+  return areasValue.replace(/\s+/g, ' ').trim();
+}
+
+describe('TAV-PLAY-SHELL presets.ts — row geometry is pinned as a literal (🟡-3)', () => {
+  it('story/exploring', () => {
+    expect(normalizeAreas(LAYOUT_ROWS_BY_ID.story.areas.exploring)).toBe(
+      normalizeAreas(`"safetyBanner safetyBanner safetyBanner"
+                "topBar       topBar       partyStrip"
+                "suzuPresence storyLog     sceneStage"
+                "suzuPresence offers       sceneStage"
+                "suzuPresence composer     sceneStage"
+                "suzuPresence actionBar    sceneStage"`),
+    );
+  });
+
+  it('story/combat', () => {
+    expect(normalizeAreas(LAYOUT_ROWS_BY_ID.story.areas.combat)).toBe(
+      normalizeAreas(`"safetyBanner safetyBanner safetyBanner"
+             "topBar       topBar       partyStrip"
+             "suzuPresence sceneStage   partyStrip"
+             "suzuPresence storyLog     partyStrip"
+             "suzuPresence composer     partyStrip"
+             "suzuPresence actionBar    partyStrip"`),
+    );
+  });
+
+  it('table/exploring', () => {
+    expect(normalizeAreas(LAYOUT_ROWS_BY_ID.table.areas.exploring)).toBe(
+      normalizeAreas(`"safetyBanner safetyBanner safetyBanner safetyBanner"
+                "partyStrip   sceneStage   sceneStage   characterBlock"
+                "partyStrip   suzuPresence storyLog     characterBlock"
+                "partyStrip   suzuPresence offers       characterBlock"
+                "partyStrip   suzuPresence composer     characterBlock"
+                "partyStrip   actionBar    actionBar    actionBar"`),
+    );
+  });
+
+  it('table/combat', () => {
+    expect(normalizeAreas(LAYOUT_ROWS_BY_ID.table.areas.combat)).toBe(
+      normalizeAreas(`"safetyBanner safetyBanner safetyBanner safetyBanner"
+             "partyStrip   sceneStage   sceneStage   characterBlock"
+             "partyStrip   suzuPresence storyLog     characterBlock"
+             "partyStrip   suzuPresence composer     characterBlock"
+             "partyStrip   actionBar    actionBar    actionBar"`),
+    );
+  });
+
+  it('phone/exploring', () => {
+    expect(normalizeAreas(LAYOUT_ROWS_BY_ID.phone.areas.exploring)).toBe(
+      normalizeAreas(`"safetyBanner"
+                "topBar"
+                "sceneStage"
+                "storyLog"
+                "offers"
+                "composer"
+                "actionBar"`),
+    );
+  });
+
+  it('phone/combat', () => {
+    expect(normalizeAreas(LAYOUT_ROWS_BY_ID.phone.areas.combat)).toBe(
+      normalizeAreas(`"safetyBanner"
+             "topBar"
+             "sceneStage"
+             "storyLog"
+             "composer"
+             "actionBar"`),
+    );
   });
 });
 
@@ -415,17 +550,27 @@ describe('TAV-PLAY-SHELL presets.ts — columns/areas agree on track count (S1)'
   }
 });
 
-describe('TAV-PLAY-SHELL presets.ts — layer and area are mutually exclusive (S2)', () => {
+describe('TAV-PLAY-SHELL presets.ts — layer/host and area are mutually exclusive (S2, 🟡-1)', () => {
   // Kage-CR S2 (2026-09-30): `Placement.layer`'s own doc says "When true,
   // `area` is always null" — a doc-comment invariant with no guard. A
   // region that is both grid-placed AND a layer would render docked AND
   // as an overlay simultaneously at step 6b.
+  //
+  // Kage-CR 🟡-1 (2026-09-30 fix round, carried to A9b): `Placement.host`'s
+  // own doc states the identical convention ("when set, `area` is always
+  // null ... same convention as `layer`"), but S2's fix was only applied to
+  // `layer` when it landed — `host` was a NEW field this same round and the
+  // guard never extended to it. Folded into the same loop rather than a
+  // second describe block, since it is the same invariant on a sibling
+  // field. Control N1: `story.storyLog -> {area:'storyLog',
+  // host:'sceneStage'}` must go red.
   for (const row of LAYOUT_ROWS) {
     for (const region of REGION_IDS) {
       for (const moment of MOMENTS) {
-        it(`${row.id}/${moment}: "${region}" is never both layer:true and grid-placed`, () => {
+        it(`${row.id}/${moment}: "${region}" is never both layer:true and grid-placed, and never both host-set and grid-placed`, () => {
           const placement = getPlacement(row, region, moment);
           if (placement.layer === true) expect(placement.area).toBeNull();
+          if (placement.host != null) expect(placement.area).toBeNull();
         });
       }
     }

@@ -89,6 +89,27 @@
  *    own area here — matching the plan's OWN illustrative §3.2 snippet
  *    ("party story stage" / "party offers stage" / "party composer
  *    stage"), not the mockup's nesting.
+ *  - Kage-CR S-b (2026-09-30 fix round, carried to A9b): three more
+ *    divergences this ledger missed —
+ *      - Story places `actionBar` in BOTH moments. The mockup's parts
+ *        table says "Story: Not shown; actions are chips" — superseded by
+ *        Kage-CR's Q1 ruling: Amendment A already hides `offers` during
+ *        combat, so dropping the bar too would leave Story-combat with no
+ *        way to act at all, and S3 (ruled after both R16 and the mockup)
+ *        forbids the mockup's actual mechanism ("offers become the
+ *        actions when the bar isn't showing" — a second combat-submit
+ *        surface).
+ *      - Story-combat's `partyStrip` takes column 3 full-height as a rail
+ *        (Kage-CR IMPORTANT-5 option (c)). The mockup's parts table says
+ *        "Party — Story: Header, small portraits" (no rail) — the ruling
+ *        avoids a dead 280px track once `characterBlock` is a drawer in
+ *        this row (R16), rather than leaving the mockup's header-strip
+ *        treatment and the column empty.
+ *      - `phone.sceneStage` is placed (non-null area) in BOTH moments.
+ *        The mockup's parts table says "Hidden while exploring" — D3/R3
+ *        require it stay mounted-and-visible so an announcing region
+ *        never goes dark (the X-card/Iro CRITICAL-1 precedent); only its
+ *        density changes (`'inline'` exploring, `'panel'` combat).
  *
  * Amendment A (2026-09-28) on `Offers`/combat: "the region's visibility
  * during combat becomes a Placement row (`regions.offers.combat =
