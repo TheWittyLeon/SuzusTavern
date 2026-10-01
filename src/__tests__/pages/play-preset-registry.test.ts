@@ -896,7 +896,6 @@ describe('TAV-PLAY-SHELL presets.ts — getPlacement', () => {
     // row's override happens to restate every field.
     const probeRow: LayoutRow = {
       id: 'story',
-      label: 'probe',
       columns: { exploring: '1fr', combat: '1fr' },
       rows: { exploring: 'auto', combat: 'auto' },
       areas: { exploring: '"x"', combat: '"x"' },

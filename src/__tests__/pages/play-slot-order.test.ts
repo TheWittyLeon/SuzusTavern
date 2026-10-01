@@ -33,7 +33,6 @@ function syntheticRow(
   for (const id of REGION_IDS) regions[id] = { default: over[id] ?? { area: id } };
   return {
     id: 'story',
-    label: 'synthetic',
     areas: { exploring: areas, combat: areas },
     columns: { exploring: '1fr', combat: '1fr' },
     rows: { exploring: 'auto', combat: 'auto' },

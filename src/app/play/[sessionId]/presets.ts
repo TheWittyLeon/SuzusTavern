@@ -388,7 +388,6 @@ export interface Placement {
 
 export interface LayoutRow {
   id: LayoutId;
-  label: string;
   /** The grid-template-areas value. */
   areas: Record<Moment, string>;
   /** The grid-template-columns value. Per-area sizing (`--stage-w`/
@@ -558,7 +557,6 @@ export function variantFor<R extends VariantRegionId>(
 
 const STORY_ROW: LayoutRow = {
   id: 'story',
-  label: 'Story',
   columns: {
     // Amendment B §5 "aiOff edge": column 1 is `suzuPresence`'s track.
     // `TopBar` only renders `NarratorStrip` (and therefore `SuzuDM`) when
@@ -680,7 +678,6 @@ const STORY_ROW: LayoutRow = {
 
 const TABLE_ROW: LayoutRow = {
   id: 'table',
-  label: 'Table',
   columns: {
     // Amendment B §5 "aiOff edge": column 2 is `suzuPresence`'s track —
     // `auto` lets an `ai_assist_level:'off'` session's empty slot collapse
@@ -755,7 +752,6 @@ const TABLE_ROW: LayoutRow = {
 
 const PHONE_ROW: LayoutRow = {
   id: 'phone',
-  label: 'Phone',
   columns: {
     exploring: '1fr',
     combat: '1fr',

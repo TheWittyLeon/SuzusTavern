@@ -52,7 +52,6 @@ function stubRow(id: LayoutRow['id'], hidden?: RegionId): LayoutRow {
   }
   return {
     id,
-    label: id,
     // One row, REGION_IDS.length columns — purely synthetic, never meant
     // to look like anything; only the mechanism under test cares.
     columns: { exploring: REGION_IDS.map(() => '1fr').join(' '), combat: REGION_IDS.map(() => '1fr').join(' ') },
