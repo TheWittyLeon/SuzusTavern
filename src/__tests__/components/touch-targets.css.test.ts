@@ -17,7 +17,9 @@ const rule = (css: string, selector: string, from = 0): string => {
 describe('44px touch targets (phone)', () => {
   it('Composer: the mode toggles are 44 wide AND tall on a phone (inside the 480px query; desktop stays compact)', () => {
     const css = read('src/components/Composer.module.css');
-    const media = css.slice(css.indexOf('@media (max-width: 480px) {'));
+    // a narrow phone OR any touch device (a landscape phone / a zoomed phone row is wider than 480px)
+    const media = css.slice(css.indexOf('@media (max-width: 480px), (pointer: coarse) {'));
+    expect(media.length).toBeLessThan(css.length);
     expect(rule(media, '.mode')).toMatch(/min-height:\s*44px/);
     expect(rule(media, '.mode')).toMatch(/min-inline-size:\s*44px/);
     expect(rule(css, '.mode')).not.toMatch(/min-inline-size/); // the desktop toggle is unchanged
