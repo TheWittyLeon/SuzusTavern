@@ -11,6 +11,7 @@ import {
   ANCHORED_MENUS,
   COMPONENT_HOPS,
   IN_REGION_MODALS,
+  LAYER_HOSTS,
   PLAY_CSS,
   VACUITY_SCOPE,
   evaluateRule3,
@@ -74,9 +75,40 @@ describe('Rule 3 (ii): no position: fixed reachable from regions/ and tenants/',
     expect(red(mutate((m) => append(m, 'src/components/Composer.module.css', `.other { position: fixed; }`)))).toBe(true);
   });
 
-  it('a declared layer host may be fixed; a stylesheet no region reaches may be fixed', () => {
+  it('a declared layer host may be fixed; a stylesheet the play page does not reach may be fixed', () => {
     expect(mutate((m) => append(m, 'src/components/Toast.module.css', `.extra { position: fixed; }`))).toEqual([]);
     expect(mutate((m) => append(m, 'src/components/TweaksPanel.module.css', `.extra { position: fixed; }`))).toEqual([]);
+    // Codex is a different route: nothing under the play page imports it.
+    expect(mutate((m) => append(m, 'src/app/codex/Codex.module.css', `.extra { position: fixed; }`))).toEqual([]);
+  });
+
+  // Kage A9c-2 IMPORTANT-3: page.tsx passes these straight into regions/tenants.
+  // Before page.tsx joined the entry set none was reachable, so a planted fixed rule
+  // in them was invisible.
+  it.each([
+    ['MemberSheetPanel', 'src/components/MemberSheetPanel.module.css'],
+    ['DiceTray', 'src/components/DiceTray.module.css'],
+    ['JournalPane (page-only import)', 'src/components/JournalPane.module.css'],
+  ])('a planted position: fixed in %s (reached only through page.tsx) is red', (_n, css) => {
+    expect(red(mutate((m) => append(m, css, `.zzz { position: fixed; inset: 0; }`)))).toBe(true);
+  });
+
+  it('TweaksPanel is a declared layer host: it is reached through page.tsx and its fixed rules are its job', () => {
+    expect(LAYER_HOSTS).toContain('src/components/TweaksPanel.module.css');
+    expect(evaluateRule3(real()).scope).toContain('src/components/TweaksPanel.module.css');
+  });
+
+  it('a component only the PAGE imports is reached to unbounded depth (four hops down is still red)', () => {
+    const v = mutate((m) => {
+      const f = `${PLAY}/page.tsx`;
+      m.set(f, `import A from '@/components/ZzA';\n${m.get(f)}`);
+      m.set('src/components/ZzA.tsx', `import B from '@/components/ZzB';\nexport default B;\n`);
+      m.set('src/components/ZzB.tsx', `import C from '@/components/ZzC';\nexport default C;\n`);
+      m.set('src/components/ZzC.tsx', `import D from '@/components/ZzD';\nexport default D;\n`);
+      m.set('src/components/ZzD.tsx', `import s from './ZzD.module.css';\nexport default s;\n`);
+      m.set('src/components/ZzD.module.css', `.root { position: fixed; }\n`);
+    });
+    expect(red(v)).toBe(true);
   });
 
   it('reach is computed from imports: a brand-new region importing a fixed component stylesheet is red', () => {
@@ -113,6 +145,14 @@ describe('Rule 3 (ii): no position: fixed reachable from regions/ and tenants/',
     expect(v.some((x) => /stale IN_REGION_MODALS entry/.test(x))).toBe(true);
     const w = mutate((m) => m.set('src/components/Composer.module.css', m.get('src/components/Composer.module.css')!.replace(/position:\s*fixed/g, 'position: absolute')));
     expect(w.some((x) => /stale ANCHORED_MENUS entry/.test(x))).toBe(true);
+  });
+
+  it('is not vacuous for the page entry: cutting page.tsx\'s MemberSheetPanel import is itself red', () => {
+    const v = mutate((m) => {
+      const f = `${PLAY}/page.tsx`;
+      m.set(f, m.get(f)!.replace(/import MemberSheetPanel, \{ MEMBER_SHEET_HEADING_ID \} from '@\/components\/MemberSheetPanel';/, ''));
+    });
+    expect(v.some((x) => /scope is vacuous: src\/components\/MemberSheetPanel\.module\.css/.test(x))).toBe(true);
   });
 
   it('is not vacuous: cutting the import that reaches PartyPanel.module.css is itself red', () => {

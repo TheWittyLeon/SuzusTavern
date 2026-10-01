@@ -18,6 +18,14 @@ export const PLAY_DIR = 'src/app/play/[sessionId]';
 export const PLAY_CSS = `${PLAY_DIR}/Play.module.css`;
 const ENTRY_DIRS = [`${PLAY_DIR}/regions/`, `${PLAY_DIR}/tenants/`];
 
+/**
+ * `page.tsx` is an entry too (Kage A9c-2 IMPORTANT-3): it passes DiceTray,
+ * MemberSheetPanel, TweaksPanel and others straight into `regions` / `tenants`, so
+ * a component only the page imports is still rendered inside a slot. The page's
+ * own imports are followed to the bottom of the component tree.
+ */
+export const PAGE_ENTRY = `${PLAY_DIR}/page.tsx`;
+
 /** How many @/components hops are followed from a region/tenant file. */
 export const COMPONENT_HOPS = 2;
 
@@ -26,6 +34,10 @@ export const LAYER_HOSTS = Object.freeze([
   'src/components/Drawer.module.css',
   'src/components/ConfirmDialog.module.css',
   'src/components/Toast.module.css',
+  // TweaksPanel is a portal-less fixed dialog opened from the top bar's trigger; it
+  // is the layer (backdrop + panel), like Drawer. It became reachable when page.tsx
+  // joined the entry set.
+  'src/components/TweaksPanel.module.css',
 ]);
 
 /**
@@ -56,6 +68,10 @@ export const VACUITY_SCOPE = Object.freeze([
   PLAY_CSS,
   'src/components/Composer.module.css',
   'src/components/PartyPanel.module.css',
+  // Reached only through page.tsx (Kage A9c-2 IMPORTANT-3): if the page entry stops
+  // being followed, these drop out of scope and the lint says so instead of passing.
+  'src/components/MemberSheetPanel.module.css',
+  'src/components/DiceTray.module.css',
 ]);
 
 const stripCssComments = (t) => t.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
@@ -119,6 +135,7 @@ export function reachableCss(files) {
   for (const f of files.keys()) {
     if (ENTRY_DIRS.some((d) => f.startsWith(d)) && /\.tsx?$/.test(f)) visit(f, COMPONENT_HOPS);
   }
+  visit(PAGE_ENTRY, Infinity);
   return css;
 }
 
