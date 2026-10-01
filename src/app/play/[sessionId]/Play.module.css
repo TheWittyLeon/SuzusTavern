@@ -239,7 +239,10 @@
   padding: var(--space-4) var(--space-6);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  background: color-mix(in oklab, var(--bg) 78%, transparent);
+  /* 94%, not the mock's 78%: the stage's own scene heading sits under this box
+     (the overlay lifts over the stage's first line, A9c-2 D7 will reserve it)
+     and at 78% the two read as one garbled line (seen in the C4 harness shot). */
+  background: color-mix(in oklab, var(--bg) 94%, transparent);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
 }
