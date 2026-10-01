@@ -170,11 +170,19 @@ describe('Play.module.css', () => {
       expect(rule).toMatch(/min-height:\s*calc\(44px \+ 2 \* var\(--play-slot-edge, var\(--density-gap\)\)\)/);
     });
 
-    it('a raised safety banner zeroes ONLY the two --play-* row variables on .grid, naming no layout (safety yield)', () => {
+    it('a raised safety banner yields ONLY the two --play-* row variables on .grid, to the row\'s BANNER floor (never 0 where the row has one), naming no layout (safety yield)', () => {
       const rule = strip(blockFrom(".grid:has(> [data-region-slot='safetyBanner'] > :not(:empty)) {"));
       const decls = rule.slice(rule.indexOf('{') + 1, rule.lastIndexOf('}')).split(';').map((d) => d.trim()).filter(Boolean);
-      expect(decls).toEqual(['--play-floor: 0px', '--play-optional: 0px']);
+      expect(decls).toEqual(['--play-floor: var(--play-banner-floor, 0px)', '--play-optional: 0px']);
       expect(rule).not.toMatch(/data-layout|story|table|phone/i);
+    });
+
+    it('the yield applies only where the page does not scroll: it sits inside @media (min-height: 701px), and nowhere outside one (Kage A9d-1 I-1, Iro MINOR-1)', () => {
+      const media = strip(blockFrom('@media (min-height: 701px) {\n  .grid:has('));
+      expect(media).toMatch(/--play-floor:\s*var\(--play-banner-floor/);
+      // The same rule text appears exactly once in the file, and it is that one.
+      const all = strip(css).match(/safetyBanner'\] > :not\(:empty\)\)/g) ?? [];
+      expect(all).toHaveLength(1);
     });
 
     it('the Appearance dialog is bounded by the viewport and scrolls inside', () => {

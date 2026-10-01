@@ -736,6 +736,15 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
     expect(LAYOUT_ROWS_BY_ID.story.vars).toBeUndefined();
     expect(LAYOUT_ROWS_BY_ID.table.vars).toBeUndefined();
   });
+
+  it('the phone row carries a banner floor per moment (exploring pays the recap chrome, combat the status line); desktop rows carry none', () => {
+    expect(LAYOUT_ROWS_BY_ID.phone.momentVars).toEqual({
+      exploring: { '--play-banner-floor': '169px' },
+      combat: { '--play-banner-floor': '136px' },
+    });
+    expect(LAYOUT_ROWS_BY_ID.story.momentVars).toBeUndefined();
+    expect(LAYOUT_ROWS_BY_ID.table.momentVars).toBeUndefined();
+  });
 });
 
 describe('TAV-PLAY-SHELL presets.ts — grid-template-areas are syntactically valid (bonus structural check)', () => {
