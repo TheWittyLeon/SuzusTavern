@@ -14,7 +14,11 @@
  * Behaviour:
  *  - `role="toolbar"` + `aria-label` + `aria-orientation` on the container.
  *  - Exactly one item has `tabIndex=0` (the active one); the rest are -1.
- *  - Arrow keys along the orientation (wrapping), Home and End. Items that are
+ *  - Arrow keys along the orientation (wrapping), Home and End. With `columns`
+ *    (a 2D grid of items in reading order) Left/Right still step through the items
+ *    (wrapping) and Up/Down move one ROW, stopping at the first/last row; the
+ *    container then states no `aria-orientation`, since it has no single axis
+ *    (Iro A9c-1 MINOR-2). Items that are
  *    NATIVELY disabled are skipped (they cannot take focus). `aria-disabled`
  *    items stay reachable by design.
  *  - Focus or click on an item makes it the active one (Safari does not focus a
@@ -37,6 +41,9 @@ export interface RovingToolbarOptions {
   orientation?: ToolbarOrientation;
   /** How many items the toolbar renders this pass. */
   itemCount: number;
+  /** Items laid out in rows of this many (reading order): adds Up/Down by row
+   *  and drops `aria-orientation`. Absent = a one-axis toolbar. */
+  columns?: number;
   /** True for an item that is natively disabled this pass (it is never the
    *  tab stop and arrow keys step over it). */
   isDisabled?: (index: number) => boolean;
@@ -58,6 +65,7 @@ export function useRovingToolbar({
   label,
   orientation = 'horizontal',
   itemCount,
+  columns,
   isDisabled,
 }: RovingToolbarOptions) {
   const [active, setActive] = useState(0);
@@ -83,8 +91,23 @@ export function useRovingToolbar({
     if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
     const current = itemOf(e.target, e.currentTarget);
     if (!current) return;
-    const { next, prev } = KEYS[orientation];
-    if (e.key !== next && e.key !== prev && e.key !== 'Home' && e.key !== 'End') return;
+    const { next, prev } = columns ? KEYS.horizontal : KEYS[orientation];
+    const rowStep = columns && (e.key === 'ArrowDown' ? columns : e.key === 'ArrowUp' ? -columns : 0);
+    if (!rowStep && e.key !== next && e.key !== prev && e.key !== 'Home' && e.key !== 'End') return;
+
+    if (rowStep) {
+      // A row move targets the item `columns` away in the full list: a missing or natively
+      // disabled one means "no row there", so focus stays (the key is still consumed so the
+      // page does not scroll under a focused grid).
+      const all = Array.from(e.currentTarget.querySelectorAll<HTMLElement>(`[${ITEM_ATTR}]`));
+      const target = all[all.indexOf(current) + rowStep];
+      e.preventDefault();
+      if (target && !target.matches(':disabled')) {
+        target.focus();
+        activate(target);
+      }
+      return;
+    }
 
     const enabled = Array.from(e.currentTarget.querySelectorAll<HTMLElement>(`[${ITEM_ATTR}]`)).filter(
       (el) => !el.matches(':disabled'),
@@ -107,7 +130,7 @@ export function useRovingToolbar({
     toolbarProps: {
       role: 'toolbar' as const,
       'aria-label': label,
-      'aria-orientation': orientation,
+      'aria-orientation': columns ? undefined : orientation,
       onKeyDown,
       onFocus: (e: FocusEvent<HTMLElement>) => activate(itemOf(e.target, e.currentTarget)),
       onClick: (e: MouseEvent<HTMLElement>) => activate(itemOf(e.target, e.currentTarget)),

@@ -150,9 +150,9 @@ describe('DiceTray — three toolbars, three tab stops (Iro IMPORTANT-2)', () =>
     expect(stops()).toHaveLength(3);
   });
 
-  it('orientations: dice and modifier horizontal, quick checks vertical', () => {
+  it('orientations: modifier horizontal, quick checks vertical, dice (a 3x2 grid) state none', () => {
     render(<DiceTray onRoll={jest.fn()} quickChecks={CHECKS} onAdvantage={jest.fn()} />);
-    expect(screen.getByRole('toolbar', { name: 'Dice' })).toHaveAttribute('aria-orientation', 'horizontal');
+    expect(screen.getByRole('toolbar', { name: 'Dice' })).not.toHaveAttribute('aria-orientation'); // MINOR-2: a grid has no single axis
     expect(screen.getByRole('toolbar', { name: 'Quick checks' })).toHaveAttribute('aria-orientation', 'vertical');
     expect(screen.getByRole('toolbar', { name: 'Roll modifier' })).toHaveAttribute('aria-orientation', 'horizontal');
   });
@@ -192,5 +192,82 @@ describe('DiceTray — three toolbars, three tab stops (Iro IMPORTANT-2)', () =>
     // `aria-disabled` (they now keep a tab stop); this pin holds either way.
     render(<DiceTray onRoll={jest.fn()} quickChecks={CHECKS} onAdvantage={jest.fn()} disabled />);
     expect(stops().map((b) => b.getAttribute('aria-label'))).toContain('advantage');
+  });
+});
+
+describe('useRovingToolbar — a 2D grid (`columns`, Iro A9c-1 MINOR-2)', () => {
+  function Grid({ disabled = [] as number[] }) {
+    const bar = useRovingToolbar({ label: 'Grid', itemCount: 6, columns: 3, isDisabled: (i) => disabled.includes(i) });
+    return (
+      <div {...bar.toolbarProps}>
+        {Array.from({ length: 6 }, (_, i) => (
+          <button key={i} type="button" {...bar.itemProps(i)} disabled={disabled.includes(i)}>
+            g{i}
+          </button>
+        ))}
+      </div>
+    );
+  }
+  const g = (i: number) => screen.getByRole('button', { name: `g${i}` });
+
+  it('states no single orientation: a 2D grid is neither horizontal nor vertical', () => {
+    render(<Grid />);
+    expect(screen.getByRole('toolbar', { name: 'Grid' })).not.toHaveAttribute('aria-orientation');
+  });
+
+  it('ArrowDown/ArrowUp move one ROW (g0 <-> g3, g2 <-> g5) and the tab stop follows', () => {
+    render(<Grid />);
+    g(0).focus();
+    key(g(0), 'ArrowDown');
+    expect(g(3)).toHaveFocus();
+    expect(stops()).toEqual([g(3)]);
+    key(g(3), 'ArrowUp');
+    expect(g(0)).toHaveFocus();
+    g(2).focus();
+    key(g(2), 'ArrowDown');
+    expect(g(5)).toHaveFocus();
+  });
+
+  it('stops at the first and last row (no wrap), the key is still consumed, and Left/Right still wrap through the items', () => {
+    render(<Grid />);
+    g(4).focus();
+    const down = fireEvent.keyDown(g(4), { key: 'ArrowDown' });
+    expect(down).toBe(false); // preventDefault: the page does not scroll
+    expect(g(4)).toHaveFocus();
+    g(1).focus();
+    key(g(1), 'ArrowUp');
+    expect(g(1)).toHaveFocus();
+    g(5).focus();
+    key(g(5), 'ArrowRight');
+    expect(g(0)).toHaveFocus();
+  });
+
+  it('a natively disabled item in the target row is not entered', () => {
+    render(<Grid disabled={[3]} />);
+    g(0).focus();
+    key(g(0), 'ArrowDown');
+    expect(g(0)).toHaveFocus();
+  });
+
+  it('a one-axis toolbar still ignores Up/Down (no `columns`, no row step)', () => {
+    render(<Bar />);
+    const b0 = screen.getByRole('button', { name: 'b0' });
+    b0.focus();
+    key(b0, 'ArrowDown');
+    expect(b0).toHaveFocus();
+  });
+});
+
+describe('DiceTray — the dice are a 3x2 grid with row keys', () => {
+  it('ArrowDown from d4 lands on d10, ArrowUp returns; one source for the column count', () => {
+    render(<DiceTray onRoll={() => {}} />);
+    const die = (n: number) => screen.getByRole('button', { name: `Roll d${n}` });
+    die(4).focus();
+    key(die(4), 'ArrowDown');
+    expect(die(10)).toHaveFocus();
+    key(die(10), 'ArrowUp');
+    expect(die(4)).toHaveFocus();
+    const grid = screen.getByRole('toolbar', { name: 'Dice' });
+    expect(grid.style.getPropertyValue('--dice-columns')).toBe('3');
   });
 });

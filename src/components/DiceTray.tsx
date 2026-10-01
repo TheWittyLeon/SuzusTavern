@@ -56,6 +56,10 @@ function signed(n: number): string {
   return n >= 0 ? `+${n}` : `${n}`;
 }
 
+// Iro MINOR-2: the dice are a 3x2 grid; Up/Down step a row. One number drives
+// both the CSS columns and the hook's row step so they cannot drift.
+const DICE_COLUMNS = 3;
+
 export default function DiceTray({
   onRoll,
   quickChecks = [],
@@ -69,6 +73,7 @@ export default function DiceTray({
   const dice = useRovingToolbar({
     label: 'Dice',
     itemCount: DICE.length,
+    columns: DICE_COLUMNS,
   });
   const checks = useRovingToolbar({
     label: 'Quick checks',
@@ -91,7 +96,11 @@ export default function DiceTray({
   return (
     <div className={styles.tray}>
       <div className={styles.label}>Roll</div>
-      <div className={styles.diceGrid} {...dice.toolbarProps}>
+      <div
+        className={styles.diceGrid}
+        style={{ '--dice-columns': DICE_COLUMNS } as React.CSSProperties}
+        {...dice.toolbarProps}
+      >
         {DICE.map(({ sides, icon }, i) => (
           <button
             key={sides}
