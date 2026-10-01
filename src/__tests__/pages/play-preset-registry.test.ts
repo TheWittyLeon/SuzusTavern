@@ -464,8 +464,14 @@ describe('TAV-PLAY-SHELL presets.ts — every REGION_VARIANTS member is emitted 
 });
 
 describe('A9c C7 — a fold hides the region\'s own announcers (R3): every foldable announcer is listed with a reason (build brief 5.5)', () => {
-  const collapsibleSomewhere = (id: RegionId) =>
-    LAYOUT_ROWS.some((row) => MOMENTS.some((m) => getPlacement(row, id, m).collapsible === true));
+  const collapsibleIn = (rows: readonly LayoutRow[], id: RegionId) =>
+    rows.some((row) => MOMENTS.some((m) => getPlacement(row, id, m).collapsible === true));
+  const collapsibleSomewhere = (id: RegionId) => collapsibleIn(LAYOUT_ROWS, id);
+  /** THE guard: collapsible announcers (in `rows`) with no FOLDABLE_ANNOUNCERS entry. The
+   *  real assertion and the control below both call it (Kage A9c-1 S9: a control that
+   *  re-implemented the filter could stay green while the guard rotted). */
+  const unlistedFoldableAnnouncers = (rows: readonly LayoutRow[]) =>
+    REGION_IDS.filter((id) => ANNOUNCING_REGIONS.has(id) && collapsibleIn(rows, id) && !(id in FOLDABLE_ANNOUNCERS));
 
   it('FOLDABLE_REGIONS is exactly the regions collapsible in some row x moment (derived, never hand-listed)', () => {
     expect([...FOLDABLE_REGIONS].sort()).toEqual(REGION_IDS.filter(collapsibleSomewhere).sort());
@@ -473,6 +479,7 @@ describe('A9c C7 — a fold hides the region\'s own announcers (R3): every folda
   });
 
   it('every collapsible ANNOUNCING region has a non-empty FOLDABLE_ANNOUNCERS reason, and no entry is stale', () => {
+    expect(unlistedFoldableAnnouncers(LAYOUT_ROWS)).toEqual([]);
     const needing = REGION_IDS.filter((id) => ANNOUNCING_REGIONS.has(id) && collapsibleSomewhere(id));
     for (const id of needing) {
       expect({ id, reason: (FOLDABLE_ANNOUNCERS[id] ?? '').length > 0 }).toEqual({ id, reason: true });
@@ -488,11 +495,7 @@ describe('A9c C7 — a fold hides the region\'s own announcers (R3): every folda
         storyLog: { default: { area: 'storyLog', collapsible: true } },
       },
     } as LayoutRow;
-    const collapsible = REGION_IDS.filter((id) =>
-      MOMENTS.some((m) => getPlacement(mutated, id, m).collapsible === true),
-    );
-    const unlisted = collapsible.filter((id) => ANNOUNCING_REGIONS.has(id) && !(id in FOLDABLE_ANNOUNCERS));
-    expect(unlisted).toEqual(['storyLog']);
+    expect(unlistedFoldableAnnouncers([mutated])).toEqual(['storyLog']);
   });
 
   it('characterBlock no longer has a \'rail\' variant: the fold is the shell\'s mechanism, not a second one (Amendment C.4)', () => {
