@@ -198,3 +198,63 @@
   white-space: nowrap;
   border: 0;
 }
+
+/* ── A9c-2 D1: the two presentations of `partyStrip` (root carries `.rail` or
+   `.strip` plus `data-variant`; unset = the original block above). ── */
+
+/* rail: at 160-200px the right-hand AC + INIT column left the name one
+   character ("K"). The name takes the line, AC and INIT sit under the bar. */
+.rail {
+  margin-top: 12px;
+}
+
+.rail .entry {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  align-items: start;
+}
+
+.rail .dot {
+  grid-row: 1 / span 2;
+}
+
+.rail .nameBlock {
+  grid-column: 2;
+}
+
+.rail .name {
+  display: block;
+}
+
+.rail .rightCol {
+  grid-column: 2;
+  margin-top: 0;
+}
+
+/* strip: entries as a wrapped row of chips, in turn order. */
+.strip {
+  margin-top: 6px;
+  padding: 6px;
+}
+
+.strip .list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.strip .entry {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 8px;
+  align-items: center;
+}
+
+.strip .entry:last-child {
+  border-bottom: 1px solid var(--line);
+}
+
+.strip .nameBlock {
+  min-width: 48px;
+}

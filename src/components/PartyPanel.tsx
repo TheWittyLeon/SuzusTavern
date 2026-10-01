@@ -23,7 +23,20 @@
  * so the caller (the play page) can open the sheet in an inline drawer
  * instead. A member with no character stays non-interactive, exactly as
  * before.
+ *
+ * A9c-2 D1 (build brief 6, Iro IMPORTANT-1): `variant` is `partyStrip`'s own
+ * registry union. Unset = the original card (every pre-D1 caller and test).
+ *   - `rail`: a narrow column (Table, Story combat). Avatar and live numbers
+ *     share the first line, then the name on its OWN line at the rail's full
+ *     width (`data-party-name`, ellipsis), a thin HP bar, the badge row.
+ *   - `strip`: a header band (Story exploring, Phone). One avatar row with an
+ *     HP bar under each; every word (name, class, numbers, badges) stays in
+ *     the DOM for assistive tech but is visually hidden, and the tile carries
+ *     the name as its `title`.
+ * Same markup, one component, two presentations: the CSS keys on the root's
+ * `data-variant`.
  */
+import type { RegionVariant } from '@/app/play/[sessionId]/variants';
 import type { CombatState, Participant } from '@/lib/api/types';
 import styles from './PartyPanel.module.css';
 
@@ -36,6 +49,8 @@ export interface PartyPanelProps {
   /** TAV-PARTY-INLINE-SHEET: called with a member's participant when their
    *  card is clicked (only fires for members who have a character). */
   onSelectMember?: (participant: Participant) => void;
+  /** `partyStrip`'s registry union (A9c-2 D1). Unset = the original card. */
+  variant?: RegionVariant<'partyStrip'>;
 }
 
 function hpColor(ratio: number): string {
@@ -50,6 +65,7 @@ export default function PartyPanel({
   loading = false,
   combatState = null,
   onSelectMember,
+  variant,
 }: PartyPanelProps) {
   const self = (selfUsername ?? '').toLowerCase();
 
@@ -77,7 +93,7 @@ export default function PartyPanel({
   }
 
   return (
-    <div>
+    <div className={variant ? styles[variant] : undefined} data-variant={variant}>
       <div className={styles.label} id="party-panel-label">
         Party · {participants.length}
       </div>
@@ -98,13 +114,18 @@ export default function PartyPanel({
           const isDowned = liveHp?.isDowned ?? false;
           const ratio = hp != null && max != null && max > 0 ? hp / max : 1;
           const display = (
-            <div className={you ? `${styles.member} ${styles.you}` : styles.member}>
+            <div
+              className={you ? `${styles.member} ${styles.you}` : styles.member}
+              title={variant === 'strip' ? (c?.name ?? p.username) : undefined}
+            >
               <div className={styles.avatar} aria-hidden>
                 {(c?.name ?? p.username).charAt(0).toUpperCase()}
               </div>
               <div className={styles.body}>
                 <div className={styles.nameRow}>
-                  <span className={styles.name}>{c?.name ?? p.username}</span>
+                  <span className={styles.name} data-party-name={variant === 'rail' ? '' : undefined}>
+                    {c?.name ?? p.username}
+                  </span>
                 </div>
                 {/* UIR2-TAV-23: badges moved off the name row onto their own
                     line so a short-but-not-tiny name (e.g. 6 chars) never

@@ -4,6 +4,7 @@ import type { CombatState, Participant } from '@/lib/api/types';
 import PartyPanel from '@/components/PartyPanel';
 import InitiativeTracker from '@/components/InitiativeTracker';
 import RebindCharacterButton from '@/components/RebindCharacterButton';
+import type { RegionVariant } from '../variants';
 import styles from '../Play.module.css';
 
 /**
@@ -15,6 +16,13 @@ import styles from '../Play.module.css';
  * content above it, TopBar's eventual home) stays in page.tsx for now,
  * since no single region owns the whole landmark yet; this is the party
  * roster's own content, placed inside it.
+ *
+ * A9c-2 D1 (build brief 6): consumes its `variant` (the registry's union, not
+ * a hand-written copy). `rail` and `strip` are two presentations of the same
+ * three children, which stay mounted either way (InitiativeTracker holds two
+ * live regions, R3). The rebind row follows: per-member rows in a rail; one
+ * compact button per member in a strip, the name kept only for the DM, who
+ * rebinds other members and needs to tell the buttons apart.
  */
 export interface PartyStripProps {
   participants: Participant[];
@@ -28,6 +36,7 @@ export interface PartyStripProps {
   onRebindChanged: () => void;
   round: number | null;
   selfPcId: string | null;
+  variant?: RegionVariant<'partyStrip'>;
 }
 
 export default function PartyStrip({
@@ -42,10 +51,12 @@ export default function PartyStrip({
   onRebindChanged,
   round,
   selfPcId,
+  variant = 'rail',
 }: PartyStripProps) {
   return (
-    <div data-region="partyStrip">
+    <div data-region="partyStrip" data-variant={variant}>
       <PartyPanel
+        variant={variant}
         participants={participants}
         selfUsername={selfUsername}
         combatState={combatState}
@@ -54,14 +65,16 @@ export default function PartyStrip({
       {/* B2-4: rebind affordances — one "Change character" button per party
           row. Self sees their own row's button always; DM sees all rows. */}
       {participants.length > 0 && (
-        <div className={styles.rebindSection}>
+        <div className={variant === 'strip' ? `${styles.rebindSection} ${styles.rebindStrip}` : styles.rebindSection}>
           {participants.map((p) => {
             // Non-DM players only see the button on their own row.
             const isSelf = p.username.toLowerCase() === (selfUsername ?? '').toLowerCase();
             if (!isSelf && !isDm) return null;
             return (
               <div key={p.username} className={styles.rebindRow}>
-                <span className={styles.rebindName}>{p.character?.name ?? p.username}</span>
+                <span className={variant === 'strip' && !isDm ? 'sr-only' : styles.rebindName}>
+                  {p.character?.name ?? p.username}
+                </span>
                 <RebindCharacterButton
                   sessionId={sessionId}
                   targetUsername={p.username}
@@ -86,6 +99,7 @@ export default function PartyStrip({
           participants={combatState.participants}
           round={round}
           selfParticipantId={selfPcId}
+          variant={variant}
         />
       ) : null}
     </div>

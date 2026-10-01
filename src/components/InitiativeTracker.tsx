@@ -18,8 +18,15 @@
  * via ConditionChipList — this is the ALL-CLIENTS visibility surface for
  * conditions (fed by the same combat-state poll as everything else here); the
  * DM-only apply/remove controls live in ConditionsPanel, mounted separately.
+ *
+ * A9c-2 D1: `variant` is `partyStrip`'s registry union. Unset = the original
+ * block. `rail` stacks each entry compactly (the name on its own line at the
+ * rail's full width, then the bar, then AC and INIT); `strip` lays the entries out as a
+ * wrapped row of chips. Both stay MOUNTED and visible with both live regions
+ * (R3); it is the only foe-HP display until the stage band exists.
  */
 import ConditionChipList from '@/components/ConditionChipList';
+import type { RegionVariant } from '@/app/play/[sessionId]/variants';
 import type { CombatParticipantState } from '@/lib/api/types';
 import styles from './InitiativeTracker.module.css';
 
@@ -41,6 +48,7 @@ export interface InitiativeTrackerStructuredProps {
   selfParticipantId?: string | null;
   // Discriminant so TypeScript resolves the union unambiguously.
   entries?: never;
+  variant?: RegionVariant<'partyStrip'>;
 }
 
 // ── Legacy props (client-built shim) ─────────────────────────────────────────
@@ -50,6 +58,7 @@ export interface InitiativeTrackerLegacyProps {
   /** Index of the entry whose turn it is, or null if unknown. */
   currentIndex?: number | null;
   participants?: never;
+  variant?: RegionVariant<'partyStrip'>;
 }
 
 export type InitiativeTrackerProps =
@@ -68,11 +77,12 @@ function StructuredTracker({
   participants,
   round,
   selfParticipantId,
+  variant,
 }: InitiativeTrackerStructuredProps) {
   if (participants.length === 0) return null;
 
   return (
-    <div className={styles.wrap}>
+    <div className={variant ? `${styles.wrap} ${styles[variant]}` : styles.wrap} data-variant={variant}>
       <div className={styles.head}>
         <span className={styles.label} id="initiative-label">
           Initiative
@@ -226,10 +236,11 @@ function LegacyTracker({
   entries,
   round,
   currentIndex = null,
+  variant,
 }: InitiativeTrackerLegacyProps) {
   if (entries.length === 0) return null;
   return (
-    <div className={styles.wrap}>
+    <div className={variant ? `${styles.wrap} ${styles[variant]}` : styles.wrap} data-variant={variant}>
       <div className={styles.head}>
         <span className={styles.label} id="initiative-label">
           Initiative

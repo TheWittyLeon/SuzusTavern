@@ -79,6 +79,7 @@ import { getPlacement, variantFor, type Moment, type RegionId, type TenantId } f
 import { buildReadAloudBlock, scanXCardTracking } from './format';
 import { useSessionLifecycle } from './hooks/useSessionLifecycle';
 import { useMyCharacter } from './hooks/useMyCharacter';
+import { useRebindRefresh } from './hooks/useRebindRefresh';
 import { useSafety } from './hooks/useSafety';
 import { useTranscript } from './hooks/useTranscript';
 import { useCombatState } from './hooks/useCombatState';
@@ -212,6 +213,7 @@ export default function PlayPage() {
   // stays in page.tsx unchanged, same identifiers via destructuring.
   const { myCharacterIdStr, setMyCharacterIdStr, mySheet, setMySheet, noCharToastFiredRef } =
     useMyCharacter();
+  const onRebindChanged = useRebindRefresh({ sessionId, username, setParticipants, setMyCharacterIdStr, setMySheet });
 
   // TAV-PLAY-SHELL step 5, hook 3 of ~9: the DDX-26 X-card safety signal.
   // The unified events poll's several setXCardEvent/setLatestNarrationSeq
@@ -1501,6 +1503,7 @@ export default function PlayPage() {
         />
         <PartyStrip
           participants={participants}
+          variant={variantFor(row, 'partyStrip', moment)}
           selfUsername={username}
           combatState={combatState}
           onSelectMember={memberSheetDrawer.onSelectMember}
@@ -1508,43 +1511,7 @@ export default function PlayPage() {
           sessionId={sessionId}
           combatIsActive={combatIsActive}
           sessionLocked={sessionLocked}
-          onRebindChanged={() => {
-            void (async () => {
-              // Kage T-IMP-1: `session` does not need re-fetching here. The
-              // engine reads campaign_members fresh on each combat action,
-              // so only the participants list (for party panel display) and
-              // myCharacterIdStr (for per-user turn resolution) need to be
-              // refreshed.
-              const updated = await getParticipants(sessionId).catch(() => null);
-              if (updated) {
-                setParticipants(updated);
-                const self = updated.find(
-                  (q) => q.username.toLowerCase() === (username ?? '').toLowerCase(),
-                );
-                const newCharId =
-                  self?.character?.character_id != null
-                    ? String(self.character.character_id)
-                    : null;
-                setMyCharacterIdStr(newCharId);
-                // Miko additional: mySheet was left stale on rebind — it's
-                // populated once on load and only otherwise refreshed by
-                // CastSpellPanel's own onSheetChanged after a cast. Without
-                // refetching here, a rebind to a DIFFERENT character
-                // out-of-combat leaves mySheet (spell_slots etc.) pointing
-                // at the PREVIOUS character until some unrelated mutation
-                // happens to refresh it. Refetch via the same
-                // getCharacterSheet call the load path uses.
-                if (newCharId) {
-                  const sheet = await getCharacterSheet(newCharId, username ?? '').catch(
-                    () => null,
-                  );
-                  setMySheet(sheet);
-                } else {
-                  setMySheet(null);
-                }
-              }
-            })();
-          }}
+          onRebindChanged={onRebindChanged}
           round={round}
           selfPcId={selfPcId}
         />

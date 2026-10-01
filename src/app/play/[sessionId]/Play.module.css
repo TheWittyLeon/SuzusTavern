@@ -751,6 +751,19 @@
   white-space: nowrap;
 }
 
+/* A9c-2 D1: the strip's rebind buttons sit in a row after the avatars. */
+.rebindStrip {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.rebindStrip .rebindRow {
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 0;
+}
+
 /* ── B3-1: outcome chooser ── */
 .outcomeChooser {
   margin-top: -8px;
