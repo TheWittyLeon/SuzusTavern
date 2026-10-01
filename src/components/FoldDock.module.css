@@ -40,6 +40,9 @@
   position: absolute;
   inset-block-start: 0;
   inset-inline-end: 0;
+  /* It precedes the panel in the DOM, so a positioned descendant of the panel
+     would paint over it without this. */
+  z-index: 1;
 }
 
 .handle:hover {

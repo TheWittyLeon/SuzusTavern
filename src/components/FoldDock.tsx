@@ -8,7 +8,11 @@ import styles from './FoldDock.module.css';
  * R20's foldable dock (TAV-PLAY-SHELL; A9b fix round 1, rebuilt A9c C7 as a
  * DISCLOSURE) — a region whose preset placement is `collapsible: true`.
  *
- * ONE handle button, present in both states, is the whole control:
+ * ONE handle button, present in both states, is the whole control. It comes
+ * BEFORE the panel in the DOM (a disclosure's trigger precedes what it
+ * discloses: a keyboard user reaches it without tabbing through the whole
+ * sheet or stage first); when open it floats over the panel's corner by
+ * absolute positioning, so the visual is unchanged.
  * `aria-label` is the stable `label` ("Character sheet"), `aria-expanded`
  * says which state it is in, `aria-controls` names the panel, and `title`
  * says what a press does ("Fold …" / "Open …"). It is the same DOM node in
@@ -60,15 +64,6 @@ export default function FoldDock({
   const isFolded = foldable && folded;
   return (
     <div className={styles.dock} data-foldable={foldable} data-folded={isFolded}>
-      <div
-        id={panelId}
-        className={styles.panel}
-        hidden={isFolded}
-        role={foldable && labelledBy ? 'region' : undefined}
-        aria-labelledby={foldable ? labelledBy : undefined}
-      >
-        {children}
-      </div>
       {foldable && (
         <button
           type="button"
@@ -82,6 +77,15 @@ export default function FoldDock({
           <Icon name={icon} size={18} aria-hidden />
         </button>
       )}
+      <div
+        id={panelId}
+        className={styles.panel}
+        hidden={isFolded}
+        role={foldable && labelledBy ? 'region' : undefined}
+        aria-labelledby={foldable ? labelledBy : undefined}
+      >
+        {children}
+      </div>
     </div>
   );
 }

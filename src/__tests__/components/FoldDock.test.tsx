@@ -25,6 +25,16 @@ describe('FoldDock', () => {
     expect(screen.getAllByRole('button')).toHaveLength(1);
   });
 
+  it('the handle precedes the panel in the DOM, open and folded (Kage 4 / Iro MINOR-1)', () => {
+    const { rerender, ui } = dock();
+    for (const folded of [false, true]) {
+      rerender(ui({ folded }));
+      const handle = screen.getByRole('button', { name: 'Character sheet' });
+      const panel = document.getElementById(handle.getAttribute('aria-controls') as string) as HTMLElement;
+      expect(handle.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  });
+
   it('folded: the SAME handle node says Open, the children stay mounted but hidden', () => {
     const { rerender, ui } = dock();
     const handle = screen.getByRole('button', { name: 'Character sheet' });
