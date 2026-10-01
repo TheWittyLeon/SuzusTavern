@@ -78,8 +78,14 @@ const REGION_ROWS: Record<string, Set<string>> = {
   'Offers.tsx': new Set(['offers']),
   'StoryLog.tsx': new Set(['storyLog']),
   'TableControls.tsx': new Set(['tableControlsSession', 'tableControlsDm']),
-  'TopBar.tsx': new Set(['topBarSession', 'topBarStatus']),
+  // TAV-PLAY-SHELL step 6b, commit C4: TopBar merges SessionHead + TopBar
+  // into ONE region (build brief §6.8) — the `until:` on step 3's debt:
+  // marker fires here.
+  'TopBar.tsx': new Set(['topBar']),
   'ActionBar.tsx': new Set(['actionBar']),
+  // TAV-PLAY-SHELL step 6b, commit C4: SuzuPresence extracted from
+  // NarratorStrip (build brief §6.8) — a new region file.
+  'SuzuPresence.tsx': new Set(['suzuPresence']),
 };
 
 describe('TAV-PLAY-SHELL data-region contract', () => {
@@ -133,17 +139,21 @@ describe('TAV-PLAY-SHELL data-region contract', () => {
     });
   });
 
-  describe('I4 — TopBar: the NarratorStrip/aiOffStatus ternary shares one id on purpose (historical regression pin, exact shape of the defect the review found)', () => {
+  describe('C4 — TopBar: the SessionHead/TopBar two-export split retires, ONE region owns both pieces (build brief §6.8; rewrites the old I4 pin below, same commit as the merge, per the brief\'s one named exception)', () => {
     const src = readRegion(`${REGIONS_DIR}/TopBar.tsx`);
 
-    it('the NarratorStrip call and the aiOffStatus fallback both carry data-region="topBarStatus" (mutually exclusive branches of one ternary — exactly 2 occurrences, not 1)', () => {
-      expect(countOccurrences(src, 'data-region="topBarStatus"')).toBe(2);
+    it('carries data-region="topBar" exactly once (ONE root now, not two independently-gated nodes)', () => {
+      expect(countOccurrences(src, 'data-region="topBar"')).toBe(1);
     });
 
-    it('NarratorStrip itself accepts the passthrough (I4)', () => {
+    it('the old split values no longer appear anywhere in the file (exact match — "topBar" is a substring of both, so a plain .toContain would false-fail)', () => {
+      expect(src).not.toMatch(/data-region="topBarSession"/);
+      expect(src).not.toMatch(/data-region="topBarStatus"/);
+    });
+
+    it('NarratorStrip no longer renders SuzuDM internally (moved to regions/SuzuPresence.tsx) and no longer needs the data-region passthrough (TopBar carries it on its own outer root now)', () => {
       const narratorSrc = readRegion('src/components/NarratorStrip.tsx');
-      expect(narratorSrc).toMatch(/'data-region'\?\s*:\s*string/);
-      expect(narratorSrc).toMatch(/data-region=\{dataRegion\}/);
+      expect(narratorSrc).not.toMatch(/<SuzuDM/);
     });
   });
 

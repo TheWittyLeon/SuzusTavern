@@ -79,6 +79,13 @@ const SCANNED_FILES = [
   // R7 rule: "update SCANNED_FILES in the same PR as every extraction",
   // same reason SceneStage.tsx/TableControls.tsx were added at step 3.
   'src/app/play/[sessionId]/regions/ActionBar.tsx',
+  // TAV-PLAY-SHELL step 6b, build brief §6.9 (R7): the new shell + tenant
+  // files, added in the commit that creates them. None has an overlay of
+  // its own today — see VACUITY_CHECK_EXEMPT below — but a future one
+  // added directly here must still be caught.
+  'src/app/play/[sessionId]/PlayShell.tsx',
+  'src/app/play/[sessionId]/tenants/StatusAnnouncers.tsx',
+  'src/app/play/[sessionId]/tenants/CastSpellTenant.tsx',
 ];
 
 /**
@@ -109,6 +116,15 @@ const SCANNED_FILES = [
 const VACUITY_CHECK_EXEMPT = new Set([
   'src/app/play/[sessionId]/page.tsx',
   'src/components/Composer.tsx',
+  // TAV-PLAY-SHELL step 6b, build brief §6.9 (R7): placement/wiring only —
+  // no overlay of its own. PlayShell dispatches on `layer`/`host`/`area`
+  // but never handles Escape itself (that stays each overlay's own
+  // concern, e.g. SceneStage.tsx's outcome chooser, ActionBar.tsx's
+  // target menu); the two tenant files are thin prop-forwarding wrappers
+  // around existing, already-scanned components.
+  'src/app/play/[sessionId]/PlayShell.tsx',
+  'src/app/play/[sessionId]/tenants/StatusAnnouncers.tsx',
+  'src/app/play/[sessionId]/tenants/CastSpellTenant.tsx',
 ]);
 
 const ESCAPE_COMPARISON_RE = /key\s*(===|!==)\s*'Escape'/g;

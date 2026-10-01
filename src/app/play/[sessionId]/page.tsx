@@ -36,7 +36,7 @@
  * "previously on" narration call off session-object identity and re-firing
  * it every ~4s indefinitely — see the poll's own comment and SessionRecap.tsx.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth/AuthProvider';
@@ -71,7 +71,10 @@ import PartyStrip from './regions/PartyStrip';
 import SceneStage from './regions/SceneStage';
 import Offers from './regions/Offers';
 import StoryLog from './regions/StoryLog';
-import { SessionHead, TopBar } from './regions/TopBar';
+import TopBar from './regions/TopBar';
+import SuzuPresence from './regions/SuzuPresence';
+import PlayShell from './PlayShell';
+import { getPlacement, type Moment, type RegionId, type TenantId } from './presets';
 import { buildReadAloudBlock, scanXCardTracking } from './format';
 import { useSessionLifecycle } from './hooks/useSessionLifecycle';
 import { useMyCharacter } from './hooks/useMyCharacter';
@@ -87,6 +90,7 @@ import { useSessionEvents } from './hooks/useSessionEvents';
 import { useMemberSheetDrawer } from './hooks/useMemberSheetDrawer';
 import { useJournalDrawer, type MobileView } from './hooks/useJournalDrawer';
 import { useFocusAnchors } from './hooks/useFocusAnchors';
+import { usePlayLayout } from './hooks/usePlayLayout';
 import JournalPane, { JOURNAL_HEADING_ID } from '@/components/JournalPane';
 import MemberSheetPanel, { MEMBER_SHEET_HEADING_ID } from '@/components/MemberSheetPanel';
 import NextPartOffer from '@/components/NextPartOffer';
@@ -1279,6 +1283,15 @@ export default function PlayPage() {
   // refocusSceneHeadIfStranded's provenance flag, restore toward the
   // composer/ChatLog on the falling edge, and pin it with a test.
 
+  // TAV-PLAY-SHELL step 6b, commit C4 (build brief §6.2): resolves the
+  // layout PRESET (not just its id) for the current moment. `moment` is
+  // `combatIsActive ? 'combat' : 'exploring'` per usePlayLayout's own
+  // contract (Amendment A §A.1: combatIsActive, never combatEngaged).
+  // `row` is read downstream, in the JSX below, by the regions/tenants
+  // maps `<PlayShell>` renders from.
+  const moment: Moment = combatIsActive ? 'combat' : 'exploring';
+  const { row } = usePlayLayout(moment);
+
   // ── auth gate (UIR2-TAV-3) ──────────────────────────────────────────────────
   // A SEPARATE, earlier guard from the session `state` machine below — this
   // page never had ANY auth gate before, so it rendered its play UI (and the
@@ -1391,56 +1404,40 @@ export default function PlayPage() {
 
   // selfPcId now comes from useCombatState's destructure above.
 
-  return (
-    <div id="main-content" className={`${styles.grid} ${mobileClass}`}>
-      {/* mobile tab bar */}
-      <div className={styles.mobileTabs} role="group" aria-label="Play view">
-        <button
-          type="button"
-          className={mobileView === 'log' ? styles.tabOn : undefined}
-          aria-pressed={mobileView === 'log'}
-          aria-controls="play-pane-story"
-          onClick={() => setMobileView('log')}
-        >
-          <Icon name="Chat" size={13} aria-hidden /> Story
-        </button>
-        <button
-          type="button"
-          className={mobileView === 'party' ? styles.tabOn : undefined}
-          aria-pressed={mobileView === 'party'}
-          aria-controls="play-pane-party"
-          onClick={() => setMobileView('party')}
-        >
-          <Icon name="Users" size={13} aria-hidden /> Party
-        </button>
-        <button
-          type="button"
-          className={mobileView === 'scene' ? styles.tabOn : undefined}
-          aria-pressed={mobileView === 'scene'}
-          aria-controls="play-pane-scene"
-          onClick={() => setMobileView('scene')}
-        >
-          <Icon name="Map" size={13} aria-hidden /> Scene
-        </button>
-        {/* DDX-22: 4th mobile tab — joins the existing group exactly like the
-            three above (same aria-pressed/aria-controls/44px-target shape). */}
-        <button
-          type="button"
-          className={mobileView === 'journal' ? styles.tabOn : undefined}
-          aria-pressed={mobileView === 'journal'}
-          aria-controls={journalDrawer.id}
-          onClick={() => setMobileView('journal')}
-        >
-          <Icon name="Lantern" size={13} aria-hidden /> Journal
-        </button>
-      </div>
+  // TAV-PLAY-SHELL step 6b, commit C4 (build brief §6.5) — `characterBlock`
+  // is `layer:true` in story/phone (routed through the existing member-sheet
+  // `<Drawer>`, unchanged) but grid-placed with NO layer in table (R20's
+  // docked rail). `MemberSheetPanel` is a documented singleton on this page
+  // ("never rendered twice at once") sharing one fixed heading id
+  // (`MEMBER_SHEET_HEADING_ID`) — rendering it BOTH inside the Drawer AND
+  // docked in the table rail simultaneously would violate that and duplicate
+  // the id. The two renders are therefore mutually exclusive on this one
+  // flag, which the row itself decides.
+  const characterBlockIsLayer = getPlacement(row, 'characterBlock', moment).layer === true;
+  const memberSheetPanelNode = (
+    <MemberSheetPanel
+      sheet={memberSheetDrawer.selectedMemberSheet}
+      loading={memberSheetDrawer.memberSheetLoading}
+      error={memberSheetDrawer.memberSheetError}
+      memberName={memberSheetDrawer.selectedMemberName}
+      isSelf={memberSheetDrawer.selectedMemberIsSelf}
+      onClose={memberSheetDrawer.onClose}
+      closeButtonRef={memberSheetDrawer.closeButtonRef}
+    />
+  );
 
-      {/* TAV-PLAY-SHELL step 3: region extracted verbatim to
-          regions/SafetyBanner.tsx — see its own doc comment for the DDX-26/
-          Iro CRITICAL-1/MAJOR-1/MAJOR-2 history (hoisted here as a sibling
-          of .mobileTabs, own "banner" grid-area, permanently mounted,
-          stable refocus anchor). State/refs/the refocus-before-unmount
-          sequencing all stay here in page.tsx. */}
+  const suzuPresenceVariant = getPlacement(row, 'suzuPresence', moment).variant as
+    | 'compact'
+    | 'full'
+    | undefined;
+
+  // TAV-PLAY-SHELL step 6b, commit C4 (build brief §6.2–§6.4) — `regions`/
+  // `tenants` are the only two things `<PlayShell>` knows: `RegionId ->
+  // ReactNode` and `TenantId -> ReactNode`. Built here, where every piece's
+  // own data/handlers already live; the shell itself never imports a region
+  // component. The tenth region is one presets.ts row + one entry here.
+  const regions: Partial<Record<RegionId, ReactNode>> = {
+    safetyBanner: (
       <SafetyBanner
         active={xCardActive}
         event={xCardEvent}
@@ -1454,28 +1451,32 @@ export default function PlayPage() {
           if (xCardEvent) setDismissedXCardSeq(xCardEvent.seq);
         }}
       />
-
-      {/* LEFT — party + initiative */}
-      {/* TAV-PLAY-LANDMARKS: stable landmark name so AT landmark navigation
-          announces "Party and initiative, complementary" instead of a bare
-          "complementary". */}
-      <aside
-        id="play-pane-party"
-        className={`${styles.pane} ${styles.left}`}
-        aria-label="Party and initiative"
-      >
-        {/* TAV-PLAY-SHELL step 3: region extracted verbatim to
-            regions/TopBar.tsx's SessionHead export. */}
-        <SessionHead
-          title={title}
-          journalOpen={journalDrawer.open}
-          onToggleJournal={() => journalDrawer.setOpen((v) => !v)}
-          paneId={journalDrawer.id}
-        />
-        {/* TAV-PLAY-SHELL step 3: region extracted verbatim to
-            regions/TableControls.tsx's SessionControls export (DDX-25 DM-only
-            session lifecycle controls + GrantCurrencyPanel + CampaignFloorPanel).
-            State/refs/handlers stay in page.tsx. */}
+    ),
+    topBar: (
+      <TopBar
+        title={title}
+        journalOpen={journalDrawer.open}
+        onToggleJournal={() => journalDrawer.setOpen((v) => !v)}
+        paneId={journalDrawer.id}
+        showSuzuPanel={showSuzuPanel}
+        talking={talking}
+        sceneName={grounding?.scene_name ?? null}
+        objective={grounding?.objective ?? null}
+        combatActive={combatIsActive}
+        round={round}
+        turnStatusText={turnStatusText}
+        initiativeOrder={narratorInitiativeOrder}
+        status={narratorStatusPill}
+        statusPill={statusPill}
+      />
+    ),
+    partyStrip: (
+      <>
+        {/*
+          debt: tableControls is layer:true in every row (D1) but renders in flow, as two tenants of the party and story slots — step 10's dismissible layer and its trigger do not exist yet, and a closed overlay would take the DM's session controls away.
+          ceiling: exactly these two nodes; a THIRD in-flow layer tenant is the finding.
+          until: step 10 lands TableControls as a real layer (plan §5 step 10, D1) — then both nodes leave this call site and the row's layer:true becomes their only placement.
+        */}
         <SessionControls
           isDm={isDm}
           sessionActionBusy={sessionActionBusy}
@@ -1505,9 +1506,6 @@ export default function PlayPage() {
               });
           }}
         />
-        {/* TAV-PLAY-SHELL step 3: region extracted verbatim to
-            regions/PartyStrip.tsx (PartyPanel + rebind affordances +
-            InitiativeTracker, decomposition plan §2.3 "survives as-is"). */}
         <PartyStrip
           participants={participants}
           selfUsername={username}
@@ -1557,29 +1555,16 @@ export default function PlayPage() {
           round={round}
           selfPcId={selfPcId}
         />
-      </aside>
-
-      {/* CENTRE — narrator + log + composer */}
-      <main id="play-pane-story" className={`${styles.pane} ${styles.center}`}>
-        {/* TAV-PLAY-SHELL step 3: region extracted verbatim to
-            regions/TopBar.tsx's TopBar export (S5.5 NarratorStrip / aiOffStatus
-            fallback). */}
-        <TopBar
-          showSuzuPanel={showSuzuPanel}
-          talking={talking}
-          sceneName={grounding?.scene_name ?? null}
-          objective={grounding?.objective ?? null}
-          combatActive={combatIsActive}
-          round={round}
-          turnStatusText={turnStatusText}
-          initiativeOrder={narratorInitiativeOrder}
-          status={narratorStatusPill}
-          statusPill={statusPill}
-        />
-        {/* TAV-PLAY-SHELL step 6b, commit C2: the five status-tenant divs
-            below are extracted verbatim to tenants/StatusAnnouncers.tsx
-            (Amendment B.4, S6) — state/refs/handlers stay in page.tsx. */}
-        <SessionRecapTenant session={session} username={username} />
+      </>
+    ),
+    // Build brief §5 S-d: table.characterBlock.variant='full' has no
+    // implementation until step 7 — correct for the contract (R21 is the
+    // end state), not a bug. Rendered only when NOT a layer (table); the
+    // Drawer (in `layers` below) renders it when it IS a layer (story/phone).
+    characterBlock: !characterBlockIsLayer ? memberSheetPanelNode : undefined,
+    suzuPresence: <SuzuPresence variant={suzuPresenceVariant} talking={talking} />,
+    storyLog: (
+      <>
         <StoryLog
           ref={chatLogRef}
           rows={log}
@@ -1587,17 +1572,8 @@ export default function PlayPage() {
           thinkingLabel={resumeThinking ? "Resuming Suzu's turn…" : undefined}
           participants={participants}
         />
-        <SessionPausedEndedTenant isEnded={isEnded} isPaused={isPaused} />
-        <TurnStatusTenant
-          combatIsActive={combatIsActive}
-          activeIsMine={activeIsMine}
-          turnStatusText={turnStatusText}
-        />
-        <DeadStatusTenant combatIsActive={combatIsActive} isMyPcDead={isMyPcDead} />
-        {/* TAV-PLAY-SHELL step 3: region extracted verbatim to
-            regions/TableControls.tsx's DmCombatControls export (Tora MAJOR-1
-            DM-side combat controls: DmNarrationPanel + ConditionsPanel).
-            State/refs/handlers stay in page.tsx. */}
+        {/* debt: see the identical marker on `regions.partyStrip` above —
+           this is the second of the two in-flow layer tenants it names. */}
         <DmCombatControls
           isHumanDM={isHumanDM}
           combatIsActive={combatIsActive}
@@ -1627,308 +1603,340 @@ export default function PlayPage() {
           sessionLocked={sessionLocked}
           onCombatBusyChange={setCombatBusy}
         />
-        {/* TAV-PLAY-SHELL step 6b, commit C2: region extracted verbatim to
-            tenants/CastSpellTenant.tsx (Amendment B.4, S6, build brief
-            §6.7 carry (a)). State/handlers stay in page.tsx. */}
-        <CastSpellTenant
-          isDmPlayingOwnPc={isDmPlayingOwnPc}
-          isHumanDM={isHumanDM}
-          combatIsActive={combatIsActive}
-          combatState={combatState}
-          combatId={combatId}
-          myCharacterIdStr={myCharacterIdStr}
-          mySheet={mySheet}
-          username={username}
-          isPlayerTurn={isPlayerTurn}
-          combatBusy={combatBusy}
-          sessionLocked={sessionLocked}
-          onCast={(text) => appendLog({ who: username ?? 'you', kind: 'system', text })}
-          onSheetChanged={setMySheet}
-          onStateRefresh={() => {
-            if (!combatId) return;
-            void (async () => {
-              const cs = await getCombatState(combatId).catch(() => null);
-              if (cs) {
-                stateSeqRef.current += 1;
-                setCombatState(cs);
-              }
-            })();
-          }}
-          onBusyChange={setCombatBusy}
-        />
-        {/* TAV-PLAY-SHELL step 6b, commit C2: region extracted verbatim to
-            tenants/StatusAnnouncers.tsx's DurableRetryRowTenant export
-            (Amendment B.4, S6). State/refs/handlers stay in page.tsx. */}
-        <DurableRetryRowTenant
-          durableRetryRowRef={durableRetryRowRef}
-          jobFailed={jobFailed}
-          onRetryFailedTurn={onRetryFailedTurn}
-        />
-        <Composer
-          value={msg}
-          onChange={setMsg}
-          mode={mode}
-          onMode={(m) => {
-            setMode(m);
-            // Clear any pending DM narration error when the DM switches modes.
-            if (m !== 'dm_narration') setDmNarrationError(null);
-          }}
-          onSend={onSend}
-          // DDX-25: a paused/ended session shouldn't accept turns — extend the
-          // existing `talking` disabled-gate rather than inventing a new one.
-          disabled={talking || sessionLocked}
-          // TAV-PLAY-INPUT-LOCK-NO-FEEDBACK (2026-08-01): say WHY the input is
-          // inert. Order matters — a locked session stays locked through a
-          // narration beat, so the lock reason wins over the transient one.
-          disabledReason={
-            isEnded
-              ? 'This session has ended.'
-              : isPaused
-                ? 'Session is paused.'
-                : talking
-                  ? 'Suzu is narrating — one moment…'
-                  : null
-          }
-          availableModes={composerModes}
-          pending={dmNarrationPending}
-          sendError={mode === 'dm_narration' ? dmNarrationError : null}
-          textareaAnchorRef={composerTextareaAnchorRef}
-        />
-        {/* TAV-PLAY-SHELL step 6b, commit C3 (carry (b), build brief §6.6):
-            ActionBar lifted out of Composer -- a sibling now, not a child,
-            since data-region="actionBar" needs a grid area a node nested
-            inside .composer can't reach. Same mount condition as before
-            (S5.2: human DM doesn't see the player action rail -- the
-            DmCombatControls panel above handles monster control separately
-            -- UNLESS the DM also has a bound character/isDmPlayingOwnPc). */}
-        {!(isHumanDM && !isDmPlayingOwnPc) && combatIsActive && (
-          <ActionBar
-            targets={targetableFoes}
-            onAction={onCombatAction}
-            // DDX-25: reuse the rail's existing `busy` gate (same disabled
-            // styling/aria as an in-flight combat action) to also lock it
-            // out while the session is paused/ended.
-            busy={combatBusy || sessionLocked}
-            isPlayerTurn={isPlayerTurn}
-            refusedReason={refusedReason}
-            // Combat-UX Fixes 2026-07-27, Fix B.
-            isDying={isDying}
-            // TAV-ATTACK-BUTTON-STALE: server-side action economy.
-            actionSpent={myActionSpent}
-            deathSaves={
-              activeParticipant?.death_saves
-                ? {
-                    successes: activeParticipant.death_saves.successes,
-                    failures: activeParticipant.death_saves.failures,
-                  }
-                : null
-            }
-            outerRailRef={composerRailAnchorRef}
-            localTurnActionRef={localTurnActionRef}
-          />
-        )}
-      </main>
-
-      {/* RIGHT — scene + "Move on" + dice + safety */}
-      {/* TAV-PLAY-LANDMARKS: stable landmark name (distinct from the inner
-          sceneHeadRef div's dynamic scene-name aria-label below — that's a
-          focus anchor, a different node; the landmark itself just needs a
-          short, unchanging name). */}
-      <aside
-        id="play-pane-scene"
-        className={`${styles.pane} ${styles.right}`}
-        aria-label="Scene"
-      >
-        {/* TAV-PLAY-SHELL step 3: region extracted verbatim to
-            regions/SceneStage.tsx -- placeholder content only (plan §5 step 3),
-            not the real §4 stage design. Scene head + .scenePlaceholder +
-            the combat-note/outcome-chooser/"Stand and fight" ternary --
-            today's stand-in for "what's happening on stage". State/refs/
-            handlers stay in page.tsx. */}
-        <SceneStage
-          sceneName={grounding?.scene_name ?? null}
-          objective={grounding?.objective ?? null}
-          sceneHeadRef={sceneHeadRef}
-          combatIsActive={combatIsActive}
-          activeEncounterId={activeEncounterId}
-          sceneHasEncounter={sceneHasEncounter}
-          combatBusy={combatBusy}
-          endCombatBtnRef={endCombatBtnRef}
-          outcomeChooserOpen={outcomeChooserOpen}
-          setOutcomeChooserOpen={setOutcomeChooserOpen}
-          lastOpenerRef={lastOpenerRef}
-          allHostilesDown={allHostilesDown}
-          anyMonsterDown={anyMonsterDown}
-          onEndCombat={(key) => void onEndCombat(key)}
-          beginCombatRef={beginCombatRef}
-          onBeginEncounter={beginEncounter}
-          talking={talking}
-          sessionLocked={sessionLocked}
-          rollBusy={rollBusy}
-        />
-
-
-        {/* TAV-PLAY-SHELL step 3: region extracted verbatim to
-            regions/Offers.tsx (checks + freeform-offer + transitions).
-            State/refs/handlers stay in page.tsx.
-            TAV-PLAY-SHELL step 4: this is now the SOLE placement -- the
-            aria-hidden, tabIndex={-1} composer-adjacent duplicate that used
-            to render directly above (a second, sighted/mouse-only copy of
-            the same buttons, added for TAV-CHECK-DISCOVERABILITY / Phase-1
-            #6) is deleted. Invariant A13 no longer reads "both exist,
-            exactly one is reachable" -- there is only one. */}
-        <Offers
-          availableChecks={availableChecks}
-          offeredCheckSkill={offeredCheckSkill}
-          checkBusy={checkBusy}
-          talking={talking}
-          sessionLocked={sessionLocked}
-          onAttemptCheck={(skill) => void onAttemptCheck(skill)}
-          checkWrapRef={checkWrapRef}
-          freeformOfferedCheck={freeformOfferedCheck}
-          freeformCheckRef={freeformCheckRef}
-          rollBusy={rollBusy}
-          combatBusy={combatBusy}
-          onRoll={(trigger) => void onRoll(trigger)}
-          availableTransitions={availableTransitions}
-          adventureComplete={adventureComplete}
-          transitionWrapRef={transitionWrapRef}
-          sceneAdvanceBusy={sceneAdvanceBusy}
-          onMoveOn={(to) => void onMoveOn(to)}
-        />
-
-
-        {/* T4p2: completion next-part offer (design doc §6.4) — mounts in the
-            gap the "Move on" affordance above leaves once adventureComplete
-            latches. RENDER addition only: no new interaction, no altered
-            flow — its CTA is the same working /modules?adventure=<ref> deep
-            link built in Phase 1 (see NextPartOffer.tsx's own doc comment
-            for why, given /next-act is broken tonight and unproxied). */}
-        {adventureComplete && completionSeries && (
-          // TAV-PLAY-SHELL step 6b, commit C2 (Amendment B.4, S6): declared
-          // tenant of `storyLog`, attribute added in place — no move.
-          <NextPartOffer
-            series={completionSeries.series}
-            next={completionSeries.next}
-            className={styles.moveOnWrap}
-            data-tenant="nextPartOffer"
-          />
-        )}
-
-        {/* TAV-PLAY-SHELL step 6b, commit C2 (Amendment B.4, S6): declared
-            tenant of `sceneStage`, attribute added to the existing wrapper
-            in place — no move. */}
-        <div className={styles.diceWrap} data-tenant="diceTray">
-          {/* A2 — real character skill modifiers; null=loading or []=DM-only hide checks */}
-          <DiceTray
-            onRoll={onRoll}
-            quickChecks={quickChecks ?? []}
-            advantage={advantage}
-            onAdvantage={setAdvantage}
-            disabled={talking || combatBusy || sessionLocked || rollBusy}
-          />
-        </div>
-
-        {/* TAV-PLAY-SHELL step 6b, commit C2 (Amendment B.4, S6): declared
-            tenant of `sceneStage`, attribute added to the existing wrapper
-            in place — no move. */}
-        <div className={styles.safety} data-tenant="safetyControls">
-          <div className={styles.safetyLabel}>Safety</div>
-          <p className={styles.safetyBody}>X-card · pause · rewind. Suzu listens.</p>
-          <div className={styles.safetyBtns}>
-            {/* DDX-26: durable, cross-client — a bare local appendLog/toast
-                (the old behavior) was the bug: no other client ever saw it,
-                and the toast had no way to know it had been "resolved" so it
-                lingered (UIR2-TAV-25). postXCard persists an `x_card` session
-                event; the banner above + the events poll are what every
-                client (including this one) actually renders from. */}
-            <button
-              type="button"
-              onClick={() => void onRaiseXCard()}
-              disabled={xCardBusy}
-              aria-busy={xCardBusy}
-            >
-              X-card
-            </button>
-          </div>
-        </div>
-      </aside>
-
-      {/* TAV-PLAY-SHELL step 2: both drawers below now go through the
-          shared <Drawer> primitive (src/components/Drawer.tsx) — see its
-          own doc comment for the full A5 (always mounted)/A6 (`visible`
-          drives class+scrim+inert, `open` drives dialog semantics)
-          reasoning this replaces verbatim from the two hand-rolled
-          <aside>s that used to be here. */}
-
-      {/* DDX-22: Journal / Memory pane — right-edge slide-over drawer on
-          desktop + 4th mobile tab (joins the existing .left/.center/.right
-          pane-collapse group via the journalPane className, still applied
-          here since Play.module.css's `.showJournal .journalPane` mobile
-          rule targets it — Drawer's own `mobileTabFallback` prop is what
-          hands the >880px fixed-drawer chrome off to that in-flow pane
-          layout below the breakpoint). */}
-      <Drawer
-        id={journalDrawer.id}
-        open={journalDrawer.open}
-        visible={journalDrawer.visible}
-        labelledBy={JOURNAL_HEADING_ID}
-        onClose={journalDrawer.onClose}
-        closeButtonRef={journalDrawer.closeButtonRef}
-        mobileTabFallback
-        className={styles.journalPane}
-      >
-        <JournalPane
-          sessionId={sessionId}
-          events={journalDrawer.journalEvents}
-          grounding={grounding}
-          onClose={journalDrawer.onClose}
-          closeButtonRef={journalDrawer.closeButtonRef}
-        />
-      </Drawer>
-
-      {/* TAV-PARTY-INLINE-SHEET: a right-edge slide-over drawer for a
-          selected party member's sheet — unlike the Journal drawer has no
-          separate mobile-tab presentation to reconcile with, so `open` and
-          `visible` are simply the same value: it's the fixed drawer at any
-          viewport width. */}
-      <Drawer
-        id={memberSheetDrawer.id}
-        open={memberSheetDrawer.open}
-        visible={memberSheetDrawer.open}
-        labelledBy={MEMBER_SHEET_HEADING_ID}
-        onClose={memberSheetDrawer.onClose}
-        closeButtonRef={memberSheetDrawer.closeButtonRef}
-      >
-        <MemberSheetPanel
-          sheet={memberSheetDrawer.selectedMemberSheet}
-          loading={memberSheetDrawer.memberSheetLoading}
-          error={memberSheetDrawer.memberSheetError}
-          memberName={memberSheetDrawer.selectedMemberName}
-          isSelf={memberSheetDrawer.selectedMemberIsSelf}
-          onClose={memberSheetDrawer.onClose}
-          closeButtonRef={memberSheetDrawer.closeButtonRef}
-        />
-      </Drawer>
-
-      {/* DDX-25: portal-rendered to document.body (ConfirmDialog does this
-          internally) — position in the tree doesn't matter; kept here after
-          all three panes purely for file readability. */}
-      <ConfirmDialog
-        open={endSessionConfirmOpen}
-        tone="danger"
-        title="End this session?"
-        body="This ends the table for everyone at it. Players won't be able to act until a new session starts. This can't be undone from here."
-        // DDX-25: deliberately NOT "End session" — the left-pane trigger
-        // already has that accessible name, and both are on screen at once
-        // while the dialog is open (mirrors DeleteCampaignButton's trigger
-        // "Delete campaign" → confirm "Move to trash" convention).
-        confirmLabel="End it"
-        cancelLabel="Keep playing"
-        busy={sessionActionBusy === 'end'}
-        onConfirm={() => void onConfirmEndSession()}
-        onCancel={() => setEndSessionConfirmOpen(false)}
+      </>
+    ),
+    offers: (
+      <Offers
+        availableChecks={availableChecks}
+        offeredCheckSkill={offeredCheckSkill}
+        checkBusy={checkBusy}
+        talking={talking}
+        sessionLocked={sessionLocked}
+        onAttemptCheck={(skill) => void onAttemptCheck(skill)}
+        checkWrapRef={checkWrapRef}
+        freeformOfferedCheck={freeformOfferedCheck}
+        freeformCheckRef={freeformCheckRef}
+        rollBusy={rollBusy}
+        combatBusy={combatBusy}
+        onRoll={(trigger) => void onRoll(trigger)}
+        availableTransitions={availableTransitions}
+        adventureComplete={adventureComplete}
+        transitionWrapRef={transitionWrapRef}
+        sceneAdvanceBusy={sceneAdvanceBusy}
+        onMoveOn={(to) => void onMoveOn(to)}
       />
-    </div>
+    ),
+    // S-d's sibling gap (build brief §5): `actionBar` is placed (non-null
+    // area) in BOTH moments by every row, but the component itself still
+    // only understands combat data — there is no "vitals" exploring-moment
+    // rendering built yet (that is Composer's own step-11 "wrapped,
+    // shrinks" territory). Mount condition UNCHANGED from pre-shell
+    // page.tsx: combat only. The exploring-moment slot is a reserved,
+    // empty grid cell until that step builds the content.
+    actionBar:
+      !(isHumanDM && !isDmPlayingOwnPc) && combatIsActive ? (
+        <ActionBar
+          targets={targetableFoes}
+          onAction={onCombatAction}
+          // DDX-25: reuse the rail's existing `busy` gate (same disabled
+          // styling/aria as an in-flight combat action) to also lock it
+          // out while the session is paused/ended.
+          busy={combatBusy || sessionLocked}
+          isPlayerTurn={isPlayerTurn}
+          refusedReason={refusedReason}
+          // Combat-UX Fixes 2026-07-27, Fix B.
+          isDying={isDying}
+          // TAV-ATTACK-BUTTON-STALE: server-side action economy.
+          actionSpent={myActionSpent}
+          deathSaves={
+            activeParticipant?.death_saves
+              ? {
+                  successes: activeParticipant.death_saves.successes,
+                  failures: activeParticipant.death_saves.failures,
+                }
+              : null
+          }
+          outerRailRef={composerRailAnchorRef}
+          localTurnActionRef={localTurnActionRef}
+        />
+      ) : undefined,
+    composer: (
+      <Composer
+        value={msg}
+        onChange={setMsg}
+        mode={mode}
+        onMode={(m) => {
+          setMode(m);
+          // Clear any pending DM narration error when the DM switches modes.
+          if (m !== 'dm_narration') setDmNarrationError(null);
+        }}
+        onSend={onSend}
+        // DDX-25: a paused/ended session shouldn't accept turns — extend the
+        // existing `talking` disabled-gate rather than inventing a new one.
+        disabled={talking || sessionLocked}
+        // TAV-PLAY-INPUT-LOCK-NO-FEEDBACK (2026-08-01): say WHY the input is
+        // inert. Order matters — a locked session stays locked through a
+        // narration beat, so the lock reason wins over the transient one.
+        disabledReason={
+          isEnded
+            ? 'This session has ended.'
+            : isPaused
+              ? 'Session is paused.'
+              : talking
+                ? 'Suzu is narrating — one moment…'
+                : null
+        }
+        availableModes={composerModes}
+        pending={dmNarrationPending}
+        sendError={mode === 'dm_narration' ? dmNarrationError : null}
+        textareaAnchorRef={composerTextareaAnchorRef}
+      />
+    ),
+    sceneStage: (
+      <SceneStage
+        sceneName={grounding?.scene_name ?? null}
+        objective={grounding?.objective ?? null}
+        sceneHeadRef={sceneHeadRef}
+        combatIsActive={combatIsActive}
+        activeEncounterId={activeEncounterId}
+        sceneHasEncounter={sceneHasEncounter}
+        combatBusy={combatBusy}
+        endCombatBtnRef={endCombatBtnRef}
+        outcomeChooserOpen={outcomeChooserOpen}
+        setOutcomeChooserOpen={setOutcomeChooserOpen}
+        lastOpenerRef={lastOpenerRef}
+        allHostilesDown={allHostilesDown}
+        anyMonsterDown={anyMonsterDown}
+        onEndCombat={(key) => void onEndCombat(key)}
+        beginCombatRef={beginCombatRef}
+        onBeginEncounter={beginEncounter}
+        talking={talking}
+        sessionLocked={sessionLocked}
+        rollBusy={rollBusy}
+      />
+    ),
+  };
+
+  const tenants: Partial<Record<TenantId, ReactNode>> = {
+    sessionRecap: <SessionRecapTenant session={session} username={username} />,
+    sessionPausedEnded: <SessionPausedEndedTenant isEnded={isEnded} isPaused={isPaused} />,
+    turnStatus: (
+      <TurnStatusTenant
+        combatIsActive={combatIsActive}
+        activeIsMine={activeIsMine}
+        turnStatusText={turnStatusText}
+      />
+    ),
+    deadStatus: <DeadStatusTenant combatIsActive={combatIsActive} isMyPcDead={isMyPcDead} />,
+    durableRetryRow: (
+      <DurableRetryRowTenant
+        durableRetryRowRef={durableRetryRowRef}
+        jobFailed={jobFailed}
+        onRetryFailedTurn={onRetryFailedTurn}
+      />
+    ),
+    castSpellPanel: (
+      <CastSpellTenant
+        isDmPlayingOwnPc={isDmPlayingOwnPc}
+        isHumanDM={isHumanDM}
+        combatIsActive={combatIsActive}
+        combatState={combatState}
+        combatId={combatId}
+        myCharacterIdStr={myCharacterIdStr}
+        mySheet={mySheet}
+        username={username}
+        isPlayerTurn={isPlayerTurn}
+        combatBusy={combatBusy}
+        sessionLocked={sessionLocked}
+        onCast={(text) => appendLog({ who: username ?? 'you', kind: 'system', text })}
+        onSheetChanged={setMySheet}
+        onStateRefresh={() => {
+          if (!combatId) return;
+          void (async () => {
+            const cs = await getCombatState(combatId).catch(() => null);
+            if (cs) {
+              stateSeqRef.current += 1;
+              setCombatState(cs);
+            }
+          })();
+        }}
+        onBusyChange={setCombatBusy}
+      />
+    ),
+    // T4p2: completion next-part offer (design doc §6.4) — a tenant of
+    // `storyLog`, not `offers` (Amendment B.4, S6: `offers` is the one
+    // region that goes `visible:false`; this is a distinct affordance).
+    nextPartOffer:
+      adventureComplete && completionSeries ? (
+        <NextPartOffer
+          series={completionSeries.series}
+          next={completionSeries.next}
+          className={styles.moveOnWrap}
+          data-tenant="nextPartOffer"
+        />
+      ) : undefined,
+    diceTray: (
+      <div className={styles.diceWrap} data-tenant="diceTray">
+        {/* A2 — real character skill modifiers; null=loading or []=DM-only hide checks */}
+        <DiceTray
+          onRoll={onRoll}
+          quickChecks={quickChecks ?? []}
+          advantage={advantage}
+          onAdvantage={setAdvantage}
+          disabled={talking || combatBusy || sessionLocked || rollBusy}
+        />
+      </div>
+    ),
+    safetyControls: (
+      <div className={styles.safety} data-tenant="safetyControls">
+        <div className={styles.safetyLabel}>Safety</div>
+        <p className={styles.safetyBody}>X-card · pause · rewind. Suzu listens.</p>
+        <div className={styles.safetyBtns}>
+          {/* DDX-26: durable, cross-client — a bare local appendLog/toast
+              (the old behavior) was the bug: no other client ever saw it,
+              and the toast had no way to know it had been "resolved" so it
+              lingered (UIR2-TAV-25). postXCard persists an `x_card` session
+              event; the banner above + the events poll are what every
+              client (including this one) actually renders from. */}
+          <button
+            type="button"
+            onClick={() => void onRaiseXCard()}
+            disabled={xCardBusy}
+            aria-busy={xCardBusy}
+          >
+            X-card
+          </button>
+        </div>
+      </div>
+    ),
+  };
+
+  return (
+    <PlayShell
+      row={row}
+      moment={moment}
+      regions={regions}
+      tenants={tenants}
+      className={mobileClass}
+      chrome={
+        /* mobile tab bar — shell chrome (plan §5 step 6; A9d deletes it,
+           see Play.module.css's own debt: marker on the @media block). */
+        <div className={styles.mobileTabs} role="group" aria-label="Play view">
+          <button
+            type="button"
+            className={mobileView === 'log' ? styles.tabOn : undefined}
+            aria-pressed={mobileView === 'log'}
+            aria-controls="play-pane-story"
+            onClick={() => setMobileView('log')}
+          >
+            <Icon name="Chat" size={13} aria-hidden /> Story
+          </button>
+          <button
+            type="button"
+            className={mobileView === 'party' ? styles.tabOn : undefined}
+            aria-pressed={mobileView === 'party'}
+            aria-controls="play-pane-party"
+            onClick={() => setMobileView('party')}
+          >
+            <Icon name="Users" size={13} aria-hidden /> Party
+          </button>
+          <button
+            type="button"
+            className={mobileView === 'scene' ? styles.tabOn : undefined}
+            aria-pressed={mobileView === 'scene'}
+            aria-controls="play-pane-scene"
+            onClick={() => setMobileView('scene')}
+          >
+            <Icon name="Map" size={13} aria-hidden /> Scene
+          </button>
+          {/* DDX-22: 4th mobile tab — joins the existing group exactly like the
+              three above (same aria-pressed/aria-controls/44px-target shape). */}
+          <button
+            type="button"
+            className={mobileView === 'journal' ? styles.tabOn : undefined}
+            aria-pressed={mobileView === 'journal'}
+            aria-controls={journalDrawer.id}
+            onClick={() => setMobileView('journal')}
+          >
+            <Icon name="Lantern" size={13} aria-hidden /> Journal
+          </button>
+        </div>
+      }
+      layers={
+        <>
+          {/* TAV-PLAY-SHELL step 2: both drawers below now go through the
+              shared <Drawer> primitive (src/components/Drawer.tsx) — see its
+              own doc comment for the full A5 (always mounted)/A6 (`visible`
+              drives class+scrim+inert, `open` drives dialog semantics)
+              reasoning this replaces verbatim from the two hand-rolled
+              <aside>s that used to be here. */}
+
+          {/* DDX-22: Journal / Memory pane — right-edge slide-over drawer on
+              desktop + 4th mobile tab. `className` still carries
+              `.journalPane`, which `Play.module.css`'s `.showJournal
+              .journalPane` mobile rule targets — `PlayShell`'s own
+              `className` prop (above) is what still gets `.showJournal` onto
+              an ancestor now that `.left/.center/.right` are gone. */}
+          <Drawer
+            id={journalDrawer.id}
+            open={journalDrawer.open}
+            visible={journalDrawer.visible}
+            labelledBy={JOURNAL_HEADING_ID}
+            onClose={journalDrawer.onClose}
+            closeButtonRef={journalDrawer.closeButtonRef}
+            mobileTabFallback
+            className={styles.journalPane}
+          >
+            <JournalPane
+              sessionId={sessionId}
+              events={journalDrawer.journalEvents}
+              grounding={grounding}
+              onClose={journalDrawer.onClose}
+              closeButtonRef={journalDrawer.closeButtonRef}
+            />
+          </Drawer>
+
+          {/* TAV-PARTY-INLINE-SHEET: a right-edge slide-over drawer for a
+              selected party member's sheet — unlike the Journal drawer has no
+              separate mobile-tab presentation to reconcile with, so `open`
+              and `visible` are simply the same value: it's the fixed drawer
+              at any viewport width. Rendered only when `characterBlock` is a
+              LAYER this row (story/phone) — table docks `MemberSheetPanel`
+              directly into `regions.characterBlock` instead (mutually
+              exclusive, see that singleton's own comment above). */}
+          {characterBlockIsLayer && (
+            <Drawer
+              id={memberSheetDrawer.id}
+              open={memberSheetDrawer.open}
+              visible={memberSheetDrawer.open}
+              labelledBy={MEMBER_SHEET_HEADING_ID}
+              onClose={memberSheetDrawer.onClose}
+              closeButtonRef={memberSheetDrawer.closeButtonRef}
+            >
+              {memberSheetPanelNode}
+            </Drawer>
+          )}
+
+          {/* DDX-25: portal-rendered to document.body (ConfirmDialog does this
+              internally) — position in the tree doesn't matter; kept here after
+              all three panes purely for file readability. */}
+          <ConfirmDialog
+            open={endSessionConfirmOpen}
+            tone="danger"
+            title="End this session?"
+            body="This ends the table for everyone at it. Players won't be able to act until a new session starts. This can't be undone from here."
+            // DDX-25: deliberately NOT "End session" — the left-pane trigger
+            // already has that accessible name, and both are on screen at once
+            // while the dialog is open (mirrors DeleteCampaignButton's trigger
+            // "Delete campaign" → confirm "Move to trash" convention).
+            confirmLabel="End it"
+            cancelLabel="Keep playing"
+            busy={sessionActionBusy === 'end'}
+            onConfirm={() => void onConfirmEndSession()}
+            onCancel={() => setEndSessionConfirmOpen(false)}
+          />
+        </>
+      }
+    />
   );
 }

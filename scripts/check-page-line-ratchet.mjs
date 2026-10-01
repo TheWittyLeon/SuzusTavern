@@ -212,13 +212,24 @@ const PAGE = join(ROOT, PAGE_REL);
 // the pre-C2 946) -- exactly the "C2 banks headroom ahead of C4" mitigation
 // the build brief's R-3 names, spent one commit early. Raised, not
 // lowered, and said why, per this file's own rule.
+// -> 919 (A9b commit C4, the irreducible core): `usePlayLayout`'s call +
+// the `regions`/`tenants` map construction `<PlayShell>` reads from (the
+// shell itself owns zero of this -- it only ever sees `RegionId ->
+// ReactNode`), the TopBar merge's inline JSX (SessionHead's old markup
+// folded into `regions.topBar`'s own object literal), the characterBlock
+// singleton mutual-exclusion logic (`characterBlockIsLayer` + the shared
+// `memberSheetPanelNode`), and two `debt:` markers (`tableControls`'s two
+// in-flow layer tenants). Net +19 code lines, still 27 under the pre-C2
+// 946 baseline (900 -> 919) -- C2's -48 headroom, spent across C3 (+2)
+// and this commit (+19), covers it with margin to spare. Raised, not
+// lowered, and said why, per this file's own rule.
 // Update this value, in the SAME commit, whenever page.tsx's actual
 // non-comment, non-blank line count drops below it. Never raise it
 // silently -- unless the growth is deliberate and reviewed, in which case
 // raise it in the same commit and say why (this file's own rule, restated
 // correctly per the A7 pre-merge ratchet ruling: the runbook's "may only go
 // down" was a paraphrase that was never this file's actual rule).
-export const RATCHET_CEILING = 900;
+export const RATCHET_CEILING = 919;
 
 /**
  * Pure: counts lines the way `wc -l` does (newline-byte count). Exported so

@@ -10,6 +10,25 @@
  * TAV-PLAY-SHELL step 0 (plan §5 "Accessibility invariants currently
  * encoded only in comments"): pins A3 and A11 BEFORE step 2 touches
  * anything, per the step-0 job brief.
+ *
+ * TAV-PLAY-SHELL step 6b, commit C4 (build brief §6.3, §7 C4): A3 and
+ * A11's own CSS shape changed as a DIRECT, prescribed consequence of this
+ * commit's own instructions, rewritten here in the SAME commit (a third
+ * pin-edit alongside the build brief's two named exceptions — C1's
+ * mechanical rename and C4's own TopBar/I4 pins — flagged for review,
+ * not snuck in):
+ *   - A3: `.grid`'s `grid-template-areas` is now `var(--play-areas)` — a
+ *     single data-driven declaration, not a hand-maintained literal
+ *     repeated per breakpoint. The underlying invariant ("the safety
+ *     banner has a mount point on every layout") still holds, pinned at
+ *     the DATA layer instead: `safetyBanner` is placed (non-null area) in
+ *     every row × moment by `play-preset-registry.test.ts`'s full-row pin
+ *     and its own 🟡-3 literal `areas` pins.
+ *   - A11: `.mobileTabs` is shell chrome pending A9d (this file's own
+ *     `debt:` marker) — permanently `display:none` now (its own
+ *     UNCHANGED base rule, no media-query override re-enables it below
+ *     880px any more), so there is no visible mobile tab bar for a
+ *     44px-touch-target / overflow-x:auto safety-net rule to apply to.
  */
 import fs from 'fs';
 import path from 'path';
@@ -24,12 +43,16 @@ describe('Play.module.css', () => {
     );
   });
 
-  /** Every `grid-template-areas: ...;` VALUE in the file, base rule and every @media override alike. */
+  /** Every `grid-template-areas: ...;` VALUE in the file, base rule and every
+   *  @media override alike. Comments stripped first (C4: this file's own
+   *  header comment now literally contains the string "grid-template-areas:"
+   *  as prose, which the un-stripped regex would otherwise also match). */
   function allGridTemplateAreaValues(): string[] {
+    const stripped = css.replace(/\/\*[\s\S]*?\*\//g, '');
     const out: string[] = [];
     const re = /grid-template-areas:\s*([^;]+);/g;
     let m: RegExpExecArray | null;
-    while ((m = re.exec(css))) out.push(m[1]);
+    while ((m = re.exec(stripped))) out.push(m[1]);
     return out;
   }
 
@@ -50,11 +73,10 @@ describe('Play.module.css', () => {
     throw new Error(`unbalanced braces reading "${headerNeedle}"`);
   }
 
-  describe('A3 — the X-card banner lives in a grid area every layout shows', () => {
-    it('.grid declares grid-template-areas at least twice (base + the ≤880px mobile override) and every one includes a "banner" row', () => {
+  describe('A3 — the X-card banner lives in a grid area every layout shows (C4: data-driven)', () => {
+    it('.grid declares exactly one grid-template-areas, sourced from --play-areas (PlayShell sets it per row × moment)', () => {
       const values = allGridTemplateAreaValues();
-      expect(values.length).toBeGreaterThanOrEqual(2);
-      for (const v of values) expect(v).toMatch(/banner/);
+      expect(values).toEqual(['var(--play-areas)']);
     });
 
     it('.xCardBanner is placed in that area and collapses via :empty, never display:none/visibility:hidden', () => {
@@ -66,26 +88,17 @@ describe('Play.module.css', () => {
     });
   });
 
-  describe('A11 — mobile tab-bar touch targets stay ≥44px; the 400px tightening shrinks padding only', () => {
-    it('the ≤880px .mobileTabs button rule sets min-height: 44px', () => {
+  describe('A11 — the mobile tab bar is shell chrome, hidden pending A9d (C4 rewrite — see this file\'s own header)', () => {
+    it('.mobileTabs has no @media (max-width: 880px) override re-enabling it — its own base rule stays display:none at every width', () => {
       const mobileBlock = blockFrom('@media (max-width: 880px) {');
-      const idx = mobileBlock.indexOf('.mobileTabs button {');
-      expect(idx).toBeGreaterThan(-1);
-      const buttonRule = mobileBlock.slice(idx, mobileBlock.indexOf('}', idx) + 1);
-      expect(buttonRule).toMatch(/min-height:\s*44px/);
+      expect(mobileBlock).not.toMatch(/\.mobileTabs\s*\{/);
+      const baseRule = blockFrom('.mobileTabs {');
+      expect(baseRule).toMatch(/display:\s*none/);
     });
 
-    it('the ≤400px override touches padding/gap only — no min-height (touch target) shrink', () => {
-      const narrowBlock = blockFrom('@media (max-width: 400px) {');
-      expect(narrowBlock).not.toMatch(/min-height/);
-      expect(narrowBlock).toMatch(/padding/);
-    });
-
-    it('.mobileTabs keeps overflow-x: auto as the clipping safety net (Iro CRITICAL-2)', () => {
-      const mobileBlock = blockFrom('@media (max-width: 880px) {');
-      const idx = mobileBlock.indexOf('.mobileTabs {');
-      const rule = mobileBlock.slice(idx, mobileBlock.indexOf('}', idx) + 1);
-      expect(rule).toMatch(/overflow-x:\s*auto/);
+    it('carries the debt: marker for the hidden-but-mounted state, with a trigger', () => {
+      expect(css).toMatch(/debt:[^\n]*mobile tab bar/);
+      expect(css).toMatch(/until:[^\n]*A9d/);
     });
   });
 });

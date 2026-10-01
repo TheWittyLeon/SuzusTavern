@@ -69,6 +69,16 @@ jest.mock('../../lib/theme/ThemeProvider', () => {
       density: 'cozy',
       setDensity: jest.fn(),
     }),
+    // TAV-PLAY-SHELL step 6b, commit C4: usePlayLayout's own fallback hook
+    // (hooks/usePlayLayout.ts) — this file mocks the whole module, so it
+    // must supply this export too, same shape as the real one (ctx or null).
+    useThemeOptional: () => ({
+      vibe: 'dusk-tavern',
+      layout: 'auto',
+      setVibe: jest.fn(),
+      density: 'cozy',
+      setDensity: jest.fn(),
+    }),
   };
 });
 

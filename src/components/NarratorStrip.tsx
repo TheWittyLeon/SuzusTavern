@@ -26,9 +26,18 @@
  * VISIBLE (sighted users still see it here, no scroll needed) — only the SR
  * auto-announcement is suppressed. Out of combat there is no competing
  * announcer, so the scene/objective banner stays `polite`.
+ *
+ * TAV-PLAY-SHELL step 6b, commit C4 (build brief §6.8): the `<SuzuDM>` call
+ * that used to render here moved to `regions/SuzuPresence.tsx` — a `200px`
+ * grid area of its own (`suzuPresence`, Story/Table rows) can't be reached
+ * from inside this strip's own area. `talking` stays a prop here: it also
+ * drives the "Suzu is narrating…" visible-only cue below, independent of
+ * SuzuDM's own talking animation. Measured (Kage-CR, A9a): no `/play` suite
+ * asserts SuzuDM's position; `SuzuDM` appears in tests only in
+ * `SuzuDM.test.tsx`/`stubs.test.tsx`/`not-found.test.tsx`, and the ai-off
+ * suite asserts strings, not the avatar — this move is pin-safe.
  */
 import type { ReactNode } from 'react';
-import SuzuDM from '@/components/SuzuDM';
 import styles from './NarratorStrip.module.css';
 
 export interface NarratorStripProps {
@@ -53,13 +62,6 @@ export interface NarratorStripProps {
   initiativeOrder?: string[];
   /** Right-aligned status pill(s), e.g. round/exploring indicator. */
   status?: ReactNode;
-  /** TAV-PLAY-SHELL region contract (Kage-CR/Miko-QA I4, 2026-09-21 review):
-   *  purely additive passthrough onto the root `<div role="status">` so a
-   *  caller (regions/TopBar.tsx) can attach the standard `data-region`
-   *  marker without this component owning any play-shell-specific
-   *  knowledge. Optional, no default — every other caller/test is
-   *  unaffected. */
-  'data-region'?: string;
 }
 
 export default function NarratorStrip({
@@ -71,7 +73,6 @@ export default function NarratorStrip({
   turnStatusText,
   initiativeOrder,
   status,
-  'data-region': dataRegion,
 }: NarratorStripProps) {
   const combatParts = combatActive
     ? [
@@ -120,9 +121,7 @@ export default function NarratorStrip({
       role="status"
       aria-live={combatActive ? 'off' : 'polite'}
       aria-atomic="true"
-      data-region={dataRegion}
     >
-      <SuzuDM size={56} glow={false} talking={talking} />
       <div className={styles.dialog}>
         {/* The dialog line NEVER changes with `talking` — not even the idle
             hint (Kage IMPORTANT-4: suppressing the hint mutated the atomic

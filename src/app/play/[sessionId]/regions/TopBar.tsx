@@ -7,98 +7,34 @@ import NarratorStrip from '@/components/NarratorStrip';
 import styles from '../Play.module.css';
 
 /**
- * TAV-PLAY-SHELL step 3 — pure region extraction (decomposition plan §2.3:
- * "TopBar | wraps NarratorStrip minus its Suzu slot"). Two named exports,
- * not one component, same reason as TableControls: today's DOM has the
- * session title/back-link/journal-toggle as a direct child of the party
- * `<aside>` and NarratorStrip as a direct child of the story `<main>` —
- * different parents. The plan's TopBar prop list (`title`, `onLeave`,
- * `scene`, `combat`, `statusPill`) covers BOTH pieces because step 6's real
- * TopBar is a single top-of-grid region that will own both; until then
- * this file is where both live, called from their existing positions.
+ * TAV-PLAY-SHELL step 6b, commit C4 (build brief §6.8) — `TopBar` becomes
+ * the single top-of-grid region, retiring the `SessionHead`/`TopBar`
+ * two-named-export split from step 3 (`debt:` marker, `until: step 6
+ * lands — TopBar becomes the single top-of-grid region and owns both
+ * pieces` — that trigger fires in this commit). ONE component, ONE root,
+ * `data-region="topBar"`: the row gives `topBar` one area, so the two
+ * pieces that used to live in different DOM parents (the party aside's
+ * session head, the story main's status strip) now render side by side
+ * inside that one area.
  *
- * SuzuPresence (this step's other named region, "wraps SuzuDM") is NOT
- * created here. Correction to this comment's own earlier claim (caught
- * while wiring the I4 data-region fix below): NarratorStrip DOES render
- * `<SuzuDM size={56} glow={false} talking={talking} />` internally
- * (NarratorStrip.tsx:116) — "/play does not render <SuzuDM> anywhere
- * today" was wrong as a claim about the RENDERED TREE, even though it was
- * true of page.tsx's own JSX (grep only checked page.tsx directly). The
- * decision stands for the right reason instead: the plan explicitly
- * categorizes NarratorStrip as "wrapped, not edited" and SuzuDM as
- * "as-is (no edit) ... until step 9" (§2.3) — pulling SuzuDM out of
- * NarratorStrip to give SuzuPresence something of its own to wrap would
- * mean EDITING NarratorStrip's internals, which is out of step 3's scope
- * regardless of the Suzu-presence question. "Minus its Suzu slot" is
- * TopBar's own future responsibility split (Suzu becomes NarratorStrip's
- * neighbor, not TopBar's concern), not an instruction to act now — flagged
- * for step 9 or whoever designs the extraction.
+ * I4's old regression pins (`play-data-region-contract.test.ts`) asserted
+ * the exact two-id shape this merge retires — rewritten in the SAME
+ * commit to assert the merged shape (the brief's one named exception to
+ * "never edit a pinning test in the commit that pins it": those pins were
+ * pinning a transitional state whose own `until:` has fired).
  *
- * I4 (Kage-CR/Miko-QA, 2026-09-21 review): SessionHead and TopBar used to
- * share ONE `data-region="topBar"` value across two DOM nodes — inert
- * today, but Miko's sharper read: step 6's Guard 2 ("the same set of
- * data-region ids is mounted every time"), if implemented as a naive id
- * Set, cannot distinguish "both present" from "one vanished" when two
- * unrelated nodes share an id. Split into `topBarSession` /
- * `topBarStatus` — distinct, independently trackable.
- *
- * debt: two named exports standing in for one region (SessionHead +
- * TopBar, split across two DOM parents).
- * ceiling: fine as long as nothing but page.tsx calls either export directly.
- * until: step 6 lands (the preset shell) — TopBar becomes the single top-of-grid region and owns both pieces.
- *
- * (A7 carry item (f), Kage-CR A4 Suggestion D / A4b Suggestion E: this
- * marker's `until:` used to wrap onto a further comment line and
- * tools/debt-harvest.py's 3-line lookahead truncated it to "step 6 lands
- * (the" -- reflowed so the whole trigger sits on the line `until:` starts on.)
+ * `SuzuPresence` (this step's other extraction, "wraps SuzuDM") is NOT
+ * here — `NarratorStrip` no longer renders `<SuzuDM>` internally either
+ * (deleted in this same commit); `regions/SuzuPresence.tsx` is its own
+ * region with its own grid area now.
  */
-
-export interface SessionHeadProps {
+export interface TopBarProps {
   title: string;
   journalOpen: boolean;
   onToggleJournal: () => void;
-  /** Kage-CR A7 IMPORTANT-5: reads useJournalDrawer's own `id` (sourced
-   *  from useDrawer) instead of a fourth hand-typed copy of
-   *  'play-pane-journal' -- this button's aria-controls, page.tsx's two
-   *  `<Drawer id>` props, and the mobile tab's aria-controls all now trace
-   *  to the one hook that owns the value. */
+  /** Kage-CR A7 IMPORTANT-5: reads useJournalDrawer's own `id` instead of a
+   *  hand-typed copy of 'play-pane-journal'. */
   paneId: string;
-}
-
-/** Back-to-lobby link + session title + journal-drawer toggle. Renders as a
- *  direct child of the party `<aside>`, exactly where it lives today. */
-export function SessionHead({ title, journalOpen, onToggleJournal, paneId }: SessionHeadProps) {
-  return (
-    <div className={styles.sessionHead} data-region="topBarSession">
-      <Link href="/lobby" className={styles.back} aria-label="Leave session">
-        <Icon name="Chevron" size={14} style={{ transform: 'rotate(180deg)' }} />
-      </Link>
-      <div>
-        <div className={styles.kicker}>Session</div>
-        <div className={styles.sessionTitle}>{title}</div>
-      </div>
-      {/* DDX-22: Journal drawer toggle — visible to every seat (not
-          isDm-gated like .sessionControls below; the journal is a
-          per-player surface, not a DM tool). Desktop-only in practice: the
-          drawer chrome it opens is media-gated to >880px, so this button
-          simply has no visual effect at mobile widths (the 4th mobile tab
-          is how the journal is reached there). */}
-      <button
-        type="button"
-        className={styles.journalToggleBtn}
-        onClick={onToggleJournal}
-        aria-haspopup="dialog"
-        aria-expanded={journalOpen}
-        aria-controls={paneId}
-        aria-label="Open journal"
-      >
-        <Icon name="Lantern" size={16} aria-hidden />
-      </button>
-    </div>
-  );
-}
-
-export interface TopBarProps {
   showSuzuPanel: boolean;
   talking: boolean;
   sceneName: string | null;
@@ -113,9 +49,12 @@ export interface TopBarProps {
 
 /** S5.5: NarratorStrip (a scene/combat status banner) hidden when
  *  ai_assist_level='off'; the combat status pill surfaces inline instead so
- *  turn/round info remains visible. Renders as a direct child of the story
- *  `<main>`, exactly where it lives today. */
-export function TopBar({
+ *  turn/round info remains visible. */
+export default function TopBar({
+  title,
+  journalOpen,
+  onToggleJournal,
+  paneId,
   showSuzuPanel,
   talking,
   sceneName,
@@ -127,21 +66,46 @@ export function TopBar({
   status,
   statusPill,
 }: TopBarProps) {
-  return showSuzuPanel ? (
-    <NarratorStrip
-      talking={talking}
-      sceneName={sceneName}
-      objective={objective}
-      combatActive={combatActive}
-      round={round}
-      turnStatusText={turnStatusText}
-      initiativeOrder={initiativeOrder}
-      status={status}
-      data-region="topBarStatus"
-    />
-  ) : (
-    <div className={styles.aiOffStatus} role="status" aria-live="polite" data-region="topBarStatus">
-      {statusPill}
+  return (
+    <div data-region="topBar">
+      <div className={styles.sessionHead}>
+        <Link href="/lobby" className={styles.back} aria-label="Leave session">
+          <Icon name="Chevron" size={14} style={{ transform: 'rotate(180deg)' }} />
+        </Link>
+        <div>
+          <div className={styles.kicker}>Session</div>
+          <div className={styles.sessionTitle}>{title}</div>
+        </div>
+        {/* DDX-22: Journal drawer toggle — visible to every seat (not
+            isDm-gated; the journal is a per-player surface, not a DM tool). */}
+        <button
+          type="button"
+          className={styles.journalToggleBtn}
+          onClick={onToggleJournal}
+          aria-haspopup="dialog"
+          aria-expanded={journalOpen}
+          aria-controls={paneId}
+          aria-label="Open journal"
+        >
+          <Icon name="Lantern" size={16} aria-hidden />
+        </button>
+      </div>
+      {showSuzuPanel ? (
+        <NarratorStrip
+          talking={talking}
+          sceneName={sceneName}
+          objective={objective}
+          combatActive={combatActive}
+          round={round}
+          turnStatusText={turnStatusText}
+          initiativeOrder={initiativeOrder}
+          status={status}
+        />
+      ) : (
+        <div className={styles.aiOffStatus} role="status" aria-live="polite">
+          {statusPill}
+        </div>
+      )}
     </div>
   );
 }

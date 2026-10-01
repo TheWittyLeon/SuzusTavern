@@ -217,3 +217,19 @@ export function useTheme(): ThemeContextValue {
   if (!ctx) throw new Error('useTheme must be used within a ThemeProvider');
   return ctx;
 }
+
+/**
+ * TAV-PLAY-SHELL step 6b, commit C4 — a non-throwing sibling of `useTheme`
+ * for a caller that must tolerate rendering with no `<ThemeProvider>`
+ * ancestor. Today, exactly one caller: `usePlayLayout`
+ * (`src/app/play/[sessionId]/hooks/usePlayLayout.ts`), whose own test
+ * fixtures (the `/play` suite's 74+ suites that mount `PlayPage` directly,
+ * none of which wrap a theme provider — only `TweaksPanel`, the settings
+ * panel, has ever called `useTheme`) would otherwise throw on every
+ * render. `useTheme`'s own throw stays load-bearing for every other
+ * caller — this is a new, narrowly-scoped accessor, not a loosened
+ * contract on the existing one.
+ */
+export function useThemeOptional(): ThemeContextValue | null {
+  return useContext(ThemeContext);
+}

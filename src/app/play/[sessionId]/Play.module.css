@@ -1,19 +1,23 @@
+/**
+ * TAV-PLAY-SHELL step 6b, commit C4 (build brief §6.3) — `.grid` reads its
+ * geometry from three custom properties `PlayShell` sets per row × moment
+ * (`--play-areas`/`--play-columns`/`--play-rows`, sourced from
+ * `presets.ts`'s `LayoutRow`), instead of the hardcoded 3-pane template
+ * that used to live here. `grid-template-areas: var(...)` is standard CSS
+ * value substitution — this is plan §3.1 option A as written; the stated
+ * cost (first paint before hydration uses the default row) is accepted
+ * there too, and is invisible on `/play`, which renders `<PageSkeleton/>`
+ * while loading.
+ */
 .grid {
   display: grid;
-  grid-template-columns: 220px 1fr 260px;
-  /* DDX-26 (Iro CRITICAL-1): named areas so the hoisted X-card banner gets
-     its own full-width row above the three panes on EVERY breakpoint,
-     without disturbing the panes' existing auto-placement. The "banner" row
-     is `auto`-sized — it collapses to ~0 height when the banner is empty
-     (see .xCardBanner:empty below), so it costs nothing when inactive. */
-  grid-template-rows: auto 1fr;
-  grid-template-areas:
-    'banner banner banner'
-    'left center right';
+  grid-template-areas: var(--play-areas);
+  grid-template-columns: var(--play-columns);
+  grid-template-rows: var(--play-rows);
   /* TAV-21: a bare 100dvh ignores the in-flow EnvBanner (dev/local only, 32px,
      rendered above this in the document). --env-banner-h is set on <html> by
      layout.tsx (0px on prod, where there's no banner) — subtracting it here
-     keeps this fixed-height 3-pane layout (overflow: hidden below) from
+     keeps this fixed-height layout (overflow: hidden below) from
      pushing its bottom edge (composer/send button) off-screen. The `, 0px`
      fallback is defensive only — layout.tsx always sets the var today. */
   height: calc(100dvh - var(--env-banner-h, 0px));
@@ -32,35 +36,46 @@
   margin-bottom: 2px;
 }
 
-.pane {
-  height: 100%;
-  padding: var(--density-pad);
+/**
+ * The generic per-region grid-item wrapper `PlayShell` emits for every
+ * `area != null` placement (build brief §6.4). `min-width:0`/`min-height:0`
+ * override the grid-item default of `auto`, which otherwise refuses to
+ * shrink below its content size and overflows this fixed-height grid
+ * (build brief §6.4 rule 2).
+ */
+.slot {
+  min-width: 0;
+  min-height: 0;
   overflow-x: clip;
+  padding: var(--density-pad);
 }
 
-.left,
-.right {
+/* Build brief §1 mechanism 1 / §6.4: hidden = a CSS class, never an inline
+   style — jsdom computes inline styles (dropping the node from RTL's
+   accessibility-filtered queries), but a CSS Module class is invisible to
+   jsdom (next/jest maps *.module.css to a key proxy; no stylesheet is
+   applied), so the node stays mounted and queryable in tests while truly
+   hidden in a browser. */
+.slotHidden {
+  display: none;
+}
+
+/* partyStrip's and sceneStage's slots ARE the landmark `<aside>` elements
+   (build brief §6.4 rule 3) — independent vertical scroll containers,
+   mirroring the retired .left/.right panes' own overflow-y:auto. */
+.slotScroll {
   overflow-y: auto;
 }
 
-.left {
-  grid-area: left;
-  border-right: 1px solid var(--line);
-}
-
-.right {
-  grid-area: right;
-  border-left: 1px solid var(--line);
-  display: flex;
-  flex-direction: column;
-}
-
-.center {
-  grid-area: center;
+/* storyLog's slot IS the `<main>` landmark (build brief §6.4 rule 3) —
+   its own tenants (session recap, status rows, DM controls, cast-spell,
+   durable-retry) stack vertically with consistent spacing, mirroring the
+   retired .center pane's flex column. `overflow:hidden` because ChatLog
+   (inside) scrolls internally — the container itself never does. */
+.slotStack {
   display: flex;
   flex-direction: column;
   gap: var(--density-gap);
-  min-height: 0;
   overflow: hidden;
 }
 
@@ -892,92 +907,41 @@
    prop is what hands off to it below the breakpoint. */
 
 /* ── mobile: single column, tab-switch story ↔ scene ── */
+/**
+ * TAV-PLAY-SHELL step 6b, commit C4 (build brief §7 C4, R-2 / Amendment
+ * B.5 point 2): below 880px the shell now resolves the PHONE row
+ * (`resolveLayout`'s own rule, "phone has one layout, full stop") and
+ * `--play-areas`/`--play-columns`/`--play-rows` drive `.grid` directly —
+ * the old `.grid` override (grid-template-columns/rows/areas: 'tabs'/
+ * 'banner'/'pane') is DELETED; there is no longer a separate "mobile grid
+ * shape" to hand-maintain in parallel with the row data. `.mobileTabs` has
+ * no area in the phone row and keeps its DEFAULT `display:none` (declared
+ * above, outside any media query) — the tab-switcher is retired
+ * VISUALLY (every region shows at once, scrollable, in the phone row's
+ * own order) while its DOM/`aria-pressed` state machine stays mounted,
+ * because `play.journal.test.tsx`'s mobile-tab cases still drive it and
+ * jsdom applies no CSS, so they stay green regardless.
+ *
+ * debt: the mobile tab bar switches panes the shell no longer renders; hidden below the breakpoint (its own unchanged base rule, not a media-query override) rather than deleted, because its DOM + aria-pressed state machine is still what play.journal.test.tsx's mobile-tab cases drive.
+ * ceiling: hidden-but-mounted, main only — do NOT propose a deploy between A9b and A9d.
+ * until: A9d deletes mobileView and journalVisible collapses into the resolver.
+ *
+ * `.journalToggleBtn`'s own mobile `display:none` override is ALSO
+ * deleted (it existed only because the toggle used to live inside the
+ * tab-switched `.left` pane — `topBar` is its own always-visible region
+ * now, not nested inside any tab-switched pane) — the journal stays
+ * reachable through it on a phone, in addition to the unchanged 4th
+ * mobile tab.
+ */
 @media (max-width: 880px) {
-  .grid {
-    grid-template-columns: 1fr;
-    /* DDX-26 (Iro CRITICAL-1): a THIRD row for the hoisted banner, between
-       the tab bar and whichever single pane is showing — see the updated
-       grid-template-areas below (was "tabs" / "pane" before this fix). */
-    grid-template-rows: auto auto 1fr;
-    grid-template-areas:
-      'tabs'
-      'banner'
-      'pane';
-  }
-
-  .mobileTabs {
-    grid-area: tabs;
-    display: flex;
-    gap: 4px;
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--line);
-    /* Iro CRITICAL-2: safety net so a tab is never clipped by .grid's
-       overflow:hidden — 4 pills ("Journal" is the longest label) can exceed
-       the available width on a narrow phone even after the max-width:400px
-       tightening below. If they ever overflow, this lets the bar scroll
-       horizontally instead of silently hiding the last tab. */
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .mobileTabs button {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 14px;
-    border-radius: 999px;
-    /* A11Y-BUTTON-BORDER-CONTRAST: mobile tab button — --line-strong clears
-       WCAG 1.4.11's 3:1 non-text contrast. */
-    border: 1px solid var(--line-strong);
-    background: transparent;
-    color: var(--ink-3);
-    font-size: 13px;
-    min-height: 44px;
-    cursor: pointer;
-  }
-
-  .tabOn {
-    background: color-mix(in oklab, var(--accent) 14%, transparent);
-    color: var(--ink) !important;
-    border-color: color-mix(in oklab, var(--accent) 30%, transparent) !important;
-  }
-
-  /* Kage IMPORTANT / Iro CRITICAL-1: .journalToggleBtn lives in .sessionHead,
-     inside .left (the Party pane) — visible on mobile whenever the Party tab
-     is active. Tapping it set journalOpen=true, firing the drawer's dialog
-     semantics (role="dialog"/aria-modal/focus-trap/Esc-hijack) on
-     #play-pane-journal even though the journal is reached on mobile via its
-     own 4th TAB, not this drawer toggle. Hiding it here is the fix — the
-     journal stays fully reachable via the Journal tab below. */
-  .journalToggleBtn {
-    display: none;
-  }
-
-  /* One pane fills the 1fr row at a time; the mobile tabs switch between them.
-     All four share the same "pane" grid-area (DDX-26; DDX-22 adds the 4th) —
-     display:none simply excludes whichever three aren't active from the
-     grid, so exactly one is ever in flow, landing in that shared row. The
-     left pane (party + initiative) is reachable via the Party tab — it used
-     to be display:none with no mobile affordance at all (S3.3 fix). */
-  .left,
-  .center,
-  .right,
+  /* DDX-22: the journal becomes a plain in-flow pane on mobile when the
+     journal tab is active — UNCHANGED mechanism (`mobileView`/
+     `journalVisible`/`Drawer.mobileTabFallback` are explicitly not
+     touched at this step, Amendment B.5 point 2); only `.left`/`.center`/
+     `.right`'s shared selector list is gone, since those classes retire. */
   .journalPane {
-    grid-area: pane;
     display: none;
   }
-  .showParty .left {
-    display: block;
-  }
-  .showLog .center {
-    display: flex;
-  }
-  .showScene .right {
-    display: flex;
-  }
-  /* DDX-22: the journal becomes a plain in-flow pane on mobile — its own
-     padding/scroll (mirrors .pane's look without depending on cascade order
-     against a class declared ~700 lines earlier in this file). */
   .showJournal .journalPane {
     display: flex;
     flex-direction: column;
