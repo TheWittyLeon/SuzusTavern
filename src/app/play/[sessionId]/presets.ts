@@ -850,7 +850,7 @@ const PHONE_ROW: LayoutRow = {
     },
     storyLog: { default: { area: 'storyLog' } },
     offers: {
-      default: { area: 'offers', variant: 'chips' },
+      default: { area: 'offers', variant: 'rows' },
       combat: { area: null, visible: false },
     },
     // R16 (Phone = Story's arrangement): sheet is a drawer, never docked.

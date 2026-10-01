@@ -22,7 +22,9 @@ import styles from '../Play.module.css';
  * own scrolling 120px track). `chips` lays the SAME groups out as wrapped
  * compact pills, the label inline, so a story column spends one row on them
  * instead of a capped list. Same DOM, same groups, same accessible names:
- * only the presentation differs.
+ * only the presentation differs. A9d-1: `rows` is `chips` with each group on
+ * ONE horizontally scrolling row (phone, fit-class viewports; it wraps again
+ * below 700px tall).
  */
 
 const CHECK_LOCK_REASON_COPY: Record<string, string> = {
@@ -52,6 +54,13 @@ export interface OffersProps {
   variant?: RegionVariant<'offers'>;
 }
 
+/** `rows` is `chips` plus its scrolling-row layer (Play.module.css `.offersRows`). */
+const OFFERS_CLASS: Record<RegionVariant<'offers'>, string | undefined> = {
+  list: undefined,
+  chips: styles.offersChips,
+  rows: `${styles.offersChips} ${styles.offersRows}`,
+};
+
 export default function Offers({
   availableChecks,
   offeredCheckSkill,
@@ -73,7 +82,7 @@ export default function Offers({
   variant = 'list',
 }: OffersProps) {
   return (
-    <div data-region="offers" data-variant={variant} className={variant === 'chips' ? styles.offersChips : undefined}>
+    <div data-region="offers" data-variant={variant} className={OFFERS_CLASS[variant]}>
       {/* P1-PLAYFIX §3.3.3 (S2.4): authored skill-check affordances — shown
           whenever the current scene has authored checks and no combat is
           active. D1a: every authored check for the scene is a

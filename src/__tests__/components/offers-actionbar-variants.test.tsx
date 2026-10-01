@@ -71,12 +71,36 @@ describe('Offers consumes its variant', () => {
     expect(readFileSync(join(process.cwd(), 'src/app/play/[sessionId]/Play.module.css'), 'utf8')).toMatch(/^\.offersChips \{/m);
   });
 
+  it('rows is chips plus the scrolling-row layer; both classes have a rule, and the scroll is fit-class only (A9d-1 lever 1)', () => {
+    const rows = render(<Offers {...offersProps()} variant="rows" />);
+    expect(rows.container.firstElementChild).toHaveAttribute('data-variant', 'rows');
+    expect(rows.container.firstElementChild).toHaveClass('offersChips', 'offersRows');
+    // the same groups and every chip, in the same DOM order as chips: a scroll container changes where a chip
+    // is painted, never whether it is a tab stop
+    const names = (el: Element) => Array.from(el.querySelectorAll('button')).map((b) => b.textContent);
+    const rowNames = names(rows.container);
+    rows.unmount();
+    const chips = render(<Offers {...offersProps()} variant="chips" />);
+    expect(chips.container.firstElementChild).not.toHaveClass('offersRows');
+    expect(names(chips.container)).toEqual(rowNames);
+    const css = readFileSync(join(process.cwd(), 'src/app/play/[sessionId]/Play.module.css'), 'utf8');
+    const block = css.slice(css.indexOf('@media (min-height: 701px) {\n  .offersRows'));
+    // 1.4.10: the scrolling row exists ONLY above the reflow-class boundary, so 375x667 and the zoom
+    // viewports keep the wrapped chips and scroll the page
+    expect(block.startsWith('@media (min-height: 701px) {')).toBe(true);
+    expect(block).toMatch(/\.offersRows \.checkWrap,\n\s+\.offersRows \.moveOnWrap \{[^}]*overflow-x: auto;/);
+    expect(block).toMatch(/mask-image: linear-gradient\(to right/);
+    // the clipping row leaves the focus ring its room and pays for it with an equal negative margin
+    expect(block).toMatch(/margin-block: calc\(-1 \* var\(--focus-ring-clearance\)\)/);
+    expect(block).toMatch(/min-width: 0/);
+  });
+
   it('defaults to list, the markup the region always rendered', () => {
     const { container } = render(<Offers {...offersProps()} />);
     expect(container.firstElementChild).toHaveAttribute('data-variant', 'list');
   });
 
-  it.each(['chips', 'list'] as const)('%s: the same groups and buttons are present by accessible name (A13)', (variant) => {
+  it.each(['chips', 'list', 'rows'] as const)('%s: the same groups and buttons are present by accessible name (A13)', (variant) => {
     render(<Offers {...offersProps()} variant={variant} />);
     // two "Skill check" groups (authored + the freeform offer, told apart by suffix) and one transition group
     expect(screen.getByRole('group', { name: 'Skill check' })).toBeInTheDocument();
@@ -128,13 +152,13 @@ describe('ActionBar consumes its variant', () => {
 });
 
 describe('the rows place offers and actionBar as chips or list/bar (what page.tsx reads through variantFor)', () => {
-  it('story: chips for both; table: list + bar; phone: offers chips + bar', () => {
+  it('story: chips for both; table: list + bar; phone: offers rows + bar', () => {
     const { story, table, phone } = LAYOUT_ROWS_BY_ID;
     expect(variantFor(story, 'offers', 'exploring')).toBe('chips');
     expect(variantFor(story, 'actionBar', 'combat')).toBe('chips');
     expect(variantFor(table, 'offers', 'exploring')).toBe('list');
     expect(variantFor(table, 'actionBar', 'combat')).toBe('bar');
-    expect(variantFor(phone, 'offers', 'exploring')).toBe('chips');
+    expect(variantFor(phone, 'offers', 'exploring')).toBe('rows');
     expect(variantFor(phone, 'actionBar', 'combat')).toBe('bar');
   });
 });

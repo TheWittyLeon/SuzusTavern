@@ -45,7 +45,7 @@
 export const REGION_VARIANTS = {
   partyStrip: ['strip', 'rail'],
   sceneStage: ['inline', 'panel', 'hero'],
-  offers: ['chips', 'list'],
+  offers: ['chips', 'list', 'rows'],
   characterBlock: ['compact', 'full'],
   actionBar: ['chips', 'bar'],
   suzuPresence: ['compact', 'full'],

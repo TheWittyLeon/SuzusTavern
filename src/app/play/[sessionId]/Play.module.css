@@ -773,6 +773,55 @@
   border-radius: 999px;
 }
 
+/* A9d-1 R-1 lever 1: the `rows` Offers variant (phone). `chips` plus ONE
+   horizontally scrolling row per group, in fit-class viewports only: two
+   wrapped groups cost up to 120px of a 390x844 phone's story column, one row
+   each costs ~44px. Below 700px tall (the reflow-class boundary) the base
+   `chips` wrap applies again, so a 375x667 phone or a zoomed viewport scrolls
+   the PAGE, never a row of its own (WCAG 1.4.10). The groups stay separate
+   role="group" blocks, every chip stays in tab order (a scroll container
+   changes where a chip is painted, not whether it is focusable), and
+   scroll-padding keeps a focused chip clear of the fade. The row is a clipping
+   ancestor, so it leaves --focus-ring-clearance as block padding (the
+   globals.css rule) and cancels it with an equal negative margin: the ring
+   has room, the layout pays nothing. */
+@media (min-height: 701px) {
+  .offersRows {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    min-width: 0;
+  }
+
+  .offersRows .checkWrap,
+  .offersRows .moveOnWrap {
+    flex-wrap: nowrap;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: var(--focus-ring-clearance) 24px var(--focus-ring-clearance) var(--focus-ring-clearance);
+    margin-block: calc(-1 * var(--focus-ring-clearance));
+    scroll-padding-inline: var(--focus-ring-clearance) 24px;
+    scrollbar-width: none;
+    /* the edge fade: the next chip peeks and dissolves; the 24px of padding
+       keeps the LAST chip clear of it once scrolled to the end */
+    mask-image: linear-gradient(to right, var(--ink) calc(100% - 24px), transparent);
+  }
+
+  .offersRows .checkWrap::-webkit-scrollbar,
+  .offersRows .moveOnWrap::-webkit-scrollbar {
+    display: none;
+  }
+
+  .offersRows .checkLabel,
+  .offersRows .moveOnLabel,
+  .offersRows .checkBtn,
+  .offersRows .moveOnBtn {
+    flex: none;
+    white-space: nowrap;
+  }
+}
+
 /* Scene name in the right-pane scene header.
    FIX-8: now rendered as <p> (block) so AT pauses between name and objective;
    margin-left removed (was for inline span flow); top margin keeps visual rhythm. */

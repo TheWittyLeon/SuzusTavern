@@ -580,7 +580,7 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
       sceneStage: 'sceneStage variant:inline collapsible:true',
       suzuPresence: 'suzuPresence variant:compact',
       storyLog: 'storyLog',
-      offers: 'offers variant:chips',
+      offers: 'offers variant:rows',
       characterBlock: 'null variant:compact layer:true',
       actionBar: 'actionBar variant:bar',
       composer: 'composer',
