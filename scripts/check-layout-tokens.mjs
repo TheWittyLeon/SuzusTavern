@@ -25,7 +25,10 @@
  *     a second rule rejects `grid-template-areas` / `grid-template-columns`
  *     / `position: fixed` inside regions/*.module.css, since a region that
  *     re-decides its own placement is the "never fork a component" rule
- *     (R16) wearing a different hat.
+ *     (R16) wearing a different hat. BUILT AS RULE 3 at A9c-2 D4, but not as
+ *     written here: regions/*.module.css matches zero files (see above), and
+ *     the property list would also have banned DiceTray's own dice grid.
+ *     See scripts/lib/layout-rule3.mjs (Amendment C.6) for what it checks.
  *
  * Rule 1 — spacing/type token literals. A raw px value in a spacing
  * property (padding/margin/gap/inset) or a font-size/line-height
@@ -44,10 +47,16 @@
  * Play.module.css, so Drawer.module.css's own copy of the same literal —
  * the one the C1 fix hangs off — could drift silently).
  *
+ * Rule 3 — a region never re-decides its own placement: no layout-attribute
+ * selectors in any CSS, no `position: fixed` reachable from regions/ and
+ * tenants/ (named exemptions only), grid placement only in `.grid` as
+ * var(--play-*). Logic and exemption lists: scripts/lib/layout-rule3.mjs.
+ *
  * Run: npm run lint:layout-tokens
  */
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, relative, dirname, basename } from 'node:path';
+import { evaluateRule3, readRule3Inputs } from './lib/layout-rule3.mjs';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const EXEMPT = 'design-token-exempt';
@@ -189,8 +198,11 @@ if (!constMatch) {
   }
 }
 
-if (offenders.length === 0 && drift.length === 0) {
-  console.log('✓ layout tokens: no un-exempted spacing/type literals in scope, no breakpoint drift');
+// Rule 3: logic and exemption lists in scripts/lib/layout-rule3.mjs.
+const rule3 = evaluateRule3(readRule3Inputs(ROOT)).violations;
+
+if (offenders.length === 0 && drift.length === 0 && rule3.length === 0) {
+  console.log('✓ layout tokens: no un-exempted spacing/type literals in scope, no breakpoint drift, no region placement or fixed-position leak');
   process.exit(0);
 }
 
@@ -206,5 +218,9 @@ if (offenders.length > 0) {
 if (drift.length > 0) {
   console.error(`\n✗ layout tokens: breakpoint drift:\n`);
   for (const d of drift) console.error(`  ${d.file}: ${d.issue}`);
+}
+if (rule3.length > 0) {
+  console.error(`\n✗ layout tokens: rule 3, a region re-deciding its own placement:\n`);
+  for (const v of rule3) console.error(`  ${v}`);
 }
 process.exit(1);
