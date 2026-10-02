@@ -36,7 +36,7 @@
  * Same markup, one component, two presentations: the CSS keys on the root's
  * `data-variant`.
  */
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { RegionVariant } from '@/app/play/[sessionId]/variants';
 import type { CombatState, Participant } from '@/lib/api/types';
 import styles from './PartyPanel.module.css';
@@ -77,6 +77,31 @@ export default function PartyPanel({
 }: PartyPanelProps) {
   const self = (selfUsername ?? '').toLowerCase();
 
+  // A9d-2 fix round 2 (Iro Minor-6): the strip's tile row scrolls sideways when the tiles do not fit, and the next tile PEEKING is not a cue (13px
+  // in Chromium, 2px in WebKit for the same row at 390 with 7 members). `more` is how many tiles are not wholly in view; it is shown as an explicit
+  // "+N" at the row's edge, gone at the end of the scroll. Measured on the row's own scroll and resize, never read from a width.
+  const listRef = useRef<HTMLUListElement>(null);
+  const [more, setMore] = useState(0);
+  const strip = variant === 'strip';
+  const memberCount = participants.length;
+  useEffect(() => {
+    const list = listRef.current;
+    if (!strip || !list) return;
+    const measure = () => {
+      const edge = list.getBoundingClientRect().left + list.clientWidth;
+      let hidden = 0;
+      for (const li of Array.from(list.children)) if (li.getBoundingClientRect().right > edge + 0.5) hidden++;
+      setMore(hidden);
+    };
+    list.addEventListener('scroll', measure, { passive: true });
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    ro?.observe(list); // its first notification is the initial measurement
+    return () => {
+      list.removeEventListener('scroll', measure);
+      ro?.disconnect();
+    };
+  }, [strip, memberCount]);
+
   if (loading) {
     return <div className={styles.empty}>Loading party…</div>;
   }
@@ -115,7 +140,7 @@ export default function PartyPanel({
       <div className={styles.label} id="party-panel-label">
         Party · {participants.length}
       </div>
-      <ul className={styles.list} aria-labelledby="party-panel-label">
+      <ul ref={listRef} className={styles.list} aria-labelledby="party-panel-label">
         {participants.map((p) => {
           const you = p.username.toLowerCase() === self;
           const c = p.character;
@@ -242,6 +267,11 @@ export default function PartyPanel({
           );
         })}
       </ul>
+      {strip && more > 0 ? (
+        <span className={styles.more} data-party-more="" aria-hidden="true">
+          +{more}
+        </span>
+      ) : null}
       {trailing ? (
         <div className={styles.trailing} data-party-trailing="">
           {trailing}

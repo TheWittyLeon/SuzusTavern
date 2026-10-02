@@ -280,6 +280,26 @@
   flex: none;
 }
 
+/* The explicit "there are more" cue of the sideways row (A9d-2 fix round 2, Iro Minor-6): "+N" tiles not wholly in view, at the row's right edge,
+   over the fade, not a target (the tiles are all reachable in the DOM). It does not depend on how much of the next tile peeks. */
+.strip > .more {
+  grid-area: main;
+  justify-self: end;
+  align-self: end;
+  margin: 0 2px 18px 0;
+  min-width: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--card-solid);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 22px;
+  text-align: center;
+  pointer-events: none;
+  z-index: 1;
+}
+
 .strip > .trailing {
   grid-area: trailing;
   align-self: end;
