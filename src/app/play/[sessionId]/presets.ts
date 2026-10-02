@@ -819,6 +819,11 @@ const PHONE_ROW: LayoutRow = {
     // The dice are ONE row of six chips here, not 3x2: a two-row tray was ~66px more band than the
     // stage can spare (Tora A9d-1 MAJOR-1). DiceTray.module.css reads it; the tray's keys follow.
     '--play-dice-columns': '6',
+    // The composer's own density on the phone (A9d-2 N6, Sora lever brief 2.4): 6px of pad above the mode row (it was 22) and 8px between
+    // the mode row and the input (it was 16): the composer 145 -> 121px at 390 wide. Composer.module.css reads both (absent = the
+    // density tokens). The 44px targets and the 8px between them are unchanged.
+    '--play-composer-pad': 'var(--space-3)',
+    '--play-composer-gap': 'var(--space-4)',
   },
   // The banner floor: while the X-card banner is raised and the page FIT before it came up (the shell's measured `data-fit`, not a
   // height line: Play.module.css), the story track yields down to THIS, not to 0: 88 inner (log padding 44 + one 42px narration row)

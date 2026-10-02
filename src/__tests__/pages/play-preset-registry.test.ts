@@ -738,6 +738,10 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
       '--play-slot-inline': 'var(--space-6)',
       '--play-recap-sub': 'none',
       '--play-dice-columns': '6',
+      // A9d-2 N6: the phone composer's own density (6px pad, 8px gap; it was 22 and 16: 145 -> 121px). The literal is the pin; the S6 reader
+      // test and composer-density.css.test cover the stylesheet side. (This literal enumerates the set, so it grows with it.)
+      '--play-composer-pad': 'var(--space-3)',
+      '--play-composer-gap': 'var(--space-4)',
     });
     expect(LAYOUT_ROWS_BY_ID.story.vars).toBeUndefined();
     expect(LAYOUT_ROWS_BY_ID.table.vars).toBeUndefined();
