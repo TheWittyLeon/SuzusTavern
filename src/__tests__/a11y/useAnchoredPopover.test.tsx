@@ -71,6 +71,35 @@ describe('computePlacement (pure)', () => {
   });
 });
 
+describe('computePlacement: a passthrough zone BESIDE the opener (A9d-2 N8: the Cast button and the X-card block share a row)', () => {
+  // the opener (Cast) at 12..108 x, 758..802 y; the X-card block beside it at 124..378 x, 755..805 y, overlapping the popover's x range
+  const cast = { left: 12, right: 108, top: 758, bottom: 802 };
+  const block = { left: 124, right: 378, top: 755, bottom: 805 };
+  const wide = { width: 252, height: 300 };
+
+  it('opening ABOVE, the popover\'s bottom edge clears the zone\'s TOP, not the opener\'s: it never covers the X-card block', () => {
+    const p = computePlacement(cast, wide, view, [block], 'auto', 800);
+    expect(p.side).toBe('top');
+    // bottom = viewport height - (the zone's top, 755) + 6 gap, where the opener-only rule gave 800 - 758 + 6
+    expect(p.bottom).toBe(800 - 755 + 6);
+    expect(800 - (p.bottom as number)).toBeLessThanOrEqual(block.top - 6);
+  });
+
+  it('control: with no zone the popover stands on the OPENER\'s top (the old edge), so the zone is what moved it', () => {
+    expect(computePlacement(cast, wide, view, [], 'auto', 800).bottom).toBe(800 - 758 + 6);
+  });
+
+  it('opening BELOW, its top edge clears the zone\'s BOTTOM', () => {
+    const p = computePlacement({ left: 12, right: 108, top: 20, bottom: 64 }, wide, view, [{ left: 124, right: 378, top: 18, bottom: 70 }], 'bottom', 800);
+    expect(p.top).toBe(70 + 6);
+  });
+
+  it('a zone beside the opener whose x range the popover does not reach is ignored', () => {
+    const narrow = { width: 100, height: 300 };
+    expect(computePlacement(cast, narrow, view, [{ left: 200, right: 378, top: 755, bottom: 805 }], 'auto', 800).bottom).toBe(800 - 758 + 6);
+  });
+});
+
 // ── the hook through a real component ───────────────────────────────────────────────────────────────────────────────────────────
 const log = { verb: jest.fn(), xcard: jest.fn(), parentKey: jest.fn() };
 

@@ -22,39 +22,47 @@
   margin: 0;
 }
 
-/* A9c-2 D7: the optional fold (`disclosure` prop). The wrapper repeats the
-   panel's own column rhythm and must honour `hidden` explicitly: an author
-   `display:flex` would otherwise beat the UA's `[hidden]{display:none}`. */
-.body {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.body[hidden] {
-  display: none;
-}
-.disclosure {
-  display: flex;
+/* A9d-2 N8: the opener the play page's `CastSpellTenant` renders (the panel opens from it as an anchored popover; the A9c-2 D7 in-flow
+   disclosure is gone with its prop). A 44px target like the bar's verbs; it shares the safety block's row in the narrow bar (Play.module.css). */
+.opener {
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  /* 44px policy (Iro A9c-2 MINOR-1): the Cast handle is a touch target like the bar's verbs. */
+  justify-content: center;
+  gap: 8px;
   min-height: 44px;
-  padding: 0;
-  background: transparent;
-  border: none;
-  color: inherit;
-  font: inherit;
-  letter-spacing: inherit;
-  text-transform: inherit;
+  padding: 0 14px;
+  border-radius: 10px;
+  /* A11Y-BUTTON-BORDER-CONTRAST: clickable - --line-strong clears WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px solid var(--line-strong);
+  background: color-mix(in oklab, var(--ink) 4%, transparent);
+  color: var(--ink-2);
+  font-size: 13px;
+  white-space: nowrap;
   cursor: pointer;
 }
-.chev,
-.chevOpen {
-  color: var(--ink-3);
-  transition: transform var(--dur-fast) var(--ease);
+
+.opener:hover,
+.opener[aria-expanded='true'] {
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
+  color: var(--ink);
 }
-.chevOpen {
-  transform: rotate(90deg);
+
+/* The popover's own look is AnchoredPopover.module.css's. A column on purpose: 256px is the width of the fields stacked (the selects take a
+   full row, the Cast button the last one), and it leaves the bar's right-hand verb (End turn) and Send uncovered, so a press outside the
+   popover can be made on a verb while it is open (the harness's `popover-cast` tap leg; Tora C1). The hook's max-width clamps it to the
+   screen. The panel's own top rule and pad are the in-flow bar's separator: the popover has its border. */
+.castPopover {
+  width: 256px;
+  min-width: 0;
+}
+
+.castPopover .panel {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.castPopover .castBtn {
+  flex: 1 1 100%;
 }
 
 .emptyRow {
@@ -102,9 +110,11 @@
 /* Touch-target floor on the mobile / single-pane layout (matches the app's
    44px convention; the Cast button gets this via .btn, the bespoke selects
    don't otherwise). */
-@media (max-width: 880px) {
+@media (max-width: 880px), (pointer: coarse) {
   .select {
-    min-height: 44px;
+    /* an explicit height, not min-height: WebKit measured a native select at 38px with the min-height rule in its matched cascade
+       (Iro Minor-1, Tora MINOR-1) */
+    height: 44px;
   }
 }
 

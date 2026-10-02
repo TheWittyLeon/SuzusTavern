@@ -997,6 +997,19 @@
     flex: 1 0 100%;
   }
 
+  /* A9d-2 N8 (Sora lever brief 2.4, F-b): the Cast button and the safety block SHARE one row (the button's own 44px row cost 67px, and
+     115 + 16 + 305 > 366 put them on two). The safety block takes the width the button leaves (a zero basis; its own min-content, the
+     label and the 44px button, is the floor) and its hint wraps inside it, under the label and button. Only where a Cast tenant exists: a
+     bar without one keeps the block at its content width. */
+  .slot:has(> [data-tenant="castSpellPanel"]) > [data-tenant="safetyControls"] {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .slot:has(> [data-tenant="castSpellPanel"]) > [data-tenant="castSpellPanel"] {
+    flex: 0 0 auto;
+  }
+
   .safety {
     flex-wrap: wrap;
     /* `flex: 0 0 auto` sizes this to its one-line max-content (label + hint + button,
