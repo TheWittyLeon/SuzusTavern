@@ -33,8 +33,8 @@ import styles from '../Play.module.css';
  *     gold, the campaign floor keep their state while closed) that holds the Session card (`session`, handed in by the page: it owns the
  *     lifecycle state) AND the rebind rows for every member, which used to stack in the band ahead of the tiles. The Session card was a
  *     542px block before the tiles in a 91px scroller (DM tiles at y 646 under a band that ended at 180). On every row, desktop too.
- * `session` takes `close` so a control that opens a modal (End session's confirm) can close the popover first: the dismissing click of an
- * open popover is consumed, so a popover left open under a dialog would swallow the dialog's own buttons.
+ * A dialog the card opens (End session's confirm, the campaign floor's) needs nothing from this band: the popover primitive treats an open modal
+ * layer as owning the press and the focus (useAnchoredPopover), so the popover simply stays open under it.
  */
 export interface PartyStripProps {
   participants: Participant[];
@@ -50,7 +50,7 @@ export interface PartyStripProps {
   selfPcId: string | null;
   variant?: RegionVariant<'partyStrip'>;
   /** The DM's Session card (the page owns the lifecycle state it drives). Given only to the DM, who is what shows the Session button. */
-  session?: (api: { close: () => void }) => ReactNode;
+  session?: () => ReactNode;
   /** Where focus goes if the Session button is gone when its popover closes (the scene head): never <body>. */
   fallbackFocus?: () => HTMLElement | null | undefined;
 }
@@ -137,7 +137,7 @@ export default function PartyStrip({
       />
       {showSession && (
         <AnchoredPopover pop={pop} role="dialog" label="Session controls" keepMounted className={styles.sessionPopover}>
-          {session?.({ close: () => setSessionOpen(false) })}
+          {session?.()}
           {participants.length > 0 && (
             <div className={styles.rebindSection} role="group" aria-label="Change a member's character">
               <div className={styles.sessionControlsLabel}>Characters</div>

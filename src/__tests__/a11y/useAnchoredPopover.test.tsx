@@ -561,6 +561,71 @@ describe('focus leaving an open popover closes it, without moving focus (Safari\
     closed();
   });
 
+  // A9d-2 fix round 4 (Kage I-B): a modal layer that is open owns the press and the focus. The browser pin is the harness's popover-session-* legs.
+  describe('an open modal layer (a dialog the popover\'s control opened, portalled out of it)', () => {
+    const modal = (attrs: Record<string, string> = { 'aria-modal': 'true' }, parent: Element = document.body) => {
+      const wrap = document.createElement('div'); // a backdrop
+      const dlg = document.createElement('div');
+      dlg.setAttribute('role', 'dialog');
+      for (const [k, v] of Object.entries(attrs)) dlg.setAttribute(k, v);
+      const btn = document.createElement('button');
+      btn.textContent = 'Confirm';
+      dlg.appendChild(btn);
+      wrap.appendChild(dlg);
+      parent.appendChild(wrap);
+      return { wrap, btn };
+    };
+    it('a click inside it neither closes the popover nor is consumed; with it gone the same click is an outside press again', () => {
+      setup();
+      openA();
+      const { wrap, btn } = modal();
+      const delivered = fireEvent.click(btn);
+      expect(delivered).toBe(true);
+      expect(dialog()).toBeInTheDocument();
+      // its backdrop is the modal layer's too: the dialog's own backdrop-cancel must run
+      expect(fireEvent.click(wrap)).toBe(true);
+      expect(dialog()).toBeInTheDocument();
+      wrap.remove();
+      expect(fireEvent.click(screen.getByRole('button', { name: 'Verb' }))).toBe(false); // consumed again
+      closed();
+    });
+
+    it('focus moving into it is not "leaving": the popover stays open (the dialog focuses its Cancel); focus the user moves elsewhere after it closes is the rule again', () => {
+      setup();
+      openA();
+      const { wrap, btn } = modal();
+      act(() => btn.focus());
+      expect(dialog()).toBeInTheDocument();
+      wrap.remove();
+      act(() => screen.getByRole('button', { name: 'Verb' }).focus());
+      closed();
+    });
+
+    it('does NOT count: a modal inside the popover or around it, an inert or hidden one, or a closed layer that dropped the attribute', () => {
+      setup();
+      openA();
+      const inert = modal({ 'aria-modal': 'true', inert: '' });
+      expect(fireEvent.click(screen.getByRole('button', { name: 'Verb' }))).toBe(false); // an inert layer is not open: the press is consumed
+      closed();
+      inert.wrap.remove();
+      openA();
+      const hidden = modal({ 'aria-modal': 'true', hidden: '' });
+      expect(fireEvent.click(screen.getByRole('button', { name: 'Verb' }))).toBe(false);
+      closed();
+      hidden.wrap.remove();
+      openA();
+      const dropped = modal({});
+      expect(fireEvent.click(screen.getByRole('button', { name: 'Verb' }))).toBe(false);
+      closed();
+      dropped.wrap.remove();
+      openA();
+      const inside = modal({ 'aria-modal': 'true' }, dialog()); // inside the popover's own DOM (a nested layer is the popover's business)
+      expect(fireEvent.click(screen.getByRole('button', { name: 'Verb' }))).toBe(false);
+      closed();
+      inside.wrap.remove();
+    });
+  });
+
   it('with it closed the listener is gone: focus anywhere is nobody\'s business', () => {
     setup();
     openA();

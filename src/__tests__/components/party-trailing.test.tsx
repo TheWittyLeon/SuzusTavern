@@ -7,12 +7,15 @@
  * tiles at y 646 under a band that ended at 180). The browser half (the first tile row whole, the controls 44x44 and whole, at 5, 6 and 8
  * members) is the harness's `u:partyTiles`; the layout rule's text is pinned in party-trailing.css.test.ts.
  *
- * Controls: render the trailing node inside the <ul> -> the first case reds; drop `close` from the session render prop -> the close case reds;
- * return early on an empty roster without the trailing node -> the empty-roster case reds.
+ * Controls: render the trailing node inside the <ul> -> the first case reds; take the open-modal rule out of useAnchoredPopover -> the dialog case reds
+ * (A9d-2 fix round 4, Kage I-B: the `close` render-prop this file used to pin is gone, the primitive owns the rule); return early on an empty roster
+ * without the trailing node -> the empty-roster case reds.
  */
-import { fireEvent, render, screen } from '@testing-library/react';
+import { useState } from 'react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import PartyStrip from '@/app/play/[sessionId]/regions/PartyStrip';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import type { Participant } from '@/lib/api/types';
 
 jest.mock('../../components/Toast', () => ({ useToast: () => ({ toast: jest.fn() }) }));
@@ -68,11 +71,19 @@ describe('a player: their own "Change character" is in the trailing column, outs
 });
 
 describe('the DM: a Session button in the trailing column opens a popover with the Session card and every rebind row', () => {
-  const session = ({ close }: { close: () => void }) => (
-    <div>
-      <button type="button" onClick={close}>End session</button>
-    </div>
-  );
+  // The card's End session opens a confirm dialog (a portal, as the page's and the campaign floor's are): the popover is not told about it.
+  const onConfirm = jest.fn();
+  function Card() {
+    const [confirmOpen, setConfirmOpen] = useState(false);
+    return (
+      <div>
+        <button type="button" onClick={() => setConfirmOpen(true)}>End session</button>
+        <ConfirmDialog open={confirmOpen} title="End this session?" confirmLabel="End it" cancelLabel="Keep playing" onConfirm={() => { onConfirm(); setConfirmOpen(false); }} onCancel={() => setConfirmOpen(false)} />
+      </div>
+    );
+  }
+  const session = () => <Card />;
+  beforeEach(() => { onConfirm.mockClear(); });
 
   it('"Session" is a dialog opener in the trailing column; closed, the popover carries no role (jsdom has no stylesheet to hide it)', () => {
     const { container } = strip({ isDm: true, session });
@@ -100,13 +111,34 @@ describe('the DM: a Session button in the trailing column opens a popover with t
     expect(trailing.querySelectorAll('button')).toHaveLength(1);
   });
 
-  it('the card can close the popover (End session opens a confirm dialog: a popover left open would swallow its clicks) and focus returns to Session', () => {
-    strip({ isDm: true, session });
-    fireEvent.click(screen.getByRole('button', { name: 'Session' }));
-    fireEvent.click(screen.getByRole('button', { name: 'End session' }));
-    expect(screen.getByRole('button', { name: 'Session' })).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByRole('dialog')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Session' })).toHaveFocus();
+  it('a dialog the card opens (End session\'s confirm) is not swallowed: the popover stays open under it, the FIRST click on its confirm is delivered, and Escape returns focus to the control that opened it (A9d-2 fix round 4, Kage I-B)', () => {
+    jest.useFakeTimers();
+    try {
+      strip({ isDm: true, session });
+      fireEvent.click(screen.getByRole('button', { name: 'Session' }));
+      const endBtn = screen.getByRole('button', { name: 'End session' });
+      act(() => endBtn.focus());
+      fireEvent.click(endBtn);
+      act(() => { jest.runAllTimers(); }); // the dialog focuses Cancel on a 0ms timer
+      expect(screen.getByRole('dialog', { name: 'End this session?' })).toBeInTheDocument();
+      expect(screen.getByRole('dialog', { name: 'Session controls' })).toBeInTheDocument(); // not closed under it
+      expect(screen.getByRole('button', { name: 'Session' })).toHaveAttribute('aria-expanded', 'true');
+      // the dialog's own Cancel took focus: not "leaving" the popover
+      expect(screen.getByRole('button', { name: 'Keep playing' })).toHaveFocus();
+      // Escape: the dialog closes, focus is back on the card's button inside the still-open popover (never <body>)
+      fireEvent.keyDown(screen.getByRole('dialog', { name: 'End this session?' }), { key: 'Escape' });
+      act(() => { jest.runAllTimers(); });
+      expect(screen.queryByRole('dialog', { name: 'End this session?' })).toBeNull();
+      expect(screen.getByRole('button', { name: 'End session' })).toHaveFocus();
+      expect(screen.getByRole('dialog', { name: 'Session controls' })).toBeInTheDocument();
+      // again, and this time the first click on the confirm button lands
+      fireEvent.click(screen.getByRole('button', { name: 'End session' }));
+      const notPrevented = fireEvent.click(screen.getByRole('button', { name: 'End it' }));
+      expect(notPrevented).toBe(true); // not consumed as an outside press
+      expect(onConfirm).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('the Session button outlives an empty roster: a DM at a table nobody has joined still has the way to the tools', () => {

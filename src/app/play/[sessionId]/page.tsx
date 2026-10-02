@@ -1423,15 +1423,14 @@ export default function PlayPage() {
         selfPcId={selfPcId}
         fallbackFocus={() => sceneHeadRef.current}
         // A9d-2 N9: the Session card is the party band's trailing "Session" button's popover, on every row (no longer an in-flow sibling of the roster).
-        // `close` is for End session: its confirm dialog opens over the page, and an open popover would swallow the dialog's own clicks.
-        session={isDm ? ({ close }) => (
+        session={isDm ? () => (
           <SessionControls
             isDm={isDm}
             sessionActionBusy={sessionActionBusy}
             isEnded={isEnded}
             isPaused={isPaused}
             onTogglePause={() => void onTogglePause()}
-            onEndSessionRequest={() => { close(); setEndSessionConfirmOpen(true); }}
+            onEndSessionRequest={() => setEndSessionConfirmOpen(true)}
             xpToggleBtnRef={xpToggleBtnRef}
             xpFormOpen={xpFormOpen}
             setXpFormOpen={setXpFormOpen}

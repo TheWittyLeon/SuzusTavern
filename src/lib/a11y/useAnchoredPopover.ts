@@ -38,6 +38,12 @@ import { consumeEscape } from './escapeConsume';
  *   `data-popover-passthrough` element: it closes the popover and is delivered, because the X-card fires on the first tap, always. No
  *   backdrop element exists (no stacking question, no touch-pan lock). A press on the opener itself is the consumer's toggle, untouched.
  *   Escape goes through `consumeEscape`.
+ *   A MODAL LAYER OPENED FROM IT OWNS THE PRESS AND THE FOCUS (A9d-2 fix round 4, Kage I-B). A confirm dialog a popover's own control opens is
+ *   portalled out of the popover (and End session's belongs to the page), so by DOM containment it is "outside": its first click closed the popover
+ *   and was consumed, and by keyboard the popover closed under the dialog and focus fell to <body> after Escape. While any `aria-modal` element that
+ *   is not the popover (or around it) is open, the popover neither closes on nor consumes a press, and focus moving into it is not "leaving": the
+ *   dialog's own restore returns focus to the control that opened it, inside the popover. One rule here, so no consumer closes its popover by hand
+ *   before opening a dialog.
  *
  * FOCUS (Iro 4, Tora C3). The opener is the control that was activated (`openerRef`, recorded from the activating event by
  *   `recordOpener`; the anchor when there is only one). Never `document.activeElement` at open time: WebKit does not focus a tapped
@@ -62,6 +68,15 @@ const GAP = 6;
 const PASSTHROUGH = '[data-popover-passthrough]';
 const TABBABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+const MODAL = '[aria-modal="true"]';
+
+/** True while a modal layer is open that is neither the popover, nor inside it, nor around it (a closed Drawer drops the attribute; an inert or hidden one is not open). */
+function modalLayerOpen(pop: HTMLElement | null): boolean {
+  return Array.from(document.querySelectorAll<HTMLElement>(MODAL)).some(
+    (m) => !(pop && (pop.contains(m) || m.contains(pop))) && !m.closest('[inert], [hidden], [aria-hidden="true"]'),
+  );
+}
 
 export type PopoverRole = 'dialog' | 'menu' | 'group';
 export type PopoverSide = 'auto' | 'top' | 'bottom';
@@ -286,7 +301,7 @@ export function useAnchoredPopover({
     const onPointerDown = () => { pointerRef.current = true; tabbedRef.current = false; };
     const onKeyDown = (e: KeyboardEvent) => { pointerRef.current = false; tabbedRef.current = e.key === 'Tab'; };
     const onFocusIn = (e: FocusEvent) => {
-      if (pointerRef.current) return;
+      if (pointerRef.current || modalLayerOpen(popoverRef.current)) return;
       const target = e.target;
       if (!(target instanceof Node)) return;
       if (popoverRef.current?.contains(target)) return;
@@ -297,7 +312,7 @@ export function useAnchoredPopover({
     // Focus leaving the popover for NOTHING (WebKit's Tab goes to <body>/the browser's own chrome after the last stop; no `focusin` fires there):
     // `focusout` with no `relatedTarget` right after a Tab, while the document still has focus (a window switch is not the user leaving it).
     const onFocusOut = (e: FocusEvent) => {
-      if (pointerRef.current || !tabbedRef.current || e.relatedTarget !== null) return;
+      if (pointerRef.current || !tabbedRef.current || e.relatedTarget !== null || modalLayerOpen(popoverRef.current)) return;
       const target = e.target;
       if (!(target instanceof Node) || !popoverRef.current?.contains(target)) return;
       if (typeof document.hasFocus === 'function' && !document.hasFocus()) return;
@@ -323,6 +338,7 @@ export function useAnchoredPopover({
       if (!target) return;
       const pop = popoverRef.current;
       if (pop?.contains(target)) return;
+      if (modalLayerOpen(pop)) return; // a dialog opened from the popover: its press is the dialog's, neither a dismissal nor consumed
       const anchor = anchorRef.current;
       const opener = openerRef?.current;
       if ((anchor && anchor.contains(target)) || (opener && opener.contains(target))) return; // the consumer's own toggle
