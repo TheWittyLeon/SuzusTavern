@@ -72,7 +72,7 @@ import type { CombatParticipantState, CombatSpace, SpaceCoordinate } from '@/lib
 import { consumeEscape } from '@/lib/a11y/escapeConsume';
 import { chebyshevCost, coordsEqual, isLegalMoveTarget, isSpaceUsable, reachableCells } from './reach';
 import { cellAccessibleName, nextFocusCoord, toDisplayRowCol, type CellNameInput, type CellOccupant, type InspectLine } from './a11y';
-import { followScroll, FOLLOW_MARGIN_PROPERTY } from './follow';
+import { followAll, followScroll, FOLLOW_MARGIN_PROPERTY, type Box, type FollowTarget, type WindowMetrics } from './follow';
 import { worstCondition } from './conditions';
 import { formatConditionName } from '@/lib/conditions';
 import { useFollowGate } from './useFollowGate';
@@ -290,6 +290,22 @@ function describeOccupant(
   };
 }
 
+/** The window's metrics as the follow rule reads them: its rect's origin, its CLIENT size (a classic scrollbar is not visible), its offsets and how far each axis can go. */
+function windowMetrics(win: HTMLElement): WindowMetrics {
+  const wr = win.getBoundingClientRect();
+  return { view: { left: wr.left, top: wr.top, width: win.clientWidth, height: win.clientHeight }, scrollLeft: win.scrollLeft, scrollTop: win.scrollTop, maxLeft: win.scrollWidth - win.clientWidth, maxTop: win.scrollHeight - win.clientHeight };
+}
+
+function boxOf(el: HTMLElement): Box {
+  const r = el.getBoundingClientRect();
+  return { left: r.left, top: r.top, width: r.width, height: r.height };
+}
+
+/** A window has a box when it is laid out: a folded (`hidden`) body has none. */
+function hasBox(win: HTMLElement): boolean {
+  return win.clientWidth > 0 && win.clientHeight > 0;
+}
+
 export default function TacticalMap({
   space,
   participants,
@@ -398,22 +414,23 @@ export default function TacticalMap({
     const m = win ? parseFloat(getComputedStyle(win).getPropertyValue(FOLLOW_MARGIN_PROPERTY)) : 0;
     return Number.isFinite(m) && m > 0 ? m : 0;
   }, []);
+  const applyScroll = useCallback((win: HTMLElement, next: { left: number; top: number } | null) => {
+    if (!next) return;
+    win.scrollLeft = next.left;
+    win.scrollTop = next.top;
+    gate.markOwn();
+  }, [gate]);
   const keepInView = useCallback((cell: HTMLElement, margin = 0) => {
     const win = boardScrollRef.current;
     if (!win) return;
-    const wr = win.getBoundingClientRect();
-    const cr = cell.getBoundingClientRect();
-    const next = followScroll(
-      { view: { left: wr.left, top: wr.top, width: win.clientWidth, height: win.clientHeight }, scrollLeft: win.scrollLeft, scrollTop: win.scrollTop, maxLeft: win.scrollWidth - win.clientWidth, maxTop: win.scrollHeight - win.clientHeight },
-      { left: cr.left, top: cr.top, width: cr.width, height: cr.height },
-      margin,
-    );
-    if (next) {
-      win.scrollLeft = next.left;
-      win.scrollTop = next.top;
-      gate.markOwn();
-    }
-  }, [gate]);
+    applyScroll(win, followScroll(windowMetrics(win), boxOf(cell), margin));
+  }, [applyScroll]);
+
+  // What a follow that runs a moment later (the gate, the window's observer) must read as it is THEN, not as it was when it was asked for.
+  const latest = useRef<{ moveMode: boolean; onExitMove: () => void; focusKey: string; moverKey: string | null }>({ moveMode, onExitMove, focusKey: coordKeyStr(focus.coord), moverKey: activeAtKey });
+  useEffect(() => {
+    latest.current = { moveMode, onExitMove, focusKey: coordKeyStr(focus.coord), moverKey: activeAtKey };
+  });
 
   // Roving focus follows the arrows EVERYWHERE (B8c-3, brief F-d): in Move mode, and whenever the grid already holds focus. Only the map's OWN focus moves (`key`, `sync`) focus and follow:
   // focus the browser placed (`native`) is recorded and nothing more, or a mousedown on a cut-off square would scroll the board 34 px under the pointer and lose the click (T1). It never runs on mount unless Move is engaged,
@@ -442,10 +459,6 @@ export default function TacticalMap({
   // Keyed on a boolean, a string and the id: a poll hands over a new `space` object every few seconds, and the effect must not run (let alone drag a window the user scrolled
   // by hand back to the token) on anything but a real change. The turn is recorded BEFORE the placement check, so turn a -> an unplaced creature -> a is a new turn for a.
   const lastFollowedRef = useRef<string | null | undefined>(undefined);
-  const latestMoverKey = useRef<string | null>(null);
-  useEffect(() => {
-    latestMoverKey.current = activeAtKey;
-  });
   useEffect(() => {
     if (!usable) return;
     if (lastFollowedRef.current === activeParticipantId) return;
@@ -453,11 +466,46 @@ export default function TacticalMap({
     if (!activeAtKey) return;
     // Waits for a quiet window and follows the mover's square AS IT IS THEN (a poll may have moved it meanwhile).
     gate.request('mover', () => {
-      const key = latestMoverKey.current;
+      const key = latest.current.moverKey;
       const cell = key ? cellRefs.current.get(key) : undefined;
       if (cell) keepInView(cell, ownMargin());
     });
   }, [usable, activeAtKey, activeParticipantId, keepInView, ownMargin, gate]);
+
+  // The window's own box (P2, brief section 5; Iro-A11y C4). A folded body has no box, so MOUNTED is not VISIBLE, and a window that is hidden loses its offsets: it follows again when it
+  // gets a box, when its WIDTH changes (a rotation), and when the mover is no longer wholly in it. NOT on a pure height step (the action bar is 24 px taller on a monster's turn and
+  // would re-run the follow, margin and all, every turn). The user's focused square is followed first and the mover second, and the mover is not taken if it would cut the focused
+  // one (followAll). A window that LOSES its box while Move is armed calls `onExitMove`: the player cannot choose a square on a map they cannot see. Every follow goes through the gate.
+  const boxState = useRef({ had: false, width: 0 });
+  useEffect(() => {
+    const win = boardScrollRef.current;
+    if (!usable || !win || typeof ResizeObserver === 'undefined') return;
+    boxState.current = { had: false, width: 0 };
+    const refollow = () => {
+      const { focusKey, moverKey } = latest.current;
+      const held = boardRef.current?.contains(document.activeElement) ? cellRefs.current.get(focusKey) : undefined;
+      const mover = moverKey ? cellRefs.current.get(moverKey) : undefined;
+      const targets: FollowTarget[] = [];
+      if (held) targets.push({ box: boxOf(held), margin: 0 });
+      if (mover) targets.push({ box: boxOf(mover), margin: ownMargin() });
+      applyScroll(win, followAll(windowMetrics(win), targets));
+    };
+    const observer = new ResizeObserver(() => {
+      const prev = boxState.current;
+      const has = hasBox(win);
+      boxState.current = { had: has, width: win.clientWidth };
+      if (!has) {
+        if (prev.had && latest.current.moveMode) latest.current.onExitMove();
+        return;
+      }
+      const moverKey = latest.current.moverKey;
+      const mover = moverKey ? cellRefs.current.get(moverKey) : undefined;
+      const moverCut = !!mover && followScroll(windowMetrics(win), boxOf(mover)) !== null;
+      if (!prev.had || win.clientWidth !== prev.width || moverCut) gate.request('mover', refollow);
+    });
+    observer.observe(win);
+    return () => observer.disconnect();
+  }, [usable, gate, ownMargin, applyScroll]);
 
   // Everything one square says, in ONE place (Kage-CR D1 IMPORTANT-4's "single source of truth"): the cell's accessible name, its token and the scene line all read this.
   // `a11y.ts`'s `cellAccessibleName` and `buildLine` render the same CellNameInput; a fact cannot be in one and not the other.

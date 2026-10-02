@@ -940,3 +940,145 @@ describe('TacticalMap — P2: every follow waits while a touch is on the window 
     add.mockRestore();
   });
 });
+
+describe('TacticalMap — P2: the window re-follows when it gets a box or its WIDTH changes, or the mover is cut; never on a pure height step; losing its box exits Move', () => {
+  class FakeResizeObserver {
+    static all: FakeResizeObserver[] = [];
+    constructor(public cb: () => void) {}
+    observe() { FakeResizeObserver.all.push(this); }
+    unobserve() {}
+    disconnect() { FakeResizeObserver.all = FakeResizeObserver.all.filter((o) => o !== this); }
+  }
+  const resized = () => act(() => { FakeResizeObserver.all.slice().forEach((o) => o.cb()); });
+  beforeEach(() => { FakeResizeObserver.all = []; (globalThis as { ResizeObserver?: unknown }).ResizeObserver = FakeResizeObserver; });
+  afterEach(() => { delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver; });
+
+  // Cal is two columns past a 5-column window and Edge4 is in its last visible column; both are placed at rest, so the turn follow at mount has nothing laid out to read.
+  const folk = [
+    makeParticipant({ participant_id: 'a', name: 'Aldo', at: [0, 0], movement_remaining: 30 }),
+    makeParticipant({ participant_id: 'c', name: 'Cal', is_pc: false, at: [6, 0], movement_remaining: 30 }),
+    makeParticipant({ participant_id: 'e4', name: 'Edge4', is_pc: false, at: [4, 1], movement_remaining: 30 }),
+  ];
+  const at = (active: string, o: Partial<TacticalMapProps> = {}) => baseProps({ space: makeSpace({ width: 10, height: 10 }), participants: folk, viewerParticipantId: 'a', activeParticipantId: active, ...o });
+  const noBox = (win: HTMLElement) => { Object.defineProperty(win, 'clientWidth', { configurable: true, value: 0 }); Object.defineProperty(win, 'clientHeight', { configurable: true, value: 0 }); };
+
+  it('a window that gets a box (a folded body unfolding) follows the mover, which the fold had left out of view', () => {
+    const { container } = render(<TacticalMap {...at('c')} />);
+    const win = container.querySelector('[data-board-window]') as HTMLElement;
+    noBox(win);
+    resized(); // still folded: no box, nothing to do
+    expect(win.scrollLeft).toBe(0);
+    layoutP2(container, { left: 0, top: 0 });
+    resized(); // the box arrives
+    expect(win.scrollLeft).toBe(80); // Cal at column 6 -> columns 2-6
+  });
+
+  it('a gained box follows with the margin (the map\'s own follow)', () => {
+    const { container } = render(<TacticalMap {...at('e4')} />);
+    const win = layoutP2(container, { left: 0, top: 0 });
+    withMargin(win, 1);
+    resized();
+    expect(win.scrollLeft).toBe(40);
+  });
+
+  it('a WIDTH change follows (a rotation), by the margin when only the margin needs it: the mover stays wholly in view, so nothing else would have moved the window', () => {
+    const { container } = render(<TacticalMap {...at('e4')} />);
+    const win = layoutP2(container, { left: 0, top: 0 }, { width: 240, height: 120 }); // 6 columns
+    resized(); // the box (the margin is not set yet: nothing moves)
+    expect(win.scrollLeft).toBe(0);
+    withMargin(win, 1);
+    layoutP2(container, { left: 0, top: 0 }, { width: 200, height: 120 }); // 5 columns: Edge4 (column 4) is wholly in view, and one square short of its margin
+    resized();
+    expect(win.scrollLeft).toBe(40);
+  });
+
+  it('a width change that cuts the mover follows it too', () => {
+    const { container } = render(<TacticalMap {...at('c')} />);
+    const win = layoutP2(container, { left: 0, top: 0 }, { width: 280, height: 120 }); // Cal at column 6 fits in 7 columns
+    resized();
+    expect(win.scrollLeft).toBe(0);
+    layoutP2(container, { left: 0, top: 0 }, { width: 200, height: 120 });
+    resized();
+    expect(win.scrollLeft).toBe(80);
+  });
+
+  it('a box gained at the SAME width follows too (a body squeezed to 0 high keeps its width: the width trigger alone would miss it)', () => {
+    const { container } = render(<TacticalMap {...at('e4')} />);
+    const win = layoutP2(container, { left: 0, top: 0 });
+    resized(); // the first box: the margin is not set yet, nothing moves
+    withMargin(win, 1);
+    Object.defineProperty(win, 'clientHeight', { configurable: true, value: 0 });
+    resized(); // no box (height 0, width still 200)
+    layoutP2(container, { left: 0, top: 0 });
+    resized(); // a box again, the same 200 wide; the mover is wholly in view, so only the margin moves the window
+    expect(win.scrollLeft).toBe(40);
+  });
+
+  it('a PURE HEIGHT STEP follows nothing, even with the margin on and the mover inside its margin (the bar\'s 24 px on a monster\'s turn)', () => {
+    const { container } = render(<TacticalMap {...at('e4')} />);
+    const win = layoutP2(container, { left: 0, top: 0 });
+    resized(); // the box (margin 0 here: nothing moves)
+    withMargin(win, 1);
+    layoutP2(container, { left: 0, top: 0 }, { width: 200, height: 96 }); // 24 px shorter; Edge4 (row 1: y 40..80) is still wholly in view
+    resized();
+    expect(win.scrollLeft).toBe(0);
+    expect(win.scrollTop).toBe(0);
+  });
+
+  it('a height step that CUTS the mover follows it (the mover is no longer wholly in view)', () => {
+    const { container } = render(<TacticalMap {...at('e4')} />);
+    const win = layoutP2(container, { left: 0, top: 0 });
+    resized();
+    layoutP2(container, { left: 0, top: 0 }, { width: 200, height: 60 }); // row 1 is y 40..80: cut at 60
+    resized();
+    expect(win.scrollTop).toBe(40); // one whole square down: rows 1.. (the fewest)
+  });
+
+  it('a window that LOSES its box while Move is armed calls onExitMove, once; while Move is not armed it calls nothing; gaining a box calls nothing', () => {
+    const onExitMove = jest.fn();
+    const { container, unmount } = render(<TacticalMap {...at('a', { moveMode: true, onExitMove })} />);
+    const win = layoutP2(container, { left: 0, top: 0 });
+    resized();
+    expect(onExitMove).not.toHaveBeenCalled();
+    noBox(win);
+    resized();
+    resized(); // the observer fires again with the same (absent) box: it is not "losing" it twice
+    expect(onExitMove).toHaveBeenCalledTimes(1);
+    unmount();
+    const idle = jest.fn();
+    const second = render(<TacticalMap {...at('a', { moveMode: false, onExitMove: idle })} />);
+    const win2 = layoutP2(second.container, { left: 0, top: 0 });
+    resized();
+    noBox(win2);
+    resized();
+    expect(idle).not.toHaveBeenCalled();
+  });
+
+  it('the user\'s focused square is followed first: a mover follow that would cut it is not taken (then, with no focus held, the same follow is taken: the control)', () => {
+    const held = render(<TacticalMap {...at('c')} />);
+    const win = layoutP2(held.container, { left: 0, top: 0 });
+    act(() => screen.getByRole('gridcell', { name: /Aldo — you/ }).focus()); // column 0, in view: the user is on it
+    resized();
+    expect(win.scrollLeft).toBe(0); // Cal at column 6 needs left 80, which would cut column 0
+    held.unmount();
+    const free = render(<TacticalMap {...at('c')} />);
+    const win2 = layoutP2(free.container, { left: 0, top: 0 });
+    resized();
+    expect(win2.scrollLeft).toBe(80);
+  });
+
+  it('the re-follow waits for a touch to lift, like every follow', () => {
+    const { container } = render(<TacticalMap {...at('c')} />);
+    const win = layoutP2(container, { left: 0, top: 0 });
+    fireEvent.touchStart(win, { touches: [{ identifier: 1, target: document.body, clientX: 1, clientY: 1 }] });
+    resized();
+    expect(win.scrollLeft).toBe(0);
+    fireEvent.touchEnd(win, { touches: [] });
+    expect(win.scrollLeft).toBe(80);
+  });
+
+  it('with no ResizeObserver (an old engine, a test) the map renders and follows as before: the observer is an addition', () => {
+    delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+    expect(() => render(<TacticalMap {...at('a')} />)).not.toThrow();
+  });
+});
