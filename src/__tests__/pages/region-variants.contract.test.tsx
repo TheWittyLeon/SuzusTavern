@@ -20,6 +20,7 @@ import SuzuPresence from '@/app/play/[sessionId]/regions/SuzuPresence';
 import PartyStrip from '@/app/play/[sessionId]/regions/PartyStrip';
 import Offers, { type OffersProps } from '@/app/play/[sessionId]/regions/Offers';
 import ActionBar from '@/app/play/[sessionId]/regions/ActionBar';
+import SceneStage from '@/app/play/[sessionId]/regions/SceneStage';
 import { REGION_VARIANTS, type VariantRegionId } from '@/app/play/[sessionId]/variants';
 import type { SceneCheck, SceneTransition, Participant } from '@/lib/api/types';
 
@@ -70,6 +71,30 @@ const offers: Omit<OffersProps, 'variant'> = {
   onMoveOn: noop,
 };
 
+// A9d-2 N5: the stage's fixture. Combat, so the strip's own pieces (the status line with its round, End combat) are in the markup.
+const sceneStage = {
+  sceneName: 'The Sundered Hollow',
+  objective: 'Find the source of the tremors.',
+  sceneHeadRef: createRef<HTMLDivElement>(),
+  combatIsActive: true,
+  activeEncounterId: null,
+  sceneHasEncounter: false,
+  combatBusy: false,
+  endCombatBtnRef: createRef<HTMLButtonElement>(),
+  outcomeChooserOpen: false,
+  setOutcomeChooserOpen: noop,
+  lastOpenerRef: createRef<HTMLButtonElement>(),
+  allHostilesDown: false,
+  anyMonsterDown: false,
+  onEndCombat: noop,
+  beginCombatRef: createRef<HTMLButtonElement>(),
+  onBeginEncounter: noop,
+  talking: false,
+  sessionLocked: false,
+  rollBusy: false,
+  round: 3,
+};
+
 /** One element per consuming region: `(member) => the region, rendered with that variant`. */
 const FIXTURES: { [R in VariantRegionId]?: (variant: (typeof REGION_VARIANTS)[R][number]) => ReactElement } = {
   topBar: (variant) => <TopBar {...topBar} variant={variant} />,
@@ -94,6 +119,16 @@ const FIXTURES: { [R in VariantRegionId]?: (variant: (typeof REGION_VARIANTS)[R]
   actionBar: (variant) => (
     <ActionBar targets={[{ id: 'm1', name: 'Goblin' }]} onAction={noop} isPlayerTurn variant={variant} />
   ),
+  sceneStage: (variant) => <SceneStage {...sceneStage} variant={variant} />,
+};
+
+/**
+ * Members the registry declares that render AS another member until their step. The contract demands every member's markup differ; an
+ * alias is named, dated, and held to be IDENTICAL to its target (so it cannot drift into a third form unnoticed).
+ */
+const MEMBERS_RENDERED_AS: { [R in VariantRegionId]?: Record<string, string> } = {
+  // debt: sceneStage `hero` renders exactly as `panel`: Table's stage is the hero in the registry and nothing reads the difference yet. ceiling: one member (hero) of one region (sceneStage); every other member of every region differs. until: step 11 (Aoi's stage forms) gives `hero` and `panel` their own readers; then this entry is deleted and the pairwise check covers all three.
+  sceneStage: { hero: 'panel' },
 };
 
 /**
@@ -103,8 +138,6 @@ const FIXTURES: { [R in VariantRegionId]?: (variant: (typeof REGION_VARIANTS)[R]
 const VARIANTS_NOT_YET_CONSUMED = {
   // debt: characterBlock has no variant reader; the sheet renders one way in every row. ceiling: the registry lists compact|full and nothing stamps them. until: step 7 (CharacterBlock extraction) consumes compact/full.
   characterBlock: 'step 7',
-  // debt: sceneStage has no variant reader; inline|panel|hero are placed by rows and unread. ceiling: the registry lists three members and nothing stamps them. until: step 11 (the SceneStage / tactical-map mount) consumes inline/panel/hero.
-  sceneStage: 'step 11',
 } as const satisfies Partial<Record<VariantRegionId, string>>;
 
 // Comparable markup: the variant stamp itself removed (a variant must be READ, not
@@ -138,8 +171,11 @@ describe('region variants contract: every REGION_VARIANTS region is consumed or 
       unmount();
       return html;
     });
-    // pairwise distinct once the stamp itself is removed: a variant must be READ, not just printed
-    expect([r, new Set(htmls).size]).toEqual([r, members.length]);
+    // pairwise distinct once the stamp itself is removed: a variant must be READ, not just printed. A member that renders AS another is
+    // named in MEMBERS_RENDERED_AS and must be IDENTICAL to its target.
+    const aliases = MEMBERS_RENDERED_AS[r] ?? {};
+    for (const [alias, target] of Object.entries(aliases)) expect([r, alias, htmls[members.indexOf(alias)]]).toEqual([r, alias, htmls[members.indexOf(target)]]);
+    expect([r, new Set(htmls).size]).toEqual([r, members.length - Object.keys(aliases).length]);
   });
 
   it.each(regions.filter((r) => r in FIXTURES))('%s: the comparison is sound, the same member rendered twice is identical', (r) => {

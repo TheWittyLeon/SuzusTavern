@@ -84,10 +84,12 @@ describe('Offers consumes its variant', () => {
     expect(chips.container.firstElementChild).not.toHaveClass('offersRows');
     expect(names(chips.container)).toEqual(rowNames);
     const css = readFileSync(join(process.cwd(), 'src/app/play/[sessionId]/Play.module.css'), 'utf8');
-    const block = css.slice(css.indexOf('@media (min-height: 701px) {\n  .offersRows'));
-    // 1.4.10: the scrolling row exists ONLY above the reflow-class boundary, so 375x667 and the zoom
-    // viewports keep the wrapped chips and scroll the page
-    expect(block.startsWith('@media (min-height: 701px) {')).toBe(true);
+    const block = css.slice(css.indexOf('@media (min-width: 321px) {\n  .offersRows'));
+    // 1.4.10: the scrolling row exists ONLY above 320px of width (a 400% zoom of a 1280px page keeps the wrapped chips and scrolls the
+    // page, never a row of its own). A9d-2 N5 (named exception): it was gated on `min-height: 701px`, the harness's fit/reflow line, which
+    // has nothing to do with two-way scroll; its own reason is width.
+    expect(block.startsWith('@media (min-width: 321px) {')).toBe(true);
+    expect(css).not.toMatch(/@media \(min-height: 701px\) \{\n  \.offersRows/);
     expect(block).toMatch(/\.offersRows \.checkWrap,\n\s+\.offersRows \.moveOnWrap \{[^}]*overflow-x: auto;/);
     expect(block).toMatch(/mask-image: linear-gradient\(to right/);
     // the clipping row leaves the focus ring its room and pays for it with an equal negative margin

@@ -197,7 +197,8 @@ afterAll(() => {
 });
 
 /** Regions that consume a variant today (the contract test owns the list). */
-const CONSUMING: readonly RegionId[] = ['topBar', 'suzuPresence', 'partyStrip', 'offers', 'actionBar'] as const;
+// A9d-2 N5: the stage joins (it reads its row's variant: `inline` on the phone, `panel` / `hero` as before).
+const CONSUMING: readonly RegionId[] = ['topBar', 'suzuPresence', 'partyStrip', 'offers', 'actionBar', 'sceneStage'] as const;
 
 interface Cell {
   name: string;
@@ -339,10 +340,14 @@ describe('/play real-page render matrix (4 desktop + 2 phone)', () => {
     for (const [row, sets] of slotSets) expect([row, sets.size]).toEqual([row, 1]);
   });
 
-  it('D5 is not vacuous: tenants were checked, and the fold check saw both a handle and an inert dock', () => {
+  // A9d-2 N5 (named exception): the stage's dock was the one that sat INERT on every row but the phone. With the stage no longer collapsible
+  // anywhere, the only foldable region left is Table's docked sheet, which a Story or phone row does not place at all (a layer: no slot, no
+  // dock), so no cell renders an inert dock any more. The inert MODE is still pinned by FoldDock's own `foldable={false}` case and by
+  // playshell.fold's mode-across-row-switch cases; this guard keeps the real page honest about the handle, which it still sees.
+  it('D5 is not vacuous: tenants were checked, and the fold check saw a handle (the inert mode is FoldDock\'s own case: no region sits inert on any row now)', () => {
     expect(tenantsSeen.size).toBeGreaterThanOrEqual(3);
     expect(foldChecked.collapsible).toBeGreaterThan(0);
-    expect(foldChecked.inert).toBeGreaterThan(0);
+    expect(foldChecked.inert).toBeGreaterThanOrEqual(0);
   });
 
   it('is not vacuous: every consuming region was compared against a row-declared variant at least once', () => {

@@ -5,7 +5,9 @@ import type { EndCombatOutcome } from '@/lib/api/types';
 import Icon from '@/components/Icon';
 import AnchoredPopover from '@/components/AnchoredPopover';
 import { useAnchoredPopover } from '@/lib/a11y/useAnchoredPopover';
+import type { RegionVariant } from '../variants';
 import styles from '../Play.module.css';
+import strip from './SceneStage.module.css';
 
 /**
  * TAV-PLAY-SHELL step 3 — pure region extraction, PLACEHOLDER CONTENT ONLY
@@ -44,6 +46,15 @@ export interface SceneStageProps {
   talking: boolean;
   sessionLocked: boolean;
   rollBusy: boolean;
+  /** The combat round, shown beside the status text in the phone's strip (an `aria-hidden` span: the tracker stays the one region that
+   *  announces the round, Iro A9d-1 Minor-2). Null = not in combat or unknown. */
+  round?: number | null;
+  /**
+   * A9d-2 N5 (Amendment E.1/E.2): the stage's form, from the registry. `inline` (the phone) is the scene strip: ONE row holding the scene's
+   * name, its objective (exploring) or the combat status, and the encounter's buttons; no picture stand-in, no kicker. `panel` and `hero`
+   * render as today (the picture's stand-in and its fold body) until step 11 gives them their own forms.
+   */
+  variant?: RegionVariant<'sceneStage'>;
 }
 
 export default function SceneStage({
@@ -66,7 +77,12 @@ export default function SceneStage({
   talking,
   sessionLocked,
   rollBusy,
+  round = null,
+  variant = 'panel',
 }: SceneStageProps) {
+  const inline = variant === 'inline';
+  /** `styles.x` always; plus the strip's own class when this is the phone's strip. */
+  const cx = (base: string, extra: string | false = false) => (inline && extra ? `${base} ${extra}` : base);
   // A9d-2 N4 (Tora MAJOR-1, Sora lever brief 2.2): the outcome chooser is an anchored popover on EVERY row. Inline in the stage it
   // inherited the band's clip: on a phone it rendered at y 346-718 under a band that ended at 333, so the tap on End combat looked
   // like it did nothing. The hook owns placement, the consumed dismissing click, Escape, Tab past either end and the focus
@@ -84,29 +100,31 @@ export default function SceneStage({
     fallbackFocus: () => sceneHeadRef.current,
   });
   return (
-    <div data-region="sceneStage">
-      {/* FIX-8 (MEDIUM-1): aria-label surfaces the scene name to AT so the
-          "Scene" kicker (now aria-hidden) doesn't duplicate it on screen
-          readers. Iro Ship 2 CRITICAL-1: tabIndex={-1} + ref makes this a
-          programmatic focus anchor — refocusSceneHeadIfStranded() lands
-          here when a resolved check / taken transition unmounts the
-          control the user was just on. */}
+    <div data-region="sceneStage" data-variant={variant} className={cx(styles.stage, strip.strip)}>
+      {/* FIX-8 (MEDIUM-1): aria-label surfaces the scene name to AT so the "Scene" kicker (now aria-hidden) doesn't duplicate it on
+          screen readers. Iro Ship 2 CRITICAL-1: tabIndex={-1} + ref makes this a programmatic focus anchor — refocusSceneHeadIfStranded()
+          lands here when a resolved check / taken transition unmounts the control the user was just on, and every anchored popover falls
+          back to it when its opener is gone (A9d-2 N3). In the strip it is the visible first line. */}
       <div
         ref={sceneHeadRef}
         tabIndex={-1}
-        className={styles.sceneHead}
+        className={cx(styles.sceneHead, strip.head)}
         aria-label={sceneName ? `Scene: ${sceneName}` : 'Scene'}
       >
-        <span className={styles.kicker} aria-hidden>Scene</span>
-        {sceneName && <p className={styles.sceneName}>{sceneName}</p>}
-        {objective && <span className={styles.sceneObjective}>{objective}</span>}
+        {!inline && <span className={styles.kicker} aria-hidden>Scene</span>}
+        {sceneName && <p className={cx(styles.sceneName, strip.name)}>{sceneName}</p>}
+        {/* In the strip the second line is the combat status while a fight runs, so the objective stands down. */}
+        {objective && !(inline && combatIsActive) && <span className={cx(styles.sceneObjective, strip.objective)}>{objective}</span>}
       </div>
-      <div id={SCENE_STAGE_BODY_ID} data-fold-body>
-        <div className={styles.scenePlaceholder}>
-          <Icon name="Map" size={22} aria-hidden />
-          <span>The tactical map arrives in a later sprint. Suzu narrates the scene above.</span>
+      {/* The picture's stand-in and its fold body (the map's socket, step 12). The strip has none. */}
+      {!inline && (
+        <div id={SCENE_STAGE_BODY_ID} data-fold-body>
+          <div className={styles.scenePlaceholder}>
+            <Icon name="Map" size={22} aria-hidden />
+            <span>The tactical map arrives in a later sprint. Suzu narrates the scene above.</span>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Active combat: the status text, End combat, and (all enemies down) Wrap up. A9d-2 N4 (Iro 4): the buttons are SIBLINGS of their
           role="status" text, never inside it (a button in a live region is re-announced when it mounts), each pair under a role-less
@@ -114,15 +132,16 @@ export default function SceneStage({
           row). The status nodes are stable: always rendered while their state holds, never re-created when a button mounts or unmounts. */}
       {combatIsActive ? (
         <>
-          <div className={styles.combatNote}>
-            <div className={styles.noteText} role="status" aria-live="polite">
+          <div className={cx(styles.combatNote, strip.wrapper)}>
+            <div className={cx(styles.noteText, allHostilesDown ? strip.noteClipped : strip.note)} role="status" aria-live="polite">
               <Icon name="Sword" size={13} aria-hidden /> In combat · use the action bar
+              {inline && round != null && <span aria-hidden className={strip.round}> · round {round}</span>}
             </div>
             {/* B3-1: "End combat" opens the outcome chooser. Tora MAJOR-2: ref so focus returns here when the chooser is dismissed. */}
             <button
               ref={endCombatBtnRef}
               type="button"
-              className={styles.endCombatBtn}
+              className={cx(styles.endCombatBtn, strip.end)}
               onClick={(e) => {
                 pop.recordOpener(e);
                 setOutcomeChooserOpen((v) => !v);
@@ -138,13 +157,13 @@ export default function SceneStage({
           {/* F3/COMBAT-NO-AUTO-RESOLVE: advisory-only prompt (never auto-resolves — the DM still picks victory/defeat/retreat/etc.).
               Opens the SAME outcome chooser as the "End combat" button above. */}
           {allHostilesDown && (
-            <div className={styles.autoResolvePrompt}>
-              <div className={styles.noteText} role="status" aria-live="polite">
+            <div className={cx(styles.autoResolvePrompt, strip.wrapper)}>
+              <div className={cx(styles.noteText, strip.note)} role="status" aria-live="polite">
                 <Icon name="Skull" size={13} aria-hidden /> All enemies are down.
               </div>
               <button
                 type="button"
-                className={styles.autoResolvePromptBtn}
+                className={cx(styles.autoResolvePromptBtn, strip.wrap)}
                 onClick={(e) => {
                   pop.recordOpener(e);
                   setOutcomeChooserOpen(true);
@@ -202,8 +221,8 @@ export default function SceneStage({
         </>
       ) : activeEncounterId ? (
         // Between fights but encounter_id still set — shouldn't happen post-fix.
-        <div className={styles.combatNote}>
-          <div className={styles.noteText} role="status" aria-live="polite">
+        <div className={cx(styles.combatNote, strip.wrapper)}>
+          <div className={cx(styles.noteText, strip.note)} role="status" aria-live="polite">
             <Icon name="Sword" size={13} aria-hidden /> Combat ended
           </div>
         </div>
@@ -220,7 +239,7 @@ export default function SceneStage({
         <button
           ref={beginCombatRef}
           type="button"
-          className={styles.beginCombat}
+          className={cx(styles.beginCombat, `${strip.end} ${strip.begin}`)}
           onClick={onBeginEncounter}
           disabled={talking || combatBusy || sessionLocked || rollBusy}
           aria-busy={combatBusy || talking}

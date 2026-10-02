@@ -161,17 +161,18 @@ describe('PlayShell fold state', () => {
     expect(screen.queryByRole('button', { name: 'Scene stage' })).not.toBeInTheDocument();
   });
 
-  it('phone: the stage gets a handle, and no extra landmark (it is already the Scene aside)', () => {
+  // A9d-2 N5 (named exception: the phone's stage was collapsible, with a fold that visibly did nothing at 390x844). The strip does not
+  // fold, so these two cases now pin its ABSENCE: no handle, no dock, nothing of the stage inside a fold, whatever a persisted pref says.
+  // What pins the invariant: these, the registry's "no phone placement sets collapsible on the stage", and the harness's o:restControls.
+  it('phone: the stage gets NO handle, and no extra landmark (it is the Scene aside, and the strip does not fold)', () => {
     render(<PlayShell row={phone} moment="exploring" regions={regionNodes()} tenants={{}} foldSpecs={FOLD_SPECS} />);
-    const handle = screen.getByRole('button', { name: 'Scene stage' });
-    expect(handle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.queryByRole('button', { name: 'Scene stage' })).not.toBeInTheDocument();
+    expect(document.querySelector('[data-region-slot="sceneStage"] [data-foldable]')).toBeNull();
     const scene = screen.getByRole('complementary', { name: 'Scene' });
-    // MINOR-4: the handle is not named like the landmark it controls
-    expect(handle).not.toHaveAccessibleName('Scene');
     expect(within(scene).queryByRole('region')).not.toBeInTheDocument();
   });
 
-  it('tenants stay OUTSIDE the fold: a folded stage hides its own node, not the dice tray it hosts', () => {
+  it('a stage fold left in the preferences (from the old phone row) folds nothing: the stage and the tray it hosts stay visible, in no dock', () => {
     render(
       <PlayShell
         row={phone}
@@ -182,10 +183,8 @@ describe('PlayShell fold state', () => {
         foldedRegions={new Set<RegionId>(['sceneStage'])}
       />,
     );
-    // A9d-2 F1: the fold hides the stage's BODY (CSS, jsdom applies none); the region's own
-    // node stays in the page and the panel is not `hidden`.
     expect(document.querySelector('[data-probe-region="sceneStage"]')).toBeVisible();
-    expect(document.querySelector('[data-probe-fold-body="sceneStage"]')?.closest('[data-folded="true"]')).not.toBeNull();
+    expect(document.querySelector('[data-probe-region="sceneStage"]')?.closest('[data-foldable]')).toBeNull();
     const tray = document.querySelector('[data-probe-tenant="diceTray"]') as HTMLElement;
     expect(tray).toBeVisible();
     expect(tray.closest('[data-foldable]')).toBeNull();

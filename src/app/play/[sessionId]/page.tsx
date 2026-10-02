@@ -1603,9 +1603,8 @@ export default function PlayPage() {
         onEndCombat={(key) => void onEndCombat(key)}
         beginCombatRef={beginCombatRef}
         onBeginEncounter={beginEncounter}
-        talking={talking}
-        sessionLocked={sessionLocked}
-        rollBusy={rollBusy}
+        talking={talking} sessionLocked={sessionLocked} rollBusy={rollBusy} round={round}
+        variant={variantFor(row, 'sceneStage', moment)}
       />
     ),
   };
@@ -1668,7 +1667,9 @@ export default function PlayPage() {
           data-tenant="nextPartOffer"
         />
       ) : undefined,
-    diceTray: (
+    // debt: the dice are not rendered on the phone between A9d-2 N5 and N7: the stage is a one-row strip there (`inline`), and the tray (357px of dice and quick checks) was its tenant. ceiling: the commits between N5 and N7 of the fix round, none deployed; the harness's o:restControls and z:modeRow are red in that window by construction ("no Roll control and no dice tray").
+    // until: N7 (Roll in the composer's mode row) puts the tray behind Roll in an anchored popover, and this line becomes the composer variant's choice.
+    diceTray: variantFor(row, 'sceneStage', moment) === 'inline' ? undefined : (
       <div className={styles.diceWrap} data-tenant="diceTray">
         {/* A2 — real character skill modifiers; null=loading or []=DM-only hide checks */}
         <DiceTray

@@ -577,7 +577,10 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
     expect(pin(LAYOUT_ROWS_BY_ID.phone, 'exploring')).toEqual({
       topBar: 'topBar variant:compact',
       partyStrip: 'partyStrip variant:strip',
-      sceneStage: 'sceneStage variant:inline collapsible:true',
+      // A9d-2 N5 (named exception: the phone's stage was `collapsible`, with a fold that visibly did nothing at 390x844): the scene STRIP
+      // in both moments, never collapsible. What pins the invariant now: the literal here, the next describe's `max-content` stage track and
+      // the phone-stage registry pin below (no phone placement sets `collapsible` on the stage), and the harness's o:restControls.
+      sceneStage: 'sceneStage variant:inline',
       suzuPresence: 'suzuPresence variant:compact',
       storyLog: 'storyLog',
       offers: 'offers variant:rows',
@@ -593,7 +596,7 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
     expect(pin(LAYOUT_ROWS_BY_ID.phone, 'combat')).toEqual({
       topBar: 'topBar variant:compact',
       partyStrip: 'partyStrip variant:strip',
-      sceneStage: 'sceneStage variant:panel collapsible:true',
+      sceneStage: 'sceneStage variant:inline',
       suzuPresence: 'suzuPresence variant:compact',
       storyLog: 'storyLog',
       offers: 'null visible:false',
@@ -704,8 +707,10 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
       'max-content',
       'max-content',
       'minmax(91px,var(--play-optional,auto))',
-      'fit-content(var(--play-optional,20vh))',
-      'minmax(var(--play-floor,241px),1fr)',
+      // the stage is a WHOLE band (A9d-2 N5): one scene strip that holds End combat, Stand and fight and the status, never scrolls
+      'max-content',
+      // 224 = 160 + 12 + 6 + 46 recap: the 241 budgeted a 63px recap that measures 46 (Kage A9d-1 S1)
+      'minmax(var(--play-floor,224px),1fr)',
       'max-content',
       'max-content',
       'max-content',
@@ -718,7 +723,7 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
       'max-content',
       'max-content',
       'minmax(91px,var(--play-optional,auto))',
-      'fit-content(var(--play-optional,34vh))',
+      'max-content',
       'minmax(var(--play-floor,208px),1fr)',
       'max-content',
       'max-content',
@@ -733,8 +738,6 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
       '--play-slot-inline': 'var(--space-6)',
       '--play-recap-sub': 'none',
       '--play-dice-columns': '6',
-      '--play-picture-dir': 'row',
-      '--play-picture-pad': 'var(--space-3)',
     });
     expect(LAYOUT_ROWS_BY_ID.story.vars).toBeUndefined();
     expect(LAYOUT_ROWS_BY_ID.table.vars).toBeUndefined();
@@ -742,11 +745,43 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
 
   it('the phone row carries a banner floor per moment (exploring pays the recap chrome, combat the status line); desktop rows carry none', () => {
     expect(LAYOUT_ROWS_BY_ID.phone.momentVars).toEqual({
-      exploring: { '--play-banner-floor': '169px', '--play-foldable-reflow-min': '232px' },
-      combat: { '--play-banner-floor': '136px', '--play-foldable-reflow-min': '316px' },
+      // 152 = 88 + 64 (exploring chrome: 12 edge + 6 gap + 46 recap); 136 = 88 + 48 (combat). The reflow minimum is gone with the stage's fold.
+      exploring: { '--play-banner-floor': '152px' },
+      combat: { '--play-banner-floor': '136px' },
     });
     expect(LAYOUT_ROWS_BY_ID.story.momentVars).toBeUndefined();
     expect(LAYOUT_ROWS_BY_ID.table.momentVars).toBeUndefined();
+  });
+});
+
+// A9d-2 N5 (Sora lever brief 2.1, Tora 3): the phone has no scene picture and no stage fold until step 12's map. No phone placement may set
+// `collapsible` on the stage (the fold returns with the map and re-asserts Iro's fold acceptance, Backlog TAV-PHONE-STAGE-FOLD-RETURNS), the
+// stage is the strip in both moments, and the only band that may be optional is the party's.
+describe('TAV-PLAY-SHELL presets.ts — the phone stage is a whole, never-collapsible scene strip (A9d-2 N5)', () => {
+  const phone = LAYOUT_ROWS_BY_ID.phone;
+  it.each(MOMENTS)('%s: variant inline, not collapsible', (moment) => {
+    const p = getPlacement(phone, 'sceneStage', moment);
+    expect(p.variant).toBe('inline');
+    expect(p.collapsible).toBeUndefined();
+  });
+  it('no phone placement of ANY region sets collapsible on the stage, and the stage is in no FOLDABLE set a phone moment reaches', () => {
+    for (const moment of MOMENTS) expect(getPlacement(phone, 'sceneStage', moment).collapsible).not.toBe(true);
+    expect(FOLDABLE_REGIONS.has('sceneStage')).toBe(false);
+    expect(FOLDABLE_REGIONS.has('characterBlock')).toBe(true); // Table's docked sheet is the one fold left
+  });
+  it('the stage track is `max-content` in both moments, and the party band is the only OPTIONAL track (--play-optional)', () => {
+    for (const moment of MOMENTS) {
+      const tracks = trackList(phone.rows[moment]);
+      const areaOrder = phone.areas[moment].match(/"[^"]*"/g)!.map((l) => l.replace(/"/g, '').trim().split(/\s+/)[0]);
+      expect(tracks[areaOrder.indexOf('sceneStage')]).toBe('max-content');
+      expect(tracks.filter((t) => t.includes('--play-optional'))).toHaveLength(1);
+      expect(tracks[areaOrder.indexOf('partyStrip')]).toContain('--play-optional');
+    }
+  });
+  it('the phone row says scrollCue (E.7: a band that hides content paints a cue); the desktop rows do not', () => {
+    expect(phone.scrollCue).toBe(true);
+    expect(LAYOUT_ROWS_BY_ID.story.scrollCue).toBeUndefined();
+    expect(LAYOUT_ROWS_BY_ID.table.scrollCue).toBeUndefined();
   });
 });
 

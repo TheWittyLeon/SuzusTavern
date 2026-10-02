@@ -1,0 +1,100 @@
+/**
+ * A9d-2 N5 (Amendment E.1; Sora lever brief 2.1) — the phone's SCENE STRIP: the stage as ONE row, in the region's own module.
+ *
+ * `SceneStage` applies these classes only when its variant is `inline`; every other row renders as it always did. The arrangement is the
+ * region's OWN (column 1 the scene's name and, under it, the objective while exploring or the combat status; then every encounter button
+ * that is present), not its place in the shell's grid, so it is not Play.module.css's `.grid` to decide (layout rule 3).
+ *
+ * Column 1 is the name's: it may wrap, it is never ellipsised, and it takes what the buttons leave. Each encounter button is at least
+ * 44x44 and 8px from the next, and never over the wrapped name (the grid keeps them in their own columns). The role-less wrappers around a
+ * status and its button are `display: contents` here, so status and button are plain grid items; on every other row they carry today's box.
+ * Height: 44 with a button, about 39 without; the harness's o:strip ceiling is 75px (the wrapped-name, Wrap up + End combat cell at 360).
+ */
+.strip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-areas:
+    'head end wrap'
+    'note end wrap';
+  align-items: center;
+}
+
+.strip .head {
+  grid-area: head;
+  margin: 0;
+}
+
+.strip .name {
+  margin: 0;
+  line-height: 1.3;
+}
+
+.strip .objective {
+  margin-top: var(--space-1);
+  /* ONE line (the brief's "line 2"): the strip is at most 75px tall, and a 320px-wide zoom wraps a sentence onto three lines. The text is
+     all in the DOM; only its paint is clamped. The scene NAME above is never clamped: it wraps. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* beats the box rules (`.combatNote`, `.autoResolvePrompt`) in Play.module.css by specificity, not by source order */
+.strip .wrapper {
+  display: contents;
+}
+
+.strip .note {
+  grid-area: note;
+  min-width: 0;
+  font-size: var(--text-sm);
+  line-height: 1.3;
+  color: var(--ink-2);
+  /* One line as well: the status is a live region, announced in full whatever is painted. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* With every enemy down the prompt's line replaces the generic "In combat" line on screen (one status line, so the strip stays one row
+   tall); the generic node stays in the accessibility tree, unchanged and still live, only visually clipped. */
+.strip .noteClipped {
+  /* design-token-exempt: the sr-only clip is 1px by definition (the same box globals.css `.sr-only` makes), not a spacing choice */
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+.strip .end {
+  grid-area: end;
+  width: auto;
+  margin: 0 0 0 var(--space-4);
+  white-space: nowrap;
+}
+
+.strip .begin {
+  padding: var(--space-2) var(--space-5);
+  font-size: var(--text-sm);
+}
+
+.strip .wrap {
+  grid-area: wrap;
+  margin: 0 0 0 var(--space-4);
+  white-space: nowrap;
+}
+
+.round {
+  white-space: nowrap;
+}
+
+/* At 340px and under (a 320px-wide zoom) the status keeps its words and drops the round, which is `aria-hidden` and repeated by the
+   initiative tracker: with the buttons beside it the line has about 190px, and the strip must stay one row of at most 75px. */
+@media (max-width: 340px) {
+  .round {
+    display: none;
+  }
+}

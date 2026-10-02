@@ -22,14 +22,6 @@
   height: 100%;
 }
 
-/* A dock whose region folds only a body is content-sized: its region is a head, controls and a
-   picture, not a panel that fills its track. At 100% tall it pushed every tenant that follows it in
-   the slot (the stage's dice tray) a whole band-height below the fold (A9d-2, Tora A9d-1 MAJOR-1). */
-.dock[data-has-body='true'],
-.dock[data-has-body='true'] > .panel {
-  height: auto;
-}
-
 /* A fold with a declared body hides ONLY that part (FoldDock `body`, A9d-2 F1). */
 .dock[data-folded='true'] [data-fold-body] {
   display: none;
