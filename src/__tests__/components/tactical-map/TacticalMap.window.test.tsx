@@ -742,3 +742,92 @@ describe('TacticalMap — Move engaged and the grid holding focus: the mover\'s 
     expect(document.activeElement).toBe(token);
   });
 });
+
+// ══ P2 — the map's window (B8c-4, Sora's brief section 5; Revision 2) ═══════════════════════════════════════════════════════════════════
+// jsdom has no layout and no touch: every box below is a mock and every "scroll" is an assignment. What each case pins is MECHANISM (the arithmetic and the wiring of the rule);
+// what a finger or a real scroller does is the harness's and a device's (brief section 14 items 8, 9, 11, 14).
+function mockBox(el: Element, r: { left: number; top: number; width: number; height: number }) {
+  jest.spyOn(el, 'getBoundingClientRect').mockReturnValue({ ...r, right: r.left + r.width, bottom: r.top + r.height, x: r.left, y: r.top, toJSON: () => r } as DOMRect);
+}
+/** A 10x10 board of 40px squares in a window of `view` at (10,10), laid out at the given scroll. */
+function layoutP2(container: HTMLElement, scroll: { left: number; top: number }, view = { width: 200, height: 120 }) {
+  const win = container.querySelector('[data-board-window]') as HTMLElement;
+  Object.defineProperty(win, 'clientWidth', { configurable: true, value: view.width });
+  Object.defineProperty(win, 'clientHeight', { configurable: true, value: view.height });
+  Object.defineProperty(win, 'scrollWidth', { configurable: true, value: 400 });
+  Object.defineProperty(win, 'scrollHeight', { configurable: true, value: 400 });
+  win.scrollLeft = scroll.left;
+  win.scrollTop = scroll.top;
+  mockBox(win, { left: 10, top: 10, width: view.width, height: view.height });
+  container.querySelectorAll('[role="gridcell"]').forEach((cell, i) => mockBox(cell, { left: 10 + (i % 10) * 40 - scroll.left, top: 10 + Math.floor(i / 10) * 40 - scroll.top, width: 40, height: 40 }));
+  return win;
+}
+const crew = [
+  makeParticipant({ participant_id: 'a', name: 'Aldo', at: [0, 0], movement_remaining: 30 }),
+  makeParticipant({ participant_id: 'e4', name: 'Edge4', is_pc: false, at: [4, 1], movement_remaining: 30 }), // the last visible column of a 5-column window
+  makeParticipant({ participant_id: 'r3', name: 'Row3', is_pc: false, at: [1, 3], movement_remaining: 30 }), // the first row below a 3-row window
+  makeParticipant({ participant_id: 'mid', name: 'Mid', is_pc: false, at: [2, 1], movement_remaining: 30 }),
+];
+const crewProps = (active: string, o: Partial<TacticalMapProps> = {}) => baseProps({ space: makeSpace({ width: 10, height: 10 }), participants: crew, viewerParticipantId: 'a', activeParticipantId: active, ...o });
+const withMargin = (win: HTMLElement, squares: number) => win.style.setProperty('--tm-follow-margin', String(squares));
+
+describe('TacticalMap — P2: the follow margin applies to the map\'s OWN follows only; the square whole outranks it', () => {
+  it('margin 0 (the default; nothing sets the property) is today\'s behaviour: a turn passing to the last visible column scrolls nothing', () => {
+    const { container, rerender } = render(<TacticalMap {...crewProps('a')} />);
+    const win = layoutP2(container, { left: 0, top: 0 });
+    rerender(<TacticalMap {...crewProps('e4')} />);
+    expect(win.scrollLeft).toBe(0);
+    expect(win.scrollTop).toBe(0);
+  });
+
+  it('with the property at 1, the same turn change brings one more column in (the mover and one square around it stay in view): by one whole square', () => {
+    const { container, rerender } = render(<TacticalMap {...crewProps('a')} />);
+    const win = layoutP2(container, { left: 0, top: 0 });
+    withMargin(win, 1);
+    rerender(<TacticalMap {...crewProps('e4')} />);
+    expect(win.scrollLeft).toBe(40);
+    expect(win.scrollTop).toBe(0); // row 1 of a window of rows 0-2 has its margin: the vertical axis does not move
+  });
+
+  it('a turn to a creature whose margin is already in view moves nothing, with the property at 1', () => {
+    const { container, rerender } = render(<TacticalMap {...crewProps('a')} />);
+    const win = layoutP2(container, { left: 0, top: 0 });
+    withMargin(win, 1);
+    rerender(<TacticalMap {...crewProps('mid')} />);
+    expect(win.scrollLeft).toBe(0);
+    expect(win.scrollTop).toBe(0);
+  });
+
+  it('THE SQUARE WHOLE OUTRANKS THE MARGIN: in a 2-row window (it cannot hold a square and a margin either side) the turn lands the square whole, exactly where margin 0 puts it', () => {
+    const { container, rerender } = render(<TacticalMap {...crewProps('a')} />);
+    const win = layoutP2(container, { left: 0, top: 0 }, { width: 200, height: 80 });
+    withMargin(win, 1);
+    rerender(<TacticalMap {...crewProps('r3')} />); // row 3: y 120..160 of 0..80: margin 0 -> 80 (rows 2-3); a margin kept would have left 120
+    expect(win.scrollTop).toBe(80);
+  });
+
+  it('a user\'s focus move NEVER takes the margin: an arrow onto the last visible column scrolls nothing with the property at 1 (Iro\'s desktop cases)', () => {
+    const { container } = render(<TacticalMap {...crewProps('a')} />);
+    const win = layoutP2(container, { left: 0, top: 0 });
+    withMargin(win, 1);
+    const start = screen.getByRole('gridcell', { name: /Aldo — you/ });
+    act(() => start.focus());
+    for (let i = 0; i < 4; i++) fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(screen.getByRole('gridcell', { name: /Row 1, column 5\./ }));
+    expect(win.scrollLeft).toBe(0);
+  });
+
+  it('arming Move takes margin 0 too: the mover in the last visible column is focused and the window stays; the move LANDING one square on (the map\'s own follow) takes the margin', () => {
+    const where = (at: [number, number]) => crew.map((p) => (p.participant_id === 'e4' ? { ...p, at } : p));
+    const { container, rerender } = render(<TacticalMap {...crewProps('e4', { participants: where([4, 1]) })} />);
+    const win = layoutP2(container, { left: 0, top: 0 });
+    withMargin(win, 1);
+    rerender(<TacticalMap {...crewProps('e4', { participants: where([4, 1]), moveMode: true })} />); // arming
+    expect(document.activeElement).toBe(screen.getByRole('gridcell', { name: /Row 2, column 5\./ }));
+    expect(win.scrollLeft).toBe(0);
+    layoutP2(container, { left: 0, top: 0 });
+    withMargin(win, 1);
+    rerender(<TacticalMap {...crewProps('e4', { participants: where([4, 2]), moveMode: true })} />); // landing, Move still engaged
+    expect(win.scrollLeft).toBe(40);
+  });
+});

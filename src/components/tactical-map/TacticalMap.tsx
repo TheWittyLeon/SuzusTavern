@@ -72,7 +72,7 @@ import type { CombatParticipantState, CombatSpace, SpaceCoordinate } from '@/lib
 import { consumeEscape } from '@/lib/a11y/escapeConsume';
 import { chebyshevCost, coordsEqual, isLegalMoveTarget, isSpaceUsable, reachableCells } from './reach';
 import { cellAccessibleName, nextFocusCoord, toDisplayRowCol, type CellNameInput, type CellOccupant, type InspectLine } from './a11y';
-import { followScroll } from './follow';
+import { followScroll, FOLLOW_MARGIN_PROPERTY } from './follow';
 import { worstCondition } from './conditions';
 import { formatConditionName } from '@/lib/conditions';
 import TheatreOfMindBand from './TheatreOfMindBand';
@@ -354,7 +354,8 @@ export default function TacticalMap({
 
   // The roving stop AND what put it there. `key` (an arrow) and `sync` (Move engaged: the mover's token) are the map moving focus itself: it focuses the square and follows it.
   // `native` is focus the BROWSER already placed (a pointer, a Tab, a screen reader's cursor): the map only records it, and never scrolls the board under a pointer.
-  const [focus, setFocus] = useState<{ coord: SpaceCoordinate; by: 'key' | 'sync' | 'native' }>(() => ({ coord: activeAt ?? [0, 0], by: 'native' }));
+  // `landed`: a `sync` that is the mover's own move landing while Move stays engaged (the map's own follow, so it takes the margin); arming Move is a `sync` that is not (margin 0, as for any focus).
+  const [focus, setFocus] = useState<{ coord: SpaceCoordinate; by: 'key' | 'sync' | 'native'; landed?: boolean }>(() => ({ coord: activeAt ?? [0, 0], by: 'native' }));
   const focusedCoord = focus.coord;
   const [hoverCoord, setHoverCoord] = useState<SpaceCoordinate | null>(null);
   // The square the user last CHOSE — tapped, clicked, arrowed to, or put focus on — and the turn it was chosen in; and whether the grid holds focus. The line follows the
@@ -381,13 +382,19 @@ export default function TacticalMap({
   const [prevFocusSyncKey, setPrevFocusSyncKey] = useState<string | null>(focusSyncKey);
   if (focusSyncKey !== prevFocusSyncKey) {
     setPrevFocusSyncKey(focusSyncKey);
-    if (moveMode && activeAt) setFocus({ coord: activeAt, by: 'sync' });
+    if (moveMode && activeAt) setFocus({ coord: activeAt, by: 'sync', landed: prevFocusSyncKey !== null });
   }
 
   // The follow rule (follow.ts): ONE function for the turn change and for focus. A square wholly inside the window scrolls nothing; otherwise each axis that needs it
   // scrolls by the fewest whole squares; never centred. The window's OWN scrollLeft / scrollTop, set at once (the stylesheet never asks for smooth scrolling, so a user
   // who asked for reduced motion gets none): never `scrollIntoView`, which walks every scrollable ancestor including the page (Tora-Gesture MAJOR-1).
-  const keepInView = useCallback((cell: HTMLElement) => {
+  // `margin` is in squares: 0 for anything the USER did (an arrow, a tap, arming Move); the mount's `--tm-follow-margin` (read here, default 0) for the map's own follows only.
+  const ownMargin = useCallback((): number => {
+    const win = boardScrollRef.current;
+    const m = win ? parseFloat(getComputedStyle(win).getPropertyValue(FOLLOW_MARGIN_PROPERTY)) : 0;
+    return Number.isFinite(m) && m > 0 ? m : 0;
+  }, []);
+  const keepInView = useCallback((cell: HTMLElement, margin = 0) => {
     const win = boardScrollRef.current;
     if (!win) return;
     const wr = win.getBoundingClientRect();
@@ -395,6 +402,7 @@ export default function TacticalMap({
     const next = followScroll(
       { view: { left: wr.left, top: wr.top, width: win.clientWidth, height: win.clientHeight }, scrollLeft: win.scrollLeft, scrollTop: win.scrollTop, maxLeft: win.scrollWidth - win.clientWidth, maxTop: win.scrollHeight - win.clientHeight },
       { left: cr.left, top: cr.top, width: cr.width, height: cr.height },
+      margin,
     );
     if (next) {
       win.scrollLeft = next.left;
@@ -414,10 +422,10 @@ export default function TacticalMap({
     const cell = cellRefs.current.get(coordKeyStr(focus.coord));
     if (!cell) return;
     cell.focus({ preventScroll: true });
-    keepInView(cell);
+    keepInView(cell, focus.by === 'sync' && focus.landed ? ownMargin() : 0);
     const r = cell.getBoundingClientRect();
     if (r.bottom < 0 || r.top > window.innerHeight || r.right < 0 || r.left > window.innerWidth) cell.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  }, [focus, moveMode, keepInView]);
+  }, [focus, moveMode, keepInView, ownMargin]);
 
   // The turn change: the creature whose turn it is is brought into view by the same rule, once per TURN. A turn change never scrolls the page (the window's own offsets only).
   // Keyed on a boolean, a string and the id: a poll hands over a new `space` object every few seconds, and the effect must not run (let alone drag a window the user scrolled
@@ -430,8 +438,8 @@ export default function TacticalMap({
     lastFollowedRef.current = activeParticipantId;
     if (!activeAtKey) return;
     const cell = cellRefs.current.get(activeAtKey);
-    if (cell) keepInView(cell);
-  }, [usable, activeAtKey, activeParticipantId, keepInView]);
+    if (cell) keepInView(cell, ownMargin());
+  }, [usable, activeAtKey, activeParticipantId, keepInView, ownMargin]);
 
   // Everything one square says, in ONE place (Kage-CR D1 IMPORTANT-4's "single source of truth"): the cell's accessible name, its token and the scene line all read this.
   // `a11y.ts`'s `cellAccessibleName` and `buildLine` render the same CellNameInput; a fact cannot be in one and not the other.
