@@ -40,9 +40,15 @@
  *
  * A9d-2 F2 (build brief §5, Iro A9d-1 MINOR-2): a LAYOUT change can strand focus too. The one move React cannot keep
  * is a node that lands somewhere `inert` (Table's docked sheet becoming the closed phone drawer) or an element that
- * stops existing (the stage's fold handle going inert at desktop width): focus drops to <body>. One more rescue,
- * same gate as the rest: when the resolved layout id changes and focus is on <body> after the commit, the scene
+ * stops existing (the stage's fold handle going inert at desktop width): focus drops to <body>. One more rescue:
+ * when the resolved layout id changes and the control focus was on has been REMOVED (see `useRemovedFocus`), the scene
  * head takes it. The head is outside every fold body (F1), so it is always there to take it.
+ *
+ * A9d-2 fix round 4 (Kage I-C): all three rescues that used to wait a frame and ask "is focus on <body>?" now ask the commit-tied question
+ * "was the control focus was on removed?" (`useRemovedFocus`), in a layout effect, with no frame. "<body>" alone is also what a cold load looks like:
+ * the layout rescue put a ring on the scene heading in 6 of 8 cold loads (Table preference, motion allowed). The three are: the death-save row's
+ * falling edge, the begin-encounter button's, and the layout change. (The stranding gate in the REGISTRATION ORDER paragraph above is now
+ * "the focused control was removed", which is stricter: a rescue can no longer fire when nothing was lost.)
  * NOT when the layout changed because the MOMENT did (Auto: combat starting or ending flips Story <-> Table): that
  * flip has rescues of its own (the begin-encounter and turn-flip ones above), scoped to a LOCAL cause, and a poll
  * that starts another player's fight must not move a user who is on <body> (Iro CRITICAL-1's provenance rule;
@@ -51,9 +57,10 @@
  * `dialogRef`/Tab-trap `onKeyDown` are NOT here — those are `<Drawer>`'s
  * own concern (step 2), unrelated to this cluster.
  */
-import { useEffect, useRef, type MutableRefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, type MutableRefObject } from 'react';
 import { useToast } from '@/components/Toast';
 import type { LayoutId } from '../presets';
+import { useRemovedFocus } from './useRemovedFocus';
 
 export interface UseFocusAnchorsResult {
   endCombatBtnRef: MutableRefObject<HTMLButtonElement | null>;
@@ -77,6 +84,7 @@ export function useFocusAnchors(
   layoutId: LayoutId,
 ): UseFocusAnchorsResult {
   const { toast } = useToast();
+  const focusWasRemoved = useRemovedFocus();
 
   // Tora MAJOR-2: ref for the "End" trigger button so focus returns to it
   // when the outcome chooser is closed via Escape.
@@ -114,15 +122,12 @@ export function useFocusAnchors(
   // focus from anywhere. The rail anchor survives — only the deathSaveRow
   // child unmounts.
   const prevIsDyingRef = useRef(false);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const was = prevIsDyingRef.current;
     prevIsDyingRef.current = isDying;
     if (!was || isDying) return;
-    requestAnimationFrame(() => {
-      if (document.activeElement !== document.body) return;
-      composerRailAnchorRef.current?.focus({ preventScroll: true });
-    });
-  }, [isDying]);
+    if (focusWasRemoved()) composerRailAnchorRef.current?.focus({ preventScroll: true });
+  }, [isDying, focusWasRemoved]);
 
   // Iro-A11y MAJOR-2 — the "Begin an encounter"->"Stand and fight" reframe:
   // rising-edge toast (the button's own render gate is `sceneHasEncounter`
@@ -150,17 +155,11 @@ export function useFocusAnchors(
   // visibility independently), so it watches the computed visibility
   // itself rather than a click-captured flag.
   const beginEncounterVisibleRef = useRef(false);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const nowVisible = !combatId && sceneHasEncounter;
-    if (beginEncounterVisibleRef.current && !nowVisible) {
-      requestAnimationFrame(() => {
-        if (document.activeElement === document.body) {
-          sceneHeadRef.current?.focus();
-        }
-      });
-    }
+    if (beginEncounterVisibleRef.current && !nowVisible && focusWasRemoved()) sceneHeadRef.current?.focus();
     beginEncounterVisibleRef.current = nowVisible;
-  }, [combatId, sceneHasEncounter, sceneHeadRef]);
+  }, [combatId, sceneHasEncounter, sceneHeadRef, focusWasRemoved]);
 
   // Iro MEDIUM-3 (re-homed from Composer.tsx, TAV-PLAY-SHELL step 6b
   // commit C3): when ActionBar unmounts (combat ends), keyboard focus is
@@ -188,16 +187,12 @@ export function useFocusAnchors(
 
   // A9d-2 F2 — see the header. Not on the first render (nothing changed), only on an id change.
   const prevLayoutRef = useRef({ layoutId, combatIsActive });
-  useEffect(() => {
+  useLayoutEffect(() => {
     const was = prevLayoutRef.current;
     prevLayoutRef.current = { layoutId, combatIsActive };
     if (was.layoutId === layoutId || was.combatIsActive !== combatIsActive) return;
-    requestAnimationFrame(() => {
-      const active = document.activeElement;
-      if (active != null && active !== document.body) return;
-      sceneHeadRef.current?.focus({ preventScroll: true });
-    });
-  }, [layoutId, combatIsActive, sceneHeadRef]);
+    if (focusWasRemoved()) sceneHeadRef.current?.focus({ preventScroll: true });
+  }, [layoutId, combatIsActive, sceneHeadRef, focusWasRemoved]);
 
   return {
     endCombatBtnRef,
