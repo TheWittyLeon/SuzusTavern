@@ -930,6 +930,17 @@ describe('TacticalMap — P2: every follow waits while a touch is on the window 
     expect(writes.length).toBeGreaterThan(0);
   });
 
+  it('F3 — a touch that ends on a REMOVED window does not leave the gate held: finger down, the board goes (combat ends), the finger lifts unheard, the board returns, a turn passes: it follows', () => {
+    const { container, rerender } = render(<TacticalMap {...at('a')} />);
+    const win = layoutP2(container, { left: 0, top: 0 });
+    fireEvent.touchStart(win, { touches });
+    rerender(<TacticalMap {...at('a', { space: null })} />); // the window leaves the tree with the finger on it
+    rerender(<TacticalMap {...at('a')} />); // and comes back, a new element
+    const back = layoutP2(container, { left: 0, top: 0 });
+    rerender(<TacticalMap {...at('c')} />);
+    expect(back.scrollLeft).toBe(80);
+  });
+
   it('the touch listeners are passive: nothing here can cancel a gesture', () => {
     const add = jest.spyOn(EventTarget.prototype, 'addEventListener');
     render(<TacticalMap {...at('a')} />);

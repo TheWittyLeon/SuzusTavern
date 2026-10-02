@@ -95,6 +95,8 @@ export function useFollowGate(windowRef: RefObject<HTMLElement | null>, mounted:
       if (timer.current) clearTimeout(timer.current);
       timer.current = null;
       pendingNow.clear();
+      // The window is gone, and with it the touchend it would have heard: a finger that lifted while the board was removed must not leave the gate held for the next window (QA F3).
+      touching.current = false;
     };
   }, [windowRef, mounted, flush]);
 
