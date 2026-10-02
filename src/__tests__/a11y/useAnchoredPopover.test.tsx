@@ -429,3 +429,58 @@ describe('focus on open is brought inside the popover\'s own box', () => {
     }
   });
 });
+
+describe('focus leaving an open popover closes it, without moving focus (Safari\'s Tab skips buttons)', () => {
+  it('focus moving by script to a control outside it closes it, and focus STAYS there', () => {
+    setup();
+    openA();
+    const verb = screen.getByRole('button', { name: 'Verb' });
+    act(() => verb.focus());
+    closed();
+    expect(verb).toHaveFocus();
+  });
+
+  it('focus inside it, on its opener, or on a passthrough element (the X-card) does not close it', () => {
+    setup();
+    openA();
+    act(() => (document.getElementById('first') as HTMLElement).focus());
+    expect(dialog()).toBeInTheDocument();
+    act(() => screen.getByRole('button', { name: 'Open A' }).focus());
+    expect(dialog()).toBeInTheDocument();
+    act(() => screen.getByRole('button', { name: 'X-card' }).focus());
+    expect(dialog()).toBeInTheDocument();
+  });
+
+  it('control: focus a POINTER put outside it does not close it by focus (the press\'s click does, and consumes it: Tora C1)', () => {
+    setup();
+    openA();
+    const verb = screen.getByRole('button', { name: 'Verb' });
+    fireEvent.pointerDown(verb);
+    act(() => verb.focus());
+    expect(dialog()).toBeInTheDocument();
+    fireEvent.click(verb);
+    closed();
+    expect(log.verb).not.toHaveBeenCalled(); // consumed
+  });
+
+  it('a key press after a pointer press hands the decision back to focus: Tab out closes it', () => {
+    setup();
+    openA();
+    const verb = screen.getByRole('button', { name: 'Verb' });
+    fireEvent.pointerDown(document.getElementById('first') as HTMLElement); // a press INSIDE it, then the keyboard
+    fireEvent.keyDown(document.getElementById('first') as HTMLElement, { key: 'a' });
+    act(() => verb.focus());
+    closed();
+    expect(verb).toHaveFocus();
+  });
+
+  it('with it closed the listener is gone: focus anywhere is nobody\'s business', () => {
+    setup();
+    openA();
+    fireEvent.keyDown(document.activeElement as Element, { key: 'Escape' });
+    closed();
+    const verb = screen.getByRole('button', { name: 'Verb' });
+    act(() => verb.focus());
+    expect(verb).toHaveFocus();
+  });
+});

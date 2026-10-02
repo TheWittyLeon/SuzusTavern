@@ -47,7 +47,10 @@ import { consumeEscape } from './escapeConsume';
  *   `fallbackFocus` (the scene head), decided in the commit that closed it, never <body>. Focus is left alone when it already moved on to
  *   a control the user chose (the X-card). The focused control is brought INSIDE the popover's own box (it scrolls inside when clamped:
  *   at 320x256 the first die of Roll was out of view in a 94px popover, A9d-2 fix round 2, Iro MAJOR-1): focus without scrolling the page, then
- *   scroll the popover's own box, never `scrollIntoView`.
+ *   scroll the popover's own box, never `scrollIntoView`. And focus that LEAVES an open popover for a control outside it, the popover, its
+ *   opener and a passthrough element, closes it WITHOUT moving focus (Safari's Tab skips buttons, so a popover whose last stop is a select
+ *   was never "past the end": it was left open and orphaned, Iro Minor-1). A pointer press is not that: its click is handled above (consumed
+ *   or delivered), so a focus caused by a press is ignored here.
  *
  * SEMANTICS. The hook never sets `aria-modal`, `inert` or `aria-hidden` on anything: the page behind stays reachable. It returns the
  *   opener's `aria-haspopup` / `aria-expanded` / `aria-controls`.
@@ -260,6 +263,32 @@ export function useAnchoredPopover({
     const delta = revealDelta({ top, bottom: top + pop.clientHeight }, active.getBoundingClientRect());
     if (delta !== 0) pop.scrollTop += delta;
   }, []);
+
+  // Focus leaving for a control outside the popover, its opener and a passthrough element closes it, without moving focus. Only focus that a
+  // POINTER did not cause: a press on something outside is closed (consumed or delivered) by its click, below.
+  useEffect(() => {
+    if (!open) return;
+    let pointer = false;
+    const onPointerDown = () => { pointer = true; };
+    const onKeyDown = () => { pointer = false; };
+    const onFocusIn = (e: FocusEvent) => {
+      if (pointer) return;
+      const target = e.target;
+      if (!(target instanceof Node)) return;
+      if (popoverRef.current?.contains(target)) return;
+      if (anchorRef.current?.contains(target) || openerRef?.current?.contains(target)) return;
+      if (target instanceof Element && target.closest(PASSTHROUGH)) return;
+      onClose();
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('keydown', onKeyDown, true);
+    document.addEventListener('focusin', onFocusIn);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('keydown', onKeyDown, true);
+      document.removeEventListener('focusin', onFocusIn);
+    };
+  }, [open, onClose, anchorRef, openerRef]);
 
   // Outside press: closes on CLICK, consumes it, except on a passthrough element (the X-card): closes and delivers it.
   useEffect(() => {
