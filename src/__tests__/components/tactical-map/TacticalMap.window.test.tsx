@@ -621,4 +621,48 @@ describe('TacticalMap — the follow rule: the fewest whole squares on the axis 
       expect(win.scrollLeft).toBe(160); // [8,8]: x 320..360 over a 200 window
     });
   });
+
+  describe('the turn follow runs once per turn, not once per poll (T2)', () => {
+    const poll = (ps: CombatParticipantState[]) => ps.map((p) => ({ ...p })); // every poll is a fresh parse: new space object, new participant objects
+
+    it('the same turn, a NEW space object, and a window the user scrolled by hand so the mover is out of view: the window stays where the user left it', () => {
+      const { container, rerender } = render(<TacticalMap {...props('a')} />);
+      const win = layout(container, { left: 160, top: 160 }); // Aldo at [0,0] is far out of view
+      rerender(<TacticalMap {...props('a', { space: makeSpace({ width: 10, height: 10 }), participants: poll(people) })} />);
+      expect(win.scrollLeft).toBe(160);
+      expect(win.scrollTop).toBe(160);
+    });
+
+    it('the same turn, the mover steps one square (its `at` changes) while the window is scrolled elsewhere by hand: still no follow (the once-per-turn guard, which the deps alone do not give)', () => {
+      const { container, rerender } = render(<TacticalMap {...props('a')} />);
+      const win = layout(container, { left: 160, top: 160 });
+      const stepped = people.map((p) => (p.participant_id === 'a' ? { ...p, at: [1, 0] as [number, number] } : { ...p }));
+      rerender(<TacticalMap {...props('a', { participants: stepped })} />);
+      expect(win.scrollLeft).toBe(160);
+      expect(win.scrollTop).toBe(160);
+    });
+
+    it('THE CONTROL: under the same mocks a real turn change to a creature out of view DOES scroll (so the case above is not green because nothing could scroll)', () => {
+      const { container, rerender } = render(<TacticalMap {...props('a')} />);
+      const win = layout(container, { left: 160, top: 160 });
+      rerender(<TacticalMap {...props('b', { space: makeSpace({ width: 10, height: 10 }), participants: poll(people) })} />); // Bea at [2,1]: x 80..120, y 40..80
+      expect(win.scrollLeft).toBe(80);
+      expect(win.scrollTop).toBe(40);
+    });
+
+    it.each([
+      ['an unplaced creature', 'u'],
+      ['a placed creature (the control)', 'b'],
+    ])('turn a, then %s, then a again: a\'s new turn follows (the turn is recorded before the placement check)', (_label, between) => {
+      const everyone = [...people, makeParticipant({ participant_id: 'u', name: 'Ula', is_pc: false, at: null })];
+      const { container, rerender } = render(<TacticalMap {...props('a', { participants: everyone })} />);
+      const win = layout(container, { left: 0, top: 0 });
+      rerender(<TacticalMap {...props(between, { participants: poll(everyone) })} />);
+      win.scrollLeft = 160; win.scrollTop = 160; // the window sits somewhere Aldo cannot be seen
+      layout(container, { left: 160, top: 160 });
+      rerender(<TacticalMap {...props('a', { participants: poll(everyone) })} />);
+      expect(win.scrollLeft).toBe(0);
+      expect(win.scrollTop).toBe(0);
+    });
+  });
 });

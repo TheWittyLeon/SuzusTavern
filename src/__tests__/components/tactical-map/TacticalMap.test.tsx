@@ -380,7 +380,7 @@ describe('TacticalMap — T4: the board follows the active token each turn (B8c-
   // already wholly in the window scrolls nothing, otherwise the fewest whole squares on the axis that needs it. What still holds from Tora-Gesture MAJOR-1: scrollIntoView()
   // walks EVERY scrollable ancestor including the page (the phone vertical-jump trap), so it is NEVER called and the scroll lands on .boardScroll's OWN scrollLeft/scrollTop,
   // computed from getBoundingClientRect (mocked here since jsdom does no real layout). TacticalMap.window.test.tsx and follow.test.ts pin the rule itself (every axis, the
-  // clamp, the in-view no-op, the same function for focus); this case keeps T4's own scenario and its no-redundant-follow guard.
+  // clamp, the in-view no-op, the same function for focus); this case keeps T4's own scenario (the once-per-turn guard is pinned in the window suite, with a control: a token already in view cannot show it).
   function mockRect(el: Element, rect: { left: number; top: number; width: number; height: number }) {
     jest.spyOn(el, 'getBoundingClientRect').mockReturnValue({
       ...rect,
@@ -418,11 +418,6 @@ describe('TacticalMap — T4: the board follows the active token each turn (B8c-
     mockRect(p2Cell, { left: 400, top: 400, width: 40, height: 40 });
     boardScroll.scrollLeft = 0;
     boardScroll.scrollTop = 0;
-
-    // Same active participant re-renders: no redundant follow.
-    rerender(<TacticalMap {...baseProps({ participants, activeParticipantId: 'p1' })} />);
-    expect(boardScroll.scrollLeft).toBe(0);
-    expect(boardScroll.scrollTop).toBe(0);
 
     // Turn changes to p2 -> the window follows by the minimum, scoped to the container only.
     rerender(<TacticalMap {...baseProps({ participants, activeParticipantId: 'p2' })} />);

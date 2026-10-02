@@ -419,17 +419,19 @@ export default function TacticalMap({
     if (r.bottom < 0 || r.top > window.innerHeight || r.right < 0 || r.left > window.innerWidth) cell.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [focus, moveMode, keepInView]);
 
-  // The turn change: the creature whose turn it is is brought into view by the same rule. Guarded so it fires once per turn, not on every render. A turn change never
-  // scrolls the page (the window's own offsets only).
+  // The turn change: the creature whose turn it is is brought into view by the same rule, once per TURN. A turn change never scrolls the page (the window's own offsets only).
+  // Keyed on a boolean, a string and the id: a poll hands over a new `space` object every few seconds, and the effect must not run (let alone drag a window the user scrolled
+  // by hand back to the token) on anything but a real change. The turn is recorded BEFORE the placement check, so turn a -> an unplaced creature -> a is a new turn for a.
+  const usable = isSpaceUsable(space);
   const lastFollowedRef = useRef<string | null | undefined>(undefined);
   useEffect(() => {
-    if (!space || !activeAt) return;
+    if (!usable) return;
     if (lastFollowedRef.current === activeParticipantId) return;
     lastFollowedRef.current = activeParticipantId;
-    const cell = cellRefs.current.get(coordKeyStr(activeAt));
+    if (!activeAtKey) return;
+    const cell = cellRefs.current.get(activeAtKey);
     if (cell) keepInView(cell);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [space, activeAt?.[0], activeAt?.[1], activeParticipantId, keepInView]);
+  }, [usable, activeAtKey, activeParticipantId, keepInView]);
 
   // Everything one square says, in ONE place (Kage-CR D1 IMPORTANT-4's "single source of truth"): the cell's accessible name, its token and the scene line all read this.
   // `a11y.ts`'s `cellAccessibleName` and `buildLine` render the same CellNameInput; a fact cannot be in one and not the other.
