@@ -294,6 +294,13 @@
     padding-right: 0;
     mask-image: none;
   }
+
+  /* Wrapped, the tiles can take a second row, and the band's 91px minimum holds the first only: a control at the BOTTOM of the cell (where it
+     sits beside a one-row list) would be below the band's edge, in a scroller, where a 400% zoom user cannot reach it (measured at 320x256: the
+     trailing button 44x0 of 44x44 at rest). At the top it is whole beside the first row. */
+  .strip > .trailing {
+    align-self: start;
+  }
 }
 
 /* rail: the trailing controls sit under the roster, full width. */
