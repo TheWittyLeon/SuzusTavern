@@ -732,6 +732,14 @@ a { color: inherit; text-decoration: none; }
   textarea {
     font-size: 16px !important;
   }
+
+  /* The same floor for a native select's HEIGHT (Iro Minor-1, Tora MINOR-1; WebKit run at the A9d-2 fix round 2 tip: ConditionsPanel's two
+     selects 175x38 in `y-dm-all-panels`, after Cast and Grant were fixed one by one): WebKit ignores `min-height` on a native <select> and
+     takes `height` literally, and every site wrote `height: 38px` (an element rule would lose to them). A single-line select is 44px tall
+     here, for every site and the next one. */
+  select:not([multiple], [size]) {
+    height: 44px !important;
+  }
 }
 
 /* Inputs */
