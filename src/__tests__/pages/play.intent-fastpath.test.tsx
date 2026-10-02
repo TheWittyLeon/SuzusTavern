@@ -532,6 +532,42 @@ describe('P1-PLAYFIX-2 gate fix (Iro CRITICAL-1) — narrate() refocuses a stran
   });
 });
 
+// A9d-2 N1 (Kage I-3, Iro Major-3): the narrate() path with the rescue's frame forced to fire BEFORE the commit (see the same-named case
+// in play.checks-and-fork.test.tsx). Red on the frame-based rescue, green on the commit-tied one.
+describe('A9d-2 N1 — narrate() rescue is tied to the commit, not to a frame', () => {
+  it('forced order (the rescue frame fires before the commit): a sceneAdvanced refresh still lands focus on the scene heading', async () => {
+    const raf = jest.spyOn(window, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => {
+      cb(0);
+      return 0;
+    });
+    try {
+      mGetGrounding.mockResolvedValueOnce(GROUNDING_STEALTH_ONLY).mockResolvedValue(GROUNDING_FORK);
+      const { container } = renderPlay(<PlayPage />);
+      await screen.findByRole('textbox');
+      streamOnce([
+        { kind: 'chunk', text: 'The undergrowth rustles. A Stealth check would serve you well here.', offeredCheck: { skill: 'stealth', dc: 12 } },
+        { kind: 'done' },
+      ]);
+      await sendMessage('I pause and listen carefully to the noise.');
+      const stealthBtn = await screen.findByRole('button', { name: /Attempt Stealth/i });
+      act(() => stealthBtn.focus());
+      expect(stealthBtn).toHaveFocus();
+      streamOnce([
+        { kind: 'chunk', text: 'You slip past and the path opens onto a fork ahead.', sceneAdvanced: true, advancedTo: 'slice_everfree_fork' },
+        { kind: 'done' },
+      ]);
+      await sendMessage('I consider what to do next.');
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: /Attempt Stealth/i })).not.toBeInTheDocument();
+      });
+      const sceneHead = container.querySelector('[aria-label^="Scene:"]');
+      await waitFor(() => expect(document.activeElement).toBe(sceneHead));
+    } finally {
+      raf.mockRestore();
+    }
+  });
+});
+
 // ── Fork buttons regression lock (§A.3) ──────────────────────────────────────
 
 describe('P1-PLAYFIX-2 §A.3 — fork renders two distinct buttons (regression)', () => {

@@ -78,6 +78,7 @@ import type {
   SeriesNextAdventure,
 } from '@/lib/api/types';
 import { buildReadAloudBlock, titleCaseSkill } from '../format';
+import { useStrandedFocusRescue } from './useStrandedFocusRescue';
 
 /** A1 — structural event kinds that indicate the scene hasn't started yet.
  * These are session/character SETUP events, not fiction — their presence
@@ -387,26 +388,14 @@ export function useSceneState(
   );
 
   /**
-   * Iro Ship 2 CRITICAL-1 — refocus the scene heading if a `refreshGrounding()`
-   * refresh unmounted the button the user was just on, stranding focus on
-   * <body>. `hadFocusInGroup` MUST be captured synchronously by the caller
-   * BEFORE any await (the browser focuses a clicked button synchronously, so
-   * that's the only reliable moment to know which group had focus).
-   * The stranding check itself runs inside a rAF so it observes the DOM
-   * *after* React's commit — checking immediately after an `await` can race
-   * the commit and false-negative. Only acts if focus actually landed on
-   * <body> (i.e. was truly dropped) — if the user had already tabbed
-   * elsewhere in the interim, activeElement is that element, not <body>, and
-   * we leave it alone.
+   * Iro Ship 2 CRITICAL-1 — refocus the scene heading if a `refreshGrounding()` refresh unmounted the button the user was just on,
+   * stranding focus on <body>. `hadFocusInGroup` MUST be captured synchronously by the caller BEFORE any await (the browser focuses a
+   * clicked button synchronously, so that's the only reliable moment to know which group had focus).
+   * A9d-2 N1 (Kage I-3, Iro Major-3): the stranding check is tied to React's COMMIT (`useStrandedFocusRescue`: a watch armed by this
+   * call, a layout effect after every commit), not to one animation frame. The frame version raced the commit and stranded a keyboard
+   * user about one run in five under load. It still never moves focus the user already moved.
    */
-  const refocusSceneHeadIfStranded = useCallback((hadFocusInGroup: boolean) => {
-    if (!hadFocusInGroup) return;
-    requestAnimationFrame(() => {
-      if (document.activeElement === document.body) {
-        sceneHeadRef.current?.focus();
-      }
-    });
-  }, []);
+  const refocusSceneHeadIfStranded = useStrandedFocusRescue(sceneHeadRef);
 
   /**
    * A7 carry item (a) — Kage-CR A4 IMPORTANT-2(ii) / A4b IMPORTANT-3
