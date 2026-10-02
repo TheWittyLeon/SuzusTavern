@@ -14,6 +14,21 @@
   width: 100%;
 }
 
+/* On a phone the host is at the TOP, under what the page marks `data-toast-clear` (Toast.tsx useToastClearance sets --toast-top): never over the
+   safety block, Send or the textarea at the bottom, and never taking the X-card's tap. The breakpoint is the play shell's phone query
+   (PLAY_PHONE_QUERY, 880px). The stack reads top-down, oldest first. */
+@media (max-width: 880px) {
+  .viewport {
+    top: calc(env(safe-area-inset-top, 0px) + var(--toast-top, 0px) + 8px);
+    bottom: auto;
+    left: 12px;
+    right: 12px;
+    width: auto;
+    max-width: none;
+    flex-direction: column;
+  }
+}
+
 /* ---- Toast card ---- */
 
 .toast {
@@ -32,6 +47,15 @@
   border-left: 3px solid var(--toast-accent, var(--accent));
   position: relative;
   overflow: hidden;
+}
+
+/* A phone's card is compact: 12px of padding and gap, not the density's 22 / 16 (after the base rule, same specificity). At 320x256 the stack takes
+   the top edge and the composer's first row starts at y 108: a 103px card ended at 111 and overlapped it by 3px; at 12px it is about 83px. */
+@media (max-width: 880px) {
+  .toast {
+    padding: var(--space-6);
+    gap: var(--space-6);
+  }
 }
 
 /* ---- Enter/exit animations ---- */

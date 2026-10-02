@@ -126,7 +126,7 @@ export default function PartyStrip({
   ) : null;
 
   return (
-    <div data-region="partyStrip" data-variant={variant}>
+    <div data-region="partyStrip" data-toast-clear="" data-variant={variant}>
       <PartyPanel
         variant={variant}
         participants={participants}

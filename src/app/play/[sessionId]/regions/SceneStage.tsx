@@ -100,7 +100,7 @@ export default function SceneStage({
     fallbackFocus: () => sceneHeadRef.current,
   });
   return (
-    <div data-region="sceneStage" data-variant={variant} className={cx(styles.stage, strip.strip)}>
+    <div data-region="sceneStage" data-toast-clear="" data-variant={variant} className={cx(styles.stage, strip.strip)}>
       {/* FIX-8 (MEDIUM-1): aria-label surfaces the scene name to AT so the "Scene" kicker (now aria-hidden) doesn't duplicate it on
           screen readers. Iro Ship 2 CRITICAL-1: tabIndex={-1} + ref makes this a programmatic focus anchor — refocusSceneHeadIfStranded()
           lands here when a resolved check / taken transition unmounts the control the user was just on, and every anchored popover falls

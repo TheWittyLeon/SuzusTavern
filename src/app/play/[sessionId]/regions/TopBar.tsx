@@ -100,6 +100,7 @@ export default function TopBar({
   return (
     <div
       data-region="topBar"
+      data-toast-clear=""
       data-variant={variant}
       className={compact ? styles.topBarCompact : undefined}
     >

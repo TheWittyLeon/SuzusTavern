@@ -5,9 +5,11 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
+  type RefObject,
 } from 'react';
 import Icon from '@/components/Icon';
 import Button from '@/components/Button';
@@ -208,11 +210,67 @@ interface ToastViewportProps {
   onDismiss: (id: string) => void;
 }
 
+/**
+ * On a phone the toast host sits at the TOP, under every element that carries `data-toast-clear` (A9d-2 fix round 2, Tora MAJOR-1 / Iro MAJOR-2,
+ * a safety finding). At the bottom it stacked over the page's last block: the X-card, Send and the textarea, and the card (`pointer-events:
+ * auto`) took the X-card's tap for as long as it was up (7s on Chromium: a touch tap pauses the timer). `pointer-events` alone is not the fix:
+ * the button has to stay VISIBLE and a focused control must not be obscured (WCAG 2.4.11). The page marks what the host must clear (the /play
+ * header, party band and scene strip: the controls above the story log); this reads where they end, so the toast lands over the log's older
+ * lines and not over a control. Short screens (a 400% zoom) have no room under them: the host takes the top edge there (and covers the header for the
+ * few seconds it is up: there is nowhere on a 256px screen that covers nothing). `--toast-top` is the
+ * px the host sits below the top edge; Toast.module.css reads it inside the phone media query only.
+ */
+const PHONE_QUERY = '(max-width: 880px)';
+const TOAST_GAP_PX = 8;
+
+function useToastClearance(ref: RefObject<HTMLDivElement | null>, active: boolean) {
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!active || !el || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia(PHONE_QUERY);
+    let raf = 0;
+    const place = () => {
+      raf = 0;
+      let top = 0;
+      if (mq.matches) {
+        let bottom = 0;
+        document.querySelectorAll('[data-toast-clear]').forEach((n) => {
+          const r = n.getBoundingClientRect();
+          if (r.height > 0 && r.bottom > bottom) bottom = r.bottom;
+        });
+        // Under them only while the whole stack then fits on the screen; on a short one (a 400% zoom, 256px: the header, the party band and the
+        // strip are most of the first screen) it takes the top edge rather than leave the viewport.
+        if (bottom + TOAST_GAP_PX + el.offsetHeight <= window.innerHeight) top = bottom;
+      }
+      el.style.setProperty('--toast-top', `${Math.round(top)}px`);
+    };
+    const queue = () => {
+      if (!raf) raf = requestAnimationFrame(place);
+    };
+    place();
+    window.addEventListener('scroll', queue, true);
+    window.addEventListener('resize', queue);
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(queue) : null;
+    document.querySelectorAll('[data-toast-clear]').forEach((n) => ro?.observe(n));
+    ro?.observe(el);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      window.removeEventListener('scroll', queue, true);
+      window.removeEventListener('resize', queue);
+      ro?.disconnect();
+      el.style.removeProperty('--toast-top');
+    };
+  }, [ref, active]);
+}
+
 function ToastViewport({ toasts, onDismiss }: ToastViewportProps) {
   const hasError = toasts.some((t) => (t.tone ?? 'info') === 'error');
+  const hostRef = useRef<HTMLDivElement>(null);
+  useToastClearance(hostRef, toasts.length > 0);
 
   return (
     <div
+      ref={hostRef}
       data-component="ToastViewport"
       aria-live={hasError ? 'assertive' : 'polite'}
       aria-atomic="false"
