@@ -21,6 +21,7 @@ import PartyStrip from '@/app/play/[sessionId]/regions/PartyStrip';
 import Offers, { type OffersProps } from '@/app/play/[sessionId]/regions/Offers';
 import ActionBar from '@/app/play/[sessionId]/regions/ActionBar';
 import SceneStage from '@/app/play/[sessionId]/regions/SceneStage';
+import Composer from '@/components/Composer';
 import { REGION_VARIANTS, type VariantRegionId } from '@/app/play/[sessionId]/variants';
 import type { SceneCheck, SceneTransition, Participant } from '@/lib/api/types';
 
@@ -120,6 +121,11 @@ const FIXTURES: { [R in VariantRegionId]?: (variant: (typeof REGION_VARIANTS)[R]
     <ActionBar targets={[{ id: 'm1', name: 'Goblin' }]} onAction={noop} isPlayerTurn variant={variant} />
   ),
   sceneStage: (variant) => <SceneStage {...sceneStage} variant={variant} />,
+  // A9d-2 N7: the composer. `roll` paints the `tools` node (the Roll control) at the end of the mode row; `full` does not. A stand-in node is
+  // enough here: what is pinned is that the variant is READ, and that markup differs between members.
+  composer: (variant) => (
+    <Composer value="" onChange={noop} mode="say" onMode={noop} onSend={noop} variant={variant} tools={<button type="button">Roll</button>} />
+  ),
 };
 
 /**

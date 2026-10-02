@@ -682,7 +682,7 @@ const STORY_ROW: LayoutRow = {
     // to act in Story-combat either way. Placed in BOTH moments; `areas`
     // strings already carry the token, unchanged.
     actionBar: { default: { area: 'actionBar', variant: 'chips' } },
-    composer: { default: { area: 'composer' } },
+    composer: { default: { area: 'composer', variant: 'full' } },
     tableControls: { default: { area: null, layer: true } },
     safetyBanner: { default: { area: 'safetyBanner' } },
   },
@@ -764,7 +764,7 @@ const TABLE_ROW: LayoutRow = {
     characterBlock: { default: { area: 'characterBlock', variant: 'full', collapsible: true } },
     // Amendment B.3 (🟡-7): `'bar'`, Table's bottom-always treatment.
     actionBar: { default: { area: 'actionBar', variant: 'bar' } },
-    composer: { default: { area: 'composer' } },
+    composer: { default: { area: 'composer', variant: 'full' } },
     tableControls: { default: { area: null, layer: true } },
     safetyBanner: { default: { area: 'safetyBanner' } },
   },
@@ -816,9 +816,6 @@ const PHONE_ROW: LayoutRow = {
     '--play-slot-inline': 'var(--space-6)',
     // The recap strip's scene subtitle is dropped on the phone: one line, not two (about -18px).
     '--play-recap-sub': 'none',
-    // The dice are ONE row of six chips here, not 3x2: a two-row tray was ~66px more band than the
-    // stage can spare (Tora A9d-1 MAJOR-1). DiceTray.module.css reads it; the tray's keys follow.
-    '--play-dice-columns': '6',
     // The composer's own density on the phone (A9d-2 N6, Sora lever brief 2.4): 6px of pad above the mode row (it was 22) and 8px between
     // the mode row and the input (it was 16): the composer 145 -> 121px at 390 wide. Composer.module.css reads both (absent = the
     // density tokens). The 44px targets and the 8px between them are unchanged.
@@ -889,7 +886,9 @@ const PHONE_ROW: LayoutRow = {
     // content (not the registry) is what expresses R16's "Phone gains the
     // action bar in combat".
     actionBar: { default: { area: 'actionBar', variant: 'bar' } },
-    composer: { default: { area: 'composer' } },
+    // A9d-2 N7 (Amendment E.4): the Roll control sits at the end of the mode row and the stage hosts no dice tray (the tray remounts when the row
+    // changes; `advantage` lives in the page). One node, two homes, chosen by the row.
+    composer: { default: { area: 'composer', variant: 'roll' } },
     tableControls: { default: { area: null, layer: true } },
     safetyBanner: { default: { area: 'safetyBanner' } },
   },

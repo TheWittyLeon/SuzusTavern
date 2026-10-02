@@ -462,6 +462,25 @@
   color: var(--ink-3);
 }
 
+/* A9d-2 N7: the mode row holds the modes and, on the phone's `roll` row, the Roll control. Every other row: `display: contents`, so the modes are
+   the row's flex children exactly as before. `roll`: its own flex row at the full width of the composer, so Roll sits on the MODE row beside
+   Say / Act / OOC at every phone width (two rows, never wrapping: Roll with "· Dis" is about 125px of the 150 a 320px phone leaves). */
+.modeRow {
+  display: contents;
+}
+
+.composer[data-variant='roll'] .row {
+  flex-wrap: wrap;
+}
+
+.composer[data-variant='roll'] .modeRow {
+  display: flex;
+  align-items: center;
+  gap: var(--play-composer-gap, var(--density-gap));
+  flex: 1 0 100%;
+  min-width: 0;
+}
+
 /* ── narrow phones (≤400px) ── */
 /* Stack the Say/Act/OOC tablist above the input row so the textarea isn't
    crushed between the tabs and the send button. .modes is the first flex child;
@@ -474,5 +493,9 @@
   }
   .modes {
     flex-basis: 100%;
+  }
+  /* inside the `roll` mode row the modes keep their own width: Roll sits beside them */
+  .composer[data-variant='roll'] .modes {
+    flex-basis: auto;
   }
 }

@@ -300,9 +300,14 @@ describe('DiceTray — a row that asks for one row of six (A9d-2, Tora A9d-1 MAJ
     expect(die(10)).toHaveFocus();
   });
 
-  it('the stylesheet lets a row set the count and never lets a chip fall under 44px for the gap', () => {
+  // A9d-2 N7 (named exception, with play-preset-registry's `--play-dice-columns`): no row sets the dice count any more (the phone's dice are in
+  // the Roll popover). The tray reads its own `--dice-columns` (3); the popover sizes itself (six across, three by two at 340px and under).
+  it('the stylesheet gives the tray its three columns, the popover six (three by two at 340px and under), and never lets a chip fall under 44px for the gap', () => {
     const css = readFileSync(resolvePath(process.cwd(), 'src/components/DiceTray.module.css'), 'utf8');
-    expect(css).toMatch(/--dice-cols:\s*var\(--play-dice-columns,\s*var\(--dice-columns,\s*3\)\)/);
+    expect(css).toMatch(/--dice-cols:\s*var\(--dice-columns,\s*3\)/);
+    expect(css).not.toMatch(/--play-dice-columns\s*[,)]/);
+    expect(css).toMatch(/\.diceGridPopover\s*\{\s*--dice-cols:\s*6;\s*column-gap:\s*8px;\s*\}/);
+    expect(css).toMatch(/@media \(max-width: 340px\)\s*\{\s*\.diceGridPopover\s*\{\s*--dice-cols:\s*3;/);
     expect(css).toMatch(/grid-template-columns:\s*repeat\(var\(--dice-cols\),\s*1fr\)/);
     expect(css).toMatch(/column-gap:\s*clamp\(1px,\s*calc\(\(100% - var\(--dice-cols\) \* 44px\) \/ \(var\(--dice-cols\) - 1\)\),\s*8px\)/);
   });

@@ -197,8 +197,9 @@ afterAll(() => {
 });
 
 /** Regions that consume a variant today (the contract test owns the list). */
-// A9d-2 N5: the stage joins (it reads its row's variant: `inline` on the phone, `panel` / `hero` as before).
-const CONSUMING: readonly RegionId[] = ['topBar', 'suzuPresence', 'partyStrip', 'offers', 'actionBar', 'sceneStage'] as const;
+// A9d-2 N5: the stage joins (it reads its row's variant: `inline` on the phone, `panel` / `hero` as before). N7: so does the composer (`roll` on
+// the phone, `full` elsewhere).
+const CONSUMING: readonly RegionId[] = ['topBar', 'suzuPresence', 'partyStrip', 'offers', 'actionBar', 'sceneStage', 'composer'] as const;
 
 interface Cell {
   name: string;
@@ -298,6 +299,14 @@ describe('/play real-page render matrix (4 desktop + 2 phone)', () => {
       expect([cell.name, id, slotId(el)]).toEqual([cell.name, id, REGION_TENANTS[id].host]);
       tenantsSeen.add(id);
     }
+
+    // A9d-2 N7 (Amendment E.4): the dice have ONE home, chosen by the row. A `roll` composer row has the Roll control (in the composer's mode row)
+    // and NO tray in the stage; a `full` row has the stage's tray and NO Roll control; never both, never neither.
+    const rollRow = variantFor(row, 'composer', cell.moment) === 'roll';
+    const roll = container.querySelector('[data-roll-control]');
+    const tray = container.querySelector('[data-tenant="diceTray"]');
+    expect([cell.name, 'roll', roll !== null, 'tray', tray !== null]).toEqual([cell.name, 'roll', rollRow, 'tray', !rollRow]);
+    if (roll) expect([cell.name, roll.closest('[data-region-slot]')?.getAttribute('data-region-slot')]).toEqual([cell.name, 'composer']);
 
     // Kage A9c-2 S2: the X-card stays LAST in its bar: the last tenant of its host slot, and
     // the last tab stop in that slot, so a sighted or keyboard user finds it at the same end in
