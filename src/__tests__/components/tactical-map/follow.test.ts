@@ -101,3 +101,29 @@ describe('followScroll — never centred; no size, no snap', () => {
     expect(r).toEqual({ left: 90, top: 0 });
   });
 });
+
+describe('followScroll — whole squares in a window that is not a whole number of squares (the real one: 980 / 34 = 28.8)', () => {
+  // 190 x 110 window over 40px squares: 4.75 x 2.75 squares visible. maxLeft/maxTop generous, so no clamp interferes.
+  const w = (o: Partial<WindowMetrics> = {}): WindowMetrics => ({ view: { left: 10, top: 10, width: 190, height: 110 }, scrollLeft: 0, scrollTop: 0, maxLeft: 400, maxTop: 400, ...o });
+
+  it('past the end: the offset is a whole number of squares AND the square is wholly inside afterwards (a cut-off square, or a half-square offset, is red)', () => {
+    for (const x of [5, 6, 9]) {
+      const m = w();
+      const to = followScroll(m, square(x, 0, m))!;
+      expect(to.left % 40).toBe(0); // whole squares from the board's start
+      expect(to.left + 190).toBeGreaterThanOrEqual((x + 1) * 40); // the square's far edge is inside: not cut
+      expect(to.left + 190 - (x + 1) * 40).toBeLessThan(40); // and it is the FEWEST: one square less would cut it
+    }
+  });
+
+  it('before the start: whole squares, and the square starts inside', () => {
+    const m = w({ scrollLeft: 130, scrollTop: 90 }); // arrived by wheel: not whole
+    expect(followScroll(m, square(0, 0, m))).toEqual({ left: 0, top: 0 });
+    const m2 = w({ scrollLeft: 130, scrollTop: 90 });
+    const to2 = followScroll(m2, square(1, 1, m2))!;
+    expect(to2.left % 40).toBe(0);
+    expect(to2.top % 40).toBe(0);
+    expect(to2.left).toBeLessThanOrEqual(40);
+    expect(to2.top).toBeLessThanOrEqual(40);
+  });
+});

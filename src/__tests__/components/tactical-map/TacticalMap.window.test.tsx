@@ -119,6 +119,7 @@ describe('TacticalMap — the room: the window is the body, with no chrome of it
     }
     // blocked and pending differ from each other and from the reach by outline STYLE (the one signal a forced-colours user keeps)
     const style = (cls: string) => new RegExp(`\\.${cls}[^{]*\\{[^}]*outline(?:-style)?\\s*:\\s*[^;]*?(solid|dashed|dotted|double)`).exec(block)?.[1];
+    for (const cls of ['cellInRange', 'cellBlocked', 'cellPending', 'cellDestination']) expect(style(cls)).toBeDefined(); // `outline: none` matches the check above and is no style at all
     expect(new Set([style('cellInRange'), style('cellBlocked'), style('cellPending')]).size).toBe(3);
   });
 
@@ -223,6 +224,12 @@ describe('TacticalMap — outside Move mode nothing is armed or moved by a key (
     expect(fireEvent.keyDown(goblin, { key: 'Enter' })).toBe(false);
   });
 
+  it('arrows are consumed (the grid sits in a scroller, so an unconsumed arrow would scroll the window natively on top of the follow); a key that is not the grid\'s is not', () => {
+    const { start } = setup();
+    for (const key of ['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp']) expect(fireEvent.keyDown(document.activeElement ?? start, { key })).toBe(false);
+    expect(fireEvent.keyDown(document.activeElement ?? start, { key: 'a' })).toBe(true); // the control: the harness can tell a consumed key from a free one
+  });
+
   it('exactly one Tab stop in the grid, and Tab is never consumed: one Tab enters and the next leaves', () => {
     const { container } = setup();
     expect(container.querySelectorAll('[role="gridcell"][tabindex="0"]')).toHaveLength(1);
@@ -234,6 +241,25 @@ describe('TacticalMap — outside Move mode nothing is armed or moved by a key (
 });
 
 // ── showReach ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+describe('TacticalMap — an observer is never offered a move in the line (showReach, no moveMode)', () => {
+  it('arrowing over squares that are in the mover\'s reach yields `turn` / `cell` payloads only: no `target` line, which would read "Move to row 6…"', () => {
+    const onInspect = jest.fn();
+    const people = [
+      makeParticipant({ participant_id: 'p1', name: 'Bren', at: [2, 2], movement_remaining: 10 }),
+      makeParticipant({ participant_id: 'p2', name: 'Sable', at: [5, 5], movement_remaining: 5 }),
+    ];
+    render(<TacticalMap {...baseProps({ space: makeSpace({ width: 10, height: 10 }), participants: people, viewerParticipantId: 'p2', activeParticipantId: 'p1', showReach: true, moveMode: false, onInspect })} />);
+    expect(screen.getByRole('gridcell', { name: /Row 3, column 4\./ }).className).toContain(styles.cellInRange); // the squares below are in reach: the control for "in reach"
+    const start = screen.getByRole('gridcell', { name: /Row 6, column 6\./ });
+    act(() => start.focus());
+    fireEvent.keyDown(start, { key: 'ArrowLeft' });
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'ArrowUp' });
+    const kinds = onInspect.mock.calls.map((c) => (c[0] as InspectLine | null)?.kind);
+    expect(kinds.length).toBeGreaterThan(0);
+    expect(kinds).not.toContain('target');
+  });
+});
+
 describe('TacticalMap — showReach: the overlay without the interaction (T1 for an observer)', () => {
   const participants = [
     makeParticipant({ participant_id: 'p1', name: 'Bren', at: [2, 2], movement_remaining: 10 }),
@@ -390,6 +416,16 @@ describe('TacticalMap — onInspect: the payloads (brief 2.2/2.3) and what drive
     const next = participants.map((p) => (p.participant_id === 'm1' ? { ...p, movement_remaining: 25 } : p));
     rerender(<TacticalMap {...baseProps({ space, participants: next, activeParticipantId: 'm1', onInspect })} />);
     expect(lastOf(onInspect)).toEqual({ kind: 'turn', name: 'Goblin Skulker', feetLeft: 25 });
+  });
+
+  it('the grid holding focus across a turn change keeps the chosen square (only a grid without focus drops it at the turn)', () => {
+    const { onInspect, rerender } = mount();
+    const goblin = screen.getByRole('gridcell', { name: /Goblin Skulker, hostile/ });
+    act(() => goblin.focus());
+    expect(lastOf(onInspect)).toMatchObject({ kind: 'cell', input: { occupant: { name: 'Goblin Skulker' } } });
+    rerender(<TacticalMap {...baseProps({ space, participants, activeParticipantId: 'm2', onInspect })} />); // the turn passes to the archer; the grid still holds focus
+    expect(document.activeElement).toBe(goblin);
+    expect(lastOf(onInspect)).toMatchObject({ kind: 'cell', input: { occupant: { name: 'Goblin Skulker' } } });
   });
 
   it('focus moving between squares of the grid does not clear it; tabbing into the grid chooses its roving stop', () => {
