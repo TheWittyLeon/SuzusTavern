@@ -62,7 +62,8 @@
 
 @media (max-width: 880px) {
   .select,
-  .input {
+  .input,
+  .applyBtn {
     min-height: 44px;
   }
 }
