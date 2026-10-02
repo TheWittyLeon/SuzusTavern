@@ -17,7 +17,7 @@
  * `<ActionBar/>` directly and owns those refs itself. Retires this file's own
  * `debt:` marker (A8) — its `until:` has fired.
  */
-import { useRef, type ReactNode, type RefObject } from 'react';
+import { useId, useRef, type ReactNode, type RefObject } from 'react';
 import Icon from '@/components/Icon';
 import { lockProps } from '@/lib/a11y/lockProps';
 import type { RegionVariant } from '@/app/play/[sessionId]/variants';
@@ -72,6 +72,19 @@ const PLACEHOLDER: Record<ComposeMode, string> = {
   dm_narration: 'Narrate the scene as DM… (or speak as an NPC above)',
 };
 
+/**
+ * The phone's placeholders (A9d-2 fix round 2, Iro Minor-4). The composer's input is ONE 44px row at 16px on the phone (`roll` variant), and the
+ * long sentences above wrap there and are cut at their first line (279px of text in 258 at 360 wide; the DM's, 397px in 288 at 390). A short line
+ * fits at every phone width; the long text is not lost: it stays on the textarea as its accessible DESCRIPTION (an sr-only node). It was never in
+ * the accessible NAME (`aria-label="Compose (say)"` wins over a placeholder, and eight suites find the field by that exact label).
+ */
+const PLACEHOLDER_SHORT: Record<ComposeMode, string> = {
+  say: 'Say something…',
+  act: 'I climb the chimney…',
+  ooc: 'Out of character…',
+  dm_narration: 'Narrate the scene…',
+};
+
 const DEFAULT_MODES: [ComposeMode, string][] = [
   ['say', 'Say'],
   ['act', 'Act'],
@@ -111,6 +124,9 @@ export default function Composer({
   // selection) to the newly-active tab — APG tablist contract (Iro S3.4).
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // The phone's one-row field takes the short placeholder; the long text is its description (see PLACEHOLDER_SHORT). A lock reason is shown whole.
+  const hintId = useId();
+  const shortPlaceholder = variant === 'roll' && !lockReason;
   // MINOR-3: synchronous latch prevents a fast double-click from firing onSend twice.
   // The Enter path is already guarded by canSend; this closes the onClick gap.
   const pendingRef = useRef(false);
@@ -201,7 +217,8 @@ export default function Composer({
             if (textareaAnchorRef) textareaAnchorRef.current = el;
           }}
           className={styles.input}
-          placeholder={lockReason ?? (PLACEHOLDER[mode] ?? '')}
+          placeholder={lockReason ?? ((shortPlaceholder ? PLACEHOLDER_SHORT[mode] : PLACEHOLDER[mode]) ?? '')}
+          aria-describedby={shortPlaceholder ? hintId : undefined}
           value={value}
           rows={1}
           aria-label={`Compose (${mode})`}
@@ -218,6 +235,7 @@ export default function Composer({
             }
           }}
         />
+        {shortPlaceholder && <span id={hintId} className="sr-only">{PLACEHOLDER[mode]}</span>}
         <button
           type="button"
           className={styles.send}
