@@ -269,8 +269,12 @@ export function useAnchoredPopover({
   useEffect(() => {
     if (!open) return;
     let pointer = false;
-    const onPointerDown = () => { pointer = true; };
-    const onKeyDown = () => { pointer = false; };
+    // The last key was Tab: only then is a focus that goes to nothing the user leaving. A control that becomes disabled or hidden while focused is
+    // blurred by the browser with the same null relatedTarget (a Cast button disabled while the cast is in flight, the harness's cue probe), and
+    // that is not.
+    let tabbed = false;
+    const onPointerDown = () => { pointer = true; tabbed = false; };
+    const onKeyDown = (e: KeyboardEvent) => { pointer = false; tabbed = e.key === 'Tab'; };
     const onFocusIn = (e: FocusEvent) => {
       if (pointer) return;
       const target = e.target;
@@ -281,9 +285,9 @@ export function useAnchoredPopover({
       onClose();
     };
     // Focus leaving the popover for NOTHING (WebKit's Tab goes to <body>/the browser's own chrome after the last stop; no `focusin` fires there):
-    // `focusout` with no `relatedTarget` while the document still has focus (a window switch is not the user leaving it).
+    // `focusout` with no `relatedTarget` right after a Tab, while the document still has focus (a window switch is not the user leaving it).
     const onFocusOut = (e: FocusEvent) => {
-      if (pointer || e.relatedTarget !== null) return;
+      if (pointer || !tabbed || e.relatedTarget !== null) return;
       const target = e.target;
       if (!(target instanceof Node) || !popoverRef.current?.contains(target)) return;
       if (typeof document.hasFocus === 'function' && !document.hasFocus()) return;

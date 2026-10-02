@@ -506,8 +506,12 @@ describe('focus leaving an open popover closes it, without moving focus (Safari\
     const first = document.getElementById('first') as HTMLElement;
     jest.spyOn(document, 'hasFocus').mockReturnValue(true);
     act(() => { first.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: null })); });
+    expect(dialog()).toBeInTheDocument(); // no Tab before it: a control disabled or hidden while focused is blurred the same way (Cast in flight)
+    fireEvent.keyDown(first, { key: 'Tab' });
+    act(() => { first.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: null })); });
     closed();
     openA();
+    fireEvent.keyDown(document.getElementById('first') as HTMLElement, { key: 'Tab' });
     jest.spyOn(document, 'hasFocus').mockReturnValue(false); // the window lost focus: not the user leaving the popover
     act(() => { (document.getElementById('first') as HTMLElement).dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: null })); });
     expect(dialog()).toBeInTheDocument();
