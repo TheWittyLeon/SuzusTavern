@@ -144,6 +144,16 @@ describe('Toast.module.css: the placements', () => {
   });
 });
 
+describe('Toast.module.css: the card is SOLID (Iro round-4 MAJOR-1)', () => {
+  const css = stripComments(read('src/components/Toast.module.css'));
+  const rule = css.slice(css.indexOf('.toast {'), css.indexOf('\n}\n', css.indexOf('.toast {')));
+
+  it('.toast paints on --card-solid, not on --card (4% white: it only reads as a card over a blur the Chromium build does not keep)', () => {
+    expect(rule).toMatch(/background:\s*var\(--card-solid\)/);
+    expect(rule).not.toMatch(/background:\s*var\(--card\)/);
+  });
+});
+
 describe('the /play regions mark themselves for the host', () => {
   it.each([
     ['TopBar', 'src/app/play/[sessionId]/regions/TopBar.tsx', 'data-region="topBar"'],
