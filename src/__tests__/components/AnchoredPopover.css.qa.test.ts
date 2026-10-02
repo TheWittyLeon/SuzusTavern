@@ -38,7 +38,17 @@ describe('AnchoredPopover.module.css', () => {
     expect(block(css, '.closed')).toMatch(/display:\s*none/);
   });
 
-  it('it paints the scroll cue only while there is more to scroll: the local-attachment cover over a scroll-attached shadow', () => {
-    expect(pop).toMatch(/background-attachment:\s*local,\s*local,\s*scroll,\s*scroll/);
+  it('it paints the scroll cue only while there is more to scroll: the local-attachment cover over a scroll-attached shadow, in the shared `.scrollCue` class the popover composes', () => {
+    // A9d-2 fix round 2: the cue moved out of `.popover` into `.scrollCue` so the Attack menu (its own DOM position) shares ONE. This case read `.popover`.
+    expect(pop).toMatch(/composes:\s*scrollCue/);
+    expect(block(css, '.scrollCue')).toMatch(/background-attachment:\s*local,\s*local,\s*scroll,\s*scroll/);
+  });
+
+  it('the Attack menu (Composer.module.css `.pop`) takes the same cue and contains its scroll, and does not reset it with the `background` shorthand', () => {
+    const composer = read('src/components/Composer.module.css');
+    const popRule = block(composer, '.pop');
+    expect(popRule).toMatch(/overscroll-behavior:\s*contain/);
+    expect(popRule).not.toMatch(/background:\s/);
+    expect(read('src/app/play/[sessionId]/regions/ActionBar.tsx')).toMatch(/popoverStyles\.scrollCue/);
   });
 });

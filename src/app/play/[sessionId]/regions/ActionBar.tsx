@@ -35,6 +35,7 @@ import Icon from '@/components/Icon';
 import { consumeEscape } from '@/lib/a11y/escapeConsume';
 import { useAnchoredPopover } from '@/lib/a11y/useAnchoredPopover';
 import styles from '@/components/Composer.module.css';
+import popoverStyles from '@/components/AnchoredPopover.module.css';
 import type { RegionVariant } from '../variants';
 
 export type CombatAction = 'attack' | 'dodge' | 'dash' | 'endturn' | 'deathsave';
@@ -409,7 +410,7 @@ export default function ActionBar({
       )}
       {targetOpen && (
         <div
-          className={styles.pop}
+          className={`${styles.pop} ${popoverStyles.scrollCue}`}
           role="menu"
           aria-label="Attack — pick a target"
           ref={(el) => {

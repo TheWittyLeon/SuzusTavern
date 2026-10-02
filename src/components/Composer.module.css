@@ -415,7 +415,9 @@
   z-index: 20;
   min-width: 220px;
   overflow-y: auto;
-  background: var(--bg-2);
+  /* A clamped menu scrolls inside and does not hand its scroll to the page; ActionBar adds AnchoredPopover.module.css `.scrollCue` (the cue). */
+  overscroll-behavior: contain;
+  background-color: var(--bg-2);
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 6px;
