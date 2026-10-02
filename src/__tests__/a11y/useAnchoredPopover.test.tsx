@@ -522,6 +522,45 @@ describe('focus leaving an open popover closes it, without moving focus (Safari\
     jest.restoreAllMocks();
   });
 
+  // A9d-2 fix round 4 (Kage I-A): every consumer passes an inline `onClose`, so ANY re-render (a combat poll's answer) re-ran the effects that
+  // held the press and Tab flags as locals and reset them between a tap's pointerdown and the focus it causes. The browser pin is the harness's
+  // popover-*-poll-tap legs (a real touch, the poll released inside it); these are the pure halves, a re-render with a NEW `onClose` between the two.
+  it('a re-render between a tap\'s pointerdown and its focus keeps the press: the focus does not close it, and the click is consumed (Send never posts)', () => {
+    const { rerender } = setup();
+    openA();
+    const verb = screen.getByRole('button', { name: 'Verb' });
+    fireEvent.pointerDown(verb);
+    rerender(<Harness />); // the poll's answer lands: a new inline onClose
+    act(() => verb.focus());
+    expect(dialog()).toBeInTheDocument();
+    fireEvent.click(verb);
+    closed();
+    expect(log.verb).not.toHaveBeenCalled();
+  });
+
+  it('a re-render between a Tab key and the focus-out keeps the Tab flag: leaving for nothing still closes it', () => {
+    const { rerender } = setup();
+    openA();
+    jest.spyOn(document, 'hasFocus').mockReturnValue(true);
+    const first = document.getElementById('first') as HTMLElement;
+    fireEvent.keyDown(first, { key: 'Tab' });
+    rerender(<Harness />);
+    act(() => { first.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: null })); });
+    closed();
+    jest.restoreAllMocks();
+  });
+
+  it('the flags are cleared when it opens: a press from the PREVIOUS open does not outlive it', () => {
+    setup();
+    openA();
+    fireEvent.pointerDown(document.getElementById('first') as HTMLElement); // a press while open sets the flag
+    fireEvent.keyDown(document.activeElement as Element, { key: 'Escape' });
+    closed();
+    openA();
+    act(() => screen.getByRole('button', { name: 'Verb' }).focus()); // no press in THIS open: focus leaving is the user leaving
+    closed();
+  });
+
   it('with it closed the listener is gone: focus anywhere is nobody\'s business', () => {
     setup();
     openA();

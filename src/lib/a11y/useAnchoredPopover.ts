@@ -209,6 +209,19 @@ export function useAnchoredPopover({
   const popoverRef = useRef<HTMLElement | null>(null);
   const [placed, setPlaced] = useState<Placed | null>(null);
   const wasOpenRef = useRef(false);
+  // The latest `onClose`, and the press / Tab flags, live in refs and NOT as locals of an effect keyed on `onClose` (A9d-2 fix round 4, Kage I-A):
+  // every consumer passes an inline arrow, so any re-render (a combat poll's answer) re-ran the effect and reset the flags BETWEEN a tap's pointerdown
+  // and its focus, the focus-out rule then closed the popover, and the tap's click landed on what lay underneath (Send posted a draft 3 of 3; with the
+  // Attack menu open the same tap can End turn). A flag now outlives a render; only the popover opening or closing clears it.
+  const onCloseRef = useRef(onClose);
+  useLayoutEffect(() => {
+    onCloseRef.current = onClose;
+  });
+  const pointerRef = useRef(false);
+  // The last key was Tab: only then is a focus that goes to nothing the user leaving. A control that becomes disabled or hidden while focused is
+  // blurred by the browser with the same null relatedTarget (a Cast button disabled while the cast is in flight, the harness's cue probe), and
+  // that is not.
+  const tabbedRef = useRef(false);
 
   const openerEl = useCallback(() => {
     const o = openerRef?.current;
@@ -268,30 +281,27 @@ export function useAnchoredPopover({
   // POINTER did not cause: a press on something outside is closed (consumed or delivered) by its click, below.
   useEffect(() => {
     if (!open) return;
-    let pointer = false;
-    // The last key was Tab: only then is a focus that goes to nothing the user leaving. A control that becomes disabled or hidden while focused is
-    // blurred by the browser with the same null relatedTarget (a Cast button disabled while the cast is in flight, the harness's cue probe), and
-    // that is not.
-    let tabbed = false;
-    const onPointerDown = () => { pointer = true; tabbed = false; };
-    const onKeyDown = (e: KeyboardEvent) => { pointer = false; tabbed = e.key === 'Tab'; };
+    pointerRef.current = false;
+    tabbedRef.current = false;
+    const onPointerDown = () => { pointerRef.current = true; tabbedRef.current = false; };
+    const onKeyDown = (e: KeyboardEvent) => { pointerRef.current = false; tabbedRef.current = e.key === 'Tab'; };
     const onFocusIn = (e: FocusEvent) => {
-      if (pointer) return;
+      if (pointerRef.current) return;
       const target = e.target;
       if (!(target instanceof Node)) return;
       if (popoverRef.current?.contains(target)) return;
       if (anchorRef.current?.contains(target) || openerRef?.current?.contains(target)) return;
       if (target instanceof Element && target.closest(PASSTHROUGH)) return;
-      onClose();
+      onCloseRef.current();
     };
     // Focus leaving the popover for NOTHING (WebKit's Tab goes to <body>/the browser's own chrome after the last stop; no `focusin` fires there):
     // `focusout` with no `relatedTarget` right after a Tab, while the document still has focus (a window switch is not the user leaving it).
     const onFocusOut = (e: FocusEvent) => {
-      if (pointer || !tabbed || e.relatedTarget !== null) return;
+      if (pointerRef.current || !tabbedRef.current || e.relatedTarget !== null) return;
       const target = e.target;
       if (!(target instanceof Node) || !popoverRef.current?.contains(target)) return;
       if (typeof document.hasFocus === 'function' && !document.hasFocus()) return;
-      onClose();
+      onCloseRef.current();
     };
     document.addEventListener('pointerdown', onPointerDown, true);
     document.addEventListener('keydown', onKeyDown, true);
@@ -303,7 +313,7 @@ export function useAnchoredPopover({
       document.removeEventListener('focusin', onFocusIn);
       document.removeEventListener('focusout', onFocusOut);
     };
-  }, [open, onClose, anchorRef, openerRef]);
+  }, [open, anchorRef, openerRef]);
 
   // Outside press: closes on CLICK, consumes it, except on a passthrough element (the X-card): closes and delivers it.
   useEffect(() => {
@@ -321,11 +331,11 @@ export function useAnchoredPopover({
         e.preventDefault();
         e.stopPropagation();
       }
-      onClose();
+      onCloseRef.current();
     };
     document.addEventListener('click', onClick, true);
     return () => document.removeEventListener('click', onClick, true);
-  }, [open, onClose, anchorRef, openerRef]);
+  }, [open, anchorRef, openerRef]);
 
   // Focus: on open to the declared target; on every close back to the opener (or the fallback), decided in the commit that closed it.
   useLayoutEffect(() => {
