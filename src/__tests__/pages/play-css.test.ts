@@ -357,11 +357,12 @@ describe('the stage\'s body (A10 S2b): the fill rule, the size container, the fo
     expect(play).not.toMatch(/data-slot-fill[^{]*sceneStage|sceneStage[^{]*data-slot-fill/);
   });
 
-  it('the clip leaves the focus ring its clearance as the CLIP\'s margin, from the token (Iro MINOR-1): the scene line\'s buttons sit 4px from the slot\'s edge and their ring reaches 4px, so a clip at the edge shaves it at the next zoom; no box moves', () => {
+  it('the clip leaves the focus ring clearance as the CLIP\'s margin, a plain length (Iro MINOR-1): the scene line\'s buttons sit `--space-2` from the slot\'s edge and their ring reaches 4px, so a clip at the edge shaves it at the next zoom; Chrome computes a calc() here to 0px, so not the calc token', () => {
     const r = rule(play, '.slot:has(> [data-slot-fill])');
-    expect(r).toMatch(/overflow-clip-margin:\s*var\(--focus-ring-clearance\)/);
-    // the token is the ring's own reach (2px width + 2px offset), so the margin is derived, never hand-summed
-    expect(read('src/app/globals.css')).toMatch(/--focus-ring-clearance:\s*calc\(var\(--focus-ring-width\) \+ var\(--focus-ring-offset\)\)/);
+    expect(r).toMatch(/overflow-clip-margin:\s*var\(--space-2\)/);
+    expect(r).not.toMatch(/overflow-clip-margin:\s*(var\(--focus-ring-clearance\)|calc\()/);
+    // the margin equals the air the scene line leaves above its buttons (the .hero grid's first row), so the ring and its margin cannot drift apart
+    expect(stage).toMatch(/grid-template-rows:\s*var\(--space-2\) minmax\(var\(--strip-half\), auto\)/);
   });
 
   it('the body is a SIZE container that fills the last row of the stage, hands the cell to the map\'s own property, and clips', () => {
