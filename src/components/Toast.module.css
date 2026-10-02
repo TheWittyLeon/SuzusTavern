@@ -54,8 +54,7 @@
   -webkit-backdrop-filter: blur(20px) saturate(140%);
   border: 1px solid var(--line);
   box-shadow: var(--shadow-pop);
-  /* A tall card scrolls inside (the host sets --toast-card-max from the room around the safety block: a 60-word message was 309px at 320x256 and covered the X-card). */
-  max-height: var(--toast-card-max, none);
+  /* A tall card scrolls inside: the cap is on `.body` below (the host sets --toast-card-max from the room around the safety block; a 60-word message was 309px at 320x256 and covered the X-card). ONE cap: an outer max-height on the card too survived both jsdom and the browser leg, so it was removed (round 8). */
   /* Colored left accent bar */
   border-left: 3px solid var(--toast-accent, var(--accent));
   position: relative;

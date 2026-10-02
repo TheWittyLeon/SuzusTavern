@@ -3,7 +3,9 @@
  * controls) is a ~700px child of the story column's `.slotStack`, which is `overflow: hidden`. With the page no longer scrolling it was CLIPPED: at 1440x900, 1440x780
  * and 1280x650 the hit at each button was something else and the wheel did not scroll the column. While the DM panel is in the stack, the stack scrolls. The proof is
  * the harness's dm-reach legs (a hit test at every control, red at 2e73945); these are the text halves: the rule, its bound to the panel, and the unchanged clip.
- * Controls: drop the `:has(...)` rule, or its overflow-y, or the data-region on the panel -> reds; make the base stack scroll -> reds.
+ * Controls: drop the `:has(...)` rule, or its overflow-y, or the data-region on the panel -> reds; make the base stack scroll -> reds; put `contain` back -> reds.
+ * What jest CANNOT see: the direct-child `>` (a wrapper around the panel would not match the rule, and these are text pins); only the harness's dm-reach legs (a hit test in
+ * the browser) catch that. The drag proof is the harness's dm-drag-xcard leg.
  */
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -18,10 +20,15 @@ describe('Play.module.css: the story stack and the DM combat panel', () => {
     expect(rule('.slotStack')).not.toMatch(/overflow-y:\s*auto/);
   });
 
-  it('while the DM panel is in it, the stack SCROLLS (overflow-y: auto, contained): every control is reachable by the wheel, by touch and by keyboard', () => {
-    const r = rule('.slotStack:has(> [data-region="tableControlsDm"])');
-    expect(r).toMatch(/overflow-y:\s*auto/);
-    expect(r).toMatch(/overscroll-behavior:\s*contain/);
+  it('while the DM panel is in it, the stack SCROLLS (overflow-y: auto): every control is reachable by the wheel, by touch and by keyboard', () => {
+    expect(rule('.slotStack:has(> [data-region="tableControlsDm"])')).toMatch(/overflow-y:\s*auto/);
+  });
+
+  // Round 8 (Kage C-1): the ruled design (Play.module.css, the html rule beside `.grid`, Tora MAJOR-2) keeps NESTED CHAINING so a reflow screen can drag on to the composer
+  // and the X-card. `contain` here trapped the drag (375x667 and 360x740: not reached in 12 drags). Pull-to-refresh is blocked by html's own overscroll-behavior-y: none.
+  it('the stack does NOT contain its overscroll: a drag at its end chains to the page (a reflow screen reaches the X-card)', () => {
+    expect(rule('.slotStack:has(> [data-region="tableControlsDm"])')).not.toMatch(/overscroll-behavior/);
+    expect(css).toMatch(/html\)?:has\(\.grid\)\s*\{[^}]*overscroll-behavior-y:\s*none/);
   });
 
   it('it paints the shell\'s scroll cue (a fade only while there is more to scroll)', () => {
