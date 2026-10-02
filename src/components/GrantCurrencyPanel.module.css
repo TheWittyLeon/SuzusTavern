@@ -70,10 +70,12 @@
   appearance: auto;
 }
 
-@media (max-width: 880px) {
+@media (max-width: 880px), (pointer: coarse) {
   .select,
   .input {
-    min-height: 44px;
+    /* an explicit height, not min-height: WebKit measured this native select at 38px (147x38, computed min-height 18px) with the
+       min-height rule in its matched cascade (Iro Minor-1, Tora MINOR-1). A9d-2 N9. */
+    height: 44px;
   }
 }
 

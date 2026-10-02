@@ -719,6 +719,21 @@ a { color: inherit; text-decoration: none; }
   .pill .dot { animation: none; }
 }
 
+/* The 16px floor for a text control on a phone or a touch screen (A9d-2 N9; Kage I-5, Tora MINOR-2). iOS Safari zooms the page when a focused
+   control's computed font-size is under 16px and never zooms back on its own. This was a literal at each site (the composer, the Journal notes,
+   the Cast and Grant selects) and a pin that listed the same four, so ConditionsPanel, CampaignFloorPanel, DmNarrationPanel, DmOverrideModal and
+   the global .input (13-14px) stayed under it. One rule at the control layer holds for every control, including the next one. `!important`
+   because the sites it floors are single-class selectors with their own, smaller sizes, and a floor has to win over them. It only ever
+   raises a size (no control on /play or the character pages declares more than 16px: checked). The harness's (r) check measures the computed
+   size of every rendered control on a DM shot that renders each DM panel. The fix is the control's size, never a block on pinch-zoom (WCAG 1.4.4). */
+@media (max-width: 880px), (pointer: coarse) {
+  input:not([type='checkbox'], [type='radio'], [type='range'], [type='color'], [type='file'], [type='submit'], [type='button'], [type='reset'], [type='image'], [type='hidden']),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
 /* Inputs */
 .input {
   width: 100%; height: 44px; padding: 0 14px;
