@@ -235,6 +235,7 @@ function sideWord(o: CellOccupant): string {
  *   turn      "In combat · round 2 · Kestrel Ashwood: 30 ft left"
  *   creature  "Goblin Skulker · Foe · Invisible · Poisoned, Prone" (a downed or dead one says so before "Invisible")
  *   feature   "Stalagmites"
+ *   empty     the cell's own accessible name, "Row 1, column 3. Empty." (the map reports an empty square only while the grid holds KEYBOARD focus on it)
  *   target    legal: "Move to row 6, column 10 · 15 ft of 30"; not legal: the cell's own name (the square and why, in its own words)
  */
 export function buildLine(line: InspectLine | null, { round }: { round: number | null }): string {
@@ -246,7 +247,7 @@ export function buildLine(line: InspectLine | null, { round }: { round: number |
     return `Move to row ${line.input.row1}, column ${line.input.col1} · ${line.costFt} ft of ${line.budgetFt}`;
   }
   const o = line.input.occupant;
-  if (!o) return line.input.featureLabel ?? rest;
+  if (!o) return line.input.featureLabel ?? cellAccessibleName(line.input); // an empty square the keyboard is on: the cell's OWN name
   const parts = [o.name, sideWord(o)];
   if (o.dead) parts.push('Dead');
   else if (o.downed) parts.push('Downed');

@@ -45,7 +45,8 @@ export function useFollowGate(windowRef: RefObject<HTMLElement | null>, mounted:
     };
     if (touching.current) {
       // a touch's end flushes again; the BACKSTOP is for the end that never comes (the node under the finger was removed and the browser sends the lift to it, not to the window)
-      const left = touchStartAt.current + TOUCH_BACKSTOP_MS - Date.now();
+      // counted from the finger's LAST MOVEMENT (its start, or the window's last scroll event): a finger at rest releases 5 s after it last moved, and a slow pan never does
+      const left = Math.max(touchStartAt.current, lastScrollAt.current) + TOUCH_BACKSTOP_MS - Date.now();
       if (left > 0) return wakeIn(left);
       touching.current = false;
     }

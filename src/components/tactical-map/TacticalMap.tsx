@@ -301,6 +301,16 @@ function boxOf(el: HTMLElement): Box {
   return { left: r.left, top: r.top, width: r.width, height: r.height };
 }
 
+/** Whether the browser shows keyboard-style focus on `el` (the user is ON it by key or Move-sync, not by a click or tap). An engine without `:focus-visible` (iOS before 15.4) throws on the
+ *  selector: that reads as NOT focus-visible, so nothing is held and the plain follow runs. */
+function isFocusVisible(el: HTMLElement): boolean {
+  try {
+    return el.matches(':focus-visible');
+  } catch {
+    return false;
+  }
+}
+
 /** A window has a box when it is laid out: a folded (`hidden`) body has none. */
 function hasBox(win: HTMLElement): boolean {
   return win.clientWidth > 0 && win.clientHeight > 0;
@@ -389,6 +399,9 @@ export default function TacticalMap({
   // the grid does not hold focus (a stale square must not be read against the next mover). Derived in render, no effect.
   const [chosen, setChosen] = useState<{ coord: SpaceCoordinate; turn: string | null } | null>(null);
   const [gridFocused, setGridFocused] = useState(false);
+  // Whether the grid's focus is KEYBOARD-style (:focus-visible), set where focus lands (only read while a square is chosen, and leaving the grid clears that, so it needs no reset of its own). While it is, the line names the square the user is on even when it is empty (Iro-A11y condition C):
+  // a sighted keyboard user needs to know where focus went, and the scene line is where they read it. A click or a tap on an empty square is not that and says nothing new.
+  const [keyFocus, setKeyFocus] = useState(false);
   const chosenCoord = chosen && (gridFocused || chosen.turn === (activeParticipantId ?? null)) ? chosen.coord : null;
   const choose = (coord: SpaceCoordinate) => setChosen({ coord, turn: activeParticipantId ?? null });
 
@@ -479,7 +492,7 @@ export default function TacticalMap({
     turnOwed.current = false;
     const { focusKey, moverKey } = latest.current;
     const heldCell = boardRef.current?.contains(document.activeElement) ? cellRefs.current.get(focusKey) : undefined;
-    const held = heldCell && heldCell.matches(':focus-visible') ? heldCell : undefined;
+    const held = heldCell && isFocusVisible(heldCell) ? heldCell : undefined;
     const mover = moverKey ? cellRefs.current.get(moverKey) : undefined;
     const metrics = windowMetrics(win);
     if (turn && mover) {
@@ -630,7 +643,7 @@ export default function TacticalMap({
       inspect = { kind: 'target', input, legal: destinationLegal, ...(destinationLegal && activeAt ? { costFt: chebyshevCost(space, activeAt, destinationCoord), budgetFt: activeMovementRemaining } : {}) };
     } else if (chosenCoord) {
       const { input } = describeSquare(space, chosenCoord);
-      if (input.occupant || input.featureLabel) inspect = { kind: 'cell', input };
+      if (input.occupant || input.featureLabel || keyFocus) inspect = { kind: 'cell', input };
     }
     if (!inspect && activeParticipant && activeAt && activeParticipant.movement_remaining != null) {
       inspect = { kind: 'turn', name: activeParticipant.name, feetLeft: activeParticipant.movement_remaining };
@@ -787,11 +800,12 @@ export default function TacticalMap({
                     ]
                       .filter(Boolean)
                       .join(' ')}
-                    onFocus={() => {
+                    onFocus={(e) => {
                       // Real focus moving onto a square (a Tab into the grid, a screen reader's cursor, a programmatic focus) is the roving stop and the chosen square
                       // from then on: the NEXT arrow key starts from here, not from a stale square.
                       setFocus((prev) => (coordsEqual(prev.coord, coord) ? prev : { coord, by: 'native' }));
                       choose(coord);
+                      setKeyFocus(isFocusVisible(e.currentTarget));
                     }}
                     onClick={() => {
                       // Tora-Gesture MAJOR-2: a click never synced

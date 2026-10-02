@@ -19,7 +19,7 @@ import { act, render, screen, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import TacticalMap, { type TacticalMapProps } from '@/components/tactical-map/TacticalMap';
 import type { CombatParticipantState, CombatSpace } from '@/lib/api/types';
-import type { InspectLine } from '@/components/tactical-map/a11y';
+import { buildLine, type InspectLine } from '@/components/tactical-map/a11y';
 import styles from '@/components/tactical-map/TacticalMap.module.css';
 
 function makeSpace(overrides: Partial<CombatSpace> = {}): CombatSpace {
@@ -434,7 +434,8 @@ describe('TacticalMap — onInspect: the payloads (brief 2.2/2.3) and what drive
     act(() => goblin.focus());
     fireEvent.keyDown(goblin, { key: 'ArrowRight' });
     fireEvent.blur(goblin, { relatedTarget: screen.getByRole('gridcell', { name: /Row 1, column 4\./ }) });
-    expect(lastOf(onInspect)).toMatchObject({ kind: 'turn' }); // [3,0] is empty: the rest line, but the grid still holds the chosen square
+    // [3,0] is empty and the keyboard is on it: the line names it in the cell's own words (Iro-A11y condition C; this pin said `turn` before it), and the grid still holds the chosen square
+    expect(lastOf(onInspect)).toMatchObject({ kind: 'cell', input: { row1: 1, col1: 4, occupant: undefined } });
     fireEvent.keyDown(screen.getByRole('gridcell', { name: /Row 1, column 4\./ }), { key: 'ArrowLeft' });
     expect(lastOf(onInspect)).toMatchObject({ kind: 'cell', input: { occupant: { name: 'Goblin Skulker' } } });
   });
@@ -992,6 +993,21 @@ describe('TacticalMap — P2: every follow waits while a touch is on the window 
       expect(document.activeElement).toBe(held);
     });
 
+    it('condition B — after the mover wins, ONE arrow key brings the target square back wholly into the window: the fewest whole squares, margin 0 (a user\'s own move)', () => {
+      const { container, rerender } = render(<TacticalMap {...at('a')} />);
+      let win = layoutP2(container, { left: 0, top: 0 });
+      withMargin(win, 1);
+      const held = cellAt(container, 0);
+      act(() => { held.focus(); });
+      rerender(<TacticalMap {...at('c')} />);
+      expect(win.scrollLeft).toBe(120); // the mover wins with its margin: column 0 is out
+      win = layoutP2(container, { left: 120, top: 0 }); // the boxes as the browser lays them out at 120
+      withMargin(win, 1);
+      fireEvent.keyDown(held, { key: 'ArrowRight' }); // column 1: x 40..80, out of a window showing 120..320
+      expect(document.activeElement).toBe(cellAt(container, 1));
+      expect(win.scrollLeft).toBe(40); // with NO margin: 80 would be a margin square past it
+    });
+
     it('A3 — both fit (focus on column 2): columns 2..6 hold both', () => {
       const { container, rerender } = render(<TacticalMap {...at('a')} />);
       const win = layoutP2(container, { left: 0, top: 0 });
@@ -1069,6 +1085,45 @@ describe('TacticalMap — P2: every follow waits while a touch is on the window 
       token.remove();
       touchOn(token, 'touchend', []); // dispatched on the detached node: the window never hears it
       rerender(<TacticalMap {...at('c')} />);
+      expect(win.scrollLeft).toBe(80);
+    });
+
+    it('the touch\'s own target hears touchcancel too: a cancel sent to the detached node releases the gate', () => {
+      const { container, rerender } = render(<TacticalMap {...at('a')} />);
+      const win = layoutP2(container, { left: 0, top: 0 });
+      const token = document.createElement('span');
+      win.appendChild(token);
+      touchOn(token, 'touchstart', [token]);
+      token.remove();
+      touchOn(token, 'touchcancel', []);
+      rerender(<TacticalMap {...at('c')} />);
+      expect(win.scrollLeft).toBe(80);
+    });
+
+    it('the backstop counts from the finger\'s LAST MOVEMENT: a finger at rest releases 5 s after the window last scrolled, not 5 s after it went down', () => {
+      const { container, rerender } = render(<TacticalMap {...at('a')} />);
+      const win = layoutP2(container, { left: 0, top: 0 });
+      fireEvent.touchStart(win, { touches });
+      act(() => { jest.advanceTimersByTime(3000); });
+      fireEvent.scroll(win); // the last movement, 3 s in
+      rerender(<TacticalMap {...at('c')} />);
+      act(() => { jest.advanceTimersByTime(4999); }); // 7999 ms after the touch began, 4999 after the last movement
+      expect(win.scrollLeft).toBe(0);
+      act(() => { jest.advanceTimersByTime(1); });
+      expect(win.scrollLeft).toBe(80);
+    });
+
+    it('a slow pan never releases it: a scroll event every second for 12 s keeps the gate held; the follow runs 5 s after the last one', () => {
+      const { container, rerender } = render(<TacticalMap {...at('a')} />);
+      const win = layoutP2(container, { left: 0, top: 0 });
+      fireEvent.touchStart(win, { touches });
+      rerender(<TacticalMap {...at('c')} />);
+      for (let i = 0; i < 12; i++) {
+        act(() => { jest.advanceTimersByTime(1000); });
+        fireEvent.scroll(win);
+      }
+      expect(win.scrollLeft).toBe(0);
+      act(() => { jest.advanceTimersByTime(5000); });
       expect(win.scrollLeft).toBe(80);
     });
 
@@ -1595,6 +1650,20 @@ describe('TacticalMap — what a held follow reads when it runs, and what the ob
     expect(win.scrollLeft).toBe(80); // Cal whole; the focused column 0 cannot be held with it. A re-follow alone would keep column 0 and stay at 0
   });
 
+  it('the turn stays OWED while the window is hidden, with a HELD square: when the box comes back the run is the turn\'s (the mover wins: 80), not a plain re-follow (which keeps the held square: 0)', () => {
+    const { container, rerender } = render(<TacticalMap {...at('a', [aldo, calAt(6)])} />);
+    const win = layoutP2(container, { left: 0, top: 0 });
+    resized();
+    act(() => { (container.querySelectorAll('[role="gridcell"]')[0] as HTMLElement).focus(); }); // column 0, held
+    for (const k of ['clientWidth', 'clientHeight']) Object.defineProperty(win, k, { configurable: true, value: 0 });
+    resized();
+    rerender(<TacticalMap {...at('c', [aldo, calAt(6)])} />); // a turn passes while the window is hidden
+    expect(win.scrollLeft).toBe(0);
+    layoutP2(container, { left: 0, top: 0 });
+    resized();
+    expect(win.scrollLeft).toBe(80);
+  });
+
   it('a hidden window (no box) follows nothing, and the turn stays owed until its box comes back (followMover has a hasBox guard)', () => {
     const { container, rerender } = render(<TacticalMap {...at('a', [aldo, calAt(6)])} />);
     const win = layoutP2(container, { left: 0, top: 0 });
@@ -1730,5 +1799,75 @@ describe('TacticalMap — P2: the touch declarations on the grid (Tora-Gesture r
   it('only the grid: the window and the wrapper stay selectable (the line and the log are outside, and nothing else in the map is text to select)', () => {
     expect(hasDecl(ruleBody('boardScroll'), 'user-select')).toBe(false);
     expect(hasDecl(ruleBody('wrap'), 'user-select')).toBe(false);
+  });
+});
+
+describe('TacticalMap — a browser without :focus-visible, and the empty square the keyboard is on', () => {
+  const folk = [
+    makeParticipant({ participant_id: 'a', name: 'Aldo', at: [0, 0], movement_remaining: 30 }),
+    makeParticipant({ participant_id: 'c', name: 'Cal', is_pc: false, at: [6, 0], movement_remaining: 30 }),
+  ];
+  const at = (active: string, o: Partial<TacticalMapProps> = {}) => baseProps({ space: makeSpace({ width: 10, height: 10 }), participants: folk, viewerParticipantId: 'a', activeParticipantId: active, ...o });
+
+  it('iOS before 15.4 throws a SyntaxError on the selector: the follow still runs, as if nothing were held (the mover is followed whole)', () => {
+    const { container, rerender } = render(<TacticalMap {...at('a')} />);
+    const win = layoutP2(container, { left: 0, top: 0 });
+    const cell = container.querySelectorAll('[role="gridcell"]')[0] as HTMLElement;
+    act(() => { cell.focus(); });
+    const real = Element.prototype.matches;
+    const spy = jest.spyOn(Element.prototype, 'matches').mockImplementation(function (this: Element, q: string) {
+      if (q === ':focus-visible') throw new SyntaxError(`'${q}' is not a valid selector`);
+      return real.call(this, q);
+    });
+    expect(() => rerender(<TacticalMap {...at('c')} />)).not.toThrow();
+    spy.mockRestore();
+    expect(win.scrollLeft).toBe(80);
+  });
+
+  describe('Iro-A11y condition C: while the grid holds KEYBOARD focus the line names the square the user is on, even when it is empty, in the cell\'s own words', () => {
+    const lastOf = (fn: jest.Mock): InspectLine | null | undefined => (fn.mock.calls.length ? fn.mock.calls[fn.mock.calls.length - 1][0] : undefined);
+
+    it('an arrow onto an empty square: a `cell` line carrying that square\'s input, whose text is the cell\'s own accessible name', () => {
+      const onInspect = jest.fn();
+      render(<TacticalMap {...at('a', { onInspect })} />);
+      const start = screen.getByRole('gridcell', { name: /Aldo — you/ });
+      act(() => { start.focus(); });
+      fireEvent.keyDown(start, { key: 'ArrowRight' });
+      const line = lastOf(onInspect) as Extract<InspectLine, { kind: 'cell' }>;
+      expect(line.kind).toBe('cell');
+      expect(line.input).toMatchObject({ row1: 1, col1: 2 });
+      const name = (document.activeElement as HTMLElement).getAttribute('aria-label');
+      expect(name).toBe('Row 1, column 2. Empty.');
+      expect(buildLine(line, { round: 2 })).toBe(name);
+    });
+
+    it('THE CONTROL: a CLICK or a TAP that focused an empty square (not :focus-visible) says nothing new: the rest line', () => {
+      const onInspect = jest.fn();
+      render(<TacticalMap {...at('a', { onInspect })} />);
+      const empty = screen.getByRole('gridcell', { name: /Row 3, column 5\./ });
+      const real = empty.matches.bind(empty);
+      jest.spyOn(empty, 'matches').mockImplementation((q: string) => (q === ':focus-visible' ? false : real(q)));
+      act(() => { empty.focus(); });
+      expect(lastOf(onInspect)).toEqual({ kind: 'turn', name: 'Aldo', feetLeft: 30 });
+    });
+
+    it('it ends with the keyboard\'s focus: leaving the grid returns the line to rest', () => {
+      const onInspect = jest.fn();
+      render(<TacticalMap {...at('a', { onInspect })} />);
+      const start = screen.getByRole('gridcell', { name: /Aldo — you/ });
+      act(() => { start.focus(); });
+      fireEvent.keyDown(start, { key: 'ArrowRight' });
+      expect(lastOf(onInspect)).toMatchObject({ kind: 'cell' });
+      fireEvent.blur(document.activeElement as HTMLElement, { relatedTarget: null });
+      expect(lastOf(onInspect)).toEqual({ kind: 'turn', name: 'Aldo', feetLeft: 30 });
+    });
+
+    it('a creature or a feature square is unchanged (K2): its line is the creature\'s, not the cell name', () => {
+      const onInspect = jest.fn();
+      render(<TacticalMap {...at('a', { onInspect })} />);
+      const cal = screen.getByRole('gridcell', { name: /Cal, hostile/ });
+      act(() => { cal.focus(); });
+      expect(buildLine(lastOf(onInspect) as InspectLine, { round: 2 })).toBe('Cal · Foe');
+    });
   });
 });
