@@ -110,6 +110,7 @@ export default function SceneStage({
         ref={sceneHeadRef}
         tabIndex={-1}
         role="group"
+        data-focus-fallback=""
         className={cx(styles.sceneHead, strip.head)}
         aria-label={sceneName ? `Scene: ${sceneName}` : 'Scene'}
       >

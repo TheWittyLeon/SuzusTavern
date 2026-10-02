@@ -91,9 +91,11 @@ const EXIT_DURATION_MS = 220;
 interface ToastItemProps {
   item: ToastItem;
   onDismiss: (id: string) => void;
+  /** Waiting its turn (the placement could not show it without touching the safety block): `hidden`, and its timer has not started. */
+  held?: boolean;
 }
 
-function ToastCard({ item, onDismiss }: ToastItemProps) {
+function ToastCard({ item, onDismiss, held = false }: ToastItemProps) {
   const reduced = useReducedMotion();
   const pausedRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -111,7 +113,7 @@ function ToastCard({ item, onDismiss }: ToastItemProps) {
   // Auto-dismiss timer
   useEffect(() => {
     const dur = item.duration ?? 5000;
-    if (!isFinite(dur)) return;
+    if (!isFinite(dur) || held) return;
 
     startedAtRef.current = Date.now();
     remainingRef.current = dur;
@@ -121,7 +123,7 @@ function ToastCard({ item, onDismiss }: ToastItemProps) {
     return () => {
       if (timerRef.current !== null) clearTimeout(timerRef.current);
     };
-  }, [item.id, item.duration, onDismiss]);
+  }, [item.id, item.duration, onDismiss, held]);
 
   // Pause/resume on hover
   const handleMouseEnter = () => {
@@ -150,6 +152,7 @@ function ToastCard({ item, onDismiss }: ToastItemProps) {
     <div
       role={isError ? 'alert' : 'status'}
       data-component="Toast"
+      hidden={held || undefined}
       data-tone={tone}
       data-exiting={item.exiting ? 'true' : undefined}
       className={[
@@ -211,24 +214,28 @@ interface ToastViewportProps {
 }
 
 /**
- * Where the toast host stands (A9d-2 fix round 4, Kage C-1: it sat bottom-right on the X-card at EVERY desktop width, and the card, `pointer-events:
- * auto`, took the X-card's tap; round 2 had moved it off the safety block with a width query that never reached the desktop). Placed by EXCLUSION, on
- * every layout, never by a width: the host writes a candidate, measures its own box, and ranks what it covers, tier by tier (lexicographic, so a
- * higher tier always outweighs any amount of a lower one):
- *   1. NEVER-cover marks (`data-toast-avoid`): the safety block, the raised safety banner, the composer (Send, the textarea). Round 5, Kage N-1: with
- *      the banner unmarked the top edge sat on its Dismiss, and marking it alone would have made a smallest-AREA fallback prefer the composer and the
- *      X-card block (13,362 px2) to the banner (26,400 px2). Ranked, never summed.
- *   2. Every other focusable CONTROL on screen (WCAG 2.4.11, Iro round-5 MAJOR-2: the dice tray, the header controls, the sheet toggle, party tiles).
- *      Found by what they are, not marked: a new region needs no edit here.
- *   3. The page's CLEAR marks (`data-toast-clear`: the header, party band and scene strip), then the earlier candidate.
- * Candidates: the bottom edge, the top edge, the line under each mark, then, while the best still covers something, the line under each thing it
- * covers (up to FOUR rounds of sliding down past what is in the way). All only while the whole stack fits on the screen. Short screens (a 400%
- * zoom) have no free band: the least bad is kept. `pointer-events` alone is not the fix: the button has to stay VISIBLE. `data-placement` and
- * `--toast-top` are what Toast.module.css reads. The search runs when the layout it reads CHANGED (a signature of the boxes), not on every mutation.
+ * Where the toast host stands, and how many cards it shows (A9d-2 fix round 4, Kage C-1; rounds 5 and 6). Placed by EXCLUSION, on every layout, never by a
+ * width: the host writes a candidate, measures its own box, and ranks what it covers, tier by tier (lexicographic: a higher tier outweighs any amount of a lower one):
+ *   1. THE SAFETY BLOCK (`data-toast-avoid="safety"`: the X-card). Its own tier, ahead of everything: the X-card rule is never exemptable (round 6, Kage point 1: it was
+ *      summed with the banner and the composer, so a candidate on the X-card could beat one on the composer by area).
+ *   2. The other NEVER-cover marks (`data-toast-avoid`: the raised safety banner, the composer: Send and the textarea).
+ *   3. Every other focusable CONTROL on screen (WCAG 2.4.11), found by what it is, CLIPPED by the scrollers it sits in (a control scrolled out of its own scroller's box is not
+ *      on screen). A new region needs no mark and no edit here.
+ *   4. The page's CLEAR marks (`data-toast-clear`), then the earlier candidate.
+ * CANDIDATES: the bottom edge, the top edge, the line under each mark, then, while the best still covers something, the line under each thing it covers (four rounds).
+ * THE STACK IS CAPPED BY FIT: with several cards the stack is taller than any free place, so the host tries all of them, then one fewer, down to ONE, and keeps the most that
+ * stand clear of tiers 1 and 2 (never fewer than one). The rest are HELD (`hidden`, their timers not started) and show as the earlier ones leave: not dropped.
+ * NO HOPPING: it keeps its place unless that place has become worse in tiers 1-3 than the best available (hysteresis), does not re-place WHILE the page scrolls
+ * (it settles ~150 ms after the last scroll; but at once if its place has touched a never-cover mark), and runs at once when a card is added or removed. The search
+ * runs only when a signature of the boxes it reads changed. `pointer-events` alone is not the fix: the button has to stay VISIBLE. `data-placement` and `--toast-top` are
+ * what Toast.module.css reads.
  */
-// debt: the candidates are the two edges and the line under each thing in the way (at most four rounds), not a search for a free rectangle. ceiling: a screen whose only free band is beside a control (a narrow gap in a wide row) is not found; Table at 320x256 has no free band at all and keeps the least bad. until: the stage gets a notification lane (a place no toast needs to find).
+// debt: the candidates are the two edges and the line under each thing in the way (at most four rounds), not a search for a free rectangle. ceiling: a screen whose only free band is beside a control (a narrow gap in a wide row) is not found; Table at 320x256 has no free band at all and keeps the least bad for ONE card. until: the stage gets a notification lane (a place no toast needs to find).
 const TOAST_GAP_PX = 8;
 const SLIDE_ROUNDS = 4;
+const SCROLL_SETTLE_MS = 150;
+const SAFETY = '[data-toast-avoid="safety"]';
+const NEVER = '[data-toast-avoid]:not([data-toast-avoid="safety"])';
 const AVOID = '[data-toast-avoid]';
 const CLEAR = '[data-toast-clear]';
 const CONTROLS =
@@ -239,76 +246,152 @@ type Placement = { placement: 'bottom' | 'top'; top: number };
 const boxes = (selector: string) =>
   [...document.querySelectorAll(selector)].map((n) => n.getBoundingClientRect()).filter((r) => r.width > 0 && r.height > 0);
 
-/** Controls on screen the host is not part of (not inert, hidden, or a 1px sr-only name). */
-function controlBoxes(host: HTMLElement): DOMRect[] {
-  return [...document.querySelectorAll(CONTROLS)]
-    .filter((n) => !host.contains(n) && !n.closest('[inert], [hidden], [aria-hidden="true"]'))
-    .map((n) => n.getBoundingClientRect())
-    .filter((r) => r.width >= 4 && r.height >= 4 && r.bottom > 0 && r.top < window.innerHeight && r.right > 0 && r.left < window.innerWidth);
+const CLIPS = new Set(['auto', 'scroll', 'hidden', 'clip']);
+
+/** `r` clipped by every scroller / `overflow: hidden` box above `el` (null when nothing is left): a control scrolled out of its own scroller is not on screen. */
+function clippedBox(el: Element, r: DOMRect, styleOf: (n: Element) => CSSStyleDeclaration): { left: number; top: number; right: number; bottom: number } | null {
+  let box = { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+  for (let p = el.parentElement; p && p !== document.documentElement && p !== document.body; p = p.parentElement) {
+    const cs = styleOf(p);
+    const clipX = CLIPS.has(cs.overflowX);
+    const clipY = CLIPS.has(cs.overflowY);
+    if (!clipX && !clipY) continue;
+    const pr = p.getBoundingClientRect();
+    if (clipX) { box = { ...box, left: Math.max(box.left, pr.left), right: Math.min(box.right, pr.right) }; }
+    if (clipY) { box = { ...box, top: Math.max(box.top, pr.top), bottom: Math.min(box.bottom, pr.bottom) }; }
+    if (box.right <= box.left || box.bottom <= box.top) return null;
+  }
+  return box;
 }
 
-const overlapArea = (a: DOMRect, b: DOMRect) =>
+/** Controls on screen the host is not part of (not inert, hidden, a 1px sr-only name, or clipped away by their own scroller). */
+function controlBoxes(host: HTMLElement): Array<{ left: number; top: number; right: number; bottom: number }> {
+  const styles = new Map<Element, CSSStyleDeclaration>();
+  const styleOf = (n: Element) => styles.get(n) ?? (styles.set(n, getComputedStyle(n)), styles.get(n) as CSSStyleDeclaration);
+  const out: Array<{ left: number; top: number; right: number; bottom: number }> = [];
+  for (const n of document.querySelectorAll(CONTROLS)) {
+    if (host.contains(n) || n.closest('[inert], [hidden], [aria-hidden="true"]')) continue;
+    const r = n.getBoundingClientRect();
+    const c = clippedBox(n, r, styleOf);
+    if (!c) continue;
+    if (c.right - c.left >= 4 && c.bottom - c.top >= 4 && c.bottom > 0 && c.top < window.innerHeight && c.right > 0 && c.left < window.innerWidth) out.push(c);
+  }
+  return out;
+}
+
+const overlapArea = (a: { left: number; right: number; top: number; bottom: number }, b: { left: number; right: number; top: number; bottom: number }) =>
   Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
 
-/** Lexicographic: the first tier that differs (by more than half a pixel squared) decides; all tiers equal = equal. */
-function cheaper(a: number[], b: number[]): boolean {
-  for (let i = 0; i < a.length; i++) {
+/** Lexicographic over the first `tiers` entries: the first that differs (by more than half a pixel squared) decides; all equal = not cheaper. */
+function cheaper(a: number[], b: number[], tiers = a.length): boolean {
+  for (let i = 0; i < tiers; i++) {
     if (Math.abs(a[i] - b[i]) > 0.5) return a[i] < b[i];
   }
   return false;
 }
 
-const sig = (rs: DOMRect[]) => rs.map((r) => `${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.right)},${Math.round(r.bottom)}`).join(';');
+const sig = (rs: Array<{ left: number; top: number; right: number; bottom: number }>) => rs.map((r) => `${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.right)},${Math.round(r.bottom)}`).join(';');
 
-function useToastPlacement(ref: RefObject<HTMLDivElement | null>, active: boolean) {
+/** What the placement decided: how many cards to show (the rest are held), tells the viewport so it renders them held. */
+function useToastPlacement(ref: RefObject<HTMLDivElement | null>, active: boolean, count: number, onFit: (shown: number) => void) {
+  const placeRef = useRef<((force: boolean) => void) | null>(null);
+  const onFitRef = useRef(onFit);
+  useLayoutEffect(() => {
+    onFitRef.current = onFit;
+  });
+
   useLayoutEffect(() => {
     const el = ref.current;
     if (!active || !el) return;
     let raf = 0;
     let lastSig = '';
+    let scrollUntil = 0;
+    let settleTimer: ReturnType<typeof setTimeout> | null = null;
+    const cards = () => [...el.querySelectorAll<HTMLElement>(':scope > [data-component="Toast"]')];
+    const hold = (n: number) => cards().forEach((c, i) => { if (i >= n) c.setAttribute('hidden', ''); else c.removeAttribute('hidden'); });
     const apply = (c: Placement) => {
       el.setAttribute('data-placement', c.placement);
       el.style.setProperty('--toast-top', `${Math.round(c.top)}px`);
     };
-    const place = () => {
+    const current = (): Placement | null => {
+      const placement = el.getAttribute('data-placement');
+      const top = Number.parseFloat(el.style.getPropertyValue('--toast-top'));
+      return placement === 'bottom' || placement === 'top' ? { placement, top: Number.isFinite(top) ? top : 0 } : null;
+    };
+
+    const place = (force = false) => {
       raf = 0;
-      const avoid = boxes(AVOID);
+      const safety = boxes(SAFETY);
+      const never = boxes(NEVER);
+      // While the page scrolls the host stays where it is, unless that place has just touched a never-cover mark (then it moves at once, as safety outranks calm).
+      if (!force && Date.now() < scrollUntil) {
+        const host = el.getBoundingClientRect();
+        if (![...safety, ...never].some((r) => overlapArea(host, r) > 0.5)) return;
+      }
       const clear = boxes(CLEAR);
       const controls = controlBoxes(el);
-      // Nothing the placement reads has moved (and the stack is the same size): the answer stands.
-      const signature = `${el.offsetHeight}|${window.innerWidth}x${window.innerHeight}|${sig(avoid)}|${sig(controls)}|${sig(clear)}`;
-      if (signature === lastSig) return;
+      const total = cards().length;
+      const signature = `${total}|${el.offsetHeight}|${window.innerWidth}x${window.innerHeight}|${sig(safety)}|${sig(never)}|${sig(controls)}|${sig(clear)}`;
+      if (!force && signature === lastSig) return;
       lastSig = signature;
-      const seen = new Set<string>();
-      const results: { c: Placement; cost: number[]; host: DOMRect }[] = [];
-      const fits = (y: number) => y + TOAST_GAP_PX + el.offsetHeight <= window.innerHeight;
-      const evaluate = (c: Placement) => {
-        const key = `${c.placement}/${Math.round(c.top)}`;
-        if (seen.has(key)) return;
-        seen.add(key);
-        apply(c);
-        const host = el.getBoundingClientRect();
-        results.push({ c, host, cost: [avoid, controls, clear].map((marks) => marks.reduce((sum, r) => sum + overlapArea(host, r), 0)) });
-      };
-      const bestOf = () => results.reduce((a, b) => (cheaper(b.cost, a.cost) ? b : a));
-      evaluate({ placement: 'bottom', top: 0 });
-      [...new Set([...avoid, ...clear].map((r) => Math.round(r.bottom)))].filter((y) => y > 0 && fits(y)).sort((x, y) => y - x).forEach((y) => evaluate({ placement: 'top', top: y }));
-      evaluate({ placement: 'top', top: 0 });
-      // While the best still covers something, slide down past each thing it covers, and rank the new places with the rest.
-      for (let round = 0; round < SLIDE_ROUNDS; round++) {
+      const start = current();
+      const tiers = [safety, never, controls, clear];
+
+      // One search for the cards as they are now (some may be held): the best place, and whether the CURRENT one is still as good.
+      const search = () => {
+        const seen = new Set<string>();
+        const results: { c: Placement; cost: number[]; host: { left: number; top: number; right: number; bottom: number } }[] = [];
+        const fits = (y: number) => y + TOAST_GAP_PX + el.offsetHeight <= window.innerHeight;
+        const evaluate = (c: Placement) => {
+          const key = `${c.placement}/${Math.round(c.top)}`;
+          if (seen.has(key)) return;
+          seen.add(key);
+          apply(c);
+          const host = el.getBoundingClientRect();
+          results.push({ c, host, cost: tiers.map((marks) => marks.reduce((sum, r) => sum + overlapArea(host, r), 0)) });
+        };
+        const bestOf = () => results.reduce((a, b) => (cheaper(b.cost, a.cost) ? b : a));
+        if (start) evaluate(start);
+        evaluate({ placement: 'bottom', top: 0 });
+        [...new Set([...safety, ...never, ...clear].map((r) => Math.round(r.bottom)))].filter((y) => y > 0 && fits(y)).sort((x, y) => y - x).forEach((y) => evaluate({ placement: 'top', top: y }));
+        evaluate({ placement: 'top', top: 0 });
+        for (let round = 0; round < SLIDE_ROUNDS; round++) {
+          const best = bestOf();
+          if (best.cost.every((x) => x <= 0.5)) break;
+          const before = results.length;
+          [...new Set([...safety, ...never, ...controls, ...clear].filter((r) => overlapArea(best.host, r) > 0.5).map((r) => Math.round(r.bottom)))]
+            .filter(fits).sort((x, y) => y - x).slice(0, 8).forEach((y) => evaluate({ placement: 'top', top: y }));
+          if (results.length === before) break;
+        }
         const best = bestOf();
-        if (best.cost.every((x) => x <= 0.5)) break;
-        const before = results.length;
-        [...new Set([...avoid, ...controls, ...clear].filter((r) => overlapArea(best.host, r) > 0.5).map((r) => Math.round(r.bottom)))]
-          .filter(fits).sort((x, y) => y - x).slice(0, 8).forEach((y) => evaluate({ placement: 'top', top: y }));
-        if (results.length === before) break;
+        // Hysteresis: the place it had stands unless the best is strictly better in the safety, never-cover or control tiers (not the clear marks).
+        const cur = start ? results.find((r) => r.c.placement === start.placement && Math.round(r.c.top) === Math.round(start.top)) : undefined;
+        return cur && !cheaper(best.cost, cur.cost, 3) ? cur : best;
+      };
+
+      // THE CAP: all cards, then one fewer... down to one; the most that stand clear of the safety block and the other never-cover marks.
+      let chosen = { n: total, r: (hold(total), search()) };
+      for (let n = total - 1; n >= 1 && (chosen.r.cost[0] > 0.5 || chosen.r.cost[1] > 0.5); n--) {
+        hold(n);
+        const r = search();
+        if (r.cost[0] <= 0.5 && r.cost[1] <= 0.5 || n === 1) chosen = { n, r };
       }
-      apply(bestOf().c);
+      hold(chosen.n);
+      apply(chosen.r.c);
+      onFitRef.current(chosen.n);
       // The marks can appear after the first placement (a region mounting late): watch whatever is there now. Observing a node twice is a no-op.
       document.querySelectorAll(`${AVOID}, ${CLEAR}`).forEach((n) => ro?.observe(n));
     };
+    placeRef.current = place;
     const queue = () => {
-      if (!raf) raf = requestAnimationFrame(place);
+      if (!raf) raf = requestAnimationFrame(() => place());
+    };
+    const onScroll = () => {
+      scrollUntil = Date.now() + SCROLL_SETTLE_MS;
+      queue();
+      // the settle: one placement a beat after the LAST scroll (the signature decides whether anything moved)
+      if (settleTimer) clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => { settleTimer = null; scrollUntil = 0; queue(); }, SCROLL_SETTLE_MS + 10);
     };
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(queue) : null;
     ro?.observe(el);
@@ -319,12 +402,14 @@ function useToastPlacement(ref: RefObject<HTMLDivElement | null>, active: boolea
       ? new MutationObserver((records) => { if (records.some((r) => !el.contains(r.target))) queue(); })
       : null;
     mo?.observe(document.body, { childList: true, subtree: true, attributes: true });
-    place();
-    window.addEventListener('scroll', queue, true);
+    place(true);
+    window.addEventListener('scroll', onScroll, true);
     window.addEventListener('resize', queue);
     return () => {
+      placeRef.current = null;
       if (raf) cancelAnimationFrame(raf);
-      window.removeEventListener('scroll', queue, true);
+      if (settleTimer) clearTimeout(settleTimer);
+      window.removeEventListener('scroll', onScroll, true);
       window.removeEventListener('resize', queue);
       ro?.disconnect();
       mo?.disconnect();
@@ -332,12 +417,46 @@ function useToastPlacement(ref: RefObject<HTMLDivElement | null>, active: boolea
       el.style.removeProperty('--toast-top');
     };
   }, [ref, active]);
+
+  // A card added or removed: place AT ONCE (no settle, no hysteresis shortcut by signature), so a new card never waits behind a scroll.
+  const prevCount = useRef(count);
+  useLayoutEffect(() => {
+    if (prevCount.current === count) return;
+    prevCount.current = count;
+    placeRef.current?.(true);
+  }, [count]);
 }
 
 function ToastViewport({ toasts, onDismiss }: ToastViewportProps) {
   const hasError = toasts.some((t) => (t.tone ?? 'info') === 'error');
   const hostRef = useRef<HTMLDivElement>(null);
-  useToastPlacement(hostRef, toasts.length > 0);
+  // How many cards the placement could show without touching the safety block: the rest are HELD, in order, and show as the earlier ones leave.
+  const [shown, setShown] = useState(Number.POSITIVE_INFINITY);
+  useToastPlacement(hostRef, toasts.length > 0, toasts.length, setShown);
+  if (toasts.length === 0 && shown !== Number.POSITIVE_INFINITY) setShown(Number.POSITIVE_INFINITY);
+
+  // A keyboard user on a card's Dismiss: the card goes, and focus must not fall to <body> (Iro round-4 minor, older than this branch). It goes back to where it came from, else to
+  // the page's fallback (the scene head, `data-focus-fallback`): the removed-focus rule the page already has. Only when focus WAS in the host and is now nowhere.
+  const hadFocus = useRef(false);
+  const cameFrom = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const onFocusIn = (e: FocusEvent) => {
+      const inHost = e.target instanceof Node && !!hostRef.current?.contains(e.target);
+      hadFocus.current = inHost;
+      if (inHost && e.relatedTarget instanceof HTMLElement && e.relatedTarget !== document.body && !hostRef.current?.contains(e.relatedTarget)) cameFrom.current = e.relatedTarget;
+    };
+    document.addEventListener('focusin', onFocusIn);
+    return () => document.removeEventListener('focusin', onFocusIn);
+  }, []);
+  useLayoutEffect(() => {
+    if (!hadFocus.current) return;
+    const active = document.activeElement;
+    if (active && active !== document.body) return;
+    hadFocus.current = false;
+    const back = cameFrom.current;
+    const target = back && back.isConnected && !back.closest('[inert], [hidden]') ? back : document.querySelector<HTMLElement>('[data-focus-fallback]');
+    target?.focus({ preventScroll: true });
+  }, [toasts]);
 
   return (
     <div
@@ -347,8 +466,8 @@ function ToastViewport({ toasts, onDismiss }: ToastViewportProps) {
       aria-atomic="false"
       className={styles.viewport}
     >
-      {toasts.map((item) => (
-        <ToastCard key={item.id} item={item} onDismiss={onDismiss} />
+      {toasts.map((item, i) => (
+        <ToastCard key={item.id} item={item} onDismiss={onDismiss} held={i >= shown} />
       ))}
     </div>
   );

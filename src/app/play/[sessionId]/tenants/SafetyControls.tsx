@@ -38,7 +38,7 @@ export default function SafetyControls({ xCardBusy, onRaiseXCard }: SafetyContro
     // `data-popover-passthrough` (A9d-2 N3, Tora C1): an anchored popover never covers this block, and a press inside it closes any open
     // popover AND is delivered. The X-card fires on the first tap, whatever is open; nothing in the primitive names this tenant.
     // `data-toast-avoid` (Kage C-1): the toast host is placed clear of this block on every layout; nothing in Toast.tsx names the tenant either.
-    <div className={styles.safety} data-tenant="safetyControls" data-popover-passthrough="" data-toast-avoid="">
+    <div className={styles.safety} data-tenant="safetyControls" data-popover-passthrough="" data-toast-avoid="safety">
       <span className={styles.safetyLabel}>Safety</span>
       {/* Iro A9b MINOR-1 (3.3.2): the consequence copy is VISIBLE at every width and
           stays the button's accessible description. When the bar is narrow,

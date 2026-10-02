@@ -10,6 +10,8 @@ import fs from 'fs';
 import path from 'path';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { ToastProvider, useToast } from '@/components/Toast';
+import SafetyBanner from '@/app/play/[sessionId]/regions/SafetyBanner';
+import '@testing-library/jest-dom';
 
 const read = (rel: string) => fs.readFileSync(path.join(process.cwd(), rel), 'utf8');
 const stripComments = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, '');
@@ -290,13 +292,19 @@ describe('the /play regions mark themselves for the host', () => {
     expect(read(file)).toMatch(new RegExp(`${root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+data-toast-clear=""`));
   });
 
+  it('the raised safety banner carries the mark on its root (Kage round-4 N-1: unmarked, the toast sat on its Dismiss)', () => {
+    render(<SafetyBanner active event={{ seq: 1, actor: 'kes' }} isDm={false} onDismiss={() => {}} bannerRef={{ current: null }} />);
+    const banner = document.querySelector('[data-region="safetyBanner"]') as HTMLElement;
+    expect(banner).toHaveAttribute('data-toast-avoid', '');
+  });
+
   it.each([
-    ['SafetyControls (the X-card block)', 'src/app/play/[sessionId]/tenants/SafetyControls.tsx', 'data-tenant="safetyControls"'],
-    ['Composer (Send, the textarea)', 'src/components/Composer.tsx', 'data-region="composer"'],
-  ])('%s carries data-toast-avoid on its root', (_name, file, root) => {
+    ['SafetyControls (the X-card block: its OWN tier)', 'src/app/play/[sessionId]/tenants/SafetyControls.tsx', 'data-tenant="safetyControls"', 'safety'],
+    ['Composer (Send, the textarea)', 'src/components/Composer.tsx', 'data-region="composer"', ''],
+  ])('%s carries data-toast-avoid on its root', (_name, file, root, mark) => {
     const src = read(file);
     const at = src.indexOf(root);
     expect(at).toBeGreaterThan(-1);
-    expect(src.slice(at, src.indexOf('>', at))).toMatch(/data-toast-avoid=""/);
+    expect(src.slice(at, src.indexOf('>', at))).toMatch(new RegExp(`data-toast-avoid="${mark}"`));
   });
 });

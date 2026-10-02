@@ -33,6 +33,11 @@
 
 /* ---- Toast card ---- */
 
+/* A card waiting its turn (the placement could not show it without touching the safety block): out of the layout, and out of the accessibility tree. */
+.toast[hidden] {
+  display: none;
+}
+
 .toast {
   pointer-events: auto;
   display: flex;
