@@ -379,3 +379,34 @@ describe('the stage\'s body (A10 S2b): the fill rule, the size container, the fo
     expect(rule(stage, '.hero')).toMatch(/--strip-half:\s*max\(0px,\s*calc\(\(var\(--play-strip-min,\s*0px\)/);
   });
 });
+
+// A10 fix round F2 (Kage's Tavern 6, Miko's gap 6): the reduced-motion rule of Play.module.css, as source. It is a second path around the app-wide guard (its `debt:` marker says why
+// and until when) and its SCOPE is the thing to keep: widened to `*` it would reach every page, removed the stage's stale frame returns. Neither was red anywhere in jest (the harness's
+// t3-auto-combat-start and t1-picker legs catch the removal only; nothing caught the widening).
+describe('the reduced-motion rule (A10 S2b): `transition: none` for the /play grid and its descendants, and nothing wider', () => {
+  const raw = fs.readFileSync(path.resolve(process.cwd(), 'src/app/play/[sessionId]/Play.module.css'), 'utf8');
+  const css = raw.replace(/\/\*[\s\S]*?\*\//g, '');
+  const blocks = [...css.matchAll(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{((?:[^{}]*\{[^{}]*\})*[^{}]*)\}/g)].map((m) => m[1]);
+
+  it('there is exactly one reduced-motion block, and it holds exactly one rule', () => {
+    expect(blocks).toHaveLength(1);
+    expect([...blocks[0].matchAll(/\{/g)]).toHaveLength(1);
+  });
+
+  it('its selectors are the grid, its descendants and their pseudo-elements: never `*` alone, never an element or the document', () => {
+    const selectors = blocks[0].slice(0, blocks[0].indexOf('{')).split(',').map((x) => x.trim());
+    expect(selectors).toEqual(['.grid', '.grid *', '.grid *::before', '.grid *::after']);
+    for (const sel of selectors) expect(sel.startsWith('.grid')).toBe(true);
+  });
+
+  it('it declares `transition: none !important` and nothing else', () => {
+    const body = blocks[0].slice(blocks[0].indexOf('{') + 1, blocks[0].lastIndexOf('}')).trim();
+    expect(body).toBe('transition: none !important;');
+  });
+
+  it('it carries a `debt:` marker whose `until:` is the app-wide guard being fixed (the harvest lists it)', () => {
+    const marker = raw.slice(raw.indexOf('debt: this rule is a second path'));
+    expect(marker).toMatch(/ceiling:[^]*?until: the app-wide guard is fixed/);
+    expect(marker.indexOf('until:')).toBeLessThan(marker.indexOf('@media (prefers-reduced-motion: reduce)'));
+  });
+});

@@ -53,6 +53,9 @@
    changes; the stage's strip track is `max-content` now, so for that frame the stage track collapsed, the log took the room, the browser clamped its
    scroll to the end and ChatLog decided "stick to the bottom": a log scrolled mid-way jumped to the end (t3-auto-combat-start, t1-picker). The guard
    itself (an app-wide default: `transition: none` is what its own comment asks for) is left alone, and reported for the backlog. */
+/* debt: this rule is a second path around the app-wide reduced-motion guard (globals.css gives every element a 0.01ms transition, which paints one stale frame after a style change).
+   ceiling: `.grid` and its descendants only (play-css.test pins the scope): a popover rendered outside it still paints one frame at the viewport's top-left corner (computed top 0px against inline 167.9px), and every other page keeps the guard's stale frame.
+   until: the app-wide guard is fixed (`transition: none` where it now says 0.01ms); then delete this rule: the harness's t3-auto-combat-start and t1-picker legs are its pin. */
 @media (prefers-reduced-motion: reduce) {
   .grid,
   .grid *,
