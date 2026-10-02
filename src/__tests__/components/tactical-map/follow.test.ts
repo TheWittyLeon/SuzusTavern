@@ -5,7 +5,7 @@
  *   - never centred; a scroll the board's end clamps is not whole.
  * Pure: boxes in, offsets out. The component test (TacticalMap.window.test.tsx) pins that the turn change and focus both call it.
  */
-import { followScroll, followAll, FOLLOW_MARGIN_PROPERTY, FOLLOW_SETTLE_MS, SLIVER_MIN_PX, type WindowMetrics } from '@/components/tactical-map/follow';
+import { followScroll, followAll, wholeSquareCap, FOLLOW_MARGIN_PROPERTY, FOLLOW_SETTLE_MS, SLIVER_MIN_PX, type WindowMetrics } from '@/components/tactical-map/follow';
 
 /** A 200x120 window at (10,10) over a 400x400 board of 40px squares. */
 const win = (o: Partial<WindowMetrics> = {}): WindowMetrics => ({
@@ -197,5 +197,30 @@ describe('followScroll — the margin: one square around the followed one stays 
     const a = { box: square(5, 0, w), margin: 0 }; // wants left 40
     const b = { box: square(6, 0, w), margin: 0 }; // from 40 it wants 80 and keeps a (column 5 is at x 200..240, the window shows 80..280)
     expect(followAll(w, [a, b])).toEqual({ left: 80, top: 0 });
+  });
+});
+
+describe('wholeSquareCap — the sliver rule: a cut square under 8 px ends the window on the whole one (Aoi-UI section 15)', () => {
+  it('a remainder of 1 px ends on the whole row (the 430x740 phone: "3 + 1 px"); one of 15 does not', () => {
+    expect(wholeSquareCap(91, 30, 210)).toBe(90);
+    expect(wholeSquareCap(195, 30, 210)).toBeNull(); // 6 rows and a 15 px sliver: kept (it is the cue)
+  });
+
+  it('the boundary: 7.9 px is cut, 8 px is not', () => {
+    expect(wholeSquareCap(97.9, 30, 210)).toBe(90);
+    expect(wholeSquareCap(98, 30, 210)).toBeNull();
+  });
+
+  it('a whole number of squares, a board that fits, and a room under one square are used as they are', () => {
+    expect(wholeSquareCap(90, 30, 210)).toBeNull();
+    expect(wholeSquareCap(121, 40, 120)).toBeNull(); // the board is shorter than the room: nothing is cut
+    expect(wholeSquareCap(121, 40, 121)).toBeNull(); // the board exactly fills it
+    expect(wholeSquareCap(33, 40, 400)).toBeNull(); // 33 px of a 40 px square: a cap would be 0
+    expect(wholeSquareCap(5, 40, 400)).toBeNull();
+  });
+
+  it('no layout (a zero square or room) never caps', () => {
+    expect(wholeSquareCap(100, 0, 400)).toBeNull();
+    expect(wholeSquareCap(0, 30, 400)).toBeNull();
   });
 });

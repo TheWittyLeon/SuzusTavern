@@ -1082,3 +1082,74 @@ describe('TacticalMap — P2: the window re-follows when it gets a box or its WI
     expect(() => render(<TacticalMap {...at('a')} />)).not.toThrow();
   });
 });
+
+describe('TacticalMap — P2: the sliver rule: a cut row or column under 8 px ends the window on the whole one (Aoi-UI section 15)', () => {
+  class FakeResizeObserver {
+    static all: FakeResizeObserver[] = [];
+    constructor(public cb: () => void) {}
+    observe() { FakeResizeObserver.all.push(this); }
+    unobserve() {}
+    disconnect() { FakeResizeObserver.all = FakeResizeObserver.all.filter((o) => o !== this); }
+  }
+  const resized = () => act(() => { FakeResizeObserver.all.slice().forEach((o) => o.cb()); });
+  beforeEach(() => { FakeResizeObserver.all = []; (globalThis as { ResizeObserver?: unknown }).ResizeObserver = FakeResizeObserver; });
+  afterEach(() => { delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver; });
+
+  /** The room is the map's own wrapper; the window sits inside it. A 10x10 board of 40 px squares (400 px) in a room of `w` x `h`. */
+  function inRoom(w: number, h: number, space = makeSpace({ width: 10, height: 10 })) {
+    const view = render(<TacticalMap {...baseProps({ space, participants: [makeParticipant({ at: [0, 0], movement_remaining: 30 })] })} />);
+    const room = view.container.firstElementChild as HTMLElement;
+    Object.defineProperty(room, 'clientWidth', { configurable: true, value: w });
+    Object.defineProperty(room, 'clientHeight', { configurable: true, value: h });
+    const win = layoutP2(view.container, { left: 0, top: 0 }, { width: w, height: h });
+    resized();
+    return { win, room, ...view };
+  }
+
+  it('a remainder of 1 px ends on the whole row: a 121 px room shows 3 rows (120), and the window says so', () => {
+    const { win } = inRoom(200, 121);
+    expect(win.style.maxHeight).toBe('120px');
+  });
+
+  it('a remainder of 15 does not: a 135 px room keeps 3 rows and the 15 px sliver (the cue)', () => {
+    const { win } = inRoom(200, 135);
+    expect(win.style.maxHeight).toBe('');
+  });
+
+  it('the boundary: 7 px is cut, 8 px is not', () => {
+    expect(inRoom(200, 127).win.style.maxHeight).toBe('120px');
+    expect(inRoom(200, 128).win.style.maxHeight).toBe('');
+  });
+
+  it('the same sideways: a 201 px room ends on 5 whole columns', () => {
+    const { win } = inRoom(201, 120);
+    expect(win.style.maxWidth).toBe('200px');
+    expect(win.style.maxHeight).toBe(''); // 120 is whole
+  });
+
+  it('a board that fits the room is never capped (nothing is cut), and a room under one square is used as it is', () => {
+    expect(inRoom(201, 201, makeSpace({ width: 5, height: 5 })).win.style.maxHeight).toBe('');
+    expect(inRoom(201, 201, makeSpace({ width: 5, height: 5 })).win.style.maxWidth).toBe('');
+    expect(inRoom(200, 33).win.style.maxHeight).toBe('');
+  });
+
+  it('it is measured from the ROOM, not the window: re-measuring with the cap in place does not undo it (no loop)', () => {
+    const { win, container } = inRoom(200, 121);
+    layoutP2(container, { left: 0, top: 0 }, { width: 200, height: 120 }); // the window is now 120 tall, as the cap made it
+    resized();
+    resized();
+    expect(win.style.maxHeight).toBe('120px');
+  });
+
+  it('the cap goes when the room grows to a whole row again (the stage gave back its pixel)', () => {
+    const { win, room } = inRoom(200, 121);
+    Object.defineProperty(room, 'clientHeight', { configurable: true, value: 160 });
+    resized();
+    expect(win.style.maxHeight).toBe('');
+  });
+
+  it('the cut is not a CSS rule: the stylesheet never sets a height on the window by a literal (the cap is the component\'s, from the measured square)', () => {
+    expect(hasDecl(ruleBody('boardScroll'), 'max-height')).toBe(false);
+    expect(hasDecl(ruleBody('boardScroll'), 'max-width')).toBe(false);
+  });
+});

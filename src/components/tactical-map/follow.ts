@@ -83,3 +83,15 @@ export function followAll(win: WindowMetrics, targets: FollowTarget[]): { left: 
   });
   return at.left === win.scrollLeft && at.top === win.scrollTop ? null : at;
 }
+
+/**
+ * The sliver rule (Aoi-UI section 15), one axis: where the board is longer than the room and the cut square would show fewer than SLIVER_MIN_PX, the window ends on the whole
+ * square before it, and the few pixels left over are the stage's. Returns the window's length on that axis, or null when the room is used as it is (the board fits; the cut
+ * square is a real one, a whole number of squares fit exactly, or less than one square fits at all, where a cap would leave nothing to see).
+ */
+export function wholeSquareCap(room: number, square: number, board: number): number | null {
+  if (!(square > 0) || !(room > 0) || board <= room) return null;
+  const whole = Math.floor(room / square);
+  const cut = room - whole * square;
+  return whole >= 1 && cut > 0 && cut < SLIVER_MIN_PX ? whole * square : null;
+}

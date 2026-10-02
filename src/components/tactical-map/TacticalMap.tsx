@@ -72,7 +72,7 @@ import type { CombatParticipantState, CombatSpace, SpaceCoordinate } from '@/lib
 import { consumeEscape } from '@/lib/a11y/escapeConsume';
 import { chebyshevCost, coordsEqual, isLegalMoveTarget, isSpaceUsable, reachableCells } from './reach';
 import { cellAccessibleName, nextFocusCoord, toDisplayRowCol, type CellNameInput, type CellOccupant, type InspectLine } from './a11y';
-import { followAll, followScroll, FOLLOW_MARGIN_PROPERTY, type Box, type FollowTarget, type WindowMetrics } from './follow';
+import { followAll, followScroll, wholeSquareCap, FOLLOW_MARGIN_PROPERTY, type Box, type FollowTarget, type WindowMetrics } from './follow';
 import { worstCondition } from './conditions';
 import { formatConditionName } from '@/lib/conditions';
 import { useFollowGate } from './useFollowGate';
@@ -322,6 +322,10 @@ export default function TacticalMap({
   const cellRefs = useRef(new Map<string, HTMLDivElement>());
   const boardScrollRef = useRef<HTMLDivElement>(null);
   const boardRef = useRef<HTMLDivElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  // The sliver rule: the window's length on each axis when the room would leave a cut square under SLIVER_MIN_PX (null: the room as it is). Measured from the ROOM (the wrapper), not
+  // from the window, so that capping the window cannot change what is measured.
+  const [cap, setCap] = useState<{ w: number | null; h: number | null }>({ w: null, h: null });
   // The one seam for 'is there a board to draw' (see the usability comment further down): read ONCE, here, because the follow gate below needs it before the early return.
   const usable = isSpaceUsable(space);
   const gate = useFollowGate(boardScrollRef, usable);
@@ -507,6 +511,23 @@ export default function TacticalMap({
     return () => observer.disconnect();
   }, [usable, gate, ownMargin, applyScroll]);
 
+  const spaceCols = usable ? space.width : 0;
+  const spaceRows = usable ? space.height : 0;
+  useEffect(() => {
+    const room = wrapRef.current;
+    if (!usable || !room || typeof ResizeObserver === 'undefined') return;
+    const measure = () => {
+      const first = cellRefs.current.values().next().value as HTMLElement | undefined;
+      const sq = first ? boxOf(first) : null;
+      const next = sq ? { w: wholeSquareCap(room.clientWidth, sq.width, spaceCols * sq.width), h: wholeSquareCap(room.clientHeight, sq.height, spaceRows * sq.height) } : { w: null, h: null };
+      setCap((prev) => (prev.w === next.w && prev.h === next.h ? prev : next));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(room);
+    return () => observer.disconnect();
+  }, [usable, spaceCols, spaceRows]);
+
   // Everything one square says, in ONE place (Kage-CR D1 IMPORTANT-4's "single source of truth"): the cell's accessible name, its token and the scene line all read this.
   // `a11y.ts`'s `cellAccessibleName` and `buildLine` render the same CellNameInput; a fact cannot be in one and not the other.
   function describeSquare(sp: CombatSpace, coord: SpaceCoordinate): { input: CellNameInput; occupant?: CombatParticipantState & { at: SpaceCoordinate }; desc?: OccupantDescription } {
@@ -636,12 +657,12 @@ export default function TacticalMap({
   }
 
   return (
-    <div className={[styles.wrap, className].filter(Boolean).join(' ')}>
+    <div className={[styles.wrap, className].filter(Boolean).join(' ')} ref={wrapRef}>
       <div
         className={styles.boardScroll}
         ref={boardScrollRef}
         data-board-window=""
-        style={{ ['--tm-cols' as string]: space.width, ['--tm-rows' as string]: space.height }}
+        style={{ ['--tm-cols' as string]: space.width, ['--tm-rows' as string]: space.height, maxWidth: cap.w ?? undefined, maxHeight: cap.h ?? undefined }}
       >
         <div
           className={styles.board}
