@@ -2603,7 +2603,6 @@ export interface OverrideDamageOutcome {
   target_new_hp: number;
   damage_dealt: number;
   raw_damage: number;
-  is_down?: boolean;
 }
 
 export type OverrideOutcome =
