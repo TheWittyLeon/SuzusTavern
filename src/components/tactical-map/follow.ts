@@ -15,6 +15,8 @@
 
 /** The custom property the mount sets, in whole squares (default 0): how many squares around the followed one stay in view on the map's OWN follows. */
 export const FOLLOW_MARGIN_PROPERTY = '--tm-follow-margin';
+/** The custom property the mount sets: how far in from the start edge a board that PANS sideways starts (default 0). */
+export const EDGE_GUARD_PROPERTY = '--tm-edge-guard';
 /** A follow waits for a touch to lift and for this long after the window's last scroll event, then runs once (Tora-Gesture C-1). */
 export const FOLLOW_SETTLE_MS = 150;
 /** A cut row or column that would show fewer pixels than this is not shown: the window ends on the whole one (Aoi-UI's sliver rule). */

@@ -1148,6 +1148,39 @@ describe('TacticalMap — P2: the sliver rule: a cut row or column under 8 px en
     expect(win.style.maxHeight).toBe('');
   });
 
+  /** As `inRoom`, with the edge guard set on the window before the first measure (the mount sets it as a custom property). */
+  function guardedRoom(w: number, h = 200, guard = '16px') {
+    const view = render(<TacticalMap {...baseProps({ space: makeSpace({ width: 10, height: 10 }), participants: [makeParticipant({ at: [0, 0], movement_remaining: 30 })] })} />);
+    const room = view.container.firstElementChild as HTMLElement;
+    Object.defineProperty(room, 'clientWidth', { configurable: true, value: w });
+    Object.defineProperty(room, 'clientHeight', { configurable: true, value: h });
+    const win = layoutP2(view.container, { left: 0, top: 0 }, { width: w, height: h });
+    win.style.setProperty('--tm-edge-guard', guard);
+    resized();
+    return { win, room, ...view };
+  }
+
+  it('F2 — a PANNING board starts the guard in, so the right-hand cut is (W - 16) mod 40: a 377 px room (361 mod 40 = 1) ends on 9 whole columns after the guard: 16 + 360', () => {
+    const { win } = guardedRoom(377);
+    expect(win).toHaveAttribute('data-pans-x');
+    expect(win.style.maxWidth).toBe('376px');
+  });
+
+  it('F2 — measured WITHOUT the guard the same room has a 17 px cut and is left alone (so the cap above is the guard\'s doing), and a guard that is not set changes nothing', () => {
+    expect(inRoom(377, 200).win.style.maxWidth).toBe('');
+  });
+
+  it('F2 — a guarded room whose cut is real (a 16 + 40n + 20 px room) is left alone; 8 px is not cut, 7 is', () => {
+    expect(guardedRoom(16 + 160 + 20).win.style.maxWidth).toBe('');
+    expect(guardedRoom(16 + 160 + 8).win.style.maxWidth).toBe('');
+    expect(guardedRoom(16 + 160 + 7).win.style.maxWidth).toBe('176px');
+  });
+
+  it('F2 — a board that fits its room has no guard and no width cap from it (the bleed is kept), and the HEIGHT leg is unchanged by the guard', () => {
+    expect(guardedRoom(410).win.style.maxWidth).toBe('');
+    expect(guardedRoom(377, 121).win.style.maxHeight).toBe('120px');
+  });
+
   it('the cut is not a CSS rule: the stylesheet never sets a height on the window by a literal (the cap is the component\'s, from the measured square)', () => {
     expect(hasDecl(ruleBody('boardScroll'), 'max-height')).toBe(false);
     expect(hasDecl(ruleBody('boardScroll'), 'max-width')).toBe(false);

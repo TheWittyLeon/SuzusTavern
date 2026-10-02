@@ -72,7 +72,7 @@ import type { CombatParticipantState, CombatSpace, SpaceCoordinate } from '@/lib
 import { consumeEscape } from '@/lib/a11y/escapeConsume';
 import { chebyshevCost, coordsEqual, isLegalMoveTarget, isSpaceUsable, reachableCells } from './reach';
 import { cellAccessibleName, nextFocusCoord, toDisplayRowCol, type CellNameInput, type CellOccupant, type InspectLine } from './a11y';
-import { followAll, followScroll, wholeSquareCap, FOLLOW_MARGIN_PROPERTY, type Box, type FollowTarget, type WindowMetrics } from './follow';
+import { followAll, followScroll, wholeSquareCap, FOLLOW_MARGIN_PROPERTY, EDGE_GUARD_PROPERTY, type Box, type FollowTarget, type WindowMetrics } from './follow';
 import { worstCondition } from './conditions';
 import { formatConditionName } from '@/lib/conditions';
 import { useFollowGate } from './useFollowGate';
@@ -494,9 +494,16 @@ export default function TacticalMap({
     if (!room) return;
     const first = cellRefs.current.values().next().value as HTMLElement | undefined;
     const sq = first ? boxOf(first) : null;
-    const next = sq ? { w: wholeSquareCap(room.clientWidth, sq.width, spaceCols * sq.width), h: wholeSquareCap(room.clientHeight, sq.height, spaceRows * sq.height) } : { w: null, h: null };
+    // A board that pans starts `guard` in from the start edge (the stylesheet's margin), so the squares have the room's width LESS the guard, and the right-hand cut is (W - guard) mod square:
+    // the sliver rule measures that, and the window's cap is the guard plus the whole squares (QA F2). The height is not affected.
+    const win = boardScrollRef.current;
+    const pans = !!sq && spaceCols * sq.width > room.clientWidth;
+    // debt: the guard is read as px (parseFloat of the property's authored value), so a guard written in rem or em reads as its bare number. ceiling: the phone row's 16px. until: a row sets the guard in another unit.
+    const guard = pans && win ? Math.max(0, parseFloat(getComputedStyle(win).getPropertyValue(EDGE_GUARD_PROPERTY)) || 0) : 0;
+    const wCap = sq ? wholeSquareCap(room.clientWidth - guard, sq.width, spaceCols * sq.width) : null;
+    const next = sq ? { w: wCap === null ? null : wCap + guard, h: wholeSquareCap(room.clientHeight, sq.height, spaceRows * sq.height) } : { w: null, h: null };
     setCap((prev) => (prev.w === next.w && prev.h === next.h ? prev : next));
-    setPansX(!!sq && spaceCols * sq.width > room.clientWidth);
+    setPansX(pans);
   }, [spaceCols, spaceRows]);
 
   const boxState = useRef({ had: false, width: 0 });
