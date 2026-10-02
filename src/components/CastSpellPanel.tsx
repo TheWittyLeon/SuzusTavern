@@ -116,15 +116,6 @@ export interface CastSpellPanelProps {
    *  symmetric with every other in-combat mutation (prevents a Cast+Attack
    *  double-action in the same turn during the network window). */
   onBusyChange?: (busy: boolean) => void;
-  /**
-   * A9c-2 D7 (lever 3): the host may fold the controls behind the "Cast a spell"
-   * label. Omitted = the panel renders exactly as before (always open, label is
-   * plain text). When given, the label becomes a native disclosure button
-   * (`aria-expanded`/`aria-controls`) and the controls stay MOUNTED but `hidden`
-   * while closed, so a loaded spell list, a selection and an in-flight cast
-   * survive a fold. The state is the host's: the panel does not own it.
-   */
-  disclosure?: { open: boolean; onToggle: () => void };
 }
 
 export default function CastSpellPanel({
@@ -139,7 +130,6 @@ export default function CastSpellPanel({
   onSheetChanged,
   onStateRefresh,
   onBusyChange,
-  disclosure,
 }: CastSpellPanelProps) {
   const { toast } = useToast();
   const uid = useId();
@@ -432,35 +422,9 @@ export default function CastSpellPanel({
       aria-labelledby={`${uid}-label`}
     >
       <p id={`${uid}-label`} className={styles.panelLabel}>
-        {disclosure ? (
-          <button
-            type="button"
-            className={styles.disclosure}
-            aria-expanded={disclosure.open}
-            aria-controls={`${uid}-body`}
-            onClick={disclosure.onToggle}
-          >
-            <Icon name="Sparkle" size={12} aria-hidden /> Cast a spell
-            <Icon
-              name="Chevron"
-              size={12}
-              aria-hidden
-              className={disclosure.open ? styles.chevOpen : styles.chev}
-            />
-          </button>
-        ) : (
-          <>
-            <Icon name="Sparkle" size={12} aria-hidden /> Cast a spell
-          </>
-        )}
+        <Icon name="Sparkle" size={12} aria-hidden /> Cast a spell
       </p>
-      {disclosure ? (
-        <div id={`${uid}-body`} className={styles.body} hidden={!disclosure.open}>
-          {body}
-        </div>
-      ) : (
-        body
-      )}
+      {body}
     </div>
   );
 }

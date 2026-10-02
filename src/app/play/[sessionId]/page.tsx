@@ -1658,7 +1658,7 @@ export default function PlayPage() {
             }
           })();
         }}
-        onBusyChange={setCombatBusy}
+        onBusyChange={setCombatBusy} fallbackFocus={() => sceneHeadRef.current}
       />
     ),
     // T4p2: completion next-part offer (design doc §6.4) — a tenant of

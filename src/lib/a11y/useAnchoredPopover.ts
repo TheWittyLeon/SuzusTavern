@@ -29,7 +29,7 @@ import { consumeEscape } from './escapeConsume';
  *   iOS keyboard move it: the layout viewport is not the screen). Re-placed on window `resize` and `scroll` and on `visualViewport`
  *   `resize` and `scroll` (Tora C2: iOS fires no window `resize` when the keyboard retracts, and tapping Roll from a focused composer
  *   blurs the textarea). It NEVER covers an element marked `data-popover-passthrough` (the X-card): the popover's height is clamped so the
- *   two do not intersect, whichever side it opens on. Nothing here names a tenant. When clamped it scrolls inside
+ *   two do not intersect, whichever side it opens on (including one BESIDE the opener, on its row). Nothing here names a tenant. When clamped it scrolls inside
  *   (`overscroll-behavior: contain`, with the shared scroll cue in AnchoredPopover.module.css).
  *
  * DISMISSAL (Tora C1, a safety rule). An outside press closes on `click`, never on `pointerdown` / `touchstart` (a pointer-down close
@@ -146,21 +146,30 @@ export function computePlacement(
   const right = left + w;
   const overlapsX = (z: { left: number; right: number }) => z.right > left && z.left < right;
   // The vertical room on each side: to the screen edge, or to the nearest passthrough element on that side that the popover would run into.
+  // A zone BESIDE the opener (it shares the opener's row: the Cast button and the X-card block, A9d-2 N8) is on neither side, yet a popover
+  // as wide as the gap between them would run over it: the opener's edge is extended to the zone's on whichever side the popover opens,
+  // so the popover stands clear of the zone and the opener alike.
+  let ot = opener.top;
+  let ob = opener.bottom;
   let topLimit = view.top + EDGE;
   let bottomLimit = view.top + view.height - EDGE;
   for (const z of zones) {
     if (!overlapsX(z)) continue;
     if (z.bottom <= opener.top + 1) topLimit = Math.max(topLimit, z.bottom + GAP);
     else if (z.top >= opener.bottom - 1) bottomLimit = Math.min(bottomLimit, z.top - GAP);
+    else {
+      ot = Math.min(ot, z.top);
+      ob = Math.max(ob, z.bottom);
+    }
   }
-  const roomAbove = Math.max(0, opener.top - GAP - topLimit);
-  const roomBelow = Math.max(0, bottomLimit - (opener.bottom + GAP));
+  const roomAbove = Math.max(0, ot - GAP - topLimit);
+  const roomBelow = Math.max(0, bottomLimit - (ob + GAP));
   const chosen: 'top' | 'bottom' =
     side === 'top' ? 'top' : side === 'bottom' ? 'bottom' : natural.height <= roomAbove ? 'top' : natural.height <= roomBelow ? 'bottom' : roomAbove >= roomBelow ? 'top' : 'bottom';
   const maxHeight = chosen === 'top' ? roomAbove : roomBelow;
   return chosen === 'top'
-    ? { left, bottom: viewportHeight - opener.top + GAP, maxHeight, maxWidth, side: chosen }
-    : { left, top: opener.bottom + GAP, maxHeight, maxWidth, side: chosen };
+    ? { left, bottom: viewportHeight - ot + GAP, maxHeight, maxWidth, side: chosen }
+    : { left, top: ob + GAP, maxHeight, maxWidth, side: chosen };
 }
 
 export function useAnchoredPopover({
