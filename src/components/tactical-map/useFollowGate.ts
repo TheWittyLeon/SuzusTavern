@@ -53,7 +53,6 @@ export function useFollowGate(windowRef: RefObject<HTMLElement | null>, mounted:
     flushRef.current = flush;
   }, [flush]);
 
-  // debt: one slot per kind, the newer request replaces the older: a re-follow (the focused square first, then the mover) asked for while a turn follow waits is replaced by it, and the user's focused square is then not protected. ceiling: a turn change and a resize both landing inside one busy window. until: that is seen to cut a focused square.
   const request = useCallback(
     (kind: FollowKind, run: () => void) => {
       pending.current.set(kind, run);

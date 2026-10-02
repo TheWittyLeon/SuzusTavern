@@ -464,19 +464,27 @@ export default function TacticalMap({
   // The turn change: the creature whose turn it is is brought into view by the same rule, once per TURN. A turn change never scrolls the page (the window's own offsets only).
   // Keyed on a boolean, a string and the id: a poll hands over a new `space` object every few seconds, and the effect must not run (let alone drag a window the user scrolled
   // by hand back to the token) on anything but a real change. The turn is recorded BEFORE the placement check, so turn a -> an unplaced creature -> a is a new turn for a.
+  // The ONE follow of the mover (the turn change and the window's re-follow both ask the gate for exactly this): the square the user holds focus on first, the mover second, and the
+  // mover is not taken if it would cut the focused one (followAll). It reads everything as it is when it RUNS.
+  const followMover = useCallback(() => {
+    const win = boardScrollRef.current;
+    if (!win) return;
+    const { focusKey, moverKey } = latest.current;
+    const held = boardRef.current?.contains(document.activeElement) ? cellRefs.current.get(focusKey) : undefined;
+    const mover = moverKey ? cellRefs.current.get(moverKey) : undefined;
+    const targets: FollowTarget[] = [];
+    if (held) targets.push({ box: boxOf(held), margin: 0 });
+    if (mover) targets.push({ box: boxOf(mover), margin: ownMargin() });
+    applyScroll(win, followAll(windowMetrics(win), targets));
+  }, [ownMargin, applyScroll]);
   const lastFollowedRef = useRef<string | null | undefined>(undefined);
   useEffect(() => {
     if (!usable) return;
     if (lastFollowedRef.current === activeParticipantId) return;
     lastFollowedRef.current = activeParticipantId;
     if (!activeAtKey) return;
-    // Waits for a quiet window and follows the mover's square AS IT IS THEN (a poll may have moved it meanwhile).
-    gate.request('mover', () => {
-      const key = latest.current.moverKey;
-      const cell = key ? cellRefs.current.get(key) : undefined;
-      if (cell) keepInView(cell, ownMargin());
-    });
-  }, [usable, activeAtKey, activeParticipantId, keepInView, ownMargin, gate]);
+    gate.request('mover', followMover); // waits for a quiet window and follows the mover AS IT IS THEN (a poll may have moved it meanwhile)
+  }, [usable, activeAtKey, activeParticipantId, gate, followMover]);
 
   // The window's own box (P2, brief section 5; Iro-A11y C4). A folded body has no box, so MOUNTED is not VISIBLE, and a window that is hidden loses its offsets: it follows again when it
   // gets a box, when its WIDTH changes (a rotation), and when the mover is no longer wholly in it. NOT on a pure height step (the action bar is 24 px taller on a monster's turn and
@@ -556,18 +564,8 @@ export default function TacticalMap({
 
   useEffect(() => {
     if (followWanted === 0) return;
-    gate.request('mover', () => {
-      const win = boardScrollRef.current;
-      if (!win) return;
-      const { focusKey, moverKey } = latest.current;
-      const held = boardRef.current?.contains(document.activeElement) ? cellRefs.current.get(focusKey) : undefined;
-      const mover = moverKey ? cellRefs.current.get(moverKey) : undefined;
-      const targets: FollowTarget[] = [];
-      if (held) targets.push({ box: boxOf(held), margin: 0 });
-      if (mover) targets.push({ box: boxOf(mover), margin: ownMargin() });
-      applyScroll(win, followAll(windowMetrics(win), targets));
-    });
-  }, [followWanted, gate, ownMargin, applyScroll]);
+    gate.request('mover', followMover);
+  }, [followWanted, gate, followMover]);
 
   // Everything one square says, in ONE place (Kage-CR D1 IMPORTANT-4's "single source of truth"): the cell's accessible name, its token and the scene line all read this.
   // `a11y.ts`'s `cellAccessibleName` and `buildLine` render the same CellNameInput; a fact cannot be in one and not the other.

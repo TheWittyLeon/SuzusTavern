@@ -979,6 +979,14 @@ describe('TacticalMap — P2: every follow waits while a touch is on the window 
     });
   });
 
+  it('the turn follow is the re-follow\'s: with the grid holding focus on a square a mover follow would cut, the turn passing leaves the window where it is (so a pending turn follow replaced by a re-follow, or the reverse, is the same follow)', () => {
+    const { container, rerender } = render(<TacticalMap {...at('a')} />);
+    const win = layoutP2(container, { left: 0, top: 0 });
+    act(() => { (container.querySelectorAll('[role="gridcell"]')[0] as HTMLElement).focus(); }); // column 0, in view
+    rerender(<TacticalMap {...at('c')} />); // Cal at column 6 needs 80, which would cut column 0
+    expect(win.scrollLeft).toBe(0);
+  });
+
   it('the touch listeners are passive: nothing here can cancel a gesture', () => {
     const add = jest.spyOn(EventTarget.prototype, 'addEventListener');
     render(<TacticalMap {...at('a')} />);
