@@ -190,11 +190,13 @@ export const COMBAT_REFUSAL_REASON_MAP: Record<string, string> = {
   // monster's stat block cannot be resolved (a malformed or unreadable row), BEFORE anything is written: no damage,
   // no spent budget, no end_turn. A 5xx body message is never shown (engineErrorMessage), so this curated copy is the
   // only thing the DM sees. It names the way out the Tavern actually has: nothing in AI-auto mode acts for a monster by
-  // hand, so "act for it manually" (the engine's own text) would be a lie here; End combat in the Scene panel ends the fight.
+  // hand, so "act for it manually" (the engine's own text) would be a lie here; the End combat button ends the fight.
   // A9d-2 N10 (Tora MINOR-7, Iro Minor-4): "Reload" had no on-screen affordance on a phone (pull-to-refresh is off on /play, so the browser's
   // own reload is the only route: say "the page"), and "the scene controls" named no control: the button reads "End combat".
+  // A9d-2 fix round 2 (Iro Minor-5): "in the Scene panel" named a label the phone no longer shows (the strip has no "Scene" kicker): say "the End combat button",
+  // the text that is visible on every row.
   monster_statblock_unresolved:
-    "A monster's stat block couldn't be loaded, so its turn didn't run. Reload the page to try again; if it keeps happening, use End combat in the Scene panel.",
+    "A monster's stat block couldn't be loaded, so its turn didn't run. Reload the page to try again; if it keeps happening, use the End combat button.",
 
   // ── emitted by engine/combat.py but absent from COMBAT_REASON_STATUS ────
   // (the route's `COMBAT_REASON_STATUS.get(reason, 400)` default covers it)

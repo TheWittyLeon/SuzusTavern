@@ -565,8 +565,9 @@ describe('the monster_statblock_unresolved copy names a way out the phone really
     expect(copy).not.toMatch(/Reload to try again/);
   });
 
-  it('names the control by its own label, "End combat", and where it is, "the Scene panel": "the scene controls" named no control', () => {
-    expect(copy).toMatch(/use End combat in the Scene panel/);
+  it('names the control by its own label, "the End combat button", which is visible text on every row: "the Scene panel" is a kicker the phone\'s strip does not show (A9d-2 fix round 2, Iro Minor-5; this case said "use End combat in the Scene panel")', () => {
+    expect(copy).toMatch(/use the End combat button\./);
+    expect(copy).not.toMatch(/Scene panel/i);
     expect(copy).not.toMatch(/scene controls/i);
   });
 
