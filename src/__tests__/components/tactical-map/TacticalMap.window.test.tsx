@@ -979,12 +979,78 @@ describe('TacticalMap — P2: every follow waits while a touch is on the window 
     });
   });
 
-  it('the turn follow is the re-follow\'s: with the grid holding focus on a square a mover follow would cut, the turn passing leaves the window where it is (so a pending turn follow replaced by a re-follow, or the reverse, is the same follow)', () => {
-    const { container, rerender } = render(<TacticalMap {...at('a')} />);
-    const win = layoutP2(container, { left: 0, top: 0 });
-    act(() => { (container.querySelectorAll('[role="gridcell"]')[0] as HTMLElement).focus(); }); // column 0, in view
-    rerender(<TacticalMap {...at('c')} />); // Cal at column 6 needs 80, which would cut column 0
-    expect(win.scrollLeft).toBe(0);
+  describe('a turn passing while the grid holds focus: the mover ends WHOLE; the held square is kept when both fit; DOM focus is never moved', () => {
+    const cellAt = (container: HTMLElement, x: number, y = 0) => container.querySelectorAll('[role="gridcell"]')[y * 10 + x] as HTMLElement;
+
+    it('A4 — they cannot both be in the window (focus on column 0, the turn passes to column 6 of a 5-column window): the MOVER wins, and DOM focus is not moved', () => {
+      const { container, rerender } = render(<TacticalMap {...at('a')} />);
+      const win = layoutP2(container, { left: 0, top: 0 });
+      const held = cellAt(container, 0);
+      act(() => { held.focus(); });
+      rerender(<TacticalMap {...at('c')} />);
+      expect(win.scrollLeft).toBe(80);
+      expect(document.activeElement).toBe(held);
+    });
+
+    it('A3 — both fit (focus on column 2): columns 2..6 hold both', () => {
+      const { container, rerender } = render(<TacticalMap {...at('a')} />);
+      const win = layoutP2(container, { left: 0, top: 0 });
+      act(() => { cellAt(container, 2).focus(); });
+      rerender(<TacticalMap {...at('c')} />);
+      expect(win.scrollLeft).toBe(80);
+    });
+
+    it('A3 — the mover\'s MARGIN gives way before the held square does: with margin 1 the mover alone would go to 120 and cut column 2; it goes to 80', () => {
+      const { container, rerender } = render(<TacticalMap {...at('a')} />);
+      const win = layoutP2(container, { left: 0, top: 0 });
+      withMargin(win, 1);
+      act(() => { cellAt(container, 2).focus(); });
+      rerender(<TacticalMap {...at('c')} />);
+      expect(win.scrollLeft).toBe(80);
+    });
+
+    it('THE CONTROL for the margin: the same turn with no focus in the grid takes the margin (120)', () => {
+      const { container, rerender } = render(<TacticalMap {...at('a')} />);
+      const win = layoutP2(container, { left: 0, top: 0 });
+      withMargin(win, 1);
+      rerender(<TacticalMap {...at('c')} />);
+      expect(win.scrollLeft).toBe(120);
+    });
+
+    it('A1 — a square a CLICK or a TAP focused (not :focus-visible) is not held: the plain mover follow runs, so a mouse click does not stop the board showing whose turn it is', () => {
+      const { container, rerender } = render(<TacticalMap {...at('a')} />);
+      const win = layoutP2(container, { left: 0, top: 0 });
+      const clicked = cellAt(container, 2);
+      const real = clicked.matches.bind(clicked);
+      jest.spyOn(clicked, 'matches').mockImplementation((q: string) => (q === ':focus-visible' ? false : real(q)));
+      withMargin(win, 1);
+      act(() => { clicked.focus(); });
+      rerender(<TacticalMap {...at('c')} />);
+      expect(win.scrollLeft).toBe(120); // the mover alone, margin and all: column 2 is not protected
+      expect(document.activeElement).toBe(clicked);
+    });
+
+    it('A1 — THE CONTROL: the same square when it IS :focus-visible (a key put focus there) is held, and the margin gives way (80)', () => {
+      const { container, rerender } = render(<TacticalMap {...at('a')} />);
+      const win = layoutP2(container, { left: 0, top: 0 });
+      withMargin(win, 1);
+      act(() => { cellAt(container, 2).focus(); });
+      rerender(<TacticalMap {...at('c')} />);
+      expect(win.scrollLeft).toBe(80);
+    });
+
+    it('two arrows under a held gate end on the LAST square (the focus kind\'s newer request replaces the older)', () => {
+      const { container } = render(<TacticalMap {...at('a')} />);
+      const win = layoutP2(container, { left: 0, top: 0 });
+      act(() => { cellAt(container, 3).focus(); });
+      fireEvent.touchStart(win, { touches });
+      fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'ArrowRight' }); // column 4: whole
+      fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'ArrowRight' }); // column 5: cut at the right edge
+      expect(document.activeElement).toBe(cellAt(container, 5));
+      expect(win.scrollLeft).toBe(0);
+      fireEvent.touchEnd(win, { touches: [] });
+      expect(win.scrollLeft).toBe(40); // one square: the LAST square whole
+    });
   });
 
   it('the touch listeners are passive: nothing here can cancel a gesture', () => {
@@ -1113,15 +1179,21 @@ describe('TacticalMap — P2: the window re-follows when it gets a box or its WI
     expect(idle).not.toHaveBeenCalled();
   });
 
-  it('the user\'s focused square is followed first: a mover follow that would cut it is not taken (then, with no focus held, the same follow is taken: the control)', () => {
+  it('a RE-FOLLOW with no turn passing keeps the user\'s focused square first: the mover follow that would cut it is not taken (then, with no focus held, the same re-follow is taken: the control)', () => {
     const held = render(<TacticalMap {...at('c')} />);
     const win = layoutP2(held.container, { left: 0, top: 0 });
+    resized(); // the box: the turn the map mounted on is followed now (80)
+    win.scrollLeft = 0; // the window is somewhere else (a fold, a hand scroll): Cal is cut, a re-follow is wanted
+    layoutP2(held.container, { left: 0, top: 0 });
     act(() => screen.getByRole('gridcell', { name: /Aldo — you/ }).focus()); // column 0, in view: the user is on it
     resized();
     expect(win.scrollLeft).toBe(0); // Cal at column 6 needs left 80, which would cut column 0
     held.unmount();
     const free = render(<TacticalMap {...at('c')} />);
     const win2 = layoutP2(free.container, { left: 0, top: 0 });
+    resized();
+    win2.scrollLeft = 0;
+    layoutP2(free.container, { left: 0, top: 0 });
     resized();
     expect(win2.scrollLeft).toBe(80);
   });
@@ -1436,7 +1508,7 @@ describe('TacticalMap — what a held follow reads when it runs, and what the ob
     expect(win.scrollLeft).toBe(80); // a stale focus treated as held would refuse the follow (it cuts column 0)
   });
 
-  it('a width change while a finger holds the turn follow: the NEWER request (the re-follow, which protects the focused square) runs and the older turn follow is dropped', () => {
+  it('A6 — a turn passed AND the width changed while a finger held the follow: whichever request the gate kept, the run is the TURN\'s (the mover ends whole), because the turn is owed in a ref the replacement cannot drop', () => {
     const { container, rerender } = render(<TacticalMap {...at('a', [aldo, calAt(6)])} />);
     const win = layoutP2(container, { left: 0, top: 0 });
     resized();
@@ -1445,7 +1517,20 @@ describe('TacticalMap — what a held follow reads when it runs, and what the ob
     rerender(<TacticalMap {...at('c', [aldo, calAt(6)])} />);
     resized();
     fireEvent.touchEnd(win, { touches: [] });
-    expect(win.scrollLeft).toBe(0); // keeping the older request would run the turn follow alone: 80, column 0 gone
+    expect(win.scrollLeft).toBe(80); // Cal whole; the focused column 0 cannot be held with it. A re-follow alone would keep column 0 and stay at 0
+  });
+
+  it('a hidden window (no box) follows nothing, and the turn stays owed until its box comes back (followMover has a hasBox guard)', () => {
+    const { container, rerender } = render(<TacticalMap {...at('a', [aldo, calAt(6)])} />);
+    const win = layoutP2(container, { left: 0, top: 0 });
+    resized();
+    for (const k of ['clientWidth', 'clientHeight']) Object.defineProperty(win, k, { configurable: true, value: 0 });
+    resized();
+    rerender(<TacticalMap {...at('c', [aldo, calAt(6)])} />); // a turn passes while the window is hidden
+    expect(win.scrollLeft).toBe(0);
+    layoutP2(container, { left: 0, top: 0 });
+    resized(); // the box is back
+    expect(win.scrollLeft).toBe(80);
   });
 
   describe('F4 — a window with no box while a move is in flight does NOT exit Move now (Escape is deaf then too: canClose); the exit is owed and paid once when the submit settles', () => {

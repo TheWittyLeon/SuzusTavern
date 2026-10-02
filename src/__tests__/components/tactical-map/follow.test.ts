@@ -5,7 +5,7 @@
  *   - never centred; a scroll the board's end clamps is not whole.
  * Pure: boxes in, offsets out. The component test (TacticalMap.window.test.tsx) pins that the turn change and focus both call it.
  */
-import { followScroll, followAll, wholeSquareCap, panningWidthCap, FOLLOW_MARGIN_PROPERTY, FOLLOW_SETTLE_MS, SLIVER_MIN_PX, type WindowMetrics } from '@/components/tactical-map/follow';
+import { followScroll, followAll, followTurn, wholeSquareCap, panningWidthCap, FOLLOW_MARGIN_PROPERTY, FOLLOW_SETTLE_MS, SLIVER_MIN_PX, type WindowMetrics } from '@/components/tactical-map/follow';
 
 /** A 200x120 window at (10,10) over a 400x400 board of 40px squares. */
 const win = (o: Partial<WindowMetrics> = {}): WindowMetrics => ({
@@ -268,5 +268,31 @@ describe('panningWidthCap — both cut columns of a guarded, panning board are 0
     expect(panningWidthCap(400, 0, 600, 16)).toBeNull();
     expect(panningWidthCap(0, S, 600, 16)).toBeNull();
     expect(panningWidthCap(20, S, 600, 16)).toBeNull();
+  });
+});
+
+describe('followTurn — a turn change ends with the mover whole; the held square is kept when both fit, the margin giving way first; the mover wins when they cannot both fit', () => {
+  const w = (o: Partial<WindowMetrics> = {}): WindowMetrics => ({ view: { left: 10, top: 10, width: 200, height: 120 }, scrollLeft: 0, scrollTop: 0, maxLeft: 200, maxTop: 280, ...o });
+  it('no held square: the mover\'s own follow, margin and all', () => {
+    expect(followTurn(w(), null, square(6, 0), 0)).toEqual({ left: 80, top: 0 });
+    expect(followTurn(w(), null, square(6, 0), 1)).toEqual({ left: 120, top: 0 });
+    expect(followTurn(w(), null, square(2, 1), 0)).toBeNull();
+  });
+  it('both fit: the offset holds both', () => {
+    expect(followTurn(w(), square(2, 0), square(6, 0), 0)).toEqual({ left: 80, top: 0 });
+  });
+  it('the margin gives way before the held square: margin 1 alone would go to 120 and cut column 2', () => {
+    expect(followTurn(w(), square(2, 0), square(6, 0), 1)).toEqual({ left: 80, top: 0 });
+  });
+  it('they cannot both fit: the MOVER wins, by its own follow from where the window IS (either axis)', () => {
+    expect(followTurn(w(), square(0, 0), square(6, 0), 0)).toEqual({ left: 80, top: 0 });
+    expect(followTurn(w(), square(0, 0), square(0, 6), 0)).toEqual({ left: 0, top: 160 });
+  });
+  it('a held square the user scrolled away from is not a reason to jump to it when the mover cannot be held with it', () => {
+    const m = w({ scrollLeft: 120 });
+    expect(followTurn(m, square(0, 0, m), square(9, 0, m), 0)).toEqual({ left: 200, top: 0 });
+  });
+  it('the mover already whole and the held square in view: nothing moves', () => {
+    expect(followTurn(w(), square(0, 0), square(3, 1), 0)).toBeNull();
   });
 });

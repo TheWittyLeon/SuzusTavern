@@ -72,7 +72,7 @@ import type { CombatParticipantState, CombatSpace, SpaceCoordinate } from '@/lib
 import { consumeEscape } from '@/lib/a11y/escapeConsume';
 import { chebyshevCost, coordsEqual, isLegalMoveTarget, isSpaceUsable, reachableCells } from './reach';
 import { cellAccessibleName, nextFocusCoord, toDisplayRowCol, type CellNameInput, type CellOccupant, type InspectLine } from './a11y';
-import { followAll, followScroll, wholeSquareCap, panningWidthCap, FOLLOW_MARGIN_PROPERTY, EDGE_GUARD_PROPERTY, type Box, type FollowTarget, type WindowMetrics } from './follow';
+import { followAll, followScroll, followTurn, wholeSquareCap, panningWidthCap, FOLLOW_MARGIN_PROPERTY, EDGE_GUARD_PROPERTY, type Box, type FollowTarget, type WindowMetrics } from './follow';
 import { worstCondition } from './conditions';
 import { formatConditionName } from '@/lib/conditions';
 import { useFollowGate } from './useFollowGate';
@@ -464,18 +464,32 @@ export default function TacticalMap({
   // The turn change: the creature whose turn it is is brought into view by the same rule, once per TURN. A turn change never scrolls the page (the window's own offsets only).
   // Keyed on a boolean, a string and the id: a poll hands over a new `space` object every few seconds, and the effect must not run (let alone drag a window the user scrolled
   // by hand back to the token) on anything but a real change. The turn is recorded BEFORE the placement check, so turn a -> an unplaced creature -> a is a new turn for a.
-  // The ONE follow of the mover (the turn change and the window's re-follow both ask the gate for exactly this): the square the user holds focus on first, the mover second, and the
-  // mover is not taken if it would cut the focused one (followAll). It reads everything as it is when it RUNS.
+  // The ONE follow of the mover (the turn change and the window's re-follow both ask the gate for exactly this). It reads everything as it is when it RUNS.
+  //   - A square is HELD only while it matches `:focus-visible` (keyboard and Move-sync focus): a square a mouse click or a tap focused is not held, or one click would pin the window
+  //     and the board would stop showing whose turn it is (Tora-Gesture rule 5, Kage-CR).
+  //   - A turn that passed since the last run is OWED its follow, in a ref the gate cannot lose by replacing one pending request with another. Its rule is `followTurn` (follow.ts): the
+  //     mover ends whole; the held square is kept when both fit, the margin giving way first; when they cannot both fit the mover wins and DOM focus stays where it is.
+  //   - Any other run (the window got a box, its width changed) keeps the held square first (`followAll`).
+  //   - A hidden window has no box and gives zero metrics: nothing runs, and the turn stays owed for the re-follow that its box coming back asks for.
+  const turnOwed = useRef(false);
   const followMover = useCallback(() => {
     const win = boardScrollRef.current;
-    if (!win) return;
+    if (!win || !hasBox(win)) return;
+    const turn = turnOwed.current;
+    turnOwed.current = false;
     const { focusKey, moverKey } = latest.current;
-    const held = boardRef.current?.contains(document.activeElement) ? cellRefs.current.get(focusKey) : undefined;
+    const heldCell = boardRef.current?.contains(document.activeElement) ? cellRefs.current.get(focusKey) : undefined;
+    const held = heldCell && heldCell.matches(':focus-visible') ? heldCell : undefined;
     const mover = moverKey ? cellRefs.current.get(moverKey) : undefined;
+    const metrics = windowMetrics(win);
+    if (turn && mover) {
+      applyScroll(win, followTurn(metrics, held ? boxOf(held) : null, boxOf(mover), ownMargin()));
+      return;
+    }
     const targets: FollowTarget[] = [];
     if (held) targets.push({ box: boxOf(held), margin: 0 });
     if (mover) targets.push({ box: boxOf(mover), margin: ownMargin() });
-    applyScroll(win, followAll(windowMetrics(win), targets));
+    applyScroll(win, followAll(metrics, targets));
   }, [ownMargin, applyScroll]);
   const lastFollowedRef = useRef<string | null | undefined>(undefined);
   useEffect(() => {
@@ -483,6 +497,7 @@ export default function TacticalMap({
     if (lastFollowedRef.current === activeParticipantId) return;
     lastFollowedRef.current = activeParticipantId;
     if (!activeAtKey) return;
+    turnOwed.current = true;
     gate.request('mover', followMover); // waits for a quiet window and follows the mover AS IT IS THEN (a poll may have moved it meanwhile)
   }, [usable, activeAtKey, activeParticipantId, gate, followMover]);
 

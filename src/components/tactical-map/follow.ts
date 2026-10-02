@@ -88,6 +88,28 @@ export function followAll(win: WindowMetrics, targets: FollowTarget[]): { left: 
 }
 
 /**
+ * The follow for a TURN CHANGE. The turn is the event, so the mover must end wholly in view; the square the user holds focus on is kept in view WHEN BOTH FIT.
+ *   1. the held square first, then the mover with its margin (`followAll`): taken when the mover ends whole;
+ *   2. else the same with margin 0 (the margin gives way before the held square does);
+ *   3. else the two cannot both be in the window: the MOVER wins, by its own fewest-squares follow from where the window is. DOM focus is not moved; the user's next arrow key
+ *      follows the held square back.
+ * A re-follow with no turn passing (the window got a box, its width changed) is not this: there the user's square comes first (`followAll`). Null when nothing needs to move.
+ */
+export function followTurn(win: WindowMetrics, held: Box | null, mover: Box, margin = 0): { left: number; top: number } | null {
+  const moverWhole = (to: { left: number; top: number } | null): boolean => {
+    const at = to ?? { left: win.scrollLeft, top: win.scrollTop };
+    return followScroll({ ...win, scrollLeft: at.left, scrollTop: at.top }, { ...mover, left: mover.left + win.scrollLeft - at.left, top: mover.top + win.scrollTop - at.top }) === null;
+  };
+  if (held) {
+    for (const m of margin > 0 ? [margin, 0] : [0]) {
+      const to = followAll(win, [{ box: held, margin: 0 }, { box: mover, margin: m }]);
+      if (moverWhole(to)) return to;
+    }
+  }
+  return followScroll(win, mover, margin);
+}
+
+/**
  * The sliver rule (Aoi-UI section 15), one axis: where the board is longer than the room and the cut square would show fewer than SLIVER_MIN_PX, the window ends on the whole
  * square before it, and the few pixels left over are the stage's. Returns the window's length on that axis, or null when the room is used as it is (the board fits; the cut
  * square is a real one, a whole number of squares fit exactly, or less than one square fits at all, where a cap would leave nothing to see).
