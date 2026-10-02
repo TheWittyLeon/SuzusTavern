@@ -260,13 +260,15 @@ const PAGE = join(ROOT, PAGE_REL);
 // (talking / sessionLocked / rollBusy / round on one), so the new props cost no line. Net -1 against N2's ceiling.
 // -> 824 (A9d-2 fix round N7): the dice tenant's JSX moves into `tenants/DiceTrayTenant.tsx` and the Roll control into `components/RollControl.tsx`;
 // page.tsx keeps one `diceProps` object feeding both homes. Net -5.
+// -> 822 (A9d-2 fix round N9): the Session card's JSX stays here but is handed to `PartyStrip` as its `session` prop (the party band's Session
+// popover) instead of sitting beside it in a fragment, and the campaign-floor refresh callback is written on three lines. Net -2.
 // Update this value, in the SAME commit, whenever page.tsx's actual
 // non-comment, non-blank line count drops below it. Never raise it
 // silently -- unless the growth is deliberate and reviewed, in which case
 // raise it in the same commit and say why (this file's own rule, restated
 // correctly per the A7 pre-merge ratchet ruling: the runbook's "may only go
 // down" was a paraphrase that was never this file's actual rule).
-export const RATCHET_CEILING = 824;
+export const RATCHET_CEILING = 822;
 
 /**
  * Pure: counts lines the way `wc -l` does (newline-byte count). Exported so

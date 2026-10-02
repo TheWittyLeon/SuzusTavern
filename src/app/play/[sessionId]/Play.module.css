@@ -1082,17 +1082,54 @@
   white-space: nowrap;
 }
 
-/* A9c-2 D1: the strip's rebind buttons sit in a row after the avatars. */
-.rebindStrip {
-  flex-direction: row;
-  flex-wrap: wrap;
-  gap: 4px 12px;
+/* A9d-2 N9: a player's own "Change character" sits in the party band's TRAILING column (no section margin there). */
+[data-party-trailing] .rebindSection {
+  margin: 0;
 }
 
-.rebindStrip .rebindRow {
-  justify-content: flex-start;
-  gap: 6px;
+[data-party-trailing] .rebindRow {
   padding: 0;
+  gap: 6px;
+}
+
+/* The DM's "Session" button, the other trailing control: label and icon, a 44px target, in the column beside the tiles (a full-width row under
+   the roster in a rail). It opens the Session popover (regions/PartyStrip.tsx). */
+.sessionOpen {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 10px;
+  border-radius: var(--radius-xs);
+  /* A11Y-BUTTON-BORDER-CONTRAST: clickable - --line-strong clears WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px solid var(--line-strong);
+  background: color-mix(in oklab, var(--ink) 4%, transparent);
+  color: var(--ink-2);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.sessionOpen:hover,
+.sessionOpen[aria-expanded='true'] {
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
+  color: var(--ink);
+}
+
+/* The Session popover (AnchoredPopover owns its surface, position and scroll cue). A bounded width: the card's buttons are full width, and
+   the popover would otherwise grow to its widest panel. The card sheds its own box in here (the popover has one). */
+.sessionPopover {
+  width: 320px;
+  min-width: 0;
+}
+
+.sessionPopover .sessionControls {
+  margin-bottom: 0;
+  padding: 0;
+  border: 0;
+  background: none;
 }
 
 /* ── B3-1: outcome chooser ──

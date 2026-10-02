@@ -34,12 +34,16 @@ export default function AnchoredPopover({ pop, role, label, keepMounted = false,
   const clientReady = useSyncExternalStore(subscribe, () => true, () => false);
   const { open, popoverProps, attachPopover } = pop;
   if (!clientReady || (!open && !keepMounted)) return null;
+  // Closed and kept mounted, it is `display: none` in a browser (out of the accessibility tree) and carries no role in jsdom, which has no
+  // stylesheet: a suite that asks for "the dialog" (a bare `queryByRole('dialog')` after its own confirm closed) must not find a closed
+  // popover's. Its content is still queryable directly, which is what keepMounted is for. The role and name come back when it opens.
+  const named = open || !keepMounted;
   return createPortal(
     <div
       {...popoverProps}
       ref={attachPopover}
-      role={role}
-      aria-label={label}
+      role={named ? role : undefined}
+      aria-label={named ? label : undefined}
       className={[styles.popover, className, open ? null : styles.closed].filter(Boolean).join(' ')}
     >
       {children}

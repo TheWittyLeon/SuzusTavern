@@ -1408,56 +1408,50 @@ export default function PlayPage() {
       />
     ),
     partyStrip: (
-      <>
-        {/*
-          debt: tableControls is layer:true in every row (D1) but renders in flow, as two tenants of the party and story slots — step 10's dismissible layer and its trigger do not exist yet, and a closed overlay would take the DM's session controls away.
-          ceiling: exactly these two nodes; a THIRD in-flow layer tenant is the finding.
-          until: step 10 lands TableControls as a real layer (plan §5 step 10, D1) — then both nodes leave this call site and the row's layer:true becomes their only placement.
-        */}
-        <SessionControls
-          isDm={isDm}
-          sessionActionBusy={sessionActionBusy}
-          isEnded={isEnded}
-          isPaused={isPaused}
-          onTogglePause={() => void onTogglePause()}
-          onEndSessionRequest={() => setEndSessionConfirmOpen(true)}
-          xpToggleBtnRef={xpToggleBtnRef}
-          xpFormOpen={xpFormOpen}
-          setXpFormOpen={setXpFormOpen}
-          xpAmount={xpAmount}
-          setXpAmount={setXpAmount}
-          xpReason={xpReason}
-          setXpReason={setXpReason}
-          xpAmountValid={xpAmountValid}
-          onAwardXp={() => void onAwardXp()}
-          sessionId={sessionId}
-          participants={participants}
-          username={username}
-          startingLevel={session?.starting_level ?? 1}
-          onCampaignFloorChanged={() => {
-            void refreshSessionAfterAction();
-            getParticipants(sessionId)
-              .then(setParticipants)
-              .catch(() => {
-                /* non-fatal — roster refreshes on the next poll */
-              });
-          }}
-        />
-        <PartyStrip
-          participants={participants}
-          variant={variantFor(row, 'partyStrip', moment)}
-          selfUsername={username}
-          combatState={combatState}
-          onSelectMember={memberSheetDrawer.onSelectMember}
-          isDm={isDm}
-          sessionId={sessionId}
-          combatIsActive={combatIsActive}
-          sessionLocked={sessionLocked}
-          onRebindChanged={onRebindChanged}
-          round={round}
-          selfPcId={selfPcId}
-        />
-      </>
+      <PartyStrip
+        participants={participants}
+        variant={variantFor(row, 'partyStrip', moment)}
+        selfUsername={username}
+        combatState={combatState}
+        onSelectMember={memberSheetDrawer.onSelectMember}
+        isDm={isDm}
+        sessionId={sessionId}
+        combatIsActive={combatIsActive}
+        sessionLocked={sessionLocked}
+        onRebindChanged={onRebindChanged}
+        round={round}
+        selfPcId={selfPcId}
+        fallbackFocus={() => sceneHeadRef.current}
+        // A9d-2 N9: the Session card is the party band's trailing "Session" button's popover, on every row (no longer an in-flow sibling of the roster).
+        // `close` is for End session: its confirm dialog opens over the page, and an open popover would swallow the dialog's own clicks.
+        session={isDm ? ({ close }) => (
+          <SessionControls
+            isDm={isDm}
+            sessionActionBusy={sessionActionBusy}
+            isEnded={isEnded}
+            isPaused={isPaused}
+            onTogglePause={() => void onTogglePause()}
+            onEndSessionRequest={() => { close(); setEndSessionConfirmOpen(true); }}
+            xpToggleBtnRef={xpToggleBtnRef}
+            xpFormOpen={xpFormOpen}
+            setXpFormOpen={setXpFormOpen}
+            xpAmount={xpAmount}
+            setXpAmount={setXpAmount}
+            xpReason={xpReason}
+            setXpReason={setXpReason}
+            xpAmountValid={xpAmountValid}
+            onAwardXp={() => void onAwardXp()}
+            sessionId={sessionId}
+            participants={participants}
+            username={username}
+            startingLevel={session?.starting_level ?? 1}
+            onCampaignFloorChanged={() => {
+              void refreshSessionAfterAction();
+              getParticipants(sessionId).then(setParticipants).catch(() => { /* non-fatal — roster refreshes on the next poll */ });
+            }}
+          />
+        ) : undefined}
+      />
     ),
     // Build brief §5 S-d: table.characterBlock.variant='full' has no
     // implementation until step 7 — correct for the contract (R21 is the
@@ -1474,8 +1468,11 @@ export default function PlayPage() {
           thinkingLabel={resumeThinking ? "Resuming Suzu's turn…" : undefined}
           participants={participants}
         />
-        {/* debt: see the identical marker on `regions.partyStrip` above —
-           this is the second of the two in-flow layer tenants it names. */}
+        {/*
+          debt: tableControls is layer:true in every row (D1) but DmCombatControls renders in flow, in the story slot — step 10's dismissible layer and its trigger do not exist yet, and a closed overlay would take the DM's monster and condition panels away.
+          ceiling: exactly this one node (the Session card left in A9d-2 N9: it is the party band's Session popover); a SECOND in-flow layer tenant is the finding.
+          until: step 10 lands TableControls as a real layer (plan §5 step 10, D1) — then this node leaves this call site and the row's layer:true becomes its only placement.
+        */}
         <DmCombatControls
           isHumanDM={isHumanDM}
           combatIsActive={combatIsActive}

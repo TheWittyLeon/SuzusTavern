@@ -36,6 +36,7 @@
  * Same markup, one component, two presentations: the CSS keys on the root's
  * `data-variant`.
  */
+import type { ReactNode } from 'react';
 import type { RegionVariant } from '@/app/play/[sessionId]/variants';
 import type { CombatState, Participant } from '@/lib/api/types';
 import styles from './PartyPanel.module.css';
@@ -51,6 +52,12 @@ export interface PartyPanelProps {
   onSelectMember?: (participant: Participant) => void;
   /** `partyStrip`'s registry union (A9c-2 D1). Unset = the original card. */
   variant?: RegionVariant<'partyStrip'>;
+  /**
+   * A9d-2 N9 (Sora lever brief 2.4; Tora C4): controls that belong to the roster but are not tiles (a player's own "Change character", the DM's
+   * "Session"). A column BESIDE the tile row in a `strip` (the row scrolls sideways when the tiles do not fit; this column never goes with
+   * it, so a control is at rest at 6 and 8 members), below the list in a `rail`. `data-party-trailing` marks it for the harness (u:partyTiles).
+   */
+  trailing?: ReactNode;
 }
 
 function hpColor(ratio: number): string {
@@ -66,6 +73,7 @@ export default function PartyPanel({
   combatState = null,
   onSelectMember,
   variant,
+  trailing,
 }: PartyPanelProps) {
   const self = (selfUsername ?? '').toLowerCase();
 
@@ -73,7 +81,17 @@ export default function PartyPanel({
     return <div className={styles.empty}>Loading party…</div>;
   }
   if (participants.length === 0) {
-    return <div className={styles.empty}>No one has joined this table yet.</div>;
+    // The trailing controls outlive an empty roster: a DM at a table nobody has joined still needs the way to the session's tools.
+    return trailing ? (
+      <div className={variant ? styles[variant] : undefined} data-variant={variant}>
+        <div className={styles.empty}>No one has joined this table yet.</div>
+        <div className={styles.trailing} data-party-trailing="">
+          {trailing}
+        </div>
+      </div>
+    ) : (
+      <div className={styles.empty}>No one has joined this table yet.</div>
+    );
   }
 
   // Build a participant_id → combatant lookup for live HP overrides.
@@ -210,6 +228,10 @@ export default function PartyPanel({
                   type="button"
                   className={styles.link}
                   onClick={() => onSelectMember?.(p)}
+                  // The strip is a sideways scroller: a tile the keyboard lands on that is only PARTLY visible is left where it is
+                  // (Chromium and WebKit scroll a focused element into view only when it is wholly hidden). `nearest` moves nothing that
+                  // is already visible; the scroller's scroll-padding keeps the focus caption clear of its edge. (jsdom: optional call.)
+                  onFocus={variant === 'strip' ? (e) => e.currentTarget.scrollIntoView?.({ block: 'nearest', inline: 'nearest' }) : undefined}
                 >
                   {display}
                 </button>
@@ -220,6 +242,11 @@ export default function PartyPanel({
           );
         })}
       </ul>
+      {trailing ? (
+        <div className={styles.trailing} data-party-trailing="">
+          {trailing}
+        </div>
+      ) : null}
     </div>
   );
 }
