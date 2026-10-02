@@ -42,6 +42,7 @@ import type {
   OverrideCheckOutcome,
   OverrideDamageOutcome,
 } from '@/lib/api/types';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import { consumeEscape } from '@/lib/a11y/escapeConsume';
 import styles from './DmOverrideModal.module.css';
 
@@ -120,7 +121,13 @@ export default function DmOverrideModal({
 
   // Damage fields
   const [damageDealt, setDamageDealt] = useState<number>(0);
-  const [targetNewHp, setTargetNewHp] = useState<number>(0);
+  // New HP the DM typed by hand, as the raw input string. null = untouched, in
+  // which case the field FOLLOWS `target.hp_current - damageDealt` (see
+  // derivedNewHp below). Never defaults to 0: the engine reads target_new_hp as
+  // "is this target down", so a silent 0 downs a PC / deactivates a monster.
+  const [newHpEdit, setNewHpEdit] = useState<string | null>(null);
+  // Second step for New HP = 0 — rendered as a ConfirmDialog over this form.
+  const [confirmZero, setConfirmZero] = useState(false);
 
   // Submit state
   const [submitting, setSubmitting] = useState(false);
@@ -157,7 +164,8 @@ export default function DmOverrideModal({
     setDegree('success');
     setTotal(10);
     setDamageDealt(0);
-    setTargetNewHp(0);
+    setNewHpEdit(null);
+    setConfirmZero(false);
 
     const t = setTimeout(() => {
       (firstFocusRef.current as HTMLElement | null)?.focus();
@@ -208,6 +216,16 @@ export default function DmOverrideModal({
     [handleClose],
   );
 
+  const target = participants.find((p) => p.participant_id === targetId);
+  const targetHp =
+    typeof target?.hp_current === 'number' && Number.isFinite(target.hp_current)
+      ? target.hp_current
+      : null;
+  const derivedNewHp = targetHp === null ? '' : String(Math.max(0, targetHp - damageDealt));
+  const newHpText = newHpEdit ?? derivedNewHp;
+  const parsedNewHp = /^\d+$/.test(newHpText.trim()) ? parseInt(newHpText, 10) : NaN;
+  const newHp = Number.isNaN(parsedNewHp) ? null : Math.min(999, parsedNewHp);
+
   const buildOutcome = ():
     | OverrideAttackOutcome
     | OverrideCheckOutcome
@@ -224,10 +242,11 @@ export default function DmOverrideModal({
       return out;
     }
     // damage
-    return { damage_dealt: damageDealt, target_new_hp: targetNewHp, raw_damage: damageDealt } satisfies OverrideDamageOutcome;
+    // handleSubmit refuses a null newHp before send() runs.
+    return { damage_dealt: damageDealt, target_new_hp: newHp ?? 0, raw_damage: damageDealt } satisfies OverrideDamageOutcome;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (submitting) return;
     if (!reason.trim()) {
@@ -238,7 +257,24 @@ export default function DmOverrideModal({
       setSubmitError('Target is required for attack and damage overrides.');
       return;
     }
+    if (kind === 'damage') {
+      if (newHp === null) {
+        setSubmitError(
+          'New HP is required. Enter the target\'s HP after this damage; it can\'t be worked out for this target.',
+        );
+        return;
+      }
+      if (newHp === 0 && !confirmZero) {
+        setSubmitError(null);
+        setConfirmZero(true);
+        return;
+      }
+    }
+    void send();
+  };
 
+  const send = async () => {
+    setConfirmZero(false);
     setSubmitting(true);
     setSubmitError(null);
 
@@ -287,6 +323,7 @@ export default function DmOverrideModal({
   const needsTarget = kind === 'attack' || kind === 'damage';
 
   return (
+    <>
     <div
       ref={backdropRef}
       className={styles.backdrop}
@@ -318,7 +355,7 @@ export default function DmOverrideModal({
           </button>
         </div>
 
-        <form onSubmit={(e) => void handleSubmit(e)} noValidate>
+        <form onSubmit={handleSubmit} noValidate>
           {/* Kind radio */}
           <fieldset className={styles.fieldset}>
             <legend className={styles.legend}>Override kind</legend>
@@ -374,7 +411,11 @@ export default function DmOverrideModal({
                 className={styles.select}
                 value={targetId}
                 disabled={submitting}
-                onChange={(e) => setTargetId(e.target.value)}
+                onChange={(e) => {
+                    setTargetId(e.target.value);
+                    // A hand-typed New HP was for the previous target; release it.
+                    setNewHpEdit(null);
+                  }}
                 required
               >
                 <option value="">— pick target —</option>
@@ -524,9 +565,9 @@ export default function DmOverrideModal({
                     className={styles.numInput}
                     min={0}
                     max={999}
-                    value={targetNewHp}
+                    value={newHpText}
                     disabled={submitting}
-                    onChange={(e) => setTargetNewHp(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                    onChange={(e) => setNewHpEdit(e.target.value)}
                   />
                 </div>
               </div>
@@ -586,5 +627,18 @@ export default function DmOverrideModal({
         </form>
       </div>
     </div>
+    {/* Sibling of the backdrop (not a child): its Escape/Tab/click events must
+        not bubble through the React tree into this modal's own handlers. */}
+    <ConfirmDialog
+      open={confirmZero}
+      role="alertdialog"
+      tone="danger"
+      title="Drop to 0 HP?"
+      body={`This drops ${target?.name ?? 'the target'} to 0 HP.`}
+      confirmLabel="Drop to 0 HP"
+      onConfirm={() => void send()}
+      onCancel={() => setConfirmZero(false)}
+    />
+    </>
   );
 }
