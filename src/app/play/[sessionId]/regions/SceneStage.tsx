@@ -104,10 +104,12 @@ export default function SceneStage({
       {/* FIX-8 (MEDIUM-1): aria-label surfaces the scene name to AT so the "Scene" kicker (now aria-hidden) doesn't duplicate it on
           screen readers. Iro Ship 2 CRITICAL-1: tabIndex={-1} + ref makes this a programmatic focus anchor — refocusSceneHeadIfStranded()
           lands here when a resolved check / taken transition unmounts the control the user was just on, and every anchored popover falls
-          back to it when its opener is gone (A9d-2 N3). In the strip it is the visible first line. */}
+          back to it when its opener is gone (A9d-2 N3). In the strip it is the visible first line. `role="group"` (A9d-2 fix round 2, Iro Minor-7):
+          ARIA 1.2 does not allow a name on a role-less generic, and this is the rescue target every popover and the stranded-focus rule lands on. */}
       <div
         ref={sceneHeadRef}
         tabIndex={-1}
+        role="group"
         className={cx(styles.sceneHead, strip.head)}
         aria-label={sceneName ? `Scene: ${sceneName}` : 'Scene'}
       >
