@@ -1294,3 +1294,64 @@ describe('TacticalMap — P2: the edge guard: a window that pans sideways stamps
     expect(hasDecl(ruleBody('board'), 'margin-inline-start')).toBe(false); // no guard on a board that does not pan
   });
 });
+
+describe('TacticalMap — what a held follow reads when it runs, and what the observer protects (from QA of P2)', () => {
+  class FakeResizeObserver {
+    static all: FakeResizeObserver[] = [];
+    constructor(public cb: () => void) {}
+    observe() { FakeResizeObserver.all.push(this); }
+    unobserve() {}
+    disconnect() { FakeResizeObserver.all = FakeResizeObserver.all.filter((o) => o !== this); }
+  }
+  const resized = () => act(() => { FakeResizeObserver.all.slice().forEach((o) => o.cb()); });
+  beforeEach(() => { FakeResizeObserver.all = []; (globalThis as { ResizeObserver?: unknown }).ResizeObserver = FakeResizeObserver; jest.useFakeTimers(); });
+  afterEach(() => { delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver; jest.useRealTimers(); });
+  const touch = [{ identifier: 1, target: document.body, clientX: 5, clientY: 5 }];
+  const aldo = makeParticipant({ participant_id: 'a', name: 'Aldo', at: [0, 0], movement_remaining: 30 });
+  const calAt = (x: number) => makeParticipant({ participant_id: 'c', name: 'Cal', is_pc: false, at: [x, 0], movement_remaining: 30 });
+  const at = (active: string, participants: CombatParticipantState[], o: Partial<TacticalMapProps> = {}) => baseProps({ space: makeSpace({ width: 10, height: 10 }), participants, viewerParticipantId: 'a', activeParticipantId: active, ...o });
+  const touchDown = (win: HTMLElement) => fireEvent.touchStart(win, { touches: touch });
+
+  it('a poll that moves the mover while a finger holds the turn follow back: it runs to where the mover IS, not where it was when the turn changed', () => {
+    const { container, rerender } = render(<TacticalMap {...at('a', [aldo, calAt(6)])} />);
+    const win = layoutP2(container, { left: 0, top: 0 });
+    touchDown(win);
+    rerender(<TacticalMap {...at('c', [aldo, calAt(6)])} />);
+    rerender(<TacticalMap {...at('c', [aldo, calAt(8)])} />);
+    expect(win.scrollLeft).toBe(0);
+    fireEvent.touchEnd(win, { touches: [] });
+    expect(win.scrollLeft).toBe(160); // columns 4-8; a follow that read the square at request time would give 80
+  });
+
+  it('a window that gets a box follows the MOVER when the grid does not hold focus, even though a square elsewhere was the last one focused', () => {
+    const { container } = render(<TacticalMap {...at('c', [aldo, calAt(6)])} />);
+    const win = container.querySelector('[data-board-window]') as HTMLElement;
+    const first = container.querySelectorAll('[role="gridcell"]')[0] as HTMLElement;
+    act(() => { first.focus(); });
+    act(() => { first.blur(); });
+    expect(container.querySelector('[role="grid"]')!.contains(document.activeElement)).toBe(false);
+    layoutP2(container, { left: 0, top: 0 });
+    resized();
+    expect(win.scrollLeft).toBe(80); // a stale focus treated as held would refuse the follow (it cuts column 0)
+  });
+
+  it('a width change while a finger holds the turn follow: the NEWER request (the re-follow, which protects the focused square) runs and the older turn follow is dropped', () => {
+    const { container, rerender } = render(<TacticalMap {...at('a', [aldo, calAt(6)])} />);
+    const win = layoutP2(container, { left: 0, top: 0 });
+    resized();
+    act(() => { (container.querySelectorAll('[role="gridcell"]')[0] as HTMLElement).focus(); });
+    touchDown(win);
+    rerender(<TacticalMap {...at('c', [aldo, calAt(6)])} />);
+    resized();
+    fireEvent.touchEnd(win, { touches: [] });
+    expect(win.scrollLeft).toBe(0); // keeping the older request would run the turn follow alone: 80, column 0 gone
+  });
+
+  it('a window that loses its box while Move is armed in flight: Escape in the same state is deaf (the exit during a submit is pinned in the F4 cases below)', () => {
+    const onExitMove = jest.fn();
+    const { container } = render(<TacticalMap {...at('a', [aldo, calAt(6)], { moveMode: true, moveSubmitting: true, onExitMove })} />);
+    layoutP2(container, { left: 0, top: 0 });
+    fireEvent.keyDown(container.querySelector('[role="grid"]')!, { key: 'Escape' });
+    expect(onExitMove).not.toHaveBeenCalled();
+  });
+});

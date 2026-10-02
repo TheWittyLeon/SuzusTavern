@@ -224,3 +224,10 @@ describe('wholeSquareCap — the sliver rule: a cut square under 8 px ends the w
     expect(wholeSquareCap(0, 30, 400)).toBeNull();
   });
 });
+
+describe('followScroll — a board that starts a guard in (16 px) snaps the scroll-back DOWN to a whole square from the board\'s start', () => {
+  it('column 1 of a board 16 px in, window 360, offset 60 -> 30: rounding to the nearest would give 60 and leave column 1 cut by 14 px', () => {
+    const w = { view: { left: 0, top: 0, width: 360, height: 90 }, scrollLeft: 60, scrollTop: 0, maxLeft: 100, maxTop: 0 };
+    expect(followScroll(w, { left: 16 + 30 - 60, top: 0, width: 30, height: 30 })).toEqual({ left: 30, top: 0 });
+  });
+});
