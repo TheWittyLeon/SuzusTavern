@@ -89,13 +89,19 @@ describe('Drawer — open=true (the desktop dialog)', () => {
 });
 
 // ── A9d-2 gate 7 (Iro A9d-1 IMPORTANT-3): the WebKit shape ────────────────────────────────────────
-import { fireEvent } from '@testing-library/react';
-import { useState } from 'react';
+import { act, fireEvent } from '@testing-library/react';
+import { useEffect, useState } from 'react';
 
 /** A page with a toggle that opens the drawer from a CLICK. jsdom, like WebKit, does not focus a button on click. */
 function Page({ withNotes = true }: { withNotes?: boolean }) {
   const [open, setOpen] = useState(false);
   const closeButtonRef = createRef<HTMLButtonElement>();
+  // a PROGRAMMATIC open (no click opened it): a `page:open` window event, as the journal opens from a state change
+  useEffect(() => {
+    const h = () => setOpen(true);
+    window.addEventListener('page:open', h);
+    return () => window.removeEventListener('page:open', h);
+  }, []);
   return (
     <>
       <button type="button" onClick={() => setOpen(true)}>Open it</button>
@@ -203,5 +209,91 @@ describe('Drawer: the trap owns EVERY Tab and Shift+Tab (Safari skips buttons in
     expect(close).toHaveFocus();
     fireEvent.keyDown(close, { key: 'Tab', shiftKey: true });
     expect(close).toHaveFocus();
+  });
+});
+
+describe('Drawer: an opener is the click that OPENED it (A9d-2 N10; Tora MINOR-5, Kage S5)', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  const openByState = () => act(() => { window.dispatchEvent(new Event('page:open')); });
+
+  it('a click older than a second opened nothing: a programmatic open after it restores focus to NOTHING, not to the old target', async () => {
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    render(<Page />);
+    fireEvent.click(screen.getByRole('button', { name: 'Other control' })); // an earlier click, unrelated
+    now.mockReturnValue(1_000_000 + 5_000);
+    openByState(); // nothing focused (WebKit, or a programmatic open)
+    await screen.findByRole('dialog');
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    expect(screen.getByRole('button', { name: 'Other control' })).not.toHaveFocus(); // (jsdom has no inert: focus stays on the hidden Close, which a browser blurs)
+  });
+
+  it('control: the same click a few milliseconds before the open IS the opener', async () => {
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    render(<Page />);
+    fireEvent.click(screen.getByRole('button', { name: 'Other control' }));
+    now.mockReturnValue(1_000_000 + 20);
+    openByState();
+    await screen.findByRole('dialog');
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    expect(screen.getByRole('button', { name: 'Other control' })).toHaveFocus();
+  });
+
+  it('a click inside a tabindex="-1" container (the scene head, main) records nothing: it is not a control the user pressed', async () => {
+    render(
+      <>
+        <div tabIndex={-1} data-testid="head"><p>Scene: the Hollow</p></div>
+        <Page />
+      </>,
+    );
+    fireEvent.click(screen.getByText('Scene: the Hollow'));
+    openByState(); // a moment later, by state: the container must not be what focus returns to
+    await screen.findByRole('dialog');
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    expect(screen.getByTestId('head')).not.toHaveFocus();
+  });
+
+  it('restoring focus asks for preventScroll: the opener can be in a scroller or off screen', async () => {
+    render(<Page />);
+    const opener = screen.getByRole('button', { name: 'Open it' });
+    opener.focus();
+    const focus = jest.spyOn(opener, 'focus');
+    fireEvent.click(opener);
+    await screen.findByRole('dialog');
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+  });
+});
+
+describe('Drawer: a Tab stop that refuses focus does not wedge the trap (Kage S5)', () => {
+  it('Tab skips a stop whose focus() does nothing and lands on the next; Shift+Tab does the same the other way', async () => {
+    render(<Page />);
+    fireEvent.click(screen.getByRole('button', { name: 'Open it' }));
+    await screen.findByRole('dialog');
+    const close = screen.getByRole('button', { name: 'Close' });
+    const notes = screen.getByLabelText('Notes');
+    // a stop between them that will not take focus
+    const stuck = document.createElement('button');
+    stuck.textContent = 'Stuck';
+    stuck.focus = () => {};
+    close.after(stuck);
+    close.focus();
+    fireEvent.keyDown(close, { key: 'Tab' });
+    expect(notes).toHaveFocus(); // not stuck on Close, forever
+    notes.focus();
+    fireEvent.keyDown(notes, { key: 'Tab', shiftKey: true });
+    expect(close).toHaveFocus();
+  });
+
+  it('when NO stop takes focus the dialog itself does, and nothing throws', async () => {
+    render(<Page withNotes={false} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Open it' }));
+    await screen.findByRole('dialog');
+    const close = screen.getByRole('button', { name: 'Close' });
+    const dialog = screen.getByRole('dialog');
+    close.focus = () => {};
+    dialog.focus();
+    expect(() => fireEvent.keyDown(dialog, { key: 'Tab' })).not.toThrow();
+    expect(dialog).toHaveFocus();
   });
 });

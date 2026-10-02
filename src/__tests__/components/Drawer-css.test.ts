@@ -85,8 +85,9 @@ describe('Drawer.module.css', () => {
       expect(strip(blockFrom('.drawer {'))).toMatch(/overscroll-behavior:\s*contain/);
     });
 
-    it('the scrim starts no touch pan: touch-action none (a tap still fires onClick)', () => {
-      expect(strip(blockFrom('.scrim {'))).toMatch(/touch-action:\s*none/);
+    it('the scrim starts no touch pan but still allows pinch-zoom: touch-action pinch-zoom, not none (a tap still fires onClick; A9d-2 N10, Tora MINOR-3)', () => {
+      expect(strip(blockFrom('.scrim {'))).toMatch(/touch-action:\s*pinch-zoom/);
+      expect(strip(blockFrom('.scrim {'))).not.toMatch(/touch-action:\s*none/);
     });
   });
 });

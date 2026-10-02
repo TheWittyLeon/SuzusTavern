@@ -53,8 +53,18 @@ export interface DrawerProps {
 const DRAWER_FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-/** What a click lands on that a user would call "the button I pressed". */
-const ACTIVATOR_SELECTOR = 'button, a[href], [role="button"], [tabindex]';
+/**
+ * What a click lands on that a user would call "the button I pressed". `[tabindex]` alone matched `tabindex="-1"` too: the scene head, `main`
+ * and every programmatic-focus anchor are such containers, so a click anywhere inside one recorded the CONTAINER as the activator (Kage S5).
+ */
+const ACTIVATOR_SELECTOR = 'button, a[href], [role="button"], [tabindex]:not([tabindex="-1"])';
+
+/**
+ * How long a recorded click stays the drawer's opener (Tora MINOR-5, Kage S5). The recorder never expired: the first open that was NOT
+ * caused by a click (a programmatic one) restored focus to whatever the last click, minutes ago, landed on. An opening click and the drawer's
+ * open effect are milliseconds apart; a click older than this opened nothing.
+ */
+const ACTIVATOR_MAX_AGE_MS = 1000;
 
 /**
  * The drawer's tab stops, in DOM order: the focusable ones a Tab can land on. A roving toolbar's inactive items
@@ -82,11 +92,11 @@ export default function Drawer({
   // opening event is the click itself: record, in the capture phase at the document, what the last click
   // landed on. The drawer is always mounted (A5), so the listener is there before any open, and no caller has
   // to hand it its opener (the party tile, the journal toggle, a third drawer's trigger).
-  const lastActivatorRef = useRef<HTMLElement | null>(null);
+  const lastActivatorRef = useRef<{ el: HTMLElement; at: number } | null>(null);
   useEffect(() => {
     const record = (e: Event) => {
       const hit = (e.target as Element | null)?.closest?.(ACTIVATOR_SELECTOR);
-      if (hit instanceof HTMLElement) lastActivatorRef.current = hit;
+      if (hit instanceof HTMLElement) lastActivatorRef.current = { el: hit, at: Date.now() };
     };
     document.addEventListener('click', record, true);
     return () => document.removeEventListener('click', record, true);
@@ -101,12 +111,14 @@ export default function Drawer({
     if (!open) return;
     // The focused element, else (WebKit after a click: <body>) what the opening click landed on.
     const active = document.activeElement as HTMLElement | null;
-    const opener = active && active !== document.body ? active : lastActivatorRef.current;
+    const click = lastActivatorRef.current;
+    const opener = active && active !== document.body ? active : click && Date.now() - click.at <= ACTIVATOR_MAX_AGE_MS ? click.el : null;
     previouslyFocusedRef.current = opener && opener.isConnected && !dialogRef.current?.contains(opener) ? opener : null;
     const t = setTimeout(() => closeButtonRef.current?.focus(), 0);
     return () => {
       clearTimeout(t);
-      previouslyFocusedRef.current?.focus?.();
+      // `preventScroll`: the opener can sit inside a scroller or off screen; a restore must not scroll the page or a band to it (Tora MINOR-5).
+      previouslyFocusedRef.current?.focus?.({ preventScroll: true });
     };
   }, [open, closeButtonRef]);
 
@@ -132,8 +144,15 @@ export default function Drawer({
           return;
         }
         const at = stops.indexOf(document.activeElement as HTMLElement);
-        const to = e.shiftKey ? (at <= 0 ? stops.length - 1 : at - 1) : at === -1 || at === stops.length - 1 ? 0 : at + 1;
-        stops[to].focus();
+        let to = e.shiftKey ? (at <= 0 ? stops.length - 1 : at - 1) : at === -1 || at === stops.length - 1 ? 0 : at + 1;
+        // A stop that REFUSES focus (hidden by a stylesheet jsdom cannot see, disabled a frame ago) must not wedge the trap: focus stayed where it
+        // was, so the next Tab computed the same target forever (Kage S5). Move on in the same direction, at most once round; failing that the dialog.
+        for (let tried = 0; tried < stops.length; tried += 1) {
+          stops[to].focus();
+          if (document.activeElement === stops[to]) return;
+          to = e.shiftKey ? (to - 1 + stops.length) % stops.length : (to + 1) % stops.length;
+        }
+        dialogRef.current.focus();
       }
     },
     [onClose],
