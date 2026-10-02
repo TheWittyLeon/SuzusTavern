@@ -135,6 +135,9 @@ const VACUITY_CHECK_EXEMPT = new Set([
   'src/app/play/[sessionId]/tenants/CastSpellTenant.tsx',
   // A9d-2 N3: the portalled surface; the Escape handling is the hook's (useAnchoredPopover.ts, scanned and NOT exempt).
   'src/components/AnchoredPopover.tsx',
+  // A9d-2 N4: the outcome chooser is an AnchoredPopover now, so its Escape is the hook's (useAnchoredPopover.ts, scanned and NOT exempt);
+  // SceneStage.tsx has no key handling of its own left. It stays in SCANNED_FILES: a raw Escape comparison added here is still caught.
+  'src/app/play/[sessionId]/regions/SceneStage.tsx',
 ]);
 
 const ESCAPE_COMPARISON_RE = /key\s*(===|!==)\s*'Escape'/g;

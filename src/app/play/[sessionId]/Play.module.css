@@ -599,7 +599,16 @@
   border-color: var(--warn);
 }
 
-/* "End combat" inline button inside combatNote. */
+/* A9d-2 N4: the status TEXT inside the combat note / all-enemies-down prompt. The box (`.combatNote`, `.autoResolvePrompt`) is the role-less
+   wrapper that holds this live node and its button as SIBLINGS (Iro 4: a button never lives inside a live region); this is the row
+   `.combatNote` itself used to be, icon and text. */
+.noteText {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* "End combat" button beside the status text, inside the combatNote box. */
 .endCombatBtn {
   margin-left: auto;
   padding: 4px 10px;
@@ -1066,14 +1075,10 @@
   padding: 0;
 }
 
-/* ── B3-1: outcome chooser ── */
+/* ── B3-1: outcome chooser ──
+   A9d-2 N4: an AnchoredPopover (components/AnchoredPopover.module.css owns its surface, position, scroll and cue). It sits INLINE in the
+   stage before: it inherited the band's clip and rendered under it. Only the column layout of the options is this rule's. */
 .outcomeChooser {
-  margin-top: -8px;
-  margin-bottom: 16px;
-  padding: var(--density-pad);
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  background: var(--card-solid, var(--bg-2));
   display: flex;
   flex-direction: column;
   gap: 6px;

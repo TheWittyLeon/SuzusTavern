@@ -3,7 +3,8 @@
 import type { RefObject, Dispatch, SetStateAction } from 'react';
 import type { EndCombatOutcome } from '@/lib/api/types';
 import Icon from '@/components/Icon';
-import { consumeEscape } from '@/lib/a11y/escapeConsume';
+import AnchoredPopover from '@/components/AnchoredPopover';
+import { useAnchoredPopover } from '@/lib/a11y/useAnchoredPopover';
 import styles from '../Play.module.css';
 
 /**
@@ -66,6 +67,22 @@ export default function SceneStage({
   sessionLocked,
   rollBusy,
 }: SceneStageProps) {
+  // A9d-2 N4 (Tora MAJOR-1, Sora lever brief 2.2): the outcome chooser is an anchored popover on EVERY row. Inline in the stage it
+  // inherited the band's clip: on a phone it rendered at y 346-718 under a band that ended at 333, so the tap on End combat looked
+  // like it did nothing. The hook owns placement, the consumed dismissing click, Escape, Tab past either end and the focus
+  // rules; End combat and Wrap up both open it, so the opener is whichever was activated (`lastOpenerRef`, recorded from the click).
+  const pop = useAnchoredPopover({
+    open: outcomeChooserOpen,
+    // Closing is gated on `!combatBusy` as the Escape path always was: an end-the-fight request in flight keeps the chooser.
+    onClose: () => { if (!combatBusy) setOutcomeChooserOpen(false); },
+    anchorRef: endCombatBtnRef,
+    openerRef: lastOpenerRef,
+    role: 'group',
+    // The first ENABLED option (Victory is disabled until an enemy is down), never Cancel.
+    initialFocus: 'button:not([disabled])',
+    // The fight ends and End combat unmounts with it: focus goes to the scene head, never <body>.
+    fallbackFocus: () => sceneHeadRef.current,
+  });
   return (
     <div data-region="sceneStage">
       {/* FIX-8 (MEDIUM-1): aria-label surfaces the scene name to AT so the
@@ -91,163 +108,104 @@ export default function SceneStage({
         </div>
       </div>
 
-      {/* Active combat: show combat note + B3-1 outcome chooser. */}
+      {/* Active combat: the status text, End combat, and (all enemies down) Wrap up. A9d-2 N4 (Iro 4): the buttons are SIBLINGS of their
+          role="status" text, never inside it (a button in a live region is re-announced when it mounts), each pair under a role-less
+          wrapper (no role, no name, no tabindex: it is `display: contents` in the phone's strip and carries the box on every other
+          row). The status nodes are stable: always rendered while their state holds, never re-created when a button mounts or unmounts. */}
       {combatIsActive ? (
         <>
-          <div className={styles.combatNote} role="status" aria-live="polite">
-            <Icon name="Sword" size={13} aria-hidden /> In combat · use the action rail in the composer
-            {/* B3-1: "End" opens the outcome chooser. Tora MAJOR-2: ref so
-                focus returns here when the chooser is dismissed via Escape. */}
+          <div className={styles.combatNote}>
+            <div className={styles.noteText} role="status" aria-live="polite">
+              <Icon name="Sword" size={13} aria-hidden /> In combat · use the action bar
+            </div>
+            {/* B3-1: "End combat" opens the outcome chooser. Tora MAJOR-2: ref so focus returns here when the chooser is dismissed. */}
             <button
               ref={endCombatBtnRef}
               type="button"
               className={styles.endCombatBtn}
               onClick={(e) => {
-                lastOpenerRef.current = e.currentTarget;
+                pop.recordOpener(e);
                 setOutcomeChooserOpen((v) => !v);
               }}
               disabled={combatBusy}
               aria-busy={combatBusy}
-              aria-haspopup="true"
-              aria-expanded={outcomeChooserOpen}
+              {...pop.anchorProps}
               aria-label="End combat — choose outcome"
             >
-              End
+              End combat
             </button>
           </div>
-          {/* F3/COMBAT-NO-AUTO-RESOLVE: advisory-only prompt (never auto-
-              resolves — the DM still picks victory/defeat/retreat/etc.).
-              Opens the SAME outcome chooser as the "End" button above. */}
+          {/* F3/COMBAT-NO-AUTO-RESOLVE: advisory-only prompt (never auto-resolves — the DM still picks victory/defeat/retreat/etc.).
+              Opens the SAME outcome chooser as the "End combat" button above. */}
           {allHostilesDown && (
-            <div className={styles.autoResolvePrompt} role="status" aria-live="polite">
-              <Icon name="Skull" size={13} aria-hidden /> All enemies are down.
+            <div className={styles.autoResolvePrompt}>
+              <div className={styles.noteText} role="status" aria-live="polite">
+                <Icon name="Skull" size={13} aria-hidden /> All enemies are down.
+              </div>
               <button
                 type="button"
                 className={styles.autoResolvePromptBtn}
                 onClick={(e) => {
-                  lastOpenerRef.current = e.currentTarget;
+                  pop.recordOpener(e);
                   setOutcomeChooserOpen(true);
                 }}
                 disabled={combatBusy}
                 aria-busy={combatBusy}
-                // Deliberately distinct wording from the "End" button's own
-                // "End combat — choose outcome" aria-label above — a shared
-                // "End combat" substring would make the two controls
-                // indistinguishable by accessible name.
+                // Deliberately distinct wording from the "End combat" button's own aria-label above — a shared "End combat" substring
+                // would make the two controls indistinguishable by accessible name.
                 aria-label="All enemies are down — wrap up the fight and choose an outcome"
               >
                 Wrap up
               </button>
             </div>
           )}
-          {/* B3-1: outcome chooser popover */}
-          {outcomeChooserOpen && (
-            <div
-              className={styles.outcomeChooser}
-              role="group"
-              aria-label="Choose combat outcome"
-              // Tora MAJOR-2: Escape closes the chooser and returns focus to
-              // the trigger. TAV-A11Y-USE-ESCAPE-CONSUME-HOOK: stopPropagation
-              // is unconditional; only the actual close stays gated on
-              // `!combatBusy`.
-              onKeyDown={(e) =>
-                consumeEscape(e, {
-                  onClose: () => setOutcomeChooserOpen(false),
-                  canClose: !combatBusy,
-                  // Iro MAJOR-1: refocus whichever control actually opened
-                  // the chooser ("End" or "Wrap up"), falling back to
-                  // endCombatBtnRef if it was somehow opened without going
-                  // through an onClick.
-                  onRefocus: () => (lastOpenerRef.current ?? endCombatBtnRef.current)?.focus(),
-                })
-              }
+          {/* B3-1: the outcome chooser: an anchored popover on every row (A9d-2 N4), a named group, never aria-modal. */}
+          <AnchoredPopover pop={pop} role="group" label="Choose combat outcome" className={styles.outcomeChooser}>
+            <div className={styles.outcomeChooserLabel}>How does this fight end?</div>
+            {(
+              [
+                { key: 'victory' as EndCombatOutcome, label: 'Victory', sub: 'You finished the foes.', disabled: !anyMonsterDown, disabledTip: 'No enemies are down yet.' },
+                { key: 'retreat' as EndCombatOutcome, label: 'Retreat', sub: 'Fall back; you live to fight again.', disabled: false, disabledTip: undefined },
+                { key: 'parley' as EndCombatOutcome, label: 'Parley', sub: 'Talk it out.', disabled: false, disabledTip: undefined },
+                { key: 'flee' as EndCombatOutcome, label: 'Flee', sub: 'Run; consequences possible.', disabled: false, disabledTip: undefined },
+                { key: 'unresolved' as EndCombatOutcome, label: 'Unresolved', sub: 'End the fight without a verdict.', disabled: false, disabledTip: undefined },
+              ] as { key: EndCombatOutcome; label: string; sub: string; disabled: boolean; disabledTip?: string }[]
+            ).map(({ key, label, sub, disabled, disabledTip }) => {
+              // Iro HIGH-2: each disabled option gets a visually-hidden description so the reason is conveyed to AT (title= is not reliably read).
+              const tipId = disabledTip ? `outcome-tip-${key}` : undefined;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  className={styles.outcomeOption}
+                  onClick={() => onEndCombat(key)}
+                  disabled={combatBusy || disabled}
+                  aria-disabled={disabled || combatBusy}
+                  aria-describedby={disabled && tipId ? tipId : undefined}
+                >
+                  <span className={styles.outcomeLabel}>{label}</span>
+                  <span className={styles.outcomeSub}>{sub}</span>
+                  {disabled && disabledTip && <span id={tipId} className="sr-only">{disabledTip}</span>}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              className={styles.outcomeCancel}
+              // The hook's close rule returns focus to whichever control opened the chooser ("End combat" or "Wrap up").
+              onClick={() => setOutcomeChooserOpen(false)}
+              disabled={combatBusy}
             >
-              <div className={styles.outcomeChooserLabel}>How does this fight end?</div>
-              {(
-                [
-                  {
-                    key: 'victory' as EndCombatOutcome,
-                    label: 'Victory',
-                    sub: 'You finished the foes.',
-                    disabled: !anyMonsterDown,
-                    disabledTip: 'No enemies are down yet.',
-                  },
-                  {
-                    key: 'retreat' as EndCombatOutcome,
-                    label: 'Retreat',
-                    sub: 'Fall back; you live to fight again.',
-                    disabled: false,
-                    disabledTip: undefined,
-                  },
-                  {
-                    key: 'parley' as EndCombatOutcome,
-                    label: 'Parley',
-                    sub: 'Talk it out.',
-                    disabled: false,
-                    disabledTip: undefined,
-                  },
-                  {
-                    key: 'flee' as EndCombatOutcome,
-                    label: 'Flee',
-                    sub: 'Run; consequences possible.',
-                    disabled: false,
-                    disabledTip: undefined,
-                  },
-                  {
-                    key: 'unresolved' as EndCombatOutcome,
-                    label: 'Unresolved',
-                    sub: 'End the fight without a verdict.',
-                    disabled: false,
-                    disabledTip: undefined,
-                  },
-                ] as {
-                  key: EndCombatOutcome;
-                  label: string;
-                  sub: string;
-                  disabled: boolean;
-                  disabledTip?: string;
-                }[]
-              ).map(({ key, label, sub, disabled, disabledTip }) => {
-                // Iro HIGH-2: each disabled option gets a visually-hidden description
-                // so the reason is conveyed to AT (title= is not reliably read).
-                const tipId = disabledTip ? `outcome-tip-${key}` : undefined;
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    className={styles.outcomeOption}
-                    onClick={() => onEndCombat(key)}
-                    disabled={combatBusy || disabled}
-                    aria-disabled={disabled || combatBusy}
-                    aria-describedby={disabled && tipId ? tipId : undefined}
-                  >
-                    <span className={styles.outcomeLabel}>{label}</span>
-                    <span className={styles.outcomeSub}>{sub}</span>
-                    {disabled && disabledTip && (
-                      <span id={tipId} className="sr-only">{disabledTip}</span>
-                    )}
-                  </button>
-                );
-              })}
-              <button
-                type="button"
-                className={styles.outcomeCancel}
-                onClick={() => {
-                  setOutcomeChooserOpen(false);
-                  // Iro MAJOR-1: same opener-aware refocus as the Escape path above.
-                  (lastOpenerRef.current ?? endCombatBtnRef.current)?.focus();
-                }}
-                disabled={combatBusy}
-              >
-                Cancel
-              </button>
-            </div>
-          )}
+              Cancel
+            </button>
+          </AnchoredPopover>
         </>
       ) : activeEncounterId ? (
         // Between fights but encounter_id still set — shouldn't happen post-fix.
-        <div className={styles.combatNote} role="status" aria-live="polite">
-          <Icon name="Sword" size={13} aria-hidden /> Combat ended
+        <div className={styles.combatNote}>
+          <div className={styles.noteText} role="status" aria-live="polite">
+            <Icon name="Sword" size={13} aria-hidden /> Combat ended
+          </div>
         </div>
       ) : sceneHasEncounter ? (
         // No combat at all, AND the current scene has an authored combat
