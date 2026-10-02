@@ -272,10 +272,11 @@ describe('A9c C4 / A9d E2 — no region remounts across all 30 ordered row x mom
  * seam goes red. Token notation: `°` hidden slot, `▲` overlay.
  */
 const ORDER_PIN: Record<string, string> = {
-  'story/exploring': 'safetyBanner topBar partyStrip suzuPresence storyLog sceneStage offers composer actionBar',
+  // A10 step 11 round 3 (named exception: the offers moved last in both exploring rows, Aoi's order story -> text box -> X-card -> offers)
+  'story/exploring': 'safetyBanner topBar partyStrip suzuPresence storyLog sceneStage composer actionBar offers',
   'story/combat': 'safetyBanner topBar partyStrip suzuPresence sceneStage storyLog offers° composer actionBar',
   'table/exploring':
-    'safetyBanner partyStrip topBar▲ sceneStage characterBlock suzuPresence storyLog offers composer actionBar',
+    'safetyBanner partyStrip topBar▲ sceneStage characterBlock suzuPresence storyLog composer actionBar offers',
   'table/combat':
     'safetyBanner partyStrip topBar▲ sceneStage characterBlock suzuPresence storyLog offers° composer actionBar',
   'phone/exploring': 'safetyBanner topBar suzuPresence partyStrip sceneStage storyLog offers composer actionBar',

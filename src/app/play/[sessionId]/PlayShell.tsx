@@ -170,6 +170,11 @@ const LANDMARKS: Partial<Record<RegionId, LandmarkSpec>> = {
   },
 };
 
+/** The name of a region whose slot is a bounded scroller (`Placement.scrolls`): a named, keyboard-reachable group (A10 step 11 round 3). Not a landmark: the landmark count is a contract (LANDMARKS). */
+export const SCROLL_REGION_NAMES: Partial<Record<RegionId, string>> = {
+  characterBlock: 'Character sheet',
+};
+
 /** In-page skip targets beyond the global "Skip to main content" (layout.tsx).
  *  Keyed by region so a link is rendered only while its target is a visible
  *  slot; the id lives on the slot element, the label here. */
@@ -271,6 +276,7 @@ export default function PlayShell({
         regionNode
       );
     const Tag = landmark?.as ?? 'div';
+    const scrollName = getPlacement(row, regionId, moment).scrolls === true ? SCROLL_REGION_NAMES[regionId] : undefined;
     const slotClass = [
       styles.slot,
       landmark?.layoutClassName,
@@ -284,8 +290,9 @@ export default function PlayShell({
       <Tag
         key={regionId}
         id={landmark?.id ?? SKIP_TARGETS[regionId]?.id}
-        tabIndex={landmark?.tabIndex ?? (SKIP_TARGETS[regionId] ? -1 : undefined)}
-        aria-label={landmark?.['aria-label']}
+        tabIndex={landmark?.tabIndex ?? (SKIP_TARGETS[regionId] ? -1 : scrollName ? 0 : undefined)}
+        role={scrollName ? 'group' : undefined}
+        aria-label={landmark?.['aria-label'] ?? scrollName}
         className={slotClass}
         style={area == null ? undefined : { gridArea: area }}
         data-region-slot={regionId}

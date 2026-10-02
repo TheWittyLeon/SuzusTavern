@@ -396,6 +396,12 @@ export interface Placement {
    *  on an `ANNOUNCING_REGIONS` member — see file header. */
   visible?: boolean;
   collapsible?: boolean;
+  /**
+   * A10 step 11 round 3 (Iro; Aoi's "Which Band Pays"): this region's slot is a BOUNDED scroller (Table's character sheet stops at the story log and scrolls inside itself). The shell
+   * names it (`SCROLL_REGION_NAMES` in PlayShell) and makes it a keyboard stop (`tabindex=0`, `role="group"`), so its text has a keyboard path: a nested scroller with no name and no stop
+   * hides its overflow from a keyboard user (WCAG 2.1.1). Only a region with a name there may say it (a registry guard).
+   */
+  scrolls?: boolean;
   /** Rendered as an overlay, outside the grid (D1). When true, `area` is
    *  always null — a layer has no grid position to speak of. */
   layer?: boolean;
@@ -692,12 +698,16 @@ const STORY_ROW: LayoutRow = {
   // `minmax(0, var(--play-body, 0px))` (the body: `--play-body` is a count of `--play-cell`s, set by the `room` fact below). The old line was a hand-summed
   // `fit-content(290px)` (52 of strip + 238 of body, re-derived whenever the chrome changed); this one is the strip and the body, each its own number.
   rows: {
-    exploring: 'auto auto minmax(0,1fr) auto auto max-content',
+    // A10 step 11 round 3 (Aoi's rule, "Which Band Pays", Iro MAJOR-1 / Kage Tavern 4 for Table, the same shape here): banner, top bar, LOG, composer, action bar, offers. The log is a FLOOR
+    // and every band beside it is WHOLE (`max-content`): with the floor added and the two top tracks left `auto` the grid squeezes the header (the log's top moved from y 145 to 36: the
+    // title bar and the party strip were clipped, not scrolled; the A9c-2 D0 lesson again). A page that cannot afford the floor and the bands scrolls, and what falls under the fold falls
+    // from the bottom up: the offers first, then the X-card, the text box last.
+    exploring: `max-content max-content minmax(var(--play-floor,${DESKTOP_EXPLORING_LOG_FLOOR}),1fr) max-content max-content max-content`,
     // banner, top bar, scene line, body, log, composer, action bar: the classes above (A10 fix round: it was `auto auto max-content minmax(0,body) minmax(0,1fr) auto max-content`).
     combat: `max-content max-content max-content minmax(var(--play-body-floor,0px),var(--play-body,0px)) minmax(var(--play-floor,${DESKTOP_COMBAT_LOG_FLOOR}),1fr) max-content max-content`,
   },
-  // The banner floor of the log's class (the phone's shape: `--play-banner-floor`, read by the shell's banner yield). Exploring has no body to yield and no floor.
-  momentVars: { combat: { '--play-banner-floor': DESKTOP_COMBAT_BANNER_FLOOR } },
+  // The banner floor of the log's class (the phone's shape: `--play-banner-floor`, read by the shell's banner yield), for both moments: the exploring log is a floor too (round 3).
+  momentVars: { exploring: { '--play-banner-floor': DESKTOP_EXPLORING_BANNER_FLOOR }, combat: { '--play-banner-floor': DESKTOP_COMBAT_BANNER_FLOOR } },
   // The board's size is data (F.3): 34px squares (Aoi's pictures are drawn at 34; 35 fits too, and one size on both layouts means a Story <-> Table
   // switch mid-fight does not rescale the board), 7 rows in Story (R19), a short band of 3 for a fight with no board (#44 question 4: ruling it
   // out is `band` taking `board`'s value), nothing while exploring (Story's exploring stage is a `panel`, which has no body).
@@ -711,12 +721,13 @@ const STORY_ROW: LayoutRow = {
     },
   },
   areas: {
+    // Aoi's order (round 3): the story, the text box, the X-card, the offers last. DOM and focus order follow it (slotOrder walks the areas): story, composer, X-card, offers.
     exploring: `"safetyBanner safetyBanner safetyBanner"
                 "topBar       topBar       partyStrip"
                 "suzuPresence storyLog     sceneStage"
-                "suzuPresence offers       sceneStage"
                 "suzuPresence composer     sceneStage"
-                "suzuPresence actionBar    sceneStage"`,
+                "suzuPresence actionBar    sceneStage"
+                "suzuPresence offers       sceneStage"`,
     // Plan §3.2's illustrative snippet says combat "adds actionBar" —
     // stale: `actionBar` is placed in BOTH moments (Kage-CR Q1 ruling,
     // see the `regions.actionBar` entry below); only its variant changes.
@@ -844,13 +855,16 @@ const TABLE_ROW: LayoutRow = {
     },
   },
   areas: {
+    // V2 (Aoi's "Which Band Pays", Leon's #54 = `sheet`): the text box, the X-card and the offers take the FULL width under the story, and the character sheet stops at the story log
+    // and scrolls inside itself (a named, keyboard-reachable region: `scrolls` on its placement). At 1024x768 the page then does not scroll (it scrolled 127) and the text box is 522 wide
+    // (360 beside the sheet); what cannot fit falls from the bottom up, the offers first.
     exploring: `"safetyBanner safetyBanner safetyBanner safetyBanner"
                 "partyStrip   sceneStage   sceneStage   characterBlock"
                 "partyStrip   sceneStage   sceneStage   characterBlock"
                 "partyStrip   suzuPresence storyLog     characterBlock"
-                "partyStrip   suzuPresence offers       characterBlock"
-                "partyStrip   suzuPresence composer     characterBlock"
-                "partyStrip   actionBar    actionBar    actionBar"`,
+                "partyStrip   composer     composer     composer"
+                "partyStrip   actionBar    actionBar    actionBar"
+                "partyStrip   offers       offers       offers"`,
     combat: `"safetyBanner safetyBanner safetyBanner safetyBanner"
              "partyStrip   sceneStage   sceneStage   characterBlock"
              "partyStrip   sceneStage   sceneStage   characterBlock"
@@ -876,7 +890,7 @@ const TABLE_ROW: LayoutRow = {
       default: { area: 'offers', variant: 'chips' },
       combat: { area: null, visible: false },
     },
-    characterBlock: { default: { area: 'characterBlock', variant: 'full', collapsible: true } },
+    characterBlock: { default: { area: 'characterBlock', variant: 'full', collapsible: true, scrolls: true } },
     // Amendment B.3 (🟡-7): `'bar'`, Table's bottom-always treatment.
     actionBar: { default: { area: 'actionBar', variant: 'bar' } },
     // A10 step 11 (S1): the stage is `hero` in BOTH moments here, so the dice are never its tenant: Roll, in both (see Story's composer).

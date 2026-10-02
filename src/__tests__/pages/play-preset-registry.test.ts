@@ -673,12 +673,13 @@ function normalizeAreas(areasValue: string): string {
 describe('TAV-PLAY-SHELL presets.ts — row geometry is pinned as a literal (🟡-3)', () => {
   it('story/exploring', () => {
     expect(normalizeAreas(LAYOUT_ROWS_BY_ID.story.areas.exploring)).toBe(
+      // A10 step 11 round 3 (named exception): Aoi's order, the text box, the X-card, then the offers last; the stage panel keeps its height down the right.
       normalizeAreas(`"safetyBanner safetyBanner safetyBanner"
                 "topBar       topBar       partyStrip"
                 "suzuPresence storyLog     sceneStage"
-                "suzuPresence offers       sceneStage"
                 "suzuPresence composer     sceneStage"
-                "suzuPresence actionBar    sceneStage"`),
+                "suzuPresence actionBar    sceneStage"
+                "suzuPresence offers       sceneStage"`),
     );
   });
 
@@ -698,14 +699,15 @@ describe('TAV-PLAY-SHELL presets.ts — row geometry is pinned as a literal (�
 
   it('table/exploring', () => {
     expect(normalizeAreas(LAYOUT_ROWS_BY_ID.table.areas.exploring)).toBe(
-      // A10 step 11 S2b (named exception): the stage's second line, as Story's combat above.
+      // A10 step 11 S2b (named exception): the stage's second line, as Story's combat above. Round 3 (named exception, #54 = `sheet`, Aoi's V2): the sheet stops at the story log and the
+      // text box, the X-card and the offers take the full width under it, in that order.
       normalizeAreas(`"safetyBanner safetyBanner safetyBanner safetyBanner"
                 "partyStrip   sceneStage   sceneStage   characterBlock"
                 "partyStrip   sceneStage   sceneStage   characterBlock"
                 "partyStrip   suzuPresence storyLog     characterBlock"
-                "partyStrip   suzuPresence offers       characterBlock"
-                "partyStrip   suzuPresence composer     characterBlock"
-                "partyStrip   actionBar    actionBar    actionBar"`),
+                "partyStrip   composer     composer     composer"
+                "partyStrip   actionBar    actionBar    actionBar"
+                "partyStrip   offers       offers       offers"`),
     );
   });
 
@@ -904,11 +906,11 @@ describe('TAV-PLAY-SHELL presets.ts — the track classes: every track of a floo
     expect(classProblems(LAYOUT_ROWS)).toEqual([]);
   });
 
-  it('the cells it judges are every floored row x moment (both phone moments, Story combat, Table both: exploring has a floored log since fix round 2), and Story exploring is the one that is not class-based (a new row with no floor is a visible edit here)', () => {
+  it('every row x moment is class-based now: the cells judged are all six (both phone moments, both moments of Story and of Table), and none is exempt (round 3 removed Story exploring\'s exemption; a new row with no floor is a red here)', () => {
+    const all = LAYOUT_ROWS.flatMap((row) => MOMENTS.map((m) => `${row.id}/${m}`));
     const judged = LAYOUT_ROWS.flatMap((row) => MOMENTS.filter((m) => trackList(row.rows[m]).some((t) => FLOOR.test(t))).map((m) => `${row.id}/${m}`));
-    expect(judged).toEqual(['story/combat', 'table/exploring', 'table/combat', 'phone/exploring', 'phone/combat']);
-    const classless = LAYOUT_ROWS.flatMap((row) => MOMENTS.filter((m) => !trackList(row.rows[m]).some((t) => FLOOR.test(t))).map((m) => `${row.id}/${m}`));
-    expect(classless).toEqual(['story/exploring']);
+    expect(judged).toEqual(all);
+    expect(judged.sort()).toEqual(['phone/combat', 'phone/exploring', 'story/combat', 'story/exploring', 'table/combat', 'table/exploring']);
   });
 
   it('the literals: Story combat and Table combat, track by track, with the floor written from its tokens (210 + 3 x --density-gap + 30 status; 100 + the same for the banner)', () => {
@@ -929,8 +931,18 @@ describe('TAV-PLAY-SHELL presets.ts — the track classes: every track of a floo
       'max-content',
       'max-content',
     ]);
-    // the exploring rows are untouched: no body to yield there
-    expect(trackList(LAYOUT_ROWS_BY_ID.story.rows.exploring)).toEqual(['auto', 'auto', 'minmax(0,1fr)', 'auto', 'auto', 'max-content']);
+    // A10 step 11 round 3 (named exception: this was `['auto','auto','minmax(0,1fr)','auto','auto','max-content']`, "the exploring rows are untouched"): Story exploring is the same class row as Table's:
+    // whole bands (an `auto` top track beside a floored log is squeezed: the header was clipped at y 36), the log a floor (240 inner + 3 gaps + the 46px recap), the offers last.
+    expect(trackList(LAYOUT_ROWS_BY_ID.story.rows.exploring)).toEqual([
+      'max-content', // safety banner
+      'max-content', // top bar + party strip
+      'minmax(var(--play-floor,calc(240px + 3 * var(--density-gap) + 46px)),1fr)', // the log
+      'max-content', // composer
+      'max-content', // action bar (the X-card)
+      'max-content', // offers
+    ]);
+    // the Table row's exploring tracks: the same classes (it has the stage's two lines on top)
+    expect(trackList(LAYOUT_ROWS_BY_ID.table.rows.exploring).filter((t) => t !== 'max-content')).toHaveLength(2);
   });
 
   it('a floor is its inner log plus the slot\'s chrome WRITTEN FROM THE GAP TOKEN, never a sum at the default gap (Kage Tavern 3: 288 held 210 inner at the default density only; `airy` 186, `compact` 228)', () => {
@@ -1034,7 +1046,7 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
     expect(Object.keys(LAYOUT_ROWS_BY_ID.table.vars ?? {}).filter((k) => k.startsWith('--play-slot'))).toEqual([]);
   });
 
-  it('the phone row carries a banner floor per moment (exploring pays the recap chrome, combat the status line); Story carries one for combat only, Table for both (its exploring log is a floor)', () => {
+  it('the phone row carries a banner floor per moment (exploring pays the recap chrome, combat the status line); both desktop rows carry one for both moments (their exploring log is a floor, round 3)', () => {
     expect(LAYOUT_ROWS_BY_ID.phone.momentVars).toEqual({
       // 152 = 88 + 64 (exploring chrome: 12 edge + 6 gap + 46 recap); 136 = 88 + 48 (combat). The reflow minimum is gone with the stage's fold.
       exploring: { '--play-banner-floor': '152px' },
@@ -1043,8 +1055,11 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
     // A10 fix round F1 (named exception: these two were `toBeUndefined`, "desktop rows carry none"). The desktop combat rows are floored now: 178 = 100 inner (the
     // harness's banner-up combat floor) + 78 of the story slot's chrome. Exploring has no body to yield and carries none.
     // A10 fix round 2 (named exception: these two were the literal '178px'): the floor is written from the gap token, so `airy` and `compact` keep 100 inner.
-    expect(LAYOUT_ROWS_BY_ID.story.momentVars).toEqual({ combat: { '--play-banner-floor': 'calc(100px + 3 * var(--density-gap) + 30px)' } });
-    // Table EXPLORING has one too (fix round 2: its log is a floor, so the banner's yield reads a value: the shell's `--play-floor: var(--play-banner-floor, 0px)` would be a floor of 0 without it)
+    expect(LAYOUT_ROWS_BY_ID.story.momentVars).toEqual({
+      exploring: { '--play-banner-floor': 'calc(230px + 3 * var(--density-gap) + 46px)' },
+      combat: { '--play-banner-floor': 'calc(100px + 3 * var(--density-gap) + 30px)' },
+    });
+    // Exploring has one too (fix round 2 for Table, round 3 for Story: the log is a floor, so the banner's yield reads a value: the shell's `--play-floor: var(--play-banner-floor, 0px)` would be a floor of 0 without it)
     expect(LAYOUT_ROWS_BY_ID.table.momentVars).toEqual({
       exploring: { '--play-banner-floor': 'calc(230px + 3 * var(--density-gap) + 46px)' },
       combat: { '--play-banner-floor': 'calc(100px + 3 * var(--density-gap) + 30px)' },
