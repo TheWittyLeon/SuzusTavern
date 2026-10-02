@@ -213,9 +213,10 @@
   margin-bottom: 6px;
 }
 
-/* Engine-refused action reason (non-colour-only, always visible as text). */
+/* Engine-refused action reason (non-colour-only, always visible as text). 12px (A9d-2 N10, Iro Minor-4): it is the DM's only recovery
+   instruction when a monster's turn will not run, and it was the smallest text in the bar. */
 .refusedReason {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--bad-ink);
   padding: 4px 0 6px;
   display: flex;

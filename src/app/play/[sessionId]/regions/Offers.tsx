@@ -58,7 +58,9 @@ export interface OffersProps {
  * A9d-2 (Iro A9d-1 IMPORTANT-2): in `rows` each group is a horizontal scroller, and a chip the keyboard lands on
  * that is only PARTLY visible is left where it is (Chromium and WebKit scroll a focused element into view only
  * when it is wholly hidden), half under the edge fade with its ring clipped. Focus brings it wholly in:
- * `nearest` on both axes moves nothing that is already visible, and never the page vertically. Other variants
+ * `nearest` on both axes moves nothing that is already wholly visible. It CAN scroll the page vertically: a chip partly outside the
+ * viewport (a reflow page, where the offers row sits under the fold) is brought wholly in on that axis too, which is right for keyboard focus
+ * and measured (Chromium touch: the row jumped 168px and the tap still landed on the chip it was aimed at; Tora MINOR-6). Other variants
  * wrap or stack: nothing scrolls, nothing to do. (jsdom has no scrollIntoView: optional call.)
  */
 function scrollChipIntoView(e: FocusEvent<HTMLButtonElement>) {
