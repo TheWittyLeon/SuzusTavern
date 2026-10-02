@@ -504,14 +504,14 @@ export default function TacticalMap({
   // rather than draw a board this mirror doesn't understand.
   //
   // Kage-CR B8c-3a CRITICAL-1 (2026-09-29, ledger item 16): this is now the
-  // component's ONE seam for space usability — `isSpaceUsable` (reach.ts)
+  // component's ONE seam for space usability — `isSpaceUsable` (reach.ts, called once above as `usable`)
   // is a type predicate, so everything below this line (the per-cell
   // `chebyshevCost` call included) runs only on a `CombatSpace` with a
   // real, finite, positive `cell.value`. The old `space.kind !== 'square'`
   // check never validated `cell` at all, so a wire-reachable `cell: null`
   // (key-presence-only projection gate, engine/combat.py:7361-7364 @
   // 3a5d18b) reached `chebyshevCost` and threw `TypeError` at render.
-  if (!isSpaceUsable(space)) {
+  if (!usable) {
     if (participants.length === 0) return null;
     return <TheatreOfMindBand participants={participants} className={className} />;
   }

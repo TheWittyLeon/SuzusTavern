@@ -721,3 +721,24 @@ describe('TacticalMap — the follow rule: the fewest whole squares on the axis 
     });
   });
 });
+
+// ── the Move sync's cause ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Kept from Kage-CR's B8c-3 re-verify: the one write site of the focus state whose cause no other case distinguishes. Mutation: the sync writes `native` -> red.
+describe('TacticalMap — Move engaged and the grid holding focus: the mover\'s own move landing takes DOM focus to the token\'s new square (the `sync` cause)', () => {
+  const sixBySix = () => makeSpace({ width: 6, height: 6 });
+  const bren = (o: Partial<CombatParticipantState> = {}) => makeParticipant({ name: 'Bren', at: [1, 1], movement_remaining: 30, ...o });
+  const engaged = (o: Partial<TacticalMapProps> = {}) => baseProps({ space: sixBySix(), participants: [bren()], moveMode: true, ...o });
+
+  it('focus and the roving stop are on the token\'s new square, and there is exactly one stop', () => {
+    const { rerender, container } = render(<TacticalMap {...engaged()} />);
+    const start = screen.getByRole('gridcell', { name: /Bren — you/ });
+    expect(document.activeElement).toBe(start); // Move engaged took focus in
+    fireEvent.keyDown(start, { key: 'ArrowRight' });
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'ArrowRight' }); // the cursor is on [3,1]; the move lands on [2,1]
+    rerender(<TacticalMap {...engaged({ participants: [bren({ at: [2, 1], movement_remaining: 25 })] })} />);
+    const token = screen.getByRole('gridcell', { name: /Bren — you/ });
+    expect(token).toHaveAttribute('tabindex', '0');
+    expect(container.querySelectorAll('[role="gridcell"][tabindex="0"]')).toHaveLength(1);
+    expect(document.activeElement).toBe(token);
+  });
+});
