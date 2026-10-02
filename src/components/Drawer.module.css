@@ -33,7 +33,10 @@
   /* A9d-2 (Tora A9d-1 MAJOR-2): the scrim is not a scroller, so a drag on it scrolled the page behind
      the drawer. No touch pan starts here; a tap still fires onClick (close). A9d-2 N10 (Tora MINOR-3): `none` also blocked pinch-zoom over the
      scrim (WCAG 1.4.4), and the page is zoomable everywhere else. `pinch-zoom` allows exactly that and no pan. (WebKit's support for the value
-     is inferred, not run: the hardware pass names a pinch on the scrim.) */
+     is inferred, not run: the hardware pass names a pinch on the scrim.) A9d-2 fix round 2 (Tora MINOR-3): a browser that does not know
+     `pinch-zoom` drops that declaration and would fall back to `auto`, so the page pans behind the scrim; the line above is the fallback
+     (no touch pan at all, the pre-N10 behaviour). */
+  touch-action: none;
   touch-action: pinch-zoom;
 }
 

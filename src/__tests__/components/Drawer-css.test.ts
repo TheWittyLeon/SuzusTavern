@@ -85,9 +85,11 @@ describe('Drawer.module.css', () => {
       expect(strip(blockFrom('.drawer {'))).toMatch(/overscroll-behavior:\s*contain/);
     });
 
-    it('the scrim starts no touch pan but still allows pinch-zoom: touch-action pinch-zoom, not none (a tap still fires onClick; A9d-2 N10, Tora MINOR-3)', () => {
-      expect(strip(blockFrom('.scrim {'))).toMatch(/touch-action:\s*pinch-zoom/);
-      expect(strip(blockFrom('.scrim {'))).not.toMatch(/touch-action:\s*none/);
+    it('the scrim starts no touch pan but still allows pinch-zoom: the LAST touch-action is pinch-zoom (a tap still fires onClick; A9d-2 N10, Tora MINOR-3), with `none` as the fallback line before it for a browser that drops the value (A9d-2 fix round 2, Tora MINOR-3)', () => {
+      // This case used to say `not none`. `none` is now the fallback declaration; what must hold is that it is overridden: pinch-zoom is declared AFTER it,
+      // so wherever pinch-zoom parses it is the computed value (the harness's q:overscroll measures 'pinch-zoom' on both engines).
+      const decls = [...strip(blockFrom('.scrim {')).matchAll(/touch-action:\s*([a-z-]+)\s*;/g)].map((m) => m[1]);
+      expect(decls).toEqual(['none', 'pinch-zoom']);
     });
   });
 });
