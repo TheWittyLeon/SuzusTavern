@@ -263,6 +263,40 @@ export const COMBAT_REFUSAL_REASON_MAP: Record<string, string> = {
 };
 
 /**
+ * How the DM tab's monster-turn driver treats a failed `/monster-turn` (A9d-2 N2, Kage I-1). DECIDED HERE, beside the vocabulary,
+ * and never by membership of `COMBAT_REFUSAL_REASON_MAP`: that map is player-facing COPY, and a driver that asked "is there copy for
+ * it?" made every curated reason terminal by accident (`db_unavailable` was never retried and told the DM "try again in a moment"
+ * with nothing to press; `not_a_monsters_turn` was SHOWN to the DM during the player's turn). The two classes:
+ *
+ *   stale  the turn this tab asked about is no longer the monster's (it moved on, the combat ended, the combat is gone): the answer
+ *          carries the CURRENT state when it has one, the driver takes it, SAYS NOTHING and does not ask again for this turn.
+ *   fault  everything else, listed or not: asked again on the next poll up to the per-turn cap; a reasoned one is SAID at once (and the
+ *          line is cleared if a retry succeeds), a reasonless one when the cap runs out. `monster_statblock_unresolved` is a fault:
+ *          the engine's FAULT class covers a transient content read, and the refusal writes nothing, so asking again is safe.
+ *
+ * A reason is `fault` unless this table says `stale`, so the next curated reason is retried and said, never silently terminal.
+ */
+export type MonsterTurnFailureClass = 'stale' | 'fault';
+export const MONSTER_TURN_REASON_CLASS: Readonly<Record<string, MonsterTurnFailureClass>> = Object.freeze({
+  // the turn is not the monster's any more
+  no_combat: 'stale',
+  no_active_turn: 'stale',
+  not_a_monsters_turn: 'stale',
+  combat_over: 'stale',
+  not_found: 'stale',
+  // a fault: the engine could not run the turn, and nothing was written
+  monster_statblock_unresolved: 'fault',
+  db_unavailable: 'fault',
+  error: 'fault',
+});
+
+/** The class of a failed `/monster-turn`: an HTTP 404 is always stale (the combat is gone); otherwise by the table; otherwise a fault. */
+export function monsterTurnFailureClass(status: number | undefined, reason: string | undefined): MonsterTurnFailureClass {
+  if (status === 404) return 'stale';
+  return (reason !== undefined ? MONSTER_TURN_REASON_CLASS[reason] : undefined) ?? 'fault';
+}
+
+/**
  * Cast refusals for CastSpellPanel. Same completeness rationale as the combat
  * map — sourced from `engine.spells.SPELL_REASON_STATUS`.
  */
