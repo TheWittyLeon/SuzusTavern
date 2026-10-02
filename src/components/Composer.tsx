@@ -57,9 +57,9 @@ export interface ComposerProps {
    *  Optional — every other caller is unaffected. */
   textareaAnchorRef?: RefObject<HTMLTextAreaElement | null>;
   /**
-   * A9d-2 N7 (Amendment E.4): `full` (the default) is the composer as it always was. `roll` (the phone) puts `tools` (the Roll control, which
-   * opens the dice) at the END of the mode row: DOM order modes, Roll, textarea, send; two rows at every phone width, the mode row never
-   * wrapping. `tools` is painted only by `roll`.
+   * A9d-2 N7 (Amendment E.4): `full` (the default) is the composer as it always was. `roll` (the phone, and a `hero` stage's rows: A10 S1) puts `tools` (the
+   * Roll control, which opens the dice) at the END of the mode row: DOM order modes, Roll, textarea, send; the mode row never wraps. Two rows at
+   * the phone's width (its own line), ONE where the composer has the room (the desktop rows). `tools` is painted only by `roll`.
    */
   variant?: RegionVariant<'composer'>;
   tools?: ReactNode;

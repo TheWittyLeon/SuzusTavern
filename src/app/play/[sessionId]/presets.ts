@@ -682,7 +682,10 @@ const STORY_ROW: LayoutRow = {
     // to act in Story-combat either way. Placed in BOTH moments; `areas`
     // strings already carry the token, unchanged.
     actionBar: { default: { area: 'actionBar', variant: 'chips' } },
-    composer: { default: { area: 'composer', variant: 'full' } },
+    // A10 step 11 (S1; Sora's brief 3.1, Amendment F.4): a `hero` stage hosts no tenant, so the dice leave it with the fight. Exploring keeps the
+    // tray in the `panel` stage (`full`); in combat the stage is `hero` and the dice open from Roll in the composer's mode row, as on the phone.
+    // One node, two homes, chosen by the row: the tray remounts at the combat edge, and `advantage` lives in the page and survives it.
+    composer: { default: { area: 'composer', variant: 'full' }, combat: { area: 'composer', variant: 'roll' } },
     tableControls: { default: { area: null, layer: true } },
     safetyBanner: { default: { area: 'safetyBanner' } },
   },
@@ -764,7 +767,8 @@ const TABLE_ROW: LayoutRow = {
     characterBlock: { default: { area: 'characterBlock', variant: 'full', collapsible: true } },
     // Amendment B.3 (🟡-7): `'bar'`, Table's bottom-always treatment.
     actionBar: { default: { area: 'actionBar', variant: 'bar' } },
-    composer: { default: { area: 'composer', variant: 'full' } },
+    // A10 step 11 (S1): the stage is `hero` in BOTH moments here, so the dice are never its tenant: Roll, in both (see Story's composer).
+    composer: { default: { area: 'composer', variant: 'roll' } },
     tableControls: { default: { area: null, layer: true } },
     safetyBanner: { default: { area: 'safetyBanner' } },
   },
@@ -887,7 +891,8 @@ const PHONE_ROW: LayoutRow = {
     // action bar in combat".
     actionBar: { default: { area: 'actionBar', variant: 'bar' } },
     // A9d-2 N7 (Amendment E.4): the Roll control sits at the end of the mode row and the stage hosts no dice tray (the tray remounts when the row
-    // changes; `advantage` lives in the page). One node, two homes, chosen by the row.
+    // changes; `advantage` lives in the page). One node, two homes, chosen by the row. (A10 S1: Story's combat and Table say `roll` too; the phone
+    // is the row whose mode row is forced onto a line of its own, by Composer.module.css, at the shell's phone width.)
     composer: { default: { area: 'composer', variant: 'roll' } },
     tableControls: { default: { area: null, layer: true } },
     safetyBanner: { default: { area: 'safetyBanner' } },

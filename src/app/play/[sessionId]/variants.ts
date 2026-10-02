@@ -50,7 +50,7 @@ export const REGION_VARIANTS = {
   actionBar: ['chips', 'bar'],
   suzuPresence: ['compact', 'full'],
   topBar: ['full', 'compact'],
-  // A9d-2 N7 (Amendment E.4): `full` is the composer as it always was; `roll` (the phone) carries the Roll control at the end of its mode row
+  // A9d-2 N7 (Amendment E.4): `full` is the composer as it always was; `roll` (the phone, and since A10 S1 every row x moment whose stage is a `hero`: Story's combat, Table) carries the Roll control at the end of its mode row
   // and the stage carries no dice tenant: the dice open from Roll in an anchored popover.
   composer: ['full', 'roll'],
 } as const satisfies Record<string, readonly string[]>;

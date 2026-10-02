@@ -41,6 +41,7 @@ import {
   FOLDABLE_ANNOUNCERS,
   FOLDABLE_REGIONS,
   getPlacement,
+  type LayoutId,
   type LayoutRow,
   type Moment,
   type Placement,
@@ -535,7 +536,10 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
       offers: 'null visible:false',
       characterBlock: 'null variant:compact layer:true',
       actionBar: 'actionBar variant:chips',
-      composer: 'composer variant:full',
+      // A10 step 11 S1 (named exception: the stage is a `hero` in Story's fight and a hero hosts no tenant, so the dice leave it): `roll`. What pins the
+      // invariant now: this literal, the guard below (every hero or inline stage cell emits a roll composer), play.dice-home.desktop.test.tsx on the real
+      // page, and the harness's o:restControls (desktop) and dice-focus legs.
+      composer: 'composer variant:roll',
       tableControls: 'null layer:true',
       safetyBanner: 'safetyBanner',
     });
@@ -551,7 +555,9 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
       offers: 'offers variant:list',
       characterBlock: 'characterBlock variant:full collapsible:true',
       actionBar: 'actionBar variant:bar',
-      composer: 'composer variant:full',
+      // A10 step 11 S1 (named exception): Table's stage is a `hero` in both moments, so Roll is the dice's home in both. Pinned now by this literal,
+      // the hero-stage guard below, play.dice-home.desktop.test.tsx and the harness.
+      composer: 'composer variant:roll',
       tableControls: 'null layer:true',
       safetyBanner: 'safetyBanner',
     });
@@ -567,7 +573,9 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
       offers: 'null visible:false',
       characterBlock: 'characterBlock variant:full collapsible:true',
       actionBar: 'actionBar variant:bar',
-      composer: 'composer variant:full',
+      // A10 step 11 S1 (named exception): Table's stage is a `hero` in both moments, so Roll is the dice's home in both. Pinned now by this literal,
+      // the hero-stage guard below, play.dice-home.desktop.test.tsx and the harness.
+      composer: 'composer variant:roll',
       tableControls: 'null layer:true',
       safetyBanner: 'safetyBanner',
     });
@@ -697,12 +705,37 @@ describe('TAV-PLAY-SHELL presets.ts — row geometry is pinned as a literal (�
   });
 });
 
-// A9d-2 N7 (Amendment E.4): the composer's variants. `full` is every desktop row; `roll` is the phone, whose stage hosts no dice tenant.
-describe('TAV-PLAY-SHELL presets.ts — the composer variant is the dice\'s home (A9d-2 N7)', () => {
-  it.each(MOMENTS)('%s: story and table say full, the phone says roll', (moment) => {
-    expect(getPlacement(LAYOUT_ROWS_BY_ID.story, 'composer', moment).variant).toBe('full');
-    expect(getPlacement(LAYOUT_ROWS_BY_ID.table, 'composer', moment).variant).toBe('full');
-    expect(getPlacement(LAYOUT_ROWS_BY_ID.phone, 'composer', moment).variant).toBe('roll');
+// A9d-2 N7 (Amendment E.4): the composer's variants. `full` is the stage's tray (the `panel` stage: Story while exploring); `roll` is every cell whose
+// stage hosts no tenant: the phone (an `inline` strip), and since A10 step 11 S1 Story's combat and Table in both moments (`hero`).
+describe('TAV-PLAY-SHELL presets.ts — the composer variant is the dice\'s home (A9d-2 N7, A10 S1)', () => {
+  const HOME: Record<LayoutId, Record<Moment, string>> = {
+    story: { exploring: 'full', combat: 'roll' },
+    table: { exploring: 'roll', combat: 'roll' },
+    phone: { exploring: 'roll', combat: 'roll' },
+  };
+  it.each(MOMENTS)('%s: story keeps the tray while exploring and says roll in a fight; table and the phone say roll', (moment) => {
+    for (const id of ['story', 'table', 'phone'] as const) {
+      expect([id, moment, getPlacement(LAYOUT_ROWS_BY_ID[id], 'composer', moment).variant]).toEqual([id, moment, HOME[id][moment]]);
+    }
+  });
+
+  /** The guard (Sora brief 3.1: "a `hero` or `inline` stage hosts no tenant: such a row x moment emits `composer: 'roll'`"): the cells whose stage is not a `panel`. */
+  const heroCellsWithATray = (rows: readonly LayoutRow[]) =>
+    rows.flatMap((row) =>
+      MOMENTS.filter((m) => {
+        const stage = getPlacement(row, 'sceneStage', m).variant;
+        return (stage === 'hero' || stage === 'inline') && getPlacement(row, 'composer', m).variant !== 'roll';
+      }).map((m) => `${row.id}/${m}`),
+    );
+  it('no row x moment whose stage is a hero or an inline strip emits a composer that leaves the tray in the stage', () => {
+    expect(heroCellsWithATray(LAYOUT_ROWS)).toEqual([]);
+  });
+  it('the guard bites: Story combat and Table with `full` in place of `roll` are each named (the control)', () => {
+    const patched = (row: LayoutRow, region: 'composer', placement: Placement): LayoutRow => ({ ...row, regions: { ...row.regions, [region]: { default: placement } } });
+    const full = { area: 'composer', variant: 'full' } as Placement;
+    expect(heroCellsWithATray([patched(LAYOUT_ROWS_BY_ID.table, 'composer', full)])).toEqual(['table/exploring', 'table/combat']);
+    const storyFull = patched(LAYOUT_ROWS_BY_ID.story, 'composer', full);
+    expect(heroCellsWithATray([storyFull])).toEqual(['story/combat']);
   });
   it('the phone row declares no dice-column var any more (the dice open from Roll)', () => {
     expect(Object.keys(LAYOUT_ROWS_BY_ID.phone.vars ?? {})).not.toContain('--play-dice-columns');
