@@ -45,7 +45,9 @@ import { consumeEscape } from './escapeConsume';
  *   popover and returns focus to the opener: it neither traps (it is non-modal) nor strands. On every close focus returns to the opener
  *   if focus was in the popover or on <body>; if the opener is gone (End combat unmounts when the fight ends) it goes to
  *   `fallbackFocus` (the scene head), decided in the commit that closed it, never <body>. Focus is left alone when it already moved on to
- *   a control the user chose (the X-card).
+ *   a control the user chose (the X-card). The focused control is brought INSIDE the popover's own box (it scrolls inside when clamped:
+ *   at 320x256 the first die of Roll was out of view in a 94px popover, A9d-2 fix round 2, Iro MAJOR-1): focus without scrolling the page, then
+ *   scroll the popover's own box, never `scrollIntoView`.
  *
  * SEMANTICS. The hook never sets `aria-modal`, `inert` or `aria-hidden` on anything: the page behind stays reachable. It returns the
  *   opener's `aria-haspopup` / `aria-expanded` / `aria-controls`.
@@ -110,6 +112,16 @@ interface Placed {
   maxHeight: number;
   maxWidth: number;
   side: 'top' | 'bottom';
+}
+
+/**
+ * Pure (exported for the unit cases): how far to scroll a popover's own box so `target` lies inside it. Positive = scroll down. Zero when it
+ * already does; a target taller than the box is aligned at its top. Both rects are viewport coordinates, the box's being its CLIENT area.
+ */
+export function revealDelta(box: { top: number; bottom: number }, target: { top: number; bottom: number }): number {
+  if (target.top < box.top) return target.top - box.top;
+  if (target.bottom > box.bottom) return Math.min(target.bottom - box.bottom, target.top - box.top);
+  return 0;
 }
 
 const samePlaced = (a: Placed | null, b: Placed) =>
@@ -238,6 +250,17 @@ export function useAnchoredPopover({
     };
   }, [open, place]);
 
+  // The focused control lies inside the popover's own box: scroll the BOX (never the page) by what it is out of view.
+  const revealFocused = useCallback(() => {
+    const pop = popoverRef.current;
+    const active = document.activeElement;
+    if (!pop || !active || !pop.contains(active)) return;
+    const box = pop.getBoundingClientRect();
+    const top = box.top + pop.clientTop;
+    const delta = revealDelta({ top, bottom: top + pop.clientHeight }, active.getBoundingClientRect());
+    if (delta !== 0) pop.scrollTop += delta;
+  }, []);
+
   // Outside press: closes on CLICK, consumes it, except on a passthrough element (the X-card): closes and delivers it.
   useEffect(() => {
     if (!open) return;
@@ -267,7 +290,16 @@ export function useAnchoredPopover({
       const pop = popoverRef.current;
       const target = (initialFocus ? pop?.querySelector<HTMLElement>(initialFocus) : null) ?? pop?.querySelector<HTMLElement>(TABBABLE) ?? pop;
       target?.focus({ preventScroll: true });
-      return;
+      // The placement lands in this commit and the next (the clamp is state): reveal now, and once more when two frames have settled it.
+      revealFocused();
+      let raf2 = 0;
+      const raf1 = requestAnimationFrame(() => {
+        raf2 = requestAnimationFrame(revealFocused);
+      });
+      return () => {
+        cancelAnimationFrame(raf1);
+        if (raf2) cancelAnimationFrame(raf2);
+      };
     }
     if (!wasOpenRef.current) return;
     wasOpenRef.current = false;

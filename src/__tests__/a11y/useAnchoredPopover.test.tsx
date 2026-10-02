@@ -6,7 +6,7 @@ import { useRef, useState } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import AnchoredPopover from '@/components/AnchoredPopover';
-import { computePlacement, useAnchoredPopover } from '@/lib/a11y/useAnchoredPopover';
+import { computePlacement, revealDelta, useAnchoredPopover } from '@/lib/a11y/useAnchoredPopover';
 
 const R = (o: Partial<DOMRect>) => ({ x: 0, y: 0, width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0, toJSON() {}, ...o }) as DOMRect;
 const rectOf = (el: Element, rect: Partial<DOMRect>) => { el.getBoundingClientRect = () => R(rect); };
@@ -379,5 +379,53 @@ describe('keepMounted', () => {
     openA();
     expect(screen.getByRole('group', { name: 'Test popover' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Open A' })).toHaveAttribute('aria-haspopup', 'dialog');
+  });
+});
+
+// ── A9d-2 fix round 2: the focused control is inside the popover's own box (Iro MAJOR-1), and focus that leaves closes it (Iro Minor-1) ─────
+
+describe('revealDelta (pure)', () => {
+  const box = { top: 100, bottom: 194 }; // the Roll popover at 320x256: 94px
+  it('is zero when the target is inside the box', () => {
+    expect(revealDelta(box, { top: 110, bottom: 160 })).toBe(0);
+    expect(revealDelta(box, { top: 100, bottom: 194 })).toBe(0);
+  });
+  it('scrolls DOWN by the overshoot when the target is below the box (the first die at y 281..339 in a box ending at 194)', () => {
+    expect(revealDelta(box, { top: 281, bottom: 339 })).toBe(145);
+  });
+  it('scrolls UP by the undershoot when it is above', () => {
+    expect(revealDelta(box, { top: 60, bottom: 110 })).toBe(-40);
+  });
+  it('a target taller than the box is aligned at its top, not its bottom', () => {
+    expect(revealDelta(box, { top: 150, bottom: 400 })).toBe(50);
+  });
+});
+
+describe('focus on open is brought inside the popover\'s own box', () => {
+  const rectSpy = jest.spyOn(Element.prototype, 'getBoundingClientRect');
+  afterEach(() => rectSpy.mockRestore());
+
+  it('a first control below a clamped popover\'s edge scrolls the BOX to it (the page is not touched)', () => {
+    setup();
+    const pageScroll = jest.spyOn(window, 'scrollTo');
+    const intoView = jest.fn();
+    Element.prototype.scrollIntoView = intoView;
+    const base = rectSpy.getMockImplementation() ?? Element.prototype.getBoundingClientRect;
+    rectSpy.mockImplementation(function (this: Element) {
+      if (this.hasAttribute('data-anchored-popover')) return R({ top: 100, bottom: 194, left: 0, right: 220, width: 220, height: 94 });
+      if (this.id === 'second') return R({ top: 281, bottom: 339, left: 0, right: 100, width: 100, height: 58 });
+      return base.call(this);
+    });
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, get() { return this.hasAttribute('data-anchored-popover') ? 94 : 0; } });
+    try {
+      openA();
+      expect(document.getElementById('second')).toHaveFocus();
+      expect((document.querySelector('[data-anchored-popover]') as HTMLElement).scrollTop).toBe(145);
+      expect(pageScroll).not.toHaveBeenCalled();
+      expect(intoView).not.toHaveBeenCalled();
+    } finally {
+      delete (HTMLElement.prototype as unknown as Record<string, unknown>).clientHeight;
+      delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView;
+    }
   });
 });
