@@ -136,6 +136,33 @@ export function isSessionLocked(s: Session | null | undefined): boolean {
   return s?.status === 'paused' || s?.status === 'ended';
 }
 
+/**
+ * Is `username` the table's DM? One definition for every /play site (the DM seat's controls, the composer's DM mode, the
+ * monster driver, the post-turn focus rule): Kage A9d-2 S3 counted a fifth hand-rolled copy of this compare. Case-insensitive on
+ * both sides: `dm_username` keeps the casing the creating client sent (an admin's create stores it as typed) and the engine's own
+ * guard compares lower-cased (`guard_dm`).
+ */
+export function isSessionDm(s: Session | null | undefined, username: string | null | undefined): boolean {
+  return !!(s?.dm_username && username && s.dm_username.toLowerCase() === username.toLowerCase());
+}
+
+/**
+ * Which tab drives the monsters of an AI-auto table (A9d-2 N2, Kage I-2). The engine's `/monster-turn` is `guard_dm`: the DM or an
+ * admin. Before the DM gate every tab POSTed it on every poll; the gate picks ONE tab to ask: the DM's (`dm_username`, the engine's
+ * own field for the non-admin arm, compared the way it compares). The election could elect nobody: a table whose `dm_username` is
+ * not a person at it (a Twitch-created table stores the broadcaster login; an old `suzu` row) had one working driver, an admin's
+ * tab through the engine's bypass, and the gate took it away silently. So an ADMIN drives when, and only when, `dm_username` is not
+ * among the participants. Not a mirror of `guard_dm`'s admin arm (that brings back several drivers per table): the fallback is
+ * still an election, and it never applies to a table whose DM is seated.
+ */
+export function drivesMonsterTurns(s: Session | null | undefined, username: string | null | undefined, roles: readonly string[] | undefined): boolean {
+  if (!s || !username) return false;
+  if (isSessionDm(s, username)) return true;
+  const dm = (s.dm_username ?? '').toLowerCase();
+  const seated = (s.participant_usernames ?? []).some((p) => p.toLowerCase() === dm);
+  return roles?.includes('admin') === true && !seated;
+}
+
 /** A live turn order is running. NOT page.tsx's `combatIsActive`
  *  (`!!combatId && state !== 'ended'`), which is also true before initiative
  *  and between turns. This is the exact predicate the scene's offer memos

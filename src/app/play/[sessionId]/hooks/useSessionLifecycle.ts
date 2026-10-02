@@ -53,7 +53,7 @@ import {
   awardSessionXp,
 } from '@/lib/api/dnd';
 import type { EndSessionLevelUp, Participant, Session } from '@/lib/api/types';
-import { sessionsEqual, POLL_INTERVAL_MS } from '../format';
+import { isSessionDm, sessionsEqual, POLL_INTERVAL_MS } from '../format';
 
 export type SessionActionBusy = 'pause' | 'resume' | 'end' | 'xp' | null;
 export type PlayPageLoadState = 'loading' | 'ok' | 'error' | 'notfound';
@@ -372,8 +372,7 @@ export function useSessionLifecycle(sessionId: string): UseSessionLifecycleResul
   }, [session, username, sessionId, xpAmount, xpReason, refreshSessionAfterAction, toast]);
 
   // B2-4: is the logged-in user the session DM?
-  const isDm = !!(session?.dm_username && username &&
-    session.dm_username.toLowerCase() === username.toLowerCase());
+  const isDm = isSessionDm(session, username);
 
   // S5.2: human DM = DM seat + dm_mode 'human'. When true:
   //   - composer modes swap to ['DM Narration', 'OOC']

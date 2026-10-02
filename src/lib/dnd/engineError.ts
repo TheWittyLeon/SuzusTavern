@@ -63,6 +63,15 @@ export function extractReason(err: ApiError): string | undefined {
 }
 
 /**
+ * The reason the BODY carries (`data.reason` / `reason`), without `extractReason`'s last resort, the transport's own `code`
+ * ('network', ...). A reasoned answer is one the SERVER chose to explain; a dropped connection has no reason of its own.
+ */
+export function extractBodyReason(err: ApiError): string | undefined {
+  const body = err.body as { data?: { reason?: string }; reason?: string } | null | undefined;
+  return body?.data?.reason ?? body?.reason;
+}
+
+/**
  * The engine tags most player-facing refusals with a log-style subsystem
  * prefix — "[Combat] No action remaining for Seth this turn.", "[Spell] …",
  * "[DnD] …", "[Session] …" — HUNDREDS of them: ~86 [Combat], ~275 [DnD],

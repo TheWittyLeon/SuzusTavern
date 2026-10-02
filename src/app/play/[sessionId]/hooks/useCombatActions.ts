@@ -69,14 +69,15 @@ import {
   rollDeathSave as combatDeathSave,
 } from '@/lib/api/dnd';
 import { DURABLE_GENERATION_ENABLED } from '@/lib/config';
-import { engineErrorMessage, extractReason, isApiError } from '@/lib/dnd/engineError';
-import { COMBAT_REFUSAL_REASON_MAP } from '@/lib/dnd/engineReasons';
+import { engineErrorMessage, extractBodyReason, isApiError } from '@/lib/dnd/engineError';
+import { COMBAT_REFUSAL_REASON_MAP, monsterTurnFailureClass } from '@/lib/dnd/engineReasons';
+import { useAuth } from '@/lib/auth/AuthProvider';
 // TAV-PLAY-SHELL step 8: CombatAction's owner moved from Composer.tsx to the
 // extracted region -- see regions/ActionBar.tsx's own header.
 import type { CombatAction } from '../regions/ActionBar';
 import type { LogRow } from '@/components/ChatLog';
 import type { CombatState, EndCombatOutcome, Session } from '@/lib/api/types';
-import { isSessionLocked } from '../format';
+import { drivesMonsterTurns, isSessionDm, isSessionLocked } from '../format';
 import type { UseCombatStateResult } from './useCombatState';
 import type { NarrateFn, NarrateDurableBeatFn } from './useNarration';
 import type { UseSceneActionsResult } from './useSceneActions';
@@ -90,16 +91,29 @@ export interface UseCombatActionsResult {
 
 /**
  * How many `/monster-turn` calls the auto-driver may make for ONE turn (combat, round, active participant).
- * One call runs the whole turn, so a healthy turn needs one; the rest are for a transient failure that heals on
- * the next 4s poll. It was 20 per EFFECT RUN, and every poll's fresh `combatState` re-armed a new run, so a stuck
- * engine looped for as long as the tab was open (246 hits against a frozen stub, TAV-MONSTER-TURN-AUTODRIVER-
- * UNBOUNDED). A structured refusal (the engine says WHY it will not run the turn) exhausts the turn at once: asking
- * again cannot change the answer, and the refusal is shown once.
+ * One call runs the whole turn, so a healthy turn needs one; the rest are for a failure that heals on the next 4s poll. It was
+ * 20 per EFFECT RUN, and every poll's fresh `combatState` re-armed a new run, so a stuck engine looped for as long as the tab was
+ * open (246 hits against a frozen stub, TAV-MONSTER-TURN-AUTODRIVER-UNBOUNDED). Every failure that is not a stale-turn answer
+ * (`monsterTurnFailureClass`, engineReasons.ts) is asked again up to this cap, said ONCE, and then left alone; running out of
+ * attempts speaks whichever way it happens (a thrown failure or a 200 that never advances the turn).
  */
 const MONSTER_TURN_ATTEMPTS_PER_TURN = 3;
 
-/** One id per turn: the cap and the once-only refusal are scoped to it. */
+/** One id per turn: the cap and the once-only line are scoped to it. */
 const turnKey = (combatId: string, st: CombatState) => `${combatId}:${st.round}:${st.active_participant_id}`;
+
+/** What the driver remembers about ONE turn. `said` = the exact line it put in the action bar (null = none), so a later clear only
+ *  ever removes ITS OWN line, never a player's refusal that replaced it (Kage A9d-2 S4). `stop` = do not ask about this turn again. */
+interface MonsterTurnLedger {
+  key: string;
+  attempts: number;
+  said: string | null;
+  stop: boolean;
+}
+const freshLedger = (key: string): MonsterTurnLedger => ({ key, attempts: 0, said: null, stop: false });
+
+/** The line for a failure that gave no reason, and for running out of attempts. */
+const MONSTER_TURN_FALLBACK = "A monster's turn couldn't be run. Reload to try again.";
 
 export function useCombatActions(
   session: Session | null,
@@ -118,6 +132,8 @@ export function useCombatActions(
   localTurnActionRef: MutableRefObject<boolean>,
 ): UseCombatActionsResult {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const roles = user?.roles;
   const {
     combatId,
     combatState,
@@ -131,9 +147,34 @@ export function useCombatActions(
     monsterDrivingRef,
   } = combat;
 
-  // The auto-driver's per-turn ledger (see MONSTER_TURN_ATTEMPTS_PER_TURN). `refused` = the engine refused this
-  // turn with a reason, so the driver is done with it and its message was shown (once).
-  const monsterTurnLedgerRef = useRef({ key: '', attempts: 0, refused: false });
+  // The auto-driver's per-turn ledger (see MONSTER_TURN_ATTEMPTS_PER_TURN and MonsterTurnLedger).
+  const monsterTurnLedgerRef = useRef<MonsterTurnLedger>(freshLedger(''));
+  /** Say `message` as this turn's line, once: only while the ledger is still this turn's (a turn that moved on gets no stale line). */
+  const sayMonsterTurn = useCallback(
+    (led: MonsterTurnLedger, message: string) => {
+      if (monsterTurnLedgerRef.current !== led || led.said === message) return;
+      led.said = message;
+      setRefusedReason(message);
+    },
+    [setRefusedReason],
+  );
+  /** The cap ran out: if nothing was said for this turn yet, say the generic line, once. A reasoned line already standing is the better one. */
+  const sayMonsterTurnExhausted = useCallback(
+    (led: MonsterTurnLedger) => {
+      if (led.said == null) sayMonsterTurn(led, MONSTER_TURN_FALLBACK);
+      led.stop = true;
+    },
+    [sayMonsterTurn],
+  );
+  /** Take back the line THIS driver said for `led`, and only if it is still the one showing. */
+  const unsayMonsterTurn = useCallback(
+    (led: MonsterTurnLedger) => {
+      const said = led.said;
+      led.said = null;
+      if (said) setRefusedReason((prev) => (prev === said ? null : prev));
+    },
+    [setRefusedReason],
+  );
 
   // ── combat ──────────────────────────────────────────────────────────────────
   /**
@@ -539,9 +580,10 @@ export function useCombatActions(
   // drives monster turns manually via the DmNarrationPanel (npc-action route).
   useEffect(() => {
     if (!combatState || combatState.state !== 'active' || !combatId || !username) return;
-    // Only the session's DM drives monsters (A9d-2, Kage F3 re-verify S7): `/monster-turn` is `guard_dm` on the
-    // engine, so every other tab of an AI-auto table POSTed it on each poll and got a 404 back.
-    if (session?.dm_username?.toLowerCase() !== username.toLowerCase()) return;
+    // Only ONE tab drives monsters (A9d-2 Kage F3 re-verify S7, N2 I-2): `/monster-turn` is `guard_dm` on the engine, so every other
+    // tab of an AI-auto table POSTed it on each poll and got a 404 back. The DM's tab; or, where `dm_username` is not a person at the
+    // table, an admin's (`drivesMonsterTurns`, format.ts).
+    if (!drivesMonsterTurns(session, username, roles)) return;
     // Human DM: monster turns are driven by the DmNarrationPanel, not auto.
     // S5.5: ai_assist_level='off' or 'assist' also suppresses auto monster drive.
     // For 'off': no AI; for 'assist': no auto-fire (manual DM invocation only).
@@ -559,14 +601,16 @@ export function useCombatActions(
       (p) => p.participant_id === combatState.active_participant_id,
     );
     if (!active || active.is_pc || !active.is_alive) return;
-    // A new turn clears the previous turn's own refusal line (never a player's: only ours is flagged).
-    const ledger = monsterTurnLedgerRef.current;
+    // A new turn takes back the previous turn's own line (and only that: never a player's refusal that replaced it).
     const thisTurn = turnKey(combatId, combatState);
-    if (ledger.key !== thisTurn) {
-      if (ledger.refused) setRefusedReason(null);
-      monsterTurnLedgerRef.current = { key: thisTurn, attempts: 0, refused: false };
+    if (monsterTurnLedgerRef.current.key !== thisTurn) {
+      unsayMonsterTurn(monsterTurnLedgerRef.current);
+      monsterTurnLedgerRef.current = freshLedger(thisTurn);
     }
-    if (monsterTurnLedgerRef.current.attempts >= MONSTER_TURN_ATTEMPTS_PER_TURN || monsterTurnLedgerRef.current.refused) return;
+    // Done with this turn: asked as often as allowed (and said what there was to say at the moment the last attempt came back), or the
+    // answer was a stale one.
+    const here = monsterTurnLedgerRef.current;
+    if (here.stop || here.attempts >= MONSTER_TURN_ATTEMPTS_PER_TURN) return;
 
     monsterDrivingRef.current = true;
     let cancelled = false;
@@ -575,39 +619,41 @@ export function useCombatActions(
         // Hard cap defends against an engine that fails to advance the turn: per TURN, not per run.
         for (let i = 0; i < 20 && !cancelled; i += 1) {
           const led = monsterTurnLedgerRef.current;
-          if (led.attempts >= MONSTER_TURN_ATTEMPTS_PER_TURN || led.refused) break;
+          if (led.stop) break;
+          if (led.attempts >= MONSTER_TURN_ATTEMPTS_PER_TURN) {
+            sayMonsterTurnExhausted(led);
+            break;
+          }
           led.attempts += 1;
           let mres;
           try {
             mres = await monsterTurn({ username, combat_id: combatId });
           } catch (err) {
-            // The engine refused with a reason (monster_statblock_unresolved, F3): say so ONCE, through the same
-            // engine-error path the player's own refusals use, and stop asking about this turn. Anything else
-            // (network, a 5xx with no reason) is retried up to the per-turn cap and, when that runs out, said once.
-            const reason = isApiError(err) ? extractReason(err) : undefined;
-            const refusal = reason !== undefined && COMBAT_REFUSAL_REASON_MAP[reason] !== undefined;
-            if (refusal || led.attempts >= MONSTER_TURN_ATTEMPTS_PER_TURN) {
-              led.refused = true;
-              // Said when the turn is still this one (a poll that restarted the effect mid-call does not hide it;
-              // a turn that has moved on does not get last turn's refusal).
-              if (monsterTurnLedgerRef.current === led) {
-                setRefusedReason(
-                  engineErrorMessage(err, {
-                    fallback: "A monster's turn couldn't be run. Reload to try again.",
-                    reasonMap: COMBAT_REFUSAL_REASON_MAP,
-                  }),
-                );
-              }
-              // The refusal's body carries the unchanged state: show it, so the turn marker is the truth.
-              const refused = (err as { body?: { data?: { state?: CombatState } } } | null)?.body?.data?.state;
-              if (refused && !cancelled) {
-                stateSeqRef.current += 1;
-                setCombatState(refused);
-              }
+            const reason = isApiError(err) ? extractBodyReason(err) : undefined;
+            // A refusal's body carries the state the server holds: show it, so the turn marker is the truth (stale or not). Only when it
+            // is a DIFFERENT turn from the one asked about: the same turn changes nothing on screen, and applying it re-arms this
+            // effect at once, so the retry would run back to back instead of on the next poll (the spacing a transient fault needs).
+            const held = (err as { body?: { data?: { state?: CombatState } } } | null)?.body?.data?.state;
+            if (held && !cancelled && turnKey(combatId, held) !== led.key) {
+              stateSeqRef.current += 1;
+              setCombatState(held);
+            }
+            if (monsterTurnFailureClass(isApiError(err) ? err.status : undefined, reason) === 'stale') {
+              // The turn is not the monster's any more (it moved on, the combat ended or is gone): no line, no retry.
+              led.stop = true;
+            } else if (reason !== undefined) {
+              // The engine says WHY (monster_statblock_unresolved, db_unavailable, ...): said at once, once. It is asked again on the
+              // following polls up to the cap, and the line is taken back if a retry succeeds.
+              sayMonsterTurn(led, engineErrorMessage(err, { fallback: MONSTER_TURN_FALLBACK, reasonMap: COMBAT_REFUSAL_REASON_MAP }));
+            } else if (led.attempts >= MONSTER_TURN_ATTEMPTS_PER_TURN) {
+              // No reason (a dropped connection, a 5xx with no body): silent while it may heal, said once when the cap runs out.
+              sayMonsterTurnExhausted(led);
             }
             break;
           }
           if (!mres) break;
+          // It ran: a line an earlier failed attempt of THIS turn left is no longer true.
+          unsayMonsterTurn(led);
           const mla = mres.state?.last_action;
           const mLog =
             mres.message ??
@@ -635,12 +681,17 @@ export function useCombatActions(
           // this is inert-but-harmless until/unless the engine adds it here.
           playOutcomeLine(mres.outcome_line);
           const st = mres.state;
-          if (!st || st.state !== 'active') break;
+          if (!st) {
+            // A 200 with no state advanced nothing we can see (a stuck engine): the next poll asks again, and the cap speaks.
+            if (led.attempts >= MONSTER_TURN_ATTEMPTS_PER_TURN) sayMonsterTurnExhausted(led);
+            break;
+          }
+          if (st.state !== 'active') break;
           const next = st.participants.find((p) => p.participant_id === st.active_participant_id);
           if (!next || next.is_pc || !next.is_alive) break; // reached the player / nobody to drive
           // The turn moved on to another monster: it gets its own ledger.
           const nextTurn = turnKey(combatId, st);
-          if (nextTurn !== monsterTurnLedgerRef.current.key) monsterTurnLedgerRef.current = { key: nextTurn, attempts: 0, refused: false };
+          if (nextTurn !== monsterTurnLedgerRef.current.key) monsterTurnLedgerRef.current = freshLedger(nextTurn);
         }
       } finally {
         monsterDrivingRef.current = false;
@@ -654,13 +705,16 @@ export function useCombatActions(
     combatId,
     username,
     session,
+    roles,
     appendLog,
     handleSceneAdvance,
     playOutcomeLine,
     monsterDrivingRef,
     stateSeqRef,
     setCombatState,
-    setRefusedReason,
+    sayMonsterTurn,
+    sayMonsterTurnExhausted,
+    unsayMonsterTurn,
   ]);
 
   // Tora MAJOR-2: refocus the newly-enabled rail's container when a combat
@@ -696,12 +750,7 @@ export function useCombatActions(
     // arrived purely via the poll (another client's action).
     if (!causedByLocalClick) return;
 
-    const isDmSeat = !!(
-      session?.dm_username &&
-      username &&
-      session.dm_username.toLowerCase() === username.toLowerCase() &&
-      session?.dm_mode === 'human'
-    );
+    const isDmSeat = isSessionDm(session, username) && session?.dm_mode === 'human';
     const newActiveParticipant =
       active?.participants.find((p) => p.participant_id === current) ?? null;
     // Ownership gate (Iro CRITICAL-1): reuses the `activeIsMine` pattern

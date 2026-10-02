@@ -23,8 +23,10 @@ jest.mock('../../components/Toast', () => ({
   useToast: () => ({ toast: mockToast }),
 }));
 
+// `roles` is the viewer's own (A9d-2 N2: an admin's tab is the fallback driver of a table whose dm_username is not at it).
+const mockAuth: { roles: string[] | undefined } = { roles: undefined };
 jest.mock('../../lib/auth/AuthProvider', () => ({
-  useAuth: () => ({ user: { id: 1, username: 'alice', email: null } }),
+  useAuth: () => ({ user: { id: 1, username: 'alice', email: null, roles: mockAuth.roles } }),
 }));
 
 jest.mock('../../lib/useReducedMotion', () => ({
@@ -84,7 +86,6 @@ const mRollInitiative = dnd.rollInitiative as jest.MockedFunction<typeof dnd.rol
 const mMonsterTurn = dnd.monsterTurn as jest.MockedFunction<typeof dnd.monsterTurn>;
 const mAttack = dnd.attack as jest.MockedFunction<typeof dnd.attack>;
 const mEndTurn = dnd.endTurn as jest.MockedFunction<typeof dnd.endTurn>;
-const mRollDeathSave = dnd.rollDeathSave as jest.MockedFunction<typeof dnd.rollDeathSave>;
 const mEndCombat = dnd.endCombat as jest.MockedFunction<typeof dnd.endCombat>;
 const mAdvanceScene = dnd.advanceScene as jest.MockedFunction<typeof dnd.advanceScene>;
 const mStream = stream.streamDmNarration as jest.MockedFunction<typeof stream.streamDmNarration>;
@@ -212,13 +213,6 @@ const FROM_SCENE_RESULT = {
   encounter_id: 'cave_mouth_guards',
 };
 
-const GROUNDING_WITH_TRANSITION: GroundingData = {
-  scene_id: 'cave_mouth',
-  scene_name: 'Cave Mouth',
-  boxed_text: 'A dark cave mouth looms before you.',
-  transitions: [{ to: 'tunnel', label: 'Enter the tunnel' }],
-};
-
 const GROUNDING_NO_TRANSITION: GroundingData = {
   scene_id: 'cave_mouth',
   scene_name: 'Cave Mouth',
@@ -259,6 +253,7 @@ beforeEach(() => {
 
 afterEach(() => {
   jest.useRealTimers();
+  mockAuth.roles = undefined;
 });
 
 
@@ -285,28 +280,47 @@ async function mountOnMonsterTurn(session: Session = asDm()) {
 }
 
 describe('the AI-auto monster-turn driver: a refusal is shown once and the turn is not asked about again', () => {
-  it('monster_statblock_unresolved (HTTP 500): curated copy in the action bar, ONE POST across many polls', async () => {
+  // A9d-2 N2 (Kage I-1) — named exception: this case pinned ONE attempt ("the turn is not asked about again"). The engine's FAULT class
+  // covers a transient content read and the refusal writes nothing, so asking again is safe: it is asked on each following poll up to
+  // the per-turn cap (3), and the line is said at once and ONCE. What pins the invariant now: this case (3 POSTs, one line, then
+  // silence), the eight failure-class rows below, and the engineReasons class table's own unit cases.
+  it('monster_statblock_unresolved (HTTP 500): curated copy in the action bar at once, ONE line, the turn asked about 3 times and no more', async () => {
     mMonsterTurn.mockRejectedValue(apiError(500, 'Internal server error', REFUSAL_BODY(COMBAT_STATE_GOBLIN_TURN)));
     await mountOnMonsterTurn();
     await waitFor(() => expect(screen.getByText(REFUSAL_COPY)).toBeInTheDocument());
+    expect(mMonsterTurn).toHaveBeenCalledTimes(1); // said at once, on the first refusal
     expect(screen.getAllByText(REFUSAL_COPY)).toHaveLength(1);
     // The engine's own text is never shown (a 5xx body message is not player copy).
     expect(screen.queryByText(/act for it manually/i)).not.toBeInTheDocument();
-    for (let i = 0; i < 6; i += 1) await tick();
-    expect(mMonsterTurn).toHaveBeenCalledTimes(1);
+    for (let i = 0; i < 8; i += 1) await tick();
+    expect(mMonsterTurn).toHaveBeenCalledTimes(3);
     expect(screen.getAllByText(REFUSAL_COPY)).toHaveLength(1);
   });
 
-  it('a NEW turn (the next round, same monster) is a fresh start: the driver asks again, and the old refusal line is cleared', async () => {
-    mMonsterTurn.mockRejectedValueOnce(apiError(500, 'Internal server error', REFUSAL_BODY(COMBAT_STATE_GOBLIN_TURN)));
+  it('a retry that succeeds takes the refusal line back (a reasoned refusal is said at once, and is not left standing once it is false)', async () => {
+    mMonsterTurn
+      .mockRejectedValueOnce(apiError(500, 'Internal server error', REFUSAL_BODY(COMBAT_STATE_GOBLIN_TURN)))
+      .mockResolvedValue({ message: '[MONSTER] Goblin attacks Velka for 3.', state: COMBAT_STATE });
     await mountOnMonsterTurn();
     await waitFor(() => expect(screen.getByText(REFUSAL_COPY)).toBeInTheDocument());
-    expect(mMonsterTurn).toHaveBeenCalledTimes(1);
+    await tick();
+    await waitFor(() => expect(mMonsterTurn).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByText(REFUSAL_COPY)).not.toBeInTheDocument());
+  });
+
+  // A9d-2 N2 — named exception: the refusal was a single attempt here; it is three now (see above), so the turn is exhausted first.
+  it('a NEW turn (the next round, same monster) is a fresh start: the driver asks again, and the old refusal line is cleared', async () => {
+    mMonsterTurn.mockRejectedValue(apiError(500, 'Internal server error', REFUSAL_BODY(COMBAT_STATE_GOBLIN_TURN)));
+    await mountOnMonsterTurn();
+    await waitFor(() => expect(screen.getByText(REFUSAL_COPY)).toBeInTheDocument());
+    for (let i = 0; i < 6; i += 1) await tick();
+    expect(mMonsterTurn).toHaveBeenCalledTimes(3);
     // Round 2, the goblin again: a different turn key.
+    mMonsterTurn.mockReset();
     mMonsterTurn.mockResolvedValue({ message: '[MONSTER] Goblin attacks Velka for 3.' }); // frozen: no state back
     polled = { ...COMBAT_STATE_GOBLIN_TURN, round: 2 };
     await tick();
-    await waitFor(() => expect(mMonsterTurn).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mMonsterTurn).toHaveBeenCalledTimes(1));
     expect(screen.queryByText(REFUSAL_COPY)).not.toBeInTheDocument();
   });
 });
@@ -351,5 +365,150 @@ describe('the AI-auto monster-turn driver is capped per TURN (TAV-MONSTER-TURN-A
     for (let i = 0; i < 10; i += 1) await tick();
     expect(mMonsterTurn).toHaveBeenCalledTimes(3);
     expect(screen.getAllByText(/couldn't be run/i)).toHaveLength(1);
+  });
+});
+
+
+// ── A9d-2 N2 (Kage I-1): the failure class is a TABLE beside the vocabulary, not membership of the copy map ───────────────────────
+// Eight rows, as Kage's probe table listed them. `shown` = the line in the action bar; `posts` = POSTs to /monster-turn for ONE turn
+// across many polls; `atOnce` = said on the first failure (a reasoned one) rather than when the cap runs out (a reasonless one).
+describe('the monster-turn driver: every failure that is not a stale-turn answer is retried to the cap and said once; a stale one is taken and silent', () => {
+  const reasoned = (status: number, reason: string, state: CombatState = COMBAT_STATE_GOBLIN_TURN) =>
+    apiError(status, 'x', { success: false, error: 'engine text that must never show', data: { reason, state } });
+
+  const faultRows: Array<[string, () => Error, RegExp, boolean]> = [
+    ['db_unavailable (500, with a reason)', () => reasoned(500, 'db_unavailable'), /game database is unavailable/i, true],
+    ['error (500, with a reason)', () => reasoned(500, 'error'), /Something went wrong resolving that action/i, true],
+    ['upstream_non_json (the BFF, with a reason)', () => apiError(502, 'x', { success: false, reason: 'upstream_non_json' }), /sent back something unexpected/i, true],
+    ['a reasonless 500 (the engine route\'s real exception path)', () => apiError(500, 'Internal server error'), /couldn't be run/i, false],
+    ['a NekoNova 503', () => apiError(503, 'Service unavailable'), /couldn't be run/i, false],
+    ['a dropped connection (no status, a transport code)', () => Object.assign(new Error('network'), { status: 0, code: 'network' }), /couldn't be run/i, false],
+  ];
+  it.each(faultRows)('%s: asked 3 times, said once (%s at once: %s)', async (_name, make, copy, atOnce) => {
+    mMonsterTurn.mockRejectedValue(make());
+    await mountOnMonsterTurn();
+    await waitFor(() => expect(mMonsterTurn).toHaveBeenCalledTimes(1));
+    if (atOnce) await waitFor(() => expect(screen.getByText(copy)).toBeInTheDocument());
+    else expect(screen.queryByText(copy)).not.toBeInTheDocument(); // silent while it may heal
+    for (let i = 0; i < 10; i += 1) await tick();
+    expect(mMonsterTurn).toHaveBeenCalledTimes(3);
+    expect(screen.getAllByText(copy)).toHaveLength(1);
+    expect(screen.queryByText(/engine text that must never show/i)).not.toBeInTheDocument();
+  });
+
+  const staleRows: Array<[string, () => Error]> = [
+    ['not_a_monsters_turn (400): the turn moved on', () => reasoned(400, 'not_a_monsters_turn', COMBAT_STATE)],
+    ['no_active_turn (400)', () => reasoned(400, 'no_active_turn', COMBAT_STATE)],
+    ['combat_over (400)', () => reasoned(400, 'combat_over', COMBAT_STATE_ENDED)],
+    ['not_found (404): the combat is gone', () => apiError(404, 'not found', { success: false, data: { reason: 'not_found' } })],
+    ['a 404 with no body at all', () => apiError(404, 'Not Found')],
+  ];
+  it.each(staleRows)('%s: asked ONCE, nothing said, not asked again', async (_name, make) => {
+    mMonsterTurn.mockRejectedValue(make());
+    await mountOnMonsterTurn();
+    await waitFor(() => expect(mMonsterTurn).toHaveBeenCalledTimes(1));
+    for (let i = 0; i < 6; i += 1) await tick();
+    expect(mMonsterTurn).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/not a monster's turn|Combat not found|Combat has ended|couldn't be run|No one has the active turn/i)).not.toBeInTheDocument();
+  });
+
+  it('a stale answer\'s body carries the CURRENT state, and the page takes it (the turn marker becomes the truth)', async () => {
+    mMonsterTurn.mockRejectedValue(reasoned(400, 'not_a_monsters_turn', { ...COMBAT_STATE, round: 9 }));
+    await mountOnMonsterTurn();
+    await waitFor(() => expect(mMonsterTurn).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getAllByText(/round 9/i).length).toBeGreaterThan(0));
+  });
+
+  it('a 200 that never advances the turn: asked 3 times, then it SPEAKS once (the silent stall IMPORTANT-A was filed against)', async () => {
+    mMonsterTurn.mockResolvedValue({ message: 'The monster acts.' });
+    await mountOnMonsterTurn();
+    for (let i = 0; i < 12; i += 1) await tick();
+    expect(mMonsterTurn).toHaveBeenCalledTimes(3);
+    expect(screen.getAllByText(/couldn't be run/i)).toHaveLength(1);
+  });
+
+  it('a 200 that hands back the SAME monster\'s turn (state present, nothing advanced): asked 3 times in one run, then it speaks once', async () => {
+    mMonsterTurn.mockResolvedValue({ message: 'The monster acts.', state: COMBAT_STATE_GOBLIN_TURN });
+    await mountOnMonsterTurn();
+    await waitFor(() => expect(screen.getAllByText(/couldn't be run/i)).toHaveLength(1));
+    for (let i = 0; i < 6; i += 1) await tick();
+    expect(mMonsterTurn).toHaveBeenCalledTimes(3);
+    expect(screen.getAllByText(/couldn't be run/i)).toHaveLength(1);
+  });
+
+  it('a CURATED reason that is not in the class table is a fault, not a terminal refusal: it is asked 3 times (the class is not membership of the copy map)', async () => {
+    // `target_down` has player-facing copy in COMBAT_REFUSAL_REASON_MAP and no row in MONSTER_TURN_REASON_CLASS.
+    mMonsterTurn.mockRejectedValue(reasoned(400, 'target_down'));
+    await mountOnMonsterTurn();
+    for (let i = 0; i < 10; i += 1) await tick();
+    expect(mMonsterTurn).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('the monster-turn driver\'s line is its own (Kage S4): a new monster turn never clears a PLAYER\'s refusal that replaced it', () => {
+  it('the DM\'s own Attack is refused, then the next monster turn begins: the player\'s line stays', async () => {
+    mMonsterTurn.mockRejectedValueOnce(apiError(500, 'Internal server error', REFUSAL_BODY(COMBAT_STATE_GOBLIN_TURN)));
+    await mountOnMonsterTurn();
+    await waitFor(() => expect(screen.getByText(REFUSAL_COPY)).toBeInTheDocument());
+    // The poll hands the table to alice (Velka): her own Attack is refused, which replaces the line.
+    polled = COMBAT_STATE;
+    await tick();
+    mAttack.mockRejectedValue(apiError(400, '[Combat] Velka has already used their action this turn.', { success: false, data: { reason: 'no_action_remaining', state: COMBAT_STATE } }));
+    await waitFor(() => expect(screen.getAllByRole('button', { name: /Attack/i }).length).toBeGreaterThan(0));
+    await act(async () => { fireEvent.click(screen.getAllByRole('button', { name: /Attack/i })[0]); });
+    const target = await screen.findAllByRole('menuitem');
+    await act(async () => { fireEvent.click(target[0]); });
+    await waitFor(() => expect(screen.queryByText(REFUSAL_COPY)).not.toBeInTheDocument());
+    const playerLine = await waitFor(() => {
+      const alerts = screen.getAllByRole('alert').filter((a) => (a.textContent ?? '').trim() !== '');
+      expect(alerts.length).toBeGreaterThan(0);
+      return alerts[0].textContent;
+    });
+    // The next monster turn (round 2): the driver starts a fresh ledger and must take back only ITS OWN line, which is gone already.
+    mMonsterTurn.mockResolvedValue({ message: '[MONSTER] Goblin attacks Velka for 3.' });
+    polled = { ...COMBAT_STATE_GOBLIN_TURN, round: 2 };
+    await tick();
+    await waitFor(() => expect(mMonsterTurn).toHaveBeenCalledTimes(2));
+    expect(screen.getAllByRole('alert').some((a) => (a.textContent ?? '').trim() === playerLine)).toBe(true);
+  });
+});
+
+// ── A9d-2 N2 (Kage I-2): the election can elect nobody; an admin is the fallback, and only when the DM is not at the table ─────────
+describe('the monster-turn driver: an admin\'s tab drives when, and only when, dm_username is not among the participants', () => {
+  const table = (dm: string, participants: string[]): Session => ({ ...SESSION_WITH_COMBAT, dm_username: dm, participant_usernames: participants });
+
+  it('a Twitch-created table (dm_username is the broadcaster login, not a participant): the admin\'s tab drives, which is what the engine\'s bypass did before the gate', async () => {
+    mockAuth.roles = ['admin'];
+    mMonsterTurn.mockResolvedValue({ message: '[MONSTER] Goblin attacks Velka for 3.', state: COMBAT_STATE });
+    await mountOnMonsterTurn(table('thewittyleon', ['alice']));
+    await waitFor(() => expect(mMonsterTurn).toHaveBeenCalledTimes(1));
+  });
+
+  it('an old `suzu` row (not a participant) is the same', async () => {
+    mockAuth.roles = ['admin'];
+    mMonsterTurn.mockResolvedValue({ message: '[MONSTER] Goblin attacks Velka for 3.', state: COMBAT_STATE });
+    await mountOnMonsterTurn(table('suzu', ['alice']));
+    await waitFor(() => expect(mMonsterTurn).toHaveBeenCalledTimes(1));
+  });
+
+  it('control: an admin at a table whose DM IS seated does NOT drive (the fallback is an election, not a mirror of the engine\'s admin bypass)', async () => {
+    mockAuth.roles = ['admin'];
+    await mountOnMonsterTurn(table('bob', ['alice', 'bob']));
+    for (let i = 0; i < 4; i += 1) await tick();
+    expect(mMonsterTurn).not.toHaveBeenCalled();
+  });
+
+  it('control: a non-admin at a table whose dm_username is nobody at it does not drive either', async () => {
+    mockAuth.roles = ['user'];
+    await mountOnMonsterTurn(table('thewittyleon', ['alice']));
+    for (let i = 0; i < 4; i += 1) await tick();
+    expect(mMonsterTurn).not.toHaveBeenCalled();
+  });
+
+  it('the comparison is case-insensitive on both sides: dm "Bob" seated as "bob" is seated', async () => {
+    mockAuth.roles = ['admin'];
+    await mountOnMonsterTurn(table('Bob', ['alice', 'bob']));
+    for (let i = 0; i < 4; i += 1) await tick();
+    expect(mMonsterTurn).not.toHaveBeenCalled();
   });
 });

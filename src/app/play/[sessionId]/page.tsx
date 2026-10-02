@@ -80,6 +80,7 @@ import {
   deathSaveTally,
   groundingCreatureNames,
   isCombatEncounterUnstarted,
+  isSessionDm,
   scanXCardTracking,
 } from './format';
 import { useSessionLifecycle } from './hooks/useSessionLifecycle';
@@ -805,9 +806,7 @@ export default function PlayPage() {
   // state when a prop changes".
   if (session && !modeSynced) {
     setModeSynced(true);
-    const thisDm = !!(session.dm_username && username &&
-      session.dm_username.toLowerCase() === username.toLowerCase());
-    if (thisDm && session.dm_mode === 'human') {
+    if (isSessionDm(session, username) && session.dm_mode === 'human') {
       setMode('dm_narration');
     }
   }
