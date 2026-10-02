@@ -34,6 +34,8 @@
    chips under 44px); at 340px and under THREE BY TWO. The roving toolbar reads the resolved count back, so the arrow keys follow. */
 .diceGridPopover {
   --dice-cols: 6;
+  /* the popover is max-content wide, so a bare 1fr track takes the chip's own content width (about 36px): a floor makes every chip 44 wide */
+  grid-template-columns: repeat(var(--dice-cols), minmax(44px, 1fr));
   column-gap: 8px;
 }
 

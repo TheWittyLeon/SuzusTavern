@@ -306,7 +306,7 @@ describe('DiceTray — a row that asks for one row of six (A9d-2, Tora A9d-1 MAJ
     const css = readFileSync(resolvePath(process.cwd(), 'src/components/DiceTray.module.css'), 'utf8');
     expect(css).toMatch(/--dice-cols:\s*var\(--dice-columns,\s*3\)/);
     expect(css).not.toMatch(/--play-dice-columns\s*[,)]/);
-    expect(css).toMatch(/\.diceGridPopover\s*\{\s*--dice-cols:\s*6;\s*column-gap:\s*8px;\s*\}/);
+    expect(css).toMatch(/\.diceGridPopover\s*\{\s*--dice-cols:\s*6;[^}]*grid-template-columns:\s*repeat\(var\(--dice-cols\),\s*minmax\(44px,\s*1fr\)\);\s*column-gap:\s*8px;\s*\}/);
     expect(css).toMatch(/@media \(max-width: 340px\)\s*\{\s*\.diceGridPopover\s*\{\s*--dice-cols:\s*3;/);
     expect(css).toMatch(/grid-template-columns:\s*repeat\(var\(--dice-cols\),\s*1fr\)/);
     expect(css).toMatch(/column-gap:\s*clamp\(1px,\s*calc\(\(100% - var\(--dice-cols\) \* 44px\) \/ \(var\(--dice-cols\) - 1\)\),\s*8px\)/);
