@@ -13,7 +13,7 @@
  * has not happened yet, a layout pin has.
  */
 import { useLayoutEffect, useRef, type RefObject } from 'react';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import ChatLog, { type LogRow } from '../../components/ChatLog';
 
@@ -103,5 +103,75 @@ describe('ChatLog pins at commit time (layout effect)', () => {
     rerender(<Harness rows={rows(5)} seen={seen} />);
 
     expect(seen).toEqual([100]);
+  });
+});
+
+// A9d-2 fix round 4 (Kage I-D, reduced motion): the log's BOX can change with no rows commit (a fight starts and the stage grows: 516 -> 226px), so
+// a log pinned to the bottom ended 238px short. A resize re-pins it, from the truth BEFORE the resize; a scroll event that lands after the box
+// changed and before the observer fires measures a geometry nobody scrolled to and must not decide it. Harness: t3-story-combat-start (Story pinned,
+// reduced motion), red 238px at c52da04.
+describe('ChatLog re-pins when its BOX resizes with no rows commit', () => {
+  let fire: () => void = () => {};
+  let size = { w: 400, h: 516 };
+  const RealRO = (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+  beforeEach(() => {
+    size = { w: 400, h: 516 };
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = class {
+      constructor(cb: () => void) { fire = cb; }
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+    };
+  });
+  afterEach(() => { (globalThis as { ResizeObserver?: unknown }).ResizeObserver = RealRO; });
+
+  /** metrics with a box whose height the test can change, and a scrollTop it can read */
+  function metrics(el: HTMLElement, scrollHeight: number) {
+    let top = 0;
+    Object.defineProperty(el, 'scrollHeight', { configurable: true, get: () => scrollHeight });
+    Object.defineProperty(el, 'clientHeight', { configurable: true, get: () => size.h });
+    Object.defineProperty(el, 'clientWidth', { configurable: true, get: () => size.w });
+    Object.defineProperty(el, 'scrollTop', { configurable: true, get: () => top, set: (v: number) => { top = Math.min(v, scrollHeight - size.h); } });
+    const calls: ScrollBehavior[] = [];
+    (el as unknown as { scrollTo: (o: { top: number; behavior?: ScrollBehavior }) => void }).scrollTo = (o) => { top = Math.min(o.top, scrollHeight - size.h); calls.push(o.behavior ?? 'auto'); };
+    return { top: () => top, calls, set: (v: number) => { top = v; } };
+  }
+
+  it('a log pinned to the bottom is pinned again, INSTANTLY, after its box shrinks with no rows commit (369/369 -> 683/683, not 445/683)', () => {
+    render(<ChatLog rows={rows(3)} />);
+    const log = screen.getByRole('log');
+    const m = metrics(log, 885);
+    m.set(885 - 516); // at the bottom of the tall box
+    log.dispatchEvent(new Event('scroll'));
+    act(() => fire()); // the observer's first callback records the box
+    size = { w: 400, h: 226 }; // the fight starts: the box shrinks, scrollTop stays, the gap is 238
+    act(() => fire());
+    expect(m.top()).toBe(885 - 226);
+    expect(m.calls).toContain('instant');
+  });
+
+  it('a scroll event delivered AFTER the box shrank and BEFORE the observer fired does not unpin it (the flaky 445/683)', () => {
+    render(<ChatLog rows={rows(3)} />);
+    const log = screen.getByRole('log');
+    const m = metrics(log, 885);
+    m.set(885 - 516);
+    log.dispatchEvent(new Event('scroll'));
+    act(() => fire());
+    size = { w: 400, h: 226 };
+    log.dispatchEvent(new Event('scroll')); // the page's frame: the scroll event runs on the new geometry, a gap of 238
+    act(() => fire());
+    expect(m.top()).toBe(885 - 226);
+  });
+
+  it('a reader who had scrolled UP is not pulled down by a resize', () => {
+    render(<ChatLog rows={rows(3)} />);
+    const log = screen.getByRole('log');
+    const m = metrics(log, 885);
+    m.set(100);
+    log.dispatchEvent(new Event('scroll'));
+    act(() => fire());
+    size = { w: 400, h: 226 };
+    act(() => fire());
+    expect(m.top()).toBe(100);
   });
 });

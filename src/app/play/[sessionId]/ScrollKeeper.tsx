@@ -59,8 +59,14 @@ export function snapshotScroll(root: HTMLElement | null): ScrollSnapshotEntry[] 
 export function restoreScroll(snapshot: ScrollSnapshotEntry[]): void {
   for (const { el, top, left, atEnd } of snapshot) {
     if (!el.isConnected) continue;
+    // INSTANT, whatever the element's own `scroll-behavior`. The story log carries `scroll-behavior: smooth`, and assigning `scrollTop` on such an
+    // element starts an ANIMATION that the next layout cancels (A9d-2 fix round 4, Kage I-D: part-way 185 -> 0 at a fight's start, a pinned log
+    // visiting 0, 69px short at a fight's end; motion allowed only). A restore is a correction of where the user already was, never a scroll.
+    const before = el.style.scrollBehavior;
+    el.style.scrollBehavior = 'auto';
     el.scrollTop = atEnd ? el.scrollHeight : top;
     el.scrollLeft = left;
+    el.style.scrollBehavior = before;
   }
 }
 

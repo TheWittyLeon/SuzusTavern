@@ -8,6 +8,7 @@
  */
 import {
   useCallback,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -176,9 +177,16 @@ export default function ChatLog({
     else el.scrollTop = el.scrollHeight;
   }, []);
 
+  // The box the resize observer last saw (width x height). A scroll event that arrives AFTER the box changed and BEFORE the observer's callback
+  // measures a geometry the user never scrolled to (the log shrank 516 -> 226 under a pinned scrollTop: a gap of 238), so it must not decide
+  // `atBottom`: the observer decides, from the truth before the resize (A9d-2 fix round 4, Kage I-D; seen as a flaky 445/683 in the harness).
+  const boxKey = useRef<string | null>(null);
+  const keyOf = (el: HTMLElement) => `${el.clientWidth}x${el.clientHeight}`;
+
   const onScroll = useCallback(() => {
     const el = ref.current;
     if (!el) return;
+    if (boxKey.current !== null && boxKey.current !== keyOf(el)) return;
     atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   }, []);
 
@@ -193,6 +201,21 @@ export default function ChatLog({
   useLayoutEffect(() => {
     if (atBottom.current) pin();
   }, [rows, thinking, pin]);
+
+  // A9d-2 fix round 4 (Kage I-D, reduced motion): the log's BOX can change with no rows commit (a fight starts, the stage grows, the log shrinks
+  // 516 -> 226px), so the pin above never ran and a log that was pinned to the bottom ended 238px short. The box's own resize is the signal: if
+  // the user was at the bottom before it, they are again after. `atBottom` is the pre-resize truth (a shrink fires no scroll event), and the pin is
+  // instant (the log's CSS is `scroll-behavior: smooth`: an animated re-pin is still moving when the next layout lands).
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      boxKey.current = keyOf(el);
+      if (atBottom.current) pin('instant');
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [pin]);
 
   return (
     <div

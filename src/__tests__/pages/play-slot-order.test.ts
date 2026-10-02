@@ -252,3 +252,37 @@ describe('A9c C5 — slotOrder() on the real rows equals the six pinned literals
     }
   }
 });
+
+describe('A9d-2 fix round 4 (Kage I-D) — restoreScroll is INSTANT whatever the element\'s scroll-behavior', () => {
+  // The story log carries `scroll-behavior: smooth`: assigning `scrollTop` on such an element starts an animation the next layout cancels
+  // (part-way 185 -> 0, 69px short of the end at a fight's end, motion allowed only). jsdom has no scroll animation, so the pin is the value the
+  // style holds AT THE MOMENT of each assignment, and that the element's own value is put back.
+  function smoothScroller(o: { top: number; sh: number; ch: number }) {
+    const el = document.createElement('div');
+    el.style.scrollBehavior = 'smooth';
+    const during: string[] = [];
+    let top = o.top;
+    Object.defineProperty(el, 'scrollHeight', { configurable: true, get: () => o.sh });
+    Object.defineProperty(el, 'clientHeight', { configurable: true, get: () => o.ch });
+    Object.defineProperty(el, 'scrollTop', { configurable: true, get: () => top, set: (v: number) => { during.push(el.style.scrollBehavior); top = v; } });
+    document.body.appendChild(el);
+    return { el, during };
+  }
+
+  it('assigns scrollTop with scroll-behavior auto (a part-way log and a pinned one), and puts the element\'s own value back', () => {
+    const part = smoothScroller({ top: 185, sh: 900, ch: 300 });
+    const end = smoothScroller({ top: 600, sh: 900, ch: 300 });
+    restoreScroll([
+      { el: part.el, top: 185, left: 0, atEnd: false },
+      { el: end.el, top: 600, left: 0, atEnd: true },
+    ]);
+    expect(part.during).toEqual(['auto']);
+    expect(end.during).toEqual(['auto']);
+    expect(part.el.style.scrollBehavior).toBe('smooth');
+    expect(end.el.style.scrollBehavior).toBe('smooth');
+    expect(part.el.scrollTop).toBe(185);
+    expect(end.el.scrollTop).toBe(900);
+    part.el.remove();
+    end.el.remove();
+  });
+});
