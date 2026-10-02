@@ -100,6 +100,22 @@ describe('computePlacement: a passthrough zone BESIDE the opener (A9d-2 N8: the 
   });
 });
 
+describe('computePlacement: a cap on the popover\'s height (the Session card must not run over the composer and the verbs)', () => {
+  it('maxHeight is the room, or the cap when the cap is smaller; the side is chosen for the height it will be', () => {
+    const below = computePlacement(opener(100), { width: 200, height: 900 }, view, [], 'auto', 800, 360);
+    expect(below.side).toBe('bottom');
+    expect(below.maxHeight).toBe(360);
+    // uncapped, the same popover takes all the room under the opener
+    expect(computePlacement(opener(100), { width: 200, height: 900 }, view, [], 'auto', 800).maxHeight).toBe(800 - 6 - 150);
+    // a 900px popover capped to 120px fits above an opener with 200px of room above: it opens ABOVE (uncapped it would not fit there)
+    expect(computePlacement(opener(220), { width: 200, height: 900 }, view, [], 'auto', 800, 120).side).toBe('top');
+  });
+
+  it('a cap larger than the room changes nothing', () => {
+    expect(computePlacement(opener(700), { width: 200, height: 900 }, view, [], 'auto', 800, 5000).maxHeight).toBe(700 - 6 - 6);
+  });
+});
+
 // ── the hook through a real component ───────────────────────────────────────────────────────────────────────────────────────────
 const log = { verb: jest.fn(), xcard: jest.fn(), parentKey: jest.fn() };
 

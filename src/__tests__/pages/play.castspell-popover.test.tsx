@@ -95,7 +95,8 @@ function tenant(over: { combatIsActive?: boolean } = {}) {
 
 describe('CastSpellTenant -- Cast a spell is an anchored popover', () => {
   const opener = () => screen.getByRole('button', { name: 'Cast a spell' });
-  const popover = () => screen.getByRole('dialog', { name: 'Cast a spell', hidden: true });
+  // closed it has no role (see AnchoredPopover): found by the id the opener controls, which is what aria-controls is for
+  const popover = () => document.getElementById(opener().getAttribute('aria-controls') as string) as HTMLElement;
 
   it('is closed by default: the opener says so, the popover is hidden by class (kept mounted)', async () => {
     render(tenant());
@@ -103,6 +104,7 @@ describe('CastSpellTenant -- Cast a spell is an anchored popover', () => {
     expect(opener()).toHaveAttribute('aria-haspopup', 'dialog');
     expect(opener()).toHaveAttribute('aria-expanded', 'false');
     expect(popover()).toHaveClass('closed');
+    expect(popover()).not.toHaveAttribute('role'); // closed + kept mounted: no role or name in jsdom (AnchoredPopover), so a bare queryByRole('dialog') elsewhere is unaffected
   });
 
   it('the opener controls the popover (aria-controls -> its id), which is portalled out of the tenant and never aria-modal', async () => {

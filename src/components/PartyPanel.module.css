@@ -229,9 +229,78 @@
    visually hidden (the screen-reader clip, as the global .sr-only), so the
    tile's accessible name is unchanged and `title` carries the name for a
    pointer. */
+/* A9d-2 N9 (Sora lever brief 2.4; Tora C4, Iro 3): the strip is ONE row of tiles that scrolls sideways when they do not fit, with a TRAILING column
+   beside it that never goes with the tiles (a player's "Change character", the DM's "Session"): a control is at rest at 6 and 8 members. One grid
+   cell holds the label and the row: the row's top PADDING is the label's own height and its box covers the label, so a focused tile's name
+   caption (which sits above its tile, in the label's row) is inside the scroller's padding box and is not clipped. The edge fade (the offers rows'
+   technique) tells the user there is more; the tile ring is drawn INSIDE the tile (below), so the scroller clips nothing and the band keeps the
+   91px minimum the registry pins. At 320px and under (a 400% zoom) the row wraps again: WCAG 1.4.10 wants no two-way scroll there. */
+.strip {
+  --party-label-h: 22px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: 'main trailing';
+  column-gap: 8px;
+}
+
+.strip > .label {
+  grid-area: main;
+  height: var(--party-label-h);
+  margin: 0;
+}
+
+.strip > .empty {
+  grid-area: main;
+}
+
 .strip .list {
+  grid-area: main;
+  /* the containing block of the tiles' visually-hidden words (absolute, clipped to 1px): without it they belong to the SLOT, outside this
+     scroller's clip, and a tile past the edge widens the slot (measured: scrollWidth 452 in 390 at 8 members), which scrolls the band sideways */
+  position: relative;
   flex-direction: row;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  gap: 6px;
+  min-width: 0;
+  padding: var(--party-label-h) 16px 0 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  scroll-padding-inline: 64px;
+  /* the next tile peeks and dissolves; the 16px of padding keeps the LAST tile clear of the fade once scrolled to the end */
+  mask-image: linear-gradient(to right, var(--ink) calc(100% - 16px), transparent);
+}
+
+.strip .list::-webkit-scrollbar {
+  display: none;
+}
+
+.strip .list > li {
+  flex: none;
+}
+
+.strip > .trailing {
+  grid-area: trailing;
+  align-self: end;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+@media (max-width: 320px) {
+  .strip .list {
+    flex-wrap: wrap;
+    overflow: visible;
+    padding-right: 0;
+    mask-image: none;
+  }
+}
+
+/* rail: the trailing controls sit under the roster, full width. */
+.rail > .trailing {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
   gap: 6px;
 }
 
@@ -289,6 +358,13 @@
    either way, so the accessible name is unchanged. */
 .strip .link {
   position: relative;
+  border-radius: 12px;
+}
+
+/* The ring is drawn INSIDE the tile in the strip: the row is a scroller, and an outward ring is clipped by one (the global ring is outside
+   its element by --focus-ring-offset). Same width and colour as the global rule; only the offset flips. */
+.strip .link:focus-visible {
+  outline-offset: calc(-1 * var(--focus-ring-width));
 }
 
 .strip:has(.link:focus-visible) > .label {

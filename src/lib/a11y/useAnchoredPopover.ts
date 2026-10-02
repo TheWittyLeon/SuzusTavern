@@ -77,6 +77,8 @@ export interface UseAnchoredPopoverOptions {
   /** The popover stays in the DOM while closed (a CSS class hides it): `aria-controls` is then valid while closed. */
   keepMounted?: boolean;
   side?: PopoverSide;
+  /** No taller than this many px: the popover scrolls inside beyond it (the Session card, 540px of content, must not cover the composer and the verbs). */
+  maxHeight?: number;
 }
 
 export interface AnchoredPopoverApi {
@@ -139,6 +141,7 @@ export function computePlacement(
   zones: ReadonlyArray<{ left: number; right: number; top: number; bottom: number }>,
   side: PopoverSide = 'auto',
   viewportHeight: number = view.top + view.height,
+  cap: number = Infinity,
 ): Placed {
   const maxWidth = Math.max(0, view.width - 2 * EDGE);
   const w = Math.min(natural.width, maxWidth);
@@ -164,9 +167,12 @@ export function computePlacement(
   }
   const roomAbove = Math.max(0, ot - GAP - topLimit);
   const roomBelow = Math.max(0, bottomLimit - (ob + GAP));
+  // `cap`: a consumer that wants its popover no taller than this (it scrolls inside beyond it), so a tall one does not run over the page's
+  // lower controls. The side is chosen for the height it will actually be.
+  const want = Math.min(natural.height, cap);
   const chosen: 'top' | 'bottom' =
-    side === 'top' ? 'top' : side === 'bottom' ? 'bottom' : natural.height <= roomAbove ? 'top' : natural.height <= roomBelow ? 'bottom' : roomAbove >= roomBelow ? 'top' : 'bottom';
-  const maxHeight = chosen === 'top' ? roomAbove : roomBelow;
+    side === 'top' ? 'top' : side === 'bottom' ? 'bottom' : want <= roomAbove ? 'top' : want <= roomBelow ? 'bottom' : roomAbove >= roomBelow ? 'top' : 'bottom';
+  const maxHeight = Math.min(chosen === 'top' ? roomAbove : roomBelow, cap);
   return chosen === 'top'
     ? { left, bottom: viewportHeight - ot + GAP, maxHeight, maxWidth, side: chosen }
     : { left, top: ob + GAP, maxHeight, maxWidth, side: chosen };
@@ -182,6 +188,7 @@ export function useAnchoredPopover({
   fallbackFocus,
   keepMounted = false,
   side = 'auto',
+  maxHeight,
 }: UseAnchoredPopoverOptions): AnchoredPopoverApi {
   const id = useId();
   const popoverRef = useRef<HTMLElement | null>(null);
@@ -203,9 +210,9 @@ export function useAnchoredPopover({
       .filter((z) => z.width > 0 && z.height > 0);
     // Natural size: the content's, whatever max-height a previous placement left (the popover scrolls inside, so scrollHeight is the content).
     const chrome = pop.offsetHeight - pop.clientHeight;
-    const next = computePlacement(r, { width: pop.offsetWidth, height: pop.scrollHeight + chrome }, visualBox(), zones, side, document.documentElement.clientHeight);
+    const next = computePlacement(r, { width: pop.offsetWidth, height: pop.scrollHeight + chrome }, visualBox(), zones, side, document.documentElement.clientHeight, maxHeight);
     setPlaced((prev) => (samePlaced(prev, next) ? prev : next));
-  }, [openerEl, side]);
+  }, [openerEl, side, maxHeight]);
 
   // Placed before the first paint, and again after every render while open (content can change size); re-placed on resize, on any
   // scroll (capture: an ancestor's) and on the visual viewport's own resize / scroll.
