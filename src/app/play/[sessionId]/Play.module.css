@@ -127,10 +127,14 @@
 
 /* A10 step 11 S2b (Amendment F.6): a region that sets `data-slot-fill` owns its own edges: its slot drops the padding and stops being a scroller (the
    scene stage's `hero`: a body that reaches the slot's edges and a scene line that pads itself). Generic: it names an attribute, never a region or a
-   layout. Beats `.slotScroll` by specificity, not by order. */
+   layout. Beats `.slotScroll` by specificity, not by order.
+   A10 fix round 2 (Iro MINOR-1): a clip is a clipping ancestor, and an outward focus ring is ink OUTSIDE its element (globals.css, `--focus-ring-clearance`): the scene line's
+   buttons sit 4px from this slot's edge, so their ring (2px + 2px offset) ended exactly ON the clip, with no clearance for a denser display or a zoom. The slot has no padding to
+   leave (that is what `data-slot-fill` means), so the clearance is the CLIP's margin: the clip edge moves out by the ring's reach, and no box moves with it. */
 .slot:has(> [data-slot-fill]) {
   padding: 0;
   overflow: clip;
+  overflow-clip-margin: var(--focus-ring-clearance);
 }
 
 /* A9d E3 (build brief 2.3): the fold handle is never squeezed out. A slot whose dock is foldable keeps room for the handle (44px,
