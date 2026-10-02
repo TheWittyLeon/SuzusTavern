@@ -1417,7 +1417,7 @@ export default function PlayPage() {
         isDm={isDm}
         sessionId={sessionId}
         combatIsActive={combatIsActive}
-        sessionLocked={sessionLocked}
+        sessionLocked={sessionLocked} sessionEnded={isEnded}
         onRebindChanged={onRebindChanged}
         round={round}
         selfPcId={selfPcId}

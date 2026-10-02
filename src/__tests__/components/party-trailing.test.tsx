@@ -29,8 +29,8 @@ const member = (username: string, name: string | null, over: Partial<Participant
 });
 const PARTY = [member('kes', 'Kestrel Ashwood'), member('sable', 'Sable Voss'), member('suzu', null, { is_dm: true })];
 
-function strip(over: { isDm?: boolean; participants?: Participant[]; session?: Parameters<typeof PartyStrip>[0]['session'] } = {}) {
-  return render(
+function stripEl(over: { isDm?: boolean; participants?: Participant[]; session?: Parameters<typeof PartyStrip>[0]['session']; sessionEnded?: boolean; sessionLocked?: boolean } = {}) {
+  return (
     <PartyStrip
       participants={over.participants ?? PARTY}
       selfUsername="kes"
@@ -39,14 +39,18 @@ function strip(over: { isDm?: boolean; participants?: Participant[]; session?: P
       isDm={over.isDm ?? false}
       sessionId="s1"
       combatIsActive={false}
-      sessionLocked={false}
+      sessionLocked={over.sessionLocked ?? false}
       onRebindChanged={jest.fn()}
       round={null}
       selfPcId={null}
       variant="strip"
       session={over.session}
-    />,
+      sessionEnded={over.sessionEnded}
+    />
   );
+}
+function strip(over: Parameters<typeof stripEl>[0] = {}) {
+  return render(stripEl(over));
 }
 const rebinds = () => screen.getAllByRole('button').filter((b) => /character/i.test(b.getAttribute('aria-label') ?? ''));
 
@@ -139,6 +143,30 @@ describe('the DM: a Session button in the trailing column opens a popover with t
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  // A9d-2 round 5 (Iro MINOR-1): a REAL End session leaves every control in the popover disabled; with the popover open, focus fell to <body> and Escape did nothing.
+  it('the session ENDING closes an open Session popover and focus is on the Session button; not per dialog (no render-prop is involved)', () => {
+    const { rerender } = strip({ isDm: true, session });
+    fireEvent.click(screen.getByRole('button', { name: 'Session' }));
+    act(() => screen.getByRole('button', { name: 'End session' }).focus());
+    expect(screen.getByRole('button', { name: 'Session' })).toHaveAttribute('aria-expanded', 'true');
+    rerender(stripEl({ isDm: true, session, sessionEnded: true }));
+    expect(screen.getByRole('button', { name: 'Session' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: 'Session' })).toHaveFocus();
+  });
+
+  it('only on the rising edge: on a table that is already ended the DM can still open the popover, and it stays open', () => {
+    strip({ isDm: true, session, sessionEnded: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Session' }));
+    expect(screen.getByRole('button', { name: 'Session' })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('paused is not ended: the popover stays open when only `sessionLocked` flips', () => {
+    const { rerender } = strip({ isDm: true, session });
+    fireEvent.click(screen.getByRole('button', { name: 'Session' }));
+    rerender(stripEl({ isDm: true, session, sessionLocked: true }));
+    expect(screen.getByRole('button', { name: 'Session' })).toHaveAttribute('aria-expanded', 'true');
   });
 
   it('the Session button outlives an empty roster: a DM at a table nobody has joined still has the way to the tools', () => {

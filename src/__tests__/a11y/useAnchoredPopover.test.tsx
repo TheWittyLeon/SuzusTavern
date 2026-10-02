@@ -601,6 +601,33 @@ describe('focus leaving an open popover closes it, without moving focus (Safari\
       closed();
     });
 
+    it('a popover that closes UNDER an open modal owes its opener the focus when the modal goes (the session ended under the End-session confirm); focus the page puts somewhere real meanwhile is left alone', async () => {
+      setup();
+      openA();
+      const { wrap, btn } = modal();
+      act(() => btn.focus());
+      openA(); // the opener's toggle: the popover closes while the modal is still up
+      closed();
+      expect(btn).toHaveFocus(); // the dialog keeps focus
+      wrap.remove(); // the dialog unmounts: focus falls to <body>
+      await act(async () => { await Promise.resolve(); });
+      expect(screen.getByRole('button', { name: 'Open A' })).toHaveFocus();
+    });
+
+    it('...but not when focus has gone to a control by then', async () => {
+      setup();
+      openA();
+      const { wrap, btn } = modal();
+      act(() => btn.focus());
+      openA();
+      closed();
+      const verb = screen.getByRole('button', { name: 'Verb' });
+      wrap.remove();
+      act(() => verb.focus());
+      await act(async () => { await Promise.resolve(); });
+      expect(verb).toHaveFocus();
+    });
+
     it('does NOT count: a modal inside the popover or around it, an inert or hidden one, or a closed layer that dropped the attribute', () => {
       setup();
       openA();

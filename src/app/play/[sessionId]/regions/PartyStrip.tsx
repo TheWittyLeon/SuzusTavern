@@ -45,6 +45,8 @@ export interface PartyStripProps {
   sessionId: string;
   combatIsActive: boolean;
   sessionLocked: boolean;
+  /** The session has ENDED (not merely paused): an open Session popover closes on that edge, with nothing in it left to press (A9d-2 round 5, Iro MINOR-1). */
+  sessionEnded?: boolean;
   onRebindChanged: () => void;
   round: number | null;
   selfPcId: string | null;
@@ -67,6 +69,7 @@ export default function PartyStrip({
   sessionId,
   combatIsActive,
   sessionLocked,
+  sessionEnded = false,
   onRebindChanged,
   round,
   selfPcId,
@@ -91,6 +94,14 @@ export default function PartyStrip({
   const showSession = isDm;
   // The seat losing the DM role takes the button; an `open` left behind must not show the popover the next time it holds.
   if (!showSession && sessionOpen) setSessionOpen(false);
+  // The session ENDING closes an open Session popover: every control in it is then disabled, so focus would fall to <body> (the confirm's own restore
+  // lands on a disabled End session) and Escape would do nothing. On the rising edge only (a DM may open it on an ended table to look), by state, not per
+  // dialog; the primitive's close rule then puts focus on the Session opener (the scene head if it is gone).
+  const [wasEnded, setWasEnded] = useState(sessionEnded);
+  if (wasEnded !== sessionEnded) {
+    setWasEnded(sessionEnded);
+    if (sessionEnded && sessionOpen) setSessionOpen(false);
+  }
 
   // B2-4: rebind affordances — one "Change character" button per party row. Self sees their own row's button always; the DM sees every row.
   const rebindRow = (p: Participant) => (

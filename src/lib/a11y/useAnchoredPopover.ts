@@ -232,6 +232,9 @@ export function useAnchoredPopover({
   useLayoutEffect(() => {
     onCloseRef.current = onClose;
   });
+  // Focus owed to the opener while a modal layer is still open over a popover that has just closed (the session ENDED under the End-session confirm).
+  const owedFocusRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => owedFocusRef.current?.(), []);
   const pointerRef = useRef(false);
   // The last key was Tab: only then is a focus that goes to nothing the user leaving. A control that becomes disabled or hidden while focused is
   // blurred by the browser with the same null relatedTarget (a Cast button disabled while the cast is in flight, the harness's cue probe), and
@@ -356,6 +359,7 @@ export function useAnchoredPopover({
   // Focus: on open to the declared target; on every close back to the opener (or the fallback), decided in the commit that closed it.
   useLayoutEffect(() => {
     if (open) {
+      owedFocusRef.current?.();
       wasOpenRef.current = true;
       const pop = popoverRef.current;
       const target = (initialFocus ? pop?.querySelector<HTMLElement>(initialFocus) : null) ?? pop?.querySelector<HTMLElement>(TABBABLE) ?? pop;
@@ -373,6 +377,25 @@ export function useAnchoredPopover({
     }
     if (!wasOpenRef.current) return;
     wasOpenRef.current = false;
+    if (modalLayerOpen(popoverRef.current)) {
+      // Closed under a modal (a dialog the popover's control opened is still up: the session ended while its confirm was open). Focus is the dialog's and its
+      // own restore will aim at a control inside this now-hidden popover and land on <body>: when the last modal layer goes, give focus to the opener (the
+      // fallback if it is gone), unless the page has put it somewhere real by then. Bounded.
+      owedFocusRef.current?.();
+      const mo = new MutationObserver(() => {
+        if (modalLayerOpen(popoverRef.current)) return;
+        owedFocusRef.current?.();
+        const now = document.activeElement;
+        if (now && now !== document.body) return;
+        const o = openerEl();
+        if (o && o.isConnected) o.focus({ preventScroll: true });
+        else fallbackFocus?.()?.focus({ preventScroll: true });
+      });
+      const timer = setTimeout(() => owedFocusRef.current?.(), 15_000);
+      mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-modal', 'inert', 'hidden'] });
+      owedFocusRef.current = () => { mo.disconnect(); clearTimeout(timer); owedFocusRef.current = null; };
+      return;
+    }
     const active = document.activeElement;
     // Focus is left alone when the user moved it on to a control of their choosing (the X-card took the press); it is brought back when it
     // was in the popover (now gone or hidden) or fell to <body>.
