@@ -71,6 +71,14 @@ describe('every text control is at least 16px on a phone or a touch screen (no i
     expect(sel).not.toMatch(/\.[A-Za-z]/); // no class in it: a list of sites is the defect this replaced
   });
 
+  it('a single-line native select is also 44px TALL under that query, `!important`: WebKit ignores min-height on a select and every site wrote height: 38px (the WebKit pass saw ConditionsPanel at 175x38)', () => {
+    const m = body().match(/(select:not\([^)]*\))\s*\{([^}]*)\}/);
+    expect(m).not.toBeNull();
+    expect(m![1]).toMatch(/\[multiple\]/);
+    expect(m![1]).toMatch(/\[size\]/);
+    expect(m![2]).toMatch(/height:\s*44px\s*!important/);
+  });
+
   it('the composer textarea, the Journal notes and the Cast and Grant selects keep their own 16px as well (the desktop: the rule is a phone / touch floor)', () => {
     for (const [file, selector] of [
       ['src/components/Composer.module.css', '.input'],
