@@ -57,9 +57,9 @@ export interface ComposerProps {
    *  Optional — every other caller is unaffected. */
   textareaAnchorRef?: RefObject<HTMLTextAreaElement | null>;
   /**
-   * A9d-2 N7 (Amendment E.4): `full` (the default) is the composer as it always was. `roll` (the phone) puts `tools` (the Roll control, which
-   * opens the dice) at the END of the mode row: DOM order modes, Roll, textarea, send; two rows at every phone width, the mode row never
-   * wrapping. `tools` is painted only by `roll`.
+   * A9d-2 N7 (Amendment E.4): `full` (the default) is the composer as it always was. `roll` (the phone, and a `hero` stage's rows: A10 S1) puts `tools` (the
+   * Roll control, which opens the dice) at the END of the mode row: DOM order modes, Roll, textarea, send; the mode row never wraps. Two rows at
+   * the phone's width (its own line), ONE where the composer has the room (the desktop rows). `tools` is painted only by `roll`.
    */
   variant?: RegionVariant<'composer'>;
   tools?: ReactNode;
@@ -212,53 +212,56 @@ export default function Composer({
           </div>
           {variant === 'roll' && tools}
         </div>
-        <textarea
-          ref={(el) => {
-            textareaRef.current = el;
-            if (textareaAnchorRef) textareaAnchorRef.current = el;
-          }}
-          className={styles.input}
-          placeholder={lockReason ?? ((shortPlaceholder ? PLACEHOLDER_SHORT[mode] : PLACEHOLDER[mode]) ?? '')}
-          aria-describedby={shortPlaceholder ? hintId : undefined}
-          value={value}
-          rows={1}
-          aria-label={`Compose (${mode})`}
-          title={lockReason ?? undefined}
-          // Iro A9c-2 IMPORTANT-1: a send/narration lock is `readOnly` +
-          // `aria-disabled`, never native `disabled` — that dropped focus to <body>
-          // on EVERY send (and on the Auto flip while Suzu narrates).
-          {...lockProps(locked, { textInput: true })}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              if (canSend) onSend();
-            }
-          }}
-        />
-        {shortPlaceholder && <span id={hintId} className="sr-only">{PLACEHOLDER[mode]}</span>}
-        <button
-          type="button"
-          className={styles.send}
-          // Not native `disabled` either: a keyboard user on Send loses focus the
-          // moment the draft clears (value -> empty -> !canSend).
-          {...lockProps(!canSend, { busy: pending })}
-          aria-label={pending ? 'Sending…' : 'Send'}
-          onClick={() => {
-            if (!canSend || pendingRef.current) return;
-            pendingRef.current = true;
-            // Reset after the current microtask so the latch only blocks genuine
-            // double-clicks; the caller's pending state takes over from there.
-            Promise.resolve().then(() => { pendingRef.current = false; });
-            onSend();
-          }}
-        >
-          {pending ? (
-            <span className={styles.sendSpinner} aria-hidden />
-          ) : (
-            <Icon name="Send" size={14} />
-          )}
-        </button>
+        {/* The input and Send: one flex item on a `roll` row, so a composer that wraps wraps them TOGETHER (Send alone on a second row was 44px of the story for one button). `display: contents` otherwise (Composer.module.css). The hidden hint belongs to the textarea and rides with it. */}
+        <div className={styles.inputRow}>
+          <textarea
+            ref={(el) => {
+              textareaRef.current = el;
+              if (textareaAnchorRef) textareaAnchorRef.current = el;
+            }}
+            className={styles.input}
+            placeholder={lockReason ?? ((shortPlaceholder ? PLACEHOLDER_SHORT[mode] : PLACEHOLDER[mode]) ?? '')}
+            aria-describedby={shortPlaceholder ? hintId : undefined}
+            value={value}
+            rows={1}
+            aria-label={`Compose (${mode})`}
+            title={lockReason ?? undefined}
+            // Iro A9c-2 IMPORTANT-1: a send/narration lock is `readOnly` +
+            // `aria-disabled`, never native `disabled` — that dropped focus to <body>
+            // on EVERY send (and on the Auto flip while Suzu narrates).
+            {...lockProps(locked, { textInput: true })}
+            onChange={(e) => onChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (canSend) onSend();
+              }
+            }}
+          />
+          {shortPlaceholder && <span id={hintId} className="sr-only">{PLACEHOLDER[mode]}</span>}
+          <button
+            type="button"
+            className={styles.send}
+            // Not native `disabled` either: a keyboard user on Send loses focus the
+            // moment the draft clears (value -> empty -> !canSend).
+            {...lockProps(!canSend, { busy: pending })}
+            aria-label={pending ? 'Sending…' : 'Send'}
+            onClick={() => {
+              if (!canSend || pendingRef.current) return;
+              pendingRef.current = true;
+              // Reset after the current microtask so the latch only blocks genuine
+              // double-clicks; the caller's pending state takes over from there.
+              Promise.resolve().then(() => { pendingRef.current = false; });
+              onSend();
+            }}
+          >
+            {pending ? (
+              <span className={styles.sendSpinner} aria-hidden />
+            ) : (
+              <Icon name="Send" size={14} />
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );

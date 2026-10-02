@@ -7,16 +7,16 @@
  * ("End combat" or "Wrap up"), or to the scene head when the fight ended. The browser harness (popover-end-chooser legs) is the real pin
  * for geometry; jsdom has none.
  */
-import { useRef, useState } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import SceneStage from '@/app/play/[sessionId]/regions/SceneStage';
 
-interface Opts { combat?: boolean; allDown?: boolean; anyDown?: boolean; busy?: boolean; encounter?: boolean; variant?: 'inline' | 'panel' | 'hero'; round?: number | null }
+interface Opts { combat?: boolean; allDown?: boolean; anyDown?: boolean; busy?: boolean; encounter?: boolean; variant?: 'inline' | 'panel' | 'hero'; round?: number | null; children?: ReactNode }
 
 const endCalls: string[] = [];
 
-function Stage({ combat = true, allDown = false, anyDown = false, busy = false, encounter = false, variant, round }: Opts) {
+function Stage({ combat = true, allDown = false, anyDown = false, busy = false, encounter = false, variant, round, children }: Opts) {
   const headRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLButtonElement>(null);
   const openerRef = useRef<HTMLButtonElement>(null);
@@ -48,12 +48,15 @@ function Stage({ combat = true, allDown = false, anyDown = false, busy = false, 
           rollBusy={false}
           variant={variant}
           round={round}
-        />
+        >
+          {children}
+        </SceneStage>
       </aside>
     </div>
   );
 }
 
+const stage = () => document.querySelector('[data-region="sceneStage"]') as HTMLElement;
 const endBtn = () => screen.getByRole('button', { name: /End combat/ });
 const wrapBtn = () => screen.getByRole('button', { name: /All enemies are down/ });
 const chooser = () => screen.getByRole('group', { name: 'Choose combat outcome' });
@@ -63,7 +66,6 @@ beforeEach(() => { endCalls.length = 0; });
 describe('the encounter block: buttons are siblings of the live regions, never inside them', () => {
   it('no button lives inside any role="status" node of the stage, with and without all enemies down', () => {
     const { rerender } = render(<Stage />);
-    const stage = () => document.querySelector('[data-region="sceneStage"]') as HTMLElement;
     const check = () => {
       const statuses = Array.from(stage().querySelectorAll('[role="status"]'));
       expect(statuses.length).toBeGreaterThan(0);
@@ -267,14 +269,65 @@ describe('the scene strip (variant inline)', () => {
     expect(prompt.className).not.toMatch(/noteClipped/);
   });
 
-  it('panel and hero render as they always did: the kicker, the picture\'s stand-in and its fold body, and the objective in combat too', () => {
-    for (const variant of ['panel', 'hero'] as const) {
-      const { unmount } = render(<Stage variant={variant} />);
-      expect(stage()).toHaveAttribute('data-variant', variant);
-      expect(stage().querySelector('[data-fold-body]')).not.toBeNull();
-      expect(stage().textContent).toMatch(/tactical map arrives/);
-      expect(screen.getByText('Find the source of the tremors.')).toBeInTheDocument();
-      unmount();
-    }
+  // A10 step 11 S2b (named exception: `panel` loses its body and `hero` becomes the scene line plus a body): what each form renders now. The status and
+  // button invariants of the file's other tests are asserted again in a `hero` below.
+  it('a `panel` renders as it did, minus the body: the kicker and the objective in combat too, and no picture stand-in', () => {
+    render(<Stage variant="panel" />);
+    expect(stage()).toHaveAttribute('data-variant', 'panel');
+    expect(stage()).not.toHaveAttribute('data-slot-fill');
+    expect(stage().querySelector('[data-fold-body]')).toBeNull();
+    expect(stage().textContent).not.toMatch(/tactical map arrives/);
+    expect(stage().textContent).toMatch(/Scene/);
+    expect(screen.getByText('Find the source of the tremors.')).toBeInTheDocument();
+  });
+
+  // A10 fix round F2 (Kage Tavern 9, third item): "`inline` is unchanged" had no jest pin. Giving the phone's strip `data-slot-fill` passed jest and the 390x844 gate and moved two budget
+  // lines by 3px (the slot drops its padding and stops being a scroller): the strip is a whole band that keeps its slot's edges.
+  it('an `inline` strip (the phone) does not own its slot\'s edges and has no body: no `data-slot-fill`, no `[data-fold-body]`, no stand-in', () => {
+    render(<Stage variant="inline" />);
+    expect(stage()).toHaveAttribute('data-variant', 'inline');
+    expect(stage()).not.toHaveAttribute('data-slot-fill');
+    expect(stage().querySelector('[data-fold-body]')).toBeNull();
+    expect(stage().textContent).not.toMatch(/tactical map arrives/);
+  });
+
+  it('a `hero` is the scene line, then a body: no kicker, the objective gives way to the status in a fight, the body owns its slot\'s edges', () => {
+    render(<Stage variant="hero" />);
+    expect(stage()).toHaveAttribute('data-variant', 'hero');
+    expect(stage()).toHaveAttribute('data-slot-fill');
+    expect(stage().querySelector('[aria-hidden]')?.textContent).not.toBe('Scene');
+    expect(screen.queryByText('Find the source of the tremors.')).toBeNull();
+    expect(stage().querySelectorAll('[data-fold-body]')).toHaveLength(1);
+  });
+
+  it('a `hero` in a fight with no children shows the stand-in, whole, in its body; exploring renders nothing there; children replace it', () => {
+    const { unmount } = render(<Stage variant="hero" />);
+    expect(stage().querySelector('[data-fold-body]')).toHaveTextContent(/tactical map arrives/);
+    unmount();
+    const exploring = render(<Stage variant="hero" combat={false} />);
+    expect(stage().querySelector('[data-fold-body]')).toBeEmptyDOMElement();
+    exploring.unmount();
+    render(<Stage variant="hero"><p>the map</p></Stage>);
+    expect(stage().querySelector('[data-fold-body]')).toHaveTextContent('the map');
+    expect(stage().textContent).not.toMatch(/tactical map arrives/);
+  });
+
+  it('the body comes AFTER the encounter block in the DOM, so Tab goes End combat, then the board', () => {
+    render(<Stage variant="hero" allDown anyDown />);
+    const body = stage().querySelector('[data-fold-body]') as HTMLElement;
+    for (const btn of [endBtn(), wrapBtn()]) expect(btn.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('a `hero` keeps the encounter invariants: no button inside a live region, one role-less wrapper per status and button, the status node stable', () => {
+    const { rerender } = render(<Stage variant="hero" />);
+    for (const st of Array.from(stage().querySelectorAll('[role="status"]'))) expect(st.querySelector('button')).toBeNull();
+    const status = screen.getByText(/In combat · use the action bar/).closest('[role="status"]');
+    const w = endBtn().parentElement as HTMLElement;
+    expect(w).not.toHaveAttribute('role');
+    expect(within(w).getByRole('status')).toBe(status);
+    rerender(<Stage variant="hero" allDown anyDown />);
+    expect(screen.getByText(/In combat · use the action bar/).closest('[role="status"]')).toBe(status);
+    expect(stage().querySelectorAll('[role="status"]')).toHaveLength(2);
+    expect(wrapBtn().parentElement).not.toHaveAttribute('role');
   });
 });

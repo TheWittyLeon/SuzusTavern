@@ -83,9 +83,11 @@ import {
   FOLDABLE_REGIONS,
   REGION_TENANTS,
   TENANT_IDS,
+  factVarsFor,
   getPlacement,
   slotOrder,
   type Anchor,
+  type Facts,
   type LayoutRow,
   type Moment,
   type RegionId,
@@ -104,13 +106,16 @@ export interface FoldSpec {
   /** Id of the `[data-fold-body]` part that folds; the rest of the region never does
    *  (A9d-2 F1, Amendment D.4). Absent = the whole region folds.
    *  debt: no row emits a fold body (the phone stage's fold left in A9d-2 N5: the scene is a one-row strip with no picture to fold). ceiling: FoldDock's body mode and the stage's `[data-fold-body]` wrapper run only in their component tests; no browser path reaches them.
-   *  until: step 12 lands the phone map and the phone row re-declares `collapsible` on the stage (Backlog TAV-PHONE-STAGE-FOLD-RETURNS: Iro's fold acceptance, item 4, is re-asserted then). */
+   *  until: the phone mount re-declares `collapsible` on the stage (Sora's step-11 brief 3.6, "Fold": the stage's `[data-fold-body]`, now a `hero`'s body, is what folds; Backlog TAV-PHONE-STAGE-FOLD-RETURNS: Iro's fold acceptance, item 4, is re-asserted then). */
   body?: string;
 }
 
 export interface PlayShellProps {
   row: LayoutRow;
   moment: Moment;
+  /** A10 step 11 S2a (Amendment F.4): the facts the page reports (`room`); the row's `factVars` answer them, emitted after `momentVars`. The
+   *  shell learns nothing about what a fact means. */
+  facts?: Facts;
   /** Built by page.tsx, where the region components' own props/handlers
    *  already live — the shell never imports a region. */
   regions: Partial<Record<RegionId, ReactNode>>;
@@ -175,6 +180,7 @@ const SKIP_TARGETS: Partial<Record<RegionId, { id: string; label: string }>> = {
 export default function PlayShell({
   row,
   moment,
+  facts,
   regions,
   tenants,
   foldSpecs,
@@ -337,6 +343,7 @@ export default function PlayShell({
             '--play-rows': row.rows[moment],
             ...row.vars,
             ...row.momentVars?.[moment],
+            ...factVarsFor(row, facts),
           } as React.CSSProperties
         }
       >

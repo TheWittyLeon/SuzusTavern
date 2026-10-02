@@ -460,7 +460,7 @@ export default function PlayPage() {
   // rAF-after-commit stranding-rescue effects + the adjacent rising-edge
   // toast, all one cluster in the decomposition plan's §1.13).
   const moment: Moment = combatIsActive ? 'combat' : 'exploring';
-  const { row, layoutId } = usePlayLayout(moment);
+  const { row, layoutId, facts } = usePlayLayout(moment, combatState?.space);
   const {
     endCombatBtnRef, lastOpenerRef, beginCombatRef, composerRailAnchorRef, dmPanelAnchorRef,
     composerTextareaAnchorRef,
@@ -1679,11 +1679,11 @@ export default function PlayPage() {
     <PlayShell
       row={row}
       moment={moment}
+      facts={facts}
       regions={regions}
       tenants={tenants}
       foldSpecs={FOLD_SPECS}
-      foldedRegions={foldedRegions}
-      onToggleFold={onToggleFold}
+      foldedRegions={foldedRegions} onToggleFold={onToggleFold}
       layers={
         <>
           {/* Both drawers go through the shared <Drawer> primitive

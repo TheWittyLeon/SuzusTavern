@@ -341,3 +341,80 @@ describe('SessionRecap.module.css — the phone strip is one line (A9d)', () => 
     expect(rule).toMatch(/display:\s*var\(--play-recap-sub,\s*inline\)/);
   });
 });
+
+// A10 step 11 S2b (Sora's brief 3.2, Amendment F.2 / F.6): the stage's body, as CSS. jsdom lays nothing out, so the real pin is the harness's (m:stageBody,
+// t:stage-body-holds, m:stageRest); these keep the source honest between runs.
+describe('the stage\'s body (A10 S2b): the fill rule, the size container, the four 40px readers', () => {
+  const read = (rel: string) => fs.readFileSync(path.resolve(process.cwd(), rel), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const play = read('src/app/play/[sessionId]/Play.module.css');
+  const stage = read('src/app/play/[sessionId]/regions/SceneStage.module.css');
+  const rule = (text: string, selector: string) => text.match(new RegExp(`${selector.replace(/[.[\]()>~'=^$*+?{}|\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
+
+  it('a region that sets data-slot-fill owns its edges: its slot drops the padding and stops being a scroller, by an attribute and not a region name', () => {
+    const r = rule(play, '.slot:has(> [data-slot-fill])');
+    expect(r).toMatch(/padding:\s*0/);
+    expect(r).toMatch(/overflow:\s*clip/);
+    expect(play).not.toMatch(/data-slot-fill[^{]*sceneStage|sceneStage[^{]*data-slot-fill/);
+  });
+
+  it('the clip leaves the focus ring clearance as the CLIP\'s margin, a plain length (Iro MINOR-1): the scene line\'s buttons sit `--space-2` from the slot\'s edge and their ring reaches 4px, so a clip at the edge shaves it at the next zoom; Chrome computes a calc() here to 0px, so not the calc token', () => {
+    const r = rule(play, '.slot:has(> [data-slot-fill])');
+    expect(r).toMatch(/overflow-clip-margin:\s*var\(--space-2\)/);
+    expect(r).not.toMatch(/overflow-clip-margin:\s*(var\(--focus-ring-clearance\)|calc\()/);
+    // the margin equals the air the scene line leaves above its buttons (the .hero grid's first row), so the ring and its margin cannot drift apart
+    expect(stage).toMatch(/grid-template-rows:\s*var\(--space-2\) minmax\(var\(--strip-half\), auto\)/);
+  });
+
+  it('the body is a SIZE container that fills the last row of the stage, hands the cell to the map\'s own property, and clips', () => {
+    const r = rule(stage, '.body');
+    expect(r).toMatch(/container-type:\s*size/);
+    expect(r).toMatch(/grid-area:\s*body/);
+    expect(r).toMatch(/overflow:\s*hidden/);
+    expect(r).toMatch(/--tm-cell-size:\s*var\(--play-cell\)/);
+    expect(rule(stage, '.hero')).toMatch(/minmax\(0,\s*1fr\);?\s*grid-template-areas/);
+  });
+
+  it('the body\'s min-height is its row\'s floor (A10 fix round F1): the track that sizes it and the box agree, and a row with no floor changes nothing', () => {
+    expect(rule(stage, '.body')).toMatch(/min-height:\s*var\(--play-body-floor,\s*0px\)/);
+    expect(rule(stage, '.body')).not.toMatch(/min-height:\s*0\s*;/);
+  });
+
+  it('the four readers each fall back to today\'s value (a row that sets none changes nothing)', () => {
+    expect(rule(play, ".slot[data-overlay-edges~='top']")).toMatch(/margin-block-start:\s*var\(--play-overlay-reserve,\s*calc\(var\(--overlay-bar-h\)\s*\+\s*var\(--space-4\)\)\)/);
+    expect(rule(play, '.slotOverlay')).toMatch(/max-width:\s*var\(--play-overlay-max,\s*calc\(100% - 2 \* var\(--space-4\)\)\)/);
+    expect(rule(stage, '.hero')).toMatch(/--strip-edge:\s*var\(--play-slot-inline,\s*var\(--density-pad\)\)/);
+    expect(rule(stage, '.hero')).toMatch(/grid-template-columns:\s*var\(--play-strip-start,\s*var\(--strip-edge\)\)/);
+    expect(rule(stage, '.hero')).toMatch(/--strip-half:\s*max\(0px,\s*calc\(\(var\(--play-strip-min,\s*0px\)/);
+  });
+});
+
+// A10 fix round F2 (Kage's Tavern 6, Miko's gap 6): the reduced-motion rule of Play.module.css, as source. It is a second path around the app-wide guard (its `debt:` marker says why
+// and until when) and its SCOPE is the thing to keep: widened to `*` it would reach every page, removed the stage's stale frame returns. Neither was red anywhere in jest (the harness's
+// t3-auto-combat-start and t1-picker legs catch the removal only; nothing caught the widening).
+describe('the reduced-motion rule (A10 S2b): `transition: none` for the /play grid and its descendants, and nothing wider', () => {
+  const raw = fs.readFileSync(path.resolve(process.cwd(), 'src/app/play/[sessionId]/Play.module.css'), 'utf8');
+  const css = raw.replace(/\/\*[\s\S]*?\*\//g, '');
+  const blocks = [...css.matchAll(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{((?:[^{}]*\{[^{}]*\})*[^{}]*)\}/g)].map((m) => m[1]);
+
+  it('there is exactly one reduced-motion block, and it holds exactly one rule', () => {
+    expect(blocks).toHaveLength(1);
+    expect([...blocks[0].matchAll(/\{/g)]).toHaveLength(1);
+  });
+
+  it('its selectors are the grid, its descendants and their pseudo-elements: never `*` alone, never an element or the document', () => {
+    const selectors = blocks[0].slice(0, blocks[0].indexOf('{')).split(',').map((x) => x.trim());
+    expect(selectors).toEqual(['.grid', '.grid *', '.grid *::before', '.grid *::after']);
+    for (const sel of selectors) expect(sel.startsWith('.grid')).toBe(true);
+  });
+
+  it('it declares `transition: none !important` and nothing else', () => {
+    const body = blocks[0].slice(blocks[0].indexOf('{') + 1, blocks[0].lastIndexOf('}')).trim();
+    expect(body).toBe('transition: none !important;');
+  });
+
+  it('it carries a `debt:` marker whose `until:` is the app-wide guard being fixed (the harvest lists it)', () => {
+    const marker = raw.slice(raw.indexOf('debt: this rule is a second path'));
+    expect(marker).toMatch(/ceiling:[^]*?until: the app-wide guard is fixed/);
+    expect(marker.indexOf('until:')).toBeLessThan(marker.indexOf('@media (prefers-reduced-motion: reduce)'));
+  });
+});

@@ -23,8 +23,12 @@ import { useTheme } from '@/lib/theme/ThemeProvider';
 import { useMediaQuery } from '@/lib/useMediaQuery';
 import { PLAY_PHONE_QUERY } from '@/lib/breakpoints';
 import { resolveLayout } from '@/lib/theme/theme';
+import { isSpaceUsable } from '@/components/tactical-map/reach';
+import type { CombatSpace } from '@/lib/api/types';
 import {
   LAYOUT_ROWS_BY_ID,
+  type Facts,
+  type FactValue,
   type LayoutId,
   type LayoutRow,
   type Moment,
@@ -35,11 +39,24 @@ export interface PlayLayout {
   /** = `row.id` — the resolved preset, for `data-layout-resolved`. */
   layoutId: LayoutId;
   isPhone: boolean;
+  /** What the page reports to the shell (A10 step 11 S2a, Amendment F.4); the row answers it with `--play-*` values (`factVars`). */
+  facts: Facts;
 }
 
-export function usePlayLayout(moment: Moment): PlayLayout {
+/**
+ * The `room` fact (A10 step 11 S2a, Sora brief 3.1): what the encounter gives the stage. Not in a fight: `none`. In a fight whose encounter has a
+ * usable `space`: `board`. Otherwise (no `space`, or a malformed one): `band`. `isSpaceUsable` is the tactical map's ONE seam for "can this board be
+ * drawn" and the map's own fallback reads the same predicate, so the room and the map can never disagree about whether there is a board (a second
+ * copy of that test, or a bare `space != null`, would let a malformed board get a board's room and the map draw its fallback in it).
+ */
+export function roomFact(moment: Moment, space: CombatSpace | null | undefined): FactValue<'room'> {
+  if (moment !== 'combat') return 'none';
+  return isSpaceUsable(space) ? 'board' : 'band';
+}
+
+export function usePlayLayout(moment: Moment, space?: CombatSpace | null): PlayLayout {
   const pref = useTheme().layout;
   const isPhone = useMediaQuery(PLAY_PHONE_QUERY);
   const layoutId = resolveLayout(pref, isPhone, moment);
-  return { row: LAYOUT_ROWS_BY_ID[layoutId], layoutId, isPhone };
+  return { row: LAYOUT_ROWS_BY_ID[layoutId], layoutId, isPhone, facts: { room: roomFact(moment, space) } };
 }

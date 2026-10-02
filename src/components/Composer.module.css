@@ -465,9 +465,16 @@
   color: var(--ink-3);
 }
 
-/* A9d-2 N7: the mode row holds the modes and, on the phone's `roll` row, the Roll control. Every other row: `display: contents`, so the modes are
-   the row's flex children exactly as before. `roll`: its own flex row at the full width of the composer, so Roll sits on the MODE row beside
-   Say / Act / OOC at every phone width (two rows, never wrapping: Roll with "· Dis" is about 125px of the 150 a 320px phone leaves). */
+/* A9d-2 N7: the mode row holds the modes and, on a `roll` row, the Roll control. Every other row: `display: contents`, so the modes are the row's
+   flex children exactly as before.
+   `roll`: the mode row is its own flex box (modes, then Roll; it never wraps inside, Roll with "· Dis" is about 125px of the 150 a 320px phone
+   leaves) and SHARES THE LINE with the input where the composer has room: ONE row, the height of a `full` one (A10 S1: the desktop's Story combat
+   and Table say `roll`). The input takes a minimum basis, so a narrow composer wraps by itself instead of crushing it.
+   The phone is two rows at every phone width, as A9d-2 measured them: its mode row takes a line of its own and its input its old `flex: 1`. The ROW says so
+   (A10 fix round F6; Kage Tavern 5): the phone row's `--play-roll-mode-flex` and `--play-roll-input-flex`, read below, the same channel as `--play-composer-gap`
+   (a layout's choices are its row's, not a copy of the shell's phone breakpoint in a media query, which CSS cannot read and a test had to keep honest).
+   Absent (every other row) = the desktop's: the mode row shares the line, the input (with Send) wraps by itself. (A minimum basis alone cannot say it: a 720px phone and
+   a Table composer at 1366px are both under 760px of room.) */
 .modeRow {
   display: contents;
 }
@@ -480,7 +487,23 @@
   display: flex;
   align-items: center;
   gap: var(--play-composer-gap, var(--density-gap));
-  flex: 1 0 100%;
+  flex: var(--play-roll-mode-flex, 0 1 auto);
+  min-width: 0;
+}
+
+/* A10 fix round 2 (Kage Tavern 2): the input and Send are ONE flex item on a `roll` row, so a composer that wraps wraps them together. They were two items, and from 1040 to 1090px wide
+   (an iPad 10.2" in landscape is 1080) the input stayed beside the mode row at 198-248px and Send alone went to a second row: 44px of the story for one button. The unit's
+   `flex` is the row's `--play-roll-input-flex`, and absent it takes the minimum basis the input had (12rem) plus the gap and Send's 44px, so a narrow composer wraps by itself
+   instead of crushing the input. Every other variant: `display: contents`, the input and Send are the row's own flex children as before. */
+.inputRow {
+  display: contents;
+}
+
+.composer[data-variant='roll'] .inputRow {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--play-composer-gap, var(--density-gap));
+  flex: var(--play-roll-input-flex, 1 1 calc(12rem + var(--play-composer-gap, var(--density-gap)) + 44px));
   min-width: 0;
 }
 

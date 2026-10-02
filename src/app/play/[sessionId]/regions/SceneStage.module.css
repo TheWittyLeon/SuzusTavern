@@ -1,7 +1,8 @@
 /**
  * A9d-2 N5 (Amendment E.1; Sora lever brief 2.1) — the phone's SCENE STRIP: the stage as ONE row, in the region's own module.
  *
- * `SceneStage` applies these classes only when its variant is `inline`; every other row renders as it always did. The arrangement is the
+ * `SceneStage` applies these classes when its variant is `inline` (the phone) and, since A10 step 11 S2b, `hero` (the scene line a body sits
+ * under: see `.hero` and `.body` at the end); a `panel` renders as it always did. The arrangement is the
  * region's OWN (column 1 the scene's name and, under it, the objective while exploring or the combat status; then every encounter button
  * that is present), not its place in the shell's grid, so it is not Play.module.css's `.grid` to decide (layout rule 3).
  *
@@ -102,5 +103,57 @@
      strip stays the one row the 75px ceiling is for (wrapped to two lines at 320x256 it measured 77px). */
   .strip .note svg {
     display: none !important; /* Icon sets `display: block` inline, and an inline style beats a selector */
+  }
+}
+
+/* ── A10 step 11 S2b (Sora's brief 3.1 / 3.2): the `hero` stage = the scene line above, then a BODY ──────────────────────────────────────────
+   The root is the strip's grid with the body as its last row. It fills its slot (`height: 100%`: the slot is a grid item stretched across the row's
+   TWO track lines, a `max-content` one for the scene line and a `minmax(0, var(--play-body))` one for the body, so its height is definite). The body
+   is a SIZE container: it contributes nothing to track sizing, so the first track is exactly the scene line and nothing mounted in the body can grow
+   the stage, the page, or the log's loss. The slot drops its padding (`data-slot-fill`, Play.module.css), so the scene line puts the inline padding back
+   for itself (columns 1 and 5) and the body reaches the slot's edges. Rows: 4px above and below the line (the 44px button's own air, 52 in all), the
+   two text lines (each at least half of `--play-strip-min` less the air), then the body. */
+.hero {
+  --strip-edge: var(--play-slot-inline, var(--density-pad));
+  --strip-half: max(0px, calc((var(--play-strip-min, 0px) - 2 * var(--space-2)) / 2));
+  height: 100%;
+  grid-template-columns: var(--play-strip-start, var(--strip-edge)) minmax(0, 1fr) auto auto var(--strip-edge);
+  grid-template-rows: var(--space-2) minmax(var(--strip-half), auto) minmax(var(--strip-half), auto) var(--space-2) minmax(0, 1fr);
+  grid-template-areas:
+    '. . . . .'
+    '. head end wrap .'
+    '. note end wrap .'
+    '. . . . .'
+    'body body body body body';
+}
+
+.body {
+  grid-area: body;
+  /* `.strip` centres its items; a size container has no content height, so centred it would collapse to 0. It fills its row. */
+  align-self: stretch;
+  container-type: size;
+  min-width: 0;
+  /* The body's own floor (the row's `--play-body-floor`: a room's minimum, 3 rows of a board) is the floor of the track that sizes it, so the stage never
+     draws it smaller; absent (a row with no floor) it is 0, as before. The track, not this, decides the size; this keeps the two from disagreeing. */
+  min-height: var(--play-body-floor, 0px);
+  overflow: hidden;
+  /* debt: the stage hands the cell size to a map that is not mounted. ceiling: `--play-cell` sizes the body track, and nothing reads the mapped property.
+     until: B8c-3 mounts `TacticalMap` in this body (it reads `--tm-cell-size`, its own public sizing API). */
+  --tm-cell-size: var(--play-cell);
+}
+
+/* The stand-in (a fight with no map yet) in the body: it fills its room and sheds the margin the panel's box carries. In a short band (three rows,
+   102px) it takes its one-line form: the body is a size container, so this asks the room, not the viewport. */
+.body .standIn {
+  box-sizing: border-box;
+  height: 100%;
+  margin: 0;
+  justify-content: center;
+}
+
+@container (max-height: 160px) {
+  .body .standIn {
+    flex-direction: row;
+    padding-block: 0;
   }
 }
