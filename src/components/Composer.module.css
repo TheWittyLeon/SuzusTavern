@@ -13,14 +13,18 @@
 
 .composer {
   border-top: 1px solid var(--line);
-  padding-top: var(--density-pad);
+  /* A9d-2 N6 (Sora lever brief 2.4): a row that spends less than the density pad per composer says `--play-composer-pad` (the phone: 6px, not
+     22); absent = today's `--density-pad`, so every desktop row is untouched. The 44px targets and the 8px between them hold. */
+  padding-top: var(--play-composer-pad, var(--density-pad));
   position: relative;
 }
 
 .row {
   display: flex;
   align-items: flex-end;
-  gap: var(--density-gap);
+  /* the same for the gap between the mode row and the input (the phone: 8px, not 16); also the row gap once the modes take a line of
+     their own (the narrow-phone rule below) */
+  gap: var(--play-composer-gap, var(--density-gap));
 }
 
 .modes {
