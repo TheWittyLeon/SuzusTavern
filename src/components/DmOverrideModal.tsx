@@ -186,6 +186,14 @@ export default function DmOverrideModal({
     setErrorAttempt((n) => n + 1);
   };
 
+  // A poll-driven status line. Unlike refuse() it does not bump errorAttempt:
+  // the alert is keyed on that, so a bump would remount the node and drop focus
+  // to <body> if a failed send had parked it there.
+  const notice = (message: string) => {
+    setSubmitError(message);
+    setErrorField('form');
+  };
+
   // After a failed send the Apply button is disabled and the confirm (if any)
   // has unmounted, so focus would fall to <body> and Tab would leave the modal.
   // Park it on the error instead: it is read out and focus stays inside the trap.
@@ -194,6 +202,8 @@ export default function DmOverrideModal({
       focusErrorNext.current = false;
       errorRef.current?.focus();
     }
+    // errorAttempt pairs with key={errorAttempt} on the alert: every remount
+    // re-runs this focus check, even when the message text is unchanged.
   }, [submitError, errorAttempt]);
 
   // Target and New HP are derived from what the Target select can actually
@@ -219,21 +229,20 @@ export default function DmOverrideModal({
     setConfirmZero(false);
     // Say so (alert box, focus untouched). If the target itself vanished, the
     // target notice below speaks instead.
-    if (target) {
-      refuse(
+    if (open && target) {
+      notice(
         newHp === null
           ? `${target.name}'s HP changed. Review New HP and apply again.`
           : `${target.name}'s HP changed. New HP is now ${newHp}. Review and apply again.`,
-        'form',
       );
     }
   }
   // A target that left the select (became the Actor, or died in a poll) is
   // cleared, and a hand-typed New HP for it is released.
   if (targetId !== (target?.participant_id ?? '')) {
-    if (kind === 'attack' || kind === 'damage') {
+    if (open && (kind === 'attack' || kind === 'damage')) {
       const gone = participants.find((p) => p.participant_id === targetId);
-      refuse(`${gone?.name ?? 'The target'} is no longer a valid target. Pick another.`, 'form');
+      notice(`${gone?.name ?? 'The target'} is no longer a valid target. Pick another.`);
     }
     setTargetId('');
     setNewHpEdit(null);
@@ -524,6 +533,9 @@ export default function DmOverrideModal({
                     setTargetId(e.target.value);
                     // A hand-typed New HP was for the previous target; release it.
                     setNewHpEdit(null);
+                    // Picking a target answers 'Target is required' and the
+                    // 'no longer a valid target' notice.
+                    if (errorField === 'target' || errorField === 'form') setSubmitError(null);
                   }}
                 required
               >

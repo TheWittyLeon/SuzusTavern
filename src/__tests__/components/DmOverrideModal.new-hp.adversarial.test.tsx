@@ -398,4 +398,117 @@ describe('stale-confirm close, no-target refusal, repeated failure focus', () =>
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('alert')));
     expect(mockSubmitOverride).toHaveBeenCalledTimes(2);
   });
+
+  it('a synchronous client throw (clear + refuse in one batch) still re-focuses the error on the repeat', async () => {
+    mockSubmitOverride.mockImplementation(() => { throw { body: { message: 'nope' } }; });
+    openDamage([ACTOR, KAELEN], 'pc-1');
+    await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+    await apply();
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('alert')));
+    act(() => (screen.getByLabelText(/Reason/i) as HTMLElement).focus());
+    await apply();
+    await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+    expect(document.activeElement).toBe(screen.getByRole('alert'));
+  });
+});
+
+describe('poll notices: focus, clearing, open gate, field wiring', () => {
+  const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+  const dead = (p: CombatParticipantState) => ({ ...p, is_alive: false });
+
+  it('a notice after a failed send keeps focus inside the dialog (the alert node is not remounted)', async () => {
+    mockSubmitOverride.mockRejectedValue({ body: { message: "Target 'pc-1' is already down.", data: { reason: 'target_down' } } });
+    const { rerender } = openDamage([ACTOR, KAELEN, LUKE], 'pc-1');
+    await settle();
+    await apply();
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('alert')));
+    rerender(<DmOverrideModal {...props([ACTOR, dead(KAELEN), LUKE])} />);
+    expect(screen.getByRole('alert')).toHaveTextContent(/Kaelen is no longer a valid target/);
+    const dlg = screen.getByRole('dialog', { name: /DM Override/i });
+    expect(dlg).toContainElement(document.activeElement as HTMLElement);
+    expect(document.activeElement).toBe(screen.getByRole('alert'));
+  });
+
+  it('picking a target clears "Target is required"', async () => {
+    openDamage([ACTOR, KAELEN]);
+    await apply();
+    expect(screen.getByRole('alert')).toHaveTextContent(/Target is required/);
+    fireEvent.change(targetSel(), { target: { value: 'pc-1' } });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(targetSel()).not.toHaveAttribute('aria-invalid');
+  });
+
+  it('picking a target clears the "no longer a valid target" notice', () => {
+    const { rerender } = openDamage([ACTOR, KAELEN, LUKE], 'pc-1');
+    rerender(<DmOverrideModal {...props([ACTOR, dead(KAELEN), LUKE])} />);
+    expect(screen.getByRole('alert')).toHaveTextContent(/no longer a valid target/);
+    fireEvent.change(targetSel(), { target: { value: 'pc-2' } });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('the cleared-target notice is a form notice: no input marked invalid, Reason not described', () => {
+    const { rerender } = openDamage([ACTOR, KAELEN, LUKE], 'pc-1');
+    rerender(<DmOverrideModal {...props([ACTOR, dead(KAELEN), LUKE])} />);
+    expect(screen.getByRole('alert')).toHaveTextContent(/no longer a valid target/);
+    for (const el of [targetSel(), hpInput(), screen.getByLabelText(/Reason/i)]) {
+      expect(el).not.toHaveAttribute('aria-invalid');
+    }
+    expect(screen.getByLabelText(/Reason/i)).not.toHaveAttribute('aria-describedby');
+    expect(targetSel()).not.toHaveAttribute('aria-describedby');
+  });
+
+  it.each(['Check', 'Save'])('the cleared-target notice does not fire for %s kind', (k) => {
+    const { rerender } = openDamage([ACTOR, KAELEN, LUKE], 'pc-1');
+    fireEvent.click(screen.getByRole('radio', { name: new RegExp(k, 'i') }));
+    rerender(<DmOverrideModal {...props([ACTOR, dead(KAELEN), LUKE])} />);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('a target dying while the modal is closed leaves no notice for the next open', async () => {
+    const { rerender } = openDamage([ACTOR, KAELEN, LUKE], 'pc-1');
+    rerender(<DmOverrideModal {...{ ...props([ACTOR, KAELEN, LUKE]), open: false }} />);
+    rerender(<DmOverrideModal {...{ ...props([ACTOR, dead(KAELEN), LUKE]), open: false }} />);
+    // The open effect clears errors after the first commit, so watch the DOM
+    // for an alert node being inserted at all, not just its final state.
+    const inserted: string[] = [];
+    const mo = new MutationObserver(() => {});
+    mo.observe(document.body, { childList: true, subtree: true });
+    rerender(<DmOverrideModal {...props([ACTOR, dead(KAELEN), LUKE])} />);
+    // (An inserted alert that the open effect then removes is no longer inside
+    // the added subtree, but shows up as a removed node with its text intact.)
+    for (const r of mo.takeRecords()) {
+      for (const n of [...Array.from(r.addedNodes), ...Array.from(r.removedNodes)]) {
+        if (n instanceof HTMLElement) {
+          const a = n.matches('[role="alert"]') ? n : n.querySelector('[role="alert"]');
+          if (a) inserted.push(a.textContent ?? '');
+        }
+      }
+    }
+    mo.disconnect();
+    expect(inserted).toEqual([]);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('a stale-confirm close while the modal is closed leaves no notice for the next open', async () => {
+    const { rerender } = openDamage([ACTOR, KAELEN], 'pc-1');
+    fireEvent.change(dealtInput(), { target: { value: '20' } }); // derived 0
+    await apply();
+    expect(confirmDialog()).toBeInTheDocument();
+    rerender(<DmOverrideModal {...{ ...props([ACTOR, KAELEN]), open: false }} />);
+    rerender(<DmOverrideModal {...{ ...props([ACTOR, { ...KAELEN, hp_current: 40 }]), open: false }} />);
+    const seen: string[] = [];
+    const mo = new MutationObserver(() => {});
+    mo.observe(document.body, { childList: true, subtree: true });
+    rerender(<DmOverrideModal {...props([ACTOR, { ...KAELEN, hp_current: 40 }])} />);
+    for (const r of mo.takeRecords()) {
+      for (const n of [...Array.from(r.addedNodes), ...Array.from(r.removedNodes)]) {
+        if (n instanceof HTMLElement) {
+          const a = n.matches('[role="alert"]') ? n : n.querySelector('[role="alert"]');
+          if (a) seen.push(a.textContent ?? '');
+        }
+      }
+    }
+    mo.disconnect();
+    expect(seen).toEqual([]);
+  });
 });
