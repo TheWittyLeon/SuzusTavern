@@ -30,9 +30,10 @@
  * minus combat" end state (plan §2.3's `Composer` row) are both step
  * 6/11 territory (S3 pause), not this commit.
  */
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useId, useRef, useState, type RefObject } from 'react';
 import Icon from '@/components/Icon';
 import { consumeEscape } from '@/lib/a11y/escapeConsume';
+import { useAnchoredPopover } from '@/lib/a11y/useAnchoredPopover';
 import styles from '@/components/Composer.module.css';
 import type { RegionVariant } from '../variants';
 
@@ -91,8 +92,6 @@ export interface ActionBarProps {
 }
 
 /** Gap between the Attack button and its target menu, and the viewport margin. */
-const POP_GAP = 6;
-
 export default function ActionBar({
   targets,
   onAction,
@@ -116,44 +115,21 @@ export default function ActionBar({
   // string literal, once from the visible text node with the same words).
   const railUid = useId();
 
-  // A9c C2 (build brief §1, Amendment C.7): the `actionBar` slot is a clip
-  // boundary (`overflow-y:auto`), so an absolutely positioned menu opening
-  // ABOVE the rail landed in negative overflow and was invisible in every
-  // combat cell (measured at f2168da: popup 220x102, visible 220x0). The menu
-  // is `position:fixed`, placed from the Attack button's rect, which escapes
-  // the slot without moving it in the DOM (the focus/Escape/arrow pins hold).
-  // Opens upward like before, clamped into the viewport.
-  const [popPos, setPopPos] = useState<{ left: number; bottom: number; maxHeight: number } | null>(null);
-  const placePop = useCallback(() => {
-    const btn = attackBtnRef.current;
-    if (!btn) return;
-    const r = btn.getBoundingClientRect();
-    const vw = document.documentElement.clientWidth;
-    const vh = document.documentElement.clientHeight;
-    const w = menuRef.current?.offsetWidth ?? 0;
-    const next = {
-      left: Math.max(POP_GAP, Math.min(r.left, vw - w - POP_GAP)),
-      bottom: vh - r.top + POP_GAP,
-      maxHeight: Math.max(0, r.top - 2 * POP_GAP),
-    };
-    setPopPos((prev) =>
-      prev && prev.left === next.left && prev.bottom === next.bottom && prev.maxHeight === next.maxHeight
-        ? prev
-        : next,
-    );
-  }, []);
-  // Layout effect: placed before the first paint, so the menu never flashes at
-  // its unplaced position. Re-placed on resize and on any ancestor scroll.
-  useLayoutEffect(() => {
-    if (!targetOpen) return;
-    placePop();
-    window.addEventListener('resize', placePop);
-    window.addEventListener('scroll', placePop, true);
-    return () => {
-      window.removeEventListener('resize', placePop);
-      window.removeEventListener('scroll', placePop, true);
-    };
-  }, [targetOpen, placePop]);
+  // A9c C2 (build brief §1, Amendment C.7): the `actionBar` slot is a clip boundary (`overflow-y:auto`), so an absolutely positioned
+  // menu opening ABOVE the rail landed in negative overflow and was invisible in every combat cell (measured at f2168da: popup
+  // 220x102, visible 220x0). The menu is `position:fixed`, placed from the Attack button's rect, which escapes the slot without
+  // moving it in the DOM (the focus/Escape/arrow pins hold).
+  // A9d-2 N3: that placement is `useAnchoredPopover` now (extracted from here, the one correct copy), with the rest of its contract:
+  // an outside press closes on CLICK and the click is consumed (a tap on Dodge with the menu open sent the action: the old
+  // `mousedown` close let the click through), the X-card always takes its first tap and is never covered, Tab past either end
+  // closes and returns focus to Attack, and the visual viewport is followed. The menu keeps its DOM position and its menu roles.
+  const pop = useAnchoredPopover({
+    open: targetOpen,
+    onClose: () => setTargetOpen(false),
+    anchorRef: attackBtnRef,
+    role: 'menu',
+    initialFocus: '[role="menuitem"]',
+  });
 
   const notYourTurn = isPlayerTurn === false;
 
@@ -173,26 +149,6 @@ export default function ActionBar({
     }
     prevNotYourTurnRef.current = notYourTurn;
   }, [notYourTurn]);
-
-  // Outside-click dismissal. mousedown (not click) so that opening the menu via
-  // the Attack button's own click doesn't immediately re-close it, and so that
-  // menu items — which live INSIDE railRef — are never dismissed before their
-  // click fires.
-  useEffect(() => {
-    if (!targetOpen) return;
-    const onDoc = (e: MouseEvent) => {
-      if (railRef.current && !railRef.current.contains(e.target as Node)) setTargetOpen(false);
-    };
-    document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
-  }, [targetOpen]);
-
-  // APG menu-button: move focus into the menu when it opens (keyboard users).
-  useEffect(() => {
-    if (targetOpen) {
-      menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
-    }
-  }, [targetOpen]);
 
   const fire = (a: CombatAction, payload?: string) => {
     // Iro CRITICAL-1: capture BEFORE the mutation — the browser focuses a
@@ -229,10 +185,9 @@ export default function ActionBar({
         onRefocus: () => attackBtnRef.current?.focus(),
       });
     } else if (e.key === 'Tab') {
-      // A11Y (Iro MEDIUM-1): APG menu-button — Tab closes the menu and lets focus
-      // move naturally. Without this the popup stays open after Tab-out.
-      setTargetOpen(false);
-      // Don't preventDefault: let the browser advance focus as normal.
+      // A11Y (Iro MEDIUM-1): Tab past either end closes the menu and puts focus back on Attack (the popover contract, N3): it neither
+      // traps nor strands. Without this the popup stays open after Tab-out.
+      pop.popoverProps.onKeyDown(e);
     }
   };
 
@@ -329,8 +284,7 @@ export default function ActionBar({
           onClick={() => setTargetOpen((o) => !o)}
           disabled={attackDisabled}
           aria-disabled={attackDisabled}
-          aria-expanded={targetOpen}
-          aria-haspopup="menu"
+          {...pop.anchorProps}
           aria-label={
             isDying
               ? 'Attack (unavailable — you are down)'
@@ -458,9 +412,15 @@ export default function ActionBar({
           className={styles.pop}
           role="menu"
           aria-label="Attack — pick a target"
-          ref={menuRef}
+          ref={(el) => {
+            menuRef.current = el;
+            pop.attachPopover(el);
+          }}
           onKeyDown={onMenuKeyDown}
-          style={popPos ?? undefined}
+          id={pop.popoverProps.id}
+          style={pop.popoverProps.style}
+          data-anchored-popover=""
+          data-placement={pop.popoverProps['data-placement']}
         >
           {targets.map((t) => (
             <button
