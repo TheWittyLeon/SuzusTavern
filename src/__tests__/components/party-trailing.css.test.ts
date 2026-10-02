@@ -64,3 +64,18 @@ describe('the strip: one row of tiles that scrolls sideways, and a trailing colu
     expect(rule('.rail > .trailing')).toMatch(/margin-top:\s*10px/);
   });
 });
+
+// A9d-2 fix round 2 (Tora MINOR-1, Iro Minor-2): the wrapped band at 320px sizes to its content, not to the registry's 91px minimum.
+describe('Play.module.css: the party band at 320px and under', () => {
+  const play = readFileSync(join(process.cwd(), 'src/app/play/[sessionId]/Play.module.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  it('sets --play-party-min to max-content inside the 320px query, so the wrapped rows are not clipped at 91px', () => {
+    const i = play.indexOf('@media (max-width: 320px)');
+    expect(i).toBeGreaterThan(-1);
+    const block = play.slice(i, play.indexOf('\n}\n', i));
+    expect(block).toMatch(/\.grid\s*\{[^}]*--play-party-min:\s*max-content/);
+  });
+  it('and nothing sets it above 320px: the one-row minimum (91px, the registry default) holds for the sideways row', () => {
+    const outside = play.replace(/@media \(max-width: 320px\)[\s\S]*?\n\}\n/, '');
+    expect(outside).not.toMatch(/--play-party-min/);
+  });
+});

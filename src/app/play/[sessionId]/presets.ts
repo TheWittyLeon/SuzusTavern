@@ -804,7 +804,8 @@ const TABLE_ROW: LayoutRow = {
 // The exploring floor was 241 until A9d-2 N5: it budgeted a 63px recap that measures 46 (Kage A9d-1 S1 measured the same), so the log
 // was handed 17px the floor did not need. The 160 and 88 INNER floors (harness PHONE_STORY_LOG_MIN_PX / _BANNER_MIN_PX) do not move.
 // Party minimum 91 = 14 label
-// + 8 gap + 57 tile row + 12 slot edge: one tile row. A focused tile's name caption sits ABOVE the
+// + 8 gap + 57 tile row + 12 slot edge: one tile row. At 320px wide and under (a 400% zoom) the tiles WRAP and the page scrolls anyway, so Play.module.css
+// sets `--play-party-min: max-content` there and the band sizes to its content instead of clipping the wrapped rows at 91px (Tora MINOR-1, Iro Minor-2). A focused tile's name caption sits ABOVE the
 // tile, in the label's row (PartyPanel.module.css), so it fits at this minimum.
 const PHONE_ROW: LayoutRow = {
   id: 'phone',
@@ -841,9 +842,9 @@ const PHONE_ROW: LayoutRow = {
   // only optional band; the log is the floor; the offers, composer and action bar are whole.
   rows: {
     exploring:
-      'max-content max-content minmax(91px,var(--play-optional,auto)) max-content minmax(var(--play-floor,224px),1fr) max-content max-content max-content',
+      'max-content max-content minmax(var(--play-party-min,91px),var(--play-optional,auto)) max-content minmax(var(--play-floor,224px),1fr) max-content max-content max-content',
     combat:
-      'max-content max-content minmax(91px,var(--play-optional,auto)) max-content minmax(var(--play-floor,208px),1fr) max-content max-content',
+      'max-content max-content minmax(var(--play-party-min,91px),var(--play-optional,auto)) max-content minmax(var(--play-floor,208px),1fr) max-content max-content',
   },
   areas: {
     exploring: `"safetyBanner safetyBanner"

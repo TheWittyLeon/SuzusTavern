@@ -51,6 +51,16 @@
   overscroll-behavior-y: none;
 }
 
+/* A9d-2 fix round 2 (Tora MINOR-1, Iro Minor-2 and her ruling): the party band's MINIMUM is one tile row (91px, the registry's `--play-party-min`
+   default). At 320px wide and under (a 400% zoom) the tiles wrap (PartyPanel.module.css) and the page scrolls anyway, so the band sizes to its content:
+   a 91px band clipped the wrapped rows (5 members showed 4 tiles; in combat the tracker was 380px in 79px) and made a nested scroller that spent
+   ~500px of a drag before the page moved. A reflow cell gives up nothing: nothing there fits the screen. Set on `.grid`, so only /play reads it. */
+@media (max-width: 320px) {
+  .grid {
+    --play-party-min: max-content;
+  }
+}
+
 .kicker {
   font-size: 9px;
   letter-spacing: 0.16em;

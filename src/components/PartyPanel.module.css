@@ -234,7 +234,8 @@
    cell holds the label and the row: the row's top PADDING is the label's own height and its box covers the label, so a focused tile's name
    caption (which sits above its tile, in the label's row) is inside the scroller's padding box and is not clipped. The edge fade (the offers rows'
    technique) tells the user there is more; the tile ring is drawn INSIDE the tile (below), so the scroller clips nothing and the band keeps the
-   91px minimum the registry pins. At 320px and under (a 400% zoom) the row wraps again: WCAG 1.4.10 wants no two-way scroll there. */
+   91px minimum the registry pins. At 320px and under (a 400% zoom) the row wraps again (WCAG 1.4.10 wants no two-way scroll there) and the band
+   SIZES TO ITS CONTENT there (Play.module.css sets --play-party-min: max-content: the page scrolls anyway), so no wrapped row is clipped. */
 .strip {
   --party-label-h: 22px;
   display: grid;
@@ -295,9 +296,9 @@
     mask-image: none;
   }
 
-  /* Wrapped, the tiles can take a second row, and the band's 91px minimum holds the first only: a control at the BOTTOM of the cell (where it
-     sits beside a one-row list) would be below the band's edge, in a scroller, where a 400% zoom user cannot reach it (measured at 320x256: the
-     trailing button 44x0 of 44x44 at rest). At the top it is whole beside the first row. */
+  /* Wrapped, the tiles can take a second row: a control at the BOTTOM of the cell (where it sits beside a one-row list) would sit beside the
+     LAST row, and the user's first screen at 400% zoom is the top of the band. It stays beside the first row, at the top (it was measured at
+     320x256 as 44x0 of 44x44 while the band was clipped at 91px; the band now sizes to its content there, and the placement is kept). */
   .strip > .trailing {
     align-self: start;
   }

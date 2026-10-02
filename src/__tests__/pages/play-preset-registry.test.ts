@@ -718,7 +718,7 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
     expect(trackList(LAYOUT_ROWS_BY_ID.phone.rows.exploring)).toEqual([
       'max-content',
       'max-content',
-      'minmax(91px,var(--play-optional,auto))',
+      'minmax(var(--play-party-min,91px),var(--play-optional,auto))',
       // the stage is a WHOLE band (A9d-2 N5): one scene strip that holds End combat, Stand and fight and the status, never scrolls
       'max-content',
       // 224 = 160 + 12 + 6 + 46 recap: the 241 budgeted a 63px recap that measures 46 (Kage A9d-1 S1)
@@ -734,7 +734,7 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
     expect(trackList(LAYOUT_ROWS_BY_ID.phone.rows.combat)).toEqual([
       'max-content',
       'max-content',
-      'minmax(91px,var(--play-optional,auto))',
+      'minmax(var(--play-party-min,91px),var(--play-optional,auto))',
       'max-content',
       'minmax(var(--play-floor,208px),1fr)',
       'max-content',
