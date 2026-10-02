@@ -233,6 +233,29 @@
   overflow: hidden;
 }
 
+/* The human DM's combat panel (monster Attack / Skip / Move, conditions, the override and Speak-as controls: 11 controls, ~700px) is a child of this stack, which
+   is `overflow: hidden`. Once the page stopped scrolling that CLIPPED it: on prod (55c5e26, a P1) at 1440x900, 1440x780 and 1280x650 the hit at each button was
+   something else, the wheel did not scroll the column, and the story log was pushed to 44px. At 1280x650 the whole column is 32px, so no bound on the panel alone
+   can fit it: the COLUMN is what scrolls, and only while the DM panel is in it (every other state fits, and keeps its clip). The log keeps the 44px it has; the
+   panel keeps its height; a fade is painted only while there is more to scroll (the technique of `.grid[data-scroll-cue]` below). The stack holds focusable controls
+   and a named `role="group"`, so it needs no tab stop of its own (focus scrolls a control into view).
+   debt: an interim. The panel stays a tall stack of controls in a column that is mostly the stage above it; the DM scrolls the column on short screens.
+   ceiling: the story log stays at its 44px floor while the panel is up, and the controls scroll out of sight while the log is read; the cue is the only hint it scrolls.
+   until: play-shell step 10's DM-controls popover exists (the panel's durable home: a layer from the DM's own control, with the whole screen for its controls). */
+.slotStack:has(> [data-region="tableControlsDm"]) {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background-image:
+    linear-gradient(var(--bg) 30%, transparent),
+    linear-gradient(transparent, var(--bg) 70%),
+    radial-gradient(farthest-side at 50% 0, color-mix(in oklab, var(--ink) 22%, transparent), transparent),
+    radial-gradient(farthest-side at 50% 100%, color-mix(in oklab, var(--ink) 22%, transparent), transparent);
+  background-position: center top, center bottom, center top, center bottom;
+  background-size: 100% 24px, 100% 24px, 100% 12px, 100% 12px;
+  background-repeat: no-repeat;
+  background-attachment: local, local, scroll, scroll;
+}
+
 /* A9c-2 fix round 1 (Kage IMPORTANT-1): an always-mounted announcer tenant with no
    text (`deadStatus`, `durableRetryRow`, the recap wrapper) is a zero-height flex
    ITEM, and a flex `gap` is paid per item, not per pixel: an empty `deadStatus`
