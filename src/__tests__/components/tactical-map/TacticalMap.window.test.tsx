@@ -1230,3 +1230,67 @@ describe('TacticalMap — P2: the window pans natively (touch-action, overscroll
     expect(container.querySelector('[data-toast-avoid]')).toBeNull();
   });
 });
+
+describe('TacticalMap — P2: the edge guard: a window that pans sideways stamps itself, and its board starts --tm-edge-guard in from the start edge', () => {
+  class FakeResizeObserver {
+    static all: FakeResizeObserver[] = [];
+    constructor(public cb: () => void) {}
+    observe() { FakeResizeObserver.all.push(this); }
+    unobserve() {}
+    disconnect() { FakeResizeObserver.all = FakeResizeObserver.all.filter((o) => o !== this); }
+  }
+  const resized = () => act(() => { FakeResizeObserver.all.slice().forEach((o) => o.cb()); });
+  beforeEach(() => { FakeResizeObserver.all = []; (globalThis as { ResizeObserver?: unknown }).ResizeObserver = FakeResizeObserver; });
+  afterEach(() => { delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver; });
+
+  /** A board of `cols` squares of 40 px in a room `w` wide. */
+  function inRoom(cols: number, w: number) {
+    const view = render(<TacticalMap {...baseProps({ space: makeSpace({ width: cols, height: 5 }), participants: [makeParticipant({ at: [0, 0], movement_remaining: 10 })] })} />);
+    const room = view.container.firstElementChild as HTMLElement;
+    Object.defineProperty(room, 'clientWidth', { configurable: true, value: w });
+    Object.defineProperty(room, 'clientHeight', { configurable: true, value: 200 });
+    const win = layoutP2(view.container, { left: 0, top: 0 }, { width: w, height: 200 });
+    return { win, room, ...view };
+  }
+
+  it('a board wider than its room is stamped; one that fits (or fills the room exactly) is not: it keeps the bleed', () => {
+    const wide = inRoom(15, 360);
+    resized();
+    expect(wide.win).toHaveAttribute('data-pans-x');
+    wide.unmount();
+    const fits = inRoom(9, 360);
+    resized();
+    expect(fits.win).not.toHaveAttribute('data-pans-x'); // 360 in 360
+    fits.unmount();
+    const bigger = inRoom(10, 360);
+    resized();
+    expect(bigger.win).toHaveAttribute('data-pans-x'); // 400 in 360
+  });
+
+  it('the stamp follows the room: a rotation that makes the room wide enough takes it off, one that narrows it puts it on', () => {
+    const { win, room } = inRoom(13, 300);
+    resized();
+    expect(win).toHaveAttribute('data-pans-x');
+    Object.defineProperty(room, 'clientWidth', { configurable: true, value: 600 });
+    resized();
+    expect(win).not.toHaveAttribute('data-pans-x');
+    Object.defineProperty(room, 'clientWidth', { configurable: true, value: 300 });
+    resized();
+    expect(win).toHaveAttribute('data-pans-x');
+  });
+
+  it('the stamp is measured from the board and the ROOM, not from the guard: adding the guard cannot flip a board that fits into one that pans', () => {
+    const { win } = inRoom(9, 370); // 360 in 370: fits with 10 px to spare, which a 16 px guard would eat
+    resized();
+    resized();
+    expect(win).not.toHaveAttribute('data-pans-x');
+  });
+
+  it('the guard is a MARGIN on the board, on the inline start, from --tm-edge-guard (default 0), under the stamp only', () => {
+    const rule = /\.boardScroll\[data-pans-x\]\s+\.board\s*\{([^}]*)\}/.exec(CSS);
+    expect(rule).not.toBeNull();
+    expect(hasDecl(rule![1], 'margin-inline-start', /var\(--tm-edge-guard,\s*0px\)/)).toBe(true);
+    expect(rule![1]).not.toMatch(/padding/); // padding would shift the tracks against the gridline background
+    expect(hasDecl(ruleBody('board'), 'margin-inline-start')).toBe(false); // no guard on a board that does not pan
+  });
+});

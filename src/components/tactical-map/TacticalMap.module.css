@@ -140,6 +140,15 @@
   position: relative;
 }
 
+/* THE EDGE GUARD (B8c-4 P2; Tora-Gesture ruling 1, item 3). iOS takes a swipe that starts at the left glass edge as BACK, and a board bled to that edge puts column 1 under it. On a
+   board that PANS (the window stamps `data-pans-x` when the board is wider than its room) the board starts `--tm-edge-guard` in from the start edge, inside the scroller; a board
+   that fits keeps the bleed, because it has nothing to pan and an edge swipe on it is not a pan. The mount sets the value (default 0: no guard). A margin, not padding: padding would
+   shift the grid's tracks against the board's own gridline background. A logical property, so it is the inline START in either direction. The specificity of the attribute selector
+   is what lets this one margin side win over `.board`'s `margin: auto`, whose auto start margin is 0 on an overflowing board anyway. */
+.boardScroll[data-pans-x] .board {
+  margin-inline-start: var(--tm-edge-guard, 0px);
+}
+
 /* `display: contents` keeps ARIA row/gridcell nesting (role="grid" >
    role="row" > role="gridcell") while letting every gridcell participate
    directly in the parent's CSS Grid tracks — the standard technique for

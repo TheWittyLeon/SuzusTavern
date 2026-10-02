@@ -326,6 +326,8 @@ export default function TacticalMap({
   // The sliver rule: the window's length on each axis when the room would leave a cut square under SLIVER_MIN_PX (null: the room as it is). Measured from the ROOM (the wrapper), not
   // from the window, so that capping the window cannot change what is measured.
   const [cap, setCap] = useState<{ w: number | null; h: number | null }>({ w: null, h: null });
+  // The window stamps itself when the board is wider than its room (it pans sideways); the stylesheet gives such a board an inline-start guard against the iOS back swipe.
+  const [pansX, setPansX] = useState(false);
   // The one seam for 'is there a board to draw' (see the usability comment further down): read ONCE, here, because the follow gate below needs it before the early return.
   const usable = isSpaceUsable(space);
   const gate = useFollowGate(boardScrollRef, usable);
@@ -521,6 +523,7 @@ export default function TacticalMap({
       const sq = first ? boxOf(first) : null;
       const next = sq ? { w: wholeSquareCap(room.clientWidth, sq.width, spaceCols * sq.width), h: wholeSquareCap(room.clientHeight, sq.height, spaceRows * sq.height) } : { w: null, h: null };
       setCap((prev) => (prev.w === next.w && prev.h === next.h ? prev : next));
+      setPansX(!!sq && spaceCols * sq.width > room.clientWidth);
     };
     measure();
     const observer = new ResizeObserver(measure);
@@ -669,6 +672,7 @@ export default function TacticalMap({
         className={styles.boardScroll}
         ref={boardScrollRef}
         data-board-window=""
+        data-pans-x={pansX ? '' : undefined}
         // The toast must not land on the board: the shell keeps its notices off every element that carries this mark (the safety block and the composer carry it too).
         data-toast-avoid=""
         style={{ ['--tm-cols' as string]: space.width, ['--tm-rows' as string]: space.height, maxWidth: cap.w ?? undefined, maxHeight: cap.h ?? undefined }}
