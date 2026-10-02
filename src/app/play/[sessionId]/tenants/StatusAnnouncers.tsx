@@ -39,10 +39,13 @@ export interface SessionRecapTenantProps {
 }
 
 /** FIX-8 (MEDIUM-2): aria-label on the live region so AT announces the
- *  context ("Session recap") before reading the content changes. */
+ *  context ("Session recap") before reading the content changes.
+ *  `role="group"` (round 7, Tora-Dep's prod test: axe `aria-prohibited-attr`, serious): a role-less `div` may not carry a name, so the label was ignored. A GROUP, not a
+ *  `region`: this wrapper is always mounted (a live region must exist before its content arrives) and is EMPTY until a recap exists and while combat steps it aside; a
+ *  `region` is a landmark and would list an empty "Session recap" in every screen reader's landmark menu. A group is a named container, not a landmark. */
 export function SessionRecapTenant({ session, username, stepAside }: SessionRecapTenantProps) {
   return (
-    <div aria-live="polite" aria-label="Session recap" data-tenant="sessionRecap">
+    <div role="group" aria-live="polite" aria-label="Session recap" data-tenant="sessionRecap">
       {session && (
         <SessionRecap key={session.session_id} session={session} username={username} variant="strip" hidden={stepAside} />
       )}
