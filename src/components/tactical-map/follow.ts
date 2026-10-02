@@ -38,6 +38,7 @@ export interface WindowMetrics {
 }
 
 /** One axis. `start`/`end` are the square's edges and `viewStart`/`viewEnd` the window's, in the same (viewport) coordinates. Returns the new offset. */
+// debt: snaps to whole squares counted from the board's start, not from the edge guard's origin (the guard is the board's inline-start margin, so a guarded board may scroll up to one square further than the fewest). ceiling: a board that pans sideways with a guard stamped. until: a guarded board is seen to jump a whole extra square in the harness's board-pan leg or on a device.
 function followAxis(scroll: number, max: number, start: number, end: number, size: number, viewStart: number, viewEnd: number, margin: number): number {
   // the margin only where the window can hold the square AND a margin on both sides; otherwise the square whole wins and the margin is 0
   const pad = size > 0 && margin > 0 && size * (1 + 2 * margin) <= viewEnd - viewStart ? margin * size : 0;
