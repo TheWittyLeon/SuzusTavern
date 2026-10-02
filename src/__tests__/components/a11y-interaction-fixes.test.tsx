@@ -156,6 +156,9 @@ describe('M3 — DmOverrideModal: aria-describedby links error div to reason tex
     const textarea = screen.getByLabelText(/Reason/i);
     // Fill reason so submit is enabled, then submit to trigger engine error
     fireEvent.change(textarea, { target: { value: 'test' } });
+    // Pick a target so the request reaches the engine (without one the client
+    // refuses 'Target is required' first, which is wired to the Target select).
+    fireEvent.change(screen.getByLabelText(/^Target/), { target: { value: 'pc-1' } });
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /Apply override/i }));
@@ -164,6 +167,7 @@ describe('M3 — DmOverrideModal: aria-describedby links error div to reason tex
     await waitFor(() =>
       expect(screen.getByRole('alert')).toBeInTheDocument(),
     );
+    expect(mockSubmitOverride).toHaveBeenCalledTimes(1);
 
     const errorDiv = screen.getByRole('alert');
     expect(errorDiv).toHaveAttribute('id');

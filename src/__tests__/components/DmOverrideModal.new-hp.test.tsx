@@ -57,10 +57,11 @@ const base = {
 };
 
 function openDamage(targetId?: string) {
-  render(<DmOverrideModal {...base} />);
+  const utils = render(<DmOverrideModal {...base} />);
   fireEvent.click(screen.getByRole('radio', { name: /Damage/i }));
   if (targetId) pickTarget(targetId);
   fireEvent.change(screen.getByLabelText(/Reason/i), { target: { value: 'ruling' } });
+  return utils;
 }
 const pickTarget = (id: string) =>
   fireEvent.change(screen.getByLabelText(/^Target(?! new)/), { target: { value: id } });
@@ -283,5 +284,100 @@ describe('accessibility + refusal copy (fix round)', () => {
     const alertEl = await screen.findByRole('alert');
     await waitFor(() => expect(document.activeElement).toBe(alertEl));
     expect(alertEl).toHaveAttribute('tabindex', '-1');
+  });
+});
+
+describe('target-required wiring, status notices, latch', () => {
+  const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+  const withParticipants = (ps: CombatParticipantState[]) => ({ ...base, participants: ps });
+  const dmg20 = () => fireEvent.change(dealtInput(), { target: { value: '20' } }); // Kaelen derives 0
+
+  it.each(['damage', 'attack'] as const)('%s with no target: error is wired to the Target select and focus moves there', async (k) => {
+    render(<DmOverrideModal {...base} />);
+    fireEvent.click(screen.getByRole('radio', { name: new RegExp(k, 'i') }));
+    fireEvent.change(screen.getByLabelText(/Reason/i), { target: { value: 'ruling' } });
+    await settle();
+    await apply();
+    const alertEl = screen.getByRole('alert');
+    expect(alertEl).toHaveTextContent(/Target is required/i);
+    const sel = screen.getByLabelText(/^Target(?! new)/);
+    expect(sel).toHaveAttribute('aria-invalid', 'true');
+    expect(sel).toHaveAttribute('aria-describedby', alertEl.id);
+    expect(screen.getByLabelText(/Reason/i)).not.toHaveAttribute('aria-invalid');
+    expect(screen.getByLabelText(/Reason/i)).not.toHaveAttribute('aria-describedby');
+    expect(document.activeElement).toBe(sel);
+    expect(mockSubmitOverride).not.toHaveBeenCalled();
+  });
+
+  it('a stale confirm that closes itself says so, without moving focus to the alert', async () => {
+    const { rerender } = openDamage('pc-1');
+    await settle();
+    dmg20();
+    await apply();
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    rerender(<DmOverrideModal {...withParticipants([ACTOR, { ...KAELEN, hp_current: 40 }, LUKE, BROKEN])} />);
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    const alertEl = screen.getByRole('alert');
+    expect(alertEl).toHaveTextContent("Kaelen's HP changed. New HP is now 20. Review and apply again.");
+    expect(document.activeElement).not.toBe(alertEl);
+    // a notice, not a field error: no field is marked invalid or described by it
+    expect(screen.getByLabelText(/Reason/i)).not.toHaveAttribute('aria-invalid');
+    expect(screen.getByLabelText(/Reason/i)).not.toHaveAttribute('aria-describedby');
+    expect(hpInput()).not.toHaveAttribute('aria-invalid');
+    expect(mockSubmitOverride).not.toHaveBeenCalled();
+  });
+
+  it('an Apply that lands in the same batch as such a poll gets the same message, no confirm, no POST', async () => {
+    const { rerender } = openDamage('pc-1');
+    await settle();
+    dmg20();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Apply override/i }));
+      rerender(<DmOverrideModal {...withParticipants([ACTOR, { ...KAELEN, hp_current: 40 }, LUKE, BROKEN])} />);
+    });
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(/Kaelen's HP changed\. New HP is now 20/);
+    expect(mockSubmitOverride).not.toHaveBeenCalled();
+  });
+
+  it('clearing an unselectable target says so, without moving focus', async () => {
+    const { rerender } = openDamage('pc-1');
+    await settle();
+    const reason = screen.getByLabelText(/Reason/i);
+    act(() => reason.focus());
+    rerender(<DmOverrideModal {...withParticipants([ACTOR, { ...KAELEN, is_alive: false }, LUKE, BROKEN])} />);
+    expect(screen.getByRole('alert')).toHaveTextContent('Kaelen is no longer a valid target. Pick another.');
+    expect(document.activeElement).toBe(reason);
+    expect(hpInput().value).toBe('');
+  });
+
+  it('aria-invalid on New HP clears as soon as the DM edits the field', async () => {
+    openDamage('pc-1');
+    fireEvent.change(hpInput(), { target: { value: '' } });
+    await apply();
+    expect(hpInput()).toHaveAttribute('aria-invalid', 'true');
+    fireEvent.change(hpInput(), { target: { value: '5' } });
+    expect(hpInput()).not.toHaveAttribute('aria-invalid');
+  });
+
+  it('two confirm clicks inside one batch post once (in-flight latch)', async () => {
+    mockSubmitOverride.mockReturnValue(new Promise(() => {}));
+    openDamage('pc-1');
+    fireEvent.change(hpInput(), { target: { value: '0' } });
+    await apply();
+    const btn = within(screen.getByRole('alertdialog')).getByRole('button', { name: /Drop to 0 HP/i });
+    await act(async () => { fireEvent.click(btn); fireEvent.click(btn); });
+    expect(mockSubmitOverride).toHaveBeenCalledTimes(1);
+  });
+
+  it('the New HP ceiling is one value: 999 posts, 1000 refuses (message names 999)', async () => {
+    openDamage('pc-1');
+    fireEvent.change(hpInput(), { target: { value: '1000' } });
+    await apply();
+    expect(screen.getByRole('alert')).toHaveTextContent(/more than 999/);
+    expect(mockSubmitOverride).not.toHaveBeenCalled();
+    fireEvent.change(hpInput(), { target: { value: '999' } });
+    await apply();
+    await waitFor(() => expect(mockSubmitOverride).toHaveBeenCalledTimes(1));
   });
 });

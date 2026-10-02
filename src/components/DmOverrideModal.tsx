@@ -52,13 +52,34 @@ const DAMAGE_TYPES = [
   'poison', 'necrotic', 'radiant', 'psychic', 'force',
 ];
 
+// debt: mirrors the engine's OverrideDamagePayload bound (le=999). ceiling: the Tavern refuses a value the engine would accept if the engine's bound is raised. until: the wire carries the bound or the engine's bound changes (Backlog TAV-OVERRIDE-HP-BOUND-MIRROR).
+const OVERRIDE_HP_MAX = 999;
+
 /** Why New HP was refused — one message per cause, so none is false. */
 const NEW_HP_REFUSAL = {
   erased: "New HP is empty. Enter the target's HP after this damage.",
-  notWhole: 'New HP must be a whole number from 0 to 999.',
-  tooBig: "New HP can't be more than 999.",
+  notWhole: `New HP must be a whole number from 0 to ${OVERRIDE_HP_MAX}.`,
+  tooBig: `New HP can't be more than ${OVERRIDE_HP_MAX}.`,
   unknown: "This target's HP isn't known, so New HP can't be filled in. Enter it yourself.",
 } as const;
+
+type NewHpParse =
+  | { ok: true; value: number }
+  | { ok: false; why: keyof typeof NEW_HP_REFUSAL };
+
+/**
+ * Parse the New HP field. What the DM sees is what is sent: no clamping, so
+ * anything that is not a whole number 0..OVERRIDE_HP_MAX is refused with its
+ * own message. `edited` = the DM has typed in the field (vs. the derived
+ * suggestion), which tells "erased" from "target HP unknown".
+ */
+function parseNewHp(text: string, edited: boolean): NewHpParse {
+  const t = text.trim();
+  if (t === '') return { ok: false, why: edited ? 'erased' : 'unknown' };
+  if (!/^\d+$/.test(t)) return { ok: false, why: 'notWhole' };
+  const v = parseInt(t, 10);
+  return v > OVERRIDE_HP_MAX ? { ok: false, why: 'tooBig' } : { ok: true, value: v };
+}
 
 const DEGREE_OPTIONS: Array<{ value: OverrideCheckOutcome['degree']; label: string }> = [
   { value: 'crit_failure', label: 'Critical Failure' },
@@ -141,9 +162,9 @@ export default function DmOverrideModal({
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   // Which field the current error belongs to (drives aria-invalid /
-  // aria-describedby). Everything except New HP stays on Reason, as before
-  // (a pre-existing test pins it; the Target select is not wired — out of scope).
-  const [errorField, setErrorField] = useState<'reason' | 'newHp'>('reason');
+  // aria-describedby). 'form' = a notice about no particular field (a poll
+  // changed something); engine refusals and 'Reason is required' stay on Reason.
+  const [errorField, setErrorField] = useState<'reason' | 'target' | 'newHp' | 'form'>('reason');
   // Bumped on every refusal so an identical repeated message remounts the
   // role="alert" node and is announced again.
   const [errorAttempt, setErrorAttempt] = useState(0);
@@ -154,10 +175,12 @@ export default function DmOverrideModal({
   const firstFocusRef = useRef<HTMLInputElement | HTMLSelectElement | null>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
   const newHpRef = useRef<HTMLInputElement>(null);
+  const targetRef = useRef<HTMLSelectElement>(null);
+  const sendInFlight = useRef(false);
   const errorRef = useRef<HTMLDivElement>(null);
   const focusErrorNext = useRef(false);
 
-  const refuse = (message: string, field: 'reason' | 'newHp') => {
+  const refuse = (message: string, field: 'reason' | 'target' | 'newHp' | 'form') => {
     setSubmitError(message);
     setErrorField(field);
     setErrorAttempt((n) => n + 1);
@@ -185,29 +208,33 @@ export default function DmOverrideModal({
       : null;
   const derivedNewHp = targetHp === null ? '' : String(Math.max(0, targetHp - damageDealt));
   const newHpText = newHpEdit ?? derivedNewHp;
-  // What the DM sees is what is sent: no clamping. Anything that is not a whole
-  // number 0-999 is refused with its own message (see NEW_HP_REFUSAL).
-  type NewHpParse =
-    | { ok: true; value: number }
-    | { ok: false; why: 'erased' | 'unknown' | 'notWhole' | 'tooBig' };
-  const parseNewHp = (): NewHpParse => {
-    const t = newHpText.trim();
-    if (t === '') return { ok: false, why: newHpEdit === null ? 'unknown' : 'erased' };
-    if (!/^\d+$/.test(t)) return { ok: false, why: 'notWhole' };
-    const v = parseInt(t, 10);
-    return v > 999 ? { ok: false, why: 'tooBig' } : { ok: true, value: v };
-  };
-  const newHpParsed = parseNewHp();
+  const newHpParsed = parseNewHp(newHpText, newHpEdit !== null);
   const newHp = newHpParsed.ok ? newHpParsed.value : null;
 
   // The confirm is only ever shown for the value that will be sent. If a poll
   // (or an edit) moves the resolved New HP off 0 while it is up, it closes and
   // nothing is sent; the DM re-applies. Render-time adjustment, not an effect.
   const zeroResolved = kind === 'damage' && newHp === 0;
-  if (confirmZero && !zeroResolved) setConfirmZero(false);
+  if (confirmZero && !zeroResolved) {
+    setConfirmZero(false);
+    // Say so (alert box, focus untouched). If the target itself vanished, the
+    // target notice below speaks instead.
+    if (target) {
+      refuse(
+        newHp === null
+          ? `${target.name}'s HP changed. Review New HP and apply again.`
+          : `${target.name}'s HP changed. New HP is now ${newHp}. Review and apply again.`,
+        'form',
+      );
+    }
+  }
   // A target that left the select (became the Actor, or died in a poll) is
   // cleared, and a hand-typed New HP for it is released.
   if (targetId !== (target?.participant_id ?? '')) {
+    if (kind === 'attack' || kind === 'damage') {
+      const gone = participants.find((p) => p.participant_id === targetId);
+      refuse(`${gone?.name ?? 'The target'} is no longer a valid target. Pick another.`, 'form');
+    }
     setTargetId('');
     setNewHpEdit(null);
   }
@@ -311,7 +338,8 @@ export default function DmOverrideModal({
       return;
     }
     if ((kind === 'attack' || kind === 'damage') && !target) {
-      refuse('Target is required for attack and damage overrides.', 'reason');
+      refuse('Target is required for attack and damage overrides.', 'target');
+      targetRef.current?.focus();
       return;
     }
     if (kind === 'damage') {
@@ -330,12 +358,17 @@ export default function DmOverrideModal({
   };
 
   const send = async (zeroConfirmed: boolean) => {
-    // Re-check against the values as they are NOW: the only value that may go
-    // out for damage is a valid New HP, and 0 only via the confirm button.
+    // A redundant second gate (handleSubmit already refuses these), reading the
+    // same render's values: damage may only go out with a valid New HP, and 0
+    // only from the confirm button.
     if (kind === 'damage' && (!newHpParsed.ok || (newHpParsed.value === 0 && !zeroConfirmed))) {
       setConfirmZero(false);
       return;
     }
+    // In-flight latch: two confirm clicks in one batch share a closure where
+    // `submitting` is still false.
+    if (sendInFlight.current) return;
+    sendInFlight.current = true;
     setConfirmZero(false);
     setSubmitting(true);
     setSubmitError(null);
@@ -379,6 +412,7 @@ export default function DmOverrideModal({
         );
       }
     } finally {
+      sendInFlight.current = false;
       setSubmitting(false);
     }
   };
@@ -481,8 +515,11 @@ export default function DmOverrideModal({
               <select
                 id={`${uid}-target`}
                 className={styles.select}
+                ref={targetRef}
                 value={target?.participant_id ?? ''}
                 disabled={submitting}
+                aria-invalid={(submitError && errorField === 'target') || undefined}
+                aria-describedby={submitError && errorField === 'target' ? errorId : undefined}
                 onChange={(e) => {
                     setTargetId(e.target.value);
                     // A hand-typed New HP was for the previous target; release it.
@@ -535,7 +572,7 @@ export default function DmOverrideModal({
                         type="number"
                         className={styles.numInput}
                         min={0}
-                        max={999}
+                        max={OVERRIDE_HP_MAX}
                         value={damageAmount}
                         disabled={submitting}
                         onChange={(e) => setDamageAmount(Math.max(0, parseInt(e.target.value, 10) || 0))}
@@ -621,7 +658,7 @@ export default function DmOverrideModal({
                     type="number"
                     className={styles.numInput}
                     min={0}
-                    max={999}
+                    max={OVERRIDE_HP_MAX}
                     value={damageDealt}
                     disabled={submitting}
                     onChange={(e) => setDamageDealt(Math.max(0, parseInt(e.target.value, 10) || 0))}
@@ -637,14 +674,18 @@ export default function DmOverrideModal({
                     type="number"
                     className={styles.numInput}
                     min={0}
-                    max={999}
+                    max={OVERRIDE_HP_MAX}
                     value={newHpText}
                     disabled={submitting}
                     aria-invalid={(submitError && errorField === 'newHp') || undefined}
                     aria-describedby={
                       submitError && errorField === 'newHp' ? `${hintId} ${errorId}` : hintId
                     }
-                    onChange={(e) => setNewHpEdit(e.target.value)}
+                    onChange={(e) => {
+                      setNewHpEdit(e.target.value);
+                      // The DM is fixing it: drop the stale invalid state.
+                      if (errorField === 'newHp') setSubmitError(null);
+                    }}
                   />
                   <span id={hintId} className={styles.hint}>
                     Fills in as current HP minus damage dealt. Type to set it yourself.
