@@ -42,8 +42,22 @@ const STATES: Array<[string, Partial<SceneStageProps>]> = [
 ];
 
 describe('SceneStage fold body', () => {
-  it('the spec names the body the stage renders', () => {
-    expect(FOLD_SPECS.sceneStage?.body).toBe(SCENE_STAGE_BODY_ID);
+  // A9d-2 N5 (named exception): the stage's FOLD_SPECS entry is deleted with its fold (no row sets `collapsible` on it); the body contract
+  // is DORMANT (the `debt:` on FoldSpec.body) until the phone map returns at step 12. The wrapper it will fold stays in `panel` and `hero`.
+  it('no FoldSpec names the stage (dormant: the fold returns with the phone map at step 12); the body wrapper it will fold is still rendered, `panel` and `hero`', () => {
+    expect(FOLD_SPECS.sceneStage).toBeUndefined();
+    for (const variant of ['panel', 'hero'] as const) {
+      const { container, unmount } = render(<SceneStage {...base()} variant={variant} />);
+      expect(container.querySelectorAll('[data-fold-body]')).toHaveLength(1);
+      unmount();
+    }
+  });
+
+  it('the phone\'s strip (`inline`) renders no picture and no fold body, and stamps its variant', () => {
+    const { container } = render(<SceneStage {...base()} variant="inline" />);
+    expect(container.querySelector('[data-fold-body]')).toBeNull();
+    expect(container.querySelector('[data-region="sceneStage"]')).toHaveAttribute('data-variant', 'inline');
+    expect(container.textContent).not.toMatch(/tactical map arrives/);
   });
 
   it.each(STATES)('%s: one fold body; no live region, no focus anchor and no control inside it', (_n, over) => {

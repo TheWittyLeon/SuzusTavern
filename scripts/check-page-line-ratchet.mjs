@@ -256,13 +256,15 @@ const PAGE = join(ROOT, PAGE_REL);
 // caller left once E4 deleted the mobile-tab re-pin). Net -1.
 // -> 830 (A9d-2 fix round N2, Kage S3): the composer-mode snap reads `isSessionDm` (format.ts) instead of
 // its own two-line lower-cased compare. Net -1.
+// -> 829 (A9d-2 fix round N5): SceneStage takes `variant` and `round`, and its three trailing booleans share a line with them
+// (talking / sessionLocked / rollBusy / round on one), so the new props cost no line. Net -1 against N2's ceiling.
 // Update this value, in the SAME commit, whenever page.tsx's actual
 // non-comment, non-blank line count drops below it. Never raise it
 // silently -- unless the growth is deliberate and reviewed, in which case
 // raise it in the same commit and say why (this file's own rule, restated
 // correctly per the A7 pre-merge ratchet ruling: the runbook's "may only go
 // down" was a paraphrase that was never this file's actual rule).
-export const RATCHET_CEILING = 830;
+export const RATCHET_CEILING = 829;
 
 /**
  * Pure: counts lines the way `wc -l` does (newline-byte count). Exported so

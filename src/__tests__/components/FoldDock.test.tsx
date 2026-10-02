@@ -124,8 +124,11 @@ describe('FoldDock', () => {
   });
 });
 
-describe('FoldDock with a body is content-sized (A9d-2: its tenants follow it, they are not a band-height away)', () => {
-  it('the dock carries data-has-body only when a body is declared, and the stylesheet sizes that form to its content', () => {
+// A9d-2 N5 (named exception, Kage S2): `data-has-body` used to mean BOTH "only a part folds" and "content-sized" (a rule that sized the dock
+// to its content so the stage's tenants followed it). The content-sized rule is deleted: step 12's map is a body that wants to FILL its
+// track. `data-has-body` still means only the first. What pins the deletion: the last assertion here.
+describe('FoldDock with a body: data-has-body says only that a part folds (it no longer sizes the dock)', () => {
+  it('the dock carries data-has-body only when a body is declared, and the stylesheet carries no sizing rule keyed on it', () => {
     const { container, rerender } = render(
       <FoldDock folded={false} onToggle={() => {}} label="Scene stage" icon="Map" body="b"><div id="b" data-fold-body /></FoldDock>,
     );
@@ -133,6 +136,6 @@ describe('FoldDock with a body is content-sized (A9d-2: its tenants follow it, t
     rerender(<FoldDock folded={false} onToggle={() => {}} label="Character sheet" icon="Scroll"><div /></FoldDock>);
     expect(container.querySelector('[data-foldable]')).not.toHaveAttribute('data-has-body');
     const css = readFileSync(resolvePath(process.cwd(), 'src/components/FoldDock.module.css'), 'utf8');
-    expect(css).toMatch(/\.dock\[data-has-body='true'\],\s*\.dock\[data-has-body='true'\] > \.panel\s*\{\s*height:\s*auto;?\s*\}/);
+    expect(css.replace(/\/\*[\s\S]*?\*\//g, '')).not.toMatch(/data-has-body/);
   });
 });

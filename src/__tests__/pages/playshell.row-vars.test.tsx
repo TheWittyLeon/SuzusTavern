@@ -21,10 +21,12 @@ describe('PlayShell emits a row\'s custom properties on .grid', () => {
   });
 
   it('row.momentVars: the moment\'s own value is emitted, and it changes with the moment', () => {
-    expect(grid(phone, 'exploring').style.getPropertyValue('--play-banner-floor')).toBe('169px');
+    // A9d-2 N5 (named exception): the exploring floor is re-derived (169 -> 152: the recap measures 46, not 63); the stage's
+    // `--play-foldable-reflow-min` is deleted with its fold, so it is emitted by no row any more.
+    expect(grid(phone, 'exploring').style.getPropertyValue('--play-banner-floor')).toBe('152px');
     expect(grid(phone, 'combat').style.getPropertyValue('--play-banner-floor')).toBe('136px');
-    expect(grid(phone, 'exploring').style.getPropertyValue('--play-foldable-reflow-min')).toBe('232px');
-    expect(grid(phone, 'combat').style.getPropertyValue('--play-foldable-reflow-min')).toBe('316px');
+    expect(grid(phone, 'exploring').style.getPropertyValue('--play-foldable-reflow-min')).toBe('');
+    expect(grid(phone, 'combat').style.getPropertyValue('--play-foldable-reflow-min')).toBe('');
   });
 
   it('a row with neither emits only the three track lists', () => {

@@ -165,30 +165,36 @@ describe('Play.module.css', () => {
       expect(grid).not.toMatch(/overflow:\s*hidden/);
     });
 
+    // A9d-2 N5 (named exception: foldable-min). The stage's reflow minimum, `--play-foldable-min`, is deleted with the stage's fold; the 44px
+    // handle floor stays. What pins the deletion: the last case of this describe (no foldable-min / reflow-min anywhere in the file).
     it('a slot whose dock is foldable keeps the 44px handle plus its block padding (the handle is never squeezed out)', () => {
       const rule = strip(blockFrom(".slot:has(> [data-foldable='true']) {"));
-      expect(rule).toMatch(/min-height:\s*max\(calc\(44px \+ 2 \* var\(--play-slot-edge, var\(--density-gap\)\)\), var\(--play-foldable-min, 0px\)\)/);
+      expect(rule).toMatch(/min-height:\s*calc\(44px \+ 2 \* var\(--play-slot-edge, var\(--density-gap\)\)\)/);
+      expect(rule).not.toMatch(/foldable-min/);
     });
 
     it('a raised safety banner yields ONLY the two --play-* row variables on .grid, to the row\'s BANNER floor (never 0 where the row has one), naming no layout (safety yield)', () => {
-      const rule = strip(blockFrom(".grid:has(> [data-region-slot='safetyBanner'] > :not(:empty)) {"));
+      // A9d-2 N5 (named exception: safety-yield): the selector gained `:not([data-fit='false'])`; the two declarations are unchanged.
+      const rule = strip(blockFrom(".grid:not([data-fit='false']):has(> [data-region-slot='safetyBanner'] > :not(:empty)) {"));
       const decls = rule.slice(rule.indexOf('{') + 1, rule.lastIndexOf('}')).split(';').map((d) => d.trim()).filter(Boolean);
       expect(decls).toEqual(['--play-floor: var(--play-banner-floor, 0px)', '--play-optional: 0px']);
       expect(rule).not.toMatch(/data-layout|story|table|phone/i);
     });
 
-    it('the yield applies only where the page does not scroll: it sits inside @media (min-height: 701px), and nowhere outside one (Kage A9d-1 I-1, Iro MINOR-1)', () => {
-      const media = strip(blockFrom('@media (min-height: 701px) {\n  .grid:has('));
-      expect(media).toMatch(/--play-floor:\s*var\(--play-banner-floor/);
-      // The same rule text appears exactly once in the file, and it is that one.
+    // A9d-2 N5 (named exception: safety-yield): the yield no longer sits inside a height @media. It is keyed on the shell's MEASURED fit
+    // (`data-fit`), so it applies where the page fit before the banner came up and names no height at all (Kage A9d-1 I-4). The two cases
+    // below replace the 701px pin and the reflow-minimum pin; what pins the behaviour in a browser is the harness's y:fitFlag, a:storyLog
+    // on the banner cells at 430x740, and playshell.fit-flag (the stamp).
+    it('the yield applies only where the page fit: the selector is :not([data-fit=\'false\']), it appears exactly once, and no height @media is left in the file', () => {
       const all = strip(css).match(/safetyBanner'\] > :not\(:empty\)\)/g) ?? [];
       expect(all).toHaveLength(1);
+      expect(strip(css)).toMatch(/\.grid:not\(\[data-fit='false'\]\):has\(> \[data-region-slot='safetyBanner'\]/);
+      expect(strip(css)).not.toMatch(/@media\s*\(\s*(?:min|max)-height/);
     });
 
-    it('on a short viewport (the complement of the 701px boundary) the stage band takes the row\'s reflow minimum, via --play-foldable-min only (Tora A9d-1 MAJOR-1)', () => {
-      const rule = strip(blockFrom('@media (max-height: 700px) {'));
-      expect(rule).toMatch(/\.grid\s*\{\s*--play-foldable-min:\s*var\(--play-foldable-reflow-min,\s*0px\);?\s*\}/);
-      expect(rule).not.toMatch(/data-layout|story|table|phone/i);
+    it('the stage\'s reflow minimum is deleted: no --play-foldable-min, no --play-foldable-reflow-min, no @media (max-height: 700px) (the stage is a whole band, one scene strip)', () => {
+      expect(strip(css)).not.toMatch(/--play-foldable-min|--play-foldable-reflow-min/);
+      expect(strip(css)).not.toMatch(/max-height:\s*700px/);
     });
 
     it('on /play only, the DOCUMENT turns off overscroll on the y axis (no pull-to-refresh); the story log is left alone so log-to-page chaining stays (Tora A9d-1 MAJOR-2)', () => {
@@ -200,10 +206,13 @@ describe('Play.module.css', () => {
       expect(chat).not.toMatch(/overscroll-behavior/);
     });
 
-    it('the scene picture\'s stand-in takes its direction and padding from the row (the phone says one slim row), the stacked box otherwise', () => {
+    // A9d-2 N5 (named exception): the phone has no scene picture, so the stand-in no longer takes a direction and padding from the row; it
+    // is the stacked box on every row that renders it. What pins the deletion: no --play-picture-* is read anywhere in the file.
+    it('the scene picture\'s stand-in is the stacked box, and no --play-picture-* variable is read (the phone has no picture until step 12)', () => {
       const rule = strip(blockFrom('.scenePlaceholder {'));
-      expect(rule).toMatch(/flex-direction:\s*var\(--play-picture-dir,\s*column\)/);
-      expect(rule).toMatch(/padding:\s*var\(--play-picture-pad,\s*var\(--density-pad\)\)/);
+      expect(rule).toMatch(/flex-direction:\s*column/);
+      expect(rule).toMatch(/padding:\s*var\(--density-pad\)/);
+      expect(strip(css)).not.toMatch(/--play-picture-/);
     });
 
     it('the Appearance dialog is bounded by the viewport and scrolls inside', () => {

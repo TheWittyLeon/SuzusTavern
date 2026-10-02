@@ -12,11 +12,11 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import SceneStage from '@/app/play/[sessionId]/regions/SceneStage';
 
-interface Opts { combat?: boolean; allDown?: boolean; anyDown?: boolean; busy?: boolean; encounter?: boolean }
+interface Opts { combat?: boolean; allDown?: boolean; anyDown?: boolean; busy?: boolean; encounter?: boolean; variant?: 'inline' | 'panel' | 'hero'; round?: number | null }
 
 const endCalls: string[] = [];
 
-function Stage({ combat = true, allDown = false, anyDown = false, busy = false, encounter = false }: Opts) {
+function Stage({ combat = true, allDown = false, anyDown = false, busy = false, encounter = false, variant, round }: Opts) {
   const headRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLButtonElement>(null);
   const openerRef = useRef<HTMLButtonElement>(null);
@@ -46,6 +46,8 @@ function Stage({ combat = true, allDown = false, anyDown = false, busy = false, 
           talking={false}
           sessionLocked={false}
           rollBusy={false}
+          variant={variant}
+          round={round}
         />
       </aside>
     </div>
@@ -204,5 +206,75 @@ describe('the outcome chooser: an anchored popover', () => {
     expect(screen.queryByRole('button', { name: /End combat/ })).toBeNull();
     expect(document.querySelector('[aria-label^="Scene:"]')).toHaveFocus();
     expect(document.body).not.toHaveFocus();
+  });
+});
+
+// ── the phone's scene strip (N5, Amendment E.1) ───────────────────────────────────────────────────────────────────────────────────
+describe('the scene strip (variant inline)', () => {
+  const stage = () => document.querySelector('[data-region="sceneStage"]') as HTMLElement;
+
+  it('stamps its variant; renders no picture, no fold body and no kicker; the head stays the visible, focusable first line', () => {
+    render(<Stage variant="inline" combat={false} />);
+    expect(stage()).toHaveAttribute('data-variant', 'inline');
+    expect(stage().querySelector('[data-fold-body]')).toBeNull();
+    expect(stage().textContent).not.toMatch(/tactical map arrives/);
+    const head = stage().querySelector('[aria-label^="Scene:"]') as HTMLElement;
+    expect(head).toHaveAttribute('tabindex', '-1');
+    expect(head).toHaveTextContent('The Sundered Hollow');
+    expect(head.querySelector('[aria-hidden]')).toBeNull(); // the "Scene" kicker is not painted in the strip
+  });
+
+  it('exploring: the second line is the objective, and there is no status text yet', () => {
+    render(<Stage variant="inline" combat={false} />);
+    expect(screen.getByText('Find the source of the tremors.')).toBeInTheDocument();
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('combat: the status line says the round in an aria-hidden span (the tracker stays the one region that announces it); no round, no span', () => {
+    const { unmount } = render(<Stage variant="inline" round={3} />);
+    expect(screen.queryByText('Find the source of the tremors.')).toBeNull();
+    const status = screen.getByText(/In combat · use the action bar/).closest('[role="status"]') as HTMLElement;
+    const round = within(status).getByText(/round 3/);
+    expect(round).toHaveAttribute('aria-hidden', 'true');
+    unmount();
+    render(<Stage variant="inline" round={null} />);
+    expect(screen.queryByText(/round/)).toBeNull();
+  });
+
+  it('the round is the strip\'s alone: panel and hero do not paint it', () => {
+    for (const variant of ['panel', 'hero'] as const) {
+      const { unmount } = render(<Stage variant={variant} round={3} />);
+      expect(screen.queryByText(/round 3/)).toBeNull();
+      unmount();
+    }
+  });
+
+  it('every encounter button the state calls for is in the strip: "Stand and fight" exploring; "End combat" and "Wrap up" with every enemy down', () => {
+    const a = render(<Stage variant="inline" combat={false} encounter />);
+    expect(screen.getByRole('button', { name: /Stand and fight/ })).toBeInTheDocument();
+    a.unmount();
+    render(<Stage variant="inline" allDown anyDown />);
+    expect(endBtn()).toBeInTheDocument();
+    expect(wrapBtn()).toBeInTheDocument();
+  });
+
+  it('with every enemy down the generic "In combat" status is clipped on screen but stays in the tree, unchanged and live, beside the prompt\'s own', () => {
+    render(<Stage variant="inline" allDown anyDown />);
+    const generic = screen.getByText(/In combat · use the action bar/).closest('[role="status"]') as HTMLElement;
+    expect(generic).toHaveAttribute('aria-live', 'polite');
+    expect(generic.className).toMatch(/noteClipped/);
+    const prompt = screen.getByText(/All enemies are down\./).closest('[role="status"]') as HTMLElement;
+    expect(prompt.className).not.toMatch(/noteClipped/);
+  });
+
+  it('panel and hero render as they always did: the kicker, the picture\'s stand-in and its fold body, and the objective in combat too', () => {
+    for (const variant of ['panel', 'hero'] as const) {
+      const { unmount } = render(<Stage variant={variant} />);
+      expect(stage()).toHaveAttribute('data-variant', variant);
+      expect(stage().querySelector('[data-fold-body]')).not.toBeNull();
+      expect(stage().textContent).toMatch(/tactical map arrives/);
+      expect(screen.getByText('Find the source of the tremors.')).toBeInTheDocument();
+      unmount();
+    }
   });
 });

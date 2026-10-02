@@ -102,47 +102,28 @@
   position: relative;
 }
 
-/* A9d E3 (build brief 2.3): the fold handle is never squeezed out. A slot whose
-   dock is foldable keeps room for the handle (44px, FoldDock.module.css
-   `.handle`) plus its own block padding, whatever the row's track gives it, so
-   a floor/optional track can shrink the region to the handle and no further.
-   Generic: it names a dock, never a region or a layout. */
+/* A9d E3 (build brief 2.3): the fold handle is never squeezed out. A slot whose dock is foldable keeps room for the handle (44px,
+   FoldDock.module.css `.handle`) plus its own block padding, whatever the row's track gives it. Generic: it names a dock, never a
+   region or a layout. (A9d-2 N5: the stage's own reflow minimum, `--play-foldable-min`, is gone with the stage's fold: the phone's
+   scene strip is a whole band and needs no minimum of its own.) */
 .slot:has(> [data-foldable='true']) {
-  min-height: max(calc(44px + 2 * var(--play-slot-edge, var(--density-gap))), var(--play-foldable-min, 0px));
+  min-height: calc(44px + 2 * var(--play-slot-edge, var(--density-gap)));
 }
 
-/* A9d E3 (build brief 2.3): safety yield. A9c section 8 ranks a raised safety
-   banner above party and stage; this is that rank enforced by layout. While the
-   banner slot has content, a row's optional tracks drop to their minimums (party ->
-   one tile row, stage -> its handle row) and the log's floor drops to the row's
-   BANNER floor (`--play-banner-floor`: the turn status plus about two lines, never 0),
-   so the log takes what is left and keeps that much.
-   A9d-2 (Kage A9d-1 I-1, Iro MINOR-1): the yield exists to keep the page from
-   scrolling, so it applies only where it does not: at and above 701px of viewport
-   height (the same boundary the offers rows use below; the harness's fit/reflow
-   split). Under it the page scrolls anyway, nothing is squeezed, and the log keeps
-   its full floor with the banner up. It sets only `--play-*` row variables on
-   `.grid` and names no layout, so every row that does not reference them (all
+/* A9d E3 (build brief 2.3): safety yield. A9c section 8 ranks a raised safety banner above party and stage; this is that rank
+   enforced by layout. While the banner slot has content, a row's optional tracks drop to their minimums (party -> one tile row) and the
+   log's floor drops to the row's BANNER floor (`--play-banner-floor`: the turn status plus about two lines, never 0), so the log takes
+   what is left and keeps that much.
+   A9d-2 N5 (Kage A9d-1 I-4, Iro MINOR-1): the yield exists to keep the page from scrolling, so it applies only where the page FIT before
+   the banner came up, and that is MEASURED, not read off a height: `PlayShell` stamps `data-fit="false"` on `.grid` when the page scrolls
+   (with no banner up), and the yield is `:not([data-fit='false'])`. A page that scrolls anyway keeps the log's full 160px floor with the
+   banner up, and the X-card, which is in view where the page fits, is reached by scrolling where it does not. (It was
+   `@media (min-height: 701px)`, a line copied from the harness: from 701 to about 818px the page already scrolled yet the CSS treated
+   it as fit.) It sets only `--play-*` row variables on `.grid` and names no layout, so every row that does not reference them (all
    desktop rows) is untouched. */
-@media (min-height: 701px) {
-  .grid:has(> [data-region-slot='safetyBanner'] > :not(:empty)) {
-    --play-floor: var(--play-banner-floor, 0px);
-    --play-optional: 0px;
-  }
-}
-
-/* A9d-2 (Tora A9d-1 MAJOR-1): the dice and the combat controls never live in a band
-   that yields. On a viewport the page scrolls anyway (the reflow class, the complement of
-   the 701px boundary above) the grid's free space is negative, so every optional track sits
-   at its minimum and the stage was ~56px with its controls inside its own scroll. There the
-   stage band takes the row's `--play-foldable-reflow-min` (per moment, see `momentVars`): the
-   height its controls need, with the picture and the quick checks scrolling inside it. It is
-   the min-height of a foldable slot (above), which a `fit-content` track honours as its
-   minimum. A row with no such var (every desktop row) gets 0 and is untouched. */
-@media (max-height: 700px) {
-  .grid {
-    --play-foldable-min: var(--play-foldable-reflow-min, 0px);
-  }
+.grid:not([data-fit='false']):has(> [data-region-slot='safetyBanner'] > :not(:empty)) {
+  --play-floor: var(--play-banner-floor, 0px);
+  --play-optional: 0px;
 }
 
 /* A9b fix round 1 (Imp-3, Aoi B3): `.slot`'s padding defeated `:empty` — the
@@ -485,13 +466,11 @@
 
 .scenePlaceholder {
   display: flex;
-  /* A row's to set (the phone row says `row` and a slim pad): the placeholder is a stand-in until the map lands
-     (step 12), and at 112px it was the largest thing in a phone's stage band (A9d-2). Absent = the stacked box. */
-  flex-direction: var(--play-picture-dir, column);
+  flex-direction: column;
   align-items: center;
   gap: 8px;
   text-align: center;
-  padding: var(--play-picture-pad, var(--density-pad));
+  padding: var(--density-pad);
   border-radius: 12px;
   background: color-mix(in oklab, var(--ink) 3%, transparent);
   border: 1px dashed var(--line);
@@ -821,18 +800,20 @@
 }
 
 /* A9d-1 R-1 lever 1: the `rows` Offers variant (phone). `chips` plus ONE
-   horizontally scrolling row per group, in fit-class viewports only: two
-   wrapped groups cost up to 120px of a 390x844 phone's story column, one row
-   each costs ~44px. Below 700px tall (the reflow-class boundary) the base
-   `chips` wrap applies again, so a 375x667 phone or a zoomed viewport scrolls
-   the PAGE, never a row of its own (WCAG 1.4.10). The groups stay separate
-   role="group" blocks, every chip stays in tab order (a scroll container
-   changes where a chip is painted, not whether it is focusable), and
+   horizontally scrolling row per group: two wrapped groups cost up to 120px of a
+   390x844 phone's story column, one row each costs ~44px. A9d-2 N5: gated on its OWN
+   reason, WIDTH. At 320px and under (a 400% zoom of a 1280px page) the base `chips`
+   wrap applies again, so a zoomed viewport scrolls the PAGE, never a row of its own:
+   WCAG 1.4.10 wants no two-way scroll there. (It was gated on `min-height: 701px`, the
+   harness's fit/reflow line; the height has nothing to do with it. Side effect,
+   accepted by Iro: exploring at 375x667 and 390x664 loses about 100px of page.) The
+   groups stay separate role="group" blocks, every chip stays in tab order (a scroll
+   container changes where a chip is painted, not whether it is focusable), and
    scroll-padding keeps a focused chip clear of the fade. The row is a clipping
-   ancestor, so it leaves --focus-ring-clearance as block padding (the
-   globals.css rule) and cancels it with an equal negative margin: the ring
-   has room, the layout pays nothing. */
-@media (min-height: 701px) {
+   ancestor, so it leaves --focus-ring-clearance as block padding (the globals.css
+   rule) and cancels it with an equal negative margin: the ring has room, the layout
+   pays nothing. */
+@media (min-width: 321px) {
   .offersRows {
     flex-direction: column;
     flex-wrap: nowrap;
@@ -895,6 +876,32 @@
 .diceWrap {
   margin-bottom: 18px;
 }
+
+.stage {
+  min-width: 0;
+}
+
+/* (The phone's SCENE STRIP, A9d-2 N5, is the region's own arrangement of its items and lives in regions/SceneStage.module.css: layout
+   rule 3 keeps every grid property of THIS file in `.grid`, where the row decides placement.) */
+
+/* ── A9d-2 N5 (Amendment E.7; Iro 3, Tora A4): a band that hides content says so ──
+   The row says `scrollCue` (the phone's does): `PlayShell` stamps `data-scroll-cue`, and every slot that can scroll (all but the story
+   log, which scrolls by design and is `overflow: hidden`) paints a bottom fade ONLY while there is more to scroll: the scroll-shadow
+   technique, a `local` cover that sits over a `scroll`-attached shadow once the content's end is in view. No script. The harness measures
+   it by pixels (lib/scroll-cue.mjs), not by this text. The phone party band hides the initiative tracker in combat: this is the one
+   place it says so. The desktop rows are untouched. */
+.grid[data-scroll-cue] .slot:not(.slotStack) {
+  background-image:
+    linear-gradient(var(--bg) 30%, transparent),
+    linear-gradient(transparent, var(--bg) 70%),
+    radial-gradient(farthest-side at 50% 0, color-mix(in oklab, var(--ink) 22%, transparent), transparent),
+    radial-gradient(farthest-side at 50% 100%, color-mix(in oklab, var(--ink) 22%, transparent), transparent);
+  background-position: center top, center bottom, center top, center bottom;
+  background-size: 100% 24px, 100% 24px, 100% 12px, 100% 12px;
+  background-repeat: no-repeat;
+  background-attachment: local, local, scroll, scroll;
+}
+
 
 /* The X-card control (R23 safety floor). A9b fix round 1 (Miko Imp-5 + Aoi
    B2): it is a tenant of `actionBar`, NOT `sceneStage` — the stage is a

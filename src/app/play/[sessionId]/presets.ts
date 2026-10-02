@@ -418,6 +418,13 @@ export interface LayoutRow {
    * the other). Emitted after `vars`, so a moment's value wins. Absent = none.
    */
   momentVars?: Partial<Record<Moment, Readonly<Record<`--play-${string}`, string>>>>;
+  /**
+   * A9d-2 N5 (Amendment E.7; Iro 3, Tora A4): a band that hides content says so. When true, every slot of this row that can scroll
+   * (all but the story log, which scrolls by design) paints a bottom-fade cue, ONLY while there is more to scroll. `PlayShell` stamps
+   * `data-scroll-cue` on the grid and `Play.module.css` reads it. The phone row sets it (its party band hides the tracker in combat);
+   * the desktop rows are untouched. Absent = no cue.
+   */
+  scrollCue?: boolean;
   regions: Record<RegionId, Partial<Record<Moment, Placement>> & { default: Placement }>;
 }
 
@@ -788,17 +795,21 @@ const TABLE_ROW: LayoutRow = {
 
 // Floor arithmetic (measured at 390x844, `probe-floor`; re-derive when a tenant in the
 // story slot changes height):
-//   exploring 241 = 160 inner log + 12 slot edge (6px border each side) + 6 stack gap
-//                   + 63 "Previously on..." recap
+//   exploring 224 = 160 inner log + 12 slot edge (6px border each side) + 6 stack gap
+//                   + 46 "Previously on..." recap (one line: the scene subtitle is dropped on the phone)
 //   combat    208 = 160 inner log + 12 slot edge + 6 stack gap + 30 status line (no recap:
 //                   "Previously on..." steps aside in combat, A9d R-1 lever 2, so the 63 + its
 //                   6px gap that the pre-lever 277 paid are gone; measured at 390x844: the combat
 //                   log inner is the track minus 48)
+// The exploring floor was 241 until A9d-2 N5: it budgeted a 63px recap that measures 46 (Kage A9d-1 S1 measured the same), so the log
+// was handed 17px the floor did not need. The 160 and 88 INNER floors (harness PHONE_STORY_LOG_MIN_PX / _BANNER_MIN_PX) do not move.
 // Party minimum 91 = 14 label
 // + 8 gap + 57 tile row + 12 slot edge: one tile row. A focused tile's name caption sits ABOVE the
 // tile, in the label's row (PartyPanel.module.css), so it fits at this minimum.
 const PHONE_ROW: LayoutRow = {
   id: 'phone',
+  // Every slot that can hide content paints the bottom-fade cue while it has more to scroll (E.7): the party band does in combat.
+  scrollCue: true,
   vars: {
     '--play-slot-edge': 'var(--space-3)',
     '--play-slot-pad': '0px',
@@ -808,41 +819,29 @@ const PHONE_ROW: LayoutRow = {
     // The dice are ONE row of six chips here, not 3x2: a two-row tray was ~66px more band than the
     // stage can spare (Tora A9d-1 MAJOR-1). DiceTray.module.css reads it; the tray's keys follow.
     '--play-dice-columns': '6',
-    // The scene picture's stand-in is one slim row on the phone (112px stacked), so the band that holds the
-    // controls is not mostly placeholder. Play.module.css `.scenePlaceholder` reads both.
-    '--play-picture-dir': 'row',
-    '--play-picture-pad': 'var(--space-3)',
   },
-  // The banner floor: while the X-card banner is raised on a viewport the page does not scroll on
-  // (`@media (min-height: 701px)` in Play.module.css), the story track yields down to THIS, not to 0:
-  // 88 inner (log padding 44 + one 42px narration row) + the same chrome as the floors above. 169 =
-  // 88 + 81 (exploring chrome: 12 edge + 6 gap + 63 recap); 136 = 88 + 48 (combat: 12 + 6 + 30 status).
-  // Measured 390x844: combat + banner leaves 146 for the track, exploring + banner 171 (harness shots j and
-  // p). Where the page scrolls anyway (reflow) the banner takes no yield and the full 160 floor holds.
-  //
-  // The stage's reflow minimum: where the page scrolls anyway the stage band takes the height its
-  // CONTROLS need to be seen at rest, and its picture and quick checks scroll inside it (A9d-2, Tora
-  // A9d-1 MAJOR-1; Play.module.css reads `--play-foldable-reflow-min` on a short viewport and applies it as
-  // the min-height of a foldable slot, which `fit-content` honours as its track minimum). 232 = the dice row's
-  // bottom edge at 219 (64 head + 54 slim picture block + 10 + 14 label + 10 + 58 chips, measured at 390x664) + 13
-  // (the slot's 12px of edge and a px of rounding); 316 = 303 + 13, the 68px combat note with End combat
-  // sitting above the dice in combat.
+  // The banner floor: while the X-card banner is raised and the page FIT before it came up (the shell's measured `data-fit`, not a
+  // height line: Play.module.css), the story track yields down to THIS, not to 0: 88 inner (log padding 44 + one 42px narration row)
+  // + the same chrome as the floors above. 152 = 88 + 64 (exploring chrome: 12 edge + 6 gap + 46 recap); 136 = 88 + 48 (combat:
+  // 12 + 6 + 30 status). Where the page scrolled anyway the banner takes no yield and the full 160 floor holds.
+  // (A9d-2 N5 deleted `--play-foldable-reflow-min`: the stage is a whole band, one scene strip, and needs no minimum of its own.)
   momentVars: {
-    exploring: { '--play-banner-floor': '169px', '--play-foldable-reflow-min': '232px' },
-    combat: { '--play-banner-floor': '136px', '--play-foldable-reflow-min': '316px' },
+    exploring: { '--play-banner-floor': '152px' },
+    combat: { '--play-banner-floor': '136px' },
   },
   // Column 2 is `suzuPresence`'s track: 0px when she is absent (AI assist off).
   columns: {
     exploring: 'minmax(0,1fr) auto',
     combat: 'minmax(0,1fr) auto',
   },
-  // Stage caps are plan §4.2's: combat 34vh ("default open"); exploring 20vh,
-  // standing in for the inline strip until step 11 reads the `inline` variant.
+  // The stage is a WHOLE band (`max-content`, A9d-2 N5, Amendment E.1): the scene strip (variant `inline`, one row) holds the scene's
+  // name, its objective or status and the encounter's buttons, never scrolls, and cannot hide a control. The party band is the phone's
+  // only optional band; the log is the floor; the offers, composer and action bar are whole.
   rows: {
     exploring:
-      'max-content max-content minmax(91px,var(--play-optional,auto)) fit-content(var(--play-optional,20vh)) minmax(var(--play-floor,241px),1fr) max-content max-content max-content',
+      'max-content max-content minmax(91px,var(--play-optional,auto)) max-content minmax(var(--play-floor,224px),1fr) max-content max-content max-content',
     combat:
-      'max-content max-content minmax(91px,var(--play-optional,auto)) fit-content(var(--play-optional,34vh)) minmax(var(--play-floor,208px),1fr) max-content max-content',
+      'max-content max-content minmax(91px,var(--play-optional,auto)) max-content minmax(var(--play-floor,208px),1fr) max-content max-content',
   },
   areas: {
     exploring: `"safetyBanner safetyBanner"
@@ -866,9 +865,11 @@ const PHONE_ROW: LayoutRow = {
     topBar: { default: { area: 'topBar', variant: 'compact' } },
     suzuPresence: { default: { area: 'suzuPresence', variant: 'compact' } },
     partyStrip: { default: { area: 'partyStrip', variant: 'strip' } },
+    // A9d-2 N5 (E.1/E.2): the scene strip in BOTH moments, never collapsible. No picture and no fold on the phone until the map
+    // (step 12): the stand-in was 58px of a band whose job is the controls, and a fold that visibly did nothing was Iro's Major.
     sceneStage: {
-      default: { area: 'sceneStage', variant: 'inline', collapsible: true },
-      combat: { area: 'sceneStage', variant: 'panel', collapsible: true },
+      default: { area: 'sceneStage', variant: 'inline' },
+      combat: { area: 'sceneStage', variant: 'inline' },
     },
     storyLog: { default: { area: 'storyLog' } },
     offers: {
@@ -923,6 +924,6 @@ export const FOLDABLE_REGIONS: ReadonlySet<RegionId> = new Set(
 export const FOLDABLE_ANNOUNCERS: Partial<Record<RegionId, string>> = {
   characterBlock:
     'its announcers report only the sheet\'s own loading/error; a folded sheet has nothing to say',
-  sceneStage:
-    'its announcers and focus anchors sit outside its fold body: only the picture folds (FoldSpec.body, A9d-2 F1)',
+  // (A9d-2 N5: `sceneStage` is no longer foldable in any row: the phone's strip does not fold. When the phone map returns at step 12
+  // and the row re-declares `collapsible`, the entry returns with it: its announcers sit outside the fold body, only the picture folds.)
 };

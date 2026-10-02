@@ -76,7 +76,7 @@
  * three entries, and the names are the accessibility contract, pinned by
  * `play.tav-play-landmarks.test.tsx` / `play.tav3-auth-gate.test.tsx`.
  */
-import { Fragment, useRef, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import FoldDock from '@/components/FoldDock';
 import type { IconName } from '@/components/Icon';
 import {
@@ -102,7 +102,9 @@ export interface FoldSpec {
    *  already names it (the stage is the "Scene" aside). */
   labelledBy?: string;
   /** Id of the `[data-fold-body]` part that folds; the rest of the region never does
-   *  (A9d-2 F1, Amendment D.4). Absent = the whole region folds. */
+   *  (A9d-2 F1, Amendment D.4). Absent = the whole region folds.
+   *  debt: no row emits a fold body (the phone stage's fold left in A9d-2 N5: the scene is a one-row strip with no picture to fold). ceiling: FoldDock's body mode and the stage's `[data-fold-body]` wrapper run only in their component tests; no browser path reaches them.
+   *  until: step 12 lands the phone map and the phone row re-declares `collapsible` on the stage (Backlog TAV-PHONE-STAGE-FOLD-RETURNS: Iro's fold acceptance, item 4, is re-asserted then). */
   body?: string;
 }
 
@@ -183,6 +185,26 @@ export default function PlayShell({
   // Tenants grouped by host, in TENANT_IDS declaration order (the tenth
   // tenant is one presets.ts row — no code change here).
   const rootRef = useRef<HTMLDivElement>(null);
+  // A9d-2 N5 (Kage I-4; lever brief 2.5): FIT IS MEASURED, not assumed from a height. `data-fit="false"` is stamped when the page
+  // scrolls: the row's tracks overflow the viewport (a whole band, the log's floor and the party's minimum do not all fit). The safety
+  // yield (Play.module.css) reads it: with the banner up the story gives up its rows only where the page FIT before the banner came up
+  // (that keeps the X-card in view where it was in view), and keeps its full 160px where the page scrolled anyway. Measured after every
+  // commit and on resize, WITH NO BANNER RAISED: the yield changes the answer, so a banner up leaves the last stamp alone. jsdom reads 0
+  // and 0, so the stamp is absent there and no jsdom suite sees it. No shell rule names a viewport height.
+  const [scrolls, setScrolls] = useState(false);
+  const measureFit = useCallback(() => {
+    const root = rootRef.current;
+    if (!root || root.querySelector(':scope > [data-region-slot="safetyBanner"] > :not(:empty)')) return;
+    const next = root.scrollHeight > root.clientHeight + 1;
+    setScrolls((prev) => (prev === next ? prev : next));
+  }, []);
+  useLayoutEffect(() => {
+    measureFit();
+  });
+  useEffect(() => {
+    window.addEventListener('resize', measureFit);
+    return () => window.removeEventListener('resize', measureFit);
+  }, [measureFit]);
   const tenantsByHost = new Map<RegionId, ReactNode[]>();
   for (const tenantId of TENANT_IDS) {
     const node = tenants[tenantId];
@@ -292,6 +314,8 @@ export default function PlayShell({
         className={styles.grid}
         data-layout-resolved={row.id}
         data-moment={moment}
+        data-fit={scrolls ? 'false' : undefined}
+        data-scroll-cue={row.scrollCue ? '' : undefined}
         style={
           {
             '--play-areas': row.areas[moment],
