@@ -1,13 +1,10 @@
 /**
- * Miko-QA adversarial pass on TAV-DM-OVERRIDE-MODAL-DEFAULTS-NEW-HP-ZERO.
- * Land as src/__tests__/components/DmOverrideModal.new-hp.adversarial.test.tsx.
+ * DmOverrideModal damage kind: New HP safety under hostile input and polling.
  *
- * Tests prefixed "FINDING:" assert the CORRECT behaviour and are RED at e574589
- * on purpose; they go green when the developer fixes the finding. Everything
- * else is green at e574589 and kills a mutant his 14 tests miss.
- *
- * Invariant under test: a POST carrying target_new_hp === 0 is only ever sent
- * after the DM clicked the confirm button for THAT zero.
+ * Invariant: a POST carrying target_new_hp === 0 is only ever sent after the DM
+ * pressed the confirm button for THAT zero. Also pins the wire matrix for typed
+ * values, target HP edge values, participant polls under an open dialog, reopen
+ * resets, confirm focus/Tab trap, and double-submit handling.
  */
 import React from 'react';
 import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react';
@@ -193,7 +190,7 @@ describe('polling: participants change underneath an open dialog', () => {
     expect(sentHp()).toBe(20);
   });
 
-  it('FINDING: if the poll invalidates the confirmed zero, the dialog must close (stale "drops X to 0 HP" copy)', async () => {
+  it('a poll that moves the resolved value off 0 closes the confirm', async () => {
     const { rerender } = openDamage([ACTOR, KAELEN], 'pc-1');
     fireEvent.change(dealtInput(), { target: { value: '20' } });
     await apply();
@@ -221,7 +218,7 @@ describe('polling: participants change underneath an open dialog', () => {
     expect(mockSubmitOverride).not.toHaveBeenCalled();
   });
 
-  it('FINDING: target goes is_alive:false (select drops the option) -> select shows no target but a New HP and a stale target_id remain', async () => {
+  it('target goes is_alive:false: select and New HP both clear', async () => {
     const { rerender } = openDamage([ACTOR, KAELEN], 'pc-1');
     rerender(<DmOverrideModal {...props([ACTOR, { ...KAELEN, is_alive: false }])} />);
     // select no longer has a matching option => it displays the placeholder
@@ -230,7 +227,7 @@ describe('polling: participants change underneath an open dialog', () => {
     expect(hpInput().value).toBe('');
   });
 
-  it('FINDING: choosing the target as ACTOR hides it from the Target select but keeps its New HP and target_id', async () => {
+  it('choosing the target as ACTOR clears the target and its New HP', async () => {
     openDamage([ACTOR, KAELEN, LUKE], 'pc-1');
     fireEvent.change(screen.getByLabelText(/^Actor/), { target: { value: 'pc-1' } });
     expect(targetSel().value).toBe('');
@@ -273,11 +270,11 @@ describe('double submit / re-entry', () => {
     expect(confirmDialog()).toBeInTheDocument();
   }
 
-  it('FINDING: a form submit (Enter in a field / key-repeat on Apply) while the confirm is open must NOT send', async () => {
+  it('a form submit (Enter / key-repeat) while the confirm is open does not send', async () => {
     await toConfirm();
     const form = hpInput().closest('form') as HTMLFormElement;
     await act(async () => { fireEvent.submit(form); });
-    // The DM never clicked "Drop to 0 HP". At e574589 confirmZero doubles as "already confirmed" and this POSTs 0.
+    // The DM never pressed "Drop to 0 HP".
     expect(mockSubmitOverride).not.toHaveBeenCalled();
   });
 
@@ -358,21 +355,47 @@ describe('keyboard / focus around the confirm', () => {
     expect(cancel).toHaveFocus();
   });
 
-  it('PRE-EXISTING (also true on the non-zero path, browser-verified): after a failed send, focus must be inside the override dialog, not <body>', async () => {
+  it('after a failed confirmed send, focus is inside the override dialog, not <body>', async () => {
     mockSubmitOverride.mockRejectedValue({ body: { data: { reason: 'target_not_found' } } });
     await toConfirmFocused();
     await act(async () => { fireEvent.click(confirmBtn()); });
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
     expect(screen.getByRole('dialog', { name: /DM Override/i })).toContainElement(document.activeElement as HTMLElement);
   });
+});
 
-  it('Escape on a form field while the confirm is up: the override Escape handler CAN fire (sibling render does not protect a keydown that starts behind the confirm)', async () => {
+describe('stale-confirm close, no-target refusal, repeated failure focus', () => {
+  it('after a poll closed the confirm, the value returning to 0 does not re-open it without Apply', async () => {
+    const { rerender } = openDamage([ACTOR, KAELEN], 'pc-1');
+    fireEvent.change(dealtInput(), { target: { value: '20' } }); // derived 0
+    await apply();
+    expect(confirmDialog()).toBeInTheDocument();
+    rerender(<DmOverrideModal {...props([ACTOR, { ...KAELEN, hp_current: 40 }])} />);
+    expect(confirmDialog()).not.toBeInTheDocument();
+    rerender(<DmOverrideModal {...props([ACTOR, { ...KAELEN, hp_current: 20 }])} />);
+    expect(hpInput().value).toBe('0');
+    expect(confirmDialog()).not.toBeInTheDocument();
+    expect(mockSubmitOverride).not.toHaveBeenCalled();
+  });
+
+  it('a typed New HP with no target refuses and never posts target_id: null', async () => {
+    openDamage([ACTOR, KAELEN]);
+    fireEvent.change(hpInput(), { target: { value: '5' } });
+    await apply();
+    expect(mockSubmitOverride).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent(/Target is required/i);
+  });
+
+  it('the same send failing twice moves focus to the error both times', async () => {
+    mockSubmitOverride.mockRejectedValue({ body: { message: 'nope' } });
     openDamage([ACTOR, KAELEN], 'pc-1');
-    fireEvent.change(hpInput(), { target: { value: '0' } });
-    await apply(); // focus has not yet moved (timer 0 not flushed)
-    fireEvent.keyDown(hpInput(), { key: 'Escape' });
-    // documents current behaviour: override closes under the confirm. Real-browser reachability is
-    // limited to the sub-tick before the confirm steals focus; see report.
-    expect(onClose).toHaveBeenCalledTimes(1);
+    await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+    await apply();
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('alert')));
+    act(() => (screen.getByLabelText(/Reason/i) as HTMLElement).focus());
+    expect(document.activeElement).not.toBe(screen.getByRole('alert'));
+    await apply();
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('alert')));
+    expect(mockSubmitOverride).toHaveBeenCalledTimes(2);
   });
 });

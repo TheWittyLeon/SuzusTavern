@@ -1,13 +1,11 @@
 /**
- * Miko-QA: request bodies for attack / check / save (and damage for contrast).
- * Run unchanged in the base tree (8957f1a) and the fix tree (e574589) with
- * BODY_OUT=<file>; diff the two JSON files. Attack/check/save must be identical.
- * Also asserts the literal expected bodies so it is a regression test on its own.
+ * Literal request bodies the override modal POSTs for attack, check and save
+ * (unchanged by the New HP work), plus the damage body with an untouched New HP
+ * (the target's current HP, never 0).
  */
 import React from 'react';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import * as fs from 'fs';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyFn = (...args: any[]) => any;
@@ -42,10 +40,6 @@ async function run(label: string, steps: (h: { set: (re: RegExp, v: string) => v
   unmount();
 }
 
-afterAll(() => {
-  if (process.env.BODY_OUT) fs.writeFileSync(process.env.BODY_OUT, JSON.stringify(out, null, 1));
-});
-
 it('attack hit with damage', async () => {
   await run('attack-hit', (h) => { h.target(); h.set(/Damage amount/i, '9'); });
   expect((out['attack-hit'] as unknown[][])[0][1]).toEqual({ kind: 'attack', actor_id: 'goblin-1', target_id: 'pc-1', outcome: { hit: true, critical_hit: false, damage: [{ amount: 9, type: 'slashing' }] }, reason: 'ruling' });
@@ -66,7 +60,10 @@ it('save', async () => {
   await run('save', (h) => { h.click(/Save/i); h.set(/^Total/i, '4'); });
   expect((out['save'] as unknown[][])[0][1]).toEqual({ kind: 'save', actor_id: 'goblin-1', target_id: null, outcome: { success: true, degree: 'success', total: 4 }, reason: 'ruling' });
 });
-it('damage (contrast: base posts target_new_hp 0 untouched; fix posts 20)', async () => {
+it('damage with an untouched New HP posts the target current HP, not 0', async () => {
   await run('damage-untouched', (h) => { h.click(/Damage/i); h.target(); });
-  await waitFor(() => expect(out['damage-untouched']).toBeDefined());
+  await waitFor(() => expect(out['damage-untouched']).not.toBe('NO POST'));
+  expect((out['damage-untouched'] as unknown[][])[0][1]).toMatchObject({
+    kind: 'damage', target_id: 'pc-1', outcome: { damage_dealt: 0, target_new_hp: 20, raw_damage: 0 },
+  });
 });
