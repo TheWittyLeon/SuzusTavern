@@ -281,6 +281,16 @@ describe('the scene strip (variant inline)', () => {
     expect(screen.getByText('Find the source of the tremors.')).toBeInTheDocument();
   });
 
+  // A10 fix round F2 (Kage Tavern 9, third item): "`inline` is unchanged" had no jest pin. Giving the phone's strip `data-slot-fill` passed jest and the 390x844 gate and moved two budget
+  // lines by 3px (the slot drops its padding and stops being a scroller): the strip is a whole band that keeps its slot's edges.
+  it('an `inline` strip (the phone) does not own its slot\'s edges and has no body: no `data-slot-fill`, no `[data-fold-body]`, no stand-in', () => {
+    render(<Stage variant="inline" />);
+    expect(stage()).toHaveAttribute('data-variant', 'inline');
+    expect(stage()).not.toHaveAttribute('data-slot-fill');
+    expect(stage().querySelector('[data-fold-body]')).toBeNull();
+    expect(stage().textContent).not.toMatch(/tactical map arrives/);
+  });
+
   it('a `hero` is the scene line, then a body: no kicker, the objective gives way to the status in a fight, the body owns its slot\'s edges', () => {
     render(<Stage variant="hero" />);
     expect(stage()).toHaveAttribute('data-variant', 'hero');
