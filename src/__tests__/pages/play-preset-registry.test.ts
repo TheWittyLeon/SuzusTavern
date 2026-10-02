@@ -863,7 +863,7 @@ describe('TAV-PLAY-SHELL presets.ts — the stage\'s body (A10 S2b): a hero name
 // shell's yield to read; and, for EVERY room, a body floor beside its size (a band does not yield: its floor is its size; none is 0).
 describe('TAV-PLAY-SHELL presets.ts — the desktop combat rows\' track classes (A10 fix round F1)', () => {
   const optionalBody = /^minmax\(var\(--play-body-floor,0px\),var\(--play-body,0px\)\)$/;
-  const logFloor = /^minmax\(var\(--play-floor,\d+px\),1fr\)$/;
+  const logFloor = /^minmax\(var\(--play-floor,(\d+px|calc\(\d+px \+ 3 \* var\(--density-gap\) \+ \d+px\))\),1fr\)$/;
   const classProblems = (rows: readonly LayoutRow[]) =>
     rows.flatMap((row) =>
       MOMENTS.flatMap((m) => {
@@ -898,13 +898,13 @@ describe('TAV-PLAY-SHELL presets.ts — the desktop combat rows\' track classes 
     expect(judged).toEqual(['story/combat', 'table/combat']);
   });
 
-  it('the literals: Story combat and Table combat, track by track, with the floor arithmetic (288 = 210 + 78, 178 = 100 + 78)', () => {
+  it('the literals: Story combat and Table combat, track by track, with the floor written from its tokens (210 + 3 x --density-gap + 30 status; 100 + the same for the banner)', () => {
     expect(trackList(LAYOUT_ROWS_BY_ID.story.rows.combat)).toEqual([
       'max-content', // safety banner
       'max-content', // top bar
       'max-content', // the stage's scene line
       'minmax(var(--play-body-floor,0px),var(--play-body,0px))', // the stage's body: between its floor (3 rows) and its room's size
-      'minmax(var(--play-floor,288px),1fr)', // the log: 210 inner + 78 of slot chrome (32 padding, 16 gap, 30 status)
+      'minmax(var(--play-floor,calc(210px + 3 * var(--density-gap) + 30px)),1fr)', // the log: 210 inner + the slot's chrome (padding above and below, the gap to the status line, the 30px line)
       'max-content', // composer
       'max-content', // action bar
     ]);
@@ -912,12 +912,22 @@ describe('TAV-PLAY-SHELL presets.ts — the desktop combat rows\' track classes 
       'max-content',
       'max-content',
       'minmax(var(--play-body-floor,0px),var(--play-body,0px))',
-      'minmax(var(--play-floor,288px),1fr)',
+      'minmax(var(--play-floor,calc(210px + 3 * var(--density-gap) + 30px)),1fr)',
       'max-content',
       'max-content',
     ]);
     // the exploring rows are untouched: no body to yield there
     expect(trackList(LAYOUT_ROWS_BY_ID.story.rows.exploring)).toEqual(['auto', 'auto', 'minmax(0,1fr)', 'auto', 'auto', 'max-content']);
+  });
+
+  it('a floor is its inner log plus the slot\'s chrome WRITTEN FROM THE GAP TOKEN, never a sum at the default gap (Kage Tavern 3: 288 held 210 inner at the default density only; `airy` 186, `compact` 228)', () => {
+    // (the harness's a:storyLog at `airy` and `compact` on the real page is the measuring pin: zd-* shots; this is the spelling)
+    const floors = ['story', 'table'].flatMap((id) => [LAYOUT_ROWS_BY_ID[id as 'story' | 'table'].rows.combat.match(/--play-floor,(calc\([^)]*\)[^)]*\))/)?.[1], LAYOUT_ROWS_BY_ID[id as 'story' | 'table'].momentVars!.combat!['--play-banner-floor']]);
+    expect(floors).toHaveLength(4);
+    for (const f of floors) expect(f).toMatch(/^calc\(\d+px \+ 3 \* var\(--density-gap\) \+ \d+px\)/);
+    // no row spells a floor as a bare px number any more (the sum at one density)
+    for (const row of LAYOUT_ROWS.filter((r) => r.id === 'story' || r.id === 'table')) for (const m of MOMENTS) expect(row.rows[m]).not.toMatch(/--play-floor,\d+px/);
+    for (const row of LAYOUT_ROWS.filter((r) => r.id === 'story' || r.id === 'table')) for (const f of Object.values(row.momentVars ?? {})) expect(f?.['--play-banner-floor']).not.toMatch(/^\d+px$/);
   });
 
   it('the floors per room are the brief\'s: a board yields to 3 rows of the cell, a band never (its floor is its size), none is 0px', () => {
@@ -933,7 +943,7 @@ describe('TAV-PLAY-SHELL presets.ts — the desktop combat rows\' track classes 
     const story = LAYOUT_ROWS_BY_ID.story;
     const patched = (row: LayoutRow, over: Partial<LayoutRow>): LayoutRow => ({ ...row, ...over });
     const withRows = (combat: string) => patched(story, { rows: { ...story.rows, combat } });
-    expect(classProblems([withRows(story.rows.combat.replace('minmax(var(--play-floor,288px),1fr)', 'minmax(0,1fr)'))]).join('|')).toMatch(/story\/combat: a body that yields and a log with no floor/);
+    expect(classProblems([withRows(story.rows.combat.replace('minmax(var(--play-floor,calc(210px + 3 * var(--density-gap) + 30px)),1fr)', 'minmax(0,1fr)'))]).join('|')).toMatch(/story\/combat: a body that yields and a log with no floor/);
     // each whole band back to `auto` (a scroller's minimum is 0: the grid would squeeze it): the banner, the top bar, the scene line, the composer, the action bar
     const tracks = trackList(story.rows.combat);
     const withTrack = (i: number, v: string) => withRows(tracks.map((t, j) => (j === i ? v : t)).join(' '));
@@ -1014,8 +1024,9 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
     });
     // A10 fix round F1 (named exception: these two were `toBeUndefined`, "desktop rows carry none"). The desktop combat rows are floored now: 178 = 100 inner (the
     // harness's banner-up combat floor) + 78 of the story slot's chrome. Exploring has no body to yield and carries none.
-    expect(LAYOUT_ROWS_BY_ID.story.momentVars).toEqual({ combat: { '--play-banner-floor': '178px' } });
-    expect(LAYOUT_ROWS_BY_ID.table.momentVars).toEqual({ combat: { '--play-banner-floor': '178px' } });
+    // A10 fix round 2 (named exception: these two were the literal '178px'): the floor is written from the gap token, so `airy` and `compact` keep 100 inner.
+    expect(LAYOUT_ROWS_BY_ID.story.momentVars).toEqual({ combat: { '--play-banner-floor': 'calc(100px + 3 * var(--density-gap) + 30px)' } });
+    expect(LAYOUT_ROWS_BY_ID.table.momentVars).toEqual({ combat: { '--play-banner-floor': 'calc(100px + 3 * var(--density-gap) + 30px)' } });
   });
 });
 
@@ -1067,11 +1078,10 @@ function areaColumnCount(areasValue: string): number {
   return firstRow ? firstRow[1].trim().split(/\s+/).length : 0;
 }
 
-/** Whitespace-token count of a `grid-template-columns` (or `-rows`) value.
- *  Safe for this file's declared tracks today: none contains a space
- *  (`minmax(0,1fr)` tokenises as one), per Kage-CR S1's own note. */
+/** Track count of a `grid-template-columns` (or `-rows`) value. Paren-aware (`trackList`): a floor written from its tokens is a `calc()` with spaces in it
+ *  (A10 fix round 2; this was a whitespace split, "safe while no track contains a space", Kage-CR S1's own note). */
 function columnsTokenCount(columnsValue: string): number {
-  return columnsValue.trim().split(/\s+/).length;
+  return trackList(columnsValue).length;
 }
 
 /** The number of quoted rows (lines) in a `grid-template-areas` value —

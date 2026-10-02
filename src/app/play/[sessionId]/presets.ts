@@ -630,11 +630,15 @@ export function variantFor<R extends VariantRegionId>(
 // squeezes the top bar and the composer instead (probe, Sora's brief Q1b; the A9c-2 D0 lesson again). Exploring rows are untouched: they have no body to yield.
 //
 // Floor arithmetic, as the phone's is written beside its row (re-derive when a tenant in the story slot changes height; the harness's a:storyLog measures the inner log on
-// every gated size, so a stale sum reds): 288 = 210 inner log (the harness's combat floor) + 78 of the story slot's own chrome (32 padding, 16 gap, 30 status line);
-// 178 = 100 inner (the banner-up floor) + the same 78. The banner yield (Play.module.css) lowers `--play-floor` to `--play-banner-floor` while the X-card banner is up.
+// every gated size, so a stale sum reds): a floor is its INNER log plus the story slot's own chrome, and the chrome is written from its tokens (A10 fix round 2, Kage Tavern 3:
+// it was the sum 288 = 210 + 78 at the default density, and `airy` / `compact` re-tune the gap, so the inner log was 186 / 228 there). The slot pays `--density-gap` three times
+// (its padding above and below, and the gap to its last tenant) plus that tenant's own height: the status line in combat (30px). Inner floors: 210, and 100 with the X-card banner up
+// (the harness's, per moment: layout-assertions.mjs).
+// The banner yield (Play.module.css) lowers `--play-floor` to `--play-banner-floor` while the X-card banner is up.
 // ---------------------------------------------------------------------------
-const DESKTOP_COMBAT_LOG_FLOOR = '288px';
-const DESKTOP_COMBAT_BANNER_FLOOR = '178px';
+const slotLogFloor = (innerPx: number, lastTenantPx: number) => `calc(${innerPx}px + 3 * var(--density-gap) + ${lastTenantPx}px)`;
+const DESKTOP_COMBAT_LOG_FLOOR = slotLogFloor(210, 30);
+const DESKTOP_COMBAT_BANNER_FLOOR = slotLogFloor(100, 30);
 
 const STORY_ROW: LayoutRow = {
   id: 'story',
