@@ -5,7 +5,7 @@
  *   - never centred; a scroll the board's end clamps is not whole.
  * Pure: boxes in, offsets out. The component test (TacticalMap.window.test.tsx) pins that the turn change and focus both call it.
  */
-import { followScroll, followAll, wholeSquareCap, FOLLOW_MARGIN_PROPERTY, FOLLOW_SETTLE_MS, SLIVER_MIN_PX, type WindowMetrics } from '@/components/tactical-map/follow';
+import { followScroll, followAll, wholeSquareCap, panningWidthCap, FOLLOW_MARGIN_PROPERTY, FOLLOW_SETTLE_MS, SLIVER_MIN_PX, type WindowMetrics } from '@/components/tactical-map/follow';
 
 /** A 200x120 window at (10,10) over a 400x400 board of 40px squares. */
 const win = (o: Partial<WindowMetrics> = {}): WindowMetrics => ({
@@ -229,5 +229,44 @@ describe('followScroll — a board that starts a guard in (16 px) snaps the scro
   it('column 1 of a board 16 px in, window 360, offset 60 -> 30: rounding to the nearest would give 60 and leave column 1 cut by 14 px', () => {
     const w = { view: { left: 0, top: 0, width: 360, height: 90 }, scrollLeft: 60, scrollTop: 0, maxLeft: 100, maxTop: 0 };
     expect(followScroll(w, { left: 16 + 30 - 60, top: 0, width: 30, height: 30 })).toEqual({ left: 30, top: 0 });
+  });
+});
+
+describe('panningWidthCap — both cut columns of a guarded, panning board are 0 or at least 8 px (QA F2b: 393 wide showed a 3 px sliver at the board\'s end)', () => {
+  const S = 30;
+  const BOARD = 15 * S;
+  const cuts = (w: number, guard: number) => ({ far: (((w - guard) % S) + S) % S, near: ((w % S) + S) % S });
+  const fine = (r: number) => r === 0 || r >= SLIVER_MIN_PX;
+
+  it('guard 16, cell 30, every room 240..470: both cuts fine after the cap; never shorter than the one-sided cap by more than a column; never longer than the room', () => {
+    for (let room = 240; room <= 470; room++) {
+      const cap = panningWidthCap(room, S, 20 * S, 16);
+      const w = cap ?? room;
+      expect(w).toBeLessThanOrEqual(room);
+      const { far, near } = cuts(w, 16);
+      expect(fine(far)).toBe(true);
+      expect(fine(near)).toBe(true);
+      const one = wholeSquareCap(room - 16, S, 20 * S);
+      const oneW = one === null ? room : one + 16;
+      expect(oneW - w).toBeLessThan(S);
+    }
+  });
+
+  it('393 (the iPhone 15 and 16 width) is capped, because the one-sided cap leaves a 3 px column at the start edge at scroll max', () => {
+    const cap = panningWidthCap(393, S, BOARD * 2, 16);
+    expect(cap).not.toBeNull();
+    expect(cuts(393, 16).near).toBe(3); // the control: the room alone is the defect
+    expect(wholeSquareCap(393 - 16, S, BOARD * 2)).toBeNull(); // the one-sided cap sees a 17 px far cut and does nothing
+  });
+
+  it('with no guard it is today\'s cap, for every room and both fits and cuts', () => {
+    for (let room = 100; room <= 470; room += 0.5) expect(panningWidthCap(room, S, 20 * S, 0)).toBe(wholeSquareCap(room, S, 20 * S));
+  });
+
+  it('a board that fits, no layout, and a room under a column are never capped', () => {
+    expect(panningWidthCap(400, S, 300, 16)).toBeNull();
+    expect(panningWidthCap(400, 0, 600, 16)).toBeNull();
+    expect(panningWidthCap(0, S, 600, 16)).toBeNull();
+    expect(panningWidthCap(20, S, 600, 16)).toBeNull();
   });
 });

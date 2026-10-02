@@ -960,7 +960,8 @@ describe('TacticalMap — P2: the window re-follows when it gets a box or its WI
     unobserve() {}
     disconnect() { FakeResizeObserver.all = FakeResizeObserver.all.filter((o) => o !== this); }
   }
-  const resized = () => act(() => { FakeResizeObserver.all.slice().forEach((o) => o.cb()); });
+  // The observers register in the order room, window, grid. A pure height step moves the window's box and neither the room's nor the grid's, so this fires the first two.
+  const resized = () => act(() => { FakeResizeObserver.all.slice(0, 2).forEach((o) => o.cb()); });
   beforeEach(() => { FakeResizeObserver.all = []; (globalThis as { ResizeObserver?: unknown }).ResizeObserver = FakeResizeObserver; });
   afterEach(() => { delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver; });
 
@@ -1185,6 +1186,10 @@ describe('TacticalMap — P2: the sliver rule: a cut row or column under 8 px en
     expect(guardedRoom(16 + 160 + 20).win.style.maxWidth).toBe('');
     expect(guardedRoom(16 + 160 + 8).win.style.maxWidth).toBe('');
     expect(guardedRoom(16 + 160 + 7).win.style.maxWidth).toBe('176px');
+  });
+
+  it('F2b — the board\'s END: a 363 px room with the guard has a 3 px column at the START edge at scroll max ((363 mod 40) = 3), so the window ends 3 px short: 360', () => {
+    expect(guardedRoom(363).win.style.maxWidth).toBe('360px');
   });
 
   it('F2 — a board that fits its room has no guard and no width cap from it (the bleed is kept), and the HEIGHT leg is unchanged by the guard', () => {
@@ -1447,6 +1452,23 @@ describe('TacticalMap — what a held follow reads when it runs, and what the ob
     });
   });
 
+  it('a cell-size change with the room and the window UNCHANGED (only the grid\'s own box moves) is measured again: a board that now overflows its room is stamped and the mover followed', () => {
+    const { container } = render(<TacticalMap {...at('c', [aldo, calAt(9)], { space: makeSpace({ width: 10, height: 5 }) })} />);
+    const win = container.querySelector('[data-board-window]') as HTMLElement;
+    const room = container.firstElementChild as HTMLElement;
+    Object.defineProperty(room, 'clientWidth', { configurable: true, value: 410 });
+    Object.defineProperty(room, 'clientHeight', { configurable: true, value: 200 });
+    layoutP2(container, { left: 0, top: 0 }, { width: 410, height: 200 });
+    act(() => { FakeResizeObserver.all[1].cb(); }); // the box: 400 px of board in 410: no pan
+    expect(win).not.toHaveAttribute('data-pans-x');
+    // the square grows 40 -> 44 (board 440): neither the room nor the window moved
+    container.querySelectorAll('[role="gridcell"]').forEach((cell, i) => mockBox(cell, { left: 10 + (i % 10) * 44, top: 10 + Math.floor(i / 10) * 44, width: 44, height: 44 }));
+    Object.defineProperty(win, 'scrollWidth', { configurable: true, value: 440 });
+    act(() => { FakeResizeObserver.all[2].cb(); }); // the grid's observer only
+    expect(win).toHaveAttribute('data-pans-x');
+    expect(win.scrollLeft).toBe(30); // Cal at column 9 (x 396..440) is brought in: the end of the board
+  });
+
   it('F1 — THE FOLLOW RUNS AFTER THE GEOMETRY IS STAMPED: when the window gets a box over a board wider than its room, the scroll is written with data-pans-x already on the window (the guard adds 16 px of scroll width, and a follow clamped to the old maximum leaves the last column cut)', () => {
     // MECHANISM (the order of stamp and follow). The behaviour pin is QA's browser probe (t3c.mjs: the last column wholly visible at 360/390/412 wide).
     const { container } = render(<TacticalMap {...at('c', [aldo, calAt(14)], { space: makeSpace({ width: 15, height: 5 }) })} />);
@@ -1460,7 +1482,7 @@ describe('TacticalMap — what a held follow reads when it runs, and what the ob
     const stampedAtWrite: boolean[] = [];
     let left = 0;
     Object.defineProperty(win, 'scrollLeft', { configurable: true, get: () => left, set: (v: number) => { left = v; stampedAtWrite.push(win.hasAttribute('data-pans-x')); } });
-    resized();
+    act(() => { FakeResizeObserver.all[1].cb(); }); // ONLY the window's observer (room, window, grid): it measures the room itself, so the stamp does not depend on the room observer firing in the same frame
     expect(stampedAtWrite.length).toBeGreaterThan(0); // the control: a follow did write
     expect(stampedAtWrite.every(Boolean)).toBe(true);
   });

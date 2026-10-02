@@ -98,3 +98,27 @@ export function wholeSquareCap(room: number, square: number, board: number): num
   const cut = room - whole * square;
   return whole >= 1 && cut > 0 && cut < SLIVER_MIN_PX ? whole * square : null;
 }
+
+/**
+ * The sliver rule for the WIDTH of a board that pans with an edge guard (QA F2/F2b). The window shows the board from `guard` in at scroll 0 and ends flush with its far end at scroll
+ * max, so it has two cut columns: at scroll 0 the far edge shows `(W - guard) mod square`, and at scroll max the near edge shows `W mod square` (the board is a whole number of
+ * squares). A one-sided cap fixes the first and leaves the second at, say, 3 px (393 wide, guard 16, square 30). This returns the largest width at or below `room` where BOTH cuts
+ * are 0 or at least SLIVER_MIN_PX, or null when the room already is one (or the board fits it). With no guard the two cuts are one and this is `wholeSquareCap`.
+ * It only ever shortens the window, by under one square in practice (each step removes a cut that was under SLIVER_MIN_PX); where it cannot settle it returns the one-sided answer.
+ */
+export function panningWidthCap(room: number, square: number, board: number, guard: number): number | null {
+  if (!(square > 0) || !(room > 0) || board <= room) return null;
+  const EPS = 1e-6;
+  const bad = (r: number) => r > EPS && r < SLIVER_MIN_PX - EPS;
+  const mod = (v: number) => ((v % square) + square) % square;
+  let w = room;
+  for (let i = 0; i < 6; i++) {
+    const far = mod(w - guard);
+    const near = mod(w);
+    if (!bad(far) && !bad(near)) return w === room ? null : w;
+    w -= bad(far) ? far : near;
+    if (w < guard + square) break;
+  }
+  const one = wholeSquareCap(room - guard, square, board);
+  return one === null ? null : one + guard;
+}
