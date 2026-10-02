@@ -22,6 +22,7 @@ export type IconName =
   | 'Power'
   | 'Eye'
   | 'EyeOff'
+  | 'Lock'
   | 'Plus'
   | 'Users'
   | 'Mic'
@@ -97,6 +98,8 @@ export const ICON_PATHS: Record<IconName, string> = {
   Eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',
   // TAV-CODEX-SOURCE-PICKER-NPC (Aoi-UI §Changed #4): Eye's paths plus a
   // diagonal stroke — the DM-only disclosure's "never read aloud" glyph.
+  // A10 step 11 round 3: the composer's lock glyph (the field is locked while Suzu narrates, a send is in flight, or the session is paused); a padlock, stroke-based like the set.
+  Lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
   EyeOff:
     '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/><path d="M3 3l18 18"/>',
   Plus: '<path d="M12 5v14M5 12h14"/>',

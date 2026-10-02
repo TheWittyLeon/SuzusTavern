@@ -161,18 +161,36 @@
   border: 1px solid color-mix(in oklab, var(--bad) 24%, transparent);
 }
 
-/* TAV-PLAY-INPUT-LOCK-NO-FEEDBACK: neutral sibling of .sendError for the
-   lock-reason banner ("Suzu is narrating — one moment…" / "Sending…").
-   Informational, not an error — accent-tinted, --ink-2 (the AA-safe
-   secondary ink, same rationale as NarratorStrip's Iro S3.3 note). */
-.lockStatus {
-  font-size: 12px;
+/* A10 step 11 round 3: the lock reason has no banner (it was `.lockStatus`, 40px above the field for the length of a narration). Its visible marks take no height: the placeholder and
+   title (Composer.tsx), and this glyph at the field's trailing edge. The textarea keeps 28px of end padding while it is locked (`aria-disabled`, lockProps), so the glyph never sits on
+   the text and nothing moves when the lock begins. The glyph is `aria-hidden`; the words are the hidden live region's. */
+.field {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.field .input {
+  /* the field's width is the textarea's: it fills it, as it filled the row before it had a wrapper */
+  width: 100%;
+}
+
+.input[aria-disabled='true'] {
+  padding-inline-end: 28px;
+}
+
+.lockGlyph {
+  position: absolute;
+  inset-inline-end: 10px;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  transform: translateY(-50%);
   color: var(--ink-2);
-  padding: 6px 10px;
-  margin-bottom: 8px;
-  border-radius: 8px;
-  background: color-mix(in oklab, var(--accent) 7%, transparent);
-  border: 1px solid color-mix(in oklab, var(--accent) 20%, transparent);
+  pointer-events: none;
 }
 
 /* S5.2: spinner inside the send button while a DM narration post is in-flight. */
