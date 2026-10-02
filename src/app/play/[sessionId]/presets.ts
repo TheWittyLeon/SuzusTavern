@@ -925,6 +925,12 @@ const PHONE_ROW: LayoutRow = {
     // density tokens). The 44px targets and the 8px between them are unchanged.
     '--play-composer-pad': 'var(--space-3)',
     '--play-composer-gap': 'var(--space-4)',
+    // The `roll` composer is TWO rows on the phone (A10 fix round F6; Sora K2, Kage Tavern 5): the mode row takes a line of its own and the input keeps its old `flex: 1`
+    // (the mode row's own line already puts it on the next one). Composer.module.css reads both; absent = the desktop's (the mode row shares the line, the input wraps by
+    // itself). This was `@media (max-width: 880px)` in the stylesheet, a copy of the shell's phone breakpoint that a test had to keep honest: the row is where a layout's
+    // choices live. Table and Story set neither, so a tablet row could pick one row at 1024 wide by a row value (the lever is here if Aoi or Tora want it).
+    '--play-roll-mode-flex': '1 0 100%',
+    '--play-roll-input-flex': '1 1 0%',
   },
   // The banner floor: while the X-card banner is raised and the page FIT before it came up (the shell's measured `data-fit`, not a
   // height line: Play.module.css), the story track yields down to THIS, not to 0: 88 inner (log padding 44 + one 42px narration row)

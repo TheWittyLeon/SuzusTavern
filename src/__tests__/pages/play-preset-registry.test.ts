@@ -994,6 +994,11 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
       // test and composer-density.css.test cover the stylesheet side. (This literal enumerates the set, so it grows with it.)
       '--play-composer-pad': 'var(--space-3)',
       '--play-composer-gap': 'var(--space-4)',
+      // A10 fix round F6 (named exception: this literal enumerates the set, so it grows with it): the `roll` composer's wrap is the phone row's, two values the composer's CSS reads
+      // (the mode row takes a line of its own, the input keeps `flex: 1`), where it was `@media (max-width: 880px)` in the stylesheet. The control is that no cell, check line or
+      // budget line moves on any viewport (the harness run at the commit before and at this one); composer-roll-row.css.test and the readers test pin the two names.
+      '--play-roll-mode-flex': '1 0 100%',
+      '--play-roll-input-flex': '1 1 0%',
     });
     // A10 step 11 S2b (named exception): the desktop rows now carry `--play-cell`, the board's square. They still set no `--play-slot-*` var, which
     // is what this pins (the old `vars` toBeUndefined was the same claim by a blunter test).
