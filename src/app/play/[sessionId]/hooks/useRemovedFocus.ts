@@ -18,6 +18,7 @@ const focusable = (el: Element) => el.isConnected && el.closest('[inert], [hidde
  * order of frame and commit to get wrong (the same reason as `useStrandedFocusRescue`, which keeps the async case: a watch armed before the await).
  * It forces no layout (no `getClientRects`): jsdom has none, and an `inert` / `hidden` / unmounted control is what every rescue here is about.
  */
+// debt: "removed" is unmounted, or under an inert / hidden ATTRIBUTE; a control hidden by CSS alone (display: none) is not seen. ceiling: every fold and drawer in the play shell hides with hidden / inert (read at c52da04: the phone drawer, the stage folds, the closed sheet). until: a region hides a focusable control by class only.
 export function useRemovedFocus(): () => boolean {
   const lastRef = useRef<Element | null>(null);
 

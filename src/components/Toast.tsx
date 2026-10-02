@@ -220,6 +220,7 @@ interface ToastViewportProps {
  * marks. `pointer-events` alone is not the fix: the button has to stay VISIBLE and a focused control must not be obscured (WCAG 2.4.11). Short screens
  * (a 400% zoom) have no room under the marks: the host takes the top edge there. `data-placement` and `--toast-top` are what Toast.module.css reads.
  */
+// debt: three fixed candidates (the bottom edge, the top under the clear marks, the top edge), not a search for a free rectangle. ceiling: Table at 1440x900 and 1024x768 has no free band wide enough, so the host takes the top edge over the party strip's corner (it covers no avoid mark). until: the stage gets a notification lane, or a toast must stand clear of a third kind of mark (then rank the candidates by their overlap with the clear marks too).
 const TOAST_GAP_PX = 8;
 const AVOID = '[data-toast-avoid]';
 const CLEAR = '[data-toast-clear]';
