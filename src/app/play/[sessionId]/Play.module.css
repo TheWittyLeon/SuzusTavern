@@ -42,6 +42,22 @@
   position: relative;
 }
 
+/* A10 step 11 S2b: no transition on /play under reduced motion, instead of the global guard's 0.01ms one. globals.css gives EVERY element
+   `transition-duration: 0.01ms !important` over the default `transition-property: all`, which does not make a change instant: the transition STARTS,
+   and the first frame after a style change paints the OLD value of every animatable property (measured frame by frame: a Story -> Table flip painted
+   the stage's head margin at 10px and its slot at 0px tall for one frame). It never mattered while no track depended on a content size that a flip
+   changes; the stage's strip track is `max-content` now, so for that frame the stage track collapsed, the log took the room, the browser clamped its
+   scroll to the end and ChatLog decided "stick to the bottom": a log scrolled mid-way jumped to the end (t3-auto-combat-start, t1-picker). The guard
+   itself (an app-wide default: `transition: none` is what its own comment asks for) is left alone, and reported for the backlog. */
+@media (prefers-reduced-motion: reduce) {
+  .grid,
+  .grid *,
+  .grid *::before,
+  .grid *::after {
+    transition: none !important;
+  }
+}
+
 /* A9d-2 (Tora A9d-1 MAJOR-2, brief section 12.2): on /play only (the one page with a `.grid`), a fling at
    the top of the story log must not pull-to-refresh a live session on Android Chrome. The y axis only, and only
    the DOCUMENT: nested chaining stays (the log still hands its overscroll to the page, which a reflow size
@@ -102,6 +118,14 @@
   position: relative;
 }
 
+/* A10 step 11 S2b (Amendment F.6): a region that sets `data-slot-fill` owns its own edges: its slot drops the padding and stops being a scroller (the
+   scene stage's `hero`: a body that reaches the slot's edges and a scene line that pads itself). Generic: it names an attribute, never a region or a
+   layout. Beats `.slotScroll` by specificity, not by order. */
+.slot:has(> [data-slot-fill]) {
+  padding: 0;
+  overflow: clip;
+}
+
 /* A9d E3 (build brief 2.3): the fold handle is never squeezed out. A slot whose dock is foldable keeps room for the handle (44px,
    FoldDock.module.css `.handle`) plus its own block padding, whatever the row's track gives it. Generic: it names a dock, never a
    region or a layout. (A9d-2 N5: the stage's own reflow minimum, `--play-foldable-min`, is gone with the stage's fold: the phone's
@@ -157,7 +181,8 @@
 .slotOverlay {
   z-index: 1;
   margin: var(--space-4);
-  max-width: calc(100% - 2 * var(--space-4));
+  /* `--play-overlay-max` (A10 S2b, one of the four 40px readers): half the stage less the margins where the scene line sits beside the bar. */
+  max-width: var(--play-overlay-max, calc(100% - 2 * var(--space-4)));
   /* Content-sized: the track is the owner's, this box is not stretched to it. */
   align-self: start;
   justify-self: start;
@@ -197,8 +222,10 @@
    and `.slotOverlay`'s margin is the same --space-4 added here, so the reserve
    cannot drift from the box it clears. data-overlay-edges lists the edges, so any
    anchor works without a CSS edit. */
+/* A10 step 11 S2b: `--play-overlay-reserve` is one of the four readers of the 40px picture in Table (the debt marker is on Table's row): a row
+   that sets it to 0px puts the scene line BESIDE the title bar instead of under it. Absent = the bar's height and margin, as before. */
 .slot[data-overlay-edges~='top'] {
-  margin-block-start: calc(var(--overlay-bar-h) + var(--space-4));
+  margin-block-start: var(--play-overlay-reserve, calc(var(--overlay-bar-h) + var(--space-4)));
 }
 .slot[data-overlay-edges~='bottom'] {
   margin-block-end: calc(var(--overlay-bar-h) + var(--space-4));

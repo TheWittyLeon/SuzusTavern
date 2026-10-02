@@ -24,12 +24,19 @@ const SHEETS = cssFiles(SRC).map((f) => ({ file: path.relative(SRC, f), text: st
 /** The stylesheets that read `name` as `var(--name`, in a position that is not its own declaration. */
 export function readersOf(name: string): string[] {
   const re = new RegExp(`var\\(\\s*${name.replace(/[-]/g, '\\-')}\\s*[,)]`);
-  return SHEETS.filter((s) => re.test(s.text)).map((s) => s.file);
+  return [
+    ...SHEETS.filter((s) => re.test(s.text)).map((s) => s.file),
+    // A10 step 11 S2b: a row's own track lists are readers too: `--play-body` is read by the stage's body TRACK (`minmax(0,var(--play-body,0px))`),
+    // and a row var a row's own `rows` / `columns` / `areas` read is not dead data.
+    ...LAYOUT_ROWS.flatMap((row) => [row.rows, row.columns, row.areas].flatMap((per) => Object.values(per)).some((v) => re.test(v)) ? [`presets.ts (${row.id} tracks)`] : []),
+  ];
 }
 
 const declared = new Map<string, string[]>();
 for (const row of LAYOUT_ROWS) {
-  const names = [...Object.keys(row.vars ?? {}), ...Object.values(row.momentVars ?? {}).flatMap((m) => Object.keys(m ?? {}))];
+  // A10 step 11 S2b: `factVars` (the values a row gives a fact the page reports) are declared the same way, and need a reader the same way.
+  const factNames = Object.values(row.factVars ?? {}).flatMap((byValue) => Object.values(byValue ?? {}).flatMap((vars) => Object.keys(vars)));
+  const names = [...Object.keys(row.vars ?? {}), ...Object.values(row.momentVars ?? {}).flatMap((m) => Object.keys(m ?? {})), ...factNames];
   for (const n of names) declared.set(n, [...(declared.get(n) ?? []), row.id]);
 }
 

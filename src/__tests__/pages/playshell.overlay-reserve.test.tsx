@@ -63,7 +63,9 @@ describe('overlay owners reserve the overlaid edge', () => {
 
   it('the stylesheet reserves each edge (as a MARGIN, so it holds at every scroll position) by the SAME height token the overlay bar takes', () => {
     const css = readFileSync(path.join(process.cwd(), 'src/app/play/[sessionId]/Play.module.css'), 'utf8');
-    expect(css).toMatch(/\.slot\[data-overlay-edges~='top'\]\s*\{[^}]*margin-block-start:\s*calc\(var\(--overlay-bar-h\)/);
+    // A10 step 11 S2b: the top edge's reserve is a row-overridable reader (`--play-overlay-reserve`, 40px in Table sets it to 0) whose FALLBACK is
+    // the same bar height and margin, so the pin reads through the `var(` and keeps its claim: the default is still the overlay bar's own token.
+    expect(css).toMatch(/\.slot\[data-overlay-edges~='top'\]\s*\{[^}]*margin-block-start:\s*var\(--play-overlay-reserve,\s*calc\(var\(--overlay-bar-h\)/);
     expect(css).toMatch(/\.slot\[data-overlay-edges~='bottom'\]\s*\{[^}]*margin-block-end:\s*calc\(var\(--overlay-bar-h\)/);
     expect(css).toMatch(/\.topBarCompact\s*\{[^}]*height:\s*var\(--overlay-bar-h\)/);
     expect(css).toMatch(/--overlay-bar-h:\s*\d+px/);

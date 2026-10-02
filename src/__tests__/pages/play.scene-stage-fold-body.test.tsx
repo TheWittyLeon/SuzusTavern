@@ -44,11 +44,22 @@ const STATES: Array<[string, Partial<SceneStageProps>]> = [
 describe('SceneStage fold body', () => {
   // A9d-2 N5 (named exception): the stage's FOLD_SPECS entry is deleted with its fold (no row sets `collapsible` on it); the body contract
   // is DORMANT (the `debt:` on FoldSpec.body) until the phone map returns at step 12. The wrapper it will fold stays in `panel` and `hero`.
-  it('no FoldSpec names the stage (dormant: the fold returns with the phone map at step 12); the body wrapper it will fold is still rendered, `panel` and `hero`', () => {
+  // A10 step 11 S2b (named exception: `panel` loses its body; the stand-in is gone while exploring): the body is a `hero`'s, the map's room. What pins
+  // the invariant now: this test (a body in a `hero` only, in every state), the `panel` / `inline` assertions below, and the registry's hero-stage guards.
+  it('no FoldSpec names the stage (dormant: the fold returns with the phone map at step 12); the body wrapper it will fold is rendered in a `hero` and in no other form', () => {
     expect(FOLD_SPECS.sceneStage).toBeUndefined();
-    for (const variant of ['panel', 'hero'] as const) {
+    for (const [variant, bodies] of [['panel', 0], ['inline', 0], ['hero', 1]] as const) {
       const { container, unmount } = render(<SceneStage {...base()} variant={variant} />);
-      expect(container.querySelectorAll('[data-fold-body]')).toHaveLength(1);
+      expect(container.querySelectorAll('[data-fold-body]')).toHaveLength(bodies);
+      unmount();
+    }
+  });
+
+  it('a `panel` (Story exploring) renders no body and no stand-in, in any state', () => {
+    for (const [, over] of STATES) {
+      const { container, unmount } = render(<SceneStage {...{ ...base(), ...over }} variant="panel" />);
+      expect(container.querySelector('[data-fold-body]')).toBeNull();
+      expect(container.textContent).not.toMatch(/tactical map arrives/);
       unmount();
     }
   });
@@ -62,7 +73,7 @@ describe('SceneStage fold body', () => {
 
   it.each(STATES)('%s: one fold body; no live region, no focus anchor and no control inside it', (_n, over) => {
     const props = { ...base(), ...over };
-    const { container } = render(<SceneStage {...props} />);
+    const { container } = render(<SceneStage {...props} variant="hero" />);
     const bodies = container.querySelectorAll('[data-fold-body]');
     expect(bodies).toHaveLength(1);
     const body = bodies[0] as HTMLElement;
@@ -77,7 +88,7 @@ describe('SceneStage fold body', () => {
   });
 
   it('control: a body that swallowed the head would fail the same assertions', () => {
-    const { container } = render(<SceneStage {...{ ...base(), combatIsActive: true }} />);
+    const { container } = render(<SceneStage {...{ ...base(), combatIsActive: true }} variant="hero" />);
     const body = container.querySelector('[data-fold-body]') as HTMLElement;
     // Move the live combat note into the body (what folding the whole region used to do).
     body.appendChild(container.querySelector('[role="status"]') as HTMLElement);

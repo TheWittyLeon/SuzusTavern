@@ -341,3 +341,36 @@ describe('SessionRecap.module.css — the phone strip is one line (A9d)', () => 
     expect(rule).toMatch(/display:\s*var\(--play-recap-sub,\s*inline\)/);
   });
 });
+
+// A10 step 11 S2b (Sora's brief 3.2, Amendment F.2 / F.6): the stage's body, as CSS. jsdom lays nothing out, so the real pin is the harness's (m:stageBody,
+// t:stage-body-holds, m:stageRest); these keep the source honest between runs.
+describe('the stage\'s body (A10 S2b): the fill rule, the size container, the four 40px readers', () => {
+  const read = (rel: string) => fs.readFileSync(path.resolve(process.cwd(), rel), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const play = read('src/app/play/[sessionId]/Play.module.css');
+  const stage = read('src/app/play/[sessionId]/regions/SceneStage.module.css');
+  const rule = (text: string, selector: string) => text.match(new RegExp(`${selector.replace(/[.[\]()>~'=^$*+?{}|\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
+
+  it('a region that sets data-slot-fill owns its edges: its slot drops the padding and stops being a scroller, by an attribute and not a region name', () => {
+    const r = rule(play, '.slot:has(> [data-slot-fill])');
+    expect(r).toMatch(/padding:\s*0/);
+    expect(r).toMatch(/overflow:\s*clip/);
+    expect(play).not.toMatch(/data-slot-fill[^{]*sceneStage|sceneStage[^{]*data-slot-fill/);
+  });
+
+  it('the body is a SIZE container that fills the last row of the stage, hands the cell to the map\'s own property, and clips', () => {
+    const r = rule(stage, '.body');
+    expect(r).toMatch(/container-type:\s*size/);
+    expect(r).toMatch(/grid-area:\s*body/);
+    expect(r).toMatch(/overflow:\s*hidden/);
+    expect(r).toMatch(/--tm-cell-size:\s*var\(--play-cell\)/);
+    expect(rule(stage, '.hero')).toMatch(/minmax\(0,\s*1fr\);?\s*grid-template-areas/);
+  });
+
+  it('the four readers each fall back to today\'s value (a row that sets none changes nothing)', () => {
+    expect(rule(play, ".slot[data-overlay-edges~='top']")).toMatch(/margin-block-start:\s*var\(--play-overlay-reserve,\s*calc\(var\(--overlay-bar-h\)\s*\+\s*var\(--space-4\)\)\)/);
+    expect(rule(play, '.slotOverlay')).toMatch(/max-width:\s*var\(--play-overlay-max,\s*calc\(100% - 2 \* var\(--space-4\)\)\)/);
+    expect(rule(stage, '.hero')).toMatch(/--strip-edge:\s*var\(--play-slot-inline,\s*var\(--density-pad\)\)/);
+    expect(rule(stage, '.hero')).toMatch(/grid-template-columns:\s*var\(--play-strip-start,\s*var\(--strip-edge\)\)/);
+    expect(rule(stage, '.hero')).toMatch(/--strip-half:\s*max\(0px,\s*calc\(\(var\(--play-strip-min,\s*0px\)/);
+  });
+});

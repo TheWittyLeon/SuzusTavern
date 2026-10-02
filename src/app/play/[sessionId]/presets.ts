@@ -642,23 +642,34 @@ const STORY_ROW: LayoutRow = {
   // `minmax(0,Npx)` at the time; now `fit-content`) eats the free space: on phone with the X-card banner up it
   // lost 9px and the X-card was clipped (harness (c), 809..853 of 844).
   // `max-content` takes its base size from the content, so it is never shrunk.
-  // A9c-2 D7: the combat stage track is `fit-content(290px)`, content-sized up to
-  // R19's cap, instead of `minmax(0,290px)`, which grows to its cap whatever the
-  // stage holds. It returns 0px today: the stage holds the dice tray AND its
-  // quick-check list (>=556px of content, probed with the cap at 900px), so the
-  // track sits at its 290px cap, and it STAYS at 290 with the tray out of the stage
-  // (Kage's A9c-2 review measurement), so the cap is not the lever here at all.
+  // (History: A9c-2 D7 made the combat stage track `fit-content(290px)`, and it always sat at its cap, because the dice tray's content was taller than the cap
+  // and then, with the tray out of the stage, the stand-in and the head still filled it: the cap was never the lever. A10 S2b replaced the cap with the two
+  // tracks below.)
   // Measured inner log (a:storyLog, desktop 1440x900) after A9d R-1 lever 2 (the recap strip
-  // steps aside in combat): g 226, caster cell l 213, and the X-card-raised caster cell k 105.
+  // steps aside in combat): g 226, caster cell l 226, and the X-card-raised caster cell k 118 (A10 S2b, with the board room: 52 of scene line + 7 x 34).
   // The recap lever took every cell without the X-card banner past 200, and the harness combat floor is 210
-  // (A9d-2; plain cells 213-226 here). The banner (a raised safety row above the stage) is what is left on k,
+  // (A9d-2; plain cells 224-226 here). The banner (a raised safety row above the stage) is what is left on k,
   // which the harness judges against its own banner floor (100), not an exemption.
-  // debt: Story's X-card-raised combat cell (k-story-combat-caster-xcard) is judged against a 100px banner floor, not the 200px target: it measures 105px inner.
-  // ceiling: 105px on a 900px desktop with the X-card banner up, ~3 narration rows; the banner and the stage's 290px track both stay.
+  // debt: Story's X-card-raised combat cell (k-story-combat-caster-xcard) is judged against a 100px banner floor, not the 200px target: it measures 118px inner.
+  // ceiling: 118px on a 900px desktop with the X-card banner up, ~3 narration rows; the banner and the stage's two tracks (290px with a board) both stay.
   // until: Aoi rules the banner-up combat cell (an inline X-card, or the stage giving the banner its rows), Backlog TAV-COMBAT-LOG-FLOOR-200; then raise the harness's banner combat floor to 200.
+  // A10 step 11 S2b (Sora's brief 3.2, Amendment F.2): the combat stage is TWO track lines of one area: `max-content` (the scene line, whole) and
+  // `minmax(0, var(--play-body, 0px))` (the body: `--play-body` is a count of `--play-cell`s, set by the `room` fact below). The old line was a hand-summed
+  // `fit-content(290px)` (52 of strip + 238 of body, re-derived whenever the chrome changed); this one is the strip and the body, each its own number.
   rows: {
     exploring: 'auto auto minmax(0,1fr) auto auto max-content',
-    combat: 'auto auto fit-content(290px) minmax(0,1fr) auto max-content',
+    combat: 'auto auto max-content minmax(0,var(--play-body,0px)) minmax(0,1fr) auto max-content',
+  },
+  // The board's size is data (F.3): 34px squares (Aoi's pictures are drawn at 34; 35 fits too, and one size on both layouts means a Story <-> Table
+  // switch mid-fight does not rescale the board), 7 rows in Story (R19), a short band of 3 for a fight with no board (#44 question 4: ruling it
+  // out is `band` taking `board`'s value), nothing while exploring (Story's exploring stage is a `panel`, which has no body).
+  vars: { '--play-cell': '34px' },
+  factVars: {
+    room: {
+      board: { '--play-body': 'calc(7 * var(--play-cell))' },
+      band: { '--play-body': 'calc(3 * var(--play-cell))' },
+      none: { '--play-body': '0px' },
+    },
   },
   areas: {
     exploring: `"safetyBanner safetyBanner safetyBanner"
@@ -680,8 +691,10 @@ const STORY_ROW: LayoutRow = {
     // treatment `table.characterBlock` already gets. Keeps 3 stable
     // tracks across moments (R18: "the stage animates in and the story
     // log never remounts") rather than dropping to 2.
+    // (A10 S2b: `sceneStage` is named on two consecutive lines: its scene line, then its body.)
     combat: `"safetyBanner safetyBanner safetyBanner"
              "topBar       topBar       partyStrip"
+             "suzuPresence sceneStage   partyStrip"
              "suzuPresence sceneStage   partyStrip"
              "suzuPresence storyLog     partyStrip"
              "suzuPresence composer     partyStrip"
@@ -757,31 +770,46 @@ const TABLE_ROW: LayoutRow = {
     exploring: '160px auto minmax(0,1fr) fit-content(300px)',
     combat: '160px auto minmax(0,1fr) fit-content(300px)',
   },
-  // A9c-2 D7: `fit-content(400px)` (was `minmax(0,400px)`), same lever, same 0px
-  // returned: the stage holds the dice tray and its quick-check list (>=680px of
-  // content probed at a 900px cap), so it always fills its 400px cap.
-  // Measured inner log (a:storyLog, desktop 1440x900) after A9d R-1 lever 2 (the recap strip
-  // steps aside in combat): b 242, i 242, monster-turn c 217, and the X-card-raised caster cell j 134.
-  // The recap lever took every cell without the X-card banner past 200, and the harness combat floor is 210
-  // (A9d-2; plain cells 217-242 here).
-  // debt: Table's X-card-raised combat cell (j-combat-caster-xcard) is judged against a 100px banner floor, not the 200px target: it measures 134px inner.
-  // ceiling: 134px on a 900px desktop with the X-card banner up; the banner and the stage's 400px track both stay.
-  // until: Aoi rules the banner-up combat cell, or the dice tray leaves the stage (step 11), Backlog TAV-COMBAT-LOG-FLOOR-200; then raise the harness's banner combat floor to 200.
+  // (History: A9c-2 D7 made the combat stage `fit-content(400px)`, which always filled its cap; A10 S2b replaced the cap with the two tracks below.)
+  // Measured inner log (a:storyLog, desktop 1440x900) after A10 S2b, with the board room (8 x 34 body, 396 of stage with the title bar's reserve):
+  // b 245.5, i 245.5, monster-turn c 221, and the X-card-raised caster cell j 137.5.
+  // The harness combat floor is 210 (A9d-2; plain cells 221-246 here).
+  // debt: Table's X-card-raised combat cell (j-combat-caster-xcard) is judged against a 100px banner floor, not the 200px target: it measures 137.5px inner.
+  // ceiling: 137.5px on a 900px desktop with the X-card banner up; the banner and the stage's two tracks (396px with a board) both stay.
+  // until: Aoi rules the banner-up combat cell, Backlog TAV-COMBAT-LOG-FLOOR-200; then raise the harness's banner combat floor to 200. (The dice tray left the stage at S1.)
   // debt: Table's `offers` (`list`, one full-width button per offer) is capped at 120px and scrolls inside it; uncapped, 3-4 offers starve the log.
   // ceiling: 3+ offers scroll in a 120px box, in the table·exploring cell only (offers are hidden in combat).
-  // until: Table's offers take the `chips` form (step 11 Table checkpoint) or the stage track is content-sized.
+  // until: Table's offers take the `chips` form (step 11's S4, Table's offers are chips) or the stage track is content-sized.
   rows: {
-    exploring: 'auto 218px minmax(0,1fr) fit-content(120px) auto max-content',
-    combat: 'auto fit-content(400px) minmax(0,1fr) auto max-content',
+    exploring: 'auto max-content minmax(0,var(--play-body,0px)) minmax(0,1fr) fit-content(120px) auto max-content',
+    combat: 'auto max-content minmax(0,var(--play-body,0px)) minmax(0,1fr) auto max-content',
+  },
+  // A10 step 11 S2b: the stage is `hero` in BOTH moments and names its area on two lines (the scene line, then the body), as Story's combat does. The room
+  // is rows x cell (F.3): 8 rows (R19) of the 34px cell, 3 for a fight with no board, none while exploring (the scene line IS the stage: 72 + 52 = 124
+  // where the stage was a fixed 218). The title bar's 72px reserve sits in the scene line's track, so the body is exactly rows x cell.
+  //
+  // debt: the four `--play-overlay-*` / `--play-strip-*` readers (Play.module.css, regions/SceneStage.module.css) are set by no row: 40px squares in Table
+  // are five row values (`--play-cell: 40px` and these four) and only the harness's `whatif-cell-40` leg exercises them.
+  // ceiling: 0 rows set them; the picture at 40px is a harness what-if, the default stays 34px. Story cannot take 40 by row value (no title bar over its stage).
+  // until: Needs Leon #44 question 3 is answered (40: the Table row sets the five values; 34: delete the four readers and the leg).
+  vars: { '--play-cell': '34px' },
+  factVars: {
+    room: {
+      board: { '--play-body': 'calc(8 * var(--play-cell))' },
+      band: { '--play-body': 'calc(3 * var(--play-cell))' },
+      none: { '--play-body': '0px' },
+    },
   },
   areas: {
     exploring: `"safetyBanner safetyBanner safetyBanner safetyBanner"
+                "partyStrip   sceneStage   sceneStage   characterBlock"
                 "partyStrip   sceneStage   sceneStage   characterBlock"
                 "partyStrip   suzuPresence storyLog     characterBlock"
                 "partyStrip   suzuPresence offers       characterBlock"
                 "partyStrip   suzuPresence composer     characterBlock"
                 "partyStrip   actionBar    actionBar    actionBar"`,
     combat: `"safetyBanner safetyBanner safetyBanner safetyBanner"
+             "partyStrip   sceneStage   sceneStage   characterBlock"
              "partyStrip   sceneStage   sceneStage   characterBlock"
              "partyStrip   suzuPresence storyLog     characterBlock"
              "partyStrip   suzuPresence composer     characterBlock"

@@ -32,6 +32,7 @@
 import {
   ANCHORS,
   ANNOUNCING_REGIONS,
+  FACTS,
   LAYOUT_ROWS,
   LAYOUT_ROWS_BY_ID,
   REGION_VARIANTS,
@@ -649,8 +650,11 @@ describe('TAV-PLAY-SHELL presets.ts — row geometry is pinned as a literal (�
 
   it('story/combat', () => {
     expect(normalizeAreas(LAYOUT_ROWS_BY_ID.story.areas.combat)).toBe(
+      // A10 step 11 S2b (named exception: the hero stage names its area on TWO lines, the scene line and the body): the stage's second line is new.
+      // What pins it now: this literal, the row-track pins and the hero-stage guards below, and the harness's m:stageBody and t:stage-body-holds.
       normalizeAreas(`"safetyBanner safetyBanner safetyBanner"
              "topBar       topBar       partyStrip"
+             "suzuPresence sceneStage   partyStrip"
              "suzuPresence sceneStage   partyStrip"
              "suzuPresence storyLog     partyStrip"
              "suzuPresence composer     partyStrip"
@@ -660,7 +664,9 @@ describe('TAV-PLAY-SHELL presets.ts — row geometry is pinned as a literal (�
 
   it('table/exploring', () => {
     expect(normalizeAreas(LAYOUT_ROWS_BY_ID.table.areas.exploring)).toBe(
+      // A10 step 11 S2b (named exception): the stage's second line, as Story's combat above.
       normalizeAreas(`"safetyBanner safetyBanner safetyBanner safetyBanner"
+                "partyStrip   sceneStage   sceneStage   characterBlock"
                 "partyStrip   sceneStage   sceneStage   characterBlock"
                 "partyStrip   suzuPresence storyLog     characterBlock"
                 "partyStrip   suzuPresence offers       characterBlock"
@@ -671,7 +677,9 @@ describe('TAV-PLAY-SHELL presets.ts — row geometry is pinned as a literal (�
 
   it('table/combat', () => {
     expect(normalizeAreas(LAYOUT_ROWS_BY_ID.table.areas.combat)).toBe(
+      // A10 step 11 S2b (named exception): the stage's second line, as Story's combat above.
       normalizeAreas(`"safetyBanner safetyBanner safetyBanner safetyBanner"
+             "partyStrip   sceneStage   sceneStage   characterBlock"
              "partyStrip   sceneStage   sceneStage   characterBlock"
              "partyStrip   suzuPresence storyLog     characterBlock"
              "partyStrip   suzuPresence composer     characterBlock"
@@ -742,6 +750,72 @@ describe('TAV-PLAY-SHELL presets.ts — the composer variant is the dice\'s home
   });
 });
 
+// A10 step 11 S2b (Sora's brief 3.1 / 3.2, Amendment F.1-F.3): a stage that can hold a map has a BODY: its area named on two consecutive lines (the scene
+// line, then the body), a `hero` form, and the room as rows x cell: `--play-cell` on the row and, for every value of the `room` fact, a `--play-body`.
+describe('TAV-PLAY-SHELL presets.ts — the stage\'s body (A10 S2b): a hero names its area on two lines and the row gives every room a size', () => {
+  /** The line (0-based) of the track that reads `--play-body` in this cell, or -1. The stage's body is that line; its scene line is the one above. */
+  const bodyLine = (row: LayoutRow, m: Moment) => trackList(row.rows[m]).findIndex((t) => t.includes('var(--play-body'));
+  /** Whether `areas` names the stage on a line (0-based). */
+  const stageOn = (row: LayoutRow, m: Moment, line: number) =>
+    (([...row.areas[m].matchAll(/"([^"]*)"/g)][line]?.[1] ?? '').trim().split(/\s+/)).includes('sceneStage');
+  /** The brief's guards, over any rows: a cell whose row has a body track names the stage on the body's line AND the line above and emits `hero`, and the
+   *  row sizes every room; a `hero` has a body track. (Story's exploring panel names the stage on four lines of a side column and has no body track.) */
+  const stageBodyProblems = (rows: readonly LayoutRow[]) =>
+    rows.flatMap((row) =>
+      MOMENTS.flatMap((m) => {
+        const variant = getPlacement(row, 'sceneStage', m).variant;
+        const line = bodyLine(row, m);
+        const at = `${row.id}/${m}`;
+        const out: string[] = [];
+        if (line >= 0 && variant !== 'hero') out.push(`${at}: has a body track but the stage emits ${variant}, not hero`);
+        if (variant === 'hero' && line < 0) out.push(`${at}: a hero stage with no body track`);
+        if (line >= 0) {
+          if (line < 1 || !stageOn(row, m, line) || !stageOn(row, m, line - 1)) out.push(`${at}: the body track is not under the stage's scene line (the stage must name both lines)`);
+          else if (trackList(row.rows[m])[line - 1] !== 'max-content') out.push(`${at}: the scene line's track is not max-content`);
+          if (!row.vars || !('--play-cell' in row.vars)) out.push(`${at}: a body track and no --play-cell on the row`);
+          for (const value of FACTS.room) {
+            const set = (row.factVars?.room as Record<string, Record<string, string> | undefined> | undefined)?.[value];
+            if (!set || !('--play-body' in set)) out.push(`${at}: room "${value}" has no --play-body`);
+          }
+        }
+        return out;
+      }),
+    );
+
+  it('every row x moment with a body track names the stage on both its lines, emits hero, and sizes every room', () => {
+    expect(stageBodyProblems(LAYOUT_ROWS)).toEqual([]);
+  });
+
+  it('the rooms are the brief\'s: Story 7 rows, Table 8, a short band of 3 in both, none while exploring, all of the 34px cell', () => {
+    const body = (id: 'story' | 'table', room: 'board' | 'band' | 'none') => (LAYOUT_ROWS_BY_ID[id].factVars!.room as Record<string, Record<string, string>>)[room]['--play-body'];
+    expect([body('story', 'board'), body('story', 'band'), body('story', 'none')]).toEqual(['calc(7 * var(--play-cell))', 'calc(3 * var(--play-cell))', '0px']);
+    expect([body('table', 'board'), body('table', 'band'), body('table', 'none')]).toEqual(['calc(8 * var(--play-cell))', 'calc(3 * var(--play-cell))', '0px']);
+    expect(LAYOUT_ROWS_BY_ID.story.vars).toEqual({ '--play-cell': '34px' });
+    expect(LAYOUT_ROWS_BY_ID.table.vars).toEqual({ '--play-cell': '34px' });
+  });
+
+  it('the stage is two tracks, the scene line whole and the body from the row (no hand-summed cap): Story combat, Table both moments', () => {
+    expect(trackList(LAYOUT_ROWS_BY_ID.story.rows.combat).slice(2, 4)).toEqual(['max-content', 'minmax(0,var(--play-body,0px))']);
+    expect(trackList(LAYOUT_ROWS_BY_ID.table.rows.exploring).slice(1, 3)).toEqual(['max-content', 'minmax(0,var(--play-body,0px))']);
+    expect(trackList(LAYOUT_ROWS_BY_ID.table.rows.combat).slice(1, 3)).toEqual(['max-content', 'minmax(0,var(--play-body,0px))']);
+    for (const row of [LAYOUT_ROWS_BY_ID.story, LAYOUT_ROWS_BY_ID.table]) for (const m of MOMENTS) expect(row.rows[m]).not.toMatch(/fit-content\((290|400)px\)|\b218px\b/);
+  });
+
+  it('the guard bites (controls): Story combat emitting panel, a body track under one stage line, a row missing a room value, a hero whose track nothing sizes, no cell', () => {
+    const story = LAYOUT_ROWS_BY_ID.story;
+    const patched = (row: LayoutRow, over: Partial<LayoutRow>): LayoutRow => ({ ...row, ...over });
+    const asPanel = patched(story, { regions: { ...story.regions, sceneStage: { default: { area: 'sceneStage', variant: 'panel' } } } });
+    expect(stageBodyProblems([asPanel]).join('|')).toMatch(/story\/combat: has a body track but the stage emits panel, not hero/);
+    const oneLine = patched(story, { areas: { ...story.areas, combat: story.areas.combat.replace('"suzuPresence sceneStage   partyStrip"\n             "suzuPresence sceneStage   partyStrip"', '"suzuPresence sceneStage   partyStrip"') } });
+    expect(stageBodyProblems([oneLine]).join('|')).toMatch(/story\/combat: the body track is not under the stage's scene line/);
+    const noBand = patched(story, { factVars: { room: { board: { '--play-body': '1px' }, none: { '--play-body': '0px' } } } as unknown as LayoutRow['factVars'] });
+    expect(stageBodyProblems([noBand]).join('|')).toMatch(/story\/combat: room "band" has no --play-body/);
+    const unread = patched(story, { rows: { ...story.rows, combat: story.rows.combat.replace('minmax(0,var(--play-body,0px))', 'minmax(0,238px)') } });
+    expect(stageBodyProblems([unread]).join('|')).toMatch(/story\/combat: a hero stage with no body track/);
+    expect(stageBodyProblems([patched(story, { vars: undefined })]).join('|')).toMatch(/no --play-cell/);
+  });
+});
+
 describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as literals (A9d E2)', () => {
   // Three classes (build brief): WHOLE tracks are `max-content`; the log is a FLOOR
   // (`minmax(var(--play-floor,N),1fr)`: the grid grows auto/fit-content tracks before
@@ -789,8 +863,10 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
       '--play-composer-pad': 'var(--space-3)',
       '--play-composer-gap': 'var(--space-4)',
     });
-    expect(LAYOUT_ROWS_BY_ID.story.vars).toBeUndefined();
-    expect(LAYOUT_ROWS_BY_ID.table.vars).toBeUndefined();
+    // A10 step 11 S2b (named exception): the desktop rows now carry `--play-cell`, the board's square. They still set no `--play-slot-*` var, which
+    // is what this pins (the old `vars` toBeUndefined was the same claim by a blunter test).
+    expect(Object.keys(LAYOUT_ROWS_BY_ID.story.vars ?? {}).filter((k) => k.startsWith('--play-slot'))).toEqual([]);
+    expect(Object.keys(LAYOUT_ROWS_BY_ID.table.vars ?? {}).filter((k) => k.startsWith('--play-slot'))).toEqual([]);
   });
 
   it('the phone row carries a banner floor per moment (exploring pays the recap chrome, combat the status line); desktop rows carry none', () => {

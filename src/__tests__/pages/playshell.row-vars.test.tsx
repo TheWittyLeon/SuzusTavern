@@ -30,7 +30,9 @@ describe('PlayShell emits a row\'s custom properties on .grid', () => {
   });
 
   it('a row with neither emits only the three track lists', () => {
-    const story = LAYOUT_ROWS.find((r) => r.id === 'story')!;
+    // A10 step 11 S2b (re-aimed): the desktop rows now carry `--play-cell` and answer `room`; the claim (no vars, no facts: only the lists) is
+    // the same, asserted on Story with both taken away.
+    const story = { ...LAYOUT_ROWS.find((r) => r.id === 'story')!, vars: undefined, factVars: undefined } as LayoutRow;
     const el = grid(story, 'exploring');
     const props = Array.from({ length: el.style.length }, (_, i) => el.style.item(i)).sort();
     expect(props).toEqual(['--play-areas', '--play-columns', '--play-rows']);
