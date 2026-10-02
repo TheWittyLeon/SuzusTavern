@@ -212,15 +212,18 @@ interface ToastViewportProps {
 
 /**
  * Where the toast host stands (A9d-2 fix round 4, Kage C-1: it sat bottom-right on the X-card at EVERY desktop width, and the card, `pointer-events:
- * auto`, took the X-card's tap; round 2 had moved it off the safety block with a width query that never reached the desktop). Placed by
- * EXCLUSION, on every layout: the page marks what a toast must never cover (`data-toast-avoid`: the safety block and the composer) and what it should
- * keep clear when it can (`data-toast-clear`: the header, party band and scene strip, the controls above the story log). The host tries the bottom
- * edge, then the top under the clear marks (while the whole stack fits on the screen), then the top edge, and keeps the first whose own measured box
- * overlaps no avoid mark; with none clear it keeps the least overlapped. A layout that moves the X-card (or a new row) needs no code here, only the
- * marks. `pointer-events` alone is not the fix: the button has to stay VISIBLE and a focused control must not be obscured (WCAG 2.4.11). Short screens
- * (a 400% zoom) have no room under the marks: the host takes the top edge there. `data-placement` and `--toast-top` are what Toast.module.css reads.
+ * auto`, took the X-card's tap; round 2 had moved it off the safety block with a width query that never reached the desktop). Placed by EXCLUSION, on
+ * every layout, from marks the page puts on its own elements: `data-toast-avoid` = what a toast must NEVER cover (the safety block, the raised safety
+ * banner, the composer: Send and the textarea), `data-toast-clear` = what it should keep clear when it can (the header, party band and scene strip).
+ * Candidates: the bottom edge, the top edge, and the top directly UNDER each mark (the lowest first), while the whole stack fits on the screen. Each is
+ * written, measured (its own box), and ranked by what it covers, in this order: the never-cover marks first, the clear marks second, then the earlier
+ * candidate. RANKED, not summed or first-fit: a candidate that touches a never-cover mark always loses to one that does not, however much more it
+ * covers elsewhere (round 5, Kage N-1: marking the banner alone would have made the smallest-area fallback prefer the composer and the X-card block, 13,362
+ * px2, to the banner, 26,400 px2). A layout that moves a control (or a new row) needs no code here, only the marks. `pointer-events` alone is not the
+ * fix: the button has to stay VISIBLE and a focused control must not be obscured (WCAG 2.4.11). `data-placement` and `--toast-top` are what
+ * Toast.module.css reads.
  */
-// debt: three fixed candidates (the bottom edge, the top under the clear marks, the top edge), not a search for a free rectangle. ceiling: Table at 1440x900 and 1024x768 has no free band wide enough, so the host takes the top edge over the party strip's corner (it covers no avoid mark). until: the stage gets a notification lane, or a toast must stand clear of a third kind of mark (then rank the candidates by their overlap with the clear marks too).
+// debt: the candidates are the two edges and the line under each mark, not a search for a free rectangle. ceiling: Table at 1440x900 and 1024x768 has no free band wide enough, so the host takes the top edge over the Character sheet's heading and toggle (it covers no never-cover mark). until: the stage gets a notification lane, or a toast must stand clear of every focusable control (then rank by overlap with them too: Backlog, toast placement revisited).
 const TOAST_GAP_PX = 8;
 const AVOID = '[data-toast-avoid]';
 const CLEAR = '[data-toast-clear]';
@@ -233,6 +236,14 @@ const boxes = (selector: string) =>
 const overlapArea = (a: DOMRect, b: DOMRect) =>
   Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
 
+/** Lexicographic: the first tier that differs (by more than half a pixel squared) decides; all tiers equal = equal. */
+function cheaper(a: number[], b: number[]): boolean {
+  for (let i = 0; i < a.length; i++) {
+    if (Math.abs(a[i] - b[i]) > 0.5) return a[i] < b[i];
+  }
+  return false;
+}
+
 function useToastPlacement(ref: RefObject<HTMLDivElement | null>, active: boolean) {
   useLayoutEffect(() => {
     const el = ref.current;
@@ -244,20 +255,23 @@ function useToastPlacement(ref: RefObject<HTMLDivElement | null>, active: boolea
     };
     const place = () => {
       raf = 0;
-      const clearBottom = Math.max(0, ...boxes(CLEAR).map((r) => r.bottom));
-      const candidates: Placement[] = [{ placement: 'bottom', top: 0 }];
-      // Under the marks only while the whole stack then fits on the screen; on a short one it takes the top edge rather than leave the viewport.
-      if (clearBottom > 0 && clearBottom + TOAST_GAP_PX + el.offsetHeight <= window.innerHeight) candidates.push({ placement: 'top', top: clearBottom });
-      candidates.push({ placement: 'top', top: 0 });
       const avoid = boxes(AVOID);
+      const clear = boxes(CLEAR);
+      const candidates: Placement[] = [{ placement: 'bottom', top: 0 }];
+      // Under each mark (the lowest first), only while the whole stack then fits on the screen; the top edge last.
+      const unders = [...new Set([...avoid, ...clear].map((r) => Math.round(r.bottom)))]
+        .filter((y) => y > 0 && y + TOAST_GAP_PX + el.offsetHeight <= window.innerHeight)
+        .sort((x, y) => y - x);
+      for (const y of unders) candidates.push({ placement: 'top', top: y });
+      candidates.push({ placement: 'top', top: 0 });
       let best = candidates[0];
-      let bestArea = Infinity;
+      let bestCost: number[] | null = null;
       for (const c of candidates) {
         apply(c);
         const host = el.getBoundingClientRect();
-        const area = avoid.reduce((sum, r) => sum + overlapArea(host, r), 0);
-        if (area < bestArea) { best = c; bestArea = area; }
-        if (area === 0) break;
+        const cost = [avoid, clear].map((marks) => marks.reduce((sum, r) => sum + overlapArea(host, r), 0));
+        if (bestCost === null || cheaper(cost, bestCost)) { best = c; bestCost = cost; }
+        if (cost.every((x) => x <= 0.5)) break;
       }
       apply(best);
       // The marks can appear after the first placement (a region mounting late): watch whatever is there now. Observing a node twice is a no-op.

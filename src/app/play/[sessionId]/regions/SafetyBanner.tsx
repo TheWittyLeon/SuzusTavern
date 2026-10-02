@@ -38,6 +38,8 @@ export default function SafetyBanner({ active, event, isDm, onDismiss, bannerRef
       aria-live="polite"
       aria-atomic="true"
       data-region="safetyBanner"
+      // a toast never stands over the raised banner's Dismiss (Toast.tsx places its host by this mark; Kage round-4 N-1)
+      data-toast-avoid=""
     >
       {active && event && (
         <>

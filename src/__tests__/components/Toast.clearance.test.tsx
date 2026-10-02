@@ -92,10 +92,10 @@ describe('Toast host placement (data-placement, --toast-top)', () => {
     expect(open({ avoid: [[0, 1200, 390, 1300]] }).placement()).toBe('bottom');
   });
 
-  it('a short screen (a 400% zoom, 256px): the stack would not fit under the clear marks, so it takes the top edge, not below the fold', () => {
+  it('a short screen (a 400% zoom, 256px): the stack does not fit under the lower marks, so it takes the top, never below the fold and never over the composer', () => {
     const { placement, top } = open({ width: 320, height: 256, stack: 103, clear: [[0, 0, 320, 56], [0, 56, 320, 160], [0, 160, 320, 300]], avoid: [[0, 200, 320, 256]] });
     expect(placement()).toBe('top');
-    expect(top()).toBe('0px');
+    expect(Number.parseFloat(top()) + 8 + 103).toBeLessThanOrEqual(256 - 0);
   });
 
   it('control: the same screen with room (the stack ends at 160+8+83 = 251 of 256) sits under the clear marks when that box overlaps no avoid mark', () => {
@@ -104,9 +104,32 @@ describe('Toast host placement (data-placement, --toast-top)', () => {
   });
 
   it('when no placement is clear of every avoid mark, the least-overlapped one is kept', () => {
-    // a tall block over the top edge and under the bottom: the bottom host overlaps 40px of it, the top edge host overlaps 83px
-    const { placement } = open({ stack: 83, clear: [], avoid: [[0, 0, 390, 400], [0, 760, 390, 800]] });
-    expect(placement()).toBe('bottom');
+    // two full-width blocks: one over the whole screen but a 50px band at 100..150, one at the bottom. Every candidate touches one of them; the smaller overlap wins.
+    const { placement } = open({ stack: 83, clear: [], avoid: [[0, 0, 390, 100], [0, 150, 390, 844]] });
+    expect(placement()).toBe('top');
+  });
+
+  // Kage round-4 N-1: the raised safety banner is a never-cover mark too, and the fallback is RANKED, not summed.
+  it('THE BANNER (Table 1440x900): the top edge would sit on the banner, the bottom on the composer and the X-card block: neither is taken, the host goes UNDER the banner', () => {
+    const banner: Box = [168, 72, 1118, 130];
+    const { placement, top } = open({
+      width: 1440, height: 900, stack: 84,
+      clear: [[168, 8, 613, 72], [1182, 16, 1418, 95], [1182, 161, 1418, 365]],
+      avoid: [banner, [282, 755, 1118, 822], [1113, 842, 1418, 896]],
+    });
+    expect(placement()).toBe('top');
+    expect(Number.parseFloat(top())).toBeGreaterThanOrEqual(banner[3]);
+  });
+
+  it('RANKED: a candidate that touches a never-cover mark loses to one that does not, however much more of the clear marks it covers', () => {
+    // the bottom and the top edge each touch a never-cover mark; the line under the top one touches none and covers the big clear block: it wins despite that
+    const { placement, top } = open({
+      width: 390, height: 844, stack: 100,
+      clear: [[0, 100, 390, 700]],
+      avoid: [[0, 0, 390, 90], [0, 760, 390, 844]],
+    });
+    expect(placement()).toBe('top');
+    expect(Number.parseFloat(top())).toBe(90);
   });
 
   it('the placement is dropped with the last toast (nothing is left on the host)', () => {
