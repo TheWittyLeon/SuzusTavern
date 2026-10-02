@@ -353,15 +353,17 @@ describe('the stage\'s body (A10 S2b): the fill rule, the size container, the fo
   it('a region that sets data-slot-fill owns its edges: its slot drops the padding and stops being a scroller, by an attribute and not a region name', () => {
     const r = rule(play, '.slot:has(> [data-slot-fill])');
     expect(r).toMatch(/padding:\s*0/);
-    expect(r).toMatch(/overflow:\s*clip/);
+    expect(r).toMatch(/overflow:\s*visible/); // round 3: not `clip` (its focus rings); the slot is no scroller either way
     expect(play).not.toMatch(/data-slot-fill[^{]*sceneStage|sceneStage[^{]*data-slot-fill/);
   });
 
-  it('the clip leaves the focus ring clearance as the CLIP\'s margin, a plain length (Iro MINOR-1): the scene line\'s buttons sit `--space-2` from the slot\'s edge and their ring reaches 4px, so a clip at the edge shaves it at the next zoom; Chrome computes a calc() here to 0px, so not the calc token', () => {
+  it('the hero\'s slot does not clip (Iro MINOR-1, round 3): visible, so the scene line\'s focus rings (reach 4px from buttons 4px from the edge) are whole in every engine, and no engine-specific clip margin is left', () => {
     const r = rule(play, '.slot:has(> [data-slot-fill])');
-    expect(r).toMatch(/overflow-clip-margin:\s*var\(--space-2\)/);
-    expect(r).not.toMatch(/overflow-clip-margin:\s*(var\(--focus-ring-clearance\)|calc\()/);
-    // the margin equals the air the scene line leaves above its buttons (the .hero grid's first row), so the ring and its margin cannot drift apart
+    expect(r).toMatch(/overflow:\s*visible/);
+    expect(r).not.toMatch(/overflow:\s*clip/);
+    expect(r).not.toMatch(/overflow-clip-margin/);
+    // the things that made clipping unnecessary: the body clips itself and is a size container; the scene line's tracks are whole
+    expect(rule(stage, '.body')).toMatch(/overflow:\s*hidden/);
     expect(stage).toMatch(/grid-template-rows:\s*var\(--space-2\) minmax\(var\(--strip-half\), auto\)/);
   });
 

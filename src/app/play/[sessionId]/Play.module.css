@@ -138,15 +138,14 @@
 /* A10 step 11 S2b (Amendment F.6): a region that sets `data-slot-fill` owns its own edges: its slot drops the padding and stops being a scroller (the
    scene stage's `hero`: a body that reaches the slot's edges and a scene line that pads itself). Generic: it names an attribute, never a region or a
    layout. Beats `.slotScroll` by specificity, not by order.
-   A10 fix round 2 (Iro MINOR-1): a clip is a clipping ancestor, and an outward focus ring is ink OUTSIDE its element (globals.css, `--focus-ring-clearance`): the scene line's
-   buttons sit 4px (`--space-2`, SceneStage.module.css `.hero`) from this slot's edge and their ring (2px + 2px offset) ends exactly ON the clip, with no clearance for a denser
-   display or a zoom. The slot has no padding to leave (that is what `data-slot-fill` means), so the clearance is the CLIP's margin: the clip edge moves out by the same 4px, and
-   no box moves with it (a ring of up to 8px is whole). It is `--space-2` and not `--focus-ring-clearance` because Chrome computes `overflow-clip-margin: calc(...)` to 0px (measured:
-   `var(--focus-ring-clearance)` was a no-op), and a plain length it accepts. A browser without the property keeps the old edge: no worse. */
+   A10 step 11 round 3 (Iro MINOR-1; Kage Tavern 3): its overflow is VISIBLE, not clipped. The slot was `overflow: clip`, which clipped the scene line's focus rings: its buttons sit
+   4px (`--space-2`, SceneStage.module.css `.hero`) from the slot's edge and an outward ring (2px + 2px offset, globals.css `--focus-ring-clearance`) is ink OUTSIDE its element, so it
+   ended exactly ON the clip with no clearance for a denser display or a zoom. The fix in fix round 2 was `overflow-clip-margin`, which WebKit does not implement (and Chrome computes a
+   calc() there to 0px), so it was one engine's. Nothing here needs clipping: the body is its own size container with `overflow: hidden`, the scene line's tracks are `max-content`,
+   its second line is one ellipsised line, and the slot is no scroller either way. The harness's `hero-ring` leg measures the ring against every clipping ancestor, in every engine it runs in. */
 .slot:has(> [data-slot-fill]) {
   padding: 0;
-  overflow: clip;
-  overflow-clip-margin: var(--space-2);
+  overflow: visible;
 }
 
 /* A9d E3 (build brief 2.3): the fold handle is never squeezed out. A slot whose dock is foldable keeps room for the handle (44px,
