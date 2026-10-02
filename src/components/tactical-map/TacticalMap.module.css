@@ -137,6 +137,11 @@
     linear-gradient(to bottom, var(--line-strong) 1px, transparent 1px);
   background-size: var(--tm-cell-size, 40px) var(--tm-cell-size, 40px);
   border-radius: var(--radius-xs);
+  /* TOUCH (Tora-Gesture rule 2; B8c-4). Squares carry initials and feature letters, so a long press would select them and raise the iOS magnifier or the callout. Off on the grid only:
+     the scene line and the log stay selectable. Prefixed first in each pair: the build keeps only the LAST of a prefixed/unprefixed pair, and the unprefixed one must win where it exists. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
   position: relative;
 }
 
@@ -168,6 +173,8 @@
      on a touch board where taps land close together) can trigger iOS
      Safari's double-tap-to-zoom gesture instead of two ordinary taps. */
   touch-action: manipulation;
+  /* no grey flash on a tap: the selection ring that appears on lift is the confirmation (Tora-Gesture rule 2) */
+  -webkit-tap-highlight-color: transparent;
 }
 
 .cell:focus-visible {

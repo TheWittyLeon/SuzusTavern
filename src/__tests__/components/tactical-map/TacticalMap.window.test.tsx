@@ -1688,3 +1688,28 @@ describe('TacticalMap — what a held follow reads when it runs, and what the ob
     expect(onExitMove).not.toHaveBeenCalled();
   });
 });
+
+describe('TacticalMap — P2: the touch declarations on the grid (Tora-Gesture rule 2)', () => {
+  // MECHANISM ONLY: jsdom has no long press, no callout and no tap highlight; these pin the declarations. Device checklist item 12 is the behaviour.
+  it('the grid is not selectable and raises no callout: user-select, -webkit-user-select and -webkit-touch-callout are none', () => {
+    const board = ruleBody('board');
+    expect(hasDecl(board, 'user-select', /none/)).toBe(true);
+    expect(hasDecl(board, '-webkit-user-select', /none/)).toBe(true);
+    expect(hasDecl(board, '-webkit-touch-callout', /none/)).toBe(true);
+  });
+
+  it('the prefixed declaration comes BEFORE the unprefixed one (the build keeps the last of a pair)', () => {
+    const board = ruleBody('board');
+    expect(board.indexOf('-webkit-user-select')).toBeGreaterThanOrEqual(0);
+    expect(board.indexOf('-webkit-user-select')).toBeLessThan(board.search(/(^|[\s;])user-select\s*:/));
+  });
+
+  it('the squares have a transparent tap highlight', () => {
+    expect(hasDecl(ruleBody('cell'), '-webkit-tap-highlight-color', /transparent/)).toBe(true);
+  });
+
+  it('only the grid: the window and the wrapper stay selectable (the line and the log are outside, and nothing else in the map is text to select)', () => {
+    expect(hasDecl(ruleBody('boardScroll'), 'user-select')).toBe(false);
+    expect(hasDecl(ruleBody('wrap'), 'user-select')).toBe(false);
+  });
+});
