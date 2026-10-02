@@ -54,6 +54,8 @@
   -webkit-backdrop-filter: blur(20px) saturate(140%);
   border: 1px solid var(--line);
   box-shadow: var(--shadow-pop);
+  /* A tall card scrolls inside (the host sets --toast-card-max from the room around the safety block: a 60-word message was 309px at 320x256 and covered the X-card). */
+  max-height: var(--toast-card-max, none);
   /* Colored left accent bar */
   border-left: 3px solid var(--toast-accent, var(--accent));
   position: relative;
@@ -122,9 +124,17 @@
 .body {
   flex: 1;
   min-width: 0;
+  min-height: 0;
+  max-height: calc(var(--toast-card-max, 100vh) - 2 * var(--density-pad));
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+.body:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .title {

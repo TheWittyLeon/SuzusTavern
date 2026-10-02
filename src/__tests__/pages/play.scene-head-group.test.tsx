@@ -39,4 +39,12 @@ describe('SceneStage: the scene head', () => {
     expect(head).toBe(p.sceneHeadRef.current);
     expect(head).toHaveAttribute('tabindex', '-1');
   });
+
+  // Round 7 (Kage): a keyboard Dismiss that loses its card sends focus to [data-focus-fallback] when it has nowhere else; the scene head is that fallback. Take the mark off -> reds.
+  it.each(['inline', 'panel'] as const)('%s variant: the scene head is the toast\'s focus fallback (data-focus-fallback)', (variant) => {
+    const p = props();
+    render(<SceneStage {...p} variant={variant} />);
+    expect(p.sceneHeadRef.current).toHaveAttribute('data-focus-fallback');
+    expect(document.querySelectorAll('[data-focus-fallback]')).toHaveLength(1);
+  });
 });

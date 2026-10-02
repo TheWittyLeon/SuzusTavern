@@ -11,6 +11,7 @@
  * changes of place in one scroll). Geometry here is mocked from `data-box`; the host's box is computed from its placement and how many cards are shown.
  */
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import '@testing-library/jest-dom';
 import { ToastProvider, useToast } from '@/components/Toast';
 
 type Box = [left: number, top: number, right: number, bottom: number];
@@ -111,10 +112,32 @@ describe('Toast host: the stack is capped by fit', () => {
     expect(document.querySelectorAll('[data-component="Toast"]').length).toBe(0);
   });
 
-  it('Escape dismisses the held ones too', () => {
-    setup({ height: 300, safety: [[0, 200, 390, 300]], cards: 4 });
+  it('ESCAPE takes only the SHOWN cards: the held ones were never seen or announced and must now take their turn, not vanish (Kage N6-1)', async () => {
+    const { shown, held, flush } = setup({ height: 300, safety: [[0, 200, 390, 300]], cards: 4 });
+    expect([shown(), held()]).toEqual([2, 2]);
+    act(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); jest.advanceTimersByTime(300); });
+    await flush();
+    expect(document.querySelectorAll('[data-component="Toast"]').length).toBe(2); // not 0
+    expect(shown()).toBe(2); // the two held ones show now
     act(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); jest.advanceTimersByTime(300); });
     expect(document.querySelectorAll('[data-component="Toast"]').length).toBe(0);
+  });
+
+  it('THE CAP\'S NEVER-COVER HALF: a banner / composer block (not the X-card) caps the stack too', () => {
+    const { shown, held } = setup({ height: 300, never: [[0, 200, 390, 300]], cards: 4 });
+    expect([shown(), held()]).toEqual([2, 2]);
+  });
+
+  it('THE CAP\'S NEVER-COVER HALF, one card fewer: two cards touch the block but ONE clears it, so one is shown', () => {
+    const { shown } = setup({ height: 300, never: [[0, 100, 390, 300]], cards: 3 });
+    expect(shown()).toBe(1);
+  });
+
+  it('a card is given a max height: the larger free band around the safety block (never under 72px), so ONE card can always stand clear of it and a long message scrolls inside', () => {
+    expect(setup({ height: 300, safety: [[0, 200, 390, 300]] }).host.style.getPropertyValue('--toast-card-max')).toBe('184px'); // above the block: 200 - 16
+    jest.restoreAllMocks();
+    document.body.innerHTML = '';
+    expect(setup({ height: 256, safety: [[0, 20, 390, 240]] }).host.style.getPropertyValue('--toast-card-max')).toBe('72px'); // no band: the floor
   });
 });
 
@@ -205,6 +228,66 @@ describe('Toast host: a control clipped away by its own scroller is not on scree
     expect(host.getAttribute('data-placement')).toBe('bottom');
   });
 
+  it('a link scrolled out of a HORIZONTAL scroller (the party tile row) is not in the way either: clipping on X', () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 844 });
+    jest.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      const el = this as HTMLElement;
+      if (el.getAttribute('data-component') === 'ToastViewport') return el.getAttribute('data-placement') === 'top' ? domRect([12, 8 + Number.parseFloat(el.style.getPropertyValue('--toast-top') || '0'), 378, 88 + Number.parseFloat(el.style.getPropertyValue('--toast-top') || '0')]) : domRect([12, 740, 378, 820]);
+      const m = el.dataset?.box;
+      return domRect(m ? (m.split(',').map(Number) as Box) : [0, 0, 0, 0]);
+    });
+    jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) { return this.getAttribute('data-component') === 'ToastViewport' ? 80 : 0; });
+    render(<ToastProvider><div style={{ overflowX: 'auto' }} data-box="0,700,100,840"><button data-box="150,740,250,780">tile 5</button></div><Fire /></ToastProvider>);
+    fireEvent.click(screen.getByText('fire'));
+    expect(document.querySelector('[data-component="ToastViewport"]')?.getAttribute('data-placement')).toBe('bottom');
+  });
+
+  it('a `position: fixed` control inside a scroller is NOT clipped by it (the Attack menu\'s items, a dialog\'s buttons are painted and hittable): it is in the way (Kage N6-2)', () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 844 });
+    jest.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      const el = this as HTMLElement;
+      if (el.getAttribute('data-component') === 'ToastViewport') return el.getAttribute('data-placement') === 'top' ? domRect([12, 8 + Number.parseFloat(el.style.getPropertyValue('--toast-top') || '0'), 378, 88 + Number.parseFloat(el.style.getPropertyValue('--toast-top') || '0')]) : domRect([12, 740, 378, 820]);
+      const m = el.dataset?.box;
+      return domRect(m ? (m.split(',').map(Number) as Box) : [0, 0, 0, 0]);
+    });
+    jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) { return this.getAttribute('data-component') === 'ToastViewport' ? 80 : 0; });
+    render(<ToastProvider><div style={{ overflowY: 'auto' }} data-box="0,100,390,400"><button style={{ position: 'fixed' }} data-box="0,740,390,780">fixed item</button></div><Fire /></ToastProvider>);
+    fireEvent.click(screen.getByText('fire'));
+    expect(document.querySelector('[data-component="ToastViewport"]')?.getAttribute('data-placement')).toBe('top');
+  });
+
+  it('...and a fixed box is where the clip walk STOPS: a control in a fixed dialog inside a scroller is not clipped by that scroller either', () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 844 });
+    jest.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      const el = this as HTMLElement;
+      if (el.getAttribute('data-component') === 'ToastViewport') return el.getAttribute('data-placement') === 'top' ? domRect([12, 8 + Number.parseFloat(el.style.getPropertyValue('--toast-top') || '0'), 378, 88 + Number.parseFloat(el.style.getPropertyValue('--toast-top') || '0')]) : domRect([12, 740, 378, 820]);
+      const m = el.dataset?.box;
+      return domRect(m ? (m.split(',').map(Number) as Box) : [0, 0, 0, 0]);
+    });
+    jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) { return this.getAttribute('data-component') === 'ToastViewport' ? 80 : 0; });
+    render(<ToastProvider><div style={{ overflowY: 'auto' }} data-box="0,100,390,400"><div style={{ position: 'fixed' }} data-box="0,730,390,830"><button data-box="0,740,390,780">dialog button</button></div></div><Fire /></ToastProvider>);
+    fireEvent.click(screen.getByText('fire'));
+    expect(document.querySelector('[data-component="ToastViewport"]')?.getAttribute('data-placement')).toBe('top');
+  });
+
+  it('...including a fixed box that has an overflow of its OWN: its own clip applies, the scroller outside it does not', () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 844 });
+    jest.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      const el = this as HTMLElement;
+      if (el.getAttribute('data-component') === 'ToastViewport') return el.getAttribute('data-placement') === 'top' ? domRect([12, 8 + Number.parseFloat(el.style.getPropertyValue('--toast-top') || '0'), 378, 88 + Number.parseFloat(el.style.getPropertyValue('--toast-top') || '0')]) : domRect([12, 740, 378, 820]);
+      const m = el.dataset?.box;
+      return domRect(m ? (m.split(',').map(Number) as Box) : [0, 0, 0, 0]);
+    });
+    jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) { return this.getAttribute('data-component') === 'ToastViewport' ? 80 : 0; });
+    render(<ToastProvider><div style={{ overflowY: 'auto' }} data-box="0,100,390,400"><div style={{ position: 'fixed', overflowY: 'auto' }} data-box="0,730,390,830"><button data-box="0,740,390,780">dialog button</button></div></div><Fire /></ToastProvider>);
+    fireEvent.click(screen.getByText('fire'));
+    expect(document.querySelector('[data-component="ToastViewport"]')?.getAttribute('data-placement')).toBe('top');
+  });
+
   it('control: the same link INSIDE the log\'s box is in the way and moves the host', () => {
     const host = withScroller([0, 100, 390, 800], [0, 740, 390, 780]);
     expect(host.getAttribute('data-placement')).toBe('top');
@@ -288,6 +371,97 @@ describe('Toast host: a keyboard Dismiss does not leave focus on <body>', () => 
     fireEvent.click(dismiss);
     act(() => { jest.advanceTimersByTime(300); });
     expect(screen.getByText('head')).toHaveFocus();
+  });
+
+  it('a MOUSE click on the x moves no focus: with nothing focused, focus stays on <body> (the scene head took it before)', () => {
+    render(
+      <ToastProvider>
+        <div data-focus-fallback="" tabIndex={-1}>head</div>
+        <Fire />
+      </ToastProvider>,
+    );
+    fireEvent.click(screen.getByText('fire'));
+    const dismiss = screen.getByRole('button', { name: 'Dismiss notification' });
+    fireEvent.pointerDown(dismiss);
+    act(() => dismiss.focus()); // Chromium focuses the button between pointerdown and click
+    fireEvent.click(dismiss);
+    act(() => { jest.advanceTimersByTime(300); });
+    expect(document.body).toHaveFocus();
+  });
+
+  it('where focus came from is forgotten when focus enters the host from NOWHERE: a stale target is never returned to', () => {
+    render(
+      <ToastProvider>
+        <div data-focus-fallback="" tabIndex={-1}>head</div>
+        <button>composer</button>
+        <Fire />
+      </ToastProvider>,
+    );
+    fireEvent.click(screen.getByText('fire'));
+    const composer = screen.getByText('composer');
+    const dismiss = screen.getByRole('button', { name: 'Dismiss notification' });
+    act(() => composer.focus());
+    act(() => dismiss.focus()); // from the composer: remembered
+    act(() => (document.activeElement as HTMLElement).blur());
+    act(() => dismiss.focus()); // from nowhere: the composer is forgotten
+    fireEvent.click(dismiss);
+    act(() => { jest.advanceTimersByTime(300); });
+    expect(screen.getByText('head')).toHaveFocus();
+    expect(composer).not.toHaveFocus();
+  });
+
+  it('guard 1: focus that was never in the host is never taken (nothing focused, a card times out: focus stays on <body>, the fallback is not touched)', () => {
+    render(
+      <ToastProvider>
+        <div data-focus-fallback="" tabIndex={-1}>head</div>
+        <Fire />
+      </ToastProvider>,
+    );
+    fireEvent.click(screen.getByText('fire'));
+    act(() => { jest.advanceTimersByTime(5400); });
+    expect(document.body).toHaveFocus();
+  });
+
+  it('guard 2: while the card is still there (exiting) focus on its x is left alone; it moves only when the card is gone', () => {
+    render(
+      <ToastProvider>
+        <div data-focus-fallback="" tabIndex={-1}>head</div>
+        <Fire />
+      </ToastProvider>,
+    );
+    fireEvent.click(screen.getByText('fire'));
+    const dismiss = screen.getByRole('button', { name: 'Dismiss notification' });
+    act(() => dismiss.focus());
+    fireEvent.click(dismiss); // exiting: 220 ms of exit animation
+    act(() => { jest.advanceTimersByTime(100); });
+    expect(dismiss).toHaveFocus();
+    act(() => { jest.advanceTimersByTime(200); });
+    expect(screen.getByText('head')).toHaveFocus();
+  });
+
+  it('a card taller than its max height is a tab stop (and named), so a keyboard user can scroll all of it', () => {
+    const RO = (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = class { constructor(private cb: () => void) { setTimeout(cb, 0); } observe() {} disconnect() {} unobserve() {} };
+    const sh = jest.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(function (this: HTMLElement) { return this.className.includes('body') ? 400 : 0; });
+    const ch = jest.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function (this: HTMLElement) { return this.className.includes('body') ? 120 : 0; });
+    try {
+      render(<ToastProvider><Fire /></ToastProvider>);
+      fireEvent.click(screen.getByText('fire'));
+      act(() => { jest.advanceTimersByTime(5); });
+      const body = document.querySelector('[data-component="Toast"] [aria-label="Notification text, scrollable"]') as HTMLElement;
+      expect(body).not.toBeNull();
+      expect(body.tabIndex).toBe(0);
+    } finally {
+      sh.mockRestore();
+      ch.mockRestore();
+      (globalThis as { ResizeObserver?: unknown }).ResizeObserver = RO;
+    }
+  });
+
+  it('a card that fits is not a tab stop', () => {
+    render(<ToastProvider><Fire /></ToastProvider>);
+    fireEvent.click(screen.getByText('fire'));
+    expect(document.querySelector('[data-component="Toast"] [tabindex]')).toBeNull();
   });
 
   it('focus the user had elsewhere is never taken: a card going away while focus is on the page leaves it', () => {

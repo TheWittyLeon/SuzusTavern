@@ -105,6 +105,18 @@ function ToastCard({ item, onDismiss, held = false }: ToastItemProps) {
   const startedAtRef = useRef<number>(0);
   const remainingRef = useRef<number>(item.duration ?? 5000);
 
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [scrolls, setScrolls] = useState(false);
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body || typeof ResizeObserver === 'undefined') return;
+    const measure = () => setScrolls(body.scrollHeight > body.clientHeight + 1);
+    const ro = new ResizeObserver(measure);
+    ro.observe(body);
+    measure();
+    return () => ro.disconnect();
+  }, [item.message]);
+
   const tone = item.tone ?? 'info';
   const accentColor = TONE_TOKEN[tone];
   const iconName = TONE_ICON[tone];
@@ -152,7 +164,7 @@ function ToastCard({ item, onDismiss, held = false }: ToastItemProps) {
     <div
       role={isError ? 'alert' : 'status'}
       data-component="Toast"
-      hidden={held || undefined}
+      data-toast-id={item.id}
       data-tone={tone}
       data-exiting={item.exiting ? 'true' : undefined}
       className={[
@@ -175,7 +187,12 @@ function ToastCard({ item, onDismiss, held = false }: ToastItemProps) {
         <Icon name={iconName} size={16} color={accentColor} />
       </span>
 
-      <div className={styles.body}>
+      <div
+        ref={bodyRef}
+        className={styles.body}
+        // A card taller than its max height (Toast.module.css) scrolls INSIDE: then the text is a tab stop, so a keyboard user can read all of it (WCAG 2.1.1).
+        {...(scrolls ? { tabIndex: 0, role: 'group', 'aria-label': 'Notification text, scrollable' } : {})}
+      >
         {item.title && <p className={styles.title}>{item.title}</p>}
         <p className={styles.message}>{item.message}</p>
       </div>
@@ -233,6 +250,7 @@ interface ToastViewportProps {
 // debt: the candidates are the two edges and the line under each thing in the way (at most four rounds), not a search for a free rectangle. ceiling: a screen whose only free band is beside a control (a narrow gap in a wide row) is not found; Table at 320x256 has no free band at all and keeps the least bad for ONE card. until: the stage gets a notification lane (a place no toast needs to find).
 const TOAST_GAP_PX = 8;
 const SLIDE_ROUNDS = 4;
+const MIN_CARD_PX = 72;
 const SCROLL_SETTLE_MS = 150;
 const SAFETY = '[data-toast-avoid="safety"]';
 const NEVER = '[data-toast-avoid]:not([data-toast-avoid="safety"])';
@@ -251,15 +269,19 @@ const CLIPS = new Set(['auto', 'scroll', 'hidden', 'clip']);
 /** `r` clipped by every scroller / `overflow: hidden` box above `el` (null when nothing is left): a control scrolled out of its own scroller is not on screen. */
 function clippedBox(el: Element, r: DOMRect, styleOf: (n: Element) => CSSStyleDeclaration): { left: number; top: number; right: number; bottom: number } | null {
   let box = { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+  // A `position: fixed` box is not clipped by the scrollers it sits in (it escapes them unless one is its containing block): the Attack menu's items and a dialog's buttons are
+  // painted and hittable (round 7, Kage N6-2). So the walk stops at the first fixed box on the path, the element itself included; that box's OWN overflow still clips what is in it.
+  if (styleOf(el).position === 'fixed') return box;
   for (let p = el.parentElement; p && p !== document.documentElement && p !== document.body; p = p.parentElement) {
     const cs = styleOf(p);
     const clipX = CLIPS.has(cs.overflowX);
     const clipY = CLIPS.has(cs.overflowY);
-    if (!clipX && !clipY) continue;
+    if (!clipX && !clipY) { if (cs.position === 'fixed') break; continue; }
     const pr = p.getBoundingClientRect();
     if (clipX) { box = { ...box, left: Math.max(box.left, pr.left), right: Math.min(box.right, pr.right) }; }
     if (clipY) { box = { ...box, top: Math.max(box.top, pr.top), bottom: Math.min(box.bottom, pr.bottom) }; }
     if (box.right <= box.left || box.bottom <= box.top) return null;
+    if (cs.position === 'fixed') break;
   }
   return box;
 }
@@ -331,6 +353,12 @@ function useToastPlacement(ref: RefObject<HTMLDivElement | null>, active: boolea
       const clear = boxes(CLEAR);
       const controls = controlBoxes(el);
       const total = cards().length;
+      // A card TOO TALL to clear the safety block (round 7, Kage point 2: 60 words were 309px at 320x256 and covered the X-card's centre; the X-card rule has no exemption): each card
+      // gets a max height, the larger free band above or below the safety block that overlaps the host's width (never under 72px), and scrolls inside.
+      const hostBox = el.getBoundingClientRect();
+      const around = safety.filter((r) => Math.min(r.right, hostBox.right) - Math.max(r.left, hostBox.left) > 0.5);
+      const room = around.length ? Math.max(MIN_CARD_PX, Math.min(...around.map((r) => r.top)) - 2 * TOAST_GAP_PX, window.innerHeight - Math.max(...around.map((r) => r.bottom)) - 2 * TOAST_GAP_PX) : window.innerHeight - 2 * TOAST_GAP_PX;
+      el.style.setProperty('--toast-card-max', `${Math.floor(room)}px`);
       const signature = `${total}|${el.offsetHeight}|${window.innerWidth}x${window.innerHeight}|${sig(safety)}|${sig(never)}|${sig(controls)}|${sig(clear)}`;
       if (!force && signature === lastSig) return;
       lastSig = signature;
@@ -374,7 +402,7 @@ function useToastPlacement(ref: RefObject<HTMLDivElement | null>, active: boolea
       for (let n = total - 1; n >= 1 && (chosen.r.cost[0] > 0.5 || chosen.r.cost[1] > 0.5); n--) {
         hold(n);
         const r = search();
-        if (r.cost[0] <= 0.5 && r.cost[1] <= 0.5 || n === 1) chosen = { n, r };
+        chosen = { n, r }; // the loop's own condition stops it at the first n that clears both tiers, else it ends on ONE
       }
       hold(chosen.n);
       apply(chosen.r.c);
@@ -415,6 +443,7 @@ function useToastPlacement(ref: RefObject<HTMLDivElement | null>, active: boolea
       mo?.disconnect();
       el.removeAttribute('data-placement');
       el.style.removeProperty('--toast-top');
+      el.style.removeProperty('--toast-card-max');
     };
   }, [ref, active]);
 
@@ -440,13 +469,31 @@ function ToastViewport({ toasts, onDismiss }: ToastViewportProps) {
   const hadFocus = useRef(false);
   const cameFrom = useRef<HTMLElement | null>(null);
   useEffect(() => {
+    // A POINTER press on a card (a mouse click on its x) moves no focus of its own and is not a keyboard user's: the rescue forgets it, as the page's other rescue rule does
+    // (useRemovedFocus). The press's own focus (Chromium focuses the button) comes between pointerdown and its click: ignored until a task after the click.
+    let pressing = false;
+    let pressTimer: ReturnType<typeof setTimeout> | null = null;
+    const endPress = () => { if (pressTimer) clearTimeout(pressTimer); pressTimer = setTimeout(() => { pressing = false; }, 0); };
+    const onPointerDown = () => { if (pressTimer) clearTimeout(pressTimer); pressing = true; hadFocus.current = false; };
     const onFocusIn = (e: FocusEvent) => {
       const inHost = e.target instanceof Node && !!hostRef.current?.contains(e.target);
-      hadFocus.current = inHost;
-      if (inHost && e.relatedTarget instanceof HTMLElement && e.relatedTarget !== document.body && !hostRef.current?.contains(e.relatedTarget)) cameFrom.current = e.relatedTarget;
+      hadFocus.current = inHost && !pressing;
+      if (!inHost) return;
+      // where focus came FROM: cleared when it entered from nowhere, so a stale target is never returned to
+      const from = e.relatedTarget;
+      cameFrom.current = from instanceof HTMLElement && from !== document.body && !hostRef.current?.contains(from) ? from : null;
     };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('click', endPress, true);
+    document.addEventListener('pointercancel', endPress, true);
     document.addEventListener('focusin', onFocusIn);
-    return () => document.removeEventListener('focusin', onFocusIn);
+    return () => {
+      if (pressTimer) clearTimeout(pressTimer);
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('click', endPress, true);
+      document.removeEventListener('pointercancel', endPress, true);
+      document.removeEventListener('focusin', onFocusIn);
+    };
   }, []);
   useLayoutEffect(() => {
     if (!hadFocus.current) return;
@@ -518,7 +565,9 @@ export function ToastProvider({ children }: ToastProviderProps) {
       if (e.key !== 'Escape' || e.defaultPrevented) return;
       const layerOpen = [...document.querySelectorAll('[aria-modal="true"], [data-anchored-popover][role]')].some((n) => !n.closest('[inert], [hidden], [aria-hidden="true"]'));
       if (layerOpen) return;
-      setToasts((prev) => prev.map((t) => (t.exiting ? t : { ...t, exiting: true })));
+      // Only the cards that are SHOWN go: a held card was never seen or announced, and must now take its turn (round 7, Kage N6-1: at 320x256 one Escape left 0 of 4).
+      const shownIds = new Set([...document.querySelectorAll<HTMLElement>('[data-component="Toast"]:not([hidden])')].map((c) => c.dataset.toastId));
+      setToasts((prev) => prev.map((t) => (!t.exiting && shownIds.has(t.id) ? { ...t, exiting: true } : t)));
       setTimeout(() => setToasts((prev) => prev.filter((t) => !t.exiting)), EXIT_DURATION_MS);
     };
     document.addEventListener('keydown', onKeyDown);

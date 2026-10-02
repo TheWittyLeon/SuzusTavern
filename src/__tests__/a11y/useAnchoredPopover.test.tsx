@@ -375,6 +375,26 @@ describe('Escape with focus on the OPENER (Kage round-5 minor)', () => {
     closed();
     expect(later).not.toHaveBeenCalled();
   });
+  it('an Escape something already consumed (defaultPrevented) is not the popover\'s', () => {
+    setup();
+    openA();
+    const opener = screen.getByRole('button', { name: 'Open A' });
+    const e = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    e.preventDefault();
+    act(() => { opener.dispatchEvent(e); });
+    expect(dialog()).toBeInTheDocument();
+  });
+
+  it('the RECORDED opener listens too (opened from B, not the anchor): Escape with focus on B closes it', () => {
+    setup();
+    fireEvent.click(screen.getByRole('button', { name: 'Open B' }));
+    expect(dialog()).toBeInTheDocument();
+    const b = screen.getByRole('button', { name: 'Open B' });
+    act(() => b.focus());
+    fireEvent.keyDown(b, { key: 'Escape' });
+    closed();
+  });
+
   it('other keys on the opener leave it open; with it closed the listener is gone', () => {
     setup();
     openA();
