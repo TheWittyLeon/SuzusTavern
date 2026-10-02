@@ -343,6 +343,11 @@ export type LayoutId = 'story' | 'table' | 'phone';
  * where the page computes it (`hooks/usePlayLayout.ts`).
  */
 export const FACTS = { room: ['board', 'band', 'none'] } as const satisfies Record<string, readonly string[]>;
+/**
+ * The ORDER of `FACTS` is the PRECEDENCE of its facts (Sora's brief K3; Kage A10 Tavern 3): the shell emits each fact's values in this order and the LAST wins a name two
+ * facts both set, whatever order the caller's object lists them in. It runs from what SIZES a thing to what can REMOVE it: `room` first, any `fold:<regionId>` (the
+ * phone mount's fold, reported by the shell itself) last, a `width` fact, if one lands, between. Add a fact at the position its precedence names, not at the end.
+ */
 export type FactId = keyof typeof FACTS;
 export type FactValue<F extends FactId> = (typeof FACTS)[F][number];
 /** What the page reports: a value per fact it has a say about. */
@@ -471,15 +476,21 @@ export function getPlacement(row: LayoutRow, region: RegionId, moment: Moment): 
 /**
  * A10 step 11 S2a: the `--play-*` values a row gives the facts the page reports. The one read site of `LayoutRow.factVars`, beside
  * `getPlacement` and `variantFor`. Throws, naming the row and the fact, on a value outside `FACTS` (a typo must not render as "no values") and
- * on a value the row has no set for. A fact the row has no table for contributes nothing.
+ * on a value the row has no set for. A fact the row has no table for contributes nothing. The facts are applied in `FACTS`' DECLARED order, the last one winning (K3).
  */
-export function factVarsFor(row: LayoutRow, facts: Facts | undefined): PlayVars {
+export function factVarsFor(row: LayoutRow, facts: Facts | undefined, declared: Readonly<Record<string, readonly string[]>> = FACTS): PlayVars {
+  const given = (facts ?? {}) as Readonly<Record<string, string | undefined>>;
+  // A key the vocabulary does not declare is a typo: it throws, naming the row and the fact, whatever its value (it is not "no values").
+  for (const fact of Object.keys(given)) {
+    if (declared[fact] === undefined) throw new Error(`"${fact}" is not a declared fact (row "${row.id}")`);
+  }
   const out: Record<`--play-${string}`, string> = {};
-  for (const [fact, value] of Object.entries(facts ?? {})) {
-    const declared: readonly string[] | undefined = (FACTS as Record<string, readonly string[]>)[fact];
-    if (declared === undefined) throw new Error(`"${fact}" is not a declared fact (row "${row.id}")`);
+  // The vocabulary's declared order, not the caller's object key order: the last declared fact wins (see FACTS). `declared` is a parameter only so the order can be pinned on
+  // a vocabulary with two facts (there is one today).
+  for (const [fact, values] of Object.entries(declared)) {
+    const value = given[fact];
     if (value === undefined) continue;
-    if (!declared.includes(value)) throw new Error(`"${value}" is not a declared value of fact "${fact}" (row "${row.id}")`);
+    if (!values.includes(value)) throw new Error(`"${value}" is not a declared value of fact "${fact}" (row "${row.id}")`);
     const table = (row.factVars as Record<string, Record<string, PlayVars> | undefined> | undefined)?.[fact];
     if (table === undefined) continue;
     const vars = table[value];

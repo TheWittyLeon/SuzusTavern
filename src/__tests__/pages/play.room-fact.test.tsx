@@ -118,6 +118,48 @@ describe('the shell emits a row\'s values for the facts it is told, and refuses 
   });
 });
 
+describe('facts are emitted in the vocabulary\'s DECLARED order, the last winning, whatever order the caller lists them (K3)', () => {
+  // A10 fix round F7 (Kage A10 Tavern 3): with one fact (`room`) the order was inert. This is the row the mount will have: `room` sizes the body and a later `fold` can remove
+  // it. The vocabulary is injected (`declared`): the real FACTS has one entry today, and the pin must run on two.
+  const TWO = { room: ['board', 'band', 'none'], fold: ['open', 'folded'] } as const;
+  const REVERSED = { fold: ['open', 'folded'], room: ['board', 'band', 'none'] } as const;
+  const base = LAYOUT_ROWS.find((r) => r.id === 'story')!;
+  const row = {
+    ...base,
+    factVars: {
+      room: { board: { '--play-body': '238px', '--play-room': 'board' }, band: { '--play-body': '102px' }, none: { '--play-body': '0px' } },
+      fold: { open: {}, folded: { '--play-body': '0px', '--play-fold': 'folded' } },
+    },
+  } as unknown as LayoutRow;
+  const vars = (facts: Record<string, string>, declared: Record<string, readonly string[]>) => factVarsFor(row, facts as unknown as Facts, declared);
+
+  it('a fact declared LATER wins a name both set, whichever key the caller lists first', () => {
+    expect(vars({ room: 'board', fold: 'folded' }, TWO)['--play-body']).toBe('0px');
+    expect(vars({ fold: 'folded', room: 'board' }, TWO)['--play-body']).toBe('0px');
+    // names only one fact sets are kept from both
+    expect(vars({ fold: 'folded', room: 'board' }, TWO)).toEqual({ '--play-body': '0px', '--play-room': 'board', '--play-fold': 'folded' });
+  });
+
+  it('and with the vocabulary the other way round the OTHER wins: the order is the vocabulary\'s, nothing else', () => {
+    expect(vars({ room: 'board', fold: 'folded' }, REVERSED)['--play-body']).toBe('238px');
+    expect(vars({ fold: 'folded', room: 'board' }, REVERSED)['--play-body']).toBe('238px');
+  });
+
+  it('a fold that is open adds nothing: the room\'s size stands', () => {
+    expect(vars({ fold: 'open', room: 'board' }, TWO)['--play-body']).toBe('238px');
+  });
+
+  it('an undeclared key in the caller\'s object still throws (even with no value), and an unknown value still throws, with two facts declared', () => {
+    expect(() => vars({ room: 'board', weather: 'rain' }, TWO)).toThrow(/"weather" is not a declared fact \(row "story"\)/);
+    expect(() => factVarsFor(row, { weather: undefined } as unknown as Facts, TWO)).toThrow(/"weather" is not a declared fact/);
+    expect(() => vars({ fold: 'half', room: 'board' }, TWO)).toThrow(/"half" is not a declared value of fact "fold"/);
+  });
+
+  it('the real vocabulary\'s first fact is `room`: what sizes a thing comes first (anything that can remove it is declared after it)', () => {
+    expect(Object.keys(FACTS)[0]).toBe('room');
+  });
+});
+
 describe('the real page reports the room it computed to the shell', () => {
   const SESSION: Session = {
     session_id: 's1', channel: 'everfree_flight_channel', name: 'Test Table', status: 'active', dm_username: 'suzu',
