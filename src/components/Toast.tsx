@@ -213,25 +213,39 @@ interface ToastViewportProps {
 /**
  * Where the toast host stands (A9d-2 fix round 4, Kage C-1: it sat bottom-right on the X-card at EVERY desktop width, and the card, `pointer-events:
  * auto`, took the X-card's tap; round 2 had moved it off the safety block with a width query that never reached the desktop). Placed by EXCLUSION, on
- * every layout, from marks the page puts on its own elements: `data-toast-avoid` = what a toast must NEVER cover (the safety block, the raised safety
- * banner, the composer: Send and the textarea), `data-toast-clear` = what it should keep clear when it can (the header, party band and scene strip).
- * Candidates: the bottom edge, the top edge, and the top directly UNDER each mark (the lowest first), while the whole stack fits on the screen. Each is
- * written, measured (its own box), and ranked by what it covers, in this order: the never-cover marks first, the clear marks second, then the earlier
- * candidate. RANKED, not summed or first-fit: a candidate that touches a never-cover mark always loses to one that does not, however much more it
- * covers elsewhere (round 5, Kage N-1: marking the banner alone would have made the smallest-area fallback prefer the composer and the X-card block, 13,362
- * px2, to the banner, 26,400 px2). A layout that moves a control (or a new row) needs no code here, only the marks. `pointer-events` alone is not the
- * fix: the button has to stay VISIBLE and a focused control must not be obscured (WCAG 2.4.11). `data-placement` and `--toast-top` are what
- * Toast.module.css reads.
+ * every layout, never by a width: the host writes a candidate, measures its own box, and ranks what it covers, tier by tier (lexicographic, so a
+ * higher tier always outweighs any amount of a lower one):
+ *   1. NEVER-cover marks (`data-toast-avoid`): the safety block, the raised safety banner, the composer (Send, the textarea). Round 5, Kage N-1: with
+ *      the banner unmarked the top edge sat on its Dismiss, and marking it alone would have made a smallest-AREA fallback prefer the composer and the
+ *      X-card block (13,362 px2) to the banner (26,400 px2). Ranked, never summed.
+ *   2. Every other focusable CONTROL on screen (WCAG 2.4.11, Iro round-5 MAJOR-2: the dice tray, the header controls, the sheet toggle, party tiles).
+ *      Found by what they are, not marked: a new region needs no edit here.
+ *   3. The page's CLEAR marks (`data-toast-clear`: the header, party band and scene strip), then the earlier candidate.
+ * Candidates: the bottom edge, the top edge, the line under each mark, then, while the best still covers something, the line under each thing it
+ * covers (up to FOUR rounds of sliding down past what is in the way). All only while the whole stack fits on the screen. Short screens (a 400%
+ * zoom) have no free band: the least bad is kept. `pointer-events` alone is not the fix: the button has to stay VISIBLE. `data-placement` and
+ * `--toast-top` are what Toast.module.css reads. The search runs when the layout it reads CHANGED (a signature of the boxes), not on every mutation.
  */
-// debt: the candidates are the two edges and the line under each mark, not a search for a free rectangle. ceiling: Table at 1440x900 and 1024x768 has no free band wide enough, so the host takes the top edge over the Character sheet's heading and toggle (it covers no never-cover mark). until: the stage gets a notification lane, or a toast must stand clear of every focusable control (then rank by overlap with them too: Backlog, toast placement revisited).
+// debt: the candidates are the two edges and the line under each thing in the way (at most four rounds), not a search for a free rectangle. ceiling: a screen whose only free band is beside a control (a narrow gap in a wide row) is not found; Table at 320x256 has no free band at all and keeps the least bad. until: the stage gets a notification lane (a place no toast needs to find).
 const TOAST_GAP_PX = 8;
+const SLIDE_ROUNDS = 4;
 const AVOID = '[data-toast-avoid]';
 const CLEAR = '[data-toast-clear]';
+const CONTROLS =
+  'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), summary, [role="button"], [role="menuitem"]';
 
 type Placement = { placement: 'bottom' | 'top'; top: number };
 
 const boxes = (selector: string) =>
   [...document.querySelectorAll(selector)].map((n) => n.getBoundingClientRect()).filter((r) => r.width > 0 && r.height > 0);
+
+/** Controls on screen the host is not part of (not inert, hidden, or a 1px sr-only name). */
+function controlBoxes(host: HTMLElement): DOMRect[] {
+  return [...document.querySelectorAll(CONTROLS)]
+    .filter((n) => !host.contains(n) && !n.closest('[inert], [hidden], [aria-hidden="true"]'))
+    .map((n) => n.getBoundingClientRect())
+    .filter((r) => r.width >= 4 && r.height >= 4 && r.bottom > 0 && r.top < window.innerHeight && r.right > 0 && r.left < window.innerWidth);
+}
 
 const overlapArea = (a: DOMRect, b: DOMRect) =>
   Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
@@ -244,11 +258,14 @@ function cheaper(a: number[], b: number[]): boolean {
   return false;
 }
 
+const sig = (rs: DOMRect[]) => rs.map((r) => `${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.right)},${Math.round(r.bottom)}`).join(';');
+
 function useToastPlacement(ref: RefObject<HTMLDivElement | null>, active: boolean) {
   useLayoutEffect(() => {
     const el = ref.current;
     if (!active || !el) return;
     let raf = 0;
+    let lastSig = '';
     const apply = (c: Placement) => {
       el.setAttribute('data-placement', c.placement);
       el.style.setProperty('--toast-top', `${Math.round(c.top)}px`);
@@ -257,23 +274,36 @@ function useToastPlacement(ref: RefObject<HTMLDivElement | null>, active: boolea
       raf = 0;
       const avoid = boxes(AVOID);
       const clear = boxes(CLEAR);
-      const candidates: Placement[] = [{ placement: 'bottom', top: 0 }];
-      // Under each mark (the lowest first), only while the whole stack then fits on the screen; the top edge last.
-      const unders = [...new Set([...avoid, ...clear].map((r) => Math.round(r.bottom)))]
-        .filter((y) => y > 0 && y + TOAST_GAP_PX + el.offsetHeight <= window.innerHeight)
-        .sort((x, y) => y - x);
-      for (const y of unders) candidates.push({ placement: 'top', top: y });
-      candidates.push({ placement: 'top', top: 0 });
-      let best = candidates[0];
-      let bestCost: number[] | null = null;
-      for (const c of candidates) {
+      const controls = controlBoxes(el);
+      // Nothing the placement reads has moved (and the stack is the same size): the answer stands.
+      const signature = `${el.offsetHeight}|${window.innerWidth}x${window.innerHeight}|${sig(avoid)}|${sig(controls)}|${sig(clear)}`;
+      if (signature === lastSig) return;
+      lastSig = signature;
+      const seen = new Set<string>();
+      const results: { c: Placement; cost: number[]; host: DOMRect }[] = [];
+      const fits = (y: number) => y + TOAST_GAP_PX + el.offsetHeight <= window.innerHeight;
+      const evaluate = (c: Placement) => {
+        const key = `${c.placement}/${Math.round(c.top)}`;
+        if (seen.has(key)) return;
+        seen.add(key);
         apply(c);
         const host = el.getBoundingClientRect();
-        const cost = [avoid, clear].map((marks) => marks.reduce((sum, r) => sum + overlapArea(host, r), 0));
-        if (bestCost === null || cheaper(cost, bestCost)) { best = c; bestCost = cost; }
-        if (cost.every((x) => x <= 0.5)) break;
+        results.push({ c, host, cost: [avoid, controls, clear].map((marks) => marks.reduce((sum, r) => sum + overlapArea(host, r), 0)) });
+      };
+      const bestOf = () => results.reduce((a, b) => (cheaper(b.cost, a.cost) ? b : a));
+      evaluate({ placement: 'bottom', top: 0 });
+      [...new Set([...avoid, ...clear].map((r) => Math.round(r.bottom)))].filter((y) => y > 0 && fits(y)).sort((x, y) => y - x).forEach((y) => evaluate({ placement: 'top', top: y }));
+      evaluate({ placement: 'top', top: 0 });
+      // While the best still covers something, slide down past each thing it covers, and rank the new places with the rest.
+      for (let round = 0; round < SLIDE_ROUNDS; round++) {
+        const best = bestOf();
+        if (best.cost.every((x) => x <= 0.5)) break;
+        const before = results.length;
+        [...new Set([...avoid, ...controls, ...clear].filter((r) => overlapArea(best.host, r) > 0.5).map((r) => Math.round(r.bottom)))]
+          .filter(fits).sort((x, y) => y - x).slice(0, 8).forEach((y) => evaluate({ placement: 'top', top: y }));
+        if (results.length === before) break;
       }
-      apply(best);
+      apply(bestOf().c);
       // The marks can appear after the first placement (a region mounting late): watch whatever is there now. Observing a node twice is a no-op.
       document.querySelectorAll(`${AVOID}, ${CLEAR}`).forEach((n) => ro?.observe(n));
     };
@@ -282,12 +312,13 @@ function useToastPlacement(ref: RefObject<HTMLDivElement | null>, active: boolea
     };
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(queue) : null;
     ro?.observe(el);
-    // A mark that mounts, unmounts or is pushed by a sibling's growth changes no size of its own and fires no resize: the page's markup is the
-    // signal. The host's own writes (its placement, its cards) are not.
+    // A mark or a control that mounts, unmounts or is pushed by a sibling's growth changes no size of its own and fires no resize: the page's markup is the
+    // signal (nodes and attributes; not text, which moves a box only by resizing it, and a resize is seen above). The host's own writes are not. A mutation
+    // costs one rAF and a few rect reads; the SEARCH runs only when the signature of the boxes changed.
     const mo = typeof MutationObserver !== 'undefined'
       ? new MutationObserver((records) => { if (records.some((r) => !el.contains(r.target))) queue(); })
       : null;
-    mo?.observe(document.body, { childList: true, subtree: true, attributes: true, characterData: true });
+    mo?.observe(document.body, { childList: true, subtree: true, attributes: true });
     place();
     window.addEventListener('scroll', queue, true);
     window.addEventListener('resize', queue);
@@ -357,6 +388,23 @@ export function ToastProvider({ children }: ToastProviderProps) {
     },
     [],
   );
+
+  // Escape dismisses the toasts (Iro round-5 MAJOR-2, WCAG 2.4.11: content that can cover a focused control must be dismissible without moving the pointer or
+  // focus). The INNERMOST layer first: Escape that a popover or dialog consumed never reaches here (they stop it), and while a popover or a modal is open the
+  // key is theirs, so the toast waits for the next one.
+  const showing = toasts.some((t) => !t.exiting);
+  useEffect(() => {
+    if (!showing) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      const layerOpen = [...document.querySelectorAll('[aria-modal="true"], [data-anchored-popover][role]')].some((n) => !n.closest('[inert], [hidden], [aria-hidden="true"]'));
+      if (layerOpen) return;
+      setToasts((prev) => prev.map((t) => (t.exiting ? t : { ...t, exiting: true })));
+      setTimeout(() => setToasts((prev) => prev.filter((t) => !t.exiting)), EXIT_DURATION_MS);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [showing]);
 
   const value: ToastContextValue = { toast, dismiss };
 

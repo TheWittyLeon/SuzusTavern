@@ -27,7 +27,7 @@ const domRect = ([left, top, right, bottom]: Box) => ({ left, top, right, bottom
  * own box is computed from the placement the code asked for, the way the stylesheet would place it: bottom = 24px above the screen's bottom, top =
  * `--toast-top` + 8px below the screen's top. Nothing in this harness knows a width: a phone and a desktop differ only by their boxes.
  */
-function open({ clear = [] as Box[], avoid = [] as Box[], width = 390, height = 844, stack = 103 } = {}) {
+function open({ clear = [] as Box[], avoid = [] as Box[], controls = [] as Box[], width = 390, height = 844, stack = 103 } = {}) {
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
   Object.defineProperty(window, 'innerHeight', { configurable: true, value: height });
   const left = Math.max(12, width - 400 - 24);
@@ -50,6 +50,7 @@ function open({ clear = [] as Box[], avoid = [] as Box[], width = 390, height = 
     <ToastProvider>
       {clear.map((b, i) => <div key={`c${i}`} data-toast-clear="" data-box={b.join(',')} />)}
       {avoid.map((b, i) => <div key={`a${i}`} data-toast-avoid="" data-box={b.join(',')} />)}
+      {controls.map((b, i) => <button key={`k${i}`} type="button" data-box={b.join(',')}>c{i}</button>)}
       <Fire />
     </ToastProvider>,
   );
@@ -132,6 +133,49 @@ describe('Toast host placement (data-placement, --toast-top)', () => {
     expect(Number.parseFloat(top())).toBe(90);
   });
 
+  // Iro round-5 MAJOR-2 (WCAG 2.4.11): tier 2 is every focusable control on screen, found by what it is (no mark to maintain).
+  it('a focusable control under the bottom place (the dice tray) moves the host: tier 2 outranks the earlier candidate', () => {
+    const { placement, top } = open({ controls: [[200, 700, 390, 800]] });
+    expect(placement()).toBe('top');
+    expect(top()).toBe('0px');
+  });
+
+  it('SLIDING: the best place still covers a control (the top edge), so the host slides down past it to the line under it, and takes that over the bottom (a never-cover mark)', () => {
+    const { placement, top } = open({ stack: 100, controls: [[0, 0, 390, 200]], avoid: [[0, 600, 390, 844]] });
+    expect(placement()).toBe('top');
+    expect(top()).toBe('200px');
+  });
+
+  it('a control inside the host (its own Dismiss) and a 1px sr-only name are not in the way', () => {
+    const { placement } = open({ controls: [[0, 700, 2, 702]] });
+    expect(placement()).toBe('bottom');
+  });
+
+  // Kage round-4 suggestion, Iro MINOR-4: the page's markup is the signal that a mark moved (no resize fires): a mark that MOUNTS under a placed host moves it.
+  it('a never-cover mark that mounts AFTER the host was placed re-places it (the MutationObserver is the only thing that sees it)', async () => {
+    const { placement, host } = open();
+    expect(placement()).toBe('bottom');
+    const late = document.createElement('div');
+    late.setAttribute('data-toast-avoid', '');
+    late.setAttribute('data-box', '0,700,390,844');
+    document.body.appendChild(late);
+    await act(async () => { await Promise.resolve(); });
+    act(() => { jest.advanceTimersByTime(50); });
+    expect(host.getAttribute('data-placement')).toBe('top');
+    late.remove();
+  });
+
+  it('a mutation INSIDE the host (its own cards) does not re-place it', async () => {
+    const { host } = open();
+    const spy = jest.spyOn(host, 'setAttribute');
+    spy.mockClear();
+    const extra = document.createElement('span');
+    host.appendChild(extra);
+    await act(async () => { await Promise.resolve(); });
+    act(() => { jest.advanceTimersByTime(50); });
+    expect(spy).not.toHaveBeenCalled();
+  });
+
   it('the placement is dropped with the last toast (nothing is left on the host)', () => {
     const { host } = open({ clear: [[0, 0, 390, 224]], avoid: [[0, 700, 390, 844]] });
     expect(host.getAttribute('data-placement')).toBe('top');
@@ -164,6 +208,66 @@ describe('Toast.module.css: the placements', () => {
     const block = css.slice(at, css.indexOf('\n}\n', at));
     expect(block).toMatch(/\.toast\s*\{[^}]*padding:\s*var\(--space-6\)/);
     expect(block).toMatch(/\.toast\s*\{[^}]*gap:\s*var\(--space-6\)/);
+  });
+});
+
+describe('Toast.module.css: the host never transitions (Kage round-4 suggestion)', () => {
+  it('.viewport carries transition-property: none: placement is MEASURED right after it is written, and under reduced motion the global 0.01ms transition makes the first read after a style write the OLD value', () => {
+    const css = stripComments(read('src/components/Toast.module.css'));
+    const rule = css.slice(css.indexOf('.viewport {'), css.indexOf('\n}\n', css.indexOf('.viewport {')));
+    expect(rule).toMatch(/transition-property:\s*none/);
+  });
+});
+
+describe('Escape dismisses the toast, innermost layer first (Iro round-5 MAJOR-2)', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => { act(() => { jest.runAllTimers(); }); jest.useRealTimers(); jest.restoreAllMocks(); });
+  const shown = () => document.querySelectorAll('[data-component="Toast"]').length;
+  const press = (init: KeyboardEventInit = {}) => act(() => {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true, ...init }));
+    jest.advanceTimersByTime(300);
+  });
+
+  it('Escape with nothing else open dismisses every toast', () => {
+    open();
+    expect(shown()).toBe(1);
+    press();
+    expect(shown()).toBe(0);
+  });
+
+  it('other keys do nothing; an Escape something already consumed (defaultPrevented) does nothing', () => {
+    open();
+    press({ key: 'Enter' });
+    expect(shown()).toBe(1);
+    const e = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    e.preventDefault();
+    act(() => { document.dispatchEvent(e); jest.advanceTimersByTime(300); });
+    expect(shown()).toBe(1);
+  });
+
+  it.each([
+    ['an open anchored popover', '<div data-anchored-popover role="dialog"></div>'],
+    ['an open modal dialog', '<div role="dialog" aria-modal="true"></div>'],
+  ])('with %s, the first Escape is the layer\'s: the toast stays; once it is gone the next dismisses the toast', (_n, html) => {
+    open();
+    const layer = document.createElement('div');
+    layer.innerHTML = html;
+    document.body.appendChild(layer);
+    press();
+    expect(shown()).toBe(1);
+    layer.remove();
+    press();
+    expect(shown()).toBe(0);
+  });
+
+  it('a closed (display: none, role dropped) popover and an inert modal are not layers', () => {
+    open();
+    const layer = document.createElement('div');
+    layer.innerHTML = '<div data-anchored-popover></div><div inert><div role="dialog" aria-modal="true"></div></div>';
+    document.body.appendChild(layer);
+    press();
+    expect(shown()).toBe(0);
+    layer.remove();
   });
 });
 
