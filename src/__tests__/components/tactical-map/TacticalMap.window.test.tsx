@@ -1191,3 +1191,42 @@ describe('TacticalMap — P2: the grid\'s label states the board, with its total
     expect(container.querySelectorAll('[role="gridcell"]')).toHaveLength(91);
   });
 });
+
+describe('TacticalMap — P2: the window pans natively (touch-action, overscroll) and is a toast avoid mark', () => {
+  // MECHANISM ONLY: jsdom has no touch, no scrolling and no history swipe. These pin the declarations; what a finger does with them is the harness's `board-pan` leg and
+  // brief section 14 items 8, 9 and 14 on a device.
+  it('touch-action on the window is pan-x pan-y pinch-zoom: a finger pans it, a pinch zooms the page, no double-tap zoom is lost to a custom gesture', () => {
+    expect(hasDecl(ruleBody('boardScroll'), 'touch-action', /pan-x pan-y pinch-zoom/)).toBe(true);
+  });
+
+  it('the squares keep touch-action: manipulation (it is what takes the double-tap zoom off them; it sits under the window\'s pan-x pan-y)', () => {
+    expect(hasDecl(ruleBody('cell'), 'touch-action', /manipulation/)).toBe(true);
+  });
+
+  it('overscroll-behavior-x is contain, and the vertical axis is NOT contained: a short phone\'s page must be reachable from a swipe that starts on the board', () => {
+    const win = ruleBody('boardScroll');
+    expect(hasDecl(win, 'overscroll-behavior-x', /contain/)).toBe(true);
+    expect(win).not.toMatch(/overscroll-behavior\s*:/); // the shorthand would contain both axes
+    expect(win).not.toMatch(/overscroll-behavior-y/);
+  });
+
+  it('the window carries the toast avoid mark, once, on the window and not on the wrapper or the grid', () => {
+    const { container } = render(<TacticalMap {...baseProps({ participants: [makeParticipant({ at: [1, 1], movement_remaining: 10 })] })} />);
+    const marked = container.querySelectorAll('[data-toast-avoid]');
+    expect(marked).toHaveLength(1);
+    expect(marked[0]).toBe(container.querySelector('[data-board-window]'));
+  });
+
+  it('the mark is on the window of every board, however the room is arranged (it is the map\'s, not a row\'s): with and without a move engaged, with a reach shown', () => {
+    for (const o of [{}, { moveMode: true }, { showReach: true }] as Partial<TacticalMapProps>[]) {
+      const { container, unmount } = render(<TacticalMap {...baseProps({ participants: [makeParticipant({ at: [1, 1], movement_remaining: 10 })], ...o })} />);
+      expect(container.querySelector('[data-board-window]')).toHaveAttribute('data-toast-avoid');
+      unmount();
+    }
+  });
+
+  it('the theatre-of-mind band (no board) is not a window and carries no mark', () => {
+    const { container } = render(<TacticalMap {...baseProps({ space: null, participants: [makeParticipant()] })} />);
+    expect(container.querySelector('[data-toast-avoid]')).toBeNull();
+  });
+});

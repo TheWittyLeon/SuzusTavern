@@ -669,6 +669,8 @@ export default function TacticalMap({
         className={styles.boardScroll}
         ref={boardScrollRef}
         data-board-window=""
+        // The toast must not land on the board: the shell keeps its notices off every element that carries this mark (the safety block and the composer carry it too).
+        data-toast-avoid=""
         style={{ ['--tm-cols' as string]: space.width, ['--tm-rows' as string]: space.height, maxWidth: cap.w ?? undefined, maxHeight: cap.h ?? undefined }}
       >
         <div

@@ -103,6 +103,13 @@
   background-size: 100% 24px, 100% 24px, 24px 100%, 24px 100%, 100% 12px, 100% 12px, 12px 100%, 12px 100%;
   background-repeat: no-repeat;
   background-attachment: local, local, local, local, scroll, scroll, scroll, scroll;
+  /* PAN (B8c-4 P2; Tora-Gesture ruling 3). The window is a native scroller and the one two-way scroll area on the page: a finger pans it with no gesture code of ours, and a
+     pinch still zooms the page. The squares keep `manipulation` (`.cell`), which is what takes the double-tap zoom off them.
+     SIDEWAYS CHAINING STOPS HERE: `contain` on x has nothing to chain to and is what keeps Chromium's history swipe from firing off a board pan. Vertical chaining is left at its
+     default ON PURPOSE: a short phone's page scrolls, and a finger that starts on the board must be able to carry on to the page at the board's end. Do not "complete" this to
+     `overscroll-behavior: contain`. */
+  touch-action: pan-x pan-y pinch-zoom;
+  overscroll-behavior-x: contain;
 }
 
 .board {
