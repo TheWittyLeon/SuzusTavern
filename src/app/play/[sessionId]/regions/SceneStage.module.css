@@ -97,4 +97,20 @@
   .round {
     display: none;
   }
+
+  /* ...and the status WRAPS rather than being cut (A9d-2 fix round 2, Iro Minor-3, Tora MINOR-5). "All enemies are down." is 145px in a 136px box:
+     Chromium ellipsised it, WebKit cut it mid-word ("All enemies are do"), and it is the only visible reason Wrap up appears. The status is a live
+     region and was always announced in full; this is the sighted player's half. These cells (a 400% zoom) page-scroll anyway, so a second line
+     costs no fit; the harness's o:statusText (no painted status has scrollWidth > clientWidth) and o:strip (the 75px ceiling) judge it. */
+  .strip .note {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  /* The status's icon is decoration (`aria-hidden`) and costs 17px of a 136px box: without it "All enemies are down." (128px) is ONE line, so the
+     strip stays the one row the 75px ceiling is for (wrapped to two lines at 320x256 it measured 77px). */
+  .strip .note svg {
+    display: none !important; /* Icon sets `display: block` inline, and an inline style beats a selector */
+  }
 }
