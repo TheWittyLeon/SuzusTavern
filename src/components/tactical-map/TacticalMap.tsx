@@ -464,14 +464,17 @@ export default function TacticalMap({
     };
   }
 
+  // The destination while choosing a move, and whether it is a legal one: computed ONCE, here, and read by the scene line, the ring and the cost tag alike (a second
+  // call with its own occupancy could say "Move to…" on a square whose name says "Occupied").
+  const destinationCoord = moveMode ? (hoverCoord ?? focusedCoord) : null;
+  const destinationLegal = usable && destinationCoord && activeAt ? isLegalMoveTarget(space, activeAt, destinationCoord, activeMovementRemaining, occupiedByOthers) : false;
+
   // The scene line's content (see `onInspect`): computed here, before the usability seam, so the effect below is unconditional.
   let inspect: InspectLine | null = null;
-  if (isSpaceUsable(space)) {
-    const target = moveMode ? (hoverCoord ?? focusedCoord) : null;
-    if (target) {
-      const { input } = describeSquare(space, target);
-      const legal = activeAt ? isLegalMoveTarget(space, activeAt, target, activeMovementRemaining, occupiedByOthers) : false;
-      inspect = { kind: 'target', input, legal, ...(legal && activeAt ? { costFt: chebyshevCost(space, activeAt, target), budgetFt: activeMovementRemaining } : {}) };
+  if (usable) {
+    if (destinationCoord) {
+      const { input } = describeSquare(space, destinationCoord);
+      inspect = { kind: 'target', input, legal: destinationLegal, ...(destinationLegal && activeAt ? { costFt: chebyshevCost(space, activeAt, destinationCoord), budgetFt: activeMovementRemaining } : {}) };
     } else if (chosenCoord) {
       const { input } = describeSquare(space, chosenCoord);
       if (input.occupant || input.featureLabel) inspect = { kind: 'cell', input };
@@ -512,12 +515,6 @@ export default function TacticalMap({
     if (participants.length === 0) return null;
     return <TheatreOfMindBand participants={participants} className={className} />;
   }
-
-  const destinationCoord = moveMode ? (hoverCoord ?? focusedCoord) : null;
-  const destinationLegal =
-    destinationCoord && activeAt
-      ? isLegalMoveTarget(space, activeAt, destinationCoord, activeMovementRemaining, occupiedByOthers)
-      : false;
 
   function attemptMove(to: SpaceCoordinate) {
     // B8c-1 IMP-9b: the one guard both activation paths (click's onClick

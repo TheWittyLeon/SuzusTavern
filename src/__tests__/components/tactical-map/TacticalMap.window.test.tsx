@@ -20,6 +20,7 @@ import '@testing-library/jest-dom';
 import TacticalMap, { type TacticalMapProps } from '@/components/tactical-map/TacticalMap';
 import type { CombatParticipantState, CombatSpace } from '@/lib/api/types';
 import type { InspectLine } from '@/components/tactical-map/a11y';
+import styles from '@/components/tactical-map/TacticalMap.module.css';
 
 function makeSpace(overrides: Partial<CombatSpace> = {}): CombatSpace {
   return { kind: 'square', width: 5, height: 5, cell: { value: 5, unit: 'ft' }, blocked: [], features: [], ...overrides };
@@ -411,6 +412,24 @@ describe('TacticalMap — onInspect: the payloads (brief 2.2/2.3) and what drive
     expect(lastOf(onInspect)).toMatchObject({ kind: 'target', legal: false, input: { blocked: true } });
     fireEvent.mouseLeave(screen.getByRole('gridcell', { name: /Row 2, column 2\./ }));
     expect(lastOf(onInspect)).toMatchObject({ kind: 'target', legal: false }); // back to the focused (own) square
+  });
+
+  it('one legality for the line, the ring and the tag: on every square the line says "legal" exactly when the square carries the ring and the tag, and an Occupied square is never offered (T3)', () => {
+    const { onInspect } = mount({ moveMode: true });
+    let offered = 0;
+    let occupied = 0;
+    for (const cell of screen.getAllByRole('gridcell')) {
+      fireEvent.mouseEnter(cell);
+      const line = lastOf(onInspect);
+      expect(line).toMatchObject({ kind: 'target' });
+      const legal = (line as Extract<InspectLine, { kind: 'target' }>).legal;
+      expect(legal).toBe(cell.className.includes(styles.cellDestination));
+      expect(legal).toBe(/\d+ ft/.test(cell.textContent ?? ''));
+      if (/Occupied/.test(cell.getAttribute('aria-label') ?? '')) { occupied++; expect(legal).toBe(false); }
+      if (legal) offered++;
+    }
+    expect(offered).toBeGreaterThan(0); // the control: some square is offered, so the loop can fail for the other reason
+    expect(occupied).toBeGreaterThan(0); // and some square is Occupied, so the other half is exercised
   });
 });
 
