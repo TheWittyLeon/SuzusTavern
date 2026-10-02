@@ -678,7 +678,7 @@ const STORY_ROW: LayoutRow = {
   // (A9d-2; plain cells 224-226 here). The banner (a raised safety row above the stage) is what is left on k,
   // which the harness judges against its own banner floor (100), not an exemption.
   // debt: Story's X-card-raised combat cell (k-story-combat-caster-xcard) is judged against a 100px banner floor, not the 200px target: it measures 118px inner.
-  // ceiling: 118px on a 900px desktop with the X-card banner up, ~3 narration rows; the banner and the stage's two tracks (290px with a board) both stay.
+  // ceiling: 118px on a 900px desktop with the X-card banner up, ~3 narration rows; the banner stays and so does a 7-row board (it yields rows only below 900px tall, down to the log's banner floor: `--play-banner-floor` 178 = 100 + 78, F1).
   // until: Aoi rules the banner-up combat cell (an inline X-card, or the stage giving the banner its rows), Backlog TAV-COMBAT-LOG-FLOOR-200; then raise the harness's banner combat floor to 200.
   // A10 step 11 S2b (Sora's brief 3.2, Amendment F.2): the combat stage is TWO track lines of one area: `max-content` (the scene line, whole) and
   // `minmax(0, var(--play-body, 0px))` (the body: `--play-body` is a count of `--play-cell`s, set by the `room` fact below). The old line was a hand-summed
@@ -806,7 +806,7 @@ const TABLE_ROW: LayoutRow = {
   // b 245.5, i 245.5, monster-turn c 221, and the X-card-raised caster cell j 137.5.
   // The harness combat floor is 210 (A9d-2; plain cells 221-246 here).
   // debt: Table's X-card-raised combat cell (j-combat-caster-xcard) is judged against a 100px banner floor, not the 200px target: it measures 137.5px inner.
-  // ceiling: 137.5px on a 900px desktop with the X-card banner up; the banner and the stage's two tracks (396px with a board) both stay.
+  // ceiling: 137.5px on a 900px desktop with the X-card banner up; the banner stays and so does an 8-row board (it yields rows only below 900px tall, down to the log's banner floor: `--play-banner-floor` 178 = 100 + 78, F1).
   // until: Aoi rules the banner-up combat cell, Backlog TAV-COMBAT-LOG-FLOOR-200; then raise the harness's banner combat floor to 200. (The dice tray left the stage at S1.)
   rows: {
     // The offers track is content-sized (`auto`, as Story's): Table's offers are chips (A10 fix round F3), whole at rest; the 120px cap and its `debt:` are gone.
