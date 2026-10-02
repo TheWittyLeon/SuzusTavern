@@ -12,7 +12,7 @@
 //   - Touch is the browser's touch events, passive: nothing here can cancel a gesture. A pen and a mouse are not "a touch on the window".
 // Time is `Date.now()` and `setTimeout`, so a test controls both with fake timers.
 import { useCallback, useEffect, useMemo, useRef, type RefObject } from 'react';
-import { FOLLOW_SETTLE_MS } from './follow';
+import { FOLLOW_SETTLE_MS, TOUCH_BACKSTOP_MS } from './follow';
 
 export type FollowKind = 'focus' | 'mover';
 const ORDER: FollowKind[] = ['focus', 'mover'];
@@ -26,6 +26,7 @@ export interface FollowGate {
 /** `mounted`: whether the window element is in the tree (it is not for a board the map cannot draw); the listeners attach when it becomes so. */
 export function useFollowGate(windowRef: RefObject<HTMLElement | null>, mounted: boolean): FollowGate {
   const touching = useRef(false);
+  const touchStartAt = useRef(0);
   const lastScrollAt = useRef(Number.NEGATIVE_INFINITY);
   const own = useRef<{ left: number; top: number } | null>(null);
   const pending = useRef(new Map<FollowKind, () => void>());
@@ -34,16 +35,22 @@ export function useFollowGate(windowRef: RefObject<HTMLElement | null>, mounted:
   const flushRef = useRef<() => void>(() => {});
 
   const flush = useCallback(() => {
-    if (pending.current.size === 0 || touching.current) return; // a touch's end flushes again
-    const wait = lastScrollAt.current + FOLLOW_SETTLE_MS - Date.now();
-    if (wait > 0) {
+    if (pending.current.size === 0) return;
+    const wakeIn = (ms: number) => {
       if (timer.current) clearTimeout(timer.current);
       timer.current = setTimeout(() => {
         timer.current = null;
         flushRef.current();
-      }, wait);
-      return;
+      }, ms);
+    };
+    if (touching.current) {
+      // a touch's end flushes again; the BACKSTOP is for the end that never comes (the node under the finger was removed and the browser sends the lift to it, not to the window)
+      const left = touchStartAt.current + TOUCH_BACKSTOP_MS - Date.now();
+      if (left > 0) return wakeIn(left);
+      touching.current = false;
     }
+    const wait = lastScrollAt.current + FOLLOW_SETTLE_MS - Date.now();
+    if (wait > 0) return wakeIn(wait);
     const due = ORDER.map((k) => pending.current.get(k)).filter((r): r is () => void => !!r);
     pending.current.clear();
     due.forEach((run) => run());
@@ -75,6 +82,23 @@ export function useFollowGate(windowRef: RefObject<HTMLElement | null>, mounted:
       touching.current = Array.from((e as TouchEvent).touches ?? []).some((t) => t.target instanceof Node && win.contains(t.target));
       if (!touching.current) flush();
     };
+    // The browser sends a touch's end to the node the touch STARTED on. When a poll removes or moves that node (a token) under a resting finger, the end goes to the detached node and
+    // never reaches the window: so listen on the touch's own target too, until it ends (Tora-Gesture 1a). The 5 s backstop in `flush` covers an end that goes nowhere at all.
+    const onStart = (e: Event) => {
+      own.current = null; // a stale own-scroll mark must not swallow the next user scroll (Tora-Gesture 1b)
+      touchStartAt.current = Date.now();
+      const target = e.target;
+      if (target instanceof Element && target !== win) {
+        const end = (ev: Event) => {
+          target.removeEventListener('touchend', end);
+          target.removeEventListener('touchcancel', end);
+          onTouch(ev);
+        };
+        target.addEventListener('touchend', end, { passive: true });
+        target.addEventListener('touchcancel', end, { passive: true });
+      }
+      onTouch(e);
+    };
     const onScroll = () => {
       const o = own.current;
       if (o && Math.abs(win.scrollLeft - o.left) < 1 && Math.abs(win.scrollTop - o.top) < 1) {
@@ -83,13 +107,13 @@ export function useFollowGate(windowRef: RefObject<HTMLElement | null>, mounted:
       }
       lastScrollAt.current = Date.now();
     };
-    win.addEventListener('touchstart', onTouch, { passive: true });
+    win.addEventListener('touchstart', onStart, { passive: true });
     win.addEventListener('touchend', onTouch, { passive: true });
     win.addEventListener('touchcancel', onTouch, { passive: true });
     win.addEventListener('scroll', onScroll, { passive: true });
     const pendingNow = pending.current;
     return () => {
-      win.removeEventListener('touchstart', onTouch);
+      win.removeEventListener('touchstart', onStart);
       win.removeEventListener('touchend', onTouch);
       win.removeEventListener('touchcancel', onTouch);
       win.removeEventListener('scroll', onScroll);

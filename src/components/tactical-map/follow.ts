@@ -19,6 +19,8 @@ export const FOLLOW_MARGIN_PROPERTY = '--tm-follow-margin';
 export const EDGE_GUARD_PROPERTY = '--tm-edge-guard';
 /** A follow waits for a touch to lift and for this long after the window's last scroll event, then runs once (Tora-Gesture C-1). */
 export const FOLLOW_SETTLE_MS = 150;
+/** A touch that never reports its end (its target was removed under the finger, the browser lost it) releases the follow gate after this long (Tora-Gesture 1a). A real pan keeps the scroll settle busy on its own. */
+export const TOUCH_BACKSTOP_MS = 5000;
 /** A cut row or column that would show fewer pixels than this is not shown: the window ends on the whole one (Aoi-UI's sliver rule). */
 export const SLIVER_MIN_PX = 8;
 

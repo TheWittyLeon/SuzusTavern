@@ -1053,6 +1053,62 @@ describe('TacticalMap — P2: every follow waits while a touch is on the window 
     });
   });
 
+  describe('1a — a touch whose target is removed under the finger does not stick the gate (Tora-Gesture)', () => {
+    const touchOn = (target: Element, type: string, targets: Element[]) => {
+      const e = new Event(type, { bubbles: true });
+      Object.defineProperty(e, 'touches', { value: targets.map((t) => ({ target: t })) });
+      act(() => { target.dispatchEvent(e); });
+    };
+
+    it('finger down on a token, a poll removes the token, the finger lifts (the end goes to the DETACHED node and never bubbles): the next turn follows', () => {
+      const { container, rerender } = render(<TacticalMap {...at('a')} />);
+      const win = layoutP2(container, { left: 0, top: 0 });
+      const token = document.createElement('span'); // stands for the token span inside a cell
+      win.appendChild(token);
+      touchOn(token, 'touchstart', [token]);
+      token.remove();
+      touchOn(token, 'touchend', []); // dispatched on the detached node: the window never hears it
+      rerender(<TacticalMap {...at('c')} />);
+      expect(win.scrollLeft).toBe(80);
+    });
+
+    it('THE CONTROL: with the finger still down on the token the follow waits', () => {
+      const { container, rerender } = render(<TacticalMap {...at('a')} />);
+      const win = layoutP2(container, { left: 0, top: 0 });
+      const token = document.createElement('span');
+      win.appendChild(token);
+      touchOn(token, 'touchstart', [token]);
+      rerender(<TacticalMap {...at('c')} />);
+      expect(win.scrollLeft).toBe(0);
+    });
+
+    it('the 5 s BACKSTOP: a touch that never reports its end releases the gate after 5 s, and not before', () => {
+      const { container, rerender } = render(<TacticalMap {...at('a')} />);
+      const win = layoutP2(container, { left: 0, top: 0 });
+      fireEvent.touchStart(win, { touches });
+      rerender(<TacticalMap {...at('c')} />);
+      act(() => { jest.advanceTimersByTime(4999); });
+      expect(win.scrollLeft).toBe(0);
+      act(() => { jest.advanceTimersByTime(1); });
+      expect(win.scrollLeft).toBe(80);
+    });
+
+    it('1b — a touchstart clears the own-scroll mark: the user\'s scroll that lands on the follow\'s own offset is the user\'s, and holds the next follow', () => {
+      const { container, rerender } = render(<TacticalMap {...at('a')} />);
+      const win = layoutP2(container, { left: 0, top: 0 });
+      rerender(<TacticalMap {...at('c')} />); // the follow writes 80 and marks it its own; the browser raised no scroll event for it
+      expect(win.scrollLeft).toBe(80);
+      fireEvent.touchStart(win, { touches });
+      fireEvent.touchEnd(win, { touches: [] });
+      layoutP2(container, { left: 80, top: 0 }); // the boxes as the browser lays them out at 80
+      fireEvent.scroll(win); // the user's scroll, ending exactly on 80
+      rerender(<TacticalMap {...at('a')} />); // the turn passes back: Aldo at column 0 is out of view
+      expect(win.scrollLeft).toBe(80); // held by the settle
+      act(() => { jest.advanceTimersByTime(150); });
+      expect(win.scrollLeft).toBe(0);
+    });
+  });
+
   it('the touch listeners are passive: nothing here can cancel a gesture', () => {
     const add = jest.spyOn(EventTarget.prototype, 'addEventListener');
     render(<TacticalMap {...at('a')} />);
