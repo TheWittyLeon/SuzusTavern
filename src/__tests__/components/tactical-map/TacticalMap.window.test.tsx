@@ -831,3 +831,112 @@ describe('TacticalMap — P2: the follow margin applies to the map\'s OWN follow
     expect(win.scrollLeft).toBe(40);
   });
 });
+
+describe('TacticalMap — P2: every follow waits while a touch is on the window and for 150 ms after its last scroll event, then runs ONCE (Tora-Gesture C-1)', () => {
+  // `Cal` is two columns past a 5-column window; `Dov` is two rows below a 3-row one.
+  const folk = [
+    makeParticipant({ participant_id: 'a', name: 'Aldo', at: [0, 0], movement_remaining: 30 }),
+    makeParticipant({ participant_id: 'c', name: 'Cal', is_pc: false, at: [6, 0], movement_remaining: 30 }),
+    makeParticipant({ participant_id: 'd', name: 'Dov', is_pc: false, at: [0, 4], movement_remaining: 30 }),
+  ];
+  const at = (active: string, o: Partial<TacticalMapProps> = {}) => baseProps({ space: makeSpace({ width: 10, height: 10 }), participants: folk, viewerParticipantId: 'a', activeParticipantId: active, ...o });
+  /** The window with a counter on every assignment to its offsets. */
+  function counted(container: HTMLElement) {
+    const win = layoutP2(container, { left: 0, top: 0 });
+    const writes: Array<['left' | 'top', number]> = [];
+    let left = 0; let top = 0;
+    Object.defineProperty(win, 'scrollLeft', { configurable: true, get: () => left, set: (v: number) => { left = v; writes.push(['left', v]); } });
+    Object.defineProperty(win, 'scrollTop', { configurable: true, get: () => top, set: (v: number) => { top = v; writes.push(['top', v]); } });
+    return { win, writes };
+  }
+  const touches = [{ identifier: 1, target: document.body, clientX: 5, clientY: 5 }];
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it('with a touch on the window a turn change scrolls nothing; the finger lifting runs it once (a quiet window needs no more wait)', () => {
+    const { container, rerender } = render(<TacticalMap {...at('a')} />);
+    const { win, writes } = counted(container);
+    fireEvent.touchStart(win, { touches });
+    rerender(<TacticalMap {...at('c')} />);
+    act(() => { jest.advanceTimersByTime(1000); });
+    expect(writes).toHaveLength(0);
+    fireEvent.touchEnd(win, { touches: [] });
+    expect(writes.filter(([k]) => k === 'left')).toEqual([['left', 80]]);
+  });
+
+  it('a second finger keeps it held: only the last touch lifting releases it', () => {
+    const { container, rerender } = render(<TacticalMap {...at('a')} />);
+    const { win, writes } = counted(container);
+    fireEvent.touchStart(win, { touches: [...touches, { ...touches[0], identifier: 2 }] });
+    rerender(<TacticalMap {...at('c')} />);
+    fireEvent.touchEnd(win, { touches }); // one finger still down
+    expect(writes).toHaveLength(0);
+    fireEvent.touchCancel(win, { touches: [] });
+    expect(writes.filter(([k]) => k === 'left')).toEqual([['left', 80]]);
+  });
+
+  it('after a scroll event a follow waits 150 ms from it, and a later scroll event moves the wait out; it then runs once', () => {
+    const { container, rerender } = render(<TacticalMap {...at('a')} />);
+    const { win, writes } = counted(container);
+    fireEvent.scroll(win); // the user's own scroll (momentum): the window is busy
+    rerender(<TacticalMap {...at('c')} />);
+    act(() => { jest.advanceTimersByTime(100); });
+    fireEvent.scroll(win); // still moving: 150 ms from THIS one
+    act(() => { jest.advanceTimersByTime(149); });
+    expect(writes).toHaveLength(0);
+    act(() => { jest.advanceTimersByTime(1); });
+    expect(writes.filter(([k]) => k === 'left')).toEqual([['left', 80]]);
+  });
+
+  it('turn changes while it waits collapse to ONE follow, to where the LAST mover is (not a replay of each)', () => {
+    const { container, rerender } = render(<TacticalMap {...at('a')} />);
+    const { win, writes } = counted(container);
+    fireEvent.touchStart(win, { touches });
+    rerender(<TacticalMap {...at('c')} />);
+    rerender(<TacticalMap {...at('d')} />);
+    fireEvent.touchEnd(win, { touches: [] });
+    expect(writes).toEqual([['left', 0], ['top', 80]]); // the one follow writes both axes: left stays 0, top goes to the row-4 square's whole-square offset
+  });
+
+  it('a scroll event the map\'s own follow caused does not hold the next follow off (two follows 100 ms apart would otherwise block each other)', () => {
+    const { container, rerender } = render(<TacticalMap {...at('a')} />);
+    const { win, writes } = counted(container);
+    rerender(<TacticalMap {...at('c')} />);
+    expect(writes.filter(([k]) => k === 'left')).toEqual([['left', 80]]);
+    fireEvent.scroll(win); // the event our assignment raised: same offsets
+    writes.length = 0;
+    rerender(<TacticalMap {...at('d')} />);
+    expect(writes.length).toBeGreaterThan(0); // ran at once, no wait
+  });
+
+  it('THE CONTROL: with no touch and no scroll the follow is immediate (the gate adds nothing to a quiet window)', () => {
+    const { container, rerender } = render(<TacticalMap {...at('a')} />);
+    const { writes } = counted(container);
+    rerender(<TacticalMap {...at('c')} />);
+    expect(writes.filter(([k]) => k === 'left')).toEqual([['left', 80]]);
+  });
+
+  it('an arrow key\'s follow waits too (every follow does); focus itself does not wait', () => {
+    const { container } = render(<TacticalMap {...at('a')} />);
+    const { win, writes } = counted(container);
+    const start = screen.getByRole('gridcell', { name: /Aldo — you/ });
+    act(() => start.focus());
+    for (let i = 0; i < 4; i++) fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'ArrowRight' });
+    fireEvent.touchStart(win, { touches });
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'ArrowRight' }); // column 6: a cut-off square
+    expect(document.activeElement).toBe(screen.getByRole('gridcell', { name: /Row 1, column 6\./ }));
+    expect(writes).toHaveLength(0);
+    fireEvent.touchEnd(win, { touches: [] });
+    expect(writes.length).toBeGreaterThan(0);
+  });
+
+  it('the touch listeners are passive: nothing here can cancel a gesture', () => {
+    const add = jest.spyOn(EventTarget.prototype, 'addEventListener');
+    render(<TacticalMap {...at('a')} />);
+    for (const type of ['touchstart', 'touchend', 'touchcancel', 'scroll']) {
+      const call = add.mock.calls.find((c) => c[0] === type && typeof c[2] === 'object'); // React's own root listeners pass a boolean
+      expect(call?.[2]).toEqual({ passive: true });
+    }
+    add.mockRestore();
+  });
+});

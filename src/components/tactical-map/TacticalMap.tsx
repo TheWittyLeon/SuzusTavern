@@ -75,6 +75,7 @@ import { cellAccessibleName, nextFocusCoord, toDisplayRowCol, type CellNameInput
 import { followScroll, FOLLOW_MARGIN_PROPERTY } from './follow';
 import { worstCondition } from './conditions';
 import { formatConditionName } from '@/lib/conditions';
+import { useFollowGate } from './useFollowGate';
 import TheatreOfMindBand from './TheatreOfMindBand';
 import styles from './TacticalMap.module.css';
 
@@ -305,6 +306,9 @@ export default function TacticalMap({
   const cellRefs = useRef(new Map<string, HTMLDivElement>());
   const boardScrollRef = useRef<HTMLDivElement>(null);
   const boardRef = useRef<HTMLDivElement>(null);
+  // The one seam for 'is there a board to draw' (see the usability comment further down): read ONCE, here, because the follow gate below needs it before the early return.
+  const usable = isSpaceUsable(space);
+  const gate = useFollowGate(boardScrollRef, usable);
 
   const activeParticipant = useMemo(
     () => participants.find((p) => p.participant_id === activeParticipantId),
@@ -407,8 +411,9 @@ export default function TacticalMap({
     if (next) {
       win.scrollLeft = next.left;
       win.scrollTop = next.top;
+      gate.markOwn();
     }
-  }, []);
+  }, [gate]);
 
   // Roving focus follows the arrows EVERYWHERE (B8c-3, brief F-d): in Move mode, and whenever the grid already holds focus. Only the map's OWN focus moves (`key`, `sync`) focus and follow:
   // focus the browser placed (`native`) is recorded and nothing more, or a mousedown on a cut-off square would scroll the board 34 px under the pointer and lose the click (T1). It never runs on mount unless Move is engaged,
@@ -419,27 +424,40 @@ export default function TacticalMap({
     const holdsFocus = !!boardRef.current && boardRef.current.contains(document.activeElement);
     if (!moveMode && !holdsFocus) return;
     if (focus.by === 'native' && holdsFocus) return;
-    const cell = cellRefs.current.get(coordKeyStr(focus.coord));
+    const key = coordKeyStr(focus.coord);
+    const cell = cellRefs.current.get(key);
     if (!cell) return;
     cell.focus({ preventScroll: true });
-    keepInView(cell, focus.by === 'sync' && focus.landed ? ownMargin() : 0);
-    const r = cell.getBoundingClientRect();
-    if (r.bottom < 0 || r.top > window.innerHeight || r.right < 0 || r.left > window.innerWidth) cell.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  }, [focus, moveMode, keepInView, ownMargin]);
+    // Focus is immediate; the scroll waits for a quiet window (useFollowGate) and reads the square again when it runs.
+    gate.request('focus', () => {
+      const c = cellRefs.current.get(key);
+      if (!c) return;
+      keepInView(c, focus.by === 'sync' && focus.landed ? ownMargin() : 0);
+      const r = c.getBoundingClientRect();
+      if (r.bottom < 0 || r.top > window.innerHeight || r.right < 0 || r.left > window.innerWidth) c.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    });
+  }, [focus, moveMode, keepInView, ownMargin, gate]);
 
   // The turn change: the creature whose turn it is is brought into view by the same rule, once per TURN. A turn change never scrolls the page (the window's own offsets only).
   // Keyed on a boolean, a string and the id: a poll hands over a new `space` object every few seconds, and the effect must not run (let alone drag a window the user scrolled
   // by hand back to the token) on anything but a real change. The turn is recorded BEFORE the placement check, so turn a -> an unplaced creature -> a is a new turn for a.
-  const usable = isSpaceUsable(space);
   const lastFollowedRef = useRef<string | null | undefined>(undefined);
+  const latestMoverKey = useRef<string | null>(null);
+  useEffect(() => {
+    latestMoverKey.current = activeAtKey;
+  });
   useEffect(() => {
     if (!usable) return;
     if (lastFollowedRef.current === activeParticipantId) return;
     lastFollowedRef.current = activeParticipantId;
     if (!activeAtKey) return;
-    const cell = cellRefs.current.get(activeAtKey);
-    if (cell) keepInView(cell, ownMargin());
-  }, [usable, activeAtKey, activeParticipantId, keepInView, ownMargin]);
+    // Waits for a quiet window and follows the mover's square AS IT IS THEN (a poll may have moved it meanwhile).
+    gate.request('mover', () => {
+      const key = latestMoverKey.current;
+      const cell = key ? cellRefs.current.get(key) : undefined;
+      if (cell) keepInView(cell, ownMargin());
+    });
+  }, [usable, activeAtKey, activeParticipantId, keepInView, ownMargin, gate]);
 
   // Everything one square says, in ONE place (Kage-CR D1 IMPORTANT-4's "single source of truth"): the cell's accessible name, its token and the scene line all read this.
   // `a11y.ts`'s `cellAccessibleName` and `buildLine` render the same CellNameInput; a fact cannot be in one and not the other.
