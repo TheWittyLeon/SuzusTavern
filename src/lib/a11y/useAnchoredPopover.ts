@@ -280,13 +280,24 @@ export function useAnchoredPopover({
       if (target instanceof Element && target.closest(PASSTHROUGH)) return;
       onClose();
     };
+    // Focus leaving the popover for NOTHING (WebKit's Tab goes to <body>/the browser's own chrome after the last stop; no `focusin` fires there):
+    // `focusout` with no `relatedTarget` while the document still has focus (a window switch is not the user leaving it).
+    const onFocusOut = (e: FocusEvent) => {
+      if (pointer || e.relatedTarget !== null) return;
+      const target = e.target;
+      if (!(target instanceof Node) || !popoverRef.current?.contains(target)) return;
+      if (typeof document.hasFocus === 'function' && !document.hasFocus()) return;
+      onClose();
+    };
     document.addEventListener('pointerdown', onPointerDown, true);
     document.addEventListener('keydown', onKeyDown, true);
     document.addEventListener('focusin', onFocusIn);
+    document.addEventListener('focusout', onFocusOut);
     return () => {
       document.removeEventListener('pointerdown', onPointerDown, true);
       document.removeEventListener('keydown', onKeyDown, true);
       document.removeEventListener('focusin', onFocusIn);
+      document.removeEventListener('focusout', onFocusOut);
     };
   }, [open, onClose, anchorRef, openerRef]);
 

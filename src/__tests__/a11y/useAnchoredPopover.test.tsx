@@ -500,6 +500,24 @@ describe('focus leaving an open popover closes it, without moving focus (Safari\
     expect(verb).toHaveFocus();
   });
 
+  it('focus that leaves for NOTHING (WebKit\'s Tab out of the last stop lands on <body>: no focusin) closes it; a pointer press, or a window that lost focus, does not', () => {
+    setup();
+    openA();
+    const first = document.getElementById('first') as HTMLElement;
+    jest.spyOn(document, 'hasFocus').mockReturnValue(true);
+    act(() => { first.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: null })); });
+    closed();
+    openA();
+    jest.spyOn(document, 'hasFocus').mockReturnValue(false); // the window lost focus: not the user leaving the popover
+    act(() => { (document.getElementById('first') as HTMLElement).dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: null })); });
+    expect(dialog()).toBeInTheDocument();
+    jest.spyOn(document, 'hasFocus').mockReturnValue(true);
+    fireEvent.pointerDown(document.getElementById('first') as HTMLElement);
+    act(() => { (document.getElementById('first') as HTMLElement).dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: null })); });
+    expect(dialog()).toBeInTheDocument();
+    jest.restoreAllMocks();
+  });
+
   it('with it closed the listener is gone: focus anywhere is nobody\'s business', () => {
     setup();
     openA();
