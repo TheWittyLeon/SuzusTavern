@@ -668,6 +668,44 @@ describe('P1-PLAYFIX Ship 2 — stranded focus recovery (CRITICAL-1)', () => {
     await waitFor(() => expect(document.activeElement).toBe(sceneHead));
   });
 
+  // A9d-2 N1 (Kage I-3, Iro Major-3): the same scenario with the rescue's animation frame forced to fire the instant it is asked for,
+  // i.e. BEFORE React commits the update that unmounts the button. The frame-based rescue saw the button still focused, did nothing and
+  // looked no more: focus ended on <body> every time (the production race, which no test inside act() sees because an idle frame clock
+  // puts the frame a full 16ms away). The commit-tied rescue does not use a frame at all, so the order cannot matter.
+  it('forced order (the rescue frame fires before the commit): a resolved check still lands focus on the scene heading', async () => {
+    const raf = jest.spyOn(window, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => {
+      cb(0);
+      return 0;
+    });
+    try {
+      mGetGrounding.mockResolvedValueOnce(GROUNDING_TIMBERWOLF).mockResolvedValue(GROUNDING_FORK);
+      mResolveCheck.mockResolvedValue({
+        skill: 'stealth',
+        dc: 12,
+        total: 15,
+        success: true,
+        flag_set: ['slipped_past_wolf'],
+        mechanics: 'Stealth check vs DC 12: rolled 15 — SUCCESS.',
+        description: 'Stealth check (DC 12): 15 — success.',
+      });
+      const { container } = renderPlay(<PlayPage />);
+      await offerCheck('stealth', 12);
+      const stealthBtn = await screen.findByRole('button', { name: /Attempt Stealth/i });
+      act(() => stealthBtn.focus());
+      expect(stealthBtn).toHaveFocus();
+      await act(async () => {
+        fireEvent.click(stealthBtn);
+      });
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: /Attempt Stealth/i })).not.toBeInTheDocument();
+      });
+      const sceneHead = container.querySelector('[aria-label^="Scene:"]');
+      await waitFor(() => expect(document.activeElement).toBe(sceneHead));
+    } finally {
+      raf.mockRestore();
+    }
+  });
+
   it('moves focus to the scene heading when a taken transition unmounts its own button', async () => {
     mGetGrounding.mockResolvedValueOnce(GROUNDING_FORK).mockResolvedValue(GROUNDING_TIMBERWOLF);
     mAdvanceScene.mockResolvedValue({
