@@ -336,6 +336,20 @@ export type Moment = 'exploring' | 'combat';
 export type LayoutId = 'story' | 'table' | 'phone';
 
 /**
+ * A10 step 11 S2a (Sora's brief 3.2, Amendment F.4) — FACTS: a named value the page reports about what the table holds, which a row answers
+ * with `--play-*` values. `moment` already works this way (`momentVars`); a fact is the same channel for a thing a row cannot know. `room` is
+ * what the encounter gives the stage: a `board` (a usable `space`), a `band` (a fight without one) or `none` (not in a fight). The shell maps
+ * a key to the row's values and learns nothing about what it means; the tenth fact is an entry here, the rows' values for it, and the one line
+ * where the page computes it (`hooks/usePlayLayout.ts`).
+ */
+export const FACTS = { room: ['board', 'band', 'none'] } as const satisfies Record<string, readonly string[]>;
+export type FactId = keyof typeof FACTS;
+export type FactValue<F extends FactId> = (typeof FACTS)[F][number];
+/** What the page reports: a value per fact it has a say about. */
+export type Facts = { [F in FactId]?: FactValue<F> };
+type PlayVars = Readonly<Record<`--play-${string}`, string>>;
+
+/**
  * A9c C4 (Amendment C.1) — the four corners an overlay can anchor to. The
  * shell maps ANY anchor generically (`top|bottom` -> `align-self`,
  * `start|end` -> `justify-self`, through `data-anchor` attribute selectors in
@@ -419,6 +433,12 @@ export interface LayoutRow {
    */
   momentVars?: Partial<Record<Moment, Readonly<Record<`--play-${string}`, string>>>>;
   /**
+   * A10 step 11 S2a (Amendment F.4): the same, per VALUE of a fact the page reports (`FACTS`): fact -> value -> `--play-*` values. Emitted after
+   * `momentVars`. A row that has no entry for a fact is not affected by it (the phone's); a row that has one gives EVERY value of the fact its
+   * set (`Record`, and a registry guard), so a reported value never finds a row with nothing to say.
+   */
+  factVars?: { [F in FactId]?: Readonly<Record<FactValue<F>, PlayVars>> };
+  /**
    * A9d-2 N5 (Amendment E.7; Iro 3, Tora A4): a band that hides content says so. When true, every slot of this row that can scroll
    * (all but the story log, which scrolls by design) paints a bottom-fade cue, ONLY while there is more to scroll. `PlayShell` stamps
    * `data-scroll-cue` on the grid and `Play.module.css` reads it. The phone row sets it (its party band hides the tracker in combat);
@@ -446,6 +466,27 @@ export function getPlacement(row: LayoutRow, region: RegionId, moment: Moment): 
   // TypeError on `undefined`.
   if (!entry) throw new Error(`no placement for "${region}" in row "${row.id}"`);
   return entry[moment] ?? entry.default;
+}
+
+/**
+ * A10 step 11 S2a: the `--play-*` values a row gives the facts the page reports. The one read site of `LayoutRow.factVars`, beside
+ * `getPlacement` and `variantFor`. Throws, naming the row and the fact, on a value outside `FACTS` (a typo must not render as "no values") and
+ * on a value the row has no set for. A fact the row has no table for contributes nothing.
+ */
+export function factVarsFor(row: LayoutRow, facts: Facts | undefined): PlayVars {
+  const out: Record<`--play-${string}`, string> = {};
+  for (const [fact, value] of Object.entries(facts ?? {})) {
+    const declared: readonly string[] | undefined = (FACTS as Record<string, readonly string[]>)[fact];
+    if (declared === undefined) throw new Error(`"${fact}" is not a declared fact (row "${row.id}")`);
+    if (value === undefined) continue;
+    if (!declared.includes(value)) throw new Error(`"${value}" is not a declared value of fact "${fact}" (row "${row.id}")`);
+    const table = (row.factVars as Record<string, Record<string, PlayVars> | undefined> | undefined)?.[fact];
+    if (table === undefined) continue;
+    const vars = table[value];
+    if (vars === undefined) throw new Error(`row "${row.id}" has no values for fact "${fact}" = "${value}"`);
+    Object.assign(out, vars);
+  }
+  return out;
 }
 
 /**

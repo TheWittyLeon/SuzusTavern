@@ -83,9 +83,11 @@ import {
   FOLDABLE_REGIONS,
   REGION_TENANTS,
   TENANT_IDS,
+  factVarsFor,
   getPlacement,
   slotOrder,
   type Anchor,
+  type Facts,
   type LayoutRow,
   type Moment,
   type RegionId,
@@ -111,6 +113,9 @@ export interface FoldSpec {
 export interface PlayShellProps {
   row: LayoutRow;
   moment: Moment;
+  /** A10 step 11 S2a (Amendment F.4): the facts the page reports (`room`); the row's `factVars` answer them, emitted after `momentVars`. The
+   *  shell learns nothing about what a fact means. */
+  facts?: Facts;
   /** Built by page.tsx, where the region components' own props/handlers
    *  already live — the shell never imports a region. */
   regions: Partial<Record<RegionId, ReactNode>>;
@@ -175,6 +180,7 @@ const SKIP_TARGETS: Partial<Record<RegionId, { id: string; label: string }>> = {
 export default function PlayShell({
   row,
   moment,
+  facts,
   regions,
   tenants,
   foldSpecs,
@@ -337,6 +343,7 @@ export default function PlayShell({
             '--play-rows': row.rows[moment],
             ...row.vars,
             ...row.momentVars?.[moment],
+            ...factVarsFor(row, facts),
           } as React.CSSProperties
         }
       >
