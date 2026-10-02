@@ -1215,6 +1215,25 @@ describe('TacticalMap — P2: the window re-follows when it gets a box or its WI
     expect(win.scrollTop).toBe(40); // one whole square down: rows 1.. (the fewest)
   });
 
+  it('3 — a height step never undoes a HAND SCROLL: the mover was already out of view under the previous height, so the step follows nothing', () => {
+    const { container } = render(<TacticalMap {...at('e4')} />);
+    const win = layoutP2(container, { left: 0, top: 0 });
+    resized(); // the box: Edge4 (column 4) is wholly in view
+    layoutP2(container, { left: 200, top: 0 }); // the user scrolled right by hand: Edge4 is out of view
+    layoutP2(container, { left: 200, top: 0 }, { width: 200, height: 96 }); // then the bar's 24 px: a pure height step
+    resized();
+    expect(win.scrollLeft).toBe(200);
+  });
+
+  it('3 — THE CONTROL: the same step with the mover wholly in view under the previous height, and cut by the step, follows (the existing cut case, with the previous height measured)', () => {
+    const { container } = render(<TacticalMap {...at('e4')} />);
+    const win = layoutP2(container, { left: 0, top: 0 });
+    resized();
+    layoutP2(container, { left: 0, top: 0 }, { width: 200, height: 60 });
+    resized();
+    expect(win.scrollTop).toBe(40);
+  });
+
   it('a window that LOSES its box while Move is armed calls onExitMove, once; while Move is not armed it calls nothing; gaining a box calls nothing', () => {
     const onExitMove = jest.fn();
     const { container, unmount } = render(<TacticalMap {...at('a', { moveMode: true, onExitMove })} />);
@@ -1239,19 +1258,19 @@ describe('TacticalMap — P2: the window re-follows when it gets a box or its WI
     const held = render(<TacticalMap {...at('c')} />);
     const win = layoutP2(held.container, { left: 0, top: 0 });
     resized(); // the box: the turn the map mounted on is followed now (80)
-    win.scrollLeft = 0; // the window is somewhere else (a fold, a hand scroll): Cal is cut, a re-follow is wanted
-    layoutP2(held.container, { left: 0, top: 0 });
+    win.scrollLeft = 0; // the window is somewhere else
     act(() => screen.getByRole('gridcell', { name: /Aldo — you/ }).focus()); // column 0, in view: the user is on it
+    layoutP2(held.container, { left: 0, top: 0 }, { width: 190, height: 120 }); // the width changes (a rotation): a re-follow, with no turn passing
     resized();
-    expect(win.scrollLeft).toBe(0); // Cal at column 6 needs left 80, which would cut column 0
+    expect(win.scrollLeft).toBe(0); // Cal at column 6 needs left 120, which would cut column 0
     held.unmount();
     const free = render(<TacticalMap {...at('c')} />);
     const win2 = layoutP2(free.container, { left: 0, top: 0 });
     resized();
     win2.scrollLeft = 0;
-    layoutP2(free.container, { left: 0, top: 0 });
+    layoutP2(free.container, { left: 0, top: 0 }, { width: 190, height: 120 });
     resized();
-    expect(win2.scrollLeft).toBe(80);
+    expect(win2.scrollLeft).toBe(120);
   });
 
   it('the re-follow waits for a touch to lift, like every follow', () => {

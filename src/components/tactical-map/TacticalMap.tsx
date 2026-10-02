@@ -528,7 +528,7 @@ export default function TacticalMap({
     setPansX(pans);
   }, [spaceCols, spaceRows]);
 
-  const boxState = useRef({ had: false, width: 0 });
+  const boxState = useRef({ had: false, width: 0, height: 0 });
   const exitOwed = useRef(false);
   useEffect(() => {
     if (moveSubmitting || !exitOwed.current) return;
@@ -540,14 +540,14 @@ export default function TacticalMap({
     const win = boardScrollRef.current;
     const room = wrapRef.current;
     if (!usable || !win || !room || typeof ResizeObserver === 'undefined') return;
-    boxState.current = { had: false, width: 0 };
+    boxState.current = { had: false, width: 0, height: 0 };
     measureRoom();
     const roomObserver = new ResizeObserver(measureRoom);
     roomObserver.observe(room);
     const winObserver = new ResizeObserver(() => {
       const prev = boxState.current;
       const has = hasBox(win);
-      boxState.current = { had: has, width: win.clientWidth };
+      boxState.current = { had: has, width: win.clientWidth, height: win.clientHeight };
       if (!has) {
         // Disarming under an in-flight request can clear the page's own in-flight guard and let a reopen send a second POST, which is why Escape is deaf in that state (`canClose`). So the
         // exit is OWED, not made: it is paid when the submit settles, if the window still has no box THEN (the effect below: a box that came back in the meantime owes nothing).
@@ -560,8 +560,12 @@ export default function TacticalMap({
       measureRoom(); // the same batch as the request below, so one commit carries both
       const moverKey = latest.current.moverKey;
       const mover = moverKey ? cellRefs.current.get(moverKey) : undefined;
-      const moverCut = !!mover && followScroll(windowMetrics(win), boxOf(mover)) !== null;
-      if (!prev.had || win.clientWidth !== prev.width || moverCut) setFollowWanted((n) => n + 1);
+      const metrics = windowMetrics(win);
+      const moverCut = !!mover && followScroll(metrics, boxOf(mover)) !== null;
+      // On a HEIGHT-ONLY step the mover is re-followed only if it was wholly in view under the PREVIOUS height: if it was not, the user scrolled it out of view by hand, and a resize must
+      // never undo a hand scroll (Tora-Gesture rule 3). A box gained or a width change always follows.
+      const wasWhole = !!mover && followScroll({ ...metrics, view: { ...metrics.view, height: prev.height } }, boxOf(mover)) === null;
+      if (!prev.had || win.clientWidth !== prev.width || (moverCut && wasWhole)) setFollowWanted((n) => n + 1);
     });
     winObserver.observe(win);
     // The grid's own box changes when the SQUARE does (a cell-size change with the room and the window unchanged): measure again and follow. Nothing else resizes the grid.
