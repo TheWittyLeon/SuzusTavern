@@ -132,7 +132,8 @@ export default function Composer({
   const pendingRef = useRef(false);
 
   return (
-    <div className={styles.composer} data-region="composer" data-variant={variant}>
+    // `data-toast-avoid`: a toast must never stand over the composer (Send, the textarea); Toast.tsx places its host by these marks.
+    <div className={styles.composer} data-region="composer" data-variant={variant} data-toast-avoid="">
       {/* S5.2: inline error banner — text is preserved in the textarea on error. */}
       {sendError && (
         <div

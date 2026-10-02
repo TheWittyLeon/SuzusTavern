@@ -211,53 +211,78 @@ interface ToastViewportProps {
 }
 
 /**
- * On a phone the toast host sits at the TOP, under every element that carries `data-toast-clear` (A9d-2 fix round 2, Tora MAJOR-1 / Iro MAJOR-2,
- * a safety finding). At the bottom it stacked over the page's last block: the X-card, Send and the textarea, and the card (`pointer-events:
- * auto`) took the X-card's tap for as long as it was up (7s on Chromium: a touch tap pauses the timer). `pointer-events` alone is not the fix:
- * the button has to stay VISIBLE and a focused control must not be obscured (WCAG 2.4.11). The page marks what the host must clear (the /play
- * header, party band and scene strip: the controls above the story log); this reads where they end, so the toast lands over the log's older
- * lines and not over a control. Short screens (a 400% zoom) have no room under them: the host takes the top edge there (and covers the header for the
- * few seconds it is up: there is nowhere on a 256px screen that covers nothing). `--toast-top` is the
- * px the host sits below the top edge; Toast.module.css reads it inside the phone media query only.
+ * Where the toast host stands (A9d-2 fix round 4, Kage C-1: it sat bottom-right on the X-card at EVERY desktop width, and the card, `pointer-events:
+ * auto`, took the X-card's tap; round 2 had moved it off the safety block with a width query that never reached the desktop). Placed by
+ * EXCLUSION, on every layout: the page marks what a toast must never cover (`data-toast-avoid`: the safety block and the composer) and what it should
+ * keep clear when it can (`data-toast-clear`: the header, party band and scene strip, the controls above the story log). The host tries the bottom
+ * edge, then the top under the clear marks (while the whole stack fits on the screen), then the top edge, and keeps the first whose own measured box
+ * overlaps no avoid mark; with none clear it keeps the least overlapped. A layout that moves the X-card (or a new row) needs no code here, only the
+ * marks. `pointer-events` alone is not the fix: the button has to stay VISIBLE and a focused control must not be obscured (WCAG 2.4.11). Short screens
+ * (a 400% zoom) have no room under the marks: the host takes the top edge there. `data-placement` and `--toast-top` are what Toast.module.css reads.
  */
-const PHONE_QUERY = '(max-width: 880px)';
 const TOAST_GAP_PX = 8;
+const AVOID = '[data-toast-avoid]';
+const CLEAR = '[data-toast-clear]';
 
-function useToastClearance(ref: RefObject<HTMLDivElement | null>, active: boolean) {
+type Placement = { placement: 'bottom' | 'top'; top: number };
+
+const boxes = (selector: string) =>
+  [...document.querySelectorAll(selector)].map((n) => n.getBoundingClientRect()).filter((r) => r.width > 0 && r.height > 0);
+
+const overlapArea = (a: DOMRect, b: DOMRect) =>
+  Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+
+function useToastPlacement(ref: RefObject<HTMLDivElement | null>, active: boolean) {
   useLayoutEffect(() => {
     const el = ref.current;
-    if (!active || !el || typeof window.matchMedia !== 'function') return;
-    const mq = window.matchMedia(PHONE_QUERY);
+    if (!active || !el) return;
     let raf = 0;
+    const apply = (c: Placement) => {
+      el.setAttribute('data-placement', c.placement);
+      el.style.setProperty('--toast-top', `${Math.round(c.top)}px`);
+    };
     const place = () => {
       raf = 0;
-      let top = 0;
-      if (mq.matches) {
-        let bottom = 0;
-        document.querySelectorAll('[data-toast-clear]').forEach((n) => {
-          const r = n.getBoundingClientRect();
-          if (r.height > 0 && r.bottom > bottom) bottom = r.bottom;
-        });
-        // Under them only while the whole stack then fits on the screen; on a short one (a 400% zoom, 256px: the header, the party band and the
-        // strip are most of the first screen) it takes the top edge rather than leave the viewport.
-        if (bottom + TOAST_GAP_PX + el.offsetHeight <= window.innerHeight) top = bottom;
+      const clearBottom = Math.max(0, ...boxes(CLEAR).map((r) => r.bottom));
+      const candidates: Placement[] = [{ placement: 'bottom', top: 0 }];
+      // Under the marks only while the whole stack then fits on the screen; on a short one it takes the top edge rather than leave the viewport.
+      if (clearBottom > 0 && clearBottom + TOAST_GAP_PX + el.offsetHeight <= window.innerHeight) candidates.push({ placement: 'top', top: clearBottom });
+      candidates.push({ placement: 'top', top: 0 });
+      const avoid = boxes(AVOID);
+      let best = candidates[0];
+      let bestArea = Infinity;
+      for (const c of candidates) {
+        apply(c);
+        const host = el.getBoundingClientRect();
+        const area = avoid.reduce((sum, r) => sum + overlapArea(host, r), 0);
+        if (area < bestArea) { best = c; bestArea = area; }
+        if (area === 0) break;
       }
-      el.style.setProperty('--toast-top', `${Math.round(top)}px`);
+      apply(best);
+      // The marks can appear after the first placement (a region mounting late): watch whatever is there now. Observing a node twice is a no-op.
+      document.querySelectorAll(`${AVOID}, ${CLEAR}`).forEach((n) => ro?.observe(n));
     };
     const queue = () => {
       if (!raf) raf = requestAnimationFrame(place);
     };
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(queue) : null;
+    ro?.observe(el);
+    // A mark that mounts, unmounts or is pushed by a sibling's growth changes no size of its own and fires no resize: the page's markup is the
+    // signal. The host's own writes (its placement, its cards) are not.
+    const mo = typeof MutationObserver !== 'undefined'
+      ? new MutationObserver((records) => { if (records.some((r) => !el.contains(r.target))) queue(); })
+      : null;
+    mo?.observe(document.body, { childList: true, subtree: true, attributes: true, characterData: true });
     place();
     window.addEventListener('scroll', queue, true);
     window.addEventListener('resize', queue);
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(queue) : null;
-    document.querySelectorAll('[data-toast-clear]').forEach((n) => ro?.observe(n));
-    ro?.observe(el);
     return () => {
       if (raf) cancelAnimationFrame(raf);
       window.removeEventListener('scroll', queue, true);
       window.removeEventListener('resize', queue);
       ro?.disconnect();
+      mo?.disconnect();
+      el.removeAttribute('data-placement');
       el.style.removeProperty('--toast-top');
     };
   }, [ref, active]);
@@ -266,7 +291,7 @@ function useToastClearance(ref: RefObject<HTMLDivElement | null>, active: boolea
 function ToastViewport({ toasts, onDismiss }: ToastViewportProps) {
   const hasError = toasts.some((t) => (t.tone ?? 'info') === 'error');
   const hostRef = useRef<HTMLDivElement>(null);
-  useToastClearance(hostRef, toasts.length > 0);
+  useToastPlacement(hostRef, toasts.length > 0);
 
   return (
     <div

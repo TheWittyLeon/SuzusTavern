@@ -1,32 +1,34 @@
 /* ---- Viewport ---- */
 
+/* WHERE the host stands is decided by Toast.tsx (useToastPlacement), not by a width: it tries the bottom edge, then the top under what the page
+   marks `data-toast-clear`, then the top edge, and keeps the first that does not overlap anything the page marks `data-toast-avoid` (the safety
+   block and the composer). It writes `data-placement` and `--toast-top`; this sheet only says what each placement looks like. Before the first
+   placement (and in a test with no layout) the host is bottom-right. The horizontal extent is the same everywhere: 400px at most, 12-24px
+   from the edge, so a phone's card spans the screen without a media query. */
 .viewport {
+  --toast-edge: clamp(12px, 3vw, 24px);
   position: fixed;
   bottom: 24px;
-  right: 24px;
+  right: var(--toast-edge);
   z-index: 9000;
   display: flex;
   flex-direction: column-reverse;
   gap: var(--density-gap);
   /* Prevent viewport from catching pointer events when empty */
   pointer-events: none;
-  max-width: min(400px, calc(100vw - 48px));
-  width: 100%;
+  width: min(400px, calc(100vw - 2 * var(--toast-edge)));
+  /* No transition on the host, ever. Placement is MEASURED right after it is written (a candidate is kept only if its own box clears the avoid marks),
+     and under prefers-reduced-motion the global `transition-duration: 0.01ms !important` turns every property change into a transition whose first
+     read is still the OLD value: the measurement then judged the previous candidate's box (found at 1024x768 in Table: the host stayed on the
+     composer). `transition-property: none` is not touched by that rule. */
+  transition-property: none;
 }
 
-/* On a phone the host is at the TOP, under what the page marks `data-toast-clear` (Toast.tsx useToastClearance sets --toast-top): never over the
-   safety block, Send or the textarea at the bottom, and never taking the X-card's tap. The breakpoint is the play shell's phone query
-   (PLAY_PHONE_QUERY, 880px). The stack reads top-down, oldest first. */
-@media (max-width: 880px) {
-  .viewport {
-    top: calc(env(safe-area-inset-top, 0px) + var(--toast-top, 0px) + 8px);
-    bottom: auto;
-    left: 12px;
-    right: 12px;
-    width: auto;
-    max-width: none;
-    flex-direction: column;
-  }
+/* The top placement reads top-down, oldest first. `--toast-top` is the px below the top edge the host starts (the lowest marked element's bottom). */
+.viewport[data-placement='top'] {
+  top: calc(env(safe-area-inset-top, 0px) + var(--toast-top, 0px) + 8px);
+  bottom: auto;
+  flex-direction: column;
 }
 
 /* ---- Toast card ---- */
