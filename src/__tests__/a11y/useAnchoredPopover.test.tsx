@@ -402,7 +402,8 @@ describe('revealDelta (pure)', () => {
 });
 
 describe('focus on open is brought inside the popover\'s own box', () => {
-  const rectSpy = jest.spyOn(Element.prototype, 'getBoundingClientRect');
+  let rectSpy: jest.SpyInstance;
+  beforeEach(() => { rectSpy = jest.spyOn(Element.prototype, 'getBoundingClientRect'); });
   afterEach(() => rectSpy.mockRestore());
 
   it('a first control below a clamped popover\'s edge scrolls the BOX to it (the page is not touched)', () => {
@@ -427,6 +428,31 @@ describe('focus on open is brought inside the popover\'s own box', () => {
       delete (HTMLElement.prototype as unknown as Record<string, unknown>).clientHeight;
       delete (Element.prototype as unknown as Record<string, unknown>).scrollIntoView;
     }
+  });
+});
+
+describe('the reveal runs again when the placement has settled (two frames later)', () => {
+  let rectSpy: jest.SpyInstance;
+  beforeEach(() => { rectSpy = jest.spyOn(Element.prototype, 'getBoundingClientRect'); });
+  afterEach(() => { rectSpy.mockRestore(); jest.useRealTimers(); delete (HTMLElement.prototype as unknown as Record<string, unknown>).clientHeight; });
+
+  it('the clamp is STATE, so the first pass sees the unclamped box (the die is inside it); after two frames the box is 94px and the die is out of it: the box scrolls then', () => {
+    jest.useFakeTimers();
+    setup();
+    let clamped = false;
+    const base = rectSpy.getMockImplementation() ?? Element.prototype.getBoundingClientRect;
+    rectSpy.mockImplementation(function (this: Element) {
+      if (this.hasAttribute('data-anchored-popover')) return R({ top: 100, bottom: clamped ? 194 : 500, left: 0, right: 220, width: 220, height: clamped ? 94 : 400 });
+      if (this.id === 'second') return R({ top: 281, bottom: 339, left: 0, right: 100, width: 100, height: 58 });
+      return base.call(this);
+    });
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, get() { return this.hasAttribute('data-anchored-popover') ? (clamped ? 94 : 400) : 0; } });
+    openA();
+    const pop = document.querySelector('[data-anchored-popover]') as HTMLElement;
+    expect(pop.scrollTop).toBe(0); // first pass: inside the unclamped box
+    clamped = true;
+    act(() => { jest.advanceTimersByTime(40); });
+    expect(pop.scrollTop).toBe(145);
   });
 });
 
