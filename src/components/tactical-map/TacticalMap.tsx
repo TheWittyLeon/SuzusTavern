@@ -611,6 +611,13 @@ export default function TacticalMap({
     return <TheatreOfMindBand participants={participants} className={className} />;
   }
 
+  // The grid's label states the BOARD, not the window (Iro-A11y ruling 4): every cell is in the tree and reachable, so "showing 13 of 14" would be a statement about the drawing, false
+  // for a user who can reach the whole board, and it would change with a rotation or a fold. `aria-rowcount` / `aria-colcount` (below) let a screen reader say "row 3 of 7".
+  const count = (n: number, one: string) => `${n} ${n === 1 ? one : `${one}s`}`;
+  const boardLabel = `Battle map, ${count(space.width, 'column')} by ${count(space.height, 'row')}${
+    activeParticipant ? `. ${activeParticipant.name}'s turn${activeParticipant.movement_remaining == null ? '' : `, ${activeMovementRemaining} feet remaining`}` : ''
+  }`;
+
   function attemptMove(to: SpaceCoordinate) {
     // B8c-1 IMP-9b: the one guard both activation paths (click's onClick
     // below, and Enter/Space in handleGridKeyDown) go through — a second
@@ -668,11 +675,9 @@ export default function TacticalMap({
           className={styles.board}
           ref={boardRef}
           role="grid"
-          aria-label={
-            activeParticipant
-              ? `Battle map — ${activeParticipant.name}'s turn${activeParticipant.movement_remaining == null ? '' : `, ${activeMovementRemaining} feet remaining`}`
-              : 'Battle map'
-          }
+          aria-label={boardLabel}
+          aria-rowcount={space.height}
+          aria-colcount={space.width}
           aria-busy={moveSubmitting || undefined}
           onKeyDown={handleGridKeyDown}
           onFocus={() => setGridFocused(true)}

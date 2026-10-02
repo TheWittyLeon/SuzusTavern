@@ -479,15 +479,15 @@ describe('TacticalMap — names: a feature\'s label is on the cell, and the grid
 
   it('with a null budget the grid\'s label says nothing about feet (it said "0 feet remaining")', () => {
     render(<TacticalMap {...baseProps({ participants: [makeParticipant({ name: 'Bren', at: [0, 0], movement_remaining: null })] })} />);
-    expect(screen.getByRole('grid')).toHaveAttribute('aria-label', "Battle map — Bren's turn");
+    expect(screen.getByRole('grid')).toHaveAttribute('aria-label', "Battle map, 5 columns by 5 rows. Bren's turn");
   });
 
   it('with a budget it still says so, and an unplaced mover\'s zero is a zero', () => {
     const { unmount } = render(<TacticalMap {...baseProps({ participants: [makeParticipant({ name: 'Bren', at: [0, 0], movement_remaining: 30 })] })} />);
-    expect(screen.getByRole('grid')).toHaveAttribute('aria-label', "Battle map — Bren's turn, 30 feet remaining");
+    expect(screen.getByRole('grid')).toHaveAttribute('aria-label', "Battle map, 5 columns by 5 rows. Bren's turn, 30 feet remaining");
     unmount();
     render(<TacticalMap {...baseProps({ participants: [makeParticipant({ name: 'Bren', at: [0, 0], movement_remaining: 0 })] })} />);
-    expect(screen.getByRole('grid')).toHaveAttribute('aria-label', "Battle map — Bren's turn, 0 feet remaining");
+    expect(screen.getByRole('grid')).toHaveAttribute('aria-label', "Battle map, 5 columns by 5 rows. Bren's turn, 0 feet remaining");
   });
 });
 
@@ -1151,5 +1151,43 @@ describe('TacticalMap — P2: the sliver rule: a cut row or column under 8 px en
   it('the cut is not a CSS rule: the stylesheet never sets a height on the window by a literal (the cap is the component\'s, from the measured square)', () => {
     expect(hasDecl(ruleBody('boardScroll'), 'max-height')).toBe(false);
     expect(hasDecl(ruleBody('boardScroll'), 'max-width')).toBe(false);
+  });
+});
+
+describe('TacticalMap — P2: the grid\'s label states the board, with its total size; the grid carries aria-rowcount and aria-colcount (Iro-A11y ruling 4)', () => {
+  const walk = (o: Partial<TacticalMapProps> = {}) => baseProps({ space: makeSpace({ width: 13, height: 7 }), participants: [makeParticipant({ name: 'Kestrel Ashwood', at: [0, 0], movement_remaining: 30 })], ...o });
+
+  it('the first board at 390 wide: "13 columns by 7 rows", then the turn and the feet', () => {
+    render(<TacticalMap {...walk()} />);
+    expect(screen.getByRole('grid')).toHaveAttribute('aria-label', "Battle map, 13 columns by 7 rows. Kestrel Ashwood's turn, 30 feet remaining");
+  });
+
+  it('the counts are the board\'s, on the grid: a screen reader says "row 3 of 7"', () => {
+    render(<TacticalMap {...walk()} />);
+    const grid = screen.getByRole('grid');
+    expect(grid).toHaveAttribute('aria-rowcount', '7');
+    expect(grid).toHaveAttribute('aria-colcount', '13');
+  });
+
+  it('it states the BOARD, never the window: no "showing", no "of": the label is the same at every window size', () => {
+    const { container } = render(<TacticalMap {...walk()} />);
+    layoutP2(container, { left: 0, top: 0 }, { width: 120, height: 80 }); // a small window over a 13x7 board
+    expect(screen.getByRole('grid').getAttribute('aria-label')).not.toMatch(/showing|\bof\b/i);
+    expect(screen.getByRole('grid')).toHaveAttribute('aria-label', "Battle map, 13 columns by 7 rows. Kestrel Ashwood's turn, 30 feet remaining");
+  });
+
+  it('with no one up the label is the size alone; one column and one row are singular', () => {
+    const { unmount } = render(<TacticalMap {...walk({ participants: [], activeParticipantId: null })} />);
+    expect(screen.getByRole('grid')).toHaveAttribute('aria-label', 'Battle map, 13 columns by 7 rows');
+    unmount();
+    render(<TacticalMap {...walk({ space: makeSpace({ width: 1, height: 1 }), participants: [], activeParticipantId: null })} />);
+    expect(screen.getByRole('grid')).toHaveAttribute('aria-label', 'Battle map, 1 column by 1 row');
+  });
+
+  it('no row or cell carries an index: every row is in the tree, so the counts are the whole story (aria-rowindex would be a second source of the position)', () => {
+    const { container } = render(<TacticalMap {...walk()} />);
+    expect(container.querySelectorAll('[aria-rowindex],[aria-colindex]')).toHaveLength(0);
+    expect(container.querySelectorAll('[role="row"]')).toHaveLength(7);
+    expect(container.querySelectorAll('[role="gridcell"]')).toHaveLength(91);
   });
 });
