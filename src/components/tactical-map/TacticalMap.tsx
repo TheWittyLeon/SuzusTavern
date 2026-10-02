@@ -433,9 +433,9 @@ export default function TacticalMap({
   }, [applyScroll]);
 
   // What a follow that runs a moment later (the gate, the window's observer) must read as it is THEN, not as it was when it was asked for.
-  const latest = useRef<{ moveMode: boolean; onExitMove: () => void; focusKey: string; moverKey: string | null }>({ moveMode, onExitMove, focusKey: coordKeyStr(focus.coord), moverKey: activeAtKey });
+  const latest = useRef<{ moveMode: boolean; moveSubmitting: boolean; onExitMove: () => void; focusKey: string; moverKey: string | null }>({ moveMode, moveSubmitting, onExitMove, focusKey: coordKeyStr(focus.coord), moverKey: activeAtKey });
   useEffect(() => {
-    latest.current = { moveMode, onExitMove, focusKey: coordKeyStr(focus.coord), moverKey: activeAtKey };
+    latest.current = { moveMode, moveSubmitting, onExitMove, focusKey: coordKeyStr(focus.coord), moverKey: activeAtKey };
   });
 
   // Roving focus follows the arrows EVERYWHERE (B8c-3, brief F-d): in Move mode, and whenever the grid already holds focus. Only the map's OWN focus moves (`key`, `sync`) focus and follow:
@@ -507,6 +507,13 @@ export default function TacticalMap({
   }, [spaceCols, spaceRows]);
 
   const boxState = useRef({ had: false, width: 0 });
+  const exitOwed = useRef(false);
+  useEffect(() => {
+    if (moveSubmitting || !exitOwed.current) return;
+    exitOwed.current = false;
+    const win = boardScrollRef.current;
+    if (latest.current.moveMode && win && !hasBox(win)) latest.current.onExitMove();
+  }, [moveSubmitting]);
   useEffect(() => {
     const win = boardScrollRef.current;
     const room = wrapRef.current;
@@ -520,7 +527,12 @@ export default function TacticalMap({
       const has = hasBox(win);
       boxState.current = { had: has, width: win.clientWidth };
       if (!has) {
-        if (prev.had && latest.current.moveMode) latest.current.onExitMove();
+        // Disarming under an in-flight request can clear the page's own in-flight guard and let a reopen send a second POST, which is why Escape is deaf in that state (`canClose`). So the
+        // exit is OWED, not made: it is paid when the submit settles, if the window still has no box THEN (the effect below: a box that came back in the meantime owes nothing).
+        if (prev.had && latest.current.moveMode) {
+          if (latest.current.moveSubmitting) exitOwed.current = true;
+          else latest.current.onExitMove();
+        }
         return;
       }
       measureRoom(); // the same batch as the request below, so one commit carries both

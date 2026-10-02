@@ -1391,6 +1391,62 @@ describe('TacticalMap — what a held follow reads when it runs, and what the ob
     expect(win.scrollLeft).toBe(0); // keeping the older request would run the turn follow alone: 80, column 0 gone
   });
 
+  describe('F4 — a window with no box while a move is in flight does NOT exit Move now (Escape is deaf then too: canClose); the exit is owed and paid once when the submit settles', () => {
+    // RULED by the coordinator (replaces QA's pin of "the exit is unconditional"): disarming under an in-flight request can clear the page's own guard and let a reopen send a second POST.
+    const noBoxNow = (win: HTMLElement) => { for (const k of ['clientWidth', 'clientHeight']) Object.defineProperty(win, k, { configurable: true, value: 0 }); };
+    const armed = (o: Partial<TacticalMapProps>) => at('a', [aldo, calAt(6)], { moveMode: true, ...o });
+
+    it('no exit during the submit; one exit when it settles with the window still without a box; never twice', () => {
+      const onExitMove = jest.fn();
+      const { container, rerender } = render(<TacticalMap {...armed({ moveSubmitting: true, onExitMove })} />);
+      const win = layoutP2(container, { left: 0, top: 0 });
+      resized();
+      noBoxNow(win);
+      resized();
+      resized();
+      expect(onExitMove).not.toHaveBeenCalled();
+      rerender(<TacticalMap {...armed({ moveSubmitting: false, onExitMove })} />);
+      expect(onExitMove).toHaveBeenCalledTimes(1);
+      rerender(<TacticalMap {...armed({ moveSubmitting: true, onExitMove })} />);
+      rerender(<TacticalMap {...armed({ moveSubmitting: false, onExitMove })} />);
+      expect(onExitMove).toHaveBeenCalledTimes(1);
+    });
+
+    it('no exit if the box came back while the submit was in flight', () => {
+      const onExitMove = jest.fn();
+      const { container, rerender } = render(<TacticalMap {...armed({ moveSubmitting: true, onExitMove })} />);
+      const win = layoutP2(container, { left: 0, top: 0 });
+      resized();
+      noBoxNow(win);
+      resized();
+      layoutP2(container, { left: 0, top: 0 });
+      resized(); // the box is back
+      rerender(<TacticalMap {...armed({ moveSubmitting: false, onExitMove })} />);
+      expect(onExitMove).not.toHaveBeenCalled();
+    });
+
+    it('no exit at the settle if Move was already disarmed (the page cleared it itself)', () => {
+      const onExitMove = jest.fn();
+      const { container, rerender } = render(<TacticalMap {...armed({ moveSubmitting: true, onExitMove })} />);
+      const win = layoutP2(container, { left: 0, top: 0 });
+      resized();
+      noBoxNow(win);
+      resized();
+      rerender(<TacticalMap {...armed({ moveMode: false, moveSubmitting: false, onExitMove })} />);
+      expect(onExitMove).not.toHaveBeenCalled();
+    });
+
+    it('THE CONTROL: with nothing in flight the exit is immediate', () => {
+      const onExitMove = jest.fn();
+      const { container } = render(<TacticalMap {...armed({ onExitMove })} />);
+      const win = layoutP2(container, { left: 0, top: 0 });
+      resized();
+      noBoxNow(win);
+      resized();
+      expect(onExitMove).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('F1 — THE FOLLOW RUNS AFTER THE GEOMETRY IS STAMPED: when the window gets a box over a board wider than its room, the scroll is written with data-pans-x already on the window (the guard adds 16 px of scroll width, and a follow clamped to the old maximum leaves the last column cut)', () => {
     // MECHANISM (the order of stamp and follow). The behaviour pin is QA's browser probe (t3c.mjs: the last column wholly visible at 360/390/412 wide).
     const { container } = render(<TacticalMap {...at('c', [aldo, calAt(14)], { space: makeSpace({ width: 15, height: 5 }) })} />);
@@ -1409,7 +1465,7 @@ describe('TacticalMap — what a held follow reads when it runs, and what the ob
     expect(stampedAtWrite.every(Boolean)).toBe(true);
   });
 
-  it('a window that loses its box while Move is armed in flight: Escape in the same state is deaf (the exit during a submit is pinned in the F4 cases below)', () => {
+  it('Escape in flight is deaf with the window in view (the no-box exit during a submit is pinned in the F4 cases)', () => {
     const onExitMove = jest.fn();
     const { container } = render(<TacticalMap {...at('a', [aldo, calAt(6)], { moveMode: true, moveSubmitting: true, onExitMove })} />);
     layoutP2(container, { left: 0, top: 0 });
