@@ -630,6 +630,26 @@ describe('focus leaving an open popover closes it, without moving focus (Safari\
     }
   });
 
+  it('a NEW press cancels the previous press\'s clearing task: it must not fire into the second press and drop its flag before its focus lands', () => {
+    jest.useFakeTimers();
+    try {
+      setup();
+      openA();
+      const first = document.getElementById('first') as HTMLElement;
+      const verb = screen.getByRole('button', { name: 'Verb' });
+      fireEvent.pointerDown(first);
+      fireEvent.click(first); // queues the clear for a task from now
+      fireEvent.pointerDown(verb); // the second press begins before that task runs
+      act(() => { jest.advanceTimersByTime(1); }); // the first press's task: cancelled, so the second press still holds the flag
+      act(() => verb.focus()); // its focus, before its click
+      expect(dialog()).toBeInTheDocument();
+      fireEvent.click(verb);
+      closed();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('a pointercancel ends the press at once: the focus that follows it is the user leaving', () => {
     setup();
     openA();
@@ -705,6 +725,70 @@ describe('focus leaving an open popover closes it, without moving focus (Safari\
       act(() => verb.focus());
       await act(async () => { await Promise.resolve(); });
       expect(verb).toHaveFocus();
+    });
+
+    // Kage round-5: the owed focus's guard rails each survived their mutation.
+    it('owed focus: with TWO modal layers up it waits for the LAST one', async () => {
+      setup();
+      openA();
+      const one = modal();
+      const two = modal();
+      act(() => one.btn.focus());
+      openA(); // the popover closes under both
+      closed();
+      one.wrap.remove();
+      await act(async () => { await Promise.resolve(); });
+      expect(screen.getByRole('button', { name: 'Open A' })).not.toHaveFocus(); // a modal is still up
+      two.wrap.remove();
+      await act(async () => { await Promise.resolve(); });
+      expect(screen.getByRole('button', { name: 'Open A' })).toHaveFocus();
+    });
+
+    it('owed focus: opening the popover AGAIN cancels it (the modal going later takes nothing)', async () => {
+      setup();
+      openA();
+      const { wrap, btn } = modal();
+      act(() => btn.focus());
+      openA();
+      closed();
+      openA(); // reopened under the modal: the debt is void
+      wrap.remove();
+      act(() => (document.activeElement as HTMLElement).blur()); // focus fell to <body> when the modal went
+      await act(async () => { await Promise.resolve(); });
+      expect(screen.getByRole('button', { name: 'Open A' })).not.toHaveFocus();
+    });
+
+    it('owed focus: it is BOUNDED (15 s): a modal that outlives it takes nothing when it finally goes', async () => {
+      jest.useFakeTimers();
+      try {
+        setup();
+        openA();
+        const { wrap, btn } = modal();
+        act(() => btn.focus());
+        openA();
+        closed();
+        act(() => { jest.advanceTimersByTime(16_000); });
+        wrap.remove();
+        await act(async () => { await Promise.resolve(); });
+        expect(screen.getByRole('button', { name: 'Open A' })).not.toHaveFocus();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('owed focus: the unmount cleanup releases it (the observer is disconnected, not left watching the document for 15 s)', () => {
+      const { unmount } = setup();
+      openA();
+      const { wrap, btn } = modal();
+      act(() => btn.focus());
+      openA();
+      closed();
+      const disconnect = jest.spyOn(MutationObserver.prototype, 'disconnect');
+      disconnect.mockClear();
+      unmount();
+      expect(disconnect).toHaveBeenCalled();
+      disconnect.mockRestore();
+      wrap.remove();
     });
 
     it('does NOT count: a modal inside the popover or around it, an inert or hidden one, or a closed layer that dropped the attribute', () => {

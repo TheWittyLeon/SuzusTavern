@@ -301,12 +301,17 @@ export function useAnchoredPopover({
     if (!open) return;
     pointerRef.current = false;
     tabbedRef.current = false;
-    const onPointerDown = () => { pointerRef.current = true; tabbedRef.current = false; };
+    // The previous press's clearing task (queued by its click) must not fire into the NEXT press: a new pointerdown owns the flag from here (Tora round-5 minor).
+    let clearTimer: ReturnType<typeof setTimeout> | null = null;
+    const onPointerDown = () => {
+      if (clearTimer) { clearTimeout(clearTimer); clearTimer = null; }
+      pointerRef.current = true;
+      tabbedRef.current = false;
+    };
     const onKeyDown = (e: KeyboardEvent) => { pointerRef.current = false; tabbedRef.current = e.key === 'Tab'; };
     // A press is over a task after its CLICK (a pointercancel ends it at once): not on pointerup, because iOS focuses a text input at or after it. Without this the flag
     // stayed set until a key or the next open, and focus that left by a non-key route (a screen reader's swipe) was ignored: the popover was left open and orphaned
     // (Iro round-4 MINOR-1). The press's own focus is already in by the click, which comes after it.
-    let clearTimer: ReturnType<typeof setTimeout> | null = null;
     const onClick = () => { clearTimer = setTimeout(() => { pointerRef.current = false; }, 0); };
     const onPointerCancel = () => { pointerRef.current = false; };
     const onFocusIn = (e: FocusEvent) => {
