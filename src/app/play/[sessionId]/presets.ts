@@ -478,6 +478,8 @@ export function getPlacement(row: LayoutRow, region: RegionId, moment: Moment): 
  * `getPlacement` and `variantFor`. Throws, naming the row and the fact, on a value outside `FACTS` (a typo must not render as "no values") and
  * on a value the row has no set for. A fact the row has no table for contributes nothing. The facts are applied in `FACTS`' DECLARED order, the last one winning (K3).
  */
+// debt: `declared` is a parameter of a production function that exists for one test: FACTS has one fact today, so the "last declared fact wins" order (K3) cannot be pinned on the real vocabulary and the test passes a two-fact one.
+// ceiling: this one defaulted parameter; no production caller passes it. until: a second fact joins FACTS (the order is then pinned on the real vocabulary, and this parameter is deleted).
 export function factVarsFor(row: LayoutRow, facts: Facts | undefined, declared: Readonly<Record<string, readonly string[]>> = FACTS): PlayVars {
   const given = (facts ?? {}) as Readonly<Record<string, string | undefined>>;
   // A key the vocabulary does not declare is a typo: it throws, naming the row and the fact, whatever its value (it is not "no values").
