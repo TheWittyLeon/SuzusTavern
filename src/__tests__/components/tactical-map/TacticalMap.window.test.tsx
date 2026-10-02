@@ -1347,6 +1347,24 @@ describe('TacticalMap — what a held follow reads when it runs, and what the ob
     expect(win.scrollLeft).toBe(0); // keeping the older request would run the turn follow alone: 80, column 0 gone
   });
 
+  it('F1 — THE FOLLOW RUNS AFTER THE GEOMETRY IS STAMPED: when the window gets a box over a board wider than its room, the scroll is written with data-pans-x already on the window (the guard adds 16 px of scroll width, and a follow clamped to the old maximum leaves the last column cut)', () => {
+    // MECHANISM (the order of stamp and follow). The behaviour pin is QA's browser probe (t3c.mjs: the last column wholly visible at 360/390/412 wide).
+    const { container } = render(<TacticalMap {...at('c', [aldo, calAt(14)], { space: makeSpace({ width: 15, height: 5 }) })} />);
+    const win = container.querySelector('[data-board-window]') as HTMLElement;
+    const room = container.firstElementChild as HTMLElement;
+    Object.defineProperty(room, 'clientWidth', { configurable: true, value: 360 });
+    Object.defineProperty(room, 'clientHeight', { configurable: true, value: 200 });
+    layoutP2(container, { left: 0, top: 0 }, { width: 360, height: 200 });
+    Object.defineProperty(win, 'scrollWidth', { configurable: true, value: 600 }); // 15 columns of 40 px
+    container.querySelectorAll('[role="gridcell"]').forEach((cell, i) => mockBox(cell, { left: 10 + (i % 15) * 40, top: 10 + Math.floor(i / 15) * 40, width: 40, height: 40 }));
+    const stampedAtWrite: boolean[] = [];
+    let left = 0;
+    Object.defineProperty(win, 'scrollLeft', { configurable: true, get: () => left, set: (v: number) => { left = v; stampedAtWrite.push(win.hasAttribute('data-pans-x')); } });
+    resized();
+    expect(stampedAtWrite.length).toBeGreaterThan(0); // the control: a follow did write
+    expect(stampedAtWrite.every(Boolean)).toBe(true);
+  });
+
   it('a window that loses its box while Move is armed in flight: Escape in the same state is deaf (the exit during a submit is pinned in the F4 cases below)', () => {
     const onExitMove = jest.fn();
     const { container } = render(<TacticalMap {...at('a', [aldo, calAt(6)], { moveMode: true, moveSubmitting: true, onExitMove })} />);

@@ -482,21 +482,33 @@ export default function TacticalMap({
   // gets a box, when its WIDTH changes (a rotation), and when the mover is no longer wholly in it. NOT on a pure height step (the action bar is 24 px taller on a monster's turn and
   // would re-run the follow, margin and all, every turn). The user's focused square is followed first and the mover second, and the mover is not taken if it would cut the focused
   // one (followAll). A window that LOSES its box while Move is armed calls `onExitMove`: the player cannot choose a square on a map they cannot see. Every follow goes through the gate.
+  // ONE place decides "the window's geometry is final, now follow" (QA F1): the cap and the edge-guard stamp are React state, so a follow run INSIDE an observer callback read a window
+  // whose guard (16 px of scroll width) had not been added yet, clamped to the old maximum, and left a mover in the last column cut. So an observer never follows: it measures the room
+  // (`measureRoom`, which sets the cap and the stamp), decides THAT a follow is wanted and bumps `followWanted`; the effect below runs after the commit that carries both, when the DOM
+  // has its final box, and hands the follow to the gate.
+  const spaceCols = usable ? space.width : 0;
+  const spaceRows = usable ? space.height : 0;
+  const [followWanted, setFollowWanted] = useState(0);
+  const measureRoom = useCallback(() => {
+    const room = wrapRef.current;
+    if (!room) return;
+    const first = cellRefs.current.values().next().value as HTMLElement | undefined;
+    const sq = first ? boxOf(first) : null;
+    const next = sq ? { w: wholeSquareCap(room.clientWidth, sq.width, spaceCols * sq.width), h: wholeSquareCap(room.clientHeight, sq.height, spaceRows * sq.height) } : { w: null, h: null };
+    setCap((prev) => (prev.w === next.w && prev.h === next.h ? prev : next));
+    setPansX(!!sq && spaceCols * sq.width > room.clientWidth);
+  }, [spaceCols, spaceRows]);
+
   const boxState = useRef({ had: false, width: 0 });
   useEffect(() => {
     const win = boardScrollRef.current;
-    if (!usable || !win || typeof ResizeObserver === 'undefined') return;
+    const room = wrapRef.current;
+    if (!usable || !win || !room || typeof ResizeObserver === 'undefined') return;
     boxState.current = { had: false, width: 0 };
-    const refollow = () => {
-      const { focusKey, moverKey } = latest.current;
-      const held = boardRef.current?.contains(document.activeElement) ? cellRefs.current.get(focusKey) : undefined;
-      const mover = moverKey ? cellRefs.current.get(moverKey) : undefined;
-      const targets: FollowTarget[] = [];
-      if (held) targets.push({ box: boxOf(held), margin: 0 });
-      if (mover) targets.push({ box: boxOf(mover), margin: ownMargin() });
-      applyScroll(win, followAll(windowMetrics(win), targets));
-    };
-    const observer = new ResizeObserver(() => {
+    measureRoom();
+    const roomObserver = new ResizeObserver(measureRoom);
+    roomObserver.observe(room);
+    const winObserver = new ResizeObserver(() => {
       const prev = boxState.current;
       const has = hasBox(win);
       boxState.current = { had: has, width: win.clientWidth };
@@ -504,32 +516,33 @@ export default function TacticalMap({
         if (prev.had && latest.current.moveMode) latest.current.onExitMove();
         return;
       }
+      measureRoom(); // the same batch as the request below, so one commit carries both
       const moverKey = latest.current.moverKey;
       const mover = moverKey ? cellRefs.current.get(moverKey) : undefined;
       const moverCut = !!mover && followScroll(windowMetrics(win), boxOf(mover)) !== null;
-      if (!prev.had || win.clientWidth !== prev.width || moverCut) gate.request('mover', refollow);
+      if (!prev.had || win.clientWidth !== prev.width || moverCut) setFollowWanted((n) => n + 1);
     });
-    observer.observe(win);
-    return () => observer.disconnect();
-  }, [usable, gate, ownMargin, applyScroll]);
-
-  const spaceCols = usable ? space.width : 0;
-  const spaceRows = usable ? space.height : 0;
-  useEffect(() => {
-    const room = wrapRef.current;
-    if (!usable || !room || typeof ResizeObserver === 'undefined') return;
-    const measure = () => {
-      const first = cellRefs.current.values().next().value as HTMLElement | undefined;
-      const sq = first ? boxOf(first) : null;
-      const next = sq ? { w: wholeSquareCap(room.clientWidth, sq.width, spaceCols * sq.width), h: wholeSquareCap(room.clientHeight, sq.height, spaceRows * sq.height) } : { w: null, h: null };
-      setCap((prev) => (prev.w === next.w && prev.h === next.h ? prev : next));
-      setPansX(!!sq && spaceCols * sq.width > room.clientWidth);
+    winObserver.observe(win);
+    return () => {
+      roomObserver.disconnect();
+      winObserver.disconnect();
     };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(room);
-    return () => observer.disconnect();
-  }, [usable, spaceCols, spaceRows]);
+  }, [usable, measureRoom]);
+
+  useEffect(() => {
+    if (followWanted === 0) return;
+    gate.request('mover', () => {
+      const win = boardScrollRef.current;
+      if (!win) return;
+      const { focusKey, moverKey } = latest.current;
+      const held = boardRef.current?.contains(document.activeElement) ? cellRefs.current.get(focusKey) : undefined;
+      const mover = moverKey ? cellRefs.current.get(moverKey) : undefined;
+      const targets: FollowTarget[] = [];
+      if (held) targets.push({ box: boxOf(held), margin: 0 });
+      if (mover) targets.push({ box: boxOf(mover), margin: ownMargin() });
+      applyScroll(win, followAll(windowMetrics(win), targets));
+    });
+  }, [followWanted, gate, ownMargin, applyScroll]);
 
   // Everything one square says, in ONE place (Kage-CR D1 IMPORTANT-4's "single source of truth"): the cell's accessible name, its token and the scene line all read this.
   // `a11y.ts`'s `cellAccessibleName` and `buildLine` render the same CellNameInput; a fact cannot be in one and not the other.
