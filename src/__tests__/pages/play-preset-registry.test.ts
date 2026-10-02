@@ -860,44 +860,53 @@ describe('TAV-PLAY-SHELL presets.ts — the stage\'s body (A10 S2b): a hero name
   });
 });
 
-// A10 step 11 fix round F1 (Sora's brief 3.2, Amendment F.8): the desktop combat rows have the phone's three track classes. A row x moment whose body track is OPTIONAL
-// (reads `--play-body-floor`) has: every other track whole (`max-content`) except the log, which is a FLOOR (`minmax(var(--play-floor,Npx),1fr)`); a banner floor for the
-// shell's yield to read; and, for EVERY room, a body floor beside its size (a band does not yield: its floor is its size; none is 0).
-describe('TAV-PLAY-SHELL presets.ts — the desktop combat rows\' track classes (A10 fix round F1)', () => {
-  const optionalBody = /^minmax\(var\(--play-body-floor,0px\),var\(--play-body,0px\)\)$/;
-  const logFloor = /^minmax\(var\(--play-floor,(\d+px|calc\(\d+px \+ 3 \* var\(--density-gap\) \+ \d+px\))\),1fr\)$/;
+// A10 step 11 fix round F1 (Sora's brief 3.2, Amendment F.8): the desktop combat rows have the phone's three track classes. A10 fix round 2 (Kage's suggestion 6): the guard is
+// "every track is one of the three classes" over EVERY row x moment that declares a floored log (the phone's rows, Story combat, Table both moments), not an exact match of two rows'
+// spellings: the phone mount's body track and party band are optional tracks spelled their own way (`minmax(Npx,var(--play-optional,auto))`) and must pass. A row x moment with a
+// floored log has: every track WHOLE (`max-content`), FLOOR (`minmax(var(--play-floor,..),1fr)`, exactly one: the log) or OPTIONAL (a body between its floor and its room's size, or a band
+// between its minimum and `--play-optional`); a banner floor for the shell's yield to read; and, for a track that reads the body floor, a body floor beside its size for EVERY room (a band
+// does not yield: its floor is its size; none is 0).
+describe('TAV-PLAY-SHELL presets.ts — the track classes: every track of a floored row is whole, floor or optional (A10 fix round F1, generalised in fix round 2)', () => {
+  const WHOLE = /^max-content$/;
+  const FLOOR = /^minmax\(var\(--play-floor,(\d+px|calc\(\d+px \+ 3 \* var\(--density-gap\) \+ \d+px\))\),1fr\)$/;
+  const OPTIONAL = [/^minmax\(var\(--play-body-floor,0px\),var\(--play-body,0px\)\)$/, /^minmax\(\d+px,var\(--play-optional,auto\)\)$/];
+  const readsBodyFloor = (t: string) => /var\(--play-body-floor[,)]/.test(t);
   const classProblems = (rows: readonly LayoutRow[]) =>
     rows.flatMap((row) =>
       MOMENTS.flatMap((m) => {
         const tracks = trackList(row.rows[m]);
         const at = `${row.id}/${m}`;
-        const body = tracks.findIndex((t) => /var\(--play-body-floor[,)]/.test(t));
-        if (body < 0) return [];
+        if (!tracks.some((t) => FLOOR.test(t))) {
+          // a row x moment with no floored log is not class-based (Story exploring, today): unless it has an optional track, which only means anything beside a floor (the grid hands spare room to it before the log grows)
+          return tracks.some((t) => OPTIONAL.some((re) => re.test(t))) ? [`${at}: a body or band that yields and a log with no floor (minmax(var(--play-floor,Npx),1fr))`] : [];
+        }
         const out: string[] = [];
-        if (!optionalBody.test(tracks[body])) out.push(`${at}: the body track "${tracks[body]}" is not the optional class minmax(var(--play-body-floor,0px),var(--play-body,0px))`);
-        const log = tracks.findIndex((t) => logFloor.test(t));
-        if (log < 0) out.push(`${at}: a body that yields and a log with no floor (minmax(var(--play-floor,Npx),1fr))`);
+        if (tracks.filter((t) => FLOOR.test(t)).length !== 1) out.push(`${at}: more than one floor track (the log is the one floor)`);
         tracks.forEach((t, i) => {
-          if (i !== body && i !== log && t !== 'max-content') out.push(`${at}: track ${i} "${t}" is not a whole band (max-content): a scroller's automatic minimum is 0, so the grid would squeeze it`);
+          if (!WHOLE.test(t) && !FLOOR.test(t) && !OPTIONAL.some((re) => re.test(t))) out.push(`${at}: track ${i} "${t}" is not one of the three classes (whole max-content, floor minmax(var(--play-floor,..),1fr), optional): a scroller's automatic minimum is 0, so the grid would squeeze it`);
         });
         if (!row.momentVars?.[m]?.['--play-banner-floor']) out.push(`${at}: no --play-banner-floor for the log's yield`);
-        for (const value of FACTS.room) {
-          const set = (row.factVars?.room as Record<string, Record<string, string> | undefined> | undefined)?.[value];
-          if (!set || !('--play-body-floor' in set)) out.push(`${at}: room "${value}" has no --play-body-floor`);
-          else if (value === 'band' && set['--play-body-floor'] !== set['--play-body']) out.push(`${at}: the band's floor "${set['--play-body-floor']}" is not its size "${set['--play-body']}" (a band does not yield)`);
-          else if (value === 'none' && set['--play-body-floor'] !== '0px') out.push(`${at}: room "none" has a floor of ${set['--play-body-floor']}`);
+        if (tracks.some(readsBodyFloor)) {
+          for (const value of FACTS.room) {
+            const set = (row.factVars?.room as Record<string, Record<string, string> | undefined> | undefined)?.[value];
+            if (!set || !('--play-body-floor' in set)) out.push(`${at}: room "${value}" has no --play-body-floor`);
+            else if (value === 'band' && set['--play-body-floor'] !== set['--play-body']) out.push(`${at}: the band's floor "${set['--play-body-floor']}" is not its size "${set['--play-body']}" (a band does not yield)`);
+            else if (value === 'none' && set['--play-body-floor'] !== '0px') out.push(`${at}: room "none" has a floor of ${set['--play-body-floor']}`);
+          }
         }
         return out;
       }),
     );
 
-  it('every row x moment with an optional body track has a floored log, whole bands, a banner floor and a floor for every room', () => {
+  it('every row x moment with a floored log has only whole, floor and optional tracks, a banner floor, and a floor for every room where it has a body', () => {
     expect(classProblems(LAYOUT_ROWS)).toEqual([]);
   });
 
-  it('the cells it judges are Story combat and Table (both moments: exploring has a floored log since fix round 2), and no others', () => {
-    const judged = LAYOUT_ROWS.flatMap((row) => MOMENTS.filter((m) => trackList(row.rows[m]).some((t) => /var\(--play-body-floor[,)]/.test(t))).map((m) => `${row.id}/${m}`));
-    expect(judged).toEqual(['story/combat', 'table/exploring', 'table/combat']);
+  it('the cells it judges are every floored row x moment (both phone moments, Story combat, Table both: exploring has a floored log since fix round 2), and Story exploring is the one that is not class-based (a new row with no floor is a visible edit here)', () => {
+    const judged = LAYOUT_ROWS.flatMap((row) => MOMENTS.filter((m) => trackList(row.rows[m]).some((t) => FLOOR.test(t))).map((m) => `${row.id}/${m}`));
+    expect(judged).toEqual(['story/combat', 'table/exploring', 'table/combat', 'phone/exploring', 'phone/combat']);
+    const classless = LAYOUT_ROWS.flatMap((row) => MOMENTS.filter((m) => !trackList(row.rows[m]).some((t) => FLOOR.test(t))).map((m) => `${row.id}/${m}`));
+    expect(classless).toEqual(['story/exploring']);
   });
 
   it('the literals: Story combat and Table combat, track by track, with the floor written from its tokens (210 + 3 x --density-gap + 30 status; 100 + the same for the banner)', () => {
@@ -945,18 +954,23 @@ describe('TAV-PLAY-SHELL presets.ts — the desktop combat rows\' track classes 
     const story = LAYOUT_ROWS_BY_ID.story;
     const patched = (row: LayoutRow, over: Partial<LayoutRow>): LayoutRow => ({ ...row, ...over });
     const withRows = (combat: string) => patched(story, { rows: { ...story.rows, combat } });
-    expect(classProblems([withRows(story.rows.combat.replace('minmax(var(--play-floor,calc(210px + 3 * var(--density-gap) + 30px)),1fr)', 'minmax(0,1fr)'))]).join('|')).toMatch(/story\/combat: a body that yields and a log with no floor/);
+    expect(classProblems([withRows(story.rows.combat.replace('minmax(var(--play-floor,calc(210px + 3 * var(--density-gap) + 30px)),1fr)', 'minmax(0,1fr)'))]).join('|')).toMatch(/story\/combat: a body or band that yields and a log with no floor/);
     // each whole band back to `auto` (a scroller's minimum is 0: the grid would squeeze it): the banner, the top bar, the scene line, the composer, the action bar
     const tracks = trackList(story.rows.combat);
     const withTrack = (i: number, v: string) => withRows(tracks.map((t, j) => (j === i ? v : t)).join(' '));
-    for (const i of [0, 1, 2, 5, 6]) expect(classProblems([withTrack(i, 'auto')]).join('|')).toMatch(new RegExp(`story/combat: track ${i} "auto" is not a whole band`));
+    for (const i of [0, 1, 2, 5, 6]) expect(classProblems([withTrack(i, 'auto')]).join('|')).toMatch(new RegExp(`story/combat: track ${i} "auto" is not one of the three classes`));
     const fv = story.factVars!.room as Record<string, Record<string, string>>;
     const noFloor = patched(story, { factVars: { room: { ...fv, board: { '--play-body': fv.board['--play-body'] } } } as unknown as LayoutRow['factVars'] });
     expect(classProblems([noFloor]).join('|')).toMatch(/story\/combat: room "board" has no --play-body-floor/);
     const tallBandFloor = patched(story, { factVars: { room: { ...fv, band: { ...fv.band, '--play-body-floor': 'calc(2 * var(--play-cell))' } } } as unknown as LayoutRow['factVars'] });
     expect(classProblems([tallBandFloor]).join('|')).toMatch(/the band's floor "calc\(2 \* var\(--play-cell\)\)" is not its size/);
     expect(classProblems([patched(story, { momentVars: undefined })]).join('|')).toMatch(/story\/combat: no --play-banner-floor/);
-    expect(classProblems([withRows(story.rows.combat.replace('minmax(var(--play-body-floor,0px),var(--play-body,0px))', 'minmax(0,var(--play-body-floor,0px))'))]).join('|')).toMatch(/the body track .* is not the optional class/);
+    // a track of no class on ANY floored row is named (Table exploring's offers back to a 120px cap), and the phone's own optional spelling is accepted (the guard is not exact to two rows)
+    const table = LAYOUT_ROWS_BY_ID.table;
+    const capped = patched(table, { rows: { ...table.rows, exploring: table.rows.exploring.replace(/max-content max-content max-content$/, 'fit-content(120px) max-content max-content') } });
+    expect(classProblems([capped]).join('|')).toMatch(/table\/exploring: track 4 "fit-content\(120px\)" is not one of the three classes/);
+    expect(classProblems([LAYOUT_ROWS_BY_ID.phone])).toEqual([]);
+    expect(classProblems([withRows(story.rows.combat.replace('minmax(var(--play-body-floor,0px),var(--play-body,0px))', 'minmax(0,var(--play-body-floor,0px))'))]).join('|')).toMatch(/story\/combat: track 3 "minmax\(0,var\(--play-body-floor,0px\)\)" is not one of the three classes/);
   });
 });
 
