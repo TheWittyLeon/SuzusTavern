@@ -620,6 +620,22 @@ export function variantFor<R extends VariantRegionId>(
 // invented px values.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// The desktop combat rows' TRACK CLASSES (A10 step 11 fix round; Sora's brief 3.2, Amendment F.8): the phone's three classes (the PHONE_ROW comment below), as data.
+//   WHOLE     `max-content`                                              banner, top bar, scene line, composer, action bar. Never shrinks.
+//   FLOOR     `minmax(var(--play-floor,288px),1fr)`                      the story log. It never goes under its floor: a page that cannot afford it scrolls.
+//   OPTIONAL  `minmax(var(--play-body-floor,0px),var(--play-body,0px))`  the stage's body: between its own floor (3 rows) and the size its room rules.
+// The grid hands spare room to the body before the log grows past its floor, and takes it back from the body first: on a small screen the BOARD gives rows and the
+// STORY keeps its room. Whole bands are `max-content` because a scroll container's automatic minimum is 0 (a slot is one): with `auto` beside a floored log, the grid
+// squeezes the top bar and the composer instead (probe, Sora's brief Q1b; the A9c-2 D0 lesson again). Exploring rows are untouched: they have no body to yield.
+//
+// Floor arithmetic, as the phone's is written beside its row (re-derive when a tenant in the story slot changes height; the harness's a:storyLog measures the inner log on
+// every gated size, so a stale sum reds): 288 = 210 inner log (the harness's combat floor) + 78 of the story slot's own chrome (32 padding, 16 gap, 30 status line);
+// 178 = 100 inner (the banner-up floor) + the same 78. The banner yield (Play.module.css) lowers `--play-floor` to `--play-banner-floor` while the X-card banner is up.
+// ---------------------------------------------------------------------------
+const DESKTOP_COMBAT_LOG_FLOOR = '288px';
+const DESKTOP_COMBAT_BANNER_FLOOR = '178px';
+
 const STORY_ROW: LayoutRow = {
   id: 'story',
   columns: {
@@ -669,17 +685,21 @@ const STORY_ROW: LayoutRow = {
   // `fit-content(290px)` (52 of strip + 238 of body, re-derived whenever the chrome changed); this one is the strip and the body, each its own number.
   rows: {
     exploring: 'auto auto minmax(0,1fr) auto auto max-content',
-    combat: 'auto auto max-content minmax(0,var(--play-body,0px)) minmax(0,1fr) auto max-content',
+    // banner, top bar, scene line, body, log, composer, action bar: the classes above (A10 fix round: it was `auto auto max-content minmax(0,body) minmax(0,1fr) auto max-content`).
+    combat: `max-content max-content max-content minmax(var(--play-body-floor,0px),var(--play-body,0px)) minmax(var(--play-floor,${DESKTOP_COMBAT_LOG_FLOOR}),1fr) max-content max-content`,
   },
+  // The banner floor of the log's class (the phone's shape: `--play-banner-floor`, read by the shell's banner yield). Exploring has no body to yield and no floor.
+  momentVars: { combat: { '--play-banner-floor': DESKTOP_COMBAT_BANNER_FLOOR } },
   // The board's size is data (F.3): 34px squares (Aoi's pictures are drawn at 34; 35 fits too, and one size on both layouts means a Story <-> Table
   // switch mid-fight does not rescale the board), 7 rows in Story (R19), a short band of 3 for a fight with no board (#44 question 4: ruling it
   // out is `band` taking `board`'s value), nothing while exploring (Story's exploring stage is a `panel`, which has no body).
   vars: { '--play-cell': '34px' },
+  // Each room carries its size AND its floor (the optional class): a board yields down to 3 rows ("fewer is a lane", Aoi); a band does not yield (its floor is its size).
   factVars: {
     room: {
-      board: { '--play-body': 'calc(7 * var(--play-cell))' },
-      band: { '--play-body': 'calc(3 * var(--play-cell))' },
-      none: { '--play-body': '0px' },
+      board: { '--play-body': 'calc(7 * var(--play-cell))', '--play-body-floor': 'calc(3 * var(--play-cell))' },
+      band: { '--play-body': 'calc(3 * var(--play-cell))', '--play-body-floor': 'calc(3 * var(--play-cell))' },
+      none: { '--play-body': '0px', '--play-body-floor': '0px' },
     },
   },
   areas: {
@@ -793,8 +813,10 @@ const TABLE_ROW: LayoutRow = {
   // until: Table's offers take the `chips` form (step 11's S4, Table's offers are chips) or the stage track is content-sized.
   rows: {
     exploring: 'auto max-content minmax(0,var(--play-body,0px)) minmax(0,1fr) fit-content(120px) auto max-content',
-    combat: 'auto max-content minmax(0,var(--play-body,0px)) minmax(0,1fr) auto max-content',
+    // banner, scene line (with the title bar's 72px reserve), body, log, composer, action bar: the classes above (A10 fix round: it was `auto max-content minmax(0,body) minmax(0,1fr) auto max-content`).
+    combat: `max-content max-content minmax(var(--play-body-floor,0px),var(--play-body,0px)) minmax(var(--play-floor,${DESKTOP_COMBAT_LOG_FLOOR}),1fr) max-content max-content`,
   },
+  momentVars: { combat: { '--play-banner-floor': DESKTOP_COMBAT_BANNER_FLOOR } },
   // A10 step 11 S2b: the stage is `hero` in BOTH moments and names its area on two lines (the scene line, then the body), as Story's combat does. The room
   // is rows x cell (F.3): 8 rows (R19) of the 34px cell, 3 for a fight with no board, none while exploring (the scene line IS the stage: 72 + 52 = 124
   // where the stage was a fixed 218). The title bar's 72px reserve sits in the scene line's track, so the body is exactly rows x cell.
@@ -806,9 +828,9 @@ const TABLE_ROW: LayoutRow = {
   vars: { '--play-cell': '34px' },
   factVars: {
     room: {
-      board: { '--play-body': 'calc(8 * var(--play-cell))' },
-      band: { '--play-body': 'calc(3 * var(--play-cell))' },
-      none: { '--play-body': '0px' },
+      board: { '--play-body': 'calc(8 * var(--play-cell))', '--play-body-floor': 'calc(3 * var(--play-cell))' },
+      band: { '--play-body': 'calc(3 * var(--play-cell))', '--play-body-floor': 'calc(3 * var(--play-cell))' },
+      none: { '--play-body': '0px', '--play-body-floor': '0px' },
     },
   },
   areas: {

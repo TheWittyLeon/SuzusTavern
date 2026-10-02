@@ -366,6 +366,11 @@ describe('the stage\'s body (A10 S2b): the fill rule, the size container, the fo
     expect(rule(stage, '.hero')).toMatch(/minmax\(0,\s*1fr\);?\s*grid-template-areas/);
   });
 
+  it('the body\'s min-height is its row\'s floor (A10 fix round F1): the track that sizes it and the box agree, and a row with no floor changes nothing', () => {
+    expect(rule(stage, '.body')).toMatch(/min-height:\s*var\(--play-body-floor,\s*0px\)/);
+    expect(rule(stage, '.body')).not.toMatch(/min-height:\s*0\s*;/);
+  });
+
   it('the four readers each fall back to today\'s value (a row that sets none changes nothing)', () => {
     expect(rule(play, ".slot[data-overlay-edges~='top']")).toMatch(/margin-block-start:\s*var\(--play-overlay-reserve,\s*calc\(var\(--overlay-bar-h\)\s*\+\s*var\(--space-4\)\)\)/);
     expect(rule(play, '.slotOverlay')).toMatch(/max-width:\s*var\(--play-overlay-max,\s*calc\(100% - 2 \* var\(--space-4\)\)\)/);
