@@ -411,7 +411,7 @@ describe('F5/LEVELUP-NO-MOMENT — end-session participants refetch', () => {
     );
   });
 
-  it('a getParticipants refetch failure after End session degrades quietly — one success toast, never a second/error toast', async () => {
+  it('a getParticipants refetch failure after End session degrades quietly — and a plain end speaks ONCE (the status node), never a second "Session ended." toast', async () => {
     mockUsername = 'dm_alice';
     setup(BASE_SESSION, PARTY_WITH_PLAYER);
     await renderAndWaitForControls();
@@ -427,14 +427,29 @@ describe('F5/LEVELUP-NO-MOMENT — end-session participants refetch', () => {
     });
 
     await waitFor(() => expect(mockGetParticipants).toHaveBeenCalledTimes(2));
-    await waitFor(() =>
-      expect(mockToast).toHaveBeenCalledWith(
-        expect.objectContaining({ tone: 'success', message: 'Session ended.' }),
-      ),
-    );
-    // Exactly one toast for this action — no separate error/warn toast for
-    // the swallowed refetch failure.
-    expect(mockToast).toHaveBeenCalledTimes(1);
+    // Iro round-5 minor: "This session has ended." (the status node) and a "Session ended." toast arrived 6 ms apart as two polite announcements. The toast keeps
+    // only what the status node cannot say (the level-ups), so a plain end raises none, and the failed refetch raises no error toast either.
+    await waitFor(() => expect(screen.getByText(/This session has ended\./i)).toBeInTheDocument());
+    expect(mockToast).not.toHaveBeenCalled();
+  });
+
+  // A9d-2 round 6 (Kage round-5: the page's `sessionEnded` wiring survived 820 jest tests; only the harness leg pinned it). The Session popover closes when the session ENDS.
+  it('the session ENDING closes an open Session popover (the page passes isEnded to the party band)', async () => {
+    mockUsername = 'dm_alice';
+    setup();
+    await renderAndWaitForControls();
+    const opener = screen.getByRole('button', { name: /^Session$/ });
+    fireEvent.click(opener);
+    expect(opener).toHaveAttribute('aria-expanded', 'true');
+
+    mockGetSession.mockResolvedValueOnce({ ...BASE_SESSION, status: 'ended' });
+    fireEvent.click(screen.getByRole('button', { name: /End session/i }));
+    const dialog = await screen.findByRole('dialog', { name: /End this session\?/i });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole('button', { name: /^End it$/i }));
+    });
+    await waitFor(() => expect(screen.getByText(/This session has ended\./i)).toBeInTheDocument());
+    await waitFor(() => expect(opener).toHaveAttribute('aria-expanded', 'false'));
   });
 
   it('REGRESSION PIN: pause, resume, and Award XP never call getParticipants beyond the initial mount fetch', async () => {

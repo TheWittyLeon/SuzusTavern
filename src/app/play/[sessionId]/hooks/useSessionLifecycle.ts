@@ -314,10 +314,9 @@ export function useSessionLifecycle(sessionId: string): UseSessionLifecycleResul
         // Swallowed — see comment above.
       }
       const summary = levelUpsSummary(result.level_ups ?? []);
-      toast({
-        tone: 'success',
-        message: summary ? `Session ended. ${summary}` : 'Session ended.',
-      });
+      // A plain "Session ended." toast was a SECOND polite announcement 6 ms after the status node's "This session has ended." (SessionPausedEndedTenant, which every seat gets, so
+      // it is the one that stays; Iro round-5 minor). The toast only speaks when it carries what the status node does not: the level-ups.
+      if (summary) toast({ tone: 'success', message: `Session ended. ${summary}` });
     } catch {
       toast({ tone: 'error', message: 'Could not end the session. Try again in a moment.' });
     } finally {
