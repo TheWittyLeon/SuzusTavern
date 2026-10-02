@@ -54,22 +54,17 @@ describe('isSessionDm: one case-insensitive definition (Kage S3)', () => {
   });
 });
 
-describe('drivesMonsterTurns: the DM drives; an admin drives only when dm_username is not a participant', () => {
-  const rows: Array<[string, Session, string | null, string[] | undefined, boolean]> = [
-    ['the DM, any case', session('Alice', ['alice']), 'alice', undefined, true],
-    ['the DM who is not listed as a participant', session('alice', []), 'alice', undefined, true],
-    ['a player at a seated-DM table', session('bob', ['alice', 'bob']), 'alice', undefined, false],
-    ['an admin at a seated-DM table (the fallback never applies)', session('bob', ['alice', 'bob']), 'alice', ['admin'], false],
-    ['an admin, DM seated in another case', session('Bob', ['alice', 'bob']), 'alice', ['admin'], false],
-    ['an admin at a Twitch-created table (dm_username not at it)', session('thewittyleon', ['alice']), 'alice', ['admin'], true],
-    ['an admin at a `suzu` table', session('suzu', ['alice']), 'alice', ['user', 'admin'], true],
-    ['a non-admin at a table whose DM is nobody at it', session('thewittyleon', ['alice']), 'alice', ['user'], false],
-    ['a viewer with no roles', session('thewittyleon', ['alice']), 'alice', undefined, false],
-    ['an admin with no username yet', session('thewittyleon', ['alice']), null, ['admin'], false],
-    ['no session', session('x', []), 'alice', ['admin'], false],
+describe('drivesMonsterTurns: the DM drives and nobody else does (no admin fallback)', () => {
+  const rows: Array<[string, Session | null, string | null, boolean]> = [
+    ['the DM, any case', session('Alice', ['alice']), 'alice', true],
+    ['the DM who is not listed as a participant', session('alice', []), 'alice', true],
+    ['a player at a seated-DM table', session('bob', ['alice', 'bob']), 'alice', false],
+    ['a viewer at a table whose DM is nobody at it', session('thewittyleon', ['alice']), 'alice', false],
+    ['a viewer with no username yet', session('thewittyleon', ['alice']), null, false],
+    ['a table with no dm_username', session(null, ['alice']), 'alice', false],
+    ['no session', null, 'alice', false],
   ];
-  it.each(rows)('%s -> %s', (name, s, user, roles, want) => {
-    const sess = name === 'no session' ? null : s;
-    expect(drivesMonsterTurns(sess, user, roles)).toBe(want);
+  it.each(rows)('%s -> %s', (_name, s, user, want) => {
+    expect(drivesMonsterTurns(s, user)).toBe(want);
   });
 });

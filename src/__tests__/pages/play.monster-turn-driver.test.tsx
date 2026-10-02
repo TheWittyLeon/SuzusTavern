@@ -23,7 +23,7 @@ jest.mock('../../components/Toast', () => ({
   useToast: () => ({ toast: mockToast }),
 }));
 
-// `roles` is the viewer's own (A9d-2 N2: an admin's tab is the fallback driver of a table whose dm_username is not at it).
+// `roles` is the viewer's own: an admin who is not the DM must still not drive (A9d-2 fix round 3).
 const mockAuth: { roles: string[] | undefined } = { roles: undefined };
 jest.mock('../../lib/auth/AuthProvider', () => ({
   useAuth: () => ({ user: { id: 1, username: 'alice', email: null, roles: mockAuth.roles } }),
@@ -473,42 +473,26 @@ describe('the monster-turn driver\'s line is its own (Kage S4): a new monster tu
   });
 });
 
-// ── A9d-2 N2 (Kage I-2): the election can elect nobody; an admin is the fallback, and only when the DM is not at the table ─────────
-describe('the monster-turn driver: an admin\'s tab drives when, and only when, dm_username is not among the participants', () => {
+// ── A9d-2 fix round 3: the election is the DM's tab and nothing else; an admin who is not the DM never drives ─────────
+describe('the monster-turn driver: an admin who is not the DM does not drive, at any table', () => {
   const table = (dm: string, participants: string[]): Session => ({ ...SESSION_WITH_COMBAT, dm_username: dm, participant_usernames: participants });
 
-  it('a Twitch-created table (dm_username is the broadcaster login, not a participant): the admin\'s tab drives, which is what the engine\'s bypass did before the gate', async () => {
+  it.each([
+    ['a table whose DM is seated', 'bob', ['alice', 'bob']],
+    ['the same, the DM seated in another case', 'Bob', ['alice', 'bob']],
+    ['a Twitch-created table (dm_username is a broadcaster login nobody at it has)', 'thewittyleon', ['alice']],
+    ['an old `suzu` row', 'suzu', ['alice']],
+  ])('an admin viewing %s: nothing drives (a Tavern cannot tell these apart on the wire, so none of them elects an admin)', async (_n, dm, participants) => {
+    mockAuth.roles = ['user', 'admin'];
+    await mountOnMonsterTurn(table(dm, participants));
+    for (let i = 0; i < 4; i += 1) await tick();
+    expect(mMonsterTurn).not.toHaveBeenCalled();
+  });
+
+  it('control: an admin who IS the DM drives', async () => {
     mockAuth.roles = ['admin'];
     mMonsterTurn.mockResolvedValue({ message: '[MONSTER] Goblin attacks Velka for 3.', state: COMBAT_STATE });
-    await mountOnMonsterTurn(table('thewittyleon', ['alice']));
+    await mountOnMonsterTurn(table('Alice', ['bob']));
     await waitFor(() => expect(mMonsterTurn).toHaveBeenCalledTimes(1));
-  });
-
-  it('an old `suzu` row (not a participant) is the same', async () => {
-    mockAuth.roles = ['admin'];
-    mMonsterTurn.mockResolvedValue({ message: '[MONSTER] Goblin attacks Velka for 3.', state: COMBAT_STATE });
-    await mountOnMonsterTurn(table('suzu', ['alice']));
-    await waitFor(() => expect(mMonsterTurn).toHaveBeenCalledTimes(1));
-  });
-
-  it('control: an admin at a table whose DM IS seated does NOT drive (the fallback is an election, not a mirror of the engine\'s admin bypass)', async () => {
-    mockAuth.roles = ['admin'];
-    await mountOnMonsterTurn(table('bob', ['alice', 'bob']));
-    for (let i = 0; i < 4; i += 1) await tick();
-    expect(mMonsterTurn).not.toHaveBeenCalled();
-  });
-
-  it('control: a non-admin at a table whose dm_username is nobody at it does not drive either', async () => {
-    mockAuth.roles = ['user'];
-    await mountOnMonsterTurn(table('thewittyleon', ['alice']));
-    for (let i = 0; i < 4; i += 1) await tick();
-    expect(mMonsterTurn).not.toHaveBeenCalled();
-  });
-
-  it('the comparison is case-insensitive on both sides: dm "Bob" seated as "bob" is seated', async () => {
-    mockAuth.roles = ['admin'];
-    await mountOnMonsterTurn(table('Bob', ['alice', 'bob']));
-    for (let i = 0; i < 4; i += 1) await tick();
-    expect(mMonsterTurn).not.toHaveBeenCalled();
   });
 });

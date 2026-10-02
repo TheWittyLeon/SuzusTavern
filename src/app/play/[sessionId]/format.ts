@@ -147,20 +147,15 @@ export function isSessionDm(s: Session | null | undefined, username: string | nu
 }
 
 /**
- * Which tab drives the monsters of an AI-auto table (A9d-2 N2, Kage I-2). The engine's `/monster-turn` is `guard_dm`: the DM or an
- * admin. Before the DM gate every tab POSTed it on every poll; the gate picks ONE tab to ask: the DM's (`dm_username`, the engine's
- * own field for the non-admin arm, compared the way it compares). The election could elect nobody: a table whose `dm_username` is
- * not a person at it (a Twitch-created table stores the broadcaster login; an old `suzu` row) had one working driver, an admin's
- * tab through the engine's bypass, and the gate took it away silently. So an ADMIN drives when, and only when, `dm_username` is not
- * among the participants. Not a mirror of `guard_dm`'s admin arm (that brings back several drivers per table): the fallback is
- * still an election, and it never applies to a table whose DM is seated.
+ * Which tab drives the monsters of an AI-auto table (A9d-2 N2, Kage I-2). The engine's `/monster-turn` is `guard_dm` (the DM or an
+ * admin); before the DM gate every tab POSTed it on every poll. The election is ONE tab: the one whose user is `dm_username`
+ * (case-insensitive, fail-closed), and nothing else. No admin fallback: on the real wire the Tavern cannot tell a seated pure DM from a
+ * table whose DM account is nobody at it (`/participants` names `dm_username` unconditionally; `participant_usernames` leaves the DM
+ * out), so a fallback elected every admin's tab beside the DM at any ordinary table, the several-drivers state this gate exists to end.
  */
-export function drivesMonsterTurns(s: Session | null | undefined, username: string | null | undefined, roles: readonly string[] | undefined): boolean {
-  if (!s || !username) return false;
-  if (isSessionDm(s, username)) return true;
-  const dm = (s.dm_username ?? '').toLowerCase();
-  const seated = (s.participant_usernames ?? []).some((p) => p.toLowerCase() === dm);
-  return roles?.includes('admin') === true && !seated;
+export function drivesMonsterTurns(s: Session | null | undefined, username: string | null | undefined): boolean {
+  // debt: a table whose DM account is at no seat (a Twitch-created or `suzu` row) has no driver, and nothing on screen says so. ceiling: none live (prod has 8 campaigns, none such). until: Backlog TAV-MONSTER-TURN-SERVER-SIDE-DRIVER.
+  return isSessionDm(s, username);
 }
 
 /** A live turn order is running. NOT page.tsx's `combatIsActive`

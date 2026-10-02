@@ -71,7 +71,6 @@ import {
 import { DURABLE_GENERATION_ENABLED } from '@/lib/config';
 import { engineErrorMessage, extractBodyReason, isApiError } from '@/lib/dnd/engineError';
 import { COMBAT_REFUSAL_REASON_MAP, monsterTurnFailureClass } from '@/lib/dnd/engineReasons';
-import { useAuth } from '@/lib/auth/AuthProvider';
 // TAV-PLAY-SHELL step 8: CombatAction's owner moved from Composer.tsx to the
 // extracted region -- see regions/ActionBar.tsx's own header.
 import type { CombatAction } from '../regions/ActionBar';
@@ -132,8 +131,6 @@ export function useCombatActions(
   localTurnActionRef: MutableRefObject<boolean>,
 ): UseCombatActionsResult {
   const { toast } = useToast();
-  const { user } = useAuth();
-  const roles = user?.roles;
   const {
     combatId,
     combatState,
@@ -581,9 +578,8 @@ export function useCombatActions(
   useEffect(() => {
     if (!combatState || combatState.state !== 'active' || !combatId || !username) return;
     // Only ONE tab drives monsters (A9d-2 Kage F3 re-verify S7, N2 I-2): `/monster-turn` is `guard_dm` on the engine, so every other
-    // tab of an AI-auto table POSTed it on each poll and got a 404 back. The DM's tab; or, where `dm_username` is not a person at the
-    // table, an admin's (`drivesMonsterTurns`, format.ts).
-    if (!drivesMonsterTurns(session, username, roles)) return;
+    // tab of an AI-auto table POSTed it on each poll and got a 404 back. The DM's tab and nothing else (`drivesMonsterTurns`, format.ts).
+    if (!drivesMonsterTurns(session, username)) return;
     // Human DM: monster turns are driven by the DmNarrationPanel, not auto.
     // S5.5: ai_assist_level='off' or 'assist' also suppresses auto monster drive.
     // For 'off': no AI; for 'assist': no auto-fire (manual DM invocation only).
@@ -705,7 +701,6 @@ export function useCombatActions(
     combatId,
     username,
     session,
-    roles,
     appendLog,
     handleSceneAdvance,
     playOutcomeLine,
