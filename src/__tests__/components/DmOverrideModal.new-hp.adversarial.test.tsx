@@ -70,8 +70,8 @@ describe('wire matrix: what a hand-typed New HP puts on the wire', () => {
     ['1e0', 'refuse'], ['0e0', 'refuse'], ['.0', 'refuse'], ['+0', 'refuse'], ['0x0', 'refuse'],
     ['Infinity', 'refuse'], ['NaN', 'refuse'], ['', 'refuse'],
     ['7', 7], ['007', 7], ['999', 999],
-    // clamp: shown value and sent value differ (documented, not asserted as a defect)
-    ['1000', 999], ['99999999999999999999', 999],
+    // above 999: refused, never clamped (what the DM sees is what is sent) -- ruling 5
+    ['1000', 'refuse'], ['99999999999999999999', 'refuse'],
   ];
   it.each(cases)('typed %j', async (typed, expected) => {
     openDamage([ACTOR, KAELEN], 'pc-1');
@@ -180,17 +180,17 @@ describe('polling: participants change underneath an open dialog', () => {
     expect(targetSel().value).toBe('pc-1');
   });
 
-  it('FINDING: a poll between "confirm opened" and "confirm clicked" must not change what is sent', async () => {
+  it('a poll between "confirm opened" and the click: the confirm closes, nothing is sent, re-Apply sends the new number (rulings 2/3; replaces the old "must still send 0" assertion)', async () => {
     const { rerender } = openDamage([ACTOR, KAELEN], 'pc-1');
     fireEvent.change(dealtInput(), { target: { value: '20' } }); // untouched New HP derives 0
     await apply();
-    expect(confirmDialog()).toBeInTheDocument(); // "drops Kaelen to 0 HP"
-    // poll lands: Kaelen healed to 40. The dialog still says 0 ...
+    expect(confirmDialog()).toBeInTheDocument();
     rerender(<DmOverrideModal {...props([ACTOR, { ...KAELEN, hp_current: 40 }])} />);
-    await act(async () => { fireEvent.click(confirmBtn()); });
+    expect(confirmDialog()).not.toBeInTheDocument();
+    expect(mockSubmitOverride).not.toHaveBeenCalled();
+    await apply();
     await waitFor(() => expect(mockSubmitOverride).toHaveBeenCalledTimes(1));
-    // ... so what was confirmed (0) and what is sent must agree. At e574589 it sends 20.
-    expect(sentHp()).toBe(0);
+    expect(sentHp()).toBe(20);
   });
 
   it('FINDING: if the poll invalidates the confirmed zero, the dialog must close (stale "drops X to 0 HP" copy)', async () => {
@@ -202,14 +202,15 @@ describe('polling: participants change underneath an open dialog', () => {
     expect(confirmDialog()).not.toBeInTheDocument();
   });
 
-  it('confirmed derived zero + target vanishes from the poll: the confirm path still posts 0 via the `?? 0` fallback (documented)', async () => {
+  it('confirm open + target vanishes from the poll: confirm closes, nothing is posted, Apply refuses (ruling 3: no `?? 0` fallback)', async () => {
     const { rerender } = openDamage([ACTOR, KAELEN], 'pc-1');
     fireEvent.change(dealtInput(), { target: { value: '20' } });
     await apply();
     rerender(<DmOverrideModal {...props([ACTOR])} />);
-    await act(async () => { fireEvent.click(confirmBtn()); });
-    await waitFor(() => expect(mockSubmitOverride).toHaveBeenCalledTimes(1));
-    expect(sentHp()).toBe(0);
+    expect(confirmDialog()).not.toBeInTheDocument();
+    await apply();
+    expect(mockSubmitOverride).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toBeInTheDocument();
   });
 
   it('target leaves the list entirely while selected: untouched field blanks and Apply refuses', async () => {

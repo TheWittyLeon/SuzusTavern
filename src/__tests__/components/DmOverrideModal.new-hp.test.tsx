@@ -208,3 +208,80 @@ describe('New HP = 0 needs a second, in-dialog step', () => {
     expect(screen.queryByText(/This drops/)).not.toBeInTheDocument();
   });
 });
+
+describe('accessibility + refusal copy (fix round)', () => {
+  // The modal's open effect focuses the first radio on a 0ms timer; let it
+  // land before the test moves focus itself.
+  const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+  const alertText = () => screen.getByRole('alert').textContent ?? '';
+
+  it('New HP refusal is wired to the New HP field, not Reason, and focus moves there', async () => {
+    openDamage('pc-1');
+    await settle();
+    fireEvent.change(hpInput(), { target: { value: '' } });
+    await apply();
+    const alertEl = screen.getByRole('alert');
+    expect(hpInput()).toHaveAttribute('aria-invalid', 'true');
+    expect(hpInput().getAttribute('aria-describedby')).toContain(alertEl.id);
+    expect(screen.getByLabelText(/Reason/i)).not.toHaveAttribute('aria-describedby');
+    expect(document.activeElement).toBe(hpInput());
+  });
+
+  it('three different refusals: erased, not a whole number, unknown HP', async () => {
+    openDamage('pc-1');
+    fireEvent.change(hpInput(), { target: { value: '' } });
+    await apply();
+    expect(alertText()).toMatch(/empty/i);
+    expect(alertText()).not.toMatch(/worked out|isn't known/i);
+
+    fireEvent.change(hpInput(), { target: { value: '1.5' } });
+    await apply();
+    expect(alertText()).toMatch(/whole number/i);
+
+    fireEvent.change(hpInput(), { target: { value: '1000' } });
+    await apply();
+    expect(alertText()).toMatch(/999/);
+    expect(mockSubmitOverride).not.toHaveBeenCalled();
+
+    pickTarget('pc-3'); // no hp_current
+    await apply();
+    expect(alertText()).toMatch(/isn't known/i);
+  });
+
+  it('New HP carries a visible suggestion hint wired by aria-describedby', () => {
+    openDamage('pc-1');
+    const hint = screen.getByText(/Fills in as current HP minus damage dealt/i);
+    expect(hpInput().getAttribute('aria-describedby')).toContain(hint.id);
+    expect(hint).not.toHaveAttribute('aria-live');
+  });
+
+  it('an identical repeated refusal is a fresh alert node (re-announced)', async () => {
+    openDamage('pc-1');
+    fireEvent.change(hpInput(), { target: { value: '' } });
+    await apply();
+    const first = screen.getByRole('alert');
+    await apply();
+    expect(screen.getByRole('alert')).not.toBe(first);
+  });
+
+  it('the override dialog is inert while the zero-confirm is up, and not otherwise', async () => {
+    openDamage('pc-1');
+    const dlg = () => screen.getByRole('dialog', { name: /DM Override/i });
+    expect(dlg()).not.toHaveAttribute('inert');
+    fireEvent.change(hpInput(), { target: { value: '0' } });
+    await apply();
+    expect(dlg()).toHaveAttribute('inert');
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: /^Cancel$/ }));
+    expect(dlg()).not.toHaveAttribute('inert');
+  });
+
+  it('after a failed send, focus is on the error inside the dialog', async () => {
+    mockSubmitOverride.mockRejectedValueOnce({ body: { message: 'nope' } });
+    openDamage('pc-1');
+    await settle();
+    await apply();
+    const alertEl = await screen.findByRole('alert');
+    await waitFor(() => expect(document.activeElement).toBe(alertEl));
+    expect(alertEl).toHaveAttribute('tabindex', '-1');
+  });
+});
