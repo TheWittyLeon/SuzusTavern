@@ -278,6 +278,19 @@
   border: 1px solid color-mix(in oklab, var(--bad) 22%, transparent);
 }
 
+.error:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 2px;
+}
+
+/* Suggestion note under a derived field (New HP). */
+.hint {
+  max-width: 240px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--ink-3);
+}
+
 /* ── Actions row ── */
 .actions {
   display: flex;

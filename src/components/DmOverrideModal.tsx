@@ -52,6 +52,14 @@ const DAMAGE_TYPES = [
   'poison', 'necrotic', 'radiant', 'psychic', 'force',
 ];
 
+/** Why New HP was refused — one message per cause, so none is false. */
+const NEW_HP_REFUSAL = {
+  erased: "New HP is empty. Enter the target's HP after this damage.",
+  notWhole: 'New HP must be a whole number from 0 to 999.',
+  tooBig: "New HP can't be more than 999.",
+  unknown: "This target's HP isn't known, so New HP can't be filled in. Enter it yourself.",
+} as const;
+
 const DEGREE_OPTIONS: Array<{ value: OverrideCheckOutcome['degree']; label: string }> = [
   { value: 'crit_failure', label: 'Critical Failure' },
   { value: 'failure', label: 'Failure' },
@@ -132,12 +140,77 @@ export default function DmOverrideModal({
   // Submit state
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // Which field the current error belongs to (drives aria-invalid /
+  // aria-describedby). Everything except New HP stays on Reason, as before
+  // (a pre-existing test pins it; the Target select is not wired — out of scope).
+  const [errorField, setErrorField] = useState<'reason' | 'newHp'>('reason');
+  // Bumped on every refusal so an identical repeated message remounts the
+  // role="alert" node and is announced again.
+  const [errorAttempt, setErrorAttempt] = useState(0);
 
   // Refs for focus management
   const backdropRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const firstFocusRef = useRef<HTMLInputElement | HTMLSelectElement | null>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
+  const newHpRef = useRef<HTMLInputElement>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
+  const focusErrorNext = useRef(false);
+
+  const refuse = (message: string, field: 'reason' | 'newHp') => {
+    setSubmitError(message);
+    setErrorField(field);
+    setErrorAttempt((n) => n + 1);
+  };
+
+  // After a failed send the Apply button is disabled and the confirm (if any)
+  // has unmounted, so focus would fall to <body> and Tab would leave the modal.
+  // Park it on the error instead: it is read out and focus stays inside the trap.
+  useEffect(() => {
+    if (focusErrorNext.current && submitError) {
+      focusErrorNext.current = false;
+      errorRef.current?.focus();
+    }
+  }, [submitError, errorAttempt]);
+
+  // Target and New HP are derived from what the Target select can actually
+  // show: a target that is the Actor, or no longer alive, is not selected.
+  const targetOptions = participants.filter(
+    (p) => p.is_alive && p.participant_id !== actorId,
+  );
+  const target = targetOptions.find((p) => p.participant_id === targetId);
+  const targetHp =
+    typeof target?.hp_current === 'number' && Number.isFinite(target.hp_current)
+      ? target.hp_current
+      : null;
+  const derivedNewHp = targetHp === null ? '' : String(Math.max(0, targetHp - damageDealt));
+  const newHpText = newHpEdit ?? derivedNewHp;
+  // What the DM sees is what is sent: no clamping. Anything that is not a whole
+  // number 0-999 is refused with its own message (see NEW_HP_REFUSAL).
+  type NewHpParse =
+    | { ok: true; value: number }
+    | { ok: false; why: 'erased' | 'unknown' | 'notWhole' | 'tooBig' };
+  const parseNewHp = (): NewHpParse => {
+    const t = newHpText.trim();
+    if (t === '') return { ok: false, why: newHpEdit === null ? 'unknown' : 'erased' };
+    if (!/^\d+$/.test(t)) return { ok: false, why: 'notWhole' };
+    const v = parseInt(t, 10);
+    return v > 999 ? { ok: false, why: 'tooBig' } : { ok: true, value: v };
+  };
+  const newHpParsed = parseNewHp();
+  const newHp = newHpParsed.ok ? newHpParsed.value : null;
+
+  // The confirm is only ever shown for the value that will be sent. If a poll
+  // (or an edit) moves the resolved New HP off 0 while it is up, it closes and
+  // nothing is sent; the DM re-applies. Render-time adjustment, not an effect.
+  const zeroResolved = kind === 'damage' && newHp === 0;
+  if (confirmZero && !zeroResolved) setConfirmZero(false);
+  // A target that left the select (became the Actor, or died in a poll) is
+  // cleared, and a hand-typed New HP for it is released.
+  if (targetId !== (target?.participant_id ?? '')) {
+    setTargetId('');
+    setNewHpEdit(null);
+  }
 
   // Initialise actor when modal opens or participants change
   useEffect(() => {
@@ -216,20 +289,7 @@ export default function DmOverrideModal({
     [handleClose],
   );
 
-  const target = participants.find((p) => p.participant_id === targetId);
-  const targetHp =
-    typeof target?.hp_current === 'number' && Number.isFinite(target.hp_current)
-      ? target.hp_current
-      : null;
-  const derivedNewHp = targetHp === null ? '' : String(Math.max(0, targetHp - damageDealt));
-  const newHpText = newHpEdit ?? derivedNewHp;
-  const parsedNewHp = /^\d+$/.test(newHpText.trim()) ? parseInt(newHpText, 10) : NaN;
-  const newHp = Number.isNaN(parsedNewHp) ? null : Math.min(999, parsedNewHp);
-
-  const buildOutcome = ():
-    | OverrideAttackOutcome
-    | OverrideCheckOutcome
-    | OverrideDamageOutcome => {
+  const buildOutcome = (): OverrideAttackOutcome | OverrideCheckOutcome => {
     if (kind === 'attack') {
       const out: OverrideAttackOutcome = { hit, critical_hit: criticalHit };
       if (hit) {
@@ -237,43 +297,45 @@ export default function DmOverrideModal({
       }
       return out;
     }
-    if (kind === 'check' || kind === 'save') {
-      const out: OverrideCheckOutcome = { success, degree, total };
-      return out;
-    }
-    // damage
-    // handleSubmit refuses a null newHp before send() runs.
-    return { damage_dealt: damageDealt, target_new_hp: newHp ?? 0, raw_damage: damageDealt } satisfies OverrideDamageOutcome;
+    const out: OverrideCheckOutcome = { success, degree, total };
+    return out;
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (submitting) return;
+    // While the zero-confirm is up only ITS button may send; a second form
+    // submit (Enter key-repeat, two Enters in one tick) must not skip the gate.
+    if (submitting || confirmZero) return;
     if (!reason.trim()) {
-      setSubmitError('Reason is required.');
+      refuse('Reason is required.', 'reason');
       return;
     }
-    if ((kind === 'attack' || kind === 'damage') && !targetId) {
-      setSubmitError('Target is required for attack and damage overrides.');
+    if ((kind === 'attack' || kind === 'damage') && !target) {
+      refuse('Target is required for attack and damage overrides.', 'reason');
       return;
     }
     if (kind === 'damage') {
-      if (newHp === null) {
-        setSubmitError(
-          'New HP is required. Enter the target\'s HP after this damage; it can\'t be worked out for this target.',
-        );
+      if (!newHpParsed.ok) {
+        refuse(NEW_HP_REFUSAL[newHpParsed.why], 'newHp');
+        newHpRef.current?.focus();
         return;
       }
-      if (newHp === 0 && !confirmZero) {
+      if (newHpParsed.value === 0) {
         setSubmitError(null);
         setConfirmZero(true);
         return;
       }
     }
-    void send();
+    void send(false);
   };
 
-  const send = async () => {
+  const send = async (zeroConfirmed: boolean) => {
+    // Re-check against the values as they are NOW: the only value that may go
+    // out for damage is a valid New HP, and 0 only via the confirm button.
+    if (kind === 'damage' && (!newHpParsed.ok || (newHpParsed.value === 0 && !zeroConfirmed))) {
+      setConfirmZero(false);
+      return;
+    }
     setConfirmZero(false);
     setSubmitting(true);
     setSubmitError(null);
@@ -282,8 +344,11 @@ export default function DmOverrideModal({
       const result = await submitOverride(combatId, {
         kind,
         actor_id: actorId,
-        target_id: (kind === 'attack' || kind === 'damage') ? targetId || null : null,
-        outcome: buildOutcome(),
+        target_id: (kind === 'attack' || kind === 'damage') ? target?.participant_id ?? null : null,
+        outcome:
+          kind === 'damage' && newHpParsed.ok
+            ? { damage_dealt: damageDealt, target_new_hp: newHpParsed.value, raw_damage: damageDealt } satisfies OverrideDamageOutcome
+            : buildOutcome(),
         reason: reason.trim(),
       });
 
@@ -302,13 +367,15 @@ export default function DmOverrideModal({
       const engineReason =
         (body as { data?: { reason?: string } } | null)?.data?.reason ?? null;
 
+      focusErrorNext.current = true;
       if (engineReason === 'override_malformed') {
-        setSubmitError(`Override refused: ${engineMessage ?? 'shape invalid'}`);
+        refuse(`Override refused: ${engineMessage ?? 'shape invalid'}`, 'reason');
       } else {
-        setSubmitError(
+        refuse(
           OVERRIDE_REFUSAL_COPY[engineReason ?? '']
           ?? engineMessage
           ?? 'Override failed. Check the values and try again.',
+          'reason',
         );
       }
     } finally {
@@ -319,7 +386,9 @@ export default function DmOverrideModal({
   if (!open) return null;
 
   const activeParticipants = participants.filter((p) => p.is_alive);
-  const targetOptions = activeParticipants.filter((p) => p.participant_id !== actorId);
+  const confirmOpen = confirmZero && zeroResolved;
+  const errorId = `${uid}-error`;
+  const hintId = `${uid}-newhp-hint`;
   const needsTarget = kind === 'attack' || kind === 'damage';
 
   return (
@@ -339,6 +408,9 @@ export default function DmOverrideModal({
         tabIndex={-1}
         className={styles.dialog}
         onKeyDown={onKeyDown}
+        // The zero-confirm is a second modal on top: nothing underneath may take
+        // focus, pointer or AT attention while it is up.
+        inert={confirmOpen || undefined}
       >
         <div className={styles.header}>
           <h2 id={titleId} className={styles.title}>
@@ -409,7 +481,7 @@ export default function DmOverrideModal({
               <select
                 id={`${uid}-target`}
                 className={styles.select}
-                value={targetId}
+                value={target?.participant_id ?? ''}
                 disabled={submitting}
                 onChange={(e) => {
                     setTargetId(e.target.value);
@@ -561,14 +633,22 @@ export default function DmOverrideModal({
                   </label>
                   <input
                     id={`${uid}-target-hp`}
+                    ref={newHpRef}
                     type="number"
                     className={styles.numInput}
                     min={0}
                     max={999}
                     value={newHpText}
                     disabled={submitting}
+                    aria-invalid={(submitError && errorField === 'newHp') || undefined}
+                    aria-describedby={
+                      submitError && errorField === 'newHp' ? `${hintId} ${errorId}` : hintId
+                    }
                     onChange={(e) => setNewHpEdit(e.target.value)}
                   />
+                  <span id={hintId} className={styles.hint}>
+                    Fills in as current HP minus damage dealt. Type to set it yourself.
+                  </span>
                 </div>
               </div>
             )}
@@ -589,7 +669,8 @@ export default function DmOverrideModal({
               disabled={submitting}
               required
               aria-required="true"
-              aria-describedby={submitError ? `${uid}-error` : undefined}
+              aria-invalid={(submitError && errorField === 'reason') || undefined}
+              aria-describedby={submitError && errorField === 'reason' ? errorId : undefined}
               onChange={(e) => setReason(e.target.value)}
             />
             <span className={styles.charCount} aria-hidden>
@@ -599,7 +680,15 @@ export default function DmOverrideModal({
 
           {/* Inline error */}
           {submitError && (
-            <div id={`${uid}-error`} className={styles.error} role="alert" aria-live="assertive">
+            <div
+              key={errorAttempt}
+              id={errorId}
+              ref={errorRef}
+              tabIndex={-1}
+              className={styles.error}
+              role="alert"
+              aria-live="assertive"
+            >
               {submitError}
             </div>
           )}
@@ -627,16 +716,18 @@ export default function DmOverrideModal({
         </form>
       </div>
     </div>
-    {/* Sibling of the backdrop (not a child): its Escape/Tab/click events must
-        not bubble through the React tree into this modal's own handlers. */}
+    {/* Escape and backdrop clicks stay on the confirm because ConfirmDialog
+        consumes its own Escape (consumeEscape) and only treats a click as
+        dismiss when target === currentTarget; the sibling placement is just
+        tidy, not what protects them. */}
     <ConfirmDialog
-      open={confirmZero}
+      open={confirmOpen}
       role="alertdialog"
       tone="danger"
       title="Drop to 0 HP?"
       body={`This drops ${target?.name ?? 'the target'} to 0 HP.`}
       confirmLabel="Drop to 0 HP"
-      onConfirm={() => void send()}
+      onConfirm={() => void send(true)}
       onCancel={() => setConfirmZero(false)}
     />
     </>
