@@ -352,7 +352,10 @@ export default function TacticalMap({
   }, [space, reachShown, activeAt?.[0], activeAt?.[1], activeMovementRemaining, occupiedByOthers]);
   const reachSet = useMemo(() => new Set(reach.map(coordKeyStr)), [reach]);
 
-  const [focusedCoord, setFocusedCoord] = useState<SpaceCoordinate>(() => activeAt ?? [0, 0]);
+  // The roving stop AND what put it there. `key` (an arrow) and `sync` (Move engaged: the mover's token) are the map moving focus itself: it focuses the square and follows it.
+  // `native` is focus the BROWSER already placed (a pointer, a Tab, a screen reader's cursor): the map only records it, and never scrolls the board under a pointer.
+  const [focus, setFocus] = useState<{ coord: SpaceCoordinate; by: 'key' | 'sync' | 'native' }>(() => ({ coord: activeAt ?? [0, 0], by: 'native' }));
+  const focusedCoord = focus.coord;
   const [hoverCoord, setHoverCoord] = useState<SpaceCoordinate | null>(null);
   // The square the user last CHOSE — tapped, clicked, arrowed to, or put focus on — and the turn it was chosen in; and whether the grid holds focus. The line follows the
   // chosen square, not DOM focus (a tap under VoiceOver or TalkBack moves none: Iro-A11y's deciding case). It clears when focus leaves the grid, and at a turn change while
@@ -378,7 +381,7 @@ export default function TacticalMap({
   const [prevFocusSyncKey, setPrevFocusSyncKey] = useState<string | null>(focusSyncKey);
   if (focusSyncKey !== prevFocusSyncKey) {
     setPrevFocusSyncKey(focusSyncKey);
-    if (moveMode && activeAt) setFocusedCoord(activeAt);
+    if (moveMode && activeAt) setFocus({ coord: activeAt, by: 'sync' });
   }
 
   // The follow rule (follow.ts): ONE function for the turn change and for focus. A square wholly inside the window scrolls nothing; otherwise each axis that needs it
@@ -399,20 +402,22 @@ export default function TacticalMap({
     }
   }, []);
 
-  // Roving focus follows the arrows EVERYWHERE (B8c-3, brief F-d): in Move mode, and whenever the grid already holds focus. It never runs on mount unless Move is engaged,
+  // Roving focus follows the arrows EVERYWHERE (B8c-3, brief F-d): in Move mode, and whenever the grid already holds focus. Only the map's OWN focus moves (`key`, `sync`) focus and follow:
+  // focus the browser placed (`native`) is recorded and nothing more, or a mousedown on a cut-off square would scroll the board 34 px under the pointer and lose the click (T1). It never runs on mount unless Move is engaged,
   // and never pulls focus INTO the grid for an observer (someone else's move changes `activeAt`, not `focusedCoord`). `preventScroll`: a square already in view is never
   // scrolled by being focused — the follow rule above is the only thing that scrolls. The page may scroll for the user's own focus move, and only when the square is
   // STILL outside the viewport after the window has followed.
   useEffect(() => {
     const holdsFocus = !!boardRef.current && boardRef.current.contains(document.activeElement);
     if (!moveMode && !holdsFocus) return;
-    const cell = cellRefs.current.get(coordKeyStr(focusedCoord));
+    if (focus.by === 'native' && holdsFocus) return;
+    const cell = cellRefs.current.get(coordKeyStr(focus.coord));
     if (!cell) return;
     cell.focus({ preventScroll: true });
     keepInView(cell);
     const r = cell.getBoundingClientRect();
     if (r.bottom < 0 || r.top > window.innerHeight || r.right < 0 || r.left > window.innerWidth) cell.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  }, [focusedCoord, moveMode, keepInView]);
+  }, [focus, moveMode, keepInView]);
 
   // The turn change: the creature whose turn it is is brought into view by the same rule. Guarded so it fires once per turn, not on every render. A turn change never
   // scrolls the page (the window's own offsets only).
@@ -552,7 +557,7 @@ export default function TacticalMap({
     const next = nextFocusCoord(e.key, focusedCoord, space.width, space.height);
     if (next) {
       e.preventDefault();
-      setFocusedCoord(next);
+      setFocus({ coord: next, by: 'key' });
       choose(next);
     }
   }
@@ -625,7 +630,7 @@ export default function TacticalMap({
                     onFocus={() => {
                       // Real focus moving onto a square (a Tab into the grid, a screen reader's cursor, a programmatic focus) is the roving stop and the chosen square
                       // from then on: the NEXT arrow key starts from here, not from a stale square.
-                      setFocusedCoord((prev) => (coordsEqual(prev, coord) ? prev : coord));
+                      setFocus((prev) => (coordsEqual(prev.coord, coord) ? prev : { coord, by: 'native' }));
                       choose(coord);
                     }}
                     onClick={() => {
@@ -638,7 +643,7 @@ export default function TacticalMap({
                       // moveMode) so tapping any cell outside Move mode
                       // also chooses it for the scene line (B8c-3: a tap
                       // moves no focus under VoiceOver or TalkBack).
-                      setFocusedCoord((prev) => (coordsEqual(prev, coord) ? prev : coord));
+                      setFocus((prev) => (coordsEqual(prev.coord, coord) ? prev : { coord, by: 'native' }));
                       choose(coord);
                       attemptMove(coord);
                     }}

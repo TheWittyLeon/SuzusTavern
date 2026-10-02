@@ -442,15 +442,15 @@ describe('TacticalMap — the follow rule: the fewest whole squares on the axis 
     jest.spyOn(el, 'getBoundingClientRect').mockReturnValue({ ...r, right: r.left + r.width, bottom: r.top + r.height, x: r.left, y: r.top, toJSON: () => r } as DOMRect);
   }
   /** A 10x10 board of 40px squares in a 200x120 window (5 columns x 3 rows visible), laid out the way a browser would at the given scroll offsets. */
-  function layout(container: HTMLElement, scroll: { left: number; top: number }) {
+  function layout(container: HTMLElement, scroll: { left: number; top: number }, view = { width: 200, height: 120 }) {
     const win = container.querySelector('[data-board-window]') as HTMLElement;
-    Object.defineProperty(win, 'clientWidth', { configurable: true, value: 200 });
-    Object.defineProperty(win, 'clientHeight', { configurable: true, value: 120 });
+    Object.defineProperty(win, 'clientWidth', { configurable: true, value: view.width });
+    Object.defineProperty(win, 'clientHeight', { configurable: true, value: view.height });
     Object.defineProperty(win, 'scrollWidth', { configurable: true, value: 400 });
     Object.defineProperty(win, 'scrollHeight', { configurable: true, value: 400 });
     win.scrollLeft = scroll.left;
     win.scrollTop = scroll.top;
-    mockRect(win, { left: 10, top: 10, width: 200, height: 120 });
+    mockRect(win, { left: 10, top: 10, width: view.width, height: view.height });
     container.querySelectorAll('[role="gridcell"]').forEach((cell, i) => {
       const x = i % 10; const y = Math.floor(i / 10);
       mockRect(cell, { left: 10 + x * 40 - scroll.left, top: 10 + y * 40 - scroll.top, width: 40, height: 40 });
@@ -559,5 +559,66 @@ describe('TacticalMap — the follow rule: the fewest whole squares on the axis 
     expect(document.activeElement).toBe(after);
     expect(intoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
     intoView.mockRestore();
+  });
+
+  // A 220px window over 40px squares: columns 0-4 are whole and column 5 (x 200..240) shows 20 of its 40px. The real case is 980 / 34 = 28.8 columns (QA item 1, Kage T1).
+  const NARROW = { width: 220, height: 120 };
+
+  describe('a pointer on a partly visible square does not move the board under itself (T1)', () => {
+    it('Move mode: the browser focuses the cut-off square on mousedown; the window does not scroll, and the click that follows commits the move', () => {
+      const onMove = jest.fn();
+      const { container } = render(<TacticalMap {...props('a', { moveMode: true, onMove })} />);
+      const win = layout(container, { left: 0, top: 0 }, NARROW);
+      const sliver = screen.getByRole('gridcell', { name: /Row 1, column 6\./ });
+      fireEvent.mouseDown(sliver);
+      act(() => sliver.focus()); // what the browser does on mousedown
+      expect(win.scrollLeft).toBe(0);
+      fireEvent.click(sliver);
+      expect(onMove).toHaveBeenCalledWith([5, 0]);
+      expect(win.scrollLeft).toBe(0);
+    });
+
+    it('observer: the same pointer chooses the square for the line and takes the roving stop, and scrolls nothing', () => {
+      const onInspect = jest.fn();
+      const withFoe = [people[0], makeParticipant({ participant_id: 'g', name: 'Gob', is_pc: false, at: [5, 0] })];
+      const { container } = render(<TacticalMap {...props('a', { participants: withFoe, showReach: true, onInspect })} />);
+      const win = layout(container, { left: 0, top: 0 }, NARROW);
+      const sliver = screen.getByRole('gridcell', { name: /Gob, hostile/ });
+      act(() => sliver.focus());
+      fireEvent.click(sliver);
+      expect(win.scrollLeft).toBe(0);
+      expect(sliver).toHaveAttribute('tabindex', '0');
+      expect(onInspect.mock.calls[onInspect.mock.calls.length - 1][0]).toMatchObject({ kind: 'cell', input: { occupant: { name: 'Gob' } } });
+    });
+
+    it('THE CONTROL: an arrow key onto the same cut-off square DOES follow, by one whole square (the mocks are live and the keyboard still follows)', () => {
+      const { container } = render(<TacticalMap {...props('a')} />);
+      const win = layout(container, { left: 0, top: 0 }, NARROW);
+      const start = screen.getByRole('gridcell', { name: /Aldo — you/ });
+      act(() => start.focus());
+      for (let i = 0; i < 4; i++) fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'ArrowRight' });
+      expect(win.scrollLeft).toBe(0); // column 4 is whole
+      fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'ArrowRight' });
+      expect(document.activeElement).toBe(screen.getByRole('gridcell', { name: /Row 1, column 6\./ }));
+      expect(win.scrollLeft).toBe(40);
+    });
+
+    it('a pointer on a square, then an arrow from it: the follow resumes from the clicked square', () => {
+      const { container } = render(<TacticalMap {...props('a')} />);
+      const win = layout(container, { left: 0, top: 0 }, NARROW);
+      const sliver = screen.getByRole('gridcell', { name: /Row 1, column 6\./ });
+      act(() => sliver.focus());
+      expect(win.scrollLeft).toBe(0);
+      fireEvent.keyDown(sliver, { key: 'ArrowRight' }); // column 7: x 240..280, wholly out
+      expect(win.scrollLeft).toBe(80);
+    });
+
+    it('Move engaged still takes focus into the grid at the mover and follows it (the map\'s own focus move)', () => {
+      const { container, rerender } = render(<TacticalMap {...props('e')} />);
+      const win = layout(container, { left: 0, top: 0 });
+      rerender(<TacticalMap {...props('e', { moveMode: true })} />);
+      expect(document.activeElement).toBe(screen.getByRole('gridcell', { name: /Row 9, column 9\./ }));
+      expect(win.scrollLeft).toBe(160); // [8,8]: x 320..360 over a 200 window
+    });
   });
 });
