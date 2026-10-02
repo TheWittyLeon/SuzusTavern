@@ -71,7 +71,9 @@ export function useFollowGate(windowRef: RefObject<HTMLElement | null>, mounted:
     const win = windowRef.current;
     if (!mounted || !win) return;
     const onTouch = (e: Event) => {
-      touching.current = (e as TouchEvent).touches?.length > 0;
+      // `touches` lists every finger on the SCREEN, but this window hears a touchend only for a finger that started on it: count only the fingers that are on the window, or a second
+      // finger resting elsewhere would hold the gate for good (Kage-CR).
+      touching.current = Array.from((e as TouchEvent).touches ?? []).some((t) => t.target instanceof Node && win.contains(t.target));
       if (!touching.current) flush();
     };
     const onScroll = () => {

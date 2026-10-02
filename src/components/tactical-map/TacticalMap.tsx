@@ -711,7 +711,7 @@ export default function TacticalMap({
         ref={boardScrollRef}
         data-board-window=""
         data-pans-x={pansX ? '' : undefined}
-        // The toast must not land on the board: the shell keeps its notices off every element that carries this mark (the safety block and the composer carry it too).
+        // The toast must not land on the board. At this base nothing reads this mark: the toast host reads it on the phone branch, where the safety block and the composer carry it too.
         data-toast-avoid=""
         style={{ ['--tm-cols' as string]: space.width, ['--tm-rows' as string]: space.height, maxWidth: cap.w ?? undefined, maxHeight: cap.h ?? undefined }}
       >

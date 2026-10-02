@@ -849,7 +849,8 @@ describe('TacticalMap — P2: every follow waits while a touch is on the window 
     Object.defineProperty(win, 'scrollTop', { configurable: true, get: () => top, set: (v: number) => { top = v; writes.push(['top', v]); } });
     return { win, writes };
   }
-  const touches = [{ identifier: 1, target: document.body, clientX: 5, clientY: 5 }];
+  // a finger ON THE BOARD (a finger on the page's body would not hold the gate: it counts only fingers on the window)
+  const touches = [{ identifier: 1, get target() { return document.querySelector('[data-board-window]'); }, clientX: 5, clientY: 5 }];
   beforeEach(() => jest.useFakeTimers());
   afterEach(() => jest.useRealTimers());
 
@@ -941,6 +942,43 @@ describe('TacticalMap — P2: every follow waits while a touch is on the window 
     expect(back.scrollLeft).toBe(80);
   });
 
+  describe('the gate counts the fingers on the WINDOW, not every finger on the screen (Kage-CR)', () => {
+    /** A touch event as the window hears it: `touches` is every finger on the SCREEN, each with the element it started on. */
+    const touchOf = (win: HTMLElement, type: string, targets: Element[]) => {
+      const e = new Event(type, { bubbles: true });
+      Object.defineProperty(e, 'touches', { value: targets.map((target) => ({ target })) });
+      act(() => { win.dispatchEvent(e); });
+    };
+
+    it('a second finger resting OFF the board does not hold the gate once the board\'s own finger has lifted: the turn follow runs', () => {
+      const log = document.createElement('div');
+      document.body.appendChild(log);
+      const { container, rerender } = render(<TacticalMap {...at('a')} />);
+      const win = layoutP2(container, { left: 0, top: 0 });
+      const cell = container.querySelector('[role="gridcell"]') as HTMLElement;
+      touchOf(win, 'touchstart', [cell]); // finger 1 on the board (finger 2 then lands on the log: the board does not hear that)
+      touchOf(win, 'touchend', [log]); // finger 1 lifts; finger 2 is still on the log
+      rerender(<TacticalMap {...at('c')} />);
+      act(() => { jest.advanceTimersByTime(1000); });
+      expect([win.scrollLeft, win.scrollTop]).toEqual([80, 0]);
+      log.remove();
+    });
+
+    it('THE CONTROL: a finger still ON the board holds it, and its lift releases it', () => {
+      const { container, rerender } = render(<TacticalMap {...at('a')} />);
+      const win = layoutP2(container, { left: 0, top: 0 });
+      const [c1, c2] = Array.from(container.querySelectorAll('[role="gridcell"]')) as HTMLElement[];
+      touchOf(win, 'touchstart', [c1, c2]);
+      touchOf(win, 'touchend', [c2]); // one of two board fingers lifts: still touching
+      rerender(<TacticalMap {...at('c')} />);
+      act(() => { jest.advanceTimersByTime(1000); });
+      expect([win.scrollLeft, win.scrollTop]).toEqual([0, 0]);
+      touchOf(win, 'touchend', []);
+      act(() => { jest.advanceTimersByTime(1000); });
+      expect([win.scrollLeft, win.scrollTop]).toEqual([80, 0]);
+    });
+  });
+
   it('the touch listeners are passive: nothing here can cancel a gesture', () => {
     const add = jest.spyOn(EventTarget.prototype, 'addEventListener');
     render(<TacticalMap {...at('a')} />);
@@ -955,13 +993,14 @@ describe('TacticalMap — P2: every follow waits while a touch is on the window 
 describe('TacticalMap — P2: the window re-follows when it gets a box or its WIDTH changes, or the mover is cut; never on a pure height step; losing its box exits Move', () => {
   class FakeResizeObserver {
     static all: FakeResizeObserver[] = [];
+    target!: Element;
     constructor(public cb: () => void) {}
-    observe() { FakeResizeObserver.all.push(this); }
+    observe(t: Element) { this.target = t; FakeResizeObserver.all.push(this); }
     unobserve() {}
     disconnect() { FakeResizeObserver.all = FakeResizeObserver.all.filter((o) => o !== this); }
   }
-  // The observers register in the order room, window, grid. A pure height step moves the window's box and neither the room's nor the grid's, so this fires the first two.
-  const resized = () => act(() => { FakeResizeObserver.all.slice(0, 2).forEach((o) => o.cb()); });
+  // A pure height step moves the window's box and neither the room's nor the grid's: this fires the room's and the window's observers, never the grid's.
+  const resized = () => act(() => { FakeResizeObserver.all.filter((o) => !o.target.matches('[role="grid"]')).forEach((o) => o.cb()); });
   beforeEach(() => { FakeResizeObserver.all = []; (globalThis as { ResizeObserver?: unknown }).ResizeObserver = FakeResizeObserver; });
   afterEach(() => { delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver; });
 
@@ -1082,7 +1121,7 @@ describe('TacticalMap — P2: the window re-follows when it gets a box or its WI
   it('the re-follow waits for a touch to lift, like every follow', () => {
     const { container } = render(<TacticalMap {...at('c')} />);
     const win = layoutP2(container, { left: 0, top: 0 });
-    fireEvent.touchStart(win, { touches: [{ identifier: 1, target: document.body, clientX: 1, clientY: 1 }] });
+    fireEvent.touchStart(win, { touches: [{ identifier: 1, target: win, clientX: 1, clientY: 1 }] });
     resized();
     expect(win.scrollLeft).toBe(0);
     fireEvent.touchEnd(win, { touches: [] });
@@ -1098,8 +1137,9 @@ describe('TacticalMap — P2: the window re-follows when it gets a box or its WI
 describe('TacticalMap — P2: the sliver rule: a cut row or column under 8 px ends the window on the whole one (Aoi-UI section 15)', () => {
   class FakeResizeObserver {
     static all: FakeResizeObserver[] = [];
+    target!: Element;
     constructor(public cb: () => void) {}
-    observe() { FakeResizeObserver.all.push(this); }
+    observe(t: Element) { this.target = t; FakeResizeObserver.all.push(this); }
     unobserve() {}
     disconnect() { FakeResizeObserver.all = FakeResizeObserver.all.filter((o) => o !== this); }
   }
@@ -1283,8 +1323,9 @@ describe('TacticalMap — P2: the window pans natively (touch-action, overscroll
 describe('TacticalMap — P2: the edge guard: a window that pans sideways stamps itself, and its board starts --tm-edge-guard in from the start edge', () => {
   class FakeResizeObserver {
     static all: FakeResizeObserver[] = [];
+    target!: Element;
     constructor(public cb: () => void) {}
-    observe() { FakeResizeObserver.all.push(this); }
+    observe(t: Element) { this.target = t; FakeResizeObserver.all.push(this); }
     unobserve() {}
     disconnect() { FakeResizeObserver.all = FakeResizeObserver.all.filter((o) => o !== this); }
   }
@@ -1347,19 +1388,22 @@ describe('TacticalMap — P2: the edge guard: a window that pans sideways stamps
 describe('TacticalMap — what a held follow reads when it runs, and what the observer protects (from QA of P2)', () => {
   class FakeResizeObserver {
     static all: FakeResizeObserver[] = [];
+    target!: Element;
     constructor(public cb: () => void) {}
-    observe() { FakeResizeObserver.all.push(this); }
+    observe(t: Element) { this.target = t; FakeResizeObserver.all.push(this); }
     unobserve() {}
     disconnect() { FakeResizeObserver.all = FakeResizeObserver.all.filter((o) => o !== this); }
   }
   const resized = () => act(() => { FakeResizeObserver.all.slice().forEach((o) => o.cb()); });
   beforeEach(() => { FakeResizeObserver.all = []; (globalThis as { ResizeObserver?: unknown }).ResizeObserver = FakeResizeObserver; jest.useFakeTimers(); });
   afterEach(() => { delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver; jest.useRealTimers(); });
-  const touch = [{ identifier: 1, target: document.body, clientX: 5, clientY: 5 }];
+  const touch = [{ identifier: 1, get target() { return document.querySelector('[data-board-window]'); }, clientX: 5, clientY: 5 }]; // on the board
   const aldo = makeParticipant({ participant_id: 'a', name: 'Aldo', at: [0, 0], movement_remaining: 30 });
   const calAt = (x: number) => makeParticipant({ participant_id: 'c', name: 'Cal', is_pc: false, at: [x, 0], movement_remaining: 30 });
   const at = (active: string, participants: CombatParticipantState[], o: Partial<TacticalMapProps> = {}) => baseProps({ space: makeSpace({ width: 10, height: 10 }), participants, viewerParticipantId: 'a', activeParticipantId: active, ...o });
   const touchDown = (win: HTMLElement) => fireEvent.touchStart(win, { touches: touch });
+  /** Fire the observer(s) watching the element that matches `selector`: the room (the wrapper), the window, or the grid. Named, not numbered: a fourth observer cannot shift them. */
+  const fireObserverOf = (selector: string) => act(() => { FakeResizeObserver.all.filter((o) => o.target.matches(selector)).forEach((o) => o.cb()); });
 
   it('a poll that moves the mover while a finger holds the turn follow back: it runs to where the mover IS, not where it was when the turn changed', () => {
     const { container, rerender } = render(<TacticalMap {...at('a', [aldo, calAt(6)])} />);
@@ -1459,12 +1503,12 @@ describe('TacticalMap — what a held follow reads when it runs, and what the ob
     Object.defineProperty(room, 'clientWidth', { configurable: true, value: 410 });
     Object.defineProperty(room, 'clientHeight', { configurable: true, value: 200 });
     layoutP2(container, { left: 0, top: 0 }, { width: 410, height: 200 });
-    act(() => { FakeResizeObserver.all[1].cb(); }); // the box: 400 px of board in 410: no pan
+    fireObserverOf('[data-board-window]'); // the box: 400 px of board in 410: no pan
     expect(win).not.toHaveAttribute('data-pans-x');
     // the square grows 40 -> 44 (board 440): neither the room nor the window moved
     container.querySelectorAll('[role="gridcell"]').forEach((cell, i) => mockBox(cell, { left: 10 + (i % 10) * 44, top: 10 + Math.floor(i / 10) * 44, width: 44, height: 44 }));
     Object.defineProperty(win, 'scrollWidth', { configurable: true, value: 440 });
-    act(() => { FakeResizeObserver.all[2].cb(); }); // the grid's observer only
+    fireObserverOf('[role="grid"]'); // the grid's observer only
     expect(win).toHaveAttribute('data-pans-x');
     expect(win.scrollLeft).toBe(30); // Cal at column 9 (x 396..440) is brought in: the end of the board
   });
@@ -1482,7 +1526,7 @@ describe('TacticalMap — what a held follow reads when it runs, and what the ob
     const stampedAtWrite: boolean[] = [];
     let left = 0;
     Object.defineProperty(win, 'scrollLeft', { configurable: true, get: () => left, set: (v: number) => { left = v; stampedAtWrite.push(win.hasAttribute('data-pans-x')); } });
-    act(() => { FakeResizeObserver.all[1].cb(); }); // ONLY the window's observer (room, window, grid): it measures the room itself, so the stamp does not depend on the room observer firing in the same frame
+    fireObserverOf('[data-board-window]'); // ONLY the window's observer: it measures the room itself, so the stamp does not depend on the room observer firing in the same frame
     expect(stampedAtWrite.length).toBeGreaterThan(0); // the control: a follow did write
     expect(stampedAtWrite.every(Boolean)).toBe(true);
   });
