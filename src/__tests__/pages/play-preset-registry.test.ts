@@ -753,8 +753,9 @@ describe('TAV-PLAY-SHELL presets.ts — the composer variant is the dice\'s home
 // A10 step 11 S2b (Sora's brief 3.1 / 3.2, Amendment F.1-F.3): a stage that can hold a map has a BODY: its area named on two consecutive lines (the scene
 // line, then the body), a `hero` form, and the room as rows x cell: `--play-cell` on the row and, for every value of the `room` fact, a `--play-body`.
 describe('TAV-PLAY-SHELL presets.ts — the stage\'s body (A10 S2b): a hero names its area on two lines and the row gives every room a size', () => {
-  /** The line (0-based) of the track that reads `--play-body` in this cell, or -1. The stage's body is that line; its scene line is the one above. */
-  const bodyLine = (row: LayoutRow, m: Moment) => trackList(row.rows[m]).findIndex((t) => t.includes('var(--play-body'));
+  /** The line (0-based) of the track that reads `--play-body` in this cell, or -1. The stage's body is that line; its scene line is the one above. The EXACT token: a track
+   *  that reads only `--play-body-floor` is not the body's size (`includes('var(--play-body')` matched both: Kage Tavern 9). */
+  const bodyLine = (row: LayoutRow, m: Moment) => trackList(row.rows[m]).findIndex((t) => /var\(--play-body[,)]/.test(t));
   /** Whether `areas` names the stage on a line (0-based). */
   const stageOn = (row: LayoutRow, m: Moment, line: number) =>
     (([...row.areas[m].matchAll(/"([^"]*)"/g)][line]?.[1] ?? '').trim().split(/\s+/)).includes('sceneStage');
@@ -817,6 +818,10 @@ describe('TAV-PLAY-SHELL presets.ts — the stage\'s body (A10 S2b): a hero name
     const unread = patched(story, { rows: { ...story.rows, combat: story.rows.combat.replace('minmax(var(--play-body-floor,0px),var(--play-body,0px))', 'minmax(0,238px)') } });
     expect(stageBodyProblems([unread]).join('|')).toMatch(/story\/combat: a hero stage with no body track/);
     expect(stageBodyProblems([patched(story, { vars: undefined })]).join('|')).toMatch(/no --play-cell/);
+    // A10 fix round (Kage Tavern 9): a body track that reads only the FLOOR is not a body track (the guard used to match the prefix `var(--play-body` of `--play-body-floor` too)
+    const floorOnly = patched(story, { rows: { ...story.rows, combat: story.rows.combat.replace('minmax(var(--play-body-floor,0px),var(--play-body,0px))', 'minmax(var(--play-body-floor,0px),238px)') } });
+    expect(bodyLine(floorOnly, 'combat')).toBe(-1);
+    expect(stageBodyProblems([floorOnly]).join('|')).toMatch(/story\/combat: a hero stage with no body track/);
   });
 });
 
