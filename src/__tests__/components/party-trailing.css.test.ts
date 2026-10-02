@@ -53,6 +53,13 @@ describe('the strip: one row of tiles that scrolls sideways, and a trailing colu
     expect(block).toMatch(/mask-image:\s*none/);
   });
 
+  it('and the trailing controls go to the TOP of the cell there: wrapped, a second tile row pushes the bottom below the band\'s 91px edge (320x256: 44x0 of 44x44)', () => {
+    const i = css.indexOf('@media (max-width: 320px)');
+    const block = css.slice(i, css.indexOf('}\n}', i) + 2);
+    expect(block).toMatch(/\.strip > \.trailing\s*\{[^}]*align-self:\s*start/);
+    expect(rule('.strip > .trailing')).toMatch(/align-self:\s*end/); // the default, above 320px, stays beside the one row
+  });
+
   it('a rail puts the trailing controls under the roster', () => {
     expect(rule('.rail > .trailing')).toMatch(/margin-top:\s*10px/);
   });
