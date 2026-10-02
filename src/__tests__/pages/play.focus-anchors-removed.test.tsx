@@ -23,10 +23,12 @@ interface Props {
   combatIsActive?: boolean;
   /** the focused control is under `inert` (a layout that parks it in a closed drawer) rather than unmounted */
   inert?: boolean;
+  /** ...or under a `hidden` attribute */
+  hiddenAttr?: boolean;
   showControl?: boolean;
 }
 
-function Harness({ layoutId = 'table', isDying = false, sceneHasEncounter = false, combatIsActive = false, inert = false, showControl = true }: Props) {
+function Harness({ layoutId = 'table', isDying = false, sceneHasEncounter = false, combatIsActive = false, inert = false, hiddenAttr = false, showControl = true }: Props) {
   const headRef = useRef<HTMLDivElement>(null);
   const { composerRailAnchorRef } = useFocusAnchors(isDying, sceneHasEncounter, null, headRef, combatIsActive, layoutId);
   return (
@@ -35,7 +37,7 @@ function Harness({ layoutId = 'table', isDying = false, sceneHasEncounter = fals
       <div ref={composerRailAnchorRef} tabIndex={-1} data-testid="rail">rail</div>
       <div data-testid="empty-space" />
       <button type="button">Elsewhere</button>
-      <div {...(inert ? { inert: true } : {})}>{showControl && <button type="button">Docked sheet</button>}</div>
+      <div {...(inert ? { inert: true } : {})} {...(hiddenAttr ? { hidden: true } : {})}>{showControl && <button type="button">Docked sheet</button>}</div>
     </div>
   );
 }
@@ -64,6 +66,28 @@ describe('layout-change rescue: only when the focused control was removed', () =
     act(() => sheet().focus());
     rerender(<Harness layoutId="phone" showControl={false} />);
     expect(head()).toHaveFocus();
+  });
+
+  it('the control focus was on goes under a `hidden` ancestor (the other half of "removed" besides inert): the scene head takes focus', () => {
+    const { rerender } = render(<Harness layoutId="table" />);
+    act(() => sheet().focus());
+    rerender(<Harness layoutId="phone" hiddenAttr />);
+    expect(head()).toHaveFocus();
+  });
+
+  it('the begin-encounter rescue focuses the head WITHOUT scrolling the page, like the other two (Iro round-4 MINOR-5)', () => {
+    const focus = jest.spyOn(HTMLElement.prototype, 'focus');
+    try {
+      const { rerender } = render(<Harness sceneHasEncounter showControl />);
+      act(() => sheet().focus());
+      focus.mockClear();
+      rerender(<Harness sceneHasEncounter={false} showControl={false} />);
+      const onHead = focus.mock.calls.map((c, i) => ({ opts: c[0], target: focus.mock.contexts[i] })).filter((c) => (c.target as HTMLElement).dataset?.testid === 'head');
+      expect(onHead).toHaveLength(1);
+      expect(onHead[0].opts).toEqual({ preventScroll: true });
+    } finally {
+      focus.mockRestore();
+    }
   });
 
   it('a control that is still focusable keeps focus through the layout change (the node is moved, not removed)', () => {

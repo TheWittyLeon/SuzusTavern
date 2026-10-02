@@ -157,7 +157,7 @@ export function useFocusAnchors(
   const beginEncounterVisibleRef = useRef(false);
   useLayoutEffect(() => {
     const nowVisible = !combatId && sceneHasEncounter;
-    if (beginEncounterVisibleRef.current && !nowVisible && focusWasRemoved()) sceneHeadRef.current?.focus();
+    if (beginEncounterVisibleRef.current && !nowVisible && focusWasRemoved()) sceneHeadRef.current?.focus({ preventScroll: true });
     beginEncounterVisibleRef.current = nowVisible;
   }, [combatId, sceneHasEncounter, sceneHeadRef, focusWasRemoved]);
 

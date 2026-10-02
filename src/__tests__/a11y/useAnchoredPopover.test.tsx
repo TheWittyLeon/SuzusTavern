@@ -550,14 +550,64 @@ describe('focus leaving an open popover closes it, without moving focus (Safari\
     jest.restoreAllMocks();
   });
 
-  it('the flags are cleared when it opens: a press from the PREVIOUS open does not outlive it', () => {
+  it('the flags are cleared when it opens: a press still "in progress" (its clearing task not yet run) does not outlive the open', () => {
+    jest.useFakeTimers();
+    try {
+      setup();
+      openA();
+      fireEvent.pointerDown(document.getElementById('first') as HTMLElement); // a press: the flag is set
+      openA(); // the opener's click closes it; the clearing task is queued and NOT run (fake timers)
+      closed();
+      openA(); // opening again is what clears the flag here (Kage round-4: the old test cleared it with an Escape keydown, so it passed with the reset removed)
+      act(() => screen.getByRole('button', { name: 'Verb' }).focus()); // no press in THIS open: focus leaving is the user leaving
+      closed();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  // A9d-2 round 5 (Iro MINOR-1): the press flag ends a task after the CLICK, or at a pointercancel; not at pointerup (iOS focuses a text input at or after it).
+  it('after a press INSIDE it has clicked (and a task has run), focus leaving by a non-key route (a screen reader\'s swipe) closes it', () => {
+    jest.useFakeTimers();
+    try {
+      setup();
+      openA();
+      const first = document.getElementById('first') as HTMLElement;
+      fireEvent.pointerDown(first);
+      fireEvent.click(first);
+      act(() => { jest.advanceTimersByTime(1); });
+      act(() => screen.getByRole('button', { name: 'Verb' }).focus());
+      closed();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('...but between pointerdown and the click (the focus a press causes comes in that gap) the flag still holds, and pointerup does not clear it (iOS)', () => {
+    jest.useFakeTimers();
+    try {
+      setup();
+      openA();
+      const verb = screen.getByRole('button', { name: 'Verb' });
+      fireEvent.pointerDown(verb);
+      fireEvent.pointerUp(verb);
+      act(() => { jest.advanceTimersByTime(50); });
+      act(() => verb.focus()); // iOS: the input's focus comes at or after pointerup, before the click
+      expect(dialog()).toBeInTheDocument();
+      fireEvent.click(verb);
+      closed();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('a pointercancel ends the press at once: the focus that follows it is the user leaving', () => {
     setup();
     openA();
-    fireEvent.pointerDown(document.getElementById('first') as HTMLElement); // a press while open sets the flag
-    fireEvent.keyDown(document.activeElement as Element, { key: 'Escape' });
-    closed();
-    openA();
-    act(() => screen.getByRole('button', { name: 'Verb' }).focus()); // no press in THIS open: focus leaving is the user leaving
+    const verb = screen.getByRole('button', { name: 'Verb' });
+    fireEvent.pointerDown(verb);
+    fireEvent(verb, new Event('pointercancel', { bubbles: true }));
+    act(() => verb.focus());
     closed();
   });
 

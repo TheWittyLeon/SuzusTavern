@@ -303,6 +303,12 @@ export function useAnchoredPopover({
     tabbedRef.current = false;
     const onPointerDown = () => { pointerRef.current = true; tabbedRef.current = false; };
     const onKeyDown = (e: KeyboardEvent) => { pointerRef.current = false; tabbedRef.current = e.key === 'Tab'; };
+    // A press is over a task after its CLICK (a pointercancel ends it at once): not on pointerup, because iOS focuses a text input at or after it. Without this the flag
+    // stayed set until a key or the next open, and focus that left by a non-key route (a screen reader's swipe) was ignored: the popover was left open and orphaned
+    // (Iro round-4 MINOR-1). The press's own focus is already in by the click, which comes after it.
+    let clearTimer: ReturnType<typeof setTimeout> | null = null;
+    const onClick = () => { clearTimer = setTimeout(() => { pointerRef.current = false; }, 0); };
+    const onPointerCancel = () => { pointerRef.current = false; };
     const onFocusIn = (e: FocusEvent) => {
       if (pointerRef.current || modalLayerOpen(popoverRef.current)) return;
       const target = e.target;
@@ -323,11 +329,16 @@ export function useAnchoredPopover({
     };
     document.addEventListener('pointerdown', onPointerDown, true);
     document.addEventListener('keydown', onKeyDown, true);
+    document.addEventListener('click', onClick, true);
+    document.addEventListener('pointercancel', onPointerCancel, true);
     document.addEventListener('focusin', onFocusIn);
     document.addEventListener('focusout', onFocusOut);
     return () => {
       document.removeEventListener('pointerdown', onPointerDown, true);
       document.removeEventListener('keydown', onKeyDown, true);
+      document.removeEventListener('click', onClick, true);
+      document.removeEventListener('pointercancel', onPointerCancel, true);
+      if (clearTimer) clearTimeout(clearTimer);
       document.removeEventListener('focusin', onFocusIn);
       document.removeEventListener('focusout', onFocusOut);
     };
