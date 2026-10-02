@@ -90,6 +90,10 @@ const SCANNED_FILES = [
   // Escape handling (formerly a raw `e.key === 'Escape'`) goes through
   // `consumeEscape` — the document-level Award-XP fallback must not see it.
   'src/components/TweaksPanel.tsx',
+  // A9d-2 N3: the anchored popover primitive. The hook owns Escape for every popover that uses it (consumeEscape, then the focus rule
+  // returns focus to the opener); AnchoredPopover.tsx is the portalled surface and has no key handling of its own (vacuity-exempt below).
+  'src/lib/a11y/useAnchoredPopover.ts',
+  'src/components/AnchoredPopover.tsx',
 ];
 
 /**
@@ -129,6 +133,8 @@ const VACUITY_CHECK_EXEMPT = new Set([
   'src/app/play/[sessionId]/PlayShell.tsx',
   'src/app/play/[sessionId]/tenants/StatusAnnouncers.tsx',
   'src/app/play/[sessionId]/tenants/CastSpellTenant.tsx',
+  // A9d-2 N3: the portalled surface; the Escape handling is the hook's (useAnchoredPopover.ts, scanned and NOT exempt).
+  'src/components/AnchoredPopover.tsx',
 ]);
 
 const ESCAPE_COMPARISON_RE = /key\s*(===|!==)\s*'Escape'/g;

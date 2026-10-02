@@ -1,0 +1,325 @@
+'use client';
+
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type RefObject,
+} from 'react';
+import { consumeEscape } from './escapeConsume';
+
+/**
+ * A9d-2 fix round N3 (Sora lever brief 2.2; Tora C1-C3, Iro 4) — the anchored popover primitive.
+ *
+ * Extracted from `ActionBar.placePop`, the one correct copy of "a menu that opens from a control inside a clipping slot": a slot is
+ * `overflow-y: auto`, so a menu left inside it opens clipped (the outcome chooser rendered at y 346-718 under a band that ended at 333,
+ * so the tap on End combat looked like it did nothing). Five consumers use it: the Attack target menu, the End-combat outcome chooser,
+ * Roll, Cast a spell and the DM's Session controls. The hook is renderer-agnostic (the Attack menu stays where its DOM position is
+ * pinned); `AnchoredPopover` composes it with a portal and the shared look.
+ *
+ * The contract, each line a reviewer's condition:
+ *
+ * PLACEMENT. `position: fixed`, from the opener's rect, on the side with more room, clamped to the VISUAL viewport (pinch zoom and the
+ *   iOS keyboard move it: the layout viewport is not the screen). Re-placed on window `resize` and `scroll` and on `visualViewport`
+ *   `resize` and `scroll` (Tora C2: iOS fires no window `resize` when the keyboard retracts, and tapping Roll from a focused composer
+ *   blurs the textarea). It NEVER covers an element marked `data-popover-passthrough` (the X-card): the popover's height is clamped so the
+ *   two do not intersect, whichever side it opens on. Nothing here names a tenant. When clamped it scrolls inside
+ *   (`overscroll-behavior: contain`, with the shared scroll cue in AnchoredPopover.module.css).
+ *
+ * DISMISSAL (Tora C1, a safety rule). An outside press closes on `click`, never on `pointerdown` / `touchstart` (a pointer-down close
+ *   lets the synthesized click land on whatever lies underneath: Attack, End turn, Send). That click is CONSUMED: a capture-phase listener
+ *   on `document` calls `preventDefault` and `stopPropagation`, so the control under the finger does not activate. EXCEPT a press inside a
+ *   `data-popover-passthrough` element: it closes the popover and is delivered, because the X-card fires on the first tap, always. No
+ *   backdrop element exists (no stacking question, no touch-pan lock). A press on the opener itself is the consumer's toggle, untouched.
+ *   Escape goes through `consumeEscape`.
+ *
+ * FOCUS (Iro 4, Tora C3). The opener is the control that was activated (`openerRef`, recorded from the activating event by
+ *   `recordOpener`; the anchor when there is only one). Never `document.activeElement` at open time: WebKit does not focus a tapped
+ *   button. On open focus moves to the consumer's declared target (`initialFocus`). Tab or Shift+Tab past either end closes the
+ *   popover and returns focus to the opener: it neither traps (it is non-modal) nor strands. On every close focus returns to the opener
+ *   if focus was in the popover or on <body>; if the opener is gone (End combat unmounts when the fight ends) it goes to
+ *   `fallbackFocus` (the scene head), decided in the commit that closed it, never <body>. Focus is left alone when it already moved on to
+ *   a control the user chose (the X-card).
+ *
+ * SEMANTICS. The hook never sets `aria-modal`, `inert` or `aria-hidden` on anything: the page behind stays reachable. It returns the
+ *   opener's `aria-haspopup` / `aria-expanded` / `aria-controls`.
+ */
+
+/** Minimum clearance between the popover and the screen edge, the opener and a passthrough element (6px: the Attack menu's own, which this was extracted from). */
+const EDGE = 6;
+const GAP = 6;
+const PASSTHROUGH = '[data-popover-passthrough]';
+const TABBABLE =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+export type PopoverRole = 'dialog' | 'menu' | 'group';
+export type PopoverSide = 'auto' | 'top' | 'bottom';
+
+export interface UseAnchoredPopoverOptions {
+  open: boolean;
+  onClose: () => void;
+  /** The control the popover belongs to (placement, `aria-*`, and the default opener). */
+  anchorRef: RefObject<HTMLElement | null>;
+  /** The control that was actually activated, when more than one can open it ("End combat" and "Wrap up"). Set by `recordOpener`. */
+  openerRef?: RefObject<HTMLElement | null>;
+  /** Drives `aria-haspopup`. */
+  role?: PopoverRole;
+  /** A selector inside the popover for the control that takes focus on open; default the first tabbable. */
+  initialFocus?: string;
+  /** Where focus goes when the opener is gone. Never <body>. */
+  fallbackFocus?: () => HTMLElement | null | undefined;
+  /** The popover stays in the DOM while closed (a CSS class hides it): `aria-controls` is then valid while closed. */
+  keepMounted?: boolean;
+  side?: PopoverSide;
+}
+
+export interface AnchoredPopoverApi {
+  id: string;
+  open: boolean;
+  /** `aria-haspopup`, `aria-expanded`, `aria-controls` for the opener. */
+  anchorProps: { 'aria-haspopup': 'dialog' | 'menu' | 'true'; 'aria-expanded': boolean; 'aria-controls': string | undefined };
+  /** Spread onto the popover's root element; its ref is `attachPopover`. */
+  popoverProps: {
+    id: string;
+    style: CSSProperties;
+    onKeyDown: (e: ReactKeyboardEvent<HTMLElement>) => void;
+    'data-anchored-popover': '';
+    'data-placement': 'top' | 'bottom';
+  };
+  /** The popover root's CALLBACK ref (not a ref object: the React compiler's lint forbids reading one during render). */
+  attachPopover: (el: HTMLElement | null) => void;
+  /** Call from the opener's onClick (or any control that opens it) so focus returns to THAT control. */
+  recordOpener: (e: ReactMouseEvent<HTMLElement>) => void;
+}
+
+interface Placed {
+  left: number;
+  /** Set when the popover opens BELOW the opener (its top edge); otherwise `bottom` is. */
+  top?: number;
+  /** Set when it opens ABOVE the opener: the distance from the layout viewport's bottom edge to the popover's bottom edge. */
+  bottom?: number;
+  /** The room on the chosen side, after the screen edge and any passthrough element: the popover is never taller than this. */
+  maxHeight: number;
+  maxWidth: number;
+  side: 'top' | 'bottom';
+}
+
+const samePlaced = (a: Placed | null, b: Placed) =>
+  !!a && a.left === b.left && a.top === b.top && a.bottom === b.bottom && a.maxHeight === b.maxHeight && a.maxWidth === b.maxWidth && a.side === b.side;
+
+/** The visible part of the screen, in layout-viewport coordinates (what `position: fixed` is measured in). */
+function visualBox() {
+  const vv = typeof window !== 'undefined' ? window.visualViewport : null;
+  const root = document.documentElement;
+  return {
+    left: vv?.offsetLeft ?? 0,
+    top: vv?.offsetTop ?? 0,
+    width: vv?.width ?? root.clientWidth,
+    height: vv?.height ?? root.clientHeight,
+  };
+}
+
+/**
+ * Pure placement (exported for the unit cases): where a popover of `natural` size goes relative to `opener`, inside `view`, clear of
+ * `zones` (the passthrough rects). Left-aligned to the opener and clamped; opens on the side with more room unless told; its height
+ * is capped to the room on that side, after the zones on that side are subtracted. Opening above is expressed as `bottom` (the Attack
+ * menu's coordinates, so what it grows into stays where the opener is), opening below as `top`. `viewportHeight` is the layout
+ * viewport's height, which `bottom` is measured against.
+ */
+export function computePlacement(
+  opener: { left: number; right: number; top: number; bottom: number },
+  natural: { width: number; height: number },
+  view: { left: number; top: number; width: number; height: number },
+  zones: ReadonlyArray<{ left: number; right: number; top: number; bottom: number }>,
+  side: PopoverSide = 'auto',
+  viewportHeight: number = view.top + view.height,
+): Placed {
+  const maxWidth = Math.max(0, view.width - 2 * EDGE);
+  const w = Math.min(natural.width, maxWidth);
+  const left = Math.max(view.left + EDGE, Math.min(opener.left, view.left + view.width - w - EDGE));
+  const right = left + w;
+  const overlapsX = (z: { left: number; right: number }) => z.right > left && z.left < right;
+  // The vertical room on each side: to the screen edge, or to the nearest passthrough element on that side that the popover would run into.
+  let topLimit = view.top + EDGE;
+  let bottomLimit = view.top + view.height - EDGE;
+  for (const z of zones) {
+    if (!overlapsX(z)) continue;
+    if (z.bottom <= opener.top + 1) topLimit = Math.max(topLimit, z.bottom + GAP);
+    else if (z.top >= opener.bottom - 1) bottomLimit = Math.min(bottomLimit, z.top - GAP);
+  }
+  const roomAbove = Math.max(0, opener.top - GAP - topLimit);
+  const roomBelow = Math.max(0, bottomLimit - (opener.bottom + GAP));
+  const chosen: 'top' | 'bottom' =
+    side === 'top' ? 'top' : side === 'bottom' ? 'bottom' : natural.height <= roomAbove ? 'top' : natural.height <= roomBelow ? 'bottom' : roomAbove >= roomBelow ? 'top' : 'bottom';
+  const maxHeight = chosen === 'top' ? roomAbove : roomBelow;
+  return chosen === 'top'
+    ? { left, bottom: viewportHeight - opener.top + GAP, maxHeight, maxWidth, side: chosen }
+    : { left, top: opener.bottom + GAP, maxHeight, maxWidth, side: chosen };
+}
+
+export function useAnchoredPopover({
+  open,
+  onClose,
+  anchorRef,
+  openerRef,
+  role = 'dialog',
+  initialFocus,
+  fallbackFocus,
+  keepMounted = false,
+  side = 'auto',
+}: UseAnchoredPopoverOptions): AnchoredPopoverApi {
+  const id = useId();
+  const popoverRef = useRef<HTMLElement | null>(null);
+  const [placed, setPlaced] = useState<Placed | null>(null);
+  const wasOpenRef = useRef(false);
+
+  const openerEl = useCallback(() => {
+    const o = openerRef?.current;
+    return o && o.isConnected ? o : (anchorRef.current ?? o ?? null);
+  }, [anchorRef, openerRef]);
+
+  const place = useCallback(() => {
+    const pop = popoverRef.current;
+    const opener = openerEl();
+    if (!pop || !opener) return;
+    const r = opener.getBoundingClientRect();
+    const zones = Array.from(document.querySelectorAll<HTMLElement>(PASSTHROUGH))
+      .map((el) => el.getBoundingClientRect())
+      .filter((z) => z.width > 0 && z.height > 0);
+    // Natural size: the content's, whatever max-height a previous placement left (the popover scrolls inside, so scrollHeight is the content).
+    const chrome = pop.offsetHeight - pop.clientHeight;
+    const next = computePlacement(r, { width: pop.offsetWidth, height: pop.scrollHeight + chrome }, visualBox(), zones, side, document.documentElement.clientHeight);
+    setPlaced((prev) => (samePlaced(prev, next) ? prev : next));
+  }, [openerEl, side]);
+
+  // Placed before the first paint, and again after every render while open (content can change size); re-placed on resize, on any
+  // scroll (capture: an ancestor's) and on the visual viewport's own resize / scroll.
+  useLayoutEffect(() => {
+    if (!open) return;
+    place();
+  });
+  useLayoutEffect(() => {
+    if (!open) return;
+    const vv = window.visualViewport;
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    vv?.addEventListener('resize', place);
+    vv?.addEventListener('scroll', place);
+    const ro = typeof ResizeObserver !== 'undefined' && popoverRef.current ? new ResizeObserver(place) : null;
+    if (ro && popoverRef.current) ro.observe(popoverRef.current);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+      vv?.removeEventListener('resize', place);
+      vv?.removeEventListener('scroll', place);
+      ro?.disconnect();
+    };
+  }, [open, place]);
+
+  // Outside press: closes on CLICK, consumes it, except on a passthrough element (the X-card): closes and delivers it.
+  useEffect(() => {
+    if (!open) return;
+    const onClick = (e: MouseEvent) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+      const pop = popoverRef.current;
+      if (pop?.contains(target)) return;
+      const anchor = anchorRef.current;
+      const opener = openerRef?.current;
+      if ((anchor && anchor.contains(target)) || (opener && opener.contains(target))) return; // the consumer's own toggle
+      const passthrough = target instanceof Element && target.closest(PASSTHROUGH) !== null;
+      if (!passthrough) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      onClose();
+    };
+    document.addEventListener('click', onClick, true);
+    return () => document.removeEventListener('click', onClick, true);
+  }, [open, onClose, anchorRef, openerRef]);
+
+  // Focus: on open to the declared target; on every close back to the opener (or the fallback), decided in the commit that closed it.
+  useLayoutEffect(() => {
+    if (open) {
+      wasOpenRef.current = true;
+      const pop = popoverRef.current;
+      const target = (initialFocus ? pop?.querySelector<HTMLElement>(initialFocus) : null) ?? pop?.querySelector<HTMLElement>(TABBABLE) ?? pop;
+      target?.focus({ preventScroll: true });
+      return;
+    }
+    if (!wasOpenRef.current) return;
+    wasOpenRef.current = false;
+    const active = document.activeElement;
+    // Focus is left alone when the user moved it on to a control of their choosing (the X-card took the press); it is brought back when it
+    // was in the popover (now gone or hidden) or fell to <body>.
+    if (active && active !== document.body && !popoverRef.current?.contains(active)) return;
+    const opener = openerEl();
+    if (opener && opener.isConnected) opener.focus({ preventScroll: true });
+    else fallbackFocus?.()?.focus({ preventScroll: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the focus rule reads the options at the moment of the change, not on their identity
+  }, [open]);
+
+  const onKeyDown = useCallback(
+    (e: ReactKeyboardEvent<HTMLElement>) => {
+      if (e.key === 'Escape') {
+        consumeEscape(e, { onClose });
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const pop = popoverRef.current;
+      if (!pop) return;
+      const stops = Array.from(pop.querySelectorAll<HTMLElement>(TABBABLE)).filter(
+        (el) => el.tabIndex >= 0 && !el.closest('[hidden], [inert], [aria-hidden="true"]'),
+      );
+      const active = document.activeElement as HTMLElement | null;
+      const first = stops[0];
+      const last = stops[stops.length - 1];
+      const past = stops.length === 0 || (e.shiftKey ? active === first || active === pop : active === last);
+      if (!past) return;
+      // Past either end: close, and put focus back on the opener (the close's own focus rule), not wherever Tab would have gone.
+      e.preventDefault();
+      onClose();
+    },
+    [onClose],
+  );
+
+  const attachPopover = useCallback((el: HTMLElement | null) => {
+    popoverRef.current = el;
+  }, []);
+
+  const recordOpener = useCallback(
+    (e: ReactMouseEvent<HTMLElement>) => {
+      if (openerRef && 'current' in openerRef) (openerRef as { current: HTMLElement | null }).current = e.currentTarget;
+    },
+    [openerRef],
+  );
+
+  const style: CSSProperties = placed
+    ? { position: 'fixed', left: placed.left, maxHeight: placed.maxHeight, maxWidth: placed.maxWidth, ...(placed.top !== undefined ? { top: placed.top } : { bottom: placed.bottom }) }
+    : { position: 'fixed', left: 0, top: 0 };
+
+  return {
+    id,
+    open,
+    anchorProps: {
+      'aria-haspopup': role === 'menu' ? 'menu' : 'dialog',
+      'aria-expanded': open,
+      'aria-controls': open || keepMounted ? id : undefined,
+    },
+    popoverProps: {
+      id,
+      style,
+      onKeyDown,
+      'data-anchored-popover': '',
+      'data-placement': placed?.side ?? 'top',
+    },
+    attachPopover,
+    recordOpener,
+  };
+}
