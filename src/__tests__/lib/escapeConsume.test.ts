@@ -61,6 +61,30 @@ describe('consumeEscape', () => {
   });
 });
 
+// Kage round-5 N5-1. In the BUILT page React's root is `document`, so a native listener on `document` is a sibling of React's and stopPropagation does not stop it;
+// stopImmediatePropagation does. jsdom's root is a div: THIS is a unit pin on the call, the browser pin is the harness's toast-escape-drawer-* legs.
+describe('consumeEscape also stops the NATIVE event for later document listeners', () => {
+  const withNative = (key: string) => {
+    const stopImmediatePropagation = jest.fn();
+    return { e: { key, stopPropagation: jest.fn(), nativeEvent: { stopImmediatePropagation } } as unknown as React.KeyboardEvent, stopImmediatePropagation };
+  };
+  it('on Escape, even when canClose is false (busy)', () => {
+    for (const canClose of [true, false]) {
+      const { e, stopImmediatePropagation } = withNative('Escape');
+      consumeEscape(e, { onClose: jest.fn(), canClose });
+      expect(stopImmediatePropagation).toHaveBeenCalledTimes(1);
+    }
+  });
+  it('not for any other key', () => {
+    const { e, stopImmediatePropagation } = withNative('Enter');
+    consumeEscape(e, { onClose: jest.fn() });
+    expect(stopImmediatePropagation).not.toHaveBeenCalled();
+  });
+  it('a hand-built event with no native event is fine', () => {
+    expect(() => consumeEscape(fakeKeyEvent('Escape'), { onClose: jest.fn() })).not.toThrow();
+  });
+});
+
 describe('makeEscapeConsumeHandler', () => {
   it('returns a handler that delegates to consumeEscape (Escape closes)', () => {
     const onClose = jest.fn();

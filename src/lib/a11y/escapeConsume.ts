@@ -62,6 +62,11 @@ export function consumeEscape(
   if (e.key !== 'Escape') return;
   // Unconditional — see module doc comment for why this is never gated.
   e.stopPropagation();
+  // In the BUILT page React's root is `document`: a native listener ON `document` (the toast's Escape, the page's Award-XP fallback) is a SIBLING of React's, and
+  // `stopPropagation` does not stop siblings, so one Escape closed this overlay AND whatever those listeners close (Kage round-5 N5-1: a drawer and the toasts; the Award
+  // XP form and the Session popover). `stopImmediatePropagation` does, for listeners registered after React's. jsdom's root is a div and cannot see the difference: the
+  // harness's toast-escape-drawer-* and popover-session-xp-escape legs are the pin. Optional-chained: a hand-built event in a test has no native event.
+  e.nativeEvent?.stopImmediatePropagation?.();
   if (opts.canClose === false) return;
   opts.onClose();
   opts.onRefocus?.();

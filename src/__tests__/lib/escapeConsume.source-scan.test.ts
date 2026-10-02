@@ -202,9 +202,10 @@ describe('TAV-A11Y-USE-ESCAPE-CONSUME-HOOK — no raw Escape handler bypasses th
           const backStart = Math.max(0, lineNo - 1 - 60);
           const context = rawLines.slice(backStart, lineNo).join('\n');
           const isDocumentedFallback =
-            relPath.endsWith('page.tsx') &&
             /document-level listener is the fallback/.test(context) &&
-            /Award-XP/.test(context);
+            ((relPath.endsWith('page.tsx') && /Award-XP/.test(context)) ||
+              // A9d-2 round 6: the popover primitive's opener-level Escape (the one place its own consumeEscape handler cannot hear), documented in place.
+              (relPath.endsWith('useAnchoredPopover.ts') && /Not an overlay's own handler/.test(context)));
           if (!isDocumentedFallback) {
             violations.push(
               `line ${lineNo}: raw "key !== 'Escape'" not recognized as the documented document-level fallback`,

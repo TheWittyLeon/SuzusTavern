@@ -362,6 +362,35 @@ describe('focus (Iro 4, Tora C3)', () => {
   });
 });
 
+describe('Escape with focus on the OPENER (Kage round-5 minor)', () => {
+  it('closes the popover and the key is consumed: it is not heard by the popover (focus is not in it), so the opener\'s own listener takes it', () => {
+    setup();
+    openA();
+    const opener = screen.getByRole('button', { name: 'Open A' });
+    act(() => opener.focus());
+    const later = jest.fn();
+    document.addEventListener('keydown', later);
+    fireEvent.keyDown(opener, { key: 'Escape' });
+    document.removeEventListener('keydown', later);
+    closed();
+    expect(later).not.toHaveBeenCalled();
+  });
+  it('other keys on the opener leave it open; with it closed the listener is gone', () => {
+    setup();
+    openA();
+    const opener = screen.getByRole('button', { name: 'Open A' });
+    fireEvent.keyDown(opener, { key: 'a' });
+    expect(dialog()).toBeInTheDocument();
+    fireEvent.keyDown(opener, { key: 'Escape' });
+    closed();
+    const later = jest.fn();
+    document.addEventListener('keydown', later);
+    fireEvent.keyDown(opener, { key: 'Escape' });
+    document.removeEventListener('keydown', later);
+    expect(later).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('keepMounted', () => {
   it('closed, the popover stays in the tree with a CSS class that hides it (so a test sees its content, a browser does not); aria-controls is valid while closed', () => {
     setup({ keepMounted: true });

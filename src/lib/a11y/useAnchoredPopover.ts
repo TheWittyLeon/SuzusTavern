@@ -344,6 +344,22 @@ export function useAnchoredPopover({
     };
   }, [open, anchorRef, openerRef]);
 
+  // Escape with focus on the OPENER (the popover is open and focus is still on the control that opened it, or went back to it): the popover's own onKeyDown only hears focus
+  // INSIDE it, so Escape did nothing for the popover and fell through to whatever else listens (Kage round-5 minor). The opener closes it, and the key is consumed.
+  // Not an overlay's own handler (that is `consumeEscape` in onKeyDown): the document-level listener is the fallback for the one place that handler cannot hear (scan: escapeConsume.source-scan).
+  useEffect(() => {
+    if (!open) return;
+    const els = [anchorRef.current, openerRef?.current].filter((el): el is HTMLElement => !!el);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      onCloseRef.current();
+    };
+    els.forEach((el) => el.addEventListener('keydown', onKey));
+    return () => els.forEach((el) => el.removeEventListener('keydown', onKey));
+  }, [open, anchorRef, openerRef]);
+
   // Outside press: closes on CLICK, consumes it, except on a passthrough element (the X-card): closes and delivers it.
   useEffect(() => {
     if (!open) return;
