@@ -195,51 +195,54 @@ export default function Composer({
           </div>
           {variant === 'roll' && tools}
         </div>
-        <textarea
-          ref={(el) => {
-            textareaRef.current = el;
-            if (textareaAnchorRef) textareaAnchorRef.current = el;
-          }}
-          className={styles.input}
-          placeholder={lockReason ?? (PLACEHOLDER[mode] ?? '')}
-          value={value}
-          rows={1}
-          aria-label={`Compose (${mode})`}
-          title={lockReason ?? undefined}
-          // Iro A9c-2 IMPORTANT-1: a send/narration lock is `readOnly` +
-          // `aria-disabled`, never native `disabled` — that dropped focus to <body>
-          // on EVERY send (and on the Auto flip while Suzu narrates).
-          {...lockProps(locked, { textInput: true })}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              if (canSend) onSend();
-            }
-          }}
-        />
-        <button
-          type="button"
-          className={styles.send}
-          // Not native `disabled` either: a keyboard user on Send loses focus the
-          // moment the draft clears (value -> empty -> !canSend).
-          {...lockProps(!canSend, { busy: pending })}
-          aria-label={pending ? 'Sending…' : 'Send'}
-          onClick={() => {
-            if (!canSend || pendingRef.current) return;
-            pendingRef.current = true;
-            // Reset after the current microtask so the latch only blocks genuine
-            // double-clicks; the caller's pending state takes over from there.
-            Promise.resolve().then(() => { pendingRef.current = false; });
-            onSend();
-          }}
-        >
-          {pending ? (
-            <span className={styles.sendSpinner} aria-hidden />
-          ) : (
-            <Icon name="Send" size={14} />
-          )}
-        </button>
+        {/* The input and Send: one flex item on a `roll` row, so a composer that wraps wraps them TOGETHER (Send alone on a second row was 44px of the story for one button). `display: contents` otherwise (Composer.module.css). */}
+        <div className={styles.inputRow}>
+          <textarea
+            ref={(el) => {
+              textareaRef.current = el;
+              if (textareaAnchorRef) textareaAnchorRef.current = el;
+            }}
+            className={styles.input}
+            placeholder={lockReason ?? (PLACEHOLDER[mode] ?? '')}
+            value={value}
+            rows={1}
+            aria-label={`Compose (${mode})`}
+            title={lockReason ?? undefined}
+            // Iro A9c-2 IMPORTANT-1: a send/narration lock is `readOnly` +
+            // `aria-disabled`, never native `disabled` — that dropped focus to <body>
+            // on EVERY send (and on the Auto flip while Suzu narrates).
+            {...lockProps(locked, { textInput: true })}
+            onChange={(e) => onChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (canSend) onSend();
+              }
+            }}
+          />
+          <button
+            type="button"
+            className={styles.send}
+            // Not native `disabled` either: a keyboard user on Send loses focus the
+            // moment the draft clears (value -> empty -> !canSend).
+            {...lockProps(!canSend, { busy: pending })}
+            aria-label={pending ? 'Sending…' : 'Send'}
+            onClick={() => {
+              if (!canSend || pendingRef.current) return;
+              pendingRef.current = true;
+              // Reset after the current microtask so the latch only blocks genuine
+              // double-clicks; the caller's pending state takes over from there.
+              Promise.resolve().then(() => { pendingRef.current = false; });
+              onSend();
+            }}
+          >
+            {pending ? (
+              <span className={styles.sendSpinner} aria-hidden />
+            ) : (
+              <Icon name="Send" size={14} />
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );

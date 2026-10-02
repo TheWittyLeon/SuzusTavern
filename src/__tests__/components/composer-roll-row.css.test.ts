@@ -31,14 +31,20 @@ describe('Composer.module.css — the `roll` row shares the line where there is 
     expect(r).not.toMatch(/100%/);
   });
 
-  it('the input\'s `flex` is the row\'s `--play-roll-input-flex`, and absent it takes a minimum basis, so a narrow composer wraps by itself instead of crushing it', () => {
-    expect(topRule(".composer[data-variant='roll'] .input")).toMatch(/flex:\s*var\(--play-roll-input-flex,\s*1 1 12rem\)/);
+  it('the input AND Send are one flex item, whose `flex` is the row\'s `--play-roll-input-flex`; absent it takes the input\'s minimum basis plus the gap and Send, so a narrow composer wraps them together and never leaves Send alone (A10 fix round 2, Kage Tavern 2)', () => {
+    const r = topRule(".composer[data-variant='roll'] .inputRow");
+    expect(r).toMatch(/display:\s*flex/);
+    expect(r).toMatch(/flex:\s*var\(--play-roll-input-flex,\s*1 1 calc\(12rem \+ var\(--play-composer-gap, var\(--density-gap\)\) \+ 44px\)\)/);
+    // the basis is the old input's 12rem + the gap + Send's own width: `.send` is that wide
+    expect(topRule('.send')).toMatch(/width:\s*44px/);
+    // the input no longer carries the row's flex: it fills the unit
+    expect(css).not.toMatch(/\[data-variant='roll'\]\s*\.input\s*\{/);
   });
 
-  it('the stylesheet carries no copy of the phone breakpoint: no media query touches the `roll` mode row or input, and no 880 appears in this file', () => {
+  it('the stylesheet carries no copy of the phone breakpoint: no media query touches the `roll` mode row, input or input row, and no 880 appears in this file', () => {
     const mediaBlocks = [...css.matchAll(/@media[^{]*\{((?:[^{}]*\{[^{}]*\})*[^{}]*)\}/g)].map((m) => m[1]);
     expect(mediaBlocks.length).toBeGreaterThan(0); // the file has other media queries (touch targets, the narrow phones' stacked mode tablist); an empty scan would prove nothing
-    for (const block of mediaBlocks) expect(block).not.toMatch(/\[data-variant='roll'\]\s*\.(modeRow|input)\b/);
+    for (const block of mediaBlocks) expect(block).not.toMatch(/\[data-variant='roll'\]\s*\.(modeRow|input|inputRow)\b/);
     expect(css).not.toMatch(/880\s*px/);
   });
 
@@ -52,8 +58,9 @@ describe('Composer.module.css — the `roll` row shares the line where there is 
     }
   });
 
-  it('only `roll` is affected: the default composer keeps its mode row `display: contents` and its input `flex: 1`', () => {
+  it('only `roll` is affected: the default composer keeps its mode row and its input row `display: contents`, and its input `flex: 1`', () => {
     expect(topRule('.modeRow')).toMatch(/display:\s*contents/);
+    expect(topRule('.inputRow')).toMatch(/display:\s*contents/);
     expect(topRule('.input')).toMatch(/\n\s*flex:\s*1;/);
   });
 });
