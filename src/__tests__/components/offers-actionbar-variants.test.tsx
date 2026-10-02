@@ -51,22 +51,22 @@ const barProps = (over: Partial<ActionBarProps> = {}): ActionBarProps => ({
 });
 
 describe('Offers consumes its variant', () => {
-  it('stamps data-variant; chips and list render different markup', () => {
-    const list = render(<Offers {...offersProps()} variant="list" />);
-    expect(list.container.firstElementChild).toHaveAttribute('data-variant', 'list');
-    const listHtml = list.container.innerHTML;
-    list.unmount();
+  // A10 fix round F3 (named exception: the `list` cases below were this file's second variant; the form is deleted. What pins the invariant: the vocabulary and the rows in
+  // play-preset-registry's offers describe, and the cases here, now over chips and rows).
+  it('stamps data-variant; chips and rows render different markup', () => {
+    const rows = render(<Offers {...offersProps()} variant="rows" />);
+    expect(rows.container.firstElementChild).toHaveAttribute('data-variant', 'rows');
+    const rowsHtml = rows.container.innerHTML;
+    rows.unmount();
     const chips = render(<Offers {...offersProps()} variant="chips" />);
     expect(chips.container.firstElementChild).toHaveAttribute('data-variant', 'chips');
-    expect(chips.container.innerHTML).not.toBe(listHtml);
+    expect(chips.container.innerHTML).not.toBe(rowsHtml);
   });
 
-  it('chips carries the layout class (and only chips); the class has a rule', () => {
+  it('chips carries the layout class (and not the scrolling-row layer); the class has a rule', () => {
     const chips = render(<Offers {...offersProps()} variant="chips" />);
     expect(chips.container.firstElementChild).toHaveClass('offersChips');
-    chips.unmount();
-    const list = render(<Offers {...offersProps()} variant="list" />);
-    expect(list.container.firstElementChild).not.toHaveClass('offersChips');
+    expect(chips.container.firstElementChild).not.toHaveClass('offersRows');
     // jsdom ignores CSS Modules: a class with no rule would pass every DOM test and style nothing
     expect(readFileSync(join(process.cwd(), 'src/app/play/[sessionId]/Play.module.css'), 'utf8')).toMatch(/^\.offersChips \{/m);
   });
@@ -97,12 +97,12 @@ describe('Offers consumes its variant', () => {
     expect(block).toMatch(/min-width: 0/);
   });
 
-  it('defaults to list, the markup the region always rendered', () => {
+  it('defaults to chips (the form every wide layout uses; the `list` default is gone with the form)', () => {
     const { container } = render(<Offers {...offersProps()} />);
-    expect(container.firstElementChild).toHaveAttribute('data-variant', 'list');
+    expect(container.firstElementChild).toHaveAttribute('data-variant', 'chips');
   });
 
-  it.each(['chips', 'list', 'rows'] as const)('%s: the same groups and buttons are present by accessible name (A13)', (variant) => {
+  it.each(['chips', 'rows'] as const)('%s: the same groups and buttons are present by accessible name (A13)', (variant) => {
     render(<Offers {...offersProps()} variant={variant} />);
     // two "Skill check" groups (authored + the freeform offer, told apart by suffix) and one transition group
     expect(screen.getByRole('group', { name: 'Skill check' })).toBeInTheDocument();
@@ -153,12 +153,12 @@ describe('ActionBar consumes its variant', () => {
   });
 });
 
-describe('the rows place offers and actionBar as chips or list/bar (what page.tsx reads through variantFor)', () => {
-  it('story: chips for both; table: list + bar; phone: offers rows + bar', () => {
+describe('the rows place offers and actionBar as chips or rows/bar (what page.tsx reads through variantFor)', () => {
+  it('story: chips for both; table: offers chips + bar; phone: offers rows + bar', () => {
     const { story, table, phone } = LAYOUT_ROWS_BY_ID;
     expect(variantFor(story, 'offers', 'exploring')).toBe('chips');
     expect(variantFor(story, 'actionBar', 'combat')).toBe('chips');
-    expect(variantFor(table, 'offers', 'exploring')).toBe('list');
+    expect(variantFor(table, 'offers', 'exploring')).toBe('chips');
     expect(variantFor(table, 'actionBar', 'combat')).toBe('bar');
     expect(variantFor(phone, 'offers', 'exploring')).toBe('rows');
     expect(variantFor(phone, 'actionBar', 'combat')).toBe('bar');

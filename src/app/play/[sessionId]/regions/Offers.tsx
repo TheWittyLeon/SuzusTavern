@@ -18,12 +18,13 @@ import styles from '../Play.module.css';
  * This component is now the SOLE placement — one component, one place.
  *
  * A9c-2 D2 (build brief 6): consumes its `variant` (the registry's union).
- * `list` is the markup above, one full-width button per offer (Table, in its
- * own scrolling 120px track). `chips` lays the SAME groups out as wrapped
- * compact pills, the label inline, so a story column spends one row on them
- * instead of a capped list. Same DOM, same groups, same accessible names:
- * only the presentation differs. A9d-1: `rows` is `chips` with each group on
- * ONE horizontally scrolling row (phone, fit-class viewports; it wraps again
+ * `chips` lays the groups out as wrapped compact pills, the label inline, so a
+ * column spends one row on them (Story, and since A10's fix round Table: its
+ * `list` form, one full-width button per offer in a scrolling 120px track,
+ * hid two scene transitions under the cap with no cue and is deleted). Same
+ * DOM, same groups, same accessible names in every variant: only the
+ * presentation differs. A9d-1: `rows` is `chips` with each group on ONE
+ * horizontally scrolling row (phone, fit-class viewports; it wraps again
  * below 700px tall).
  */
 
@@ -69,7 +70,6 @@ function scrollChipIntoView(e: FocusEvent<HTMLButtonElement>) {
 
 /** `rows` is `chips` plus its scrolling-row layer (Play.module.css `.offersRows`). */
 const OFFERS_CLASS: Record<RegionVariant<'offers'>, string | undefined> = {
-  list: undefined,
   chips: styles.offersChips,
   rows: `${styles.offersChips} ${styles.offersRows}`,
 };
@@ -92,7 +92,7 @@ export default function Offers({
   transitionWrapRef,
   sceneAdvanceBusy,
   onMoveOn,
-  variant = 'list',
+  variant = 'chips',
 }: OffersProps) {
   const onChipFocus = variant === 'rows' ? scrollChipIntoView : undefined;
   return (

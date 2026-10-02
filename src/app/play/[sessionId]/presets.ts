@@ -808,11 +808,9 @@ const TABLE_ROW: LayoutRow = {
   // debt: Table's X-card-raised combat cell (j-combat-caster-xcard) is judged against a 100px banner floor, not the 200px target: it measures 137.5px inner.
   // ceiling: 137.5px on a 900px desktop with the X-card banner up; the banner and the stage's two tracks (396px with a board) both stay.
   // until: Aoi rules the banner-up combat cell, Backlog TAV-COMBAT-LOG-FLOOR-200; then raise the harness's banner combat floor to 200. (The dice tray left the stage at S1.)
-  // debt: Table's `offers` (`list`, one full-width button per offer) is capped at 120px and scrolls inside it; uncapped, 3-4 offers starve the log.
-  // ceiling: 3+ offers scroll in a 120px box, in the table·exploring cell only (offers are hidden in combat).
-  // until: Table's offers take the `chips` form (step 11's S4, Table's offers are chips) or the stage track is content-sized.
   rows: {
-    exploring: 'auto max-content minmax(0,var(--play-body,0px)) minmax(0,1fr) fit-content(120px) auto max-content',
+    // The offers track is content-sized (`auto`, as Story's): Table's offers are chips (A10 fix round F3), whole at rest; the 120px cap and its `debt:` are gone.
+    exploring: 'auto max-content minmax(0,var(--play-body,0px)) minmax(0,1fr) auto auto max-content',
     // banner, scene line (with the title bar's 72px reserve), body, log, composer, action bar: the classes above (A10 fix round: it was `auto max-content minmax(0,body) minmax(0,1fr) auto max-content`).
     combat: `max-content max-content minmax(var(--play-body-floor,0px),var(--play-body,0px)) minmax(var(--play-floor,${DESKTOP_COMBAT_LOG_FLOOR}),1fr) max-content max-content`,
   },
@@ -863,7 +861,7 @@ const TABLE_ROW: LayoutRow = {
     sceneStage: { default: { area: 'sceneStage', variant: 'hero' } },
     storyLog: { default: { area: 'storyLog' } },
     offers: {
-      default: { area: 'offers', variant: 'list' },
+      default: { area: 'offers', variant: 'chips' },
       combat: { area: null, visible: false },
     },
     characterBlock: { default: { area: 'characterBlock', variant: 'full', collapsible: true } },

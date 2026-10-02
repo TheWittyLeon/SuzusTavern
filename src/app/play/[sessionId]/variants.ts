@@ -45,7 +45,8 @@
 export const REGION_VARIANTS = {
   partyStrip: ['strip', 'rail'],
   sceneStage: ['inline', 'panel', 'hero'],
-  offers: ['chips', 'list', 'rows'],
+  // A10 fix round F3: `list` (one full-width button per offer, Table's, in a 120px scrolling track) is gone: Table's offers are `chips`, as Story's, and the track is content-sized.
+  offers: ['chips', 'rows'],
   characterBlock: ['compact', 'full'],
   actionBar: ['chips', 'bar'],
   suzuPresence: ['compact', 'full'],

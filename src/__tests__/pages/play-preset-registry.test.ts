@@ -42,6 +42,7 @@ import {
   FOLDABLE_ANNOUNCERS,
   FOLDABLE_REGIONS,
   getPlacement,
+  isRegionVariant,
   type LayoutId,
   type LayoutRow,
   type Moment,
@@ -463,6 +464,35 @@ describe('TAV-PLAY-SHELL presets.ts — every REGION_VARIANTS member is emitted 
   }
 });
 
+describe('TAV-PLAY-SHELL presets.ts — Table\'s offers are chips and nothing caps them (A10 fix round F3)', () => {
+  it('the offers vocabulary is chips and rows, each emitted by some row x moment (the `list` form is deleted, not kept dead)', () => {
+    expect([...REGION_VARIANTS.offers]).toEqual(['chips', 'rows']);
+    const emitted = new Set(LAYOUT_ROWS.flatMap((row) => MOMENTS.map((m) => getPlacement(row, 'offers', m).variant).filter(Boolean)));
+    expect([...emitted].sort()).toEqual(['chips', 'rows']);
+  });
+
+  it('Table says chips while exploring (and hides offers in a fight), and its offers track is content-sized, never a cap', () => {
+    expect(getPlacement(LAYOUT_ROWS_BY_ID.table, 'offers', 'exploring').variant).toBe('chips');
+    expect(getPlacement(LAYOUT_ROWS_BY_ID.table, 'offers', 'combat')).toMatchObject({ area: null, visible: false });
+    expect(trackList(LAYOUT_ROWS_BY_ID.table.rows.exploring)).toEqual([
+      'auto', // safety banner
+      'max-content', // the stage's scene line (with the title bar's reserve)
+      'minmax(0,var(--play-body,0px))', // the stage's body (0 while exploring)
+      'minmax(0,1fr)', // the log
+      'auto', // the offers: whole, as Story's (it was `fit-content(120px)`, and hid two scene transitions)
+      'auto', // composer
+      'max-content', // action bar
+    ]);
+    for (const row of LAYOUT_ROWS) for (const m of MOMENTS) expect(row.rows[m]).not.toMatch(/fit-content\(\s*120px\s*\)/);
+  });
+
+  it('the guard bites (control): Table back to `list` is not in the vocabulary, and a cap on the offers track is named', () => {
+    const table = LAYOUT_ROWS_BY_ID.table;
+    expect(isRegionVariant('offers', 'list')).toBe(false);
+    expect(trackList(table.rows.exploring.replace('minmax(0,1fr) auto auto max-content', 'minmax(0,1fr) fit-content(120px) auto max-content'))[4]).toBe('fit-content(120px)');
+  });
+});
+
 describe('A9c C7 — a fold hides the region\'s own announcers (R3): every foldable announcer is listed with a reason (build brief 5.5)', () => {
   const collapsibleIn = (rows: readonly LayoutRow[], id: RegionId) =>
     rows.some((row) => MOMENTS.some((m) => getPlacement(row, id, m).collapsible === true));
@@ -553,7 +583,10 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
       sceneStage: 'sceneStage variant:hero',
       suzuPresence: 'suzuPresence variant:full',
       storyLog: 'storyLog',
-      offers: 'offers variant:list',
+      // A10 fix round F3 (named exception: this was `variant:list`, Table's one full-width button per offer in a 120px scrolling track, which hid two scene transitions
+      // with no cue): Table's offers are chips, as Story's. What pins it now: this literal, the offers describe below (the vocabulary is chips and rows, each emitted), the
+      // track literal of Table's exploring row (content-sized) and the harness's m:offersRest.
+      offers: 'offers variant:chips',
       characterBlock: 'characterBlock variant:full collapsible:true',
       actionBar: 'actionBar variant:bar',
       // A10 step 11 S1 (named exception): Table's stage is a `hero` in both moments, so Roll is the dice's home in both. Pinned now by this literal,
