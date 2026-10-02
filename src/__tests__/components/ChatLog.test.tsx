@@ -4,7 +4,7 @@
  * alongside the pre-existing role="log" / aria-live="polite" contract (must
  * not regress either while fixing focusability).
  */
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import ChatLog, { type LogRow } from '../../components/ChatLog';
 
@@ -147,4 +147,15 @@ describe('ChatLog — DM-NARRATION-MARKDOWN inline emphasis', () => {
   function narrRender(text: string) {
     return <ChatLog rows={narr(text)} />;
   }
+});
+
+describe('ChatLog — a roll is announced from inside the log (A9d-2 N7: Roll moves into a popover, the result must still be heard)', () => {
+  it('a roll row renders INSIDE role="log" (polite live region) and is not aria-hidden', () => {
+    const rows: LogRow[] = [{ id: 'd1', who: 'leon', kind: 'roll', text: 'd20: 17', ts: '10:02' }];
+    render(<ChatLog rows={rows} />);
+    const log = screen.getByRole('log');
+    const text = within(log).getByText(/d20: 17/);
+    expect(log).toContainElement(text);
+    expect(text.closest('[aria-hidden="true"]')).toBeNull();
+  });
 });

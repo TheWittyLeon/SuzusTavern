@@ -17,10 +17,10 @@
 }
 
 .diceGrid {
-  /* The column count is the ROW's to set (`--play-dice-columns`, emitted on `.grid` by
-     PlayShell; the phone row says 6: one row of six chips, A9d-2 Tora MAJOR-1). Absent, the
-     tray's own `--dice-columns` (3). DiceTray.tsx reads the resolved count back for its keys. */
-  --dice-cols: var(--play-dice-columns, var(--dice-columns, 3));
+  /* The tray's own `--dice-columns` (3, set inline by DiceTray). The phone no longer hosts this tray in its stage: its dice are in the Roll
+     popover (`.diceGridPopover`, below), so no row sets a column count any more (A9d-2 N7 deleted `--play-dice-columns`). DiceTray.tsx reads
+     the resolved count back for its keys. */
+  --dice-cols: var(--dice-columns, 3);
   display: grid;
   grid-template-columns: repeat(var(--dice-cols), 1fr);
   row-gap: 8px;
@@ -28,6 +28,25 @@
      the columns' 44px each, shared between the gaps, never more than 8px (a 320px phone
      leaves about 1px). */
   column-gap: clamp(1px, calc((100% - var(--dice-cols) * 44px) / (var(--dice-cols) - 1)), 8px);
+}
+
+/* A9d-2 N7 (Sora lever brief 2.3): the dice in the Roll popover. ONE row of six, 8px apart (a 340px popover would otherwise squeeze the
+   chips under 44px); at 340px and under THREE BY TWO. The roving toolbar reads the resolved count back, so the arrow keys follow. */
+.diceGridPopover {
+  --dice-cols: 6;
+  column-gap: 8px;
+}
+
+@media (max-width: 340px) {
+  .diceGridPopover {
+    --dice-cols: 3;
+  }
+}
+
+/* the popover's order is quick checks, the roll modifier, then the dice (nearest the thumb): the modifier sits between two groups */
+.advRowPopover {
+  margin-top: 8px;
+  margin-bottom: 8px;
 }
 
 .die {

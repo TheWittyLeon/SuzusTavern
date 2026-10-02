@@ -59,7 +59,8 @@ import type { QuickCheck } from '@/components/DiceTray';
 import Pill from '@/components/Pill';
 import PageSkeleton from '@/components/PageSkeleton';
 import { type LogRow } from '@/components/ChatLog';
-import DiceTray from '@/components/DiceTray';
+import RollControl from '@/components/RollControl';
+import DiceTrayTenant from './tenants/DiceTrayTenant';
 import Composer, { type ComposeMode } from '@/components/Composer';
 import ActionBar from './regions/ActionBar';
 import ConfirmDialog from '@/components/ConfirmDialog';
@@ -1367,6 +1368,9 @@ export default function PlayPage() {
   // ReactNode` and `TenantId -> ReactNode`. Built here, where every piece's
   // own data/handlers already live; the shell itself never imports a region
   // component. The tenth region is one presets.ts row + one entry here.
+  // The dice: the same props feed the stage's tray (a `full` composer row) and the Roll control (a `roll` row).
+  const rollRow = variantFor(row, 'composer', moment) === 'roll';
+  const diceProps = { onRoll, quickChecks: quickChecks ?? [], advantage, onAdvantage: setAdvantage, disabled: talking || combatBusy || sessionLocked || rollBusy };
   const regions: Partial<Record<RegionId, ReactNode>> = {
     safetyBanner: (
       <SafetyBanner
@@ -1583,6 +1587,8 @@ export default function PlayPage() {
         pending={dmNarrationPending}
         sendError={mode === 'dm_narration' ? dmNarrationError : null}
         textareaAnchorRef={composerTextareaAnchorRef}
+        variant={variantFor(row, 'composer', moment)}
+        tools={rollRow ? <RollControl {...diceProps} fallbackFocus={() => sceneHeadRef.current} /> : undefined}
       />
     ),
     sceneStage: (
@@ -1667,20 +1673,9 @@ export default function PlayPage() {
           data-tenant="nextPartOffer"
         />
       ) : undefined,
-    // debt: the dice are not rendered on the phone between A9d-2 N5 and N7: the stage is a one-row strip there (`inline`), and the tray (357px of dice and quick checks) was its tenant. ceiling: the commits between N5 and N7 of the fix round, none deployed; the harness's o:restControls and z:modeRow are red in that window by construction ("no Roll control and no dice tray").
-    // until: N7 (Roll in the composer's mode row) puts the tray behind Roll in an anchored popover, and this line becomes the composer variant's choice.
-    diceTray: variantFor(row, 'sceneStage', moment) === 'inline' ? undefined : (
-      <div className={styles.diceWrap} data-tenant="diceTray">
-        {/* A2 — real character skill modifiers; null=loading or []=DM-only hide checks */}
-        <DiceTray
-          onRoll={onRoll}
-          quickChecks={quickChecks ?? []}
-          advantage={advantage}
-          onAdvantage={setAdvantage}
-          disabled={talking || combatBusy || sessionLocked || rollBusy}
-        />
-      </div>
-    ),
+    // One node, two homes, chosen by the row (A9d-2 N7, Amendment E.4): the stage hosts the tray only where the composer is `full`; on the
+    // phone (`roll`) it opens from the Roll control in the composer's mode row.
+    diceTray: rollRow ? undefined : <DiceTrayTenant {...diceProps} />,
     safetyControls: <SafetyControls xCardBusy={xCardBusy} onRaiseXCard={onRaiseXCard} />,
   };
 

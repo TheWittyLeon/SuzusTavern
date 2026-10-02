@@ -519,7 +519,7 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
       offers: 'offers variant:chips',
       characterBlock: 'null variant:compact layer:true',
       actionBar: 'actionBar variant:chips',
-      composer: 'composer',
+      composer: 'composer variant:full',
       tableControls: 'null layer:true',
       safetyBanner: 'safetyBanner',
     });
@@ -535,7 +535,7 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
       offers: 'null visible:false',
       characterBlock: 'null variant:compact layer:true',
       actionBar: 'actionBar variant:chips',
-      composer: 'composer',
+      composer: 'composer variant:full',
       tableControls: 'null layer:true',
       safetyBanner: 'safetyBanner',
     });
@@ -551,7 +551,7 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
       offers: 'offers variant:list',
       characterBlock: 'characterBlock variant:full collapsible:true',
       actionBar: 'actionBar variant:bar',
-      composer: 'composer',
+      composer: 'composer variant:full',
       tableControls: 'null layer:true',
       safetyBanner: 'safetyBanner',
     });
@@ -567,7 +567,7 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
       offers: 'null visible:false',
       characterBlock: 'characterBlock variant:full collapsible:true',
       actionBar: 'actionBar variant:bar',
-      composer: 'composer',
+      composer: 'composer variant:full',
       tableControls: 'null layer:true',
       safetyBanner: 'safetyBanner',
     });
@@ -586,7 +586,7 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
       offers: 'offers variant:rows',
       characterBlock: 'null variant:compact layer:true',
       actionBar: 'actionBar variant:bar',
-      composer: 'composer',
+      composer: 'composer variant:roll',
       tableControls: 'null layer:true',
       safetyBanner: 'safetyBanner',
     });
@@ -602,7 +602,7 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
       offers: 'null visible:false',
       characterBlock: 'null variant:compact layer:true',
       actionBar: 'actionBar variant:bar',
-      composer: 'composer',
+      composer: 'composer variant:roll',
       tableControls: 'null layer:true',
       safetyBanner: 'safetyBanner',
     });
@@ -697,6 +697,18 @@ describe('TAV-PLAY-SHELL presets.ts — row geometry is pinned as a literal (�
   });
 });
 
+// A9d-2 N7 (Amendment E.4): the composer's variants. `full` is every desktop row; `roll` is the phone, whose stage hosts no dice tenant.
+describe('TAV-PLAY-SHELL presets.ts — the composer variant is the dice\'s home (A9d-2 N7)', () => {
+  it.each(MOMENTS)('%s: story and table say full, the phone says roll', (moment) => {
+    expect(getPlacement(LAYOUT_ROWS_BY_ID.story, 'composer', moment).variant).toBe('full');
+    expect(getPlacement(LAYOUT_ROWS_BY_ID.table, 'composer', moment).variant).toBe('full');
+    expect(getPlacement(LAYOUT_ROWS_BY_ID.phone, 'composer', moment).variant).toBe('roll');
+  });
+  it('the phone row declares no dice-column var any more (the dice open from Roll)', () => {
+    expect(Object.keys(LAYOUT_ROWS_BY_ID.phone.vars ?? {})).not.toContain('--play-dice-columns');
+  });
+});
+
 describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as literals (A9d E2)', () => {
   // Three classes (build brief): WHOLE tracks are `max-content`; the log is a FLOOR
   // (`minmax(var(--play-floor,N),1fr)`: the grid grows auto/fit-content tracks before
@@ -737,7 +749,8 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
       '--play-slot-pad': '0px',
       '--play-slot-inline': 'var(--space-6)',
       '--play-recap-sub': 'none',
-      '--play-dice-columns': '6',
+      // A9d-2 N7 (named exception: `--play-dice-columns` is deleted with the stage's dice tenant on the phone; the dice are in the Roll popover and
+      // size themselves: DiceTray.module.css `.diceGridPopover`). What pins the deletion: no row declares it, and the S6 reader test below.
       // A9d-2 N6: the phone composer's own density (6px pad, 8px gap; it was 22 and 16: 145 -> 121px). The literal is the pin; the S6 reader
       // test and composer-density.css.test cover the stylesheet side. (This literal enumerates the set, so it grows with it.)
       '--play-composer-pad': 'var(--space-3)',

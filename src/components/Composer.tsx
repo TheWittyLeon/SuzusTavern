@@ -17,9 +17,10 @@
  * `<ActionBar/>` directly and owns those refs itself. Retires this file's own
  * `debt:` marker (A8) — its `until:` has fired.
  */
-import { useRef, type RefObject } from 'react';
+import { useRef, type ReactNode, type RefObject } from 'react';
 import Icon from '@/components/Icon';
 import { lockProps } from '@/lib/a11y/lockProps';
+import type { RegionVariant } from '@/app/play/[sessionId]/variants';
 import styles from './Composer.module.css';
 
 export type ComposeMode = 'say' | 'act' | 'ooc' | 'dm_narration';
@@ -55,6 +56,13 @@ export interface ComposerProps {
    *  (combat ends) and keyboard focus would otherwise drop to <body>.
    *  Optional — every other caller is unaffected. */
   textareaAnchorRef?: RefObject<HTMLTextAreaElement | null>;
+  /**
+   * A9d-2 N7 (Amendment E.4): `full` (the default) is the composer as it always was. `roll` (the phone) puts `tools` (the Roll control, which
+   * opens the dice) at the END of the mode row: DOM order modes, Roll, textarea, send; two rows at every phone width, the mode row never
+   * wrapping. `tools` is painted only by `roll`.
+   */
+  variant?: RegionVariant<'composer'>;
+  tools?: ReactNode;
 }
 
 const PLACEHOLDER: Record<ComposeMode, string> = {
@@ -82,6 +90,8 @@ export default function Composer({
   pending = false,
   disabledReason = null,
   textareaAnchorRef,
+  variant = 'full',
+  tools,
 }: ComposerProps) {
   // Use caller-supplied mode list if provided; default to the standard 3-tab set.
   const MODES = availableModes ?? DEFAULT_MODES;
@@ -106,7 +116,7 @@ export default function Composer({
   const pendingRef = useRef(false);
 
   return (
-    <div className={styles.composer}>
+    <div className={styles.composer} data-region="composer" data-variant={variant}>
       {/* S5.2: inline error banner — text is preserved in the textarea on error. */}
       {sendError && (
         <div
@@ -140,46 +150,50 @@ export default function Composer({
         </div>
       )}
       <div className={styles.row}>
-        <div
-          className={styles.modes}
-          role="tablist"
-          aria-label="Compose mode"
-          onKeyDown={(e) => {
-            const order = MODES.map(([k]) => k);
-            const idx = order.indexOf(mode);
-            let next = idx;
-            if (e.key === 'ArrowRight') {
-              e.preventDefault();
-              next = (idx + 1) % order.length;
-            } else if (e.key === 'ArrowLeft') {
-              e.preventDefault();
-              next = (idx - 1 + order.length) % order.length;
-            }
-            if (next !== idx) {
-              onMode(order[next]);
-              // Move focus to the newly-active tab, not just the selection.
-              tabRefs.current[next]?.focus();
-            }
-          }}
-        >
-          {MODES.map(([k, lbl], i) => (
-            <button
-              key={k}
-              ref={(el) => {
-                tabRefs.current[i] = el;
-              }}
-              type="button"
-              role="tab"
-              aria-selected={mode === k}
-              // Roving tabindex: only the active tab is in the tab order; the
-              // others are reached with Arrow keys (APG tabs pattern).
-              tabIndex={mode === k ? 0 : -1}
-              className={mode === k ? `${styles.mode} ${styles.modeOn}` : styles.mode}
-              onClick={() => onMode(k)}
-            >
-              {lbl}
-            </button>
-          ))}
+        {/* The mode row: the modes, and on a `roll` row the Roll control after them. `display: contents` otherwise (Composer.module.css). */}
+        <div className={styles.modeRow}>
+          <div
+            className={styles.modes}
+            role="tablist"
+            aria-label="Compose mode"
+            onKeyDown={(e) => {
+              const order = MODES.map(([k]) => k);
+              const idx = order.indexOf(mode);
+              let next = idx;
+              if (e.key === 'ArrowRight') {
+                e.preventDefault();
+                next = (idx + 1) % order.length;
+              } else if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                next = (idx - 1 + order.length) % order.length;
+              }
+              if (next !== idx) {
+                onMode(order[next]);
+                // Move focus to the newly-active tab, not just the selection.
+                tabRefs.current[next]?.focus();
+              }
+            }}
+          >
+            {MODES.map(([k, lbl], i) => (
+              <button
+                key={k}
+                ref={(el) => {
+                  tabRefs.current[i] = el;
+                }}
+                type="button"
+                role="tab"
+                aria-selected={mode === k}
+                // Roving tabindex: only the active tab is in the tab order; the
+                // others are reached with Arrow keys (APG tabs pattern).
+                tabIndex={mode === k ? 0 : -1}
+                className={mode === k ? `${styles.mode} ${styles.modeOn}` : styles.mode}
+                onClick={() => onMode(k)}
+              >
+                {lbl}
+              </button>
+            ))}
+          </div>
+          {variant === 'roll' && tools}
         </div>
         <textarea
           ref={(el) => {

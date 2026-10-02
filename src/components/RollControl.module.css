@@ -1,0 +1,34 @@
+/**
+ * A9d-2 N7 — the Roll button (the composer's mode row) and its popover. The popover's surface, position and scroll are
+ * AnchoredPopover.module.css's; this is only the button and the tray's room.
+ */
+.roll {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  /* a 44px target in both axes (Tora MINOR-1): it never wraps (the mode row holds it at 320 wide with "· Dis"), so a width floor too */
+  min-height: 44px;
+  min-inline-size: 44px;
+  padding: 0 var(--space-6);
+  flex-shrink: 0;
+  border-radius: 8px;
+  /* A11Y-BUTTON-BORDER-CONTRAST: clickable — --line-strong clears WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px solid var(--line-strong);
+  background: color-mix(in oklab, var(--ink) 4%, transparent);
+  color: var(--ink-2);
+  font-size: var(--text-base);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.roll:hover,
+.roll[aria-expanded='true'] {
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
+  color: var(--ink);
+}
+
+/* the tray in the popover: its own padding comes from the popover; the dice row is the widest thing in it */
+.popover {
+  min-width: 0;
+}
