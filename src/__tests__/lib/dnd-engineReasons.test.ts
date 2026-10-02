@@ -22,6 +22,8 @@
  *      test here silently regressed to relying on `body.message`, it would
  *      be proving nothing about production.
  */
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { engineErrorMessage } from '@/lib/dnd/engineError';
 import { makeApiError } from '@/lib/api/client';
 import {
@@ -551,5 +553,30 @@ describe('engineReasons — adversarial', () => {
     // No `message` key on the real wire shape, so this is NOT the tier-2
     // business-message branch either -- straight to fallback.
     expect(message).toBe("That combat action didn't go through.");
+  });
+});
+
+// ── the DM's monster-turn refusal copy (A9d-2 fix round N10; Tora MINOR-7, Iro Minor-4) ────────────────────────────────────────
+describe('the monster_statblock_unresolved copy names a way out the phone really has', () => {
+  const copy = COMBAT_REFUSAL_REASON_MAP.monster_statblock_unresolved;
+
+  it('says "Reload the page" (pull-to-refresh is off on /play, so the browser\'s own reload is the only route: a bare "Reload" has no affordance on a phone)', () => {
+    expect(copy).toMatch(/Reload the page/);
+    expect(copy).not.toMatch(/Reload to try again/);
+  });
+
+  it('names the control by its own label, "End combat", and where it is, "the Scene panel": "the scene controls" named no control', () => {
+    expect(copy).toMatch(/use End combat in the Scene panel/);
+    expect(copy).not.toMatch(/scene controls/i);
+  });
+
+  it('is still the curated sentence the driver and the harness find by its opening words', () => {
+    expect(copy).toMatch(/^A monster's stat block couldn't be loaded, so its turn didn't run\./);
+  });
+
+  it('is shown at 12px or more: the refusal is the DM\'s only recovery instruction and was the smallest text in the bar (Composer.module.css .refusedReason)', () => {
+    const css = readFileSync(join(process.cwd(), 'src/components/Composer.module.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const rule = css.match(/\.refusedReason\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(Number(rule.match(/font-size:\s*([\d.]+)px/)?.[1])).toBeGreaterThanOrEqual(12);
   });
 });
