@@ -632,13 +632,15 @@ export function variantFor<R extends VariantRegionId>(
 // Floor arithmetic, as the phone's is written beside its row (re-derive when a tenant in the story slot changes height; the harness's a:storyLog measures the inner log on
 // every gated size, so a stale sum reds): a floor is its INNER log plus the story slot's own chrome, and the chrome is written from its tokens (A10 fix round 2, Kage Tavern 3:
 // it was the sum 288 = 210 + 78 at the default density, and `airy` / `compact` re-tune the gap, so the inner log was 186 / 228 there). The slot pays `--density-gap` three times
-// (its padding above and below, and the gap to its last tenant) plus that tenant's own height: the status line in combat (30px). Inner floors: 210, and 100 with the X-card banner up
-// (the harness's, per moment: layout-assertions.mjs).
+// (its padding above and below, and the gap to its last tenant) plus that tenant's own height: the status line in combat (30px), the recap strip while exploring (46px: the phone's
+// 224 = 160 + 12 + 6 + 46 is the same recap). Inner floors: 210 / 100 with the X-card banner up in combat, 240 / 230 while exploring (the harness's, per moment: layout-assertions.mjs).
 // The banner yield (Play.module.css) lowers `--play-floor` to `--play-banner-floor` while the X-card banner is up.
 // ---------------------------------------------------------------------------
 const slotLogFloor = (innerPx: number, lastTenantPx: number) => `calc(${innerPx}px + 3 * var(--density-gap) + ${lastTenantPx}px)`;
 const DESKTOP_COMBAT_LOG_FLOOR = slotLogFloor(210, 30);
 const DESKTOP_COMBAT_BANNER_FLOOR = slotLogFloor(100, 30);
+const DESKTOP_EXPLORING_LOG_FLOOR = slotLogFloor(240, 46);
+const DESKTOP_EXPLORING_BANNER_FLOOR = slotLogFloor(230, 46);
 
 const STORY_ROW: LayoutRow = {
   id: 'story',
@@ -813,12 +815,16 @@ const TABLE_ROW: LayoutRow = {
   // ceiling: 137.5px on a 900px desktop with the X-card banner up; the banner stays and so does an 8-row board (it yields rows only below 900px tall, down to the log's banner floor: `--play-banner-floor` 178 = 100 + 78, F1).
   // until: Aoi rules the banner-up combat cell, Backlog TAV-COMBAT-LOG-FLOOR-200; then raise the harness's banner combat floor to 200. (The dice tray left the stage at S1.)
   rows: {
-    // The offers track is content-sized (`auto`, as Story's): Table's offers are chips (A10 fix round F3), whole at rest; the 120px cap and its `debt:` are gone.
-    exploring: 'auto max-content minmax(0,var(--play-body,0px)) minmax(0,1fr) auto auto max-content',
+    // The offers track is content-sized, a WHOLE band: Table's offers are chips (A10 fix round F3), whole at rest; the 120px cap and its `debt:` are gone. The log is a FLOOR
+    // (A10 fix round 2, Iro MAJOR-1 / Kage Tavern 4: the chips took the log from 175 to 113px at 1024x768 and to 44 at 1024x690, and nothing scrolled), so a page that cannot afford
+    // the chips AND the log scrolls, and the log is never crushed. The offers track is NOT bounded instead: a cap puts a scroller back around what a player acts with (the 120px
+    // cap hid two transitions), and bounding it by the log's floor would be a number the shell computes from a row's. The body is the optional class, as the combat row's: it is
+    // `none` here (0 and 0), so every Table moment spells it one way.
+    exploring: `max-content max-content minmax(var(--play-body-floor,0px),var(--play-body,0px)) minmax(var(--play-floor,${DESKTOP_EXPLORING_LOG_FLOOR}),1fr) max-content max-content max-content`,
     // banner, scene line (with the title bar's 72px reserve), body, log, composer, action bar: the classes above (A10 fix round: it was `auto max-content minmax(0,body) minmax(0,1fr) auto max-content`).
     combat: `max-content max-content minmax(var(--play-body-floor,0px),var(--play-body,0px)) minmax(var(--play-floor,${DESKTOP_COMBAT_LOG_FLOOR}),1fr) max-content max-content`,
   },
-  momentVars: { combat: { '--play-banner-floor': DESKTOP_COMBAT_BANNER_FLOOR } },
+  momentVars: { exploring: { '--play-banner-floor': DESKTOP_EXPLORING_BANNER_FLOOR }, combat: { '--play-banner-floor': DESKTOP_COMBAT_BANNER_FLOOR } },
   // A10 step 11 S2b: the stage is `hero` in BOTH moments and names its area on two lines (the scene line, then the body), as Story's combat does. The room
   // is rows x cell (F.3): 8 rows (R19) of the 34px cell, 3 for a fight with no board, none while exploring (the scene line IS the stage: 72 + 52 = 124
   // where the stage was a fixed 218). The title bar's 72px reserve sits in the scene line's track, so the body is exactly rows x cell.

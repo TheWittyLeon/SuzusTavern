@@ -474,13 +474,14 @@ describe('TAV-PLAY-SHELL presets.ts — Table\'s offers are chips and nothing ca
   it('Table says chips while exploring (and hides offers in a fight), and its offers track is content-sized, never a cap', () => {
     expect(getPlacement(LAYOUT_ROWS_BY_ID.table, 'offers', 'exploring').variant).toBe('chips');
     expect(getPlacement(LAYOUT_ROWS_BY_ID.table, 'offers', 'combat')).toMatchObject({ area: null, visible: false });
+    // A10 fix round 2 (named exception: this literal had `auto` bands and a `minmax(0,1fr)` log; the log is a floor now, so the bands beside it are whole: a scroller's automatic minimum is 0)
     expect(trackList(LAYOUT_ROWS_BY_ID.table.rows.exploring)).toEqual([
-      'auto', // safety banner
+      'max-content', // safety banner
       'max-content', // the stage's scene line (with the title bar's reserve)
-      'minmax(0,var(--play-body,0px))', // the stage's body (0 while exploring)
-      'minmax(0,1fr)', // the log
-      'auto', // the offers: whole, as Story's (it was `fit-content(120px)`, and hid two scene transitions)
-      'auto', // composer
+      'minmax(var(--play-body-floor,0px),var(--play-body,0px))', // the stage's body (0 and 0 while exploring)
+      'minmax(var(--play-floor,calc(240px + 3 * var(--density-gap) + 46px)),1fr)', // the log: 240 inner + the slot's chrome (padding above and below, the gap to the recap, the 46px recap)
+      'max-content', // the offers: whole, as Story's (it was `fit-content(120px)`, and hid two scene transitions)
+      'max-content', // composer
       'max-content', // action bar
     ]);
     for (const row of LAYOUT_ROWS) for (const m of MOMENTS) expect(row.rows[m]).not.toMatch(/fit-content\(\s*120px\s*\)/);
@@ -489,7 +490,7 @@ describe('TAV-PLAY-SHELL presets.ts — Table\'s offers are chips and nothing ca
   it('the guard bites (control): Table back to `list` is not in the vocabulary, and a cap on the offers track is named', () => {
     const table = LAYOUT_ROWS_BY_ID.table;
     expect(isRegionVariant('offers', 'list')).toBe(false);
-    expect(trackList(table.rows.exploring.replace('minmax(0,1fr) auto auto max-content', 'minmax(0,1fr) fit-content(120px) auto max-content'))[4]).toBe('fit-content(120px)');
+    expect(trackList(table.rows.exploring.replace(/\)\),1fr\) max-content max-content max-content$/, ')),1fr) fit-content(120px) max-content max-content'))[4]).toBe('fit-content(120px)');
   });
 });
 
@@ -833,7 +834,8 @@ describe('TAV-PLAY-SHELL presets.ts — the stage\'s body (A10 S2b): a hero name
     // What pins the class: the track-class guard and the full-literal pins below). Table exploring keeps its plain body track: nothing there yields.
     const optional = 'minmax(var(--play-body-floor,0px),var(--play-body,0px))';
     expect(trackList(LAYOUT_ROWS_BY_ID.story.rows.combat).slice(2, 4)).toEqual(['max-content', optional]);
-    expect(trackList(LAYOUT_ROWS_BY_ID.table.rows.exploring).slice(1, 3)).toEqual(['max-content', 'minmax(0,var(--play-body,0px))']);
+    // (A10 fix round 2, named exception: Table exploring's body was `minmax(0,var(--play-body,0px))`; it is the optional class like the combat rows', `none` being 0 and 0)
+    expect(trackList(LAYOUT_ROWS_BY_ID.table.rows.exploring).slice(1, 3)).toEqual(['max-content', optional]);
     expect(trackList(LAYOUT_ROWS_BY_ID.table.rows.combat).slice(1, 3)).toEqual(['max-content', optional]);
     for (const row of [LAYOUT_ROWS_BY_ID.story, LAYOUT_ROWS_BY_ID.table]) for (const m of MOMENTS) expect(row.rows[m]).not.toMatch(/fit-content\((290|400)px\)|\b218px\b/);
   });
@@ -893,9 +895,9 @@ describe('TAV-PLAY-SHELL presets.ts — the desktop combat rows\' track classes 
     expect(classProblems(LAYOUT_ROWS)).toEqual([]);
   });
 
-  it('the cells it judges are the desktop combat cells (Story and Table), and no others', () => {
+  it('the cells it judges are Story combat and Table (both moments: exploring has a floored log since fix round 2), and no others', () => {
     const judged = LAYOUT_ROWS.flatMap((row) => MOMENTS.filter((m) => trackList(row.rows[m]).some((t) => /var\(--play-body-floor[,)]/.test(t))).map((m) => `${row.id}/${m}`));
-    expect(judged).toEqual(['story/combat', 'table/combat']);
+    expect(judged).toEqual(['story/combat', 'table/exploring', 'table/combat']);
   });
 
   it('the literals: Story combat and Table combat, track by track, with the floor written from its tokens (210 + 3 x --density-gap + 30 status; 100 + the same for the banner)', () => {
@@ -1016,7 +1018,7 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
     expect(Object.keys(LAYOUT_ROWS_BY_ID.table.vars ?? {}).filter((k) => k.startsWith('--play-slot'))).toEqual([]);
   });
 
-  it('the phone row carries a banner floor per moment (exploring pays the recap chrome, combat the status line); the desktop rows carry one for COMBAT only', () => {
+  it('the phone row carries a banner floor per moment (exploring pays the recap chrome, combat the status line); Story carries one for combat only, Table for both (its exploring log is a floor)', () => {
     expect(LAYOUT_ROWS_BY_ID.phone.momentVars).toEqual({
       // 152 = 88 + 64 (exploring chrome: 12 edge + 6 gap + 46 recap); 136 = 88 + 48 (combat). The reflow minimum is gone with the stage's fold.
       exploring: { '--play-banner-floor': '152px' },
@@ -1026,7 +1028,11 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
     // harness's banner-up combat floor) + 78 of the story slot's chrome. Exploring has no body to yield and carries none.
     // A10 fix round 2 (named exception: these two were the literal '178px'): the floor is written from the gap token, so `airy` and `compact` keep 100 inner.
     expect(LAYOUT_ROWS_BY_ID.story.momentVars).toEqual({ combat: { '--play-banner-floor': 'calc(100px + 3 * var(--density-gap) + 30px)' } });
-    expect(LAYOUT_ROWS_BY_ID.table.momentVars).toEqual({ combat: { '--play-banner-floor': 'calc(100px + 3 * var(--density-gap) + 30px)' } });
+    // Table EXPLORING has one too (fix round 2: its log is a floor, so the banner's yield reads a value: the shell's `--play-floor: var(--play-banner-floor, 0px)` would be a floor of 0 without it)
+    expect(LAYOUT_ROWS_BY_ID.table.momentVars).toEqual({
+      exploring: { '--play-banner-floor': 'calc(230px + 3 * var(--density-gap) + 46px)' },
+      combat: { '--play-banner-floor': 'calc(100px + 3 * var(--density-gap) + 30px)' },
+    });
   });
 });
 
