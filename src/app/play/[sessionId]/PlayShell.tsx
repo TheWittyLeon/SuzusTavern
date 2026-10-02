@@ -218,6 +218,20 @@ export default function PlayShell({
   // One derivation for the whole DOM shape (A9c C3): top-level slots, hidden
   // slots and overlays all come from `slotOrder`.
   const order = slotOrder(row, moment);
+  // A9d-2 fix round N9 (the harness's y:fitFlag at 430x740, red on a caster cell): the layout effect above reads the grid in the commit that
+  // changed it, and a read forced there can see an INTERMEDIATE layout. The Cast button's arrival turns on a `:has()` rule inside a container
+  // query; the first forced layout read the action bar at 239px, the next frame settled it at 158 with no commit in between, and the stamp
+  // stayed "false" on a page that fit (log 160, 29px spare). So the grid is also measured when its own box or any slot's box changes size: a
+  // ResizeObserver reports sizes after layout has settled, container queries included. Re-attached when the set of slots changes.
+  const slotsKey = order.map((e) => `${e.kind}:${e.id}`).join(',');
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measureFit);
+    ro.observe(root);
+    for (const child of Array.from(root.children)) ro.observe(child);
+    return () => ro.disconnect();
+  }, [measureFit, slotsKey]);
 
   // C4 (C.1): the areas an overlay sits on. Their owner slots get
   // `data-overlaid` + `isolation:isolate` (and ONLY they do — never `.slot`).

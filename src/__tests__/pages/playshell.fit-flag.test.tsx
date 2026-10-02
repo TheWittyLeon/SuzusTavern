@@ -99,6 +99,45 @@ describe('PlayShell stamps data-fit="false" when the page scrolls', () => {
   });
 });
 
+describe('PlayShell re-measures when the layout SETTLES, not only in the commit (the harness y:fitFlag at 430x740, red on a caster cell)', () => {
+  // The Cast button's arrival turns on a :has() rule inside a container query. The forced layout read in the commit saw the action bar at
+  // 239px (scrollHeight 792), the next frame settled it at 158 (740) with no commit between, and the stamp stayed "false" on a page that fit.
+  // A ResizeObserver reports sizes after layout settles. jsdom has none: the case plants one and fires it, as the browser would.
+  type RO = { cb: () => void; observed: Element[]; disconnected: boolean };
+  let observers: RO[] = [];
+  beforeEach(() => {
+    observers = [];
+    (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
+      rec: RO;
+      constructor(cb: () => void) { this.rec = { cb, observed: [], disconnected: false }; observers.push(this.rec); }
+      observe(el: Element) { this.rec.observed.push(el); }
+      unobserve() {}
+      disconnect() { this.rec.disconnected = true; }
+    };
+  });
+  afterEach(() => { delete (globalThis as unknown as { ResizeObserver?: unknown }).ResizeObserver; });
+
+  it('a transient stamp from the commit is corrected by the observer, with NO commit and no resize', () => {
+    const m = mount();
+    m.measure(792, 740); // the intermediate layout the commit's read saw
+    m.withBanner(null);
+    expect(m.grid()).toHaveAttribute('data-fit', 'false');
+    m.measure(740, 740); // the layout a frame later: it fit
+    act(() => observers[observers.length - 1].cb());
+    expect(m.grid()).not.toHaveAttribute('data-fit');
+  });
+
+  it('observes the grid and every slot under it, and lets go on unmount', () => {
+    const view = render(<PlayShell row={phone} moment="exploring" regions={{}} tenants={{}} />);
+    const grid = view.container.querySelector('[data-layout-resolved]') as HTMLElement;
+    const live = observers.filter((o) => !o.disconnected).pop() as RO;
+    expect(live.observed).toContain(grid);
+    for (const slot of Array.from(grid.querySelectorAll(':scope > [data-region-slot]'))) expect(live.observed).toContain(slot);
+    view.unmount();
+    expect(observers.every((o) => o.disconnected)).toBe(true);
+  });
+});
+
 describe('PlayShell stamps data-scroll-cue from the row', () => {
   it('the phone row says scrollCue; the desktop rows do not', () => {
     expect(mount(LAYOUT_ROWS_BY_ID.phone).grid()).toHaveAttribute('data-scroll-cue');
