@@ -237,21 +237,26 @@ describe('TacticalMap — no second aria-live announcer', () => {
 });
 
 describe('TacticalMap — T1: reach overlay visible to ALL', () => {
+  // B8c-3 M1 (named exception in the brief's commit plan): T1 is carried by `showReach` now (the overlay without the interaction: an observer's seat), not by `moveMode`,
+  // which may be true only for the seat that controls the active turn. TacticalMap.window.test.tsx pins the rest of it (what `showReach` does and does not do).
   it('shows the ACTIVE participant\'s reach even when the viewer is a different participant', () => {
     const participants = [
-      makeParticipant({ participant_id: 'p1', name: 'Bren', at: [2, 2], movement_remaining: 10 }),
+      makeParticipant({ participant_id: 'p1', name: 'Bren', at: [2, 2], movement_remaining: 5 }),
       makeParticipant({ participant_id: 'p2', name: 'Sable', at: [4, 4], movement_remaining: 5 }),
     ];
     // Viewer is p2 (a spectator this turn); the active mover is p1.
     render(
       <TacticalMap
-        {...baseProps({ participants, viewerParticipantId: 'p2', activeParticipantId: 'p1', moveMode: true })}
+        {...baseProps({ participants, viewerParticipantId: 'p2', activeParticipantId: 'p1', moveMode: false, showReach: true })}
       />,
     );
-    // Neighbor of p1's [2,2] within a 1-cell (5ft) budget -> "In range".
+    // Neighbor of p1's [2,2]: drawn in the overlay (`showReach`), with no range language in its name (nobody is choosing a move).
     expect(
-      screen.getByRole('gridcell', { name: 'Row 2, column 2. Empty. In range — costs 5 feet.' }),
-    ).toBeInTheDocument();
+      screen.getByRole('gridcell', { name: 'Row 2, column 2. Empty.' }),
+    ).toHaveClass(styles.cellInRange);
+    expect(
+      screen.getByRole('gridcell', { name: 'Row 1, column 1. Empty.' }),
+    ).not.toHaveClass(styles.cellInRange); // two squares away: outside a 5 ft budget
   });
 });
 
@@ -369,14 +374,13 @@ describe('TacticalMap — downed participants (D1b item D, Kage-CR re-verify)', 
   });
 });
 
-describe('TacticalMap — T4: phone board centers on the active token each turn', () => {
-  // Tora-Gesture MAJOR-1: scrollIntoView() walks EVERY scrollable ancestor
-  // including the page (the phone vertical-jump trap) — this rewrite pins
-  // that scrollIntoView is NEVER called and that centering instead lands on
-  // .boardScroll's OWN scrollLeft/scrollTop, computed from
-  // getBoundingClientRect deltas (mocked here since jsdom does no real
-  // layout — every rect is 0 by default, which would make the fix
-  // indistinguishable from a no-op without controlling geometry directly).
+describe('TacticalMap — T4: the board follows the active token each turn (B8c-3 M1: keep-in-view, not centring)', () => {
+  // Named exception in the brief's commit plan (M1: "the T4 centring case, rewritten for keep-in-view"). T4 was ruled for the phone: centre on the active token every
+  // turn. On the desktop a centring rule hops board 1110 a row each time the turn passes between row 0 and row 4, and Iro-A11y approved keep-in-view in its place: a token
+  // already wholly in the window scrolls nothing, otherwise the fewest whole squares on the axis that needs it. What still holds from Tora-Gesture MAJOR-1: scrollIntoView()
+  // walks EVERY scrollable ancestor including the page (the phone vertical-jump trap), so it is NEVER called and the scroll lands on .boardScroll's OWN scrollLeft/scrollTop,
+  // computed from getBoundingClientRect (mocked here since jsdom does no real layout). TacticalMap.window.test.tsx and follow.test.ts pin the rule itself (every axis, the
+  // clamp, the in-view no-op, the same function for focus); this case keeps T4's own scenario (the once-per-turn guard is pinned in the window suite, with a control: a token already in view cannot show it).
   function mockRect(el: Element, rect: { left: number; top: number; width: number; height: number }) {
     jest.spyOn(el, 'getBoundingClientRect').mockReturnValue({
       ...rect,
@@ -404,41 +408,41 @@ describe('TacticalMap — T4: phone board centers on the active token each turn'
     const p1Cell = cells[0] as HTMLElement; // [0,0] — first cell, row-major
     const p2Cell = cells[24] as HTMLElement; // [4,4] — last cell of a 5x5 board
 
-    // A 200x200 viewport; p2's cell sits well outside it (centered at
-    // 420,420) — a real re-center must scroll right/down by 320 on both
-    // axes to bring its center to the container's own center (100,100).
+    // A 200x200 window over a 440x440 board; p2's cell (x 400..440) sits well outside it. The fewest whole 40px squares that bring it inside are 240 on each axis (400 + 40
+    // - 200), which is also the end of the board (440 - 200): the follow lands at the edge, not at the centre (320) the old rule scrolled to.
     mockRect(boardScroll, { left: 0, top: 0, width: 200, height: 200 });
+    for (const [prop, value] of [['clientWidth', 200], ['clientHeight', 200], ['scrollWidth', 440], ['scrollHeight', 440]] as const) {
+      Object.defineProperty(boardScroll, prop, { configurable: true, value });
+    }
     mockRect(p1Cell, { left: 0, top: 0, width: 40, height: 40 });
     mockRect(p2Cell, { left: 400, top: 400, width: 40, height: 40 });
     boardScroll.scrollLeft = 0;
     boardScroll.scrollTop = 0;
 
-    // Same active participant re-renders: no redundant re-center.
-    rerender(<TacticalMap {...baseProps({ participants, activeParticipantId: 'p1' })} />);
-    expect(boardScroll.scrollLeft).toBe(0);
-    expect(boardScroll.scrollTop).toBe(0);
-
-    // Turn changes to p2 -> centers again, scoped to the container only.
+    // Turn changes to p2 -> the window follows by the minimum, scoped to the container only.
     rerender(<TacticalMap {...baseProps({ participants, activeParticipantId: 'p2' })} />);
-    expect(boardScroll.scrollLeft).toBe(320);
-    expect(boardScroll.scrollTop).toBe(320);
+    expect(boardScroll.scrollLeft).toBe(240);
+    expect(boardScroll.scrollTop).toBe(240);
     expect(scrollIntoViewSpy).not.toHaveBeenCalled();
     scrollIntoViewSpy.mockRestore();
   });
 });
 
-describe('TacticalMap — click-driven roving focus (Tora MAJOR-2) feeds the inspector strip', () => {
-  it('a click on an occupied cell (tap = focus a cell) drives the inspector to that cell, even outside Move mode', () => {
+describe('TacticalMap — click-driven roving focus (Tora MAJOR-2) feeds the scene line', () => {
+  // Re-aimed (named exception, brief M1): the inspector strip is gone; the same fact reaches the mount as the `onInspect` payload.
+  it('a click on an occupied cell (tap = choose a cell) reports that cell to onInspect, even outside Move mode', () => {
+    const onInspect = jest.fn();
     const participants = [
       makeParticipant({ participant_id: 'p1', name: 'Bren', at: [0, 0] }),
       makeParticipant({ participant_id: 'p2', name: 'Goblin', is_pc: false, at: [1, 0] }),
     ];
-    render(<TacticalMap {...baseProps({ participants, viewerParticipantId: 'p1' })} />);
-    expect(screen.queryByText('Goblin')).not.toBeInTheDocument();
+    render(<TacticalMap {...baseProps({ participants, viewerParticipantId: 'p1', onInspect })} />);
+    expect(onInspect).not.toHaveBeenCalled();
     const goblinCell = screen.getByRole('gridcell', { name: /Goblin, hostile\./ });
     fireEvent.click(goblinCell);
-    expect(screen.getByText('Goblin')).toBeInTheDocument();
-    expect(screen.getByText('Foe')).toBeInTheDocument();
+    expect(onInspect).toHaveBeenLastCalledWith(
+      expect.objectContaining({ kind: 'cell', input: expect.objectContaining({ occupant: expect.objectContaining({ name: 'Goblin', hostile: true }) }) }),
+    );
   });
 });
 
@@ -547,16 +551,22 @@ describe('TacticalMap — keyboard flow', () => {
   });
 });
 
-describe('TacticalMap — inspector strip (coordinator decision 4, replaces title-only tap disclosure)', () => {
-  it('shows a placeholder when the roving-focused cell has no occupant', () => {
-    // No active participant -> focusedCoord's initial value is [0,0]
-    // (activeAt ?? [0,0]), which nobody occupies here.
+describe('TacticalMap — the scene line payload (was: the inspector strip, coordinator decision 4; the strip is gone, B8c-3 M1)', () => {
+  // Re-aimed (named exceptions, brief M1): each strip case now asserts the same fact on the `onInspect` payload. TacticalMap.window.test.tsx pins the trigger (the chosen
+  // square, with or without focus) and every payload kind; inspectLine.test.ts pins the words (`buildLine`).
+  const lastLine = (fn: jest.Mock) => fn.mock.calls[fn.mock.calls.length - 1]?.[0];
+
+  it('reports nothing when no creature is chosen and the active participant has no budget or square (the old "No creature selected." placeholder is not a line)', () => {
+    const onInspect = jest.fn();
+    // No active participant -> focusedCoord's initial value is [0,0] (activeAt ?? [0,0]), which nobody occupies here.
     const participants = [makeParticipant({ participant_id: 'p1', name: 'Bren', at: [4, 4] })];
-    render(<TacticalMap {...baseProps({ participants, activeParticipantId: null })} />);
-    expect(screen.getByText('No creature selected.')).toBeInTheDocument();
+    render(<TacticalMap {...baseProps({ participants, activeParticipantId: null, onInspect })} />);
+    expect(onInspect).not.toHaveBeenCalled();
+    expect(screen.queryByText('No creature selected.')).not.toBeInTheDocument();
   });
 
-  it('shows the focused occupant\'s name, team and full condition list — not just the worst badge', () => {
+  it('carries the focused occupant\'s name, side and FULL condition list — not just the worst badge', () => {
+    const onInspect = jest.fn();
     const participants = [
       makeParticipant({
         participant_id: 'p1',
@@ -565,24 +575,21 @@ describe('TacticalMap — inspector strip (coordinator decision 4, replaces titl
         conditions: ['prone', 'unconscious'],
       }),
     ];
-    render(<TacticalMap {...baseProps({ participants, activeParticipantId: 'p1', moveMode: true })} />);
-    expect(screen.getByText('Bren')).toBeInTheDocument();
-    expect(screen.getByText('You')).toBeInTheDocument();
-    // Both conditions, not just "worst" — the inspector is the full-list
-    // half Tora-Gesture's MAJOR-3 asked for, unlike the token's own badge.
-    // ConditionChipList renders each name twice (a visible aria-hidden
-    // span + an sr-only span) — getAllByText, not getByText.
-    expect(screen.getAllByText('Prone').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Unconscious').length).toBeGreaterThan(0);
+    render(<TacticalMap {...baseProps({ participants, activeParticipantId: 'p1', moveMode: true, onInspect })} />);
+    // Move mode: the line is the move target, and the cursor starts on Bren's own square, so the payload is its CellNameInput.
+    const occupant = lastLine(onInspect).input.occupant;
+    expect(occupant).toMatchObject({ name: 'Bren', isSelf: true });
+    // Both conditions, not just "worst" — the full-list half Tora-Gesture's MAJOR-3 asked for, unlike the token's own badge.
+    expect(occupant.otherConditions).toEqual(['Prone', 'Unconscious']);
   });
 
-  it('shows Downed / Dead state distinctly', () => {
+  it('carries Downed / Dead state distinctly', () => {
+    const onInspect = jest.fn();
     const participants = [
       makeParticipant({ participant_id: 'p1', name: 'Bren', at: [0, 0], hp_current: 0, is_alive: true }),
     ];
-    render(<TacticalMap {...baseProps({ participants, activeParticipantId: 'p1', moveMode: true })} />);
-    expect(screen.getByText('Downed')).toBeInTheDocument();
-    expect(screen.queryByText('Dead')).not.toBeInTheDocument();
+    render(<TacticalMap {...baseProps({ participants, activeParticipantId: 'p1', moveMode: true, onInspect })} />);
+    expect(lastLine(onInspect).input.occupant).toMatchObject({ downed: true, dead: false });
   });
 
   it('carries no aria-live attribute — a visual convenience, not a second announcement channel', () => {

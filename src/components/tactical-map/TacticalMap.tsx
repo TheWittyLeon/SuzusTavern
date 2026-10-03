@@ -2,8 +2,8 @@
 // src/components/tactical-map/TacticalMap.tsx
 //
 // Tactical map (#12), design pass v1 (Aoi-UI) — STANDALONE component (Lane D,
-// 2026-09-28 runbook). Not mounted anywhere yet; mounting into `SceneStage`
-// waits for play-shell steps 6/11. Presentational only: every prop is data
+// 2026-09-28 runbook). Not mounted anywhere yet; B8c-3 mounts it as `SceneStage`'s
+// body (A10 step 11 made the room). Presentational only: every prop is data
 // in or a callback out — no fetching, no engine calls, no combat-action
 // wiring (that belongs to whoever mounts this inside `/play`).
 //
@@ -31,10 +31,10 @@
 //   1. `refusalReason` deleted — design §4 says the refusal reuses the
 //      shell's EXISTING inline slot ("not a new component"); the mount
 //      wires that slot, not this one.
-//   4. An inspector strip under the board shows the roving-focused (or
-//      tapped — see the cell onClick handler) cell's full occupant detail,
-//      replacing the old `title`-only disclosure that Tora-Gesture found
-//      inert on touch (MAJOR-3).
+//   4. (B8c-3 M1: the strip is gone.) The roving-focused or tapped cell's
+//      occupant detail used to be an inspector strip under the board, which
+//      cost the board ~100px of its room. It is now the `onInspect` payload:
+//      the mount writes it in the scene line (see `InspectLine`, a11y.ts).
 //   8. Escape now routes through `consumeEscape` (Tora CRIT-1 = Kage
 //      IMPORTANT-3) — see `src/lib/a11y/escapeConsume.ts`.
 //
@@ -67,14 +67,15 @@
 // doesn't need but the self-narration does — and threads it into
 // `cellAccessibleName`, which no longer reads `dead` for this decision at
 // all. See `occupiesWhenAlive`'s and `describeOccupant`'s own comments below.
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import type { CombatParticipantState, CombatSpace, SpaceCoordinate } from '@/lib/api/types';
 import { consumeEscape } from '@/lib/a11y/escapeConsume';
 import { chebyshevCost, coordsEqual, isLegalMoveTarget, isSpaceUsable, reachableCells } from './reach';
-import { cellAccessibleName, nextFocusCoord, toDisplayRowCol, type CellOccupant } from './a11y';
+import { cellAccessibleName, nextFocusCoord, toDisplayRowCol, type CellNameInput, type CellOccupant, type InspectLine } from './a11y';
+import { followAll, followScroll, followTurn, wholeSquareCap, panningWidthCap, FOLLOW_MARGIN_PROPERTY, EDGE_GUARD_PROPERTY, type Box, type FollowTarget, type WindowMetrics } from './follow';
 import { worstCondition } from './conditions';
 import { formatConditionName } from '@/lib/conditions';
-import ConditionChipList from '@/components/ConditionChipList';
+import { useFollowGate } from './useFollowGate';
 import TheatreOfMindBand from './TheatreOfMindBand';
 import styles from './TacticalMap.module.css';
 
@@ -94,11 +95,21 @@ export interface TacticalMapProps {
   /** `CombatState.active_participant_id` — whose reach/turn ring/board
    *  centering this render reflects. */
   activeParticipantId?: string | null;
-  /** True while the viewer is in Move-targeting mode. Gates the reach
-   *  overlay, the destination-cell highlight, and whether Enter/Space/click
-   *  on a legal cell calls `onMove`. Caller-controlled — this component
-   *  never decides on its own that it's "someone's turn to move". */
+  /** True while the viewer is in Move-targeting mode: the right to PICK a
+   *  square. Gates the destination ring and tag, the cursor, the move-target
+   *  accessible names, whether Enter/Space/click on a legal cell calls
+   *  `onMove`, and the `target` line. Caller-controlled — this component
+   *  never decides on its own that it's "someone's turn to move". B8c-3: it
+   *  may be true only for the seat that controls the active turn (the player
+   *  whose PC is up); never an observer, never a dead viewer — an observer
+   *  sees the reach through `showReach` below, with none of the interaction. */
   moveMode: boolean;
+  /** Draw the active creature's reach overlay without the interaction (T1:
+   *  every seat sees how far the creature whose turn it is can go, all turn).
+   *  The overlay is drawn when `showReach || moveMode`; the cursor, the
+   *  destination ring and tag, the range language in the names and the commit
+   *  stay `moveMode`'s. It takes no focus and calls nothing. */
+  showReach?: boolean;
   /** True while the viewer's own confirmed move hasn't resolved yet
    *  (B8c-1 IMP-9b, additive — omitted/false behaves exactly as before).
    *  Gates every activation path from calling `onMove` a second time, and
@@ -165,6 +176,12 @@ export interface TacticalMapProps {
    *  component does not move focus outside its own DOM — the caller is
    *  responsible for returning focus to its Move control (design §5). */
   onExitMove: () => void;
+  /** What the mount should say about the square the user CHOSE (tapped, clicked, arrowed to, or put focus on), or about the creature whose turn it is: `turn` at rest
+   *  when the mover has a budget; `cell` when the chosen square holds a creature or a feature, with or without DOM focus (a tap under VoiceOver or TalkBack moves none);
+   *  `target` while a move is being chosen (the hovered square, else the focused one). `cell` and `target` carry the `CellNameInput` the cell's own accessible name is
+   *  built from, so `buildLine` (a11y.ts) and the name can never disagree. `null`: nothing to add to the stage's own line. Called from an effect keyed on the line's
+   *  CONTENT, never on a render, and never with the initial `null`. The mount writes the text in the scene line; this component stays ignorant of the shell. */
+  onInspect?: (line: InspectLine | null) => void;
   className?: string;
 }
 
@@ -273,19 +290,57 @@ function describeOccupant(
   };
 }
 
+/** The window's metrics as the follow rule reads them: its rect's origin, its CLIENT size (a classic scrollbar is not visible), its offsets and how far each axis can go. */
+function windowMetrics(win: HTMLElement): WindowMetrics {
+  const wr = win.getBoundingClientRect();
+  return { view: { left: wr.left, top: wr.top, width: win.clientWidth, height: win.clientHeight }, scrollLeft: win.scrollLeft, scrollTop: win.scrollTop, maxLeft: win.scrollWidth - win.clientWidth, maxTop: win.scrollHeight - win.clientHeight };
+}
+
+function boxOf(el: HTMLElement): Box {
+  const r = el.getBoundingClientRect();
+  return { left: r.left, top: r.top, width: r.width, height: r.height };
+}
+
+/** Whether the browser shows keyboard-style focus on `el` (the user is ON it by key or Move-sync, not by a click or tap). An engine without `:focus-visible` (iOS before 15.4) throws on the
+ *  selector: that reads as NOT focus-visible, so nothing is held and the plain follow runs. */
+function isFocusVisible(el: HTMLElement): boolean {
+  try {
+    return el.matches(':focus-visible');
+  } catch {
+    return false;
+  }
+}
+
+/** A window has a box when it is laid out: a folded (`hidden`) body has none. */
+function hasBox(win: HTMLElement): boolean {
+  return win.clientWidth > 0 && win.clientHeight > 0;
+}
+
 export default function TacticalMap({
   space,
   participants,
   viewerParticipantId,
   activeParticipantId,
   moveMode,
+  showReach = false,
   moveSubmitting = false,
   onMove,
   onExitMove,
+  onInspect,
   className,
 }: TacticalMapProps) {
   const cellRefs = useRef(new Map<string, HTMLDivElement>());
   const boardScrollRef = useRef<HTMLDivElement>(null);
+  const boardRef = useRef<HTMLDivElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  // The sliver rule: the window's length on each axis when the room would leave a cut square under SLIVER_MIN_PX (null: the room as it is). Measured from the ROOM (the wrapper), not
+  // from the window, so that capping the window cannot change what is measured.
+  const [cap, setCap] = useState<{ w: number | null; h: number | null }>({ w: null, h: null });
+  // The window stamps itself when the board is wider than its room (it pans sideways); the stylesheet gives such a board an inline-start guard against the iOS back swipe.
+  const [pansX, setPansX] = useState(false);
+  // The one seam for 'is there a board to draw' (see the usability comment further down): read ONCE, here, because the follow gate below needs it before the early return.
+  const usable = isSpaceUsable(space);
+  const gate = useFollowGate(boardScrollRef, usable);
 
   const activeParticipant = useMemo(
     () => participants.find((p) => p.participant_id === activeParticipantId),
@@ -324,15 +379,31 @@ export default function TacticalMap({
   const activeAt = activeParticipant?.at ?? null;
   const activeMovementRemaining = activeParticipant?.movement_remaining ?? 0;
 
+  // B8c-3: the overlay is `showReach || moveMode` (T1: an observer sees the mover's reach all turn without the right to pick a square).
+  const reachShown = showReach || moveMode;
   const reach = useMemo(() => {
-    if (!space || !moveMode || !activeAt) return [] as SpaceCoordinate[];
+    if (!space || !reachShown || !activeAt) return [] as SpaceCoordinate[];
     return reachableCells(space, activeAt, activeMovementRemaining, occupiedByOthers);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [space, moveMode, activeAt?.[0], activeAt?.[1], activeMovementRemaining, occupiedByOthers]);
+  }, [space, reachShown, activeAt?.[0], activeAt?.[1], activeMovementRemaining, occupiedByOthers]);
   const reachSet = useMemo(() => new Set(reach.map(coordKeyStr)), [reach]);
 
-  const [focusedCoord, setFocusedCoord] = useState<SpaceCoordinate>(() => activeAt ?? [0, 0]);
+  // The roving stop AND what put it there. `key` (an arrow) and `sync` (Move engaged: the mover's token) are the map moving focus itself: it focuses the square and follows it.
+  // `native` is focus the BROWSER already placed (a pointer, a Tab, a screen reader's cursor): the map only records it, and never scrolls the board under a pointer.
+  // `landed`: a `sync` that is the mover's own move landing while Move stays engaged (the map's own follow, so it takes the margin); arming Move is a `sync` that is not (margin 0, as for any focus).
+  const [focus, setFocus] = useState<{ coord: SpaceCoordinate; by: 'key' | 'sync' | 'native'; landed?: boolean }>(() => ({ coord: activeAt ?? [0, 0], by: 'native' }));
+  const focusedCoord = focus.coord;
   const [hoverCoord, setHoverCoord] = useState<SpaceCoordinate | null>(null);
+  // The square the user last CHOSE — tapped, clicked, arrowed to, or put focus on — and the turn it was chosen in; and whether the grid holds focus. The line follows the
+  // chosen square, not DOM focus (a tap under VoiceOver or TalkBack moves none: Iro-A11y's deciding case). It clears when focus leaves the grid, and at a turn change while
+  // the grid does not hold focus (a stale square must not be read against the next mover). Derived in render, no effect.
+  const [chosen, setChosen] = useState<{ coord: SpaceCoordinate; turn: string | null } | null>(null);
+  const [gridFocused, setGridFocused] = useState(false);
+  // Whether the grid's focus is KEYBOARD-style (:focus-visible), set where focus lands (only read while a square is chosen, and leaving the grid clears that, so it needs no reset of its own). While it is, the line names the square the user is on even when it is empty (Iro-A11y condition C):
+  // a sighted keyboard user needs to know where focus went, and the scene line is where they read it. A click or a tap on an empty square is not that and says nothing new.
+  const [keyFocus, setKeyFocus] = useState(false);
+  const chosenCoord = chosen && (gridFocused || chosen.turn === (activeParticipantId ?? null)) ? chosen.coord : null;
+  const choose = (coord: SpaceCoordinate) => setChosen({ coord, turn: activeParticipantId ?? null });
 
   // Move mode engaged, or the actor's own cell changed while engaged: focus
   // enters (design §5: "focus enters grid at your token") or follows
@@ -350,39 +421,247 @@ export default function TacticalMap({
   const [prevFocusSyncKey, setPrevFocusSyncKey] = useState<string | null>(focusSyncKey);
   if (focusSyncKey !== prevFocusSyncKey) {
     setPrevFocusSyncKey(focusSyncKey);
-    if (moveMode && activeAt) setFocusedCoord(activeAt);
+    if (moveMode && activeAt) setFocus({ coord: activeAt, by: 'sync', landed: prevFocusSyncKey !== null });
   }
 
-  useEffect(() => {
-    if (!moveMode) return;
-    cellRefs.current.get(coordKeyStr(focusedCoord))?.focus();
-  }, [focusedCoord, moveMode]);
+  // The follow rule (follow.ts): ONE function for the turn change and for focus. A square wholly inside the window scrolls nothing; otherwise each axis that needs it
+  // scrolls by the fewest whole squares; never centred. The window's OWN scrollLeft / scrollTop, set at once (the stylesheet never asks for smooth scrolling, so a user
+  // who asked for reduced motion gets none): never `scrollIntoView`, which walks every scrollable ancestor including the page (Tora-Gesture MAJOR-1).
+  // `margin` is in squares: 0 for anything the USER did (an arrow, a tap, arming Move); the mount's `--tm-follow-margin` (read here, default 0) for the map's own follows only.
+  const ownMargin = useCallback((): number => {
+    const win = boardScrollRef.current;
+    const m = win ? parseFloat(getComputedStyle(win).getPropertyValue(FOLLOW_MARGIN_PROPERTY)) : 0;
+    return Number.isFinite(m) && m > 0 ? m : 0;
+  }, []);
+  const applyScroll = useCallback((win: HTMLElement, next: { left: number; top: number } | null) => {
+    if (!next) return;
+    win.scrollLeft = next.left;
+    win.scrollTop = next.top;
+    gate.markOwn();
+  }, [gate]);
+  const keepInView = useCallback((cell: HTMLElement, margin = 0) => {
+    const win = boardScrollRef.current;
+    if (!win) return;
+    applyScroll(win, followScroll(windowMetrics(win), boxOf(cell), margin));
+  }, [applyScroll]);
 
-  // T4: center the board on the active participant's cell each time the
-  // turn changes (guarded so it fires once per turn, not on every render).
-  // Tora-Gesture MAJOR-1: `scrollIntoView` walks EVERY scrollable ancestor
-  // including the page (the classic phone vertical-jump trap) — scoped
-  // instead to `.boardScroll`'s own scrollLeft/scrollTop via
-  // getBoundingClientRect deltas, so no ancestor outside the board ever
-  // moves.
-  const lastCenteredRef = useRef<string | null | undefined>(undefined);
+  // What a follow that runs a moment later (the gate, the window's observer) must read as it is THEN, not as it was when it was asked for.
+  const latest = useRef<{ moveMode: boolean; moveSubmitting: boolean; onExitMove: () => void; focusKey: string; moverKey: string | null }>({ moveMode, moveSubmitting, onExitMove, focusKey: coordKeyStr(focus.coord), moverKey: activeAtKey });
   useEffect(() => {
-    if (!space || !activeAt) return;
-    if (lastCenteredRef.current === activeParticipantId) return;
-    lastCenteredRef.current = activeParticipantId;
-    const container = boardScrollRef.current;
-    const cell = cellRefs.current.get(coordKeyStr(activeAt));
-    if (!container || !cell) return;
-    const containerRect = container.getBoundingClientRect();
-    const cellRect = cell.getBoundingClientRect();
-    const deltaX =
-      cellRect.left + cellRect.width / 2 - (containerRect.left + containerRect.width / 2);
-    const deltaY =
-      cellRect.top + cellRect.height / 2 - (containerRect.top + containerRect.height / 2);
-    container.scrollLeft += deltaX;
-    container.scrollTop += deltaY;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [space, activeAt?.[0], activeAt?.[1], activeParticipantId]);
+    latest.current = { moveMode, moveSubmitting, onExitMove, focusKey: coordKeyStr(focus.coord), moverKey: activeAtKey };
+  });
+
+  // Roving focus follows the arrows EVERYWHERE (B8c-3, brief F-d): in Move mode, and whenever the grid already holds focus. Only the map's OWN focus moves (`key`, `sync`) focus and follow:
+  // focus the browser placed (`native`) is recorded and nothing more, or a mousedown on a cut-off square would scroll the board 34 px under the pointer and lose the click (T1). It never runs on mount unless Move is engaged,
+  // and never pulls focus INTO the grid for an observer (someone else's move changes `activeAt`, not `focusedCoord`). `preventScroll`: a square already in view is never
+  // scrolled by being focused — the follow rule above is the only thing that scrolls. The page may scroll for the user's own focus move, and only when the square is
+  // STILL outside the viewport after the window has followed.
+  useEffect(() => {
+    const holdsFocus = !!boardRef.current && boardRef.current.contains(document.activeElement);
+    if (!moveMode && !holdsFocus) return;
+    if (focus.by === 'native' && holdsFocus) return;
+    const key = coordKeyStr(focus.coord);
+    const cell = cellRefs.current.get(key);
+    if (!cell) return;
+    cell.focus({ preventScroll: true });
+    // Focus is immediate; the scroll waits for a quiet window (useFollowGate) and reads the square again when it runs.
+    gate.request('focus', () => {
+      const c = cellRefs.current.get(key);
+      if (!c) return;
+      keepInView(c, focus.by === 'sync' && focus.landed ? ownMargin() : 0);
+      const r = c.getBoundingClientRect();
+      if (r.bottom < 0 || r.top > window.innerHeight || r.right < 0 || r.left > window.innerWidth) c.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    });
+  }, [focus, moveMode, keepInView, ownMargin, gate]);
+
+  // The turn change: the creature whose turn it is is brought into view by the same rule, once per TURN. A turn change never scrolls the page (the window's own offsets only).
+  // Keyed on a boolean, a string and the id: a poll hands over a new `space` object every few seconds, and the effect must not run (let alone drag a window the user scrolled
+  // by hand back to the token) on anything but a real change. The turn is recorded BEFORE the placement check, so turn a -> an unplaced creature -> a is a new turn for a.
+  // The ONE follow of the mover (the turn change and the window's re-follow both ask the gate for exactly this). It reads everything as it is when it RUNS.
+  //   - A square is HELD only while it matches `:focus-visible` (keyboard and Move-sync focus): a square a mouse click or a tap focused is not held, or one click would pin the window
+  //     and the board would stop showing whose turn it is (Tora-Gesture rule 5, Kage-CR).
+  //   - A turn that passed since the last run is OWED its follow, in a ref the gate cannot lose by replacing one pending request with another. Its rule is `followTurn` (follow.ts): the
+  //     mover ends whole; the held square is kept when both fit, the margin giving way first; when they cannot both fit the mover wins and DOM focus stays where it is.
+  //   - Any other run (the window got a box, its width changed) keeps the held square first (`followAll`).
+  //   - A hidden window has no box and gives zero metrics: nothing runs, and the turn stays owed for the re-follow that its box coming back asks for.
+  const turnOwed = useRef(false);
+  const followMover = useCallback(() => {
+    const win = boardScrollRef.current;
+    if (!win || !hasBox(win)) return;
+    const turn = turnOwed.current;
+    turnOwed.current = false;
+    const { focusKey, moverKey } = latest.current;
+    const heldCell = boardRef.current?.contains(document.activeElement) ? cellRefs.current.get(focusKey) : undefined;
+    const held = heldCell && isFocusVisible(heldCell) ? heldCell : undefined;
+    const mover = moverKey ? cellRefs.current.get(moverKey) : undefined;
+    const metrics = windowMetrics(win);
+    if (turn && mover) {
+      applyScroll(win, followTurn(metrics, held ? boxOf(held) : null, boxOf(mover), ownMargin()));
+      return;
+    }
+    const targets: FollowTarget[] = [];
+    if (held) targets.push({ box: boxOf(held), margin: 0 });
+    if (mover) targets.push({ box: boxOf(mover), margin: ownMargin() });
+    applyScroll(win, followAll(metrics, targets));
+  }, [ownMargin, applyScroll]);
+  const lastFollowedRef = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (!usable) return;
+    if (lastFollowedRef.current === activeParticipantId) return;
+    lastFollowedRef.current = activeParticipantId;
+    if (!activeAtKey) return;
+    turnOwed.current = true;
+    gate.request('mover', followMover); // waits for a quiet window and follows the mover AS IT IS THEN (a poll may have moved it meanwhile)
+  }, [usable, activeAtKey, activeParticipantId, gate, followMover]);
+
+  // The window's own box (P2, brief section 5; Iro-A11y C4). A folded body has no box, so MOUNTED is not VISIBLE, and a window that is hidden loses its offsets: it follows again when it
+  // gets a box, when its WIDTH changes (a rotation), and when the mover is no longer wholly in it. NOT on a pure height step (the action bar is 24 px taller on a monster's turn and
+  // would re-run the follow, margin and all, every turn). The user's focused square is followed first and the mover second, and the mover is not taken if it would cut the focused
+  // one (followAll). A window that LOSES its box while Move is armed calls `onExitMove`: the player cannot choose a square on a map they cannot see. Every follow goes through the gate.
+  // ONE place decides "the window's geometry is final, now follow" (QA F1): the cap and the edge-guard stamp are React state, so a follow run INSIDE an observer callback read a window
+  // whose guard (16 px of scroll width) had not been added yet, clamped to the old maximum, and left a mover in the last column cut. So an observer never follows: it measures the room
+  // (`measureRoom`, which sets the cap and the stamp), decides THAT a follow is wanted and bumps `followWanted`; the effect below runs after the commit that carries both, when the DOM
+  // has its final box, and hands the follow to the gate.
+  const spaceCols = usable ? space.width : 0;
+  const spaceRows = usable ? space.height : 0;
+  const [followWanted, setFollowWanted] = useState(0);
+  const measureRoom = useCallback(() => {
+    const room = wrapRef.current;
+    if (!room) return;
+    const first = cellRefs.current.values().next().value as HTMLElement | undefined;
+    const sq = first ? boxOf(first) : null;
+    // A board that pans starts `guard` in from the start edge (the stylesheet's margin), so the window has TWO cut edges (the far one at scroll 0, the near one at scroll max):
+    // `panningWidthCap` takes both into account (QA F2, F2b). The height is not affected.
+    const win = boardScrollRef.current;
+    const pans = !!sq && spaceCols * sq.width > room.clientWidth;
+    // debt: the guard is read as px (parseFloat of the property's authored value), so a guard written in rem or em reads as its bare number. ceiling: the phone row's 16px. until: a row sets the guard in another unit.
+    const guard = pans && win ? Math.max(0, parseFloat(getComputedStyle(win).getPropertyValue(EDGE_GUARD_PROPERTY)) || 0) : 0;
+    const next = sq ? { w: panningWidthCap(room.clientWidth, sq.width, spaceCols * sq.width, guard), h: wholeSquareCap(room.clientHeight, sq.height, spaceRows * sq.height) } : { w: null, h: null };
+    setCap((prev) => (prev.w === next.w && prev.h === next.h ? prev : next));
+    setPansX(pans);
+  }, [spaceCols, spaceRows]);
+
+  const boxState = useRef({ had: false, width: 0, height: 0 });
+  const exitOwed = useRef(false);
+  useEffect(() => {
+    if (moveSubmitting || !exitOwed.current) return;
+    exitOwed.current = false;
+    const win = boardScrollRef.current;
+    if (latest.current.moveMode && win && !hasBox(win)) latest.current.onExitMove();
+  }, [moveSubmitting]);
+  useEffect(() => {
+    const win = boardScrollRef.current;
+    const room = wrapRef.current;
+    if (!usable || !win || !room || typeof ResizeObserver === 'undefined') return;
+    boxState.current = { had: false, width: 0, height: 0 };
+    measureRoom();
+    const roomObserver = new ResizeObserver(measureRoom);
+    roomObserver.observe(room);
+    const winObserver = new ResizeObserver(() => {
+      const prev = boxState.current;
+      const has = hasBox(win);
+      boxState.current = { had: has, width: win.clientWidth, height: win.clientHeight };
+      if (!has) {
+        // Disarming under an in-flight request can clear the page's own in-flight guard and let a reopen send a second POST, which is why Escape is deaf in that state (`canClose`). So the
+        // exit is OWED, not made: it is paid when the submit settles, if the window still has no box THEN (the effect below: a box that came back in the meantime owes nothing).
+        if (prev.had && latest.current.moveMode) {
+          if (latest.current.moveSubmitting) exitOwed.current = true;
+          else latest.current.onExitMove();
+        }
+        return;
+      }
+      measureRoom(); // the same batch as the request below, so one commit carries both
+      const moverKey = latest.current.moverKey;
+      const mover = moverKey ? cellRefs.current.get(moverKey) : undefined;
+      const metrics = windowMetrics(win);
+      const moverCut = !!mover && followScroll(metrics, boxOf(mover)) !== null;
+      // On a HEIGHT-ONLY step the mover is re-followed only if it was wholly in view under the PREVIOUS height: if it was not, the user scrolled it out of view by hand, and a resize must
+      // never undo a hand scroll (Tora-Gesture rule 3). A box gained or a width change always follows.
+      const wasWhole = !!mover && followScroll({ ...metrics, view: { ...metrics.view, height: prev.height } }, boxOf(mover)) === null;
+      if (!prev.had || win.clientWidth !== prev.width || (moverCut && wasWhole)) setFollowWanted((n) => n + 1);
+    });
+    winObserver.observe(win);
+    // The grid's own box changes when the SQUARE does (a cell-size change with the room and the window unchanged): measure again and follow. Nothing else resizes the grid.
+    const gridObserver = new ResizeObserver(() => {
+      measureRoom();
+      setFollowWanted((n) => n + 1);
+    });
+    if (boardRef.current) gridObserver.observe(boardRef.current);
+    return () => {
+      roomObserver.disconnect();
+      winObserver.disconnect();
+      gridObserver.disconnect();
+    };
+  }, [usable, measureRoom]);
+
+  useEffect(() => {
+    if (followWanted === 0) return;
+    gate.request('mover', followMover);
+  }, [followWanted, gate, followMover]);
+
+  // Everything one square says, in ONE place (Kage-CR D1 IMPORTANT-4's "single source of truth"): the cell's accessible name, its token and the scene line all read this.
+  // `a11y.ts`'s `cellAccessibleName` and `buildLine` render the same CellNameInput; a fact cannot be in one and not the other.
+  function describeSquare(sp: CombatSpace, coord: SpaceCoordinate): { input: CellNameInput; occupant?: CombatParticipantState & { at: SpaceCoordinate }; desc?: OccupantDescription } {
+    const key = coordKeyStr(coord);
+    const occupant = placed.find((p) => coordKeyStr(p.at) === key);
+    // Kage-CR D1 CRITICAL-1: `space.blocked`/`.features` are
+    // legally omittable content (the validator accepts absence
+    // and never backfills `[]` — B3/Miko re-confirmed by object
+    // identity) even though the B6 wire type claims them
+    // always-present. `SquareSpace._is_blocked`, this mirror's
+    // own cited authority, defends with `or []`; match it.
+    const blocked = (sp.blocked ?? []).some((b) => coordKeyStr(b) === key);
+    const feature = (sp.features ?? []).find((f) => f.at.some((a) => coordKeyStr(a) === key));
+    const desc = occupant ? describeOccupant(occupant, viewerParticipantId, activeParticipantId) : undefined;
+    const { row1, col1 } = toDisplayRowCol(coord);
+    return {
+      occupant,
+      desc,
+      input: {
+        row1,
+        col1,
+        occupant: desc?.cellOccupant,
+        blocked,
+        inRange: reachSet.has(key),
+        costFt: activeAt ? chebyshevCost(sp, activeAt, coord) : undefined,
+        moveModeActive: moveMode,
+        featureLabel: feature?.label,
+      },
+    };
+  }
+
+  // The destination while choosing a move, and whether it is a legal one: computed ONCE, here, and read by the scene line, the ring and the cost tag alike (a second
+  // call with its own occupancy could say "Move to…" on a square whose name says "Occupied").
+  const destinationCoord = moveMode ? (hoverCoord ?? focusedCoord) : null;
+  const destinationLegal = usable && destinationCoord && activeAt ? isLegalMoveTarget(space, activeAt, destinationCoord, activeMovementRemaining, occupiedByOthers) : false;
+
+  // The scene line's content (see `onInspect`): computed here, before the usability seam, so the effect below is unconditional.
+  let inspect: InspectLine | null = null;
+  if (usable) {
+    if (destinationCoord) {
+      const { input } = describeSquare(space, destinationCoord);
+      inspect = { kind: 'target', input, legal: destinationLegal, ...(destinationLegal && activeAt ? { costFt: chebyshevCost(space, activeAt, destinationCoord), budgetFt: activeMovementRemaining } : {}) };
+    } else if (chosenCoord) {
+      const { input } = describeSquare(space, chosenCoord);
+      if (input.occupant || input.featureLabel || keyFocus) inspect = { kind: 'cell', input };
+    }
+    if (!inspect && activeParticipant && activeAt && activeParticipant.movement_remaining != null) {
+      inspect = { kind: 'turn', name: activeParticipant.name, feetLeft: activeParticipant.movement_remaining };
+    }
+  }
+  const inspectKey = inspect ? JSON.stringify(inspect) : '';
+  const latestInspectRef = useRef<InspectLine | null>(null);
+  const onInspectRef = useRef(onInspect);
+  const emittedKeyRef = useRef('');
+  useEffect(() => {
+    latestInspectRef.current = inspect;
+    onInspectRef.current = onInspect;
+  });
+  useEffect(() => {
+    if (emittedKeyRef.current === inspectKey) return;
+    emittedKeyRef.current = inspectKey;
+    onInspectRef.current?.(latestInspectRef.current);
+  }, [inspectKey]);
 
   // Kage-CR D1 IMPORTANT-1: `space.kind` was never read, so a non-square
   // board (a future hex/zone kind) silently rendered as a square grid with
@@ -391,29 +670,31 @@ export default function TacticalMap({
   // rather than draw a board this mirror doesn't understand.
   //
   // Kage-CR B8c-3a CRITICAL-1 (2026-09-29, ledger item 16): this is now the
-  // component's ONE seam for space usability — `isSpaceUsable` (reach.ts)
+  // component's ONE seam for space usability — `isSpaceUsable` (reach.ts, called once above as `usable`)
   // is a type predicate, so everything below this line (the per-cell
   // `chebyshevCost` call included) runs only on a `CombatSpace` with a
   // real, finite, positive `cell.value`. The old `space.kind !== 'square'`
   // check never validated `cell` at all, so a wire-reachable `cell: null`
   // (key-presence-only projection gate, engine/combat.py:7361-7364 @
   // 3a5d18b) reached `chebyshevCost` and threw `TypeError` at render.
-  if (!isSpaceUsable(space)) {
+  if (!usable) {
     if (participants.length === 0) return null;
     return <TheatreOfMindBand participants={participants} className={className} />;
   }
 
-  const destinationCoord = moveMode ? (hoverCoord ?? focusedCoord) : null;
-  const destinationLegal =
-    destinationCoord && activeAt
-      ? isLegalMoveTarget(space, activeAt, destinationCoord, activeMovementRemaining, occupiedByOthers)
-      : false;
+  // The grid's label states the BOARD, not the window (Iro-A11y ruling 4): every cell is in the tree and reachable, so "showing 13 of 14" would be a statement about the drawing, false
+  // for a user who can reach the whole board, and it would change with a rotation or a fold. `aria-rowcount` / `aria-colcount` (below) let a screen reader say "row 3 of 7".
+  const count = (n: number, one: string) => `${n} ${n === 1 ? one : `${one}s`}`;
+  const boardLabel = `Battle map, ${count(space.width, 'column')} by ${count(space.height, 'row')}${
+    activeParticipant ? `. ${activeParticipant.name}'s turn${activeParticipant.movement_remaining == null ? '' : `, ${activeMovementRemaining} feet remaining`}` : ''
+  }`;
 
   function attemptMove(to: SpaceCoordinate) {
     // B8c-1 IMP-9b: the one guard both activation paths (click's onClick
     // below, and Enter/Space in handleGridKeyDown) go through — a second
     // per-caller check would be the same-shape-sibling risk this function
-    // already exists to avoid.
+    // already exists to avoid. Outside Move mode nothing is ever sent
+    // (B8c-3: `showReach` draws the overlay for an observer and commits nothing).
     if (!space || !moveMode || !activeAt || moveSubmitting) return;
     if (isLegalMoveTarget(space, activeAt, to, activeMovementRemaining, occupiedByOthers)) {
       onMove(to);
@@ -428,71 +709,65 @@ export default function TacticalMap({
       // document-level Award-XP fallback while exiting Move mode. Outside
       // Move mode this branch never calls consumeEscape at all, so
       // propagation is untouched — matches the pre-fix "no-op outside Move
-      // mode" behaviour Tora already verified clean.
+      // mode" behaviour Tora already verified clean. In flight (B8c-3,
+      // ledger 3) the event is consumed and closes NOTHING: a move that is
+      // already on the wire is not cancelled by leaving the mode.
       if (moveMode) {
         e.preventDefault();
-        consumeEscape(e, { onClose: onExitMove });
+        consumeEscape(e, { onClose: onExitMove, canClose: !moveSubmitting });
       }
       return;
     }
     if (e.key === 'Enter' || e.key === ' ') {
-      if (moveMode) {
-        e.preventDefault();
-        attemptMove(focusedCoord);
-      }
+      // Outside Move mode these only CHOOSE the square for the scene line and nothing else (Iro): they never arm Move, select a destination or move a token. Space is
+      // consumed so it does not scroll the page from a grid that has focus.
+      e.preventDefault();
+      if (moveMode) attemptMove(focusedCoord);
+      else choose(focusedCoord);
       return;
     }
     const next = nextFocusCoord(e.key, focusedCoord, space.width, space.height);
     if (next) {
       e.preventDefault();
-      setFocusedCoord(next);
+      setFocus({ coord: next, by: 'key' });
+      choose(next);
     }
   }
 
-  // Inspector strip (coordinator decision 4): driven by the roving focus,
-  // which a click now also syncs to (see the cell onClick handler below) —
-  // "tap = focus a cell" is the touch affordance Tora-Gesture's MAJOR-3
-  // asked for, replacing the old title-only (hover-only, touch-inert) full
-  // condition-list disclosure. `title` stays as a hover nicety only.
-  const focusedOccupant = placed.find((p) => coordsEqual(p.at, focusedCoord));
-  const focusedDesc = focusedOccupant
-    ? describeOccupant(focusedOccupant, viewerParticipantId, activeParticipantId)
-    : undefined;
-
   return (
-    <div className={[styles.wrap, className].filter(Boolean).join(' ')}>
+    <div className={[styles.wrap, className].filter(Boolean).join(' ')} ref={wrapRef}>
       <div
         className={styles.boardScroll}
         ref={boardScrollRef}
-        style={{ ['--tm-cols' as string]: space.width, ['--tm-rows' as string]: space.height }}
+        data-board-window=""
+        data-pans-x={pansX ? '' : undefined}
+        // The toast must not land on the board. At this base nothing reads this mark: the toast host reads it on the phone branch, where the safety block and the composer carry it too.
+        data-toast-avoid=""
+        style={{ ['--tm-cols' as string]: space.width, ['--tm-rows' as string]: space.height, maxWidth: cap.w ?? undefined, maxHeight: cap.h ?? undefined }}
       >
         <div
           className={styles.board}
+          ref={boardRef}
           role="grid"
-          aria-label={
-            activeParticipant
-              ? `Battle map — ${activeParticipant.name}'s turn, ${activeMovementRemaining} feet remaining`
-              : 'Battle map'
-          }
+          aria-label={boardLabel}
+          aria-rowcount={space.height}
+          aria-colcount={space.width}
           aria-busy={moveSubmitting || undefined}
           onKeyDown={handleGridKeyDown}
+          onFocus={() => setGridFocused(true)}
+          onBlur={(e) => {
+            // Focus moving between two squares of the grid is not leaving it.
+            if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+            setGridFocused(false);
+            setChosen(null);
+          }}
         >
           {Array.from({ length: space.height }, (_, y) => (
             <div role="row" className={styles.row} key={y}>
               {Array.from({ length: space.width }, (_, x) => {
                 const coord: SpaceCoordinate = [x, y];
                 const key = coordKeyStr(coord);
-                const occupant = placed.find((p) => coordKeyStr(p.at) === key);
-                // Kage-CR D1 CRITICAL-1: `space.blocked`/`.features` are
-                // legally omittable content (the validator accepts absence
-                // and never backfills `[]` — B3/Miko re-confirmed by object
-                // identity) even though the B6 wire type claims them
-                // always-present. `SquareSpace._is_blocked`, this mirror's
-                // own cited authority, defends with `or []`; match it.
-                const blocked = (space.blocked ?? []).some((b) => coordKeyStr(b) === key);
-                const feature = (space.features ?? []).find((f) =>
-                  f.at.some((a) => coordKeyStr(a) === key),
-                );
+                const { occupant, desc, input } = describeSquare(space, coord);
                 const inRange = reachSet.has(key);
                 const isDestination = Boolean(
                   destinationCoord && coordKeyStr(destinationCoord) === key,
@@ -502,11 +777,7 @@ export default function TacticalMap({
                 // and disabled to AT, without touching this cell's tabIndex
                 // or unmounting it (keyboard focus must not move).
                 const pending = moveMode && inRange && moveSubmitting;
-                const { row1, col1 } = toDisplayRowCol(coord);
-
-                const desc = occupant
-                  ? describeOccupant(occupant, viewerParticipantId, activeParticipantId)
-                  : undefined;
+                const feature = (space.features ?? []).find((f) => f.at.some((a) => coordKeyStr(a) === key));
 
                 return (
                   <div
@@ -518,24 +789,24 @@ export default function TacticalMap({
                     role="gridcell"
                     tabIndex={coordsEqual(focusedCoord, coord) ? 0 : -1}
                     aria-disabled={pending || undefined}
-                    aria-label={cellAccessibleName({
-                      row1,
-                      col1,
-                      occupant: desc?.cellOccupant,
-                      blocked,
-                      inRange,
-                      costFt: activeAt ? chebyshevCost(space, activeAt, coord) : undefined,
-                      moveModeActive: moveMode,
-                    })}
+                    aria-label={cellAccessibleName(input)}
                     className={[
                       styles.cell,
-                      blocked && styles.cellBlocked,
-                      moveMode && inRange && styles.cellInRange,
+                      input.blocked && styles.cellBlocked,
+                      reachShown && inRange && styles.cellInRange,
+                      moveMode && inRange && styles.cellMovable,
                       pending && styles.cellPending,
                       isDestination && destinationLegal && styles.cellDestination,
                     ]
                       .filter(Boolean)
                       .join(' ')}
+                    onFocus={(e) => {
+                      // Real focus moving onto a square (a Tab into the grid, a screen reader's cursor, a programmatic focus) is the roving stop and the chosen square
+                      // from then on: the NEXT arrow key starts from here, not from a stale square.
+                      setFocus((prev) => (coordsEqual(prev.coord, coord) ? prev : { coord, by: 'native' }));
+                      choose(coord);
+                      setKeyFocus(isFocusVisible(e.currentTarget));
+                    }}
                     onClick={() => {
                       // Tora-Gesture MAJOR-2: a click never synced
                       // `focusedCoord`, desyncing DOM focus (which a click
@@ -544,8 +815,10 @@ export default function TacticalMap({
                       // or Tab would then jump from the STALE cell, not the
                       // one just clicked. Unconditional (not gated on
                       // moveMode) so tapping any cell outside Move mode
-                      // also drives the inspector strip below.
-                      setFocusedCoord(coord);
+                      // also chooses it for the scene line (B8c-3: a tap
+                      // moves no focus under VoiceOver or TalkBack).
+                      setFocus((prev) => (coordsEqual(prev.coord, coord) ? prev : { coord, by: 'native' }));
+                      choose(coord);
                       attemptMove(coord);
                     }}
                     onMouseEnter={() => {
@@ -601,32 +874,6 @@ export default function TacticalMap({
             </div>
           ))}
         </div>
-      </div>
-      <div className={styles.inspector}>
-        {focusedOccupant && focusedDesc ? (
-          <>
-            <span className={styles.inspectorName}>{focusedOccupant.name}</span>
-            <span className={styles.inspectorTeam}>
-              {focusedDesc.cellOccupant.isSelf
-                ? 'You'
-                : focusedDesc.cellOccupant.isAlly
-                  ? 'Ally'
-                  : 'Foe'}
-            </span>
-            {focusedDesc.dead && <span className={styles.inspectorState}>Dead</span>}
-            {!focusedDesc.dead && focusedDesc.downed && (
-              <span className={styles.inspectorState}>Downed</span>
-            )}
-            {focusedDesc.invisible && <span className={styles.inspectorState}>Invisible</span>}
-            <ConditionChipList
-              conditions={focusedOccupant.conditions}
-              durations={focusedOccupant.condition_durations}
-              combatantName={focusedOccupant.name}
-            />
-          </>
-        ) : (
-          <span className={styles.inspectorEmpty}>No creature selected.</span>
-        )}
       </div>
     </div>
   );

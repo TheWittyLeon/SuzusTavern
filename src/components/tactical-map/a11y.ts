@@ -71,6 +71,9 @@ export interface CellNameInput {
   /** Whether the interactive Move-targeting layer is engaged at all (design
    *  §5: "Empty." with no range language when nobody is targeting a move). */
   moveModeActive: boolean;
+  /** The label of a feature on this square (`space.features[].label`), if any. Free text from the encounter's content: read and shown, never interpreted. It joins the
+   *  name here and the scene line (`buildLine`) from the SAME input, B8c-3 (before: a hover `title` only, inert to keyboard and touch). */
+  featureLabel?: string;
 }
 
 /**
@@ -96,7 +99,7 @@ export interface CellNameInput {
  *    truncation in one illustrative row.
  */
 export function cellAccessibleName(input: CellNameInput): string {
-  const location = `Row ${input.row1}, column ${input.col1}.`;
+  const location = `Row ${input.row1}, column ${input.col1}.${input.featureLabel ? ` Feature: ${input.featureLabel}.` : ''}`;
 
   const others = input.occupant?.otherConditions ?? [];
   const conditionsSuffix = others.length > 0 ? ` Conditions: ${others.join(', ')}.` : '';
@@ -202,4 +205,54 @@ export function nextFocusCoord(
     default:
       return null;
   }
+}
+
+// ── the scene line (B8c-3, Sora's mount brief 2.2; Iro-A11y's ruling 1: the line is plain readable text) ────────────────────────────────────────────────────────────────────────
+//
+// The map tells its mount what to say about the square the user chose; the mount writes it in the scene line, next to the status node. Two renderings of ONE set of facts: the
+// cell's accessible name (`cellAccessibleName`, for a user who is on the square) and the line (`buildLine`, for one who is not: a browse or swipe user, a touch user whose tap
+// moved no focus). Both read the same `CellNameInput`, so a fact cannot be in one and not the other (unit test: inspectLine.test.ts).
+
+/** What the map reports to `onInspect`. `null` means there is nothing to say beyond the stage's own rest line. */
+export type InspectLine =
+  /** At rest, the creature whose turn it is has a budget. */
+  | { kind: 'turn'; name: string; feetLeft: number }
+  /** The chosen square holds a creature or a feature. */
+  | { kind: 'cell'; input: CellNameInput }
+  /** A move is being chosen: the square under the pointer, else the focused one. `costFt` / `budgetFt` are for a legal square. */
+  | { kind: 'target'; input: CellNameInput; legal: boolean; costFt?: number; budgetFt?: number };
+
+/** A creature's side, as the line says it (the cell name says `you` / `ally` / `hostile`). */
+function sideWord(o: CellOccupant): string {
+  return o.isSelf ? 'You' : o.isAlly ? 'Ally' : 'Foe';
+}
+
+/**
+ * The text of the scene line, from the map's payload. Pure. `line === null` is the rest line the stage shows when the map has nothing to add. `round` is the combat round (null when
+ * unknown).
+ *
+ *   rest      "In combat · round 2"
+ *   turn      "In combat · round 2 · Kestrel Ashwood: 30 ft left"
+ *   creature  "Goblin Skulker · Foe · Invisible · Poisoned, Prone" (a downed or dead one says so before "Invisible")
+ *   feature   "Stalagmites"
+ *   empty     the cell's own accessible name, "Row 1, column 3. Empty." (the map reports an empty square only while the grid holds KEYBOARD focus on it)
+ *   target    legal: "Move to row 6, column 10 · 15 ft of 30"; not legal: the cell's own name (the square and why, in its own words)
+ */
+export function buildLine(line: InspectLine | null, { round }: { round: number | null }): string {
+  const rest = round == null ? 'In combat' : `In combat · round ${round}`;
+  if (!line) return rest;
+  if (line.kind === 'turn') return `${rest} · ${line.name}: ${line.feetLeft} ft left`;
+  if (line.kind === 'target') {
+    if (!line.legal) return cellAccessibleName(line.input);
+    return `Move to row ${line.input.row1}, column ${line.input.col1} · ${line.costFt} ft of ${line.budgetFt}`;
+  }
+  const o = line.input.occupant;
+  if (!o) return line.input.featureLabel ?? cellAccessibleName(line.input); // an empty square the keyboard is on: the cell's OWN name
+  const parts = [o.name, sideWord(o)];
+  if (o.dead) parts.push('Dead');
+  else if (o.downed) parts.push('Downed');
+  if (o.invisible) parts.push('Invisible');
+  if (o.otherConditions && o.otherConditions.length > 0) parts.push(o.otherConditions.join(', '));
+  if (line.input.featureLabel) parts.push(line.input.featureLabel);
+  return parts.join(' · ');
 }

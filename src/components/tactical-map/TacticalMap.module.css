@@ -66,20 +66,59 @@
  */
 
 .wrap {
+  /* B8c-3 M1 (Sora's mount brief 2.3): the map takes the height of the room it is given (the stage's body is a size container, exactly
+     rows x --play-cell tall) and spends none of it on chrome of its own. It used to carry a 24px padding, a 12px gap and a 64px inspector
+     strip: about 100px, so an 8-row room showed 5 rows. The strip is gone (its content is the `onInspect` payload, written in the scene
+     line); the padding and the gap with it. */
+  height: 100%;
   display: flex;
   flex-direction: column;
-  gap: var(--space-6);
 }
 
+/* The board WINDOW: the one scroller (`data-board-window`, which the harness's w:nestedScroll:stage exemption reads). It is the room: a board that
+   fits is centred in it (`.board`'s auto margins), a board that does not scrolls from its start edge. Never scaled: the square is the row's
+   (`--tm-cell-size`, set from `--play-cell`) and the board's size is the encounter's. Never smooth: a follow (follow.ts) is at once, with or
+   without reduced motion, so this declares no `scroll-behavior`.
+   THE CUE: the shell's scroll-shadow technique (Play.module.css's `[data-scroll-cue]` slots, AnchoredPopover) on all four edges, painted by this
+   element's own background, no script. A `local` cover (the surface colour) sits over a `scroll`-attached shadow once that edge's end of the
+   board is in view, so a shadow shows only on an edge with more board beyond it: the sliver of a column at the right of a 28.8-column room is
+   the cue Aoi asked for. The harness paints it by pixels (lib/board-assertions.mjs probeBoardCues), not by this text. */
 .boardScroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
   overflow: auto;
   border-radius: var(--radius-sm);
   background: var(--bg-3);
-  padding: var(--space-6);
-  max-width: 100%;
+  background-image:
+    linear-gradient(var(--bg-3) 30%, transparent),
+    linear-gradient(transparent, var(--bg-3) 70%),
+    linear-gradient(to right, var(--bg-3) 30%, transparent),
+    linear-gradient(to left, var(--bg-3) 30%, transparent),
+    radial-gradient(farthest-side at 50% 0, color-mix(in oklab, var(--ink) 22%, transparent), transparent),
+    radial-gradient(farthest-side at 50% 100%, color-mix(in oklab, var(--ink) 22%, transparent), transparent),
+    radial-gradient(farthest-side at 0 50%, color-mix(in oklab, var(--ink) 22%, transparent), transparent),
+    radial-gradient(farthest-side at 100% 50%, color-mix(in oklab, var(--ink) 22%, transparent), transparent);
+  background-position: center top, center bottom, left center, right center, center top, center bottom, left center, right center;
+  background-size: 100% 24px, 100% 24px, 24px 100%, 24px 100%, 100% 12px, 100% 12px, 12px 100%, 12px 100%;
+  background-repeat: no-repeat;
+  background-attachment: local, local, local, local, scroll, scroll, scroll, scroll;
+  /* PAN (B8c-4 P2; Tora-Gesture ruling 3). The window is a native scroller and the one two-way scroll area on the page: a finger pans it with no gesture code of ours, and a
+     pinch still zooms the page. The squares keep `manipulation` (`.cell`), which is what takes the double-tap zoom off them.
+     SIDEWAYS CHAINING STOPS HERE: `contain` on x has nothing to chain to and is what keeps Chromium's history swipe from firing off a board pan. Vertical chaining is left at its
+     default ON PURPOSE: a short phone's page scrolls, and a finger that starts on the board must be able to carry on to the page at the board's end. Do not "complete" this to
+     `overscroll-behavior: contain`. */
+  touch-action: pan-x pan-y pinch-zoom;
+  overscroll-behavior-x: contain;
 }
 
 .board {
+  /* A flex item of the window with auto margins: smaller than the window it is centred on both axes; larger, the auto margins are 0 and it
+     scrolls from its start edge (a `justify-content: center` would clip the start edge of an overflowing board unreachably). */
+  margin: auto;
+  flex: none;
+  /* Aoi A2: the right and bottom grid line, as an inset shadow and not a border (a border adds a pixel, and a board that exactly fits would scroll). */
+  box-shadow: inset -1px -1px 0 var(--line-strong);
   display: grid;
   /* --tm-cell-size is this component's public sizing API: the mount sets it
      (cascade-settable from any ancestor) to hit R19's per-surface cell size
@@ -98,7 +137,21 @@
     linear-gradient(to bottom, var(--line-strong) 1px, transparent 1px);
   background-size: var(--tm-cell-size, 40px) var(--tm-cell-size, 40px);
   border-radius: var(--radius-xs);
+  /* TOUCH (Tora-Gesture rule 2; B8c-4). Squares carry initials and feature letters, so a long press would select them and raise the iOS magnifier or the callout. Off on the grid only:
+     the scene line and the log stay selectable. Prefixed first in each pair: the build keeps only the LAST of a prefixed/unprefixed pair, and the unprefixed one must win where it exists. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
   position: relative;
+}
+
+/* THE EDGE GUARD (B8c-4 P2; Tora-Gesture ruling 1, item 3). iOS takes a swipe that starts at the left glass edge as BACK, and a board bled to that edge puts column 1 under it. On a
+   board that PANS (the window stamps `data-pans-x` when the board is wider than its room) the board starts `--tm-edge-guard` in from the start edge, inside the scroller; a board
+   that fits keeps the bleed, because it has nothing to pan and an edge swipe on it is not a pan. The mount sets the value (default 0: no guard). A margin, not padding: padding would
+   shift the grid's tracks against the board's own gridline background. A logical property, so it is the inline START in either direction. The specificity of the attribute selector
+   is what lets this one margin side win over `.board`'s `margin: auto`, whose auto start margin is 0 on an overflowing board anyway. */
+.boardScroll[data-pans-x] .board {
+  margin-inline-start: var(--tm-edge-guard, 0px);
 }
 
 /* `display: contents` keeps ARIA row/gridcell nesting (role="grid" >
@@ -120,6 +173,8 @@
      on a touch board where taps land close together) can trigger iOS
      Safari's double-tap-to-zoom gesture instead of two ordinary taps. */
   touch-action: manipulation;
+  /* no grey flash on a tap: the selection ring that appears on lift is the confirmation (Tora-Gesture rule 2) */
+  -webkit-tap-highlight-color: transparent;
 }
 
 .cell:focus-visible {
@@ -135,6 +190,10 @@
 .cellInRange {
   background: color-mix(in oklab, var(--accent) 20%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent) 55%, transparent);
+}
+
+/* B8c-3: the reach is drawn for EVERY seat (T1, `showReach`), but only the seat that is choosing a move can click it: the pointer is for that seat alone. */
+.cellMovable {
   cursor: pointer;
 }
 
@@ -363,47 +422,6 @@
   pointer-events: none;
 }
 
-/* Inspector strip (coordinator decision 4, replaces the old title-only
-   "full condition list on tap" — Tora-Gesture MAJOR-3 found that inert on
-   touch). Shows whichever cell is currently roving-focused (keyboard arrow
-   keys, or a tap/click — see TacticalMap.tsx's onClick). Deliberately NOT
-   `aria-live`: focus already announces the cell via its own accessible
-   name (cellAccessibleName), and design §5's "no second aria-live
-   announcer" rule this component already honours applies here too — this
-   strip is a visual convenience, not a second announcement channel. */
-.inspector {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-5);
-  background: var(--bg-3);
-  border-radius: var(--radius-sm);
-  padding: var(--density-pad);
-  min-height: calc(var(--text-lg) + 2 * var(--space-5));
-}
-
-.inspectorName {
-  font-weight: 600;
-}
-
-.inspectorTeam {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  color: var(--ink-2);
-}
-
-.inspectorState {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  font-weight: 700;
-  color: var(--bad-ink);
-}
-
-.inspectorEmpty {
-  font-size: var(--text-sm);
-  color: var(--ink-3);
-}
-
 /* Theatre-of-mind band (design §3, §5 "Show 5" — combat without a `space`). */
 .tomBand {
   display: flex;
@@ -436,4 +454,30 @@
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   color: var(--ink-2);
+}
+
+/* FORCED COLOURS (B8c-3 M1; ledger 6, Iro-A11y's condition that the reach not rely on colour alone). In `forced-colors: active` backgrounds, box-shadows and
+   gradients are dropped, so the reach tint, its ring, the blocked hatch and the pending hash all vanish and the board reads as an empty grid. What a forced-colours
+   user keeps is OUTLINE and its STYLE, in system colours: the reach is a dotted outline, blocked a solid one, pending a dashed one, the destination a thicker solid
+   one. Three line styles, so each state differs from the others by shape, not hue. The harness paints this under emulated forced colours (the n:reachForced check). */
+@media (forced-colors: active) {
+  .cellInRange {
+    outline: 2px dotted Highlight;
+    outline-offset: -3px;
+  }
+
+  .cellBlocked {
+    outline: 2px solid GrayText;
+    outline-offset: -3px;
+  }
+
+  .cellPending {
+    outline: 2px dashed CanvasText;
+    outline-offset: -3px;
+  }
+
+  .cellDestination {
+    outline: 3px double Highlight;
+    outline-offset: -3px;
+  }
 }
