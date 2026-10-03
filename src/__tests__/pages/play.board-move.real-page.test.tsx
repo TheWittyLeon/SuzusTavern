@@ -160,8 +160,8 @@ describe('the move itself', () => {
   });
 
   it('the 200: the token is drawn at the new square, focus is on it, Move stays armed with feet left, ONE row for the move, and NO narration beat', async () => {
+    await load(); // load() serves the PRE-move world to the poll: the engine's answer (and the world every later poll sees) is set AFTER it, or a poll would hand the old square back (Kage)
     (dnd.moveToken as jest.Mock).mockResolvedValue({ ...landed(combat({ pc: { at: [2, 3], movement_remaining: 25 } })), message: '[Combat] Anomaly moves 5 ft.' });
-    await load();
     fireEvent.click(moveBtn());
     await waitFor(() => expect(stop()).toBe(cellOf(4, 2)));
     fireEvent.click(cellOf(4, 3)); // a click that moves no focus (jsdom): DOM focus stays on the token's OLD square until the landing's movedSeq takes it to the new one
@@ -172,6 +172,8 @@ describe('the move itself', () => {
     expect(logText()).not.toContain('[Combat]'); // the engine's own line is not a second row
     expect(streamDmNarration).not.toHaveBeenCalled();
     expect(dnd.moveToken).toHaveBeenCalledTimes(1);
+    await new Promise((r) => setTimeout(r, 400)); // several polls later the world is still the landed one (a poll answering the old square would have put the token back)
+    expect(cellOf(4, 3)).toHaveAccessibleName(/Anomaly/);
   });
 
   it('`from` is the DRAWN at, not the square Move was armed on: a poll that moved the token while armed sends the new square', async () => {
@@ -201,8 +203,9 @@ describe('the move itself', () => {
 
 describe('refusals: the copy in the action bar\'s alert, never re-sent, and where focus and Move end up', () => {
   const refuse = async (status: number, reason: string, state?: CombatState) => {
-    (dnd.moveToken as jest.Mock).mockRejectedValue(refusal(status, reason, state));
     await load();
+    // the refusal's `state` is what every later poll says too (the engine's world IS that state); set when the refusal is served, after load() served the pre-move one
+    (dnd.moveToken as jest.Mock).mockImplementation(async () => { if (state) (dnd.getCombatState as jest.Mock).mockResolvedValue(state); throw refusal(status, reason, state); });
     await armAndStep();
     const before = stop();
     key('Enter');
