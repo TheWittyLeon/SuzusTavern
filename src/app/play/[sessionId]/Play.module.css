@@ -503,6 +503,13 @@
     max-width: 100%;
     line-height: 1.2;
   }
+  /* A10 step 11 tail, S3: the status pill under the title is 103px in WebKit's font ("EXPLORING" at 11px, 10px of padding a side, tracked), and the title's wrapper has 86px at 360 wide: beside the
+     journal toggle the pill crossed it by 7px. Tighter padding and tracking take it to about 89px, so it fits the wrapper and its 10px gap at 360 in every engine, with no hand-derived split. */
+  .topBarCompact .sessionPill > span {
+    padding-inline: 6px;
+    letter-spacing: 0;
+    gap: 4px;
+  }
   .topBarCompact {
     height: auto;
     min-height: var(--overlay-bar-h);
