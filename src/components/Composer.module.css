@@ -250,6 +250,27 @@
   font-style: italic;
 }
 
+/* A10 step 11 round 4 (TAV-STORY-BAR-MONSTER-TURN): in a wide slot (every desktop bar) the wait notice takes the KICKER's place in the kicker's own typography, and the kicker (still the group's
+   accessible name: a display:none node is still read by aria-labelledby) steps aside; no line is added, so the bar is one height on both turns. A narrow slot (<= 560px, the phone) keeps the
+   notice on a line of its own, exactly as before (its own rules are restored in the container query below). */
+.rail[data-waiting='true'] .railLabel {
+  display: none;
+}
+
+.rail[data-waiting='true'] .notYourTurn {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-style: normal;
+  padding: 0;
+  margin: 0 0 6px;
+  flex: 0 0 auto;
+}
+
+.rail[data-waiting='true'].railChips .notYourTurn {
+  margin-bottom: 0;
+}
+
 /* A9c-2 D2: `chips` (Story) -- the kicker shares the row with the buttons; the
    refusal / wait / death-save rows still take a full line of their own. The
    buttons keep their 44px target (they are the same .action). */
@@ -324,6 +345,20 @@
 @container (max-width: 560px) {
   .rail {
     margin-bottom: 0;
+  }
+
+  /* the phone keeps the wait notice as its own line (round 4 left it alone: the phone cells do not move) */
+  .rail[data-waiting='true'] .railLabel {
+    display: block;
+  }
+
+  .rail[data-waiting='true'] .notYourTurn {
+    font-size: 11px;
+    letter-spacing: normal;
+    text-transform: none;
+    font-style: italic;
+    padding: 2px 0 6px;
+    flex: 1 0 100%;
   }
 
   .railLabel {

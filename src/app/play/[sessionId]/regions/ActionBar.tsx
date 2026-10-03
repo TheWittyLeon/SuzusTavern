@@ -223,6 +223,9 @@ export default function ActionBar({
     <div
       className={variant === 'chips' ? `${styles.rail} ${styles.railChips}` : styles.rail}
       data-variant={variant}
+      // A10 step 11 round 4 (TAV-STORY-BAR-MONSTER-TURN): on a monster's turn the wait notice REPLACES the kicker's text in the kicker's own place and adds no row, so the bar is one height on
+      // both turns (Story's was 182px at 1280 wide on a monster's turn: the notice took a line and the verbs wrapped). Composer.module.css reads this attribute; a narrow slot (the phone) keeps today's layout.
+      data-waiting={notYourTurn ? 'true' : undefined}
       ref={(el) => {
         railRef.current = el;
         if (outerRailRef) outerRailRef.current = el;
