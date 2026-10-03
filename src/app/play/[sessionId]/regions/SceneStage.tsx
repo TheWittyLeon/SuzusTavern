@@ -1,6 +1,6 @@
 'use client';
 
-import type { ReactNode, RefObject, Dispatch, SetStateAction } from 'react';
+import { createContext, useContext, useState, type ReactNode, type RefObject, type Dispatch, type SetStateAction } from 'react';
 import type { EndCombatOutcome } from '@/lib/api/types';
 import Icon from '@/components/Icon';
 import AnchoredPopover from '@/components/AnchoredPopover';
@@ -26,6 +26,15 @@ import strip from './SceneStage.module.css';
  *  stage still announces and can still end the fight. `foldSpecs` reads this id.
  *  A10 step 11 S2b: it is the `hero` stage's BODY, the map's room. */
 export const SCENE_STAGE_BODY_ID = 'play-scene-stage-body';
+
+/**
+ * B8c-3 M2 (Sora's mount brief 2.2): the scene line's SECOND slot can be written by the stage's body. The context's value is the SETTER only, so a hovered square re-renders this
+ * stage's scene line and nothing else (F-i: a page-level inspector state re-rendered all of /play per square). `null` clears it. Outside a stage the setter does nothing.
+ */
+const StageLineContext = createContext<(text: string | null) => void>(() => {});
+export function useStageLine(): (text: string | null) => void {
+  return useContext(StageLineContext);
+}
 
 export interface SceneStageProps {
   sceneName: string | null;
@@ -60,6 +69,8 @@ export interface SceneStageProps {
   variant?: RegionVariant<'sceneStage'>;
   /** What goes in a `hero` stage's body: the tactical map and the theatre-of-mind band (B8c-3 mounts them). With none, a fight shows the stand-in. */
   children?: ReactNode;
+  /** B8c-3 M2 (Iro, step 11 MINOR-2): the body's accessible name once a MAP is in it (a `group`); never a name or a role while the body is empty or holds the stand-in. */
+  bodyLabel?: string;
 }
 
 export default function SceneStage({
@@ -85,7 +96,9 @@ export default function SceneStage({
   round = null,
   variant = 'panel',
   children,
+  bodyLabel,
 }: SceneStageProps) {
+  const [lineText, setLineText] = useState<string | null>(null);
   const inline = variant === 'inline';
   const hero = variant === 'hero';
   /** The scene line: one row of the scene's name, its second line and the encounter's buttons, the phone's strip (`inline`) and a hero's top. */
@@ -109,6 +122,7 @@ export default function SceneStage({
     fallbackFocus: () => sceneHeadRef.current,
   });
   return (
+    <StageLineContext.Provider value={setLineText}>
     <div
       data-region="sceneStage"
       data-toast-clear=""
@@ -142,10 +156,15 @@ export default function SceneStage({
       {combatIsActive ? (
         <>
           <div className={cx(styles.combatNote, strip.wrapper)}>
-            <div className={cx(styles.noteText, allHostilesDown ? strip.noteClipped : strip.note)} role="status" aria-live="polite">
+            <div className={cx(styles.noteText, allHostilesDown || lineText != null ? strip.noteClipped : strip.note)} role="status" aria-live="polite">
               <Icon name="Sword" size={13} aria-hidden /> In combat · use the action bar
               {inline && round != null && <span aria-hidden className={strip.round}> · round {round}</span>}
             </div>
+            {/* B8c-3 M2 (Iro ruling 1): the map's line, PLAIN READABLE TEXT, the status node's next sibling and never inside it. No role, no aria-live, no aria-hidden here or on any
+                ancestor up to the stage: it is not a second live region (a changed text announces nothing) and a touch user who taps a token moves no focus, so a hidden line would leave
+                them no inspector at all. The status above stays in the tree, unchanged and live, only clipped while this shows. Do not tidy this into the status node or add a role.
+                `data-stage-line` is how the harness finds it (n:line asserts it is the status node's next sibling). Clipped, not removed, while the "All enemies are down" prompt owns the cell. */}
+            {lineText != null && <span data-stage-line="" className={allHostilesDown ? strip.noteClipped : strip.line}>{lineText}</span>}
             {/* B3-1: "End combat" opens the outcome chooser. Tora MAJOR-2: ref so focus returns here when the chooser is dismissed. */}
             <button
               ref={endCombatBtnRef}
@@ -266,7 +285,7 @@ export default function SceneStage({
           until: B8c-3 mounts `TacticalMap` and the theatre-of-mind band as this body's children; then delete the fallback.
       */}
       {hero && (
-        <div id={SCENE_STAGE_BODY_ID} data-fold-body className={strip.body}>
+        <div id={SCENE_STAGE_BODY_ID} data-fold-body className={strip.body} role={bodyLabel ? 'group' : undefined} aria-label={bodyLabel}>
           {children ?? (combatIsActive ? (
             <div className={`${styles.scenePlaceholder} ${strip.standIn}`}>
               <Icon name="Map" size={22} aria-hidden />
@@ -276,5 +295,6 @@ export default function SceneStage({
         </div>
       )}
     </div>
+    </StageLineContext.Provider>
   );
 }

@@ -65,7 +65,7 @@
  * supplies. Same kind of documented deviation as `useScene`'s/`useSafety`'s
  * own headers.
  */
-import { useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
+import { useCallback, useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import { getCombatState } from '@/lib/api/dnd';
 import { isLivingTargetableFoe } from '@/lib/dnd/combatTargets';
 // TAV-PLAY-SHELL step 8: CombatTarget's owner moved from Composer.tsx to the
@@ -86,6 +86,10 @@ export interface UseCombatStateResult {
   outcomeChooserOpen: boolean;
   setOutcomeChooserOpen: Dispatch<SetStateAction<boolean>>;
   stateSeqRef: MutableRefObject<number>;
+  /** B8c-3 M2: apply a state the page just received from a verb's answer, and bump the sequence so a poll asked BEFORE it is discarded (one writer for the "bump and set"). */
+  applyState: (state: CombatState) => void;
+  /** B8c-3 M2: re-fetch the state and apply it (bumping the sequence); a failed fetch leaves the state as it is. A no-op with no combat. */
+  refreshState: () => void;
   combatBusyRef: MutableRefObject<boolean>;
   monsterDrivingRef: MutableRefObject<boolean>;
   /** Amendment A §A.1 — the ONE derived boolean useScene reads. NOT
@@ -186,6 +190,18 @@ export function useCombatState(
 
   // ── derived combat state (Amendment A §A.6: "every pure derivation off
   // combatState") ─────────────────────────────────────────────────────────────
+  const applyState = useCallback((state: CombatState) => {
+    stateSeqRef.current += 1;
+    setCombatState(state);
+  }, []);
+  const refreshState = useCallback(() => {
+    if (!combatId) return;
+    void (async () => {
+      const cs = await getCombatState(combatId).catch(() => null);
+      if (cs) applyState(cs);
+    })();
+  }, [combatId, applyState]);
+
   const combatEngaged = isCombatEngaged(combatState);
   const combatIsActive = !!combatId && combatState?.state !== 'ended';
   // Round from combatState is authoritative; fall back to null when no state
@@ -281,6 +297,8 @@ export function useCombatState(
     outcomeChooserOpen,
     setOutcomeChooserOpen,
     stateSeqRef,
+    applyState,
+    refreshState,
     combatBusyRef,
     monsterDrivingRef,
     combatEngaged,

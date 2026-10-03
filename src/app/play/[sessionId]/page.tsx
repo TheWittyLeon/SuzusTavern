@@ -100,6 +100,8 @@ import { useMemberSheetDrawer } from './hooks/useMemberSheetDrawer';
 import { useJournalDrawer } from './hooks/useJournalDrawer';
 import { useFocusAnchors } from './hooks/useFocusAnchors';
 import { usePlayLayout } from './hooks/usePlayLayout';
+import { useBoard } from './hooks/useBoard';
+import StageBoard from './StageBoard';
 import { useRegionFolds } from './hooks/useRegionFolds';
 import JournalPane, { JOURNAL_HEADING_ID } from '@/components/JournalPane';
 import MemberSheetPanel, { MEMBER_SHEET_HEADING_ID } from '@/components/MemberSheetPanel';
@@ -337,7 +339,7 @@ export default function PlayPage() {
   // below all bump it directly.
   const {
     combatId, setCombatId, combatState, setCombatState, combatBusy, setCombatBusy,
-    refusedReason, outcomeChooserOpen, setOutcomeChooserOpen, stateSeqRef,
+    refusedReason, outcomeChooserOpen, setOutcomeChooserOpen, stateSeqRef, applyState, refreshState,
     combatEngaged, combatIsActive, round, targetableFoes, activeParticipant,
     activeIsMine, isPlayerTurn, isDying, anyMonsterDown, allHostilesDown, selfPcId,
   } = combatStateResult;
@@ -447,7 +449,7 @@ export default function PlayPage() {
     setFreeformOfferedCheck, sceneHeadRef, checkWrapRef, transitionWrapRef,
     freeformCheckRef, sceneHasEncounter, availableTransitions, availableChecks,
     diffAndExplainResolvedChecks, refreshGrounding, playOutcomeLine,
-    onGroundingInvalidated, applyOfferedCheckSignal, openScene,
+    onGroundingInvalidated, applyOfferedCheckSignal, openScene, refocusSceneHeadIfStranded,
   } = sceneState;
 
   // TAV-PLAY-SHELL step 5, A7 (decomposition plan §2.2/§1.13): focus
@@ -465,6 +467,9 @@ export default function PlayPage() {
     endCombatBtnRef, lastOpenerRef, beginCombatRef, composerRailAnchorRef, dmPanelAnchorRef,
     composerTextareaAnchorRef,
   } = useFocusAnchors(isDying, sceneHasEncounter, combatId, sceneHeadRef, combatIsActive, layoutId);
+
+  // B8c-3 M2/M2b: the map as the stage's body (null with the flag off or on a stage with no body) and the observers' move rows.
+  const board = useBoard({ state: combatState, combatIsActive, room: facts.room, stageHasBody: variantFor(row, 'sceneStage', moment) === 'hero', selfPcId, round, appendLog, rescueStrandedFocus: refocusSceneHeadIfStranded });
 
   // TAV-PLAY-SHELL step 5, hook 7 of ~9 (Amendment A §A.2 row 7):
   // narration. Composed BELOW useSceneState (narrate() reads
@@ -1483,20 +1488,8 @@ export default function PlayPage() {
           dmPanelAnchorRef={dmPanelAnchorRef}
           localTurnActionRef={localTurnActionRef}
           appendLog={appendLog}
-          onCombatStateUpdate={(newState) => {
-            stateSeqRef.current += 1;
-            setCombatState(newState);
-          }}
-          onCombatStateRefresh={() => {
-            if (!combatId) return;
-            void (async () => {
-              const cs = await getCombatState(combatId).catch(() => null);
-              if (cs) {
-                stateSeqRef.current += 1;
-                setCombatState(cs);
-              }
-            })();
-          }}
+          onCombatStateUpdate={applyState}
+          onCombatStateRefresh={refreshState}
           combatBusy={combatBusy}
           sessionLocked={sessionLocked}
           onCombatBusyChange={setCombatBusy}
@@ -1606,8 +1599,10 @@ export default function PlayPage() {
         beginCombatRef={beginCombatRef}
         onBeginEncounter={beginEncounter}
         talking={talking} sessionLocked={sessionLocked} rollBusy={rollBusy} round={round}
-        variant={variantFor(row, 'sceneStage', moment)}
-      />
+        variant={variantFor(row, 'sceneStage', moment)} bodyLabel={board.label}
+      >
+        {board.stage ? <StageBoard {...board.stage} /> : null}
+      </SceneStage>
     ),
   };
 
@@ -1644,16 +1639,7 @@ export default function PlayPage() {
         sessionLocked={sessionLocked}
         onCast={(text) => appendLog({ who: username ?? 'you', kind: 'system', text })}
         onSheetChanged={setMySheet}
-        onStateRefresh={() => {
-          if (!combatId) return;
-          void (async () => {
-            const cs = await getCombatState(combatId).catch(() => null);
-            if (cs) {
-              stateSeqRef.current += 1;
-              setCombatState(cs);
-            }
-          })();
-        }}
+        onStateRefresh={refreshState}
         onBusyChange={setCombatBusy} fallbackFocus={() => sceneHeadRef.current}
       />
     ),

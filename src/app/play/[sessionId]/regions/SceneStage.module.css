@@ -70,6 +70,18 @@
   white-space: nowrap;
 }
 
+/* B8c-3 M2: the map's line, in the status node's cell (one row, ellipsised, the whole text in the DOM). The status is clipped while it shows (`.noteClipped`). */
+.strip .line {
+  grid-area: note;
+  min-width: 0;
+  font-size: var(--text-sm);
+  line-height: 1.3;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .strip .end {
   grid-area: end;
   width: auto;
