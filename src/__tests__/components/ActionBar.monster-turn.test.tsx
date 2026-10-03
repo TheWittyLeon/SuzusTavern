@@ -54,4 +54,12 @@ describe('Composer.module.css: the notice takes the kicker\'s place in a wide sl
     expect(n).toMatch(/padding:\s*2px 0 6px/);
     expect(q.length).toBeGreaterThan(0);
   });
+
+  it('narrow: every property the wide rule sets on the notice is set back (a property left over moved the phone\'s bar by 6px: margin)', () => {
+    const props = (r: string) => [...r.matchAll(/([a-z-]+)\s*:/g)].map((m) => m[1]).filter((n) => n !== 'notYourTurn');
+    const wide = props(rule(".rail[data-waiting='true'] .notYourTurn").split('{')[1]);
+    const narrow = props(rule(".rail[data-waiting='true'] .notYourTurn", css.indexOf('@container (max-width: 560px)')).split('{')[1]);
+    expect(wide.length).toBeGreaterThan(4);
+    for (const p of wide) expect(narrow).toContain(p);
+  });
 });

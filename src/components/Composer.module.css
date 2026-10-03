@@ -358,6 +358,7 @@
     text-transform: none;
     font-style: italic;
     padding: 2px 0 6px;
+    margin: 0;
     flex: 1 0 100%;
   }
 
