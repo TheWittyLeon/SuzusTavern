@@ -96,3 +96,17 @@ describe('useBoard: the observers\' rows, through the real effect', () => {
     expect(appendLog).not.toHaveBeenCalled();
   });
 });
+
+describe('useBoard: the stage props are STABLE between renders that bring no new state (StageBoard is memoised on it)', () => {
+  it('the same state, viewer, round and rescue give the SAME stage object; a new state object gives a new one', () => {
+    const state = st();
+    const a = args(state);
+    const { result, rerender } = renderHook((p: UseBoardArgs) => useBoard(p), { initialProps: a });
+    const first = result.current;
+    rerender({ ...a, appendLog: jest.fn() }); // a page render with the same facts (an unstable appendLog identity is not a prop of the stage)
+    expect(result.current).toBe(first);
+    expect(result.current.stage).toBe(first.stage);
+    rerender({ ...a, state: { ...state } });
+    expect(result.current.stage).not.toBe(first.stage);
+  });
+});

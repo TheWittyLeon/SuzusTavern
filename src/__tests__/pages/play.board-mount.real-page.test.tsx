@@ -12,7 +12,7 @@
  * comes back for `space: null`); a participant spread into the line -> 5 goes red; the child ungated from `stageHasBody` -> 6 goes red.
  */
 import React from 'react';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { CombatSpace, CombatState, GroundingData, Participant, Session } from '@/lib/api/types';
@@ -37,6 +37,9 @@ jest.mock('../../lib/api/dnd', () => ({
   putSessionNotes: jest.fn(() => Promise.resolve({ body: '', updated_at: '2026-01-01T00:00:00Z' })),
 }));
 jest.mock('../../lib/stream', () => ({ streamDmNarration: jest.fn(async function* () { yield { kind: 'done' }; }) }));
+
+// The combat poll is every 4s; this suite shortens it so a poll that says the fight ENDED lands inside a test (nothing else reads it).
+jest.mock('../../app/play/[sessionId]/format', () => ({ ...jest.requireActual('../../app/play/[sessionId]/format'), POLL_INTERVAL_MS: 60 }));
 
 import * as dnd from '@/lib/api/dnd';
 import PlayPage from '@/app/play/[sessionId]/page';
@@ -279,5 +282,20 @@ describe('the phone row has no stage body: served or not, no map and no line (F-
     expect(screen.queryByRole('grid')).toBeNull();
     expect(lineNode(container)).toBeNull();
     expect(stage(container).querySelector('[data-fold-body]')).toBeNull();
+  });
+});
+
+describe('the page\'s stranded-focus wiring (`rescueStrandedFocus` -> the scene head)', () => {
+  it('the fight ending (a poll says `ended`) with focus in the grid lands focus on the scene head, never <body>, and the line goes with the board', async () => {
+    const c = await load(combat(SPACE));
+    await waitFor(() => expect(lineNode(c)).not.toBeNull());
+    const stop = screen.getAllByRole('gridcell').find((cell) => cell.getAttribute('tabindex') === '0') as HTMLElement;
+    act(() => stop.focus());
+    expect(document.activeElement).toBe(stop);
+    (dnd.getCombatState as jest.Mock).mockResolvedValue({ ...combat(SPACE), state: 'ended' });
+    await waitFor(() => expect(c.querySelector('[data-layout-resolved]')).toHaveAttribute('data-moment', 'exploring'), { timeout: 3000 });
+    await waitFor(() => expect(document.activeElement).toBe(stage(c).querySelector('[data-focus-fallback]')));
+    expect(screen.queryByRole('grid')).toBeNull();
+    expect(lineNode(c)).toBeNull();
   });
 });
