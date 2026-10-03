@@ -243,7 +243,8 @@ describe('Play.module.css', () => {
 
     it('Composer.module.css: below 560px of slot the kicker is visually hidden (clip, not display:none: the group keeps aria-labelledby on it)', () => {
       const block = containerBlock(composer());
-      const label = block.slice(block.indexOf('.railLabel {'));
+      // the STANDALONE rule (round 4 added `.rail[data-waiting] .railLabel` before it, which `.railLabel {` also matches as a substring)
+      const label = block.slice(block.search(/\n\s*\.railLabel \{/));
       const decls = label.slice(0, label.indexOf('}'));
       expect(decls).toMatch(/clip:\s*rect\(0,\s*0,\s*0,\s*0\)/);
       expect(decls).toMatch(/position:\s*absolute/);
