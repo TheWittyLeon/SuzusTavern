@@ -157,8 +157,10 @@ export default function PartyStrip({
           )}
         </AnchoredPopover>
       )}
-      {/* ADV-7/8: structured tracker when combatState available; legacy shim otherwise. */}
-      {combatState && combatState.participants.length > 0 ? (
+      {/* ADV-7/8: structured tracker when combatState available; legacy shim otherwise. A10 step 11 round 5 (Kage Tavern 2, Miko): only while the fight is LIVE. A polled `ended`
+          keeps `combatState` (the poller stops at `ended` and never clears it) while `combatIsActive` flips false and the moment goes `exploring`, so the tracker used to outlive the
+          fight it described and, in Story at 1440x900, scrolled the page 25px. The strip itself is not bounded: a bounded band clips what the exploring page needs. */}
+      {combatIsActive && combatState && combatState.participants.length > 0 ? (
         <InitiativeTracker
           participants={combatState.participants}
           round={round}
