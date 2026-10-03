@@ -158,10 +158,11 @@ describe('the move itself', () => {
   it('the 200: the token is drawn at the new square, focus is on it, Move stays armed with feet left, ONE row for the move, and NO narration beat', async () => {
     (dnd.moveToken as jest.Mock).mockResolvedValue({ ...landed(combat({ pc: { at: [2, 3], movement_remaining: 25 } })), message: '[Combat] Anomaly moves 5 ft.' });
     await load();
-    await armAndStep();
-    key('Enter');
+    fireEvent.click(moveBtn());
+    await waitFor(() => expect(stop()).toBe(cellOf(4, 2)));
+    fireEvent.click(cellOf(4, 3)); // a click that moves no focus (jsdom): DOM focus stays on the token's OLD square until the landing's movedSeq takes it to the new one
     await waitFor(() => expect(cellOf(4, 3)).toHaveAccessibleName(/Anomaly/));
-    expect(stop()).toBe(cellOf(4, 3));
+    await waitFor(() => expect(stop()).toBe(cellOf(4, 3)));
     expect(moveBtn()).toHaveAttribute('aria-pressed', 'true');
     expect(rows('Anomaly')).toBe(1);
     expect(logText()).not.toContain('[Combat]'); // the engine's own line is not a second row
