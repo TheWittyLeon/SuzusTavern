@@ -729,6 +729,7 @@ export default function TacticalMap({
       // Outside Move mode these only CHOOSE the square for the scene line and nothing else (Iro): they never arm Move, select a destination or move a token. Space is
       // consumed so it does not scroll the page from a grid that has focus.
       e.preventDefault();
+      setHoverCoord(null); // the key commits the FOCUSED square, so the ring and the line must say that square, not one a resting mouse is over (Tora M-1)
       if (moveMode) attemptMove(focusedCoord);
       else choose(focusedCoord);
       return;
@@ -736,6 +737,7 @@ export default function TacticalMap({
     const next = nextFocusCoord(e.key, focusedCoord, space.width, space.height);
     if (next) {
       e.preventDefault();
+      setHoverCoord(null); // keyboard wins until the next pointer ENTER: a mouse resting over the board no longer outranks the arrows (Tora M-1)
       setFocus({ coord: next, by: 'key' });
       choose(next);
     }

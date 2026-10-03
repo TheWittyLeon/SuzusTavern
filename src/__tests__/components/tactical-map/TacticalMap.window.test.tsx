@@ -1931,3 +1931,38 @@ describe('TacticalMap — B8c-3 M3: hover is a mouse\'s, never a finger\'s (B3: 
     expect(last(onInspect)?.kind).toBe('turn');
   });
 });
+
+
+describe('TacticalMap — Tora M-1: the keyboard wins over a mouse that is resting over the board', () => {
+  const six = () => makeSpace({ width: 6, height: 6 });
+  const bren = makeParticipant({ name: 'Bren', at: [1, 1], movement_remaining: 30 });
+  const last = (fn: jest.Mock) => fn.mock.calls[fn.mock.calls.length - 1]?.[0];
+
+  it('hover A, arrow to B, Enter: the line and the ring are on B and the move goes to B (not A)', () => {
+    const onInspect = jest.fn();
+    const onMove = jest.fn();
+    render(<TacticalMap {...baseProps({ space: six(), participants: [bren], moveMode: true, onInspect, onMove })} />);
+    const a = screen.getByRole('gridcell', { name: /Row 4, column 4\./ });
+    fireEvent.pointerEnter(a, { pointerType: 'mouse' });
+    expect(JSON.stringify(last(onInspect))).toContain('"row1":4,"col1":4'); // the hover shows A
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'ArrowRight' }); // the focused square is now B = [2,1]
+    const line = last(onInspect);
+    expect(line.kind).toBe('target');
+    expect(line.input).toMatchObject({ row1: 2, col1: 3 }); // B, not A
+    expect(document.querySelectorAll('[class*="cellDestination"]')).toHaveLength(1);
+    expect(document.querySelector('[class*="cellDestination"]')).toBe(screen.getByRole('gridcell', { name: /Row 2, column 3\./ }));
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Enter' });
+    expect(onMove).toHaveBeenCalledWith([2, 1]);
+  });
+
+  it('Enter alone (no arrow) after a hover also commits the focused square, and the next pointer enter hands the ring back to the mouse', () => {
+    const onInspect = jest.fn();
+    const onMove = jest.fn();
+    render(<TacticalMap {...baseProps({ space: six(), participants: [bren], moveMode: true, onInspect, onMove })} />);
+    fireEvent.pointerEnter(screen.getByRole('gridcell', { name: /Row 4, column 4\./ }), { pointerType: 'mouse' });
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: ' ' });
+    expect(last(onInspect).input).toMatchObject({ row1: 2, col1: 2 }); // the token\'s own square, where focus is
+    fireEvent.pointerEnter(screen.getByRole('gridcell', { name: /Row 5, column 5\./ }), { pointerType: 'mouse' });
+    expect(last(onInspect).input).toMatchObject({ row1: 5, col1: 5 });
+  });
+});
