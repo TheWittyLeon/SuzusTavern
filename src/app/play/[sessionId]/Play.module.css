@@ -283,7 +283,9 @@
    until: play-shell step 10's DM-controls popover exists (the panel's durable home: a layer from the DM's own control, with the whole screen for its controls). */
 .slotStack:has(> [data-region="tableControlsDm"]) {
   overflow-y: auto;
-  overscroll-behavior: contain;
+  /* NO `overscroll-behavior: contain` here (round 8, Kage C-1): nested chaining stays, as ruled at `.grid`'s html rule above (Tora MAJOR-2): on a reflow screen a drag on
+     this column that reaches its end must hand the rest to the PAGE, or the DM cannot drag to the composer and the X-card (375x667 and 360x740: not reached in 12 drags). `html`
+     already has `overscroll-behavior-y: none`, so pull-to-refresh stays blocked. The harness's dm-drag-xcard leg is the proof. */
   background-image:
     linear-gradient(var(--bg) 30%, transparent),
     linear-gradient(transparent, var(--bg) 70%),

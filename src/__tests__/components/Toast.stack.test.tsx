@@ -464,6 +464,45 @@ describe('Toast host: a keyboard Dismiss does not leave focus on <body>', () => 
     expect(document.querySelector('[data-component="Toast"] [tabindex]')).toBeNull();
   });
 
+  it('a press that ENDS is over: click elsewhere, then Tab into the host and Enter on Dismiss: focus goes back to where it came from (a press that never ended would swallow it)', () => {
+    render(
+      <ToastProvider>
+        <div data-focus-fallback="" tabIndex={-1}>head</div>
+        <button>composer</button>
+        <button>elsewhere</button>
+        <Fire />
+      </ToastProvider>,
+    );
+    fireEvent.click(screen.getByText('fire'));
+    const elsewhere = screen.getByText('elsewhere');
+    const composer = screen.getByText('composer');
+    fireEvent.pointerDown(elsewhere);
+    fireEvent.click(elsewhere);
+    act(() => { jest.advanceTimersByTime(5); }); // a task after the click: the press is over
+    act(() => composer.focus());
+    const dismiss = screen.getByRole('button', { name: 'Dismiss notification' });
+    act(() => dismiss.focus()); // Tab into the host
+    fireEvent.click(dismiss); // Enter (a click with no pointerdown)
+    act(() => { jest.advanceTimersByTime(300); });
+    expect(composer).toHaveFocus();
+  });
+
+  it('a pointerdown FORGETS focus already in the host: with the x focused by keyboard, a mouse press on it is a pointer dismiss and moves no focus (body stays body)', () => {
+    render(
+      <ToastProvider>
+        <div data-focus-fallback="" tabIndex={-1}>head</div>
+        <Fire />
+      </ToastProvider>,
+    );
+    fireEvent.click(screen.getByText('fire'));
+    const dismiss = screen.getByRole('button', { name: 'Dismiss notification' });
+    act(() => dismiss.focus()); // by keyboard: the rescue is armed
+    fireEvent.pointerDown(dismiss); // ...then the mouse presses it: the rescue stands down
+    fireEvent.click(dismiss);
+    act(() => { jest.advanceTimersByTime(300); });
+    expect(document.body).toHaveFocus();
+  });
+
   it('focus the user had elsewhere is never taken: a card going away while focus is on the page leaves it', () => {
     render(
       <ToastProvider>
