@@ -12,7 +12,7 @@
  * comes back for `space: null`); a participant spread into the line -> 5 goes red; the child ungated from `stageHasBody` -> 6 goes red.
  */
 import React from 'react';
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { CombatSpace, CombatState, GroundingData, Participant, Session } from '@/lib/api/types';
@@ -188,7 +188,7 @@ describe('a served board: the grid and the scene line', () => {
   });
 });
 
-describe('the pair pin (brief 2.6): for each malformed board the room is `band` and the body holds the band, never a grid', () => {
+describe('the pair pin (brief 2.6): for each malformed board the room is `band` and the body holds the band, never a grid (and the page does not fall over)', () => {
   const MALFORMED: Array<[string, unknown]> = [
     ['a null cell', { ...SPACE, cell: null }],
     ['a string cell value', { ...SPACE, cell: { value: '5', unit: 'ft' } }],
@@ -199,6 +199,17 @@ describe('the pair pin (brief 2.6): for each malformed board the room is `band` 
     ['a negative height', { ...SPACE, height: -2 }],
     ['an unknown kind', { ...SPACE, kind: 'hex?' }],
     ['a string width', { ...SPACE, width: '13' }],
+    // B8c-3 run 2, Miko MF1: a present-but-malformed list used to throw in the render and take the whole page down
+    ['blocked: {}', { ...SPACE, blocked: {} }],
+    ['blocked: "x"', { ...SPACE, blocked: 'x' }],
+    ['blocked: 5', { ...SPACE, blocked: 5 }],
+    ['blocked: [null]', { ...SPACE, blocked: [null] }],
+    ['features: {}', { ...SPACE, features: {} }],
+    ['features: "x"', { ...SPACE, features: 'x' }],
+    ['features: [null]', { ...SPACE, features: [null] }],
+    ['features: [{}]', { ...SPACE, features: [{}] }],
+    ['features: [{ at: null }]', { ...SPACE, features: [{ id: 'a', kind: 'prop', label: 'A', at: null }] }],
+    ['features: [{ at: "x" }]', { ...SPACE, features: [{ id: 'a', kind: 'prop', label: 'A', at: 'x' }] }],
   ];
   it.each(MALFORMED)('%s', async (_name, space) => {
     const c = await load(combat(space));
@@ -210,16 +221,50 @@ describe('the pair pin (brief 2.6): for each malformed board the room is `band` 
 });
 
 describe('the sentinel pin (Kuro 1): a DM\'s payload puts no DM-only string anywhere in the stage\'s DOM', () => {
-  const SENTINELS = ['SENTINEL-TACTICS-falls-back-to-the-tunnel', 'SENTINEL-POSITION-behind-the-bar', 'SENTINEL-TERRAIN-rising-water-at-round-six'];
-  it('none of tactics, position or terrain, in text or in any attribute', async () => {
-    const dm = { tactics: SENTINELS[0], position: SENTINELS[1] };
-    const c = await load(combat(SPACE, { pc: dm, foe: dm, state: { terrain: SENTINELS[2] } }));
-    // the map's own report has landed in the line (the rest line is written first, then the mover's)
+  const SENTINELS = ['SENTINEL-TACTICS-falls-back-to-the-tunnel', 'SENTINEL-POSITION-behind-the-bar', 'SENTINEL-SOURCE-REF-the-real-npc', 'SENTINEL-TERRAIN-rising-water-at-round-six'];
+  const dm = { tactics: SENTINELS[0], position: SENTINELS[1], source_ref: SENTINELS[2] };
+  const payload = (space: unknown) => combat(space, { pc: dm, foe: dm, state: { terrain: SENTINELS[3] } });
+
+  /** The control: the page really HELD the secrets (the mocked answer carried them on both participants and the state); only the stage's DOM may not. Awaited: an un-awaited `resolves` asserts nothing. */
+  async function carried() {
+    const first = await (dnd.getCombatState as jest.Mock).mock.results[0].value;
+    expect(first.terrain).toBe(SENTINELS[3]);
+    for (const p of first.participants) {
+      expect(p.tactics).toBe(SENTINELS[0]);
+      expect(p.position).toBe(SENTINELS[1]);
+      expect(p.source_ref).toBe(SENTINELS[2]);
+    }
+  }
+  const clean = (c: HTMLElement) => { const html = stage(c).outerHTML; for (const s of SENTINELS) expect(html).not.toContain(s); };
+
+  it('a usable board at rest: none of tactics, position, source_ref or terrain, in text or in any attribute', async () => {
+    const c = await load(payload(SPACE));
+    // the map\'s own report has landed in the line (the rest line is written first, then the mover\'s)
     await waitFor(() => expect(lineNode(c)).toHaveTextContent('Anomaly: 30 ft left'));
-    const html = stage(c).outerHTML;
-    for (const s of SENTINELS) expect(html).not.toContain(s);
-    // the control: the payload really carried them (the page holds the state); only the stage's DOM may not
-    expect((dnd.getCombatState as jest.Mock).mock.results[0].value).resolves.toMatchObject({ terrain: SENTINELS[2] });
+    await carried();
+    clean(c);
+  });
+
+  it('after the user chooses a FOE\'s square: the `cell` line names the foe and still carries none of them', async () => {
+    const c = await load(payload(SPACE));
+    await waitFor(() => expect(lineNode(c)).not.toBeNull());
+    const foe = screen.getAllByRole('gridcell').find((cell) => (cell.getAttribute('aria-label') ?? '').includes('Timberwolf')) as HTMLElement;
+    expect(foe).toBeDefined();
+    fireEvent.click(foe);
+    await waitFor(() => expect(lineNode(c)).toHaveTextContent(/^Timberwolf · Foe/));
+    await carried();
+    clean(c);
+  });
+
+  it.each<[string, unknown]>([
+    ['`space: null` (served, no board)', null],
+    ['a malformed board (a null cell)', { ...SPACE, cell: null }],
+    ['a malformed list (blocked: "x")', { ...SPACE, blocked: 'x' }],
+  ])('the band, %s: none of the four', async (_n, space) => {
+    const c = await load(payload(space));
+    expect(within(body(c)).getByRole('list', { name: 'Combatants' })).toBeInTheDocument();
+    await carried();
+    clean(c);
   });
 });
 
