@@ -182,6 +182,9 @@ export interface TacticalMapProps {
    *  built from, so `buildLine` (a11y.ts) and the name can never disagree. `null`: nothing to add to the stage's own line. Called from an effect keyed on the line's
    *  CONTENT, never on a render, and never with the initial `null`. The mount writes the text in the scene line; this component stays ignorant of the shell. */
   onInspect?: (line: InspectLine | null) => void;
+  /** A counter the mount bumps when the VIEWER'S OWN move lands (the 200, in the same batch as the new state). With Move engaged, the map takes focus to the token's new square and follows it
+   *  on a change of this and on nothing else: not a poll that redraws the token, not a refusal that redraws it (focus stays on the square the user was on). Omitted: it never changes. */
+  movedSeq?: number;
   className?: string;
 }
 
@@ -327,6 +330,7 @@ export default function TacticalMap({
   onMove,
   onExitMove,
   onInspect,
+  movedSeq = 0,
   className,
 }: TacticalMapProps) {
   const cellRefs = useRef(new Map<string, HTMLDivElement>());
@@ -417,11 +421,14 @@ export default function TacticalMap({
   // deliberately gated on `moveMode` so an observer's own roving-tabindex
   // position is never yanked by someone else's move.
   const activeAtKey = activeAt ? coordKeyStr(activeAt) : null;
-  const focusSyncKey = moveMode ? activeAtKey : null;
-  const [prevFocusSyncKey, setPrevFocusSyncKey] = useState<string | null>(focusSyncKey);
-  if (focusSyncKey !== prevFocusSyncKey) {
-    setPrevFocusSyncKey(focusSyncKey);
-    if (moveMode && activeAt) setFocus({ coord: activeAt, by: 'sync', landed: prevFocusSyncKey !== null });
+  // The Move sync (B8c-3 M3): focus ENTERS the grid at the token when Move is armed, and FOLLOWS it when the viewer's own move lands (`movedSeq`). It does not follow a change of `at` as such:
+  // a poll that moves the token, or a 409 that redraws it, leaves focus on the square the user was on (the brief's focus table). Re-arming always re-syncs.
+  const [prevMoveMode, setPrevMoveMode] = useState(moveMode);
+  const [prevMovedSeq, setPrevMovedSeq] = useState(movedSeq);
+  if (moveMode !== prevMoveMode || movedSeq !== prevMovedSeq) {
+    setPrevMoveMode(moveMode);
+    setPrevMovedSeq(movedSeq);
+    if (moveMode && activeAt && (!prevMoveMode || movedSeq !== prevMovedSeq)) setFocus({ coord: activeAt, by: 'sync', landed: prevMoveMode && movedSeq !== prevMovedSeq });
   }
 
   // The follow rule (follow.ts): ONE function for the turn change and for focus. A square wholly inside the window scrolls nothing; otherwise each axis that needs it
@@ -807,7 +814,7 @@ export default function TacticalMap({
                       choose(coord);
                       setKeyFocus(isFocusVisible(e.currentTarget));
                     }}
-                    onClick={() => {
+                    onClick={(e) => {
                       // Tora-Gesture MAJOR-2: a click never synced
                       // `focusedCoord`, desyncing DOM focus (which a click
                       // on a tabindex-bearing div already moves natively)
@@ -819,12 +826,16 @@ export default function TacticalMap({
                       // moves no focus under VoiceOver or TalkBack).
                       setFocus((prev) => (coordsEqual(prev.coord, coord) ? prev : { coord, by: 'native' }));
                       choose(coord);
+                      // A tap that moves no focus (a screen reader's, iOS Safari's) leaves `keyFocus` as the LAST focus set it: a keyboard visit earlier must not make this empty square read as keyboard-on.
+                      setKeyFocus(isFocusVisible(e.currentTarget));
                       attemptMove(coord);
                     }}
-                    onMouseEnter={() => {
-                      if (moveMode) setHoverCoord(coord);
+                    // HOVER is a mouse's (or a pen's), never a finger's: a tap makes the browser fire emulated enter events and the hover then STAYS until another tap, so a touch user would read
+                    // a destination ring and a target line for a square they only touched (B3, Tora-Gesture). Pointer events say which kind of pointer it is.
+                    onPointerEnter={(e) => {
+                      if (moveMode && e.pointerType !== 'touch') setHoverCoord(coord);
                     }}
-                    onMouseLeave={() => {
+                    onPointerLeave={() => {
                       setHoverCoord((prev) => (coordsEqual(prev, coord) ? null : prev));
                     }}
                   >
