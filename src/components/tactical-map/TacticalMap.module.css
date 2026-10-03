@@ -449,6 +449,12 @@
   background-attachment: local, local, scroll, scroll;
 }
 
+/* The band is a keyboard-scrollable region (tabIndex 0, B8c-3 run 2, Iro): its ring is drawn INSIDE the box, because the stage's body clips what is outside it. */
+.tomBand:focus-visible {
+  outline: var(--focus-ring-width) solid var(--accent);
+  outline-offset: calc(-1 * var(--focus-ring-width));
+}
+
 .tomToken {
   display: flex;
   align-items: center;

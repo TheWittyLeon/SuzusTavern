@@ -23,6 +23,9 @@ export default function TheatreOfMindBand({ participants, className }: TheatreOf
       className={[styles.tomBand, className].filter(Boolean).join(' ')}
       role="list"
       aria-label="Combatants"
+      // B8c-3 run 2 (Iro): the band SCROLLS in a short room (six chips do not fit three rows), and a scroller with no tab stop cannot be scrolled by keyboard where the browser does not make it
+      // one (WebKit does not; Chromium happens to). `tabIndex={0}` makes it one in every engine, keeping its name; the ring is `.tomBand:focus-visible`.
+      tabIndex={0}
     >
       {participants.map((p) => (
         <div
