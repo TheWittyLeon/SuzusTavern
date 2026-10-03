@@ -242,10 +242,16 @@ describe('refusals: the copy in the action bar\'s alert, never re-sent, and wher
     expect(document.activeElement).not.toBe(document.body);
   });
 
-  it('404 positioning_disabled (no state): the copy, disarmed, and the state is re-read so the page learns the board is gone', async () => {
-    await refuse(404, 'positioning_disabled');
-    expect(alertText()).toBe("The battle map isn't available here.");
-    await waitFor(() => expect(moveBtn()).toHaveAttribute('aria-pressed', 'false'));
+  it('404 positioning_disabled (no state): the copy, disarmed, the state is re-read so the page learns the board is gone, the Move button leaves the bar and focus goes to the bar\'s container, never <body>', async () => {
+    (dnd.moveToken as jest.Mock).mockRejectedValue(refusal(404, 'positioning_disabled'));
+    await load();
+    await armAndStep();
+    (dnd.getCombatState as jest.Mock).mockResolvedValue((() => { const c = combat(); delete (c as { space?: unknown }).space; return c; })()); // the next read has no `space` key
+    key('Enter');
+    await waitFor(() => expect(alertText()).toBe("The battle map isn't available here."));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Move' })).toBeNull());
+    expect(screen.queryByRole('grid')).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(document.querySelector('[data-region="actionBar"]')));
   });
 });
 

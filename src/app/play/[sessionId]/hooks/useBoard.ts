@@ -114,6 +114,14 @@ export function useBoard({ cs, room, stageHasBody, sessionLocked, appendLog, res
     else railRef.current?.focus();
   }, [focusMoveTick, railRef]);
 
+  // The Move button leaves the bar when the board is gone (a `positioning_disabled` answer, then the state without the key): focus that was ON it falls to <body>. It goes to the action bar's container
+  // instead (the same anchor as a disabled Move), so a keyboard user is never stranded by the board disappearing under them.
+  const wasOffered = useRef(offered);
+  useEffect(() => {
+    if (wasOffered.current && !offered && (document.activeElement === document.body || document.activeElement == null)) railRef.current?.focus();
+    wasOffered.current = offered;
+  }, [offered, railRef]);
+
   // The move handler reads everything as it is WHEN IT RUNS (a ref refreshed after each commit), never as it was when it was armed: `from` is the mover's `at` in the state the last render drew.
   const latest = useRef({ state, mine, combatId });
   useEffect(() => {
