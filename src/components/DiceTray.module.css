@@ -43,6 +43,12 @@
   .diceGridPopover {
     --dice-cols: 3;
   }
+  /* A10 step 11 tail, S6: at a 400% zoom (320x256) the Roll popover is clamped to about 56px and scrolls inside, and its first die (58px tall) must lie WHOLLY in that box (the harness's focus-in-box;
+     Iro MAJOR-1). The `line` composer sits Roll 3px higher than the old tab strip did, which took the popover's room from 59px to 56 and the die out of it by 3. The vertical padding here is
+     6px, not 10: a 50px die, still a 44px target. Only at this width; every wider popover is unchanged. */
+  .diceGridPopover .die {
+    padding-block: 6px;
+  }
 }
 
 /* the popover's order is quick checks, the roll modifier, then the dice (nearest the thumb): the modifier sits between two groups */

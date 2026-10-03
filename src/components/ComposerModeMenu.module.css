@@ -3,8 +3,9 @@
  * (320 wide, or any phone at larger text) it is wide enough to show the hint beside the word, from one container query and no breakpoint.
  */
 .box {
-  /* 4.5rem at rest (72px at 100% text); a rem floor, so a text-size setting widens it before it can clip its word. `container-type` zeroes the intrinsic width, so the basis is explicit. */
-  flex: 1 1 4.5rem;
+  /* 4.5rem at rest (72px at 100% text); a rem floor, so a text-size setting widens it before it can clip its word. `container-type` zeroes the intrinsic width, which a `min-width` does not restore in the row's max-content (measured: 18px), so the width is explicit. */
+  inline-size: 4.5rem;
+  flex: 1 1 auto;
   min-inline-size: 4.5rem;
   min-width: 0;
   container-type: inline-size;
