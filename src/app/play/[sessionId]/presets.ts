@@ -218,9 +218,9 @@ export const ANNOUNCING_REGIONS: ReadonlySet<RegionId> = new Set<RegionId>([
   'safetyBanner',
 ]);
 
-import { REGION_VARIANTS, isRegionVariant, type RegionVariant, type VariantRegionId } from './variants';
+import { REGION_VARIANTS, composerHasRoll, isRegionVariant, type RegionVariant, type VariantRegionId } from './variants';
 
-export { REGION_VARIANTS };
+export { REGION_VARIANTS, composerHasRoll };
 export type { RegionVariant, VariantRegionId };
 export { isRegionVariant };
 
@@ -962,12 +962,6 @@ const PHONE_ROW: LayoutRow = {
     // density tokens). The 44px targets and the 8px between them are unchanged.
     '--play-composer-pad': 'var(--space-3)',
     '--play-composer-gap': 'var(--space-4)',
-    // The `roll` composer is TWO rows on the phone (A10 fix round F6; Sora K2, Kage Tavern 5): the mode row takes a line of its own and the input keeps its old `flex: 1`
-    // (the mode row's own line already puts it on the next one). Composer.module.css reads both; absent = the desktop's (the mode row shares the line, the input wraps by
-    // itself). This was `@media (max-width: 880px)` in the stylesheet, a copy of the shell's phone breakpoint that a test had to keep honest: the row is where a layout's
-    // choices live. Table and Story set neither, so a tablet row could pick one row at 1024 wide by a row value (the lever is here if Aoi or Tora want it).
-    '--play-roll-mode-flex': '1 0 100%',
-    '--play-roll-input-flex': '1 1 0%',
   },
   // The banner floor: while the X-card banner is raised and the page FIT before it came up (the shell's measured `data-fit`, not a
   // height line: Play.module.css), the story track yields down to THIS, not to 0: 88 inner (log padding 44 + one 42px narration row)
@@ -1036,7 +1030,9 @@ const PHONE_ROW: LayoutRow = {
     // A9d-2 N7 (Amendment E.4): the Roll control sits at the end of the mode row and the stage hosts no dice tray (the tray remounts when the row
     // changes; `advantage` lives in the page). One node, two homes, chosen by the row. (A10 S1: Story's combat and Table say `roll` too; the phone
     // is the row whose mode row is forced onto a line of its own, by Composer.module.css, at the shell's phone width.)
-    composer: { default: { area: 'composer', variant: 'roll' } },
+    // A10 step 11 tail, S6 (Sora's amendment 1.1; Leon's #44): the phone's composer is `line`: Roll, a Mode MENU button, the field and Send on ONE row from 360 wide (two where the field would be under 9rem:
+    // 320, or larger text), 63px at rest, 58px less than the two-row `roll` composer in every phone cell. The two F6 row values that made `roll` two rows here are gone with their readers.
+    composer: { default: { area: 'composer', variant: 'line' } },
     tableControls: { default: { area: null, layer: true } },
     safetyBanner: { default: { area: 'safetyBanner' } },
   },

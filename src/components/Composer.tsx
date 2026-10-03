@@ -17,13 +17,16 @@
  * `<ActionBar/>` directly and owns those refs itself. Retires this file's own
  * `debt:` marker (A8) — its `until:` has fired.
  */
-import { useId, useRef, type ReactNode, type RefObject } from 'react';
+import { useId, useLayoutEffect, useRef, type ReactNode, type RefObject } from 'react';
+import ComposerModeMenu from '@/components/ComposerModeMenu';
 import Icon from '@/components/Icon';
+import { DEFAULT_MODES, MODE_RECORD, type ComposeMode } from '@/components/composeModes';
+import { keepFieldFocus } from '@/lib/a11y/keepFieldFocus';
 import { lockProps } from '@/lib/a11y/lockProps';
 import type { RegionVariant } from '@/app/play/[sessionId]/variants';
 import styles from './Composer.module.css';
 
-export type ComposeMode = 'say' | 'act' | 'ooc' | 'dm_narration';
+export type { ComposeMode };
 
 export interface ComposerProps {
   value: string;
@@ -57,39 +60,13 @@ export interface ComposerProps {
    *  Optional — every other caller is unaffected. */
   textareaAnchorRef?: RefObject<HTMLTextAreaElement | null>;
   /**
-   * A9d-2 N7 (Amendment E.4): `full` (the default) is the composer as it always was. `roll` (the phone, and a `hero` stage's rows: A10 S1) puts `tools` (the
-   * Roll control, which opens the dice) at the END of the mode row: DOM order modes, Roll, textarea, send; the mode row never wraps. Two rows at
-   * the phone's width (its own line), ONE where the composer has the room (the desktop rows). `tools` is painted only by `roll`.
+   * A9d-2 N7 (Amendment E.4): `full` (the default) is the composer as it always was. `roll` (a `hero` stage's rows: A10 S1) puts `tools` (the Roll control, which opens the dice) at the END of the mode row: DOM order
+   * modes, Roll, textarea, send; the mode row never wraps. A10 step 11 tail, S6: `line` is the phone's: Roll, a Mode MENU button (no tab list), the field and Send, in that order, one row from 360 wide and two
+   * (Roll and Mode, then the field and Send together) where the field would be under 9rem. `tools` is painted by `roll` and `line`.
    */
   variant?: RegionVariant<'composer'>;
   tools?: ReactNode;
 }
-
-const PLACEHOLDER: Record<ComposeMode, string> = {
-  say: 'Say something. Suzu will narrate back.',
-  act: 'I climb the chimney quietly…',
-  ooc: 'Out-of-character. Visible to the table, not the world.',
-  dm_narration: 'Narrate the scene as DM… (or speak as an NPC above)',
-};
-
-/**
- * The phone's placeholders (A9d-2 fix round 2, Iro Minor-4). The composer's input is ONE 44px row at 16px on the phone (`roll` variant), and the
- * long sentences above wrap there and are cut at their first line (279px of text in 258 at 360 wide; the DM's, 397px in 288 at 390). A short line
- * fits at every phone width; the long text is not lost: it stays on the textarea as its accessible DESCRIPTION (an sr-only node). It was never in
- * the accessible NAME (`aria-label="Compose (say)"` wins over a placeholder, and eight suites find the field by that exact label).
- */
-const PLACEHOLDER_SHORT: Record<ComposeMode, string> = {
-  say: 'Say something…',
-  act: 'I climb the chimney…',
-  ooc: 'Out of character…',
-  dm_narration: 'Narrate the scene…',
-};
-
-const DEFAULT_MODES: [ComposeMode, string][] = [
-  ['say', 'Say'],
-  ['act', 'Act'],
-  ['ooc', 'OOC'],
-];
 
 export default function Composer({
   value,
@@ -106,8 +83,9 @@ export default function Composer({
   variant = 'full',
   tools,
 }: ComposerProps) {
-  // Use caller-supplied mode list if provided; default to the standard 3-tab set.
+  // Use caller-supplied mode list if provided; default to the standard player set.
   const MODES = availableModes ?? DEFAULT_MODES;
+  const line = variant === 'line';
   const canSend = value.trim().length > 0 && !disabled && !pending;
   // TAV-PLAY-INPUT-LOCK-NO-FEEDBACK: the textarea locks on `disabled || pending`
   // (below), so the self-explaining lock reason must cover BOTH — a supplied
@@ -124,16 +102,25 @@ export default function Composer({
   // selection) to the newly-active tab — APG tablist contract (Iro S3.4).
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  // The phone's one-row field takes the short placeholder; the long text is its description (see PLACEHOLDER_SHORT). A lock reason is shown whole.
+  // A one-row field (`roll`, `line`) takes the mode's short placeholder (14 characters or fewer: composeModes.ts); the long text is its accessible description. A lock reason is shown whole.
   const hintId = useId();
-  const shortPlaceholder = variant === 'roll' && !lockReason;
+  const shortPlaceholder = (variant === 'roll' || line) && !lockReason;
+  const record = MODE_RECORD[mode];
   // MINOR-3: synchronous latch prevents a fast double-click from firing onSend twice.
   // The Enter path is already guarded by canSend; this closes the onClick gap.
   const pendingRef = useRef(false);
+  // The `line` field grows with its text to three lines (92px: the amendment's cap) and then scrolls inside; at rest it is the 44px row. A one-row composer on a phone is a whole band, and its growth
+  // is paid by the map's rows, then the page, never the story's floor.
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!line || !el) return;
+    el.style.height = 'auto';
+    if (el.scrollHeight > 0) el.style.height = `${Math.min(el.scrollHeight + 2, 92)}px`;
+  }, [value, line]);
 
   return (
     // `data-toast-avoid`: a toast must never stand over the composer (Send, the textarea); Toast.tsx places its host by these marks.
-    <div className={styles.composer} data-region="composer" data-variant={variant} data-toast-avoid="">
+    <div className={styles.composer} data-region="composer" data-variant={variant} data-mode={mode} data-toast-avoid="">
       {/* S5.2: inline error banner — text is preserved in the textarea on error. */}
       {sendError && (
         <div
@@ -157,50 +144,60 @@ export default function Composer({
         {lockReason ?? ''}
       </div>
       <div className={styles.row}>
-        {/* The mode row: the modes, and on a `roll` row the Roll control after them. `display: contents` otherwise (Composer.module.css). */}
+        {/* The mode row. `line` (the phone, A10 step 11 tail S6): Roll, then the Mode MENU button; no tab list. `full` and `roll`: the modes as a tab list and, on a `roll` row, the Roll control after them.
+            `display: contents` unless the variant makes it its own flex box (Composer.module.css). */}
         <div className={styles.modeRow}>
-          <div
-            className={styles.modes}
-            role="tablist"
-            aria-label="Compose mode"
-            onKeyDown={(e) => {
-              const order = MODES.map(([k]) => k);
-              const idx = order.indexOf(mode);
-              let next = idx;
-              if (e.key === 'ArrowRight') {
-                e.preventDefault();
-                next = (idx + 1) % order.length;
-              } else if (e.key === 'ArrowLeft') {
-                e.preventDefault();
-                next = (idx - 1 + order.length) % order.length;
-              }
-              if (next !== idx) {
-                onMode(order[next]);
-                // Move focus to the newly-active tab, not just the selection.
-                tabRefs.current[next]?.focus();
-              }
-            }}
-          >
-            {MODES.map(([k, lbl], i) => (
-              <button
-                key={k}
-                ref={(el) => {
-                  tabRefs.current[i] = el;
+          {line ? (
+            <>
+              {tools}
+              <ComposerModeMenu mode={mode} onMode={onMode} modes={MODES} fieldRef={textareaRef} />
+            </>
+          ) : (
+            <>
+              <div
+                className={styles.modes}
+                role="tablist"
+                aria-label="Compose mode"
+                onKeyDown={(e) => {
+                  const order = MODES.map(([k]) => k);
+                  const idx = order.indexOf(mode);
+                  let next = idx;
+                  if (e.key === 'ArrowRight') {
+                    e.preventDefault();
+                    next = (idx + 1) % order.length;
+                  } else if (e.key === 'ArrowLeft') {
+                    e.preventDefault();
+                    next = (idx - 1 + order.length) % order.length;
+                  }
+                  if (next !== idx) {
+                    onMode(order[next]);
+                    // Move focus to the newly-active tab, not just the selection.
+                    tabRefs.current[next]?.focus();
+                  }
                 }}
-                type="button"
-                role="tab"
-                aria-selected={mode === k}
-                // Roving tabindex: only the active tab is in the tab order; the
-                // others are reached with Arrow keys (APG tabs pattern).
-                tabIndex={mode === k ? 0 : -1}
-                className={mode === k ? `${styles.mode} ${styles.modeOn}` : styles.mode}
-                onClick={() => onMode(k)}
               >
-                {lbl}
-              </button>
-            ))}
-          </div>
-          {variant === 'roll' && tools}
+                {MODES.map(([k, lbl], i) => (
+                  <button
+                    key={k}
+                    ref={(el) => {
+                      tabRefs.current[i] = el;
+                    }}
+                    type="button"
+                    role="tab"
+                    aria-selected={mode === k}
+                    // Roving tabindex: only the active tab is in the tab order; the
+                    // others are reached with Arrow keys (APG tabs pattern).
+                    tabIndex={mode === k ? 0 : -1}
+                    className={mode === k ? `${styles.mode} ${styles.modeOn}` : styles.mode}
+                    onClick={() => onMode(k)}
+                  >
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+              {variant === 'roll' && tools}
+            </>
+          )}
         </div>
         {/* The input and Send: one flex item on a `roll` row, so a composer that wraps wraps them TOGETHER (Send alone on a second row was 44px of the story for one button). `display: contents` otherwise (Composer.module.css). The hidden hint belongs to the textarea and rides with it. */}
         <div className={styles.inputRow}>
@@ -212,10 +209,11 @@ export default function Composer({
                 if (textareaAnchorRef) textareaAnchorRef.current = el;
               }}
               className={styles.input}
-              placeholder={lockReason ?? ((shortPlaceholder ? PLACEHOLDER_SHORT[mode] : PLACEHOLDER[mode]) ?? '')}
+              placeholder={lockReason ?? (shortPlaceholder ? record?.placeholderShort : record?.placeholderLong) ?? ''}
               aria-describedby={shortPlaceholder ? hintId : undefined}
               value={value}
               rows={1}
+              enterKeyHint={line ? 'send' : undefined}
               aria-label={`Compose (${mode})`}
               title={lockReason ?? undefined}
               // Iro A9c-2 IMPORTANT-1: a send/narration lock is `readOnly` +
@@ -236,7 +234,7 @@ export default function Composer({
               </span>
             )}
           </div>
-          {shortPlaceholder && <span id={hintId} className="sr-only">{PLACEHOLDER[mode]}</span>}
+          {shortPlaceholder && <span id={hintId} className="sr-only">{record?.placeholderLong}</span>}
           <button
             type="button"
             className={styles.send}
@@ -244,6 +242,7 @@ export default function Composer({
             // moment the draft clears (value -> empty -> !canSend).
             {...lockProps(!canSend, { busy: pending })}
             aria-label={pending ? 'Sending…' : 'Send'}
+            {...(line ? keepFieldFocus : null)}
             onClick={() => {
               if (!canSend || pendingRef.current) return;
               pendingRef.current = true;

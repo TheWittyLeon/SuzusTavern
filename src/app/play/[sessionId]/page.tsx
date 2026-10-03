@@ -75,7 +75,7 @@ import TopBar from './regions/TopBar';
 import SuzuPresence from './regions/SuzuPresence';
 import PlayShell from './PlayShell';
 import { FOLD_SPECS } from './foldSpecs';
-import { getPlacement, variantFor, type Moment, type RegionId, type TenantId } from './presets';
+import { composerHasRoll, getPlacement, variantFor, type Moment, type RegionId, type TenantId } from './presets';
 import {
   buildReadAloudBlock,
   deathSaveTally,
@@ -1374,7 +1374,7 @@ export default function PlayPage() {
   // own data/handlers already live; the shell itself never imports a region
   // component. The tenth region is one presets.ts row + one entry here.
   // The dice: the same props feed the stage's tray (a `full` composer row) and the Roll control (a `roll` row).
-  const rollRow = variantFor(row, 'composer', moment) === 'roll';
+  const rollRow = composerHasRoll(variantFor(row, 'composer', moment));
   const diceProps = { onRoll, quickChecks: quickChecks ?? [], advantage, onAdvantage: setAdvantage, disabled: talking || combatBusy || sessionLocked || rollBusy };
   const regions: Partial<Record<RegionId, ReactNode>> = {
     safetyBanner: (
@@ -1577,7 +1577,7 @@ export default function PlayPage() {
         sendError={mode === 'dm_narration' ? dmNarrationError : null}
         textareaAnchorRef={composerTextareaAnchorRef}
         variant={variantFor(row, 'composer', moment)}
-        tools={rollRow ? <RollControl {...diceProps} fallbackFocus={() => sceneHeadRef.current} /> : undefined}
+        tools={rollRow ? <RollControl {...diceProps} fallbackFocus={() => sceneHeadRef.current} keepFieldFocus={variantFor(row, 'composer', moment) === 'line'} /> : undefined}
       />
     ),
     sceneStage: (

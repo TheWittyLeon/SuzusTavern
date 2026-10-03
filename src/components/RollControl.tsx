@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import AnchoredPopover from '@/components/AnchoredPopover';
 import DiceTray, { type Advantage, type DiceTrayProps } from '@/components/DiceTray';
 import Icon from '@/components/Icon';
+import { keepFieldFocus } from '@/lib/a11y/keepFieldFocus';
 import { useAnchoredPopover } from '@/lib/a11y/useAnchoredPopover';
 import styles from './RollControl.module.css';
 
@@ -29,12 +30,14 @@ import styles from './RollControl.module.css';
 export interface RollControlProps extends Omit<DiceTrayProps, 'layout'> {
   /** Where focus goes if Roll is gone when the popover closes (the scene head): never <body>. */
   fallbackFocus?: () => HTMLElement | null | undefined;
+  /** The `line` composer (A10 step 11 tail, S6): a press on Roll keeps the field's focus, so the phone's soft keyboard does not collapse mid-tap (`keepFieldFocus`). */
+  keepFieldFocus?: boolean;
 }
 
 const SHORT: Record<Advantage, string | null> = { none: null, adv: 'Adv', dis: 'Dis' };
 const FULL: Record<Advantage, string | null> = { none: null, adv: 'Advantage', dis: 'Disadvantage' };
 
-export default function RollControl({ onRoll, quickChecks, advantage = 'none', onAdvantage, disabled, fallbackFocus }: RollControlProps) {
+export default function RollControl({ onRoll, quickChecks, advantage = 'none', onAdvantage, disabled, fallbackFocus, keepFieldFocus: keepFocus = false }: RollControlProps) {
   const [open, setOpen] = useState(false);
   const anchorRef = useRef<HTMLButtonElement>(null);
   const pop = useAnchoredPopover({
@@ -56,10 +59,22 @@ export default function RollControl({ onRoll, quickChecks, advantage = 'none', o
         data-roll-control=""
         onClick={() => setOpen((o) => !o)}
         aria-label={full ? `Roll · ${full}` : 'Roll'}
+        data-advantage={advantage}
         {...pop.anchorProps}
+        {...(keepFocus ? keepFieldFocus : null)}
       >
         <Icon name="D20" size={16} aria-hidden />
-        <span>{short ? `Roll · ${short}` : 'Roll'}</span>
+        {/* The word, and while a modifier is on its tag. One inline label ("Roll · Dis") on every row; the `line` composer lays the same three nodes out as a fixed box (the d20 and the tag over the word: Composer.module.css,
+            `[data-variant='line']`), so the box never widens for "Adv" / "Dis". The separator is the only node that row hides. */}
+        <span className={styles.label}>
+          <span className={styles.word}>Roll</span>
+          {short ? (
+            <>
+              <span className={styles.sep} aria-hidden="true"> · </span>
+              <span className={styles.tag}>{short}</span>
+            </>
+          ) : null}
+        </span>
       </button>
       <AnchoredPopover pop={pop} role="dialog" label="Roll dice" className={styles.popover}>
         <DiceTray

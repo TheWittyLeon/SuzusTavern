@@ -18,8 +18,8 @@ import styles from './AnchoredPopover.module.css';
  */
 export interface AnchoredPopoverProps {
   pop: AnchoredPopoverApi;
-  /** `dialog` (Roll, Cast, Session) or `group` (the outcome chooser). */
-  role: Extract<PopoverRole, 'dialog' | 'group'>;
+  /** `dialog` (Roll, Cast, Session), `group` (the outcome chooser) or `menu` (the composer's mode menu: radio items). */
+  role: Extract<PopoverRole, 'dialog' | 'group' | 'menu'>;
   /** The accessible name: a popover is always named. */
   label: string;
   keepMounted?: boolean;

@@ -100,6 +100,11 @@ export interface UseAnchoredPopoverOptions {
   side?: PopoverSide;
   /** No taller than this many px: the popover scrolls inside beyond it (the Session card, 540px of content, must not cover the composer and the verbs). */
   maxHeight?: number;
+  /**
+   * Asked at the moment the popover opens: true = focus does NOT move into it (A10 step 11 tail, S6, the coordinator's binding ruling on the composer's mode menu: opened by touch while the field has focus,
+   * the keyboard stays up and nothing new is raised). Focus then stays where it was, and on close the focus rule below leaves it alone (it is on a control outside the popover). Absent = it moves, as always.
+   */
+  keepFocusInPlace?: () => boolean;
 }
 
 export interface AnchoredPopoverApi {
@@ -237,6 +242,7 @@ export function useAnchoredPopover({
   keepMounted = false,
   side = 'auto',
   maxHeight,
+  keepFocusInPlace,
 }: UseAnchoredPopoverOptions): AnchoredPopoverApi {
   const id = useId();
   const popoverRef = useRef<HTMLElement | null>(null);
@@ -413,7 +419,7 @@ export function useAnchoredPopover({
       wasOpenRef.current = true;
       const pop = popoverRef.current;
       const target = (initialFocus ? pop?.querySelector<HTMLElement>(initialFocus) : null) ?? pop?.querySelector<HTMLElement>(TABBABLE) ?? pop;
-      target?.focus({ preventScroll: true });
+      if (!keepFocusInPlace?.()) target?.focus({ preventScroll: true });
       // The placement lands in this commit and the next (the clamp is state): reveal now, and once more when two frames have settled it.
       revealFocused();
       let raf2 = 0;

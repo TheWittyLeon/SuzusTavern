@@ -77,6 +77,7 @@ import {
   LAYOUT_ROWS_BY_ID,
   REGION_TENANTS,
   REGION_VARIANTS,
+  composerHasRoll,
   getPlacement,
   variantFor,
   type TenantId,
@@ -304,7 +305,7 @@ describe('/play real-page render matrix (4 desktop + 2 phone)', () => {
 
     // A9d-2 N7 (Amendment E.4): the dice have ONE home, chosen by the row. A `roll` composer row has the Roll control (in the composer's mode row)
     // and NO tray in the stage; a `full` row has the stage's tray and NO Roll control; never both, never neither.
-    const rollRow = variantFor(row, 'composer', cell.moment) === 'roll';
+    const rollRow = composerHasRoll(variantFor(row, 'composer', cell.moment)); // `roll` and `line` (the phone, S6) carry Roll
     const roll = container.querySelector('[data-roll-control]');
     const tray = container.querySelector('[data-tenant="diceTray"]');
     expect([cell.name, 'roll', roll !== null, 'tray', tray !== null]).toEqual([cell.name, 'roll', rollRow, 'tray', !rollRow]);

@@ -41,6 +41,7 @@ import {
   VARIANTS_NOT_EMITTED_BY_PRESETS,
   FOLDABLE_ANNOUNCERS,
   FOLDABLE_REGIONS,
+  composerHasRoll,
   getPlacement,
   isRegionVariant,
   type LayoutId,
@@ -629,7 +630,8 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
       offers: 'offers variant:rows',
       characterBlock: 'null variant:compact layer:true',
       actionBar: 'actionBar variant:bar',
-      composer: 'composer variant:roll',
+      // A10 step 11 tail, S6 (named exception: the phone's composer was variant:roll, in both moments)
+      composer: 'composer variant:line',
       tableControls: 'null layer:true',
       safetyBanner: 'safetyBanner',
     });
@@ -645,7 +647,7 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
       offers: 'null visible:false',
       characterBlock: 'null variant:compact layer:true',
       actionBar: 'actionBar variant:bar',
-      composer: 'composer variant:roll',
+      composer: 'composer variant:line',
       tableControls: 'null layer:true',
       safetyBanner: 'safetyBanner',
     });
@@ -755,9 +757,10 @@ describe('TAV-PLAY-SHELL presets.ts — the composer variant is the dice\'s home
   const HOME: Record<LayoutId, Record<Moment, string>> = {
     story: { exploring: 'full', combat: 'roll' },
     table: { exploring: 'roll', combat: 'roll' },
-    phone: { exploring: 'roll', combat: 'roll' },
+    // A10 step 11 tail, S6 (named exception: the phone said `roll`): the phone's composer is `line`, which also carries Roll (composerHasRoll) and leaves no tray in the stage.
+    phone: { exploring: 'line', combat: 'line' },
   };
-  it.each(MOMENTS)('%s: story keeps the tray while exploring and says roll in a fight; table and the phone say roll', (moment) => {
+  it.each(MOMENTS)('%s: story keeps the tray while exploring and says roll in a fight; table says roll and the phone says line (both carry Roll)', (moment) => {
     for (const id of ['story', 'table', 'phone'] as const) {
       expect([id, moment, getPlacement(LAYOUT_ROWS_BY_ID[id], 'composer', moment).variant]).toEqual([id, moment, HOME[id][moment]]);
     }
@@ -768,7 +771,7 @@ describe('TAV-PLAY-SHELL presets.ts — the composer variant is the dice\'s home
     rows.flatMap((row) =>
       MOMENTS.filter((m) => {
         const stage = getPlacement(row, 'sceneStage', m).variant;
-        return (stage === 'hero' || stage === 'inline') && getPlacement(row, 'composer', m).variant !== 'roll';
+        return (stage === 'hero' || stage === 'inline') && !composerHasRoll(getPlacement(row, 'composer', m).variant);
       }).map((m) => `${row.id}/${m}`),
     );
   it('no row x moment whose stage is a hero or an inline strip emits a composer that leaves the tray in the stage', () => {
@@ -1058,11 +1061,8 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
       // test and composer-density.css.test cover the stylesheet side. (This literal enumerates the set, so it grows with it.)
       '--play-composer-pad': 'var(--space-3)',
       '--play-composer-gap': 'var(--space-4)',
-      // A10 fix round F6 (named exception: this literal enumerates the set, so it grows with it): the `roll` composer's wrap is the phone row's, two values the composer's CSS reads
-      // (the mode row takes a line of its own, the input keeps `flex: 1`), where it was `@media (max-width: 880px)` in the stylesheet. The control is that no cell, check line or
-      // budget line moves on any viewport (the harness run at the commit before and at this one); composer-roll-row.css.test and the readers test pin the two names.
-      '--play-roll-mode-flex': '1 0 100%',
-      '--play-roll-input-flex': '1 1 0%',
+      // A10 step 11 tail, S6 (named exception: the two F6 values `--play-roll-mode-flex` / `--play-roll-input-flex` are DELETED with their readers: the phone is `line`, whose wrap is the stylesheet's own
+      // flex-basis arithmetic, not a row value). What pins the deletion: this literal, and composer-roll-row.css.test (no `--play-roll-` var is read or set).
     });
     // A10 step 11 S2b (named exception): the desktop rows now carry `--play-cell`, the board's square. They still set no `--play-slot-*` var, which
     // is what this pins (the old `vars` toBeUndefined was the same claim by a blunter test).

@@ -1,5 +1,5 @@
 /**
- * A10 step 11, S1 (Sora's build brief 3.1, F-c) — the `roll` composer is ONE row where it fits and two on the phone. A10 fix round F6 (Sora K2, Kage Tavern 5) — the ROW says which.
+ * A10 step 11, S1 (Sora's build brief 3.1, F-c) — the `roll` composer is ONE row where it fits. (It was two on the phone until A10 step 11 tail S6: the phone is `line` now, pinned below, and the two F6 row values this file used to pin are deleted.)
  *
  * `roll` was two rows at every width (the mode row forced a full line), which is right on the phone and costs a desktop composer about 55px of the log. The mode row shares the
  * line with the input, which takes a minimum basis so a narrow composer wraps by itself. The phone is two rows at every phone width: its mode row takes a line of its own and its
@@ -24,20 +24,18 @@ const topRule = (sel: string) => {
 };
 
 describe('Composer.module.css — the `roll` row shares the line where there is room, and the ROW says when it does not', () => {
-  it('the mode row is a flex box that does not wrap inside; its `flex` is the row\'s `--play-roll-mode-flex`, and absent it does not force a line of its own', () => {
+  it('the mode row is a flex box that does not wrap inside and does not force a line of its own (named exception: it read `--play-roll-mode-flex`, which the phone no longer sets)', () => {
     const r = topRule(".composer[data-variant='roll'] .modeRow");
     expect(r).toMatch(/display:\s*flex/);
-    expect(r).toMatch(/flex:\s*var\(--play-roll-mode-flex,\s*0 1 auto\)/);
+    expect(r).toMatch(/flex:\s*0 1 auto/);
     expect(r).not.toMatch(/100%/);
   });
 
-  it('the input AND Send are one flex item, whose `flex` is the row\'s `--play-roll-input-flex`; absent it takes the input\'s minimum basis plus the gap and Send, so a narrow composer wraps them together and never leaves Send alone (A10 fix round 2, Kage Tavern 2)', () => {
+  it('the input AND Send are one flex item whose basis is the input\'s minimum (12rem) plus the gap and Send, so a narrow composer wraps them together and never leaves Send alone (A10 fix round 2, Kage Tavern 2; named exception: it read `--play-roll-input-flex`)', () => {
     const r = topRule(".composer[data-variant='roll'] .inputRow");
     expect(r).toMatch(/display:\s*flex/);
-    expect(r).toMatch(/flex:\s*var\(--play-roll-input-flex,\s*1 1 calc\(12rem \+ var\(--play-composer-gap, var\(--density-gap\)\) \+ 44px\)\)/);
-    // the basis is the old input's 12rem + the gap + Send's own width: `.send` is that wide
+    expect(r).toMatch(/flex:\s*1 1 calc\(12rem \+ var\(--play-composer-gap, var\(--density-gap\)\) \+ 44px\)/);
     expect(topRule('.send')).toMatch(/width:\s*44px/);
-    // the input no longer carries the row's flex: it fills the unit
     expect(css).not.toMatch(/\[data-variant='roll'\]\s*\.input\s*\{/);
   });
 
@@ -48,9 +46,9 @@ describe('Composer.module.css — the `roll` row shares the line where there is 
     expect(css).not.toMatch(/880\s*px/);
   });
 
-  it('the PHONE row says two rows: the mode row takes a line of its own and the input keeps `flex: 1`; no desktop row sets either (so they take the fallbacks)', () => {
-    expect(LAYOUT_ROWS_BY_ID.phone.vars).toMatchObject({ '--play-roll-mode-flex': '1 0 100%', '--play-roll-input-flex': '1 1 0%' });
-    for (const id of ['story', 'table'] as const) {
+  it('no stylesheet reads, and no row sets, an F6 row value: `--play-roll-mode-flex` and `--play-roll-input-flex` are gone (S6 deleted them with the phone\'s `roll` row)', () => {
+    expect(css).not.toMatch(/--play-roll-(mode|input)-flex/);
+    for (const id of ['story', 'table', 'phone'] as const) {
       expect(Object.keys(LAYOUT_ROWS_BY_ID[id].vars ?? {}).filter((k) => k.startsWith('--play-roll-'))).toEqual([]);
       for (const m of ['exploring', 'combat'] as const) {
         expect(Object.keys(LAYOUT_ROWS_BY_ID[id].momentVars?.[m] ?? {}).filter((k) => k.startsWith('--play-roll-'))).toEqual([]);
@@ -62,5 +60,48 @@ describe('Composer.module.css — the `roll` row shares the line where there is 
     expect(topRule('.modeRow')).toMatch(/display:\s*contents/);
     expect(topRule('.inputRow')).toMatch(/display:\s*contents/);
     expect(topRule('.input')).toMatch(/\n\s*flex:\s*1;/);
+  });
+});
+
+describe('Composer.module.css — the phone\'s `line` composer (A10 step 11 tail, S6)', () => {
+  it('the phone row says `line` in both moments', () => {
+    for (const m of ['exploring', 'combat'] as const) expect(LAYOUT_ROWS_BY_ID.phone.regions[m === 'exploring' ? 'composer' : 'composer']).toBeDefined();
+    expect(JSON.stringify(LAYOUT_ROWS_BY_ID.phone.regions.composer)).toContain('"variant":"line"');
+  });
+
+  it('the row wraps by ITSELF: the mode row grows by 1 and the field + Send unit by 1000 with a basis of 9rem + the gap + Send, so the pair wraps where the field would be under 9rem (no breakpoint, no viewport name)', () => {
+    expect(topRule(".composer[data-variant='line'] .row")).toMatch(/flex-wrap:\s*wrap/);
+    expect(topRule(".composer[data-variant='line'] .modeRow")).toMatch(/flex:\s*1 1 auto/);
+    expect(topRule(".composer[data-variant='line'] .inputRow")).toMatch(/flex:\s*1000 1 calc\(9rem \+ var\(--play-composer-gap, var\(--density-gap\)\) \+ 44px\)/);
+    const f = topRule(".composer[data-variant='line'] .field");
+    expect(f).toMatch(/flex:\s*1 1 9rem/);
+    expect(f).toMatch(/min-width:\s*min\(9rem, calc\(100% - 52px\)\)/);
+    expect(css).not.toMatch(/\[data-variant='line'\][^{]*\{[^}]*\d+px[^}]*9rem/);
+  });
+
+  it('the field is three lines at most (92px) and OOC dashes it; Send keeps its 44px', () => {
+    expect(topRule(".composer[data-variant='line'] .input")).toMatch(/max-height:\s*92px/);
+    expect(topRule(".composer[data-variant='line'][data-mode='ooc'] .input")).toMatch(/border-style:\s*dashed/);
+    expect(topRule('.send')).toMatch(/width:\s*44px/);
+  });
+});
+
+describe('RollControl.module.css — the `line` Roll is a fixed box (A10 step 11 tail, S6)', () => {
+  const rcss = fs.readFileSync(path.resolve(process.cwd(), 'src/components/RollControl.module.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const rule = (sel: string) => {
+    const at = rcss.indexOf(`\n${sel} {`);
+    expect(at).toBeGreaterThan(-1);
+    return rcss.slice(at, rcss.indexOf('}', at));
+  };
+  it('48px at 100% text, no width of its own (the tag sits inside the box and never widens it): a min inline size and a grid of the icon, the tag and the word', () => {
+    const r = rule("[data-variant='line'] .roll");
+    expect(r).toMatch(/min-inline-size:\s*48px/);
+    expect(r).toMatch(/min-height:\s*44px/);
+    expect(r).toMatch(/display:\s*grid/);
+    expect(r).not.toMatch(/(^|[\s;])(inline-size|width):/);
+    expect(rule("[data-variant='line'] .label")).toMatch(/display:\s*contents/);
+    expect(rule("[data-variant='line'] .sep")).toMatch(/display:\s*none/);
+    expect(rule("[data-variant='line'] .tag")).toMatch(/grid-row:\s*1/);
+    expect(rule("[data-variant='line'] .word")).toMatch(/grid-row:\s*2/);
   });
 });

@@ -53,8 +53,13 @@ export const REGION_VARIANTS = {
   topBar: ['full', 'compact'],
   // A9d-2 N7 (Amendment E.4): `full` is the composer as it always was; `roll` (the phone, and since A10 S1 every row x moment whose stage is a `hero`: Story's combat, Table) carries the Roll control at the end of its mode row
   // and the stage carries no dice tenant: the dice open from Roll in an anchored popover.
-  composer: ['full', 'roll'],
+  // A10 step 11 tail, S6 (Sora's amendment 1.1): `line` is the phone's one-line composer: Roll, a Mode MENU button, the field and Send, one row from 360 wide (two at 320 and at larger text), no tab list.
+  composer: ['full', 'roll', 'line'],
 } as const satisfies Record<string, readonly string[]>;
+
+/** The composer variants that carry the Roll control (the dice open from it): a named set, so the page's `rollRow` reads the registry and not a literal (S6). */
+const COMPOSER_VARIANTS_WITH_ROLL: readonly string[] = ['roll', 'line'];
+export const composerHasRoll = (v: string | undefined): boolean => v !== undefined && COMPOSER_VARIANTS_WITH_ROLL.includes(v);
 
 export type VariantRegionId = keyof typeof REGION_VARIANTS;
 export type RegionVariant<R extends VariantRegionId> = (typeof REGION_VARIANTS)[R][number];
