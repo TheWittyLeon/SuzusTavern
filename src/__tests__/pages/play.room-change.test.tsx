@@ -68,7 +68,7 @@ const bodyNode = (c: HTMLElement) => c.querySelector('[data-region="sceneStage"]
 const stageForm = (c: HTMLElement) => c.querySelector('[data-region="sceneStage"]')?.getAttribute('data-variant');
 const bodyValue = (c: HTMLElement) => grid(c).style.getPropertyValue('--play-body');
 /** What the row says a room is: its `--play-body` for a value of the `room` fact (never a literal here). */
-const roomBody = (layout: LayoutId, room: 'board' | 'band' | 'none') => (LAYOUT_ROWS_BY_ID[layout].factVars!.room as Record<string, Record<string, string>>)[room]['--play-body'];
+const roomBody = (layout: LayoutId, room: 'board' | 'band' | 'none' | 'unserved') => (LAYOUT_ROWS_BY_ID[layout].factVars!.room as Record<string, Record<string, string>>)[room]['--play-body'];
 
 /** The combat poll answers with whatever `serve` returns next; a thrown value is a failed poll. */
 let served: () => CombatState | Promise<CombatState>;
@@ -84,7 +84,7 @@ beforeEach(() => {
 });
 
 /** Load the page in a fight with `first` served, in `layout`; resolves once the stage shows that room. */
-async function load(layout: LayoutId, first: CombatState, room: 'board' | 'band') {
+async function load(layout: LayoutId, first: CombatState, room: 'board' | 'band' | 'unserved') {
   window.localStorage.setItem('tavern.layout', layout);
   serve(() => first);
   const { container } = renderPlay(<PlayPage />);
@@ -97,24 +97,29 @@ async function load(layout: LayoutId, first: CombatState, room: 'board' | 'band'
 }
 
 /** After a change: the room's value is on the grid, the stage kept its form, and the body is the SAME node. */
-async function expectRoom(c: HTMLElement, layout: LayoutId, room: 'board' | 'band' | 'none', node: Element, form: string | null | undefined) {
+async function expectRoom(c: HTMLElement, layout: LayoutId, room: 'board' | 'band' | 'none' | 'unserved', node: Element, form: string | null | undefined) {
   await waitFor(() => expect(bodyValue(c)).toBe(roomBody(layout, room)));
   expect(stageForm(c)).toBe(form);
   expect(bodyNode(c)).toBe(node);
 }
 
 describe.each<LayoutId>(['table', 'story'])('%s (desktop): the room follows the encounter\'s space while the fight runs', (layout) => {
-  it('a space GAINED mid-fight: the band becomes the board, in one poll, and the stage and its body node do not change', async () => {
-    const { container, node, form } = await load(layout, fight(), 'band');
+  it('a space GAINED mid-fight: the unserved page (no `space` key: positioning off) becomes the board, in one poll, and the stage and its body node do not change', async () => {
+    // (A10 step 11 round 4, named exception: a state with no `space` key was `band`; it is `unserved` now, the stage with no height, and `space: null` is the band)
+    const { container, node, form } = await load(layout, fight(), 'unserved');
     expect(form).toBe('hero');
     serve(() => fight({ space: SPACE }));
     await expectRoom(container, layout, 'board', node, form);
   });
 
-  it('a space LOST mid-fight: the board becomes the band, in one poll, and the stage and its body node do not change', async () => {
+  it('a space LOST mid-fight: the board becomes the unserved page when the key goes, the band when it is `null`, in one poll, and the stage and its body node do not change', async () => {
     const { container, node, form } = await load(layout, fight({ space: SPACE }), 'board');
     serve(() => fight());
+    await expectRoom(container, layout, 'unserved', node, form);
+    serve(() => fight({ space: null }));
     await expectRoom(container, layout, 'band', node, form);
+    serve(() => fight({ space: SPACE }));
+    await expectRoom(container, layout, 'board', node, form);
   });
 
   it('a MALFORMED space mid-fight (a null cell, a width of 5.5, a hex kind, an array, a string): the band, the map\'s own predicate; the board comes back with a good one', async () => {

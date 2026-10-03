@@ -460,7 +460,7 @@ export default function PlayPage() {
   // rAF-after-commit stranding-rescue effects + the adjacent rising-edge
   // toast, all one cluster in the decomposition plan's §1.13).
   const moment: Moment = combatIsActive ? 'combat' : 'exploring';
-  const { row, layoutId, facts } = usePlayLayout(moment, combatState?.space);
+  const { row, layoutId, facts } = usePlayLayout(moment, combatState);
   const {
     endCombatBtnRef, lastOpenerRef, beginCombatRef, composerRailAnchorRef, dmPanelAnchorRef,
     composerTextareaAnchorRef,

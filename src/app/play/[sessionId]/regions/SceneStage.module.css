@@ -151,6 +151,14 @@
   justify-content: center;
 }
 
+/* The `unserved` room (positioning is off) gives the body NO height, and the stand-in's text goes with it: not clipped but removed (a clipped line is still read aloud). Asked of the
+   body, a size container, so it is the room that says it, not a row or a fact name (A10 step 11 round 4, Aoi). */
+@container (max-height: 0.5px) {
+  .body .standIn {
+    display: none;
+  }
+}
+
 @container (max-height: 160px) {
   .body .standIn {
     flex-direction: row;

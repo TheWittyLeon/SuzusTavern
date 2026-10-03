@@ -338,11 +338,11 @@ export type LayoutId = 'story' | 'table' | 'phone';
 /**
  * A10 step 11 S2a (Sora's brief 3.2, Amendment F.4) — FACTS: a named value the page reports about what the table holds, which a row answers
  * with `--play-*` values. `moment` already works this way (`momentVars`); a fact is the same channel for a thing a row cannot know. `room` is
- * what the encounter gives the stage: a `board` (a usable `space`), a `band` (a fight without one) or `none` (not in a fight). The shell maps
+ * what the encounter gives the stage: a `board` (a usable `space`), a `band` (a fight that authored none: `space: null`, or a malformed one), `unserved` (positioning is off: the state body carries no `space` key; the stage takes no height) or `none` (not in a fight). The shell maps
  * a key to the row's values and learns nothing about what it means; the tenth fact is an entry here, the rows' values for it, and the one line
  * where the page computes it (`hooks/usePlayLayout.ts`).
  */
-export const FACTS = { room: ['board', 'band', 'none'] } as const satisfies Record<string, readonly string[]>;
+export const FACTS = { room: ['board', 'band', 'none', 'unserved'] } as const satisfies Record<string, readonly string[]>;
 /**
  * The ORDER of `FACTS` is the PRECEDENCE of its facts (Sora's brief K3; Kage A10 Tavern 3): the shell emits each fact's values in this order and the LAST wins a name two
  * facts both set, whatever order the caller's object lists them in. It runs from what SIZES a thing to what can REMOVE it: `room` first, any `fold:<regionId>` (the
@@ -649,6 +649,8 @@ const DESKTOP_COMBAT_LOG_FLOOR = slotLogFloor(210, 30);
 const DESKTOP_COMBAT_BANNER_FLOOR = slotLogFloor(100, 30);
 const DESKTOP_EXPLORING_LOG_FLOOR = slotLogFloor(240, 46);
 const DESKTOP_EXPLORING_BANNER_FLOOR = slotLogFloor(230, 46);
+// Round 4 (the rule's third step): a fight's composer is the band that gives its padding (the phone's two vars, read by Composer.module.css): 99px -> 83px.
+const FIGHT_COMPOSER_VARS = { '--play-composer-pad': 'var(--space-3)', '--play-composer-gap': 'var(--space-4)' } as const;
 
 const STORY_ROW: LayoutRow = {
   id: 'story',
@@ -707,7 +709,7 @@ const STORY_ROW: LayoutRow = {
     combat: `max-content max-content max-content minmax(var(--play-body-floor,0px),var(--play-body,0px)) minmax(var(--play-floor,${DESKTOP_COMBAT_LOG_FLOOR}),1fr) max-content max-content`,
   },
   // The banner floor of the log's class (the phone's shape: `--play-banner-floor`, read by the shell's banner yield), for both moments: the exploring log is a floor too (round 3).
-  momentVars: { exploring: { '--play-banner-floor': DESKTOP_EXPLORING_BANNER_FLOOR }, combat: { '--play-banner-floor': DESKTOP_COMBAT_BANNER_FLOOR } },
+  momentVars: { exploring: { '--play-banner-floor': DESKTOP_EXPLORING_BANNER_FLOOR }, combat: { '--play-banner-floor': DESKTOP_COMBAT_BANNER_FLOOR, ...FIGHT_COMPOSER_VARS } },
   // The board's size is data (F.3): 34px squares (Aoi's pictures are drawn at 34; 35 fits too, and one size on both layouts means a Story <-> Table
   // switch mid-fight does not rescale the board), 7 rows in Story (R19), a short band of 3 for a fight with no board (#44 question 4: ruling it
   // out is `band` taking `board`'s value), nothing while exploring (Story's exploring stage is a `panel`, which has no body).
@@ -718,6 +720,8 @@ const STORY_ROW: LayoutRow = {
       board: { '--play-body': 'calc(7 * var(--play-cell))', '--play-body-floor': 'calc(3 * var(--play-cell))' },
       band: { '--play-body': 'calc(3 * var(--play-cell))', '--play-body-floor': 'calc(3 * var(--play-cell))' },
       none: { '--play-body': '0px', '--play-body-floor': '0px' },
+      // Positioning is OFF (the state body has no `space` key): the stage's body takes NO height and shows no text (round 4, Aoi's rule; it overrides the phone mount brief's "the band's values" for these rows).
+      unserved: { '--play-body': '0px', '--play-body-floor': '0px' },
     },
   },
   areas: {
@@ -742,13 +746,16 @@ const STORY_ROW: LayoutRow = {
     // tracks across moments (R18: "the stage animates in and the story
     // log never remounts") rather than dropping to 2.
     // (A10 S2b: `sceneStage` is named on two consecutive lines: its scene line, then its body.)
+    // A10 step 11 round 4 (Aoi's "Short Desktop Fights", the rule): in a fight the band you act with comes first: the stage, the story at its floor, the action bar (the verbs and the X-card),
+    // and the composer LAST. What gives, in order: the empty stage box (the `unserved` room), the board's rows down to three, the composer's padding (`momentVars`), and then the page
+    // scrolls, taking the composer and never the verbs or the X-card. (Exploring is the reverse: the player acts by writing.) DOM and Tab order follow: log, verbs, X-card, composer.
     combat: `"safetyBanner safetyBanner safetyBanner"
              "topBar       topBar       partyStrip"
              "suzuPresence sceneStage   partyStrip"
              "suzuPresence sceneStage   partyStrip"
              "suzuPresence storyLog     partyStrip"
-             "suzuPresence composer     partyStrip"
-             "suzuPresence actionBar    partyStrip"`,
+             "suzuPresence actionBar    partyStrip"
+             "suzuPresence composer     partyStrip"`,
   },
   regions: {
     topBar: { default: { area: 'topBar', variant: 'full' } },
@@ -837,7 +844,7 @@ const TABLE_ROW: LayoutRow = {
     // banner, scene line (with the title bar's 72px reserve), body, log, composer, action bar: the classes above (A10 fix round: it was `auto max-content minmax(0,body) minmax(0,1fr) auto max-content`).
     combat: `max-content max-content minmax(var(--play-body-floor,0px),var(--play-body,0px)) minmax(var(--play-floor,${DESKTOP_COMBAT_LOG_FLOOR}),1fr) max-content max-content`,
   },
-  momentVars: { exploring: { '--play-banner-floor': DESKTOP_EXPLORING_BANNER_FLOOR }, combat: { '--play-banner-floor': DESKTOP_COMBAT_BANNER_FLOOR } },
+  momentVars: { exploring: { '--play-banner-floor': DESKTOP_EXPLORING_BANNER_FLOOR }, combat: { '--play-banner-floor': DESKTOP_COMBAT_BANNER_FLOOR, ...FIGHT_COMPOSER_VARS } },
   // A10 step 11 S2b: the stage is `hero` in BOTH moments and names its area on two lines (the scene line, then the body), as Story's combat does. The room
   // is rows x cell (F.3): 8 rows (R19) of the 34px cell, 3 for a fight with no board, none while exploring (the scene line IS the stage: 72 + 52 = 124
   // where the stage was a fixed 218). The title bar's 72px reserve sits in the scene line's track, so the body is exactly rows x cell.
@@ -852,6 +859,8 @@ const TABLE_ROW: LayoutRow = {
       board: { '--play-body': 'calc(8 * var(--play-cell))', '--play-body-floor': 'calc(3 * var(--play-cell))' },
       band: { '--play-body': 'calc(3 * var(--play-cell))', '--play-body-floor': 'calc(3 * var(--play-cell))' },
       none: { '--play-body': '0px', '--play-body-floor': '0px' },
+      // Positioning is OFF (the state body has no `space` key): the stage's body takes NO height and shows no text (round 4, Aoi's rule; it overrides the phone mount brief's "the band's values" for these rows).
+      unserved: { '--play-body': '0px', '--play-body-floor': '0px' },
     },
   },
   areas: {
@@ -865,12 +874,13 @@ const TABLE_ROW: LayoutRow = {
                 "partyStrip   composer     composer     composer"
                 "partyStrip   actionBar    actionBar    actionBar"
                 "partyStrip   offers       offers       offers"`,
+    // Round 4, the same rule: the sheet rail stops at the story log and the action bar, then the composer, take the full width.
     combat: `"safetyBanner safetyBanner safetyBanner safetyBanner"
              "partyStrip   sceneStage   sceneStage   characterBlock"
              "partyStrip   sceneStage   sceneStage   characterBlock"
              "partyStrip   suzuPresence storyLog     characterBlock"
-             "partyStrip   suzuPresence composer     characterBlock"
-             "partyStrip   actionBar    actionBar    actionBar"`,
+             "partyStrip   actionBar    actionBar    actionBar"
+             "partyStrip   composer     composer     composer"`,
   },
   regions: {
     // Mirrors the mockup's `.top{grid-area:stage}` — the title floats over the

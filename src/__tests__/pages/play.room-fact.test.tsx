@@ -46,26 +46,35 @@ import PlayPage from '@/app/play/[sessionId]/page';
 
 const SPACE: CombatSpace = { kind: 'square', width: 13, height: 7, cell: { value: 5, unit: 'ft' }, blocked: [], features: [] };
 
-describe('roomFact: the room is the moment and the map\'s own predicate', () => {
+describe('roomFact: the room is the moment, the KEY\'s presence and the map\'s own predicate', () => {
+  // A10 step 11 round 4 (named exception: it took the `space` and answered `band` for anything but a usable board): it takes the combat STATE, and a state body with no `space` KEY is `unserved`
+  // (positioning is off); `space: null` is the encounter that authored no board (`band`). Key presence is what the engine's wire says (a fight is served when the key is there).
   it.each<[string, Parameters<typeof roomFact>, string]>([
     ['exploring, no fight', ['exploring', undefined], 'none'],
-    ['exploring, even with a usable space left in the page', ['exploring', SPACE], 'none'],
-    ['a fight with a usable space', ['combat', SPACE], 'board'],
-    ['a fight with no space (theatre of mind)', ['combat', undefined], 'band'],
-    ['a fight with a null space', ['combat', null], 'band'],
+    ['exploring, even with a usable space left in the page', ['exploring', { space: SPACE }], 'none'],
+    ['a fight with a usable space', ['combat', { space: SPACE }], 'board'],
+    ['a fight whose state carries no `space` key (positioning off)', ['combat', {}], 'unserved'],
+    ['a fight whose state has not arrived', ['combat', null], 'unserved'],
+    ['a fight whose state is undefined', ['combat', undefined], 'unserved'],
+    ['a fight with `space: null` (the encounter authored no board: theatre of mind)', ['combat', { space: null }], 'band'],
     // every one of these is a board the map refuses to draw (isSpaceUsable); the room must say `band`, or the map falls back inside a board's room
-    ['a fight whose space has a null cell', ['combat', { ...SPACE, cell: null } as unknown as CombatSpace], 'band'],
-    ['a fight whose cell value is a string', ['combat', { ...SPACE, cell: { value: '5', unit: 'ft' } } as unknown as CombatSpace], 'band'],
-    ['a fight whose width is 0', ['combat', { ...SPACE, width: 0 }], 'band'],
-    ['a fight whose width is 5.5', ['combat', { ...SPACE, width: 5.5 }], 'band'],
-    ['a fight with an unknown kind', ['combat', { ...SPACE, kind: 'hex?' } as unknown as CombatSpace], 'band'],
+    ['a fight whose space has a null cell', ['combat', { space: { ...SPACE, cell: null } as unknown as CombatSpace }], 'band'],
+    ['a fight whose cell value is a string', ['combat', { space: { ...SPACE, cell: { value: '5', unit: 'ft' } } as unknown as CombatSpace }], 'band'],
+    ['a fight whose width is 0', ['combat', { space: { ...SPACE, width: 0 } }], 'band'],
+    ['a fight whose width is 5.5', ['combat', { space: { ...SPACE, width: 5.5 } }], 'band'],
+    ['a fight with an unknown kind', ['combat', { space: { ...SPACE, kind: 'hex?' } as unknown as CombatSpace }], 'band'],
   ])('%s -> %s', (_name, args, room) => {
     expect(roomFact(...args)).toBe(room);
   });
 
-  it('every value it can answer is in the vocabulary (a typo here would be a value no row has)', () => {
-    const answers = new Set([roomFact('exploring', null), roomFact('combat', SPACE), roomFact('combat', null)]);
+  it('every value it can answer is in the vocabulary, and it answers ALL of them (a typo here would be a value no row has; a value never answered is dead data)', () => {
+    const answers = new Set([roomFact('exploring', null), roomFact('combat', { space: SPACE }), roomFact('combat', { space: null }), roomFact('combat', {})]);
     expect([...answers].sort()).toEqual([...FACTS.room].sort());
+  });
+
+  it('a state read off a real JSON body keeps the key: `space: null` parses to `band`, a body without the key to `unserved`', () => {
+    expect(roomFact('combat', JSON.parse('{"state":"active","space":null}'))).toBe('band');
+    expect(roomFact('combat', JSON.parse('{"state":"active"}'))).toBe('unserved');
   });
 });
 
@@ -80,16 +89,18 @@ describe('the shell emits a row\'s values for the facts it is told, and refuses 
         board: { '--play-body': '238px', '--play-x': 'board' },
         band: { '--play-body': '102px' },
         none: { '--play-body': '0px' },
+        unserved: { '--play-body': '0px' },
       },
     },
   } as LayoutRow;
   const grid = (r: LayoutRow, facts?: Facts, moment: 'exploring' | 'combat' = 'combat') =>
     render(<PlayShell row={r} moment={moment} facts={facts} regions={{}} tenants={{}} />).container.querySelector('[data-layout-resolved]') as HTMLElement;
 
-  it('the value reported selects the set: board, band, none', () => {
+  it('the value reported selects the set: board, band, none, unserved', () => {
     expect(grid(row, { room: 'board' }).style.getPropertyValue('--play-body')).toBe('238px');
     expect(grid(row, { room: 'band' }).style.getPropertyValue('--play-body')).toBe('102px');
     expect(grid(row, { room: 'none' }, 'exploring').style.getPropertyValue('--play-body')).toBe('0px');
+    expect(grid(row, { room: 'unserved' }).style.getPropertyValue('--play-body')).toBe('0px');
   });
 
   it('a fact\'s values come AFTER the moment\'s (a fact wins a name both give), and a name only the moment gives is kept', () => {
@@ -113,7 +124,7 @@ describe('the shell emits a row\'s values for the facts it is told, and refuses 
 
   it('an unknown fact throws, and a value the row has no set for throws, naming both', () => {
     expect(() => factVarsFor(row, { weather: 'rain' } as unknown as Facts)).toThrow(/"weather" is not a declared fact \(row "story"\)/);
-    const partial = { ...row, factVars: { room: { board: {}, none: {} } } } as unknown as LayoutRow;
+    const partial = { ...row, factVars: { room: { board: {}, none: {}, unserved: {} } } } as unknown as LayoutRow;
     expect(() => factVarsFor(partial, { room: 'band' })).toThrow(/row "story" has no values for fact "room" = "band"/);
   });
 });
@@ -201,7 +212,8 @@ describe('the real page reports the room it computed to the shell', () => {
 
   it('not in a fight: none', async () => expect(await load(null)).toEqual({ room: 'none' }));
   it('a fight with a usable space: board', async () => expect(await load(combat(SPACE))).toEqual({ room: 'board' }));
-  it('a fight with no space: band', async () => expect(await load(combat())).toEqual({ room: 'band' }));
+  it('a fight whose state has no `space` key: unserved (positioning off)', async () => expect(await load(combat())).toEqual({ room: 'unserved' }));
+  it('a fight with `space: null`: band (the encounter authored no board)', async () => expect(await load(combat(null as unknown as CombatSpace))).toEqual({ room: 'band' }));
   it('a fight whose space the map refuses (a null cell): band, the map\'s own predicate', async () => {
     expect(await load(combat({ ...SPACE, cell: null }))).toEqual({ room: 'band' });
   });

@@ -692,8 +692,8 @@ describe('TAV-PLAY-SHELL presets.ts — row geometry is pinned as a literal (�
              "suzuPresence sceneStage   partyStrip"
              "suzuPresence sceneStage   partyStrip"
              "suzuPresence storyLog     partyStrip"
-             "suzuPresence composer     partyStrip"
-             "suzuPresence actionBar    partyStrip"`),
+             "suzuPresence actionBar    partyStrip"
+             "suzuPresence composer     partyStrip"`),
     );
   });
 
@@ -718,8 +718,8 @@ describe('TAV-PLAY-SHELL presets.ts — row geometry is pinned as a literal (�
              "partyStrip   sceneStage   sceneStage   characterBlock"
              "partyStrip   sceneStage   sceneStage   characterBlock"
              "partyStrip   suzuPresence storyLog     characterBlock"
-             "partyStrip   suzuPresence composer     characterBlock"
-             "partyStrip   actionBar    actionBar    actionBar"`),
+             "partyStrip   actionBar    actionBar    actionBar"
+             "partyStrip   composer     composer     composer"`),
     );
   });
 
@@ -895,7 +895,7 @@ describe('TAV-PLAY-SHELL presets.ts — the track classes: every track of a floo
             const set = (row.factVars?.room as Record<string, Record<string, string> | undefined> | undefined)?.[value];
             if (!set || !('--play-body-floor' in set)) out.push(`${at}: room "${value}" has no --play-body-floor`);
             else if (value === 'band' && set['--play-body-floor'] !== set['--play-body']) out.push(`${at}: the band's floor "${set['--play-body-floor']}" is not its size "${set['--play-body']}" (a band does not yield)`);
-            else if (value === 'none' && set['--play-body-floor'] !== '0px') out.push(`${at}: room "none" has a floor of ${set['--play-body-floor']}`);
+            else if ((value === 'none' || value === 'unserved') && set['--play-body-floor'] !== '0px') out.push(`${at}: room "${value}" has a floor of ${set['--play-body-floor']}`);
           }
         }
         return out;
@@ -1057,12 +1057,12 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
     // A10 fix round 2 (named exception: these two were the literal '178px'): the floor is written from the gap token, so `airy` and `compact` keep 100 inner.
     expect(LAYOUT_ROWS_BY_ID.story.momentVars).toEqual({
       exploring: { '--play-banner-floor': 'calc(230px + 3 * var(--density-gap) + 46px)' },
-      combat: { '--play-banner-floor': 'calc(100px + 3 * var(--density-gap) + 30px)' },
+      combat: { '--play-banner-floor': 'calc(100px + 3 * var(--density-gap) + 30px)', '--play-composer-pad': 'var(--space-3)', '--play-composer-gap': 'var(--space-4)' },
     });
     // Exploring has one too (fix round 2 for Table, round 3 for Story: the log is a floor, so the banner's yield reads a value: the shell's `--play-floor: var(--play-banner-floor, 0px)` would be a floor of 0 without it)
     expect(LAYOUT_ROWS_BY_ID.table.momentVars).toEqual({
       exploring: { '--play-banner-floor': 'calc(230px + 3 * var(--density-gap) + 46px)' },
-      combat: { '--play-banner-floor': 'calc(100px + 3 * var(--density-gap) + 30px)' },
+      combat: { '--play-banner-floor': 'calc(100px + 3 * var(--density-gap) + 30px)', '--play-composer-pad': 'var(--space-3)', '--play-composer-gap': 'var(--space-4)' },
     });
   });
 });
