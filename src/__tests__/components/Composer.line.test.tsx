@@ -213,6 +213,29 @@ describe('Roll in the `line` composer', () => {
   });
 });
 
+describe('the `line` field grows with its text to three lines (92px) and an EMPTY field is the 44px row', () => {
+  it('empty: no inline height (a wrapping placeholder, the lock reason, must not size it); typed: the scroll height plus the border, capped at 92px', () => {
+    const scroll = jest.spyOn(HTMLTextAreaElement.prototype, 'scrollHeight', 'get');
+    scroll.mockReturnValue(67);
+    const { rerender } = render(<Composer value="" onChange={jest.fn()} mode="say" onMode={jest.fn()} onSend={jest.fn()} variant="line" />);
+    expect(field().style.height).toBe('');
+    rerender(<Composer value="a line that wraps to three lines" onChange={jest.fn()} mode="say" onMode={jest.fn()} onSend={jest.fn()} variant="line" />);
+    expect(field().style.height).toBe('69px');
+    scroll.mockReturnValue(300);
+    rerender(<Composer value="a very long draft indeed" onChange={jest.fn()} mode="say" onMode={jest.fn()} onSend={jest.fn()} variant="line" />);
+    expect(field().style.height).toBe('92px');
+    rerender(<Composer value="" onChange={jest.fn()} mode="say" onMode={jest.fn()} onSend={jest.fn()} variant="line" />);
+    expect(field().style.height).toBe('');
+    scroll.mockRestore();
+  });
+  it('the other variants never set an inline height', () => {
+    const scroll = jest.spyOn(HTMLTextAreaElement.prototype, 'scrollHeight', 'get').mockReturnValue(80);
+    render(<Composer value="some text" onChange={jest.fn()} mode="say" onMode={jest.fn()} onSend={jest.fn()} variant="roll" />);
+    expect(field().style.height).toBe('');
+    scroll.mockRestore();
+  });
+});
+
 describe('the other variants are untouched', () => {
   it('`roll` and `full` still render the tab list and no menu button', () => {
     for (const variant of ['roll', 'full'] as const) {

@@ -114,6 +114,8 @@ export default function Composer({
   useLayoutEffect(() => {
     const el = textareaRef.current;
     if (!line || !el) return;
+    // An EMPTY field is the 44px row (CSS): its scrollHeight counts a wrapping PLACEHOLDER (the lock reason, 2 lines at 148px), and the lock line takes no height (round 3, Aoi), so it is never sized.
+    if (!value) { el.style.height = ''; return; }
     el.style.height = 'auto';
     if (el.scrollHeight > 0) el.style.height = `${Math.min(el.scrollHeight + 2, 92)}px`;
   }, [value, line]);
