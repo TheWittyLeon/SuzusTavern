@@ -19,6 +19,8 @@
  *    `disabled`, so the guard is the thing that makes it inert.)
  */
 import React from 'react';
+import fs from 'node:fs';
+import path from 'node:path';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { expectLocked } from '@/test-utils/locked';
@@ -200,5 +202,18 @@ describe('the Move toggle (B8c-3 M3)', () => {
     rerender(<ActionBar {...BASE} move={{ pressed: false, disabled: false, remainingFt: 30, onToggle }} moveButtonRef={ref} />);
     fireEvent.click(screen.getByRole('button', { name: 'Move' }));
     expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Story\'s one-row bar with Move (B8c-3 M3): the verbs close up only when Move is offered', () => {
+  it('the `chips` rail carries railMove with a `move` prop and not without; the table rail never does; the CSS closes the gap to 8px under it only', () => {
+    const { container, rerender } = render(<ActionBar {...BASE} variant="chips" />);
+    expect((container.firstChild as HTMLElement).className).not.toContain('railMove');
+    rerender(<ActionBar {...BASE} variant="chips" move={{ pressed: false, disabled: false, remainingFt: 30, onToggle: jest.fn() }} moveButtonRef={{ current: null }} />);
+    expect((container.firstChild as HTMLElement).className).toContain('railMove');
+    rerender(<ActionBar {...BASE} variant="bar" move={{ pressed: false, disabled: false, remainingFt: 30, onToggle: jest.fn() }} moveButtonRef={{ current: null }} />);
+    expect((container.firstChild as HTMLElement).className).not.toContain('railMove');
+    const css = fs.readFileSync(path.resolve(process.cwd(), 'src/components/Composer.module.css'), 'utf8');
+    expect(/\.railChips\.railMove \.railBtns\s*\{[^}]*gap:\s*var\(--space-4\)/.test(css)).toBe(true);
   });
 });
