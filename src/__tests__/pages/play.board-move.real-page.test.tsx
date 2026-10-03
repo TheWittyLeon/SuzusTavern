@@ -78,6 +78,8 @@ async function load(state: CombatState = combat()) {
 }
 const moveBtn = () => screen.getByRole('button', { name: 'Move' });
 const cellOf = (row: number, col: number) => screen.getByRole('gridcell', { name: new RegExp(`^Row ${row}, column ${col}\\.`) });
+/** The engine's answer to a move AND what every poll says from then on (the world moved: a poll must not hand back the old square). */
+const landed = (state: CombatState) => { (dnd.getCombatState as jest.Mock).mockResolvedValue(state); return { message: 'x', state }; };
 const stop = () => document.activeElement as HTMLElement;
 const key = (k: string) => fireEvent.keyDown(document.activeElement as HTMLElement, { key: k });
 const alertText = () => document.querySelector('[data-region="actionBar"] [role="alert"]')?.textContent ?? '';
@@ -149,12 +151,12 @@ describe('the move itself', () => {
     expect(Object.keys(body).sort()).toEqual(['from', 'participant_id', 'to']);
     expect(screen.getByRole('grid')).toHaveAttribute('aria-busy', 'true'); // the pending look: nothing is drawn until the server answers
     expect(cellOf(4, 2)).toHaveAccessibleName(/Anomaly/);
-    hold.resolve({ message: 'x', state: combat({ pc: { at: [2, 3], movement_remaining: 25 } }) });
+    hold.resolve(landed(combat({ pc: { at: [2, 3], movement_remaining: 25 } })));
     await waitFor(() => expect(screen.getByRole('grid')).not.toHaveAttribute('aria-busy', 'true'));
   });
 
   it('the 200: the token is drawn at the new square, focus is on it, Move stays armed with feet left, ONE row for the move, and NO narration beat', async () => {
-    (dnd.moveToken as jest.Mock).mockResolvedValue({ message: '[Combat] Anomaly moves 5 ft.', state: combat({ pc: { at: [2, 3], movement_remaining: 25 } }) });
+    (dnd.moveToken as jest.Mock).mockResolvedValue({ ...landed(combat({ pc: { at: [2, 3], movement_remaining: 25 } })), message: '[Combat] Anomaly moves 5 ft.' });
     await load();
     await armAndStep();
     key('Enter');
@@ -168,7 +170,7 @@ describe('the move itself', () => {
   });
 
   it('`from` is the DRAWN at, not the square Move was armed on: a poll that moved the token while armed sends the new square', async () => {
-    (dnd.moveToken as jest.Mock).mockResolvedValue({ message: 'x', state: combat({ pc: { at: [5, 5], movement_remaining: 25 } }) });
+    (dnd.moveToken as jest.Mock).mockImplementation(async () => landed(combat({ pc: { at: [5, 5], movement_remaining: 25 } })));
     await load();
     fireEvent.click(moveBtn());
     await waitFor(() => expect(document.activeElement?.getAttribute('role')).toBe('gridcell'));
@@ -181,7 +183,7 @@ describe('the move itself', () => {
   });
 
   it('the mover\'s row is written once at the 200 and NOT again when the turn passes (the square is accounted for); a creature that moved meanwhile still gets its own row', async () => {
-    (dnd.moveToken as jest.Mock).mockResolvedValue({ message: 'x', state: combat({ pc: { at: [2, 3], movement_remaining: 25 } }) });
+    (dnd.moveToken as jest.Mock).mockImplementation(async () => landed(combat({ pc: { at: [2, 3], movement_remaining: 25 } })));
     await load();
     await armAndStep();
     key('Enter');
@@ -264,7 +266,7 @@ describe('Escape and the focus rules around Move', () => {
     key('Enter');
     key('Escape'); // in flight
     expect(moveBtn()).toHaveAttribute('aria-pressed', 'true');
-    hold.resolve({ message: 'x', state: combat({ pc: { at: [2, 3], movement_remaining: 25 } }) });
+    hold.resolve(landed(combat({ pc: { at: [2, 3], movement_remaining: 25 } })));
     await waitFor(() => expect(screen.getByRole('grid')).not.toHaveAttribute('aria-busy', 'true'));
     key('Escape');
     await waitFor(() => expect(moveBtn()).toHaveAttribute('aria-pressed', 'false'));
@@ -272,7 +274,7 @@ describe('Escape and the focus rules around Move', () => {
   });
 
   it('the last feet spent: Move disarms and focus goes to the bar\'s container (the Move button is disabled), never <body>', async () => {
-    (dnd.moveToken as jest.Mock).mockResolvedValue({ message: 'x', state: combat({ pc: { at: [2, 3], movement_remaining: 0 } }) });
+    (dnd.moveToken as jest.Mock).mockImplementation(async () => landed(combat({ pc: { at: [2, 3], movement_remaining: 0 } })));
     await load(combat({ pc: { movement_remaining: 5 } }));
     await armAndStep();
     key('Enter');
