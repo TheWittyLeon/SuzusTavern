@@ -173,3 +173,32 @@ describe("CastSpellPanel's submit is inert under every condition that disables i
     expect(cast).toHaveBeenCalledTimes(1);
   });
 });
+
+// B8c-3 M3: the sixth control. Move is offered only with a `move` prop; it is a toggle with a FIXED name, `aria-pressed`, native `disabled` like the five above (a forced click reaches no handler),
+// and sits between Dash and End turn. Dropping `disabled={move.disabled}` reds the disabled case.
+describe('the Move toggle (B8c-3 M3)', () => {
+  const ref = { current: null };
+  it('absent without a `move` prop (the four verbs), present with one: name "Move", between Dash and End turn, aria-pressed follows `pressed`', () => {
+    const { rerender } = render(<ActionBar {...BASE} />);
+    expect(screen.queryByRole('button', { name: 'Move' })).toBeNull();
+    rerender(<ActionBar {...BASE} move={{ pressed: false, disabled: false, remainingFt: 30, onToggle: jest.fn() }} moveButtonRef={ref} />);
+    const names = screen.getAllByRole('button').map((b) => b.textContent?.trim());
+    expect(names.indexOf('Move')).toBe(names.indexOf('Dash') + 1);
+    expect(names.indexOf('End turn')).toBe(names.indexOf('Move') + 1);
+    expect(screen.getByRole('button', { name: 'Move' })).toHaveAttribute('aria-pressed', 'false');
+    rerender(<ActionBar {...BASE} move={{ pressed: true, disabled: false, remainingFt: 30, onToggle: jest.fn() }} moveButtonRef={ref} />);
+    expect(screen.getByRole('button', { name: 'Move' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Move' })).toHaveAccessibleName('Move');
+  });
+
+  it('disabled: a forced click reaches no handler; enabled: one click, one call', () => {
+    const onToggle = jest.fn();
+    const { rerender } = render(<ActionBar {...BASE} move={{ pressed: false, disabled: true, remainingFt: 0, onToggle }} moveButtonRef={ref} />);
+    expect(screen.getByRole('button', { name: 'Move' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Move' }));
+    expect(onToggle).not.toHaveBeenCalled();
+    rerender(<ActionBar {...BASE} move={{ pressed: false, disabled: false, remainingFt: 30, onToggle }} moveButtonRef={ref} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Move' }));
+    expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+});

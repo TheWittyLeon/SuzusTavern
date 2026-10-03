@@ -47,6 +47,8 @@ export interface CombatTarget {
   maxHp?: number | null;
 }
 
+import type { MoveControl } from '../hooks/useBoard';
+
 export interface ActionBarProps {
   targets: CombatTarget[];
   /** Called with action + payload. For 'attack', payload is the target id
@@ -90,6 +92,11 @@ export interface ActionBarProps {
    *  `chips` puts the kicker inline with the buttons so a story column spends
    *  one row. Same elements, same names, same live regions. */
   variant?: RegionVariant<'actionBar'>;
+  /** B8c-3 M3: the Move toggle. Absent (undefined) where no board is served, the stage has no body, or the creature has no square or budget: the bar then has the four verbs it always had. Present: a
+   *  sixth control with a FIXED name, `aria-pressed` for its state, native `disabled` like every other verb (off turn, no feet, busy, session locked), placed before End turn. */
+  move?: MoveControl;
+  /** The Move button's ref (a separate prop: see useBoard). */
+  moveButtonRef?: RefObject<HTMLButtonElement | null>;
 }
 
 /** Gap between the Attack button and its target menu, and the viewport margin. */
@@ -105,6 +112,8 @@ export default function ActionBar({
   outerRailRef,
   localTurnActionRef,
   variant = 'bar',
+  move,
+  moveButtonRef,
 }: ActionBarProps) {
   const [targetOpen, setTargetOpen] = useState(false);
   const railRef = useRef<HTMLDivElement>(null);
@@ -335,6 +344,19 @@ export default function ActionBar({
         >
           <Icon name="Compass" size={13} /> Dash
         </button>
+        {move && (
+          <button
+            ref={moveButtonRef}
+            type="button"
+            className={move.pressed ? `${styles.action} ${styles.actionOn}` : styles.action}
+            onClick={move.onToggle}
+            disabled={move.disabled}
+            aria-disabled={move.disabled}
+            aria-pressed={move.pressed}
+          >
+            <Icon name="Map" size={13} /> Move
+          </button>
+        )}
         <button
           type="button"
           className={styles.action}

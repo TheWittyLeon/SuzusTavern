@@ -8,6 +8,7 @@
 import { renderHook } from '@testing-library/react';
 import type { CombatSpace, CombatState } from '@/lib/api/types';
 import { useBoard, type UseBoardArgs } from '@/app/play/[sessionId]/hooks/useBoard';
+import type { UseCombatStateResult } from '@/app/play/[sessionId]/hooks/useCombatState';
 
 const SPACE: CombatSpace = { kind: 'square', width: 13, height: 7, cell: { value: 5, unit: 'ft' }, blocked: [], features: [] };
 
@@ -24,8 +25,17 @@ function st(o: { space?: unknown; active?: string; round?: number; at?: [number,
 }
 
 const rescue = jest.fn();
-function args(state: CombatState | null, over: Partial<UseBoardArgs> = {}): UseBoardArgs {
-  return { state, combatIsActive: state != null && state.state !== 'ended', room: 'board', stageHasBody: true, selfPcId: 'p1', round: state?.round ?? null, appendLog: jest.fn(), rescueStrandedFocus: rescue, ...over };
+type Over = Partial<Omit<UseBoardArgs, 'cs'>> & { combatIsActive?: boolean; combatBusy?: boolean; activeIsMine?: boolean };
+/** The combat state hook's result as the board reads it: the state, the viewer's seat and the shared latch and writers. */
+export function fakeCs(state: CombatState | null, over: Over = {}): UseCombatStateResult {
+  return {
+    combatState: state, combatIsActive: over.combatIsActive ?? (state != null && state.state !== 'ended'), selfPcId: 'p1', round: state?.round ?? null, combatId: 'c1', combatBusy: over.combatBusy ?? false,
+    combatBusyRef: { current: false }, stateSeqRef: { current: 0 }, setCombatBusy: jest.fn(), setRefusedReason: jest.fn(), applyState: jest.fn(), refreshState: jest.fn(), activeIsMine: over.activeIsMine ?? true,
+  } as unknown as UseCombatStateResult;
+}
+function args(state: CombatState | null, over: Over = {}): UseBoardArgs {
+  const { combatIsActive, combatBusy, activeIsMine, ...rest } = over;
+  return { cs: fakeCs(state, { combatIsActive, combatBusy, activeIsMine }), room: 'board', stageHasBody: true, sessionLocked: false, appendLog: jest.fn(), rescueStrandedFocus: rescue, railRef: { current: null }, ...rest };
 }
 
 describe('useBoard: stage and label', () => {
@@ -36,7 +46,7 @@ describe('useBoard: stage and label', () => {
     expect(result.current.label).toBe('Tactical map');
   });
 
-  it.each<[string, Partial<UseBoardArgs>, CombatState | null]>([
+  it.each<[string, Over, CombatState | null]>([
     ['no `space` key (positioning off)', {}, st({ space: 'absent' })],
     ['no state yet', {}, null],
     ['the fight is over', { combatIsActive: false }, st({ state: 'ended' })],
@@ -57,7 +67,7 @@ describe('useBoard: stage and label', () => {
 });
 
 describe('useBoard: the reach is shown to every seat, all turn (T1)', () => {
-  const reach = (state: CombatState, over: Partial<UseBoardArgs> = {}) => renderHook(() => useBoard(args(state, over))).result.current.stage?.showReach;
+  const reach = (state: CombatState, over: Over = {}) => renderHook(() => useBoard(args(state, over))).result.current.stage?.showReach;
   it('board room, active state, a mover with a square and a budget', () => {
     expect(reach(st())).toBe(true);
     expect(reach(st({ active: 'w1' }))).toBe(true); // a monster's turn, on a player's seat: the reach is the monster's
@@ -106,7 +116,7 @@ describe('useBoard: the stage props are STABLE between renders that bring no new
     rerender({ ...a, appendLog: jest.fn() }); // a page render with the same facts (an unstable appendLog identity is not a prop of the stage)
     expect(result.current).toBe(first);
     expect(result.current.stage).toBe(first.stage);
-    rerender({ ...a, state: { ...state } });
+    rerender(args({ ...state }));
     expect(result.current.stage).not.toBe(first.stage);
   });
 });

@@ -12,8 +12,8 @@ import { useStageLine } from './regions/SceneStage';
  * It renders the map as the stage's body, turns the map's `onInspect` payload into the scene line's text (`buildLine`, from the same `CellNameInput` the cell's accessible name is
  * built from), and clears the line itself when it unmounts.
  *
- * READ-ONLY (M2): `moveMode` is false and `onMove` / `onExitMove` are no-ops, so a click, Enter or Space never sends anything and the board never arms. The reach is drawn through
- * `showReach` (T1: every seat sees how far the creature whose turn it is can go). M3 puts the move behind these two callbacks.
+ * The move (M3) is `useBoard`'s: `moveMode` is true only for the seat that controls the active turn, so an observer's click, Enter or Space still sends nothing; the reach is drawn for every seat
+ * through `showReach` (T1).
  */
 export interface StageBoardProps {
   space: CombatSpace | null | undefined;
@@ -26,12 +26,15 @@ export interface StageBoardProps {
   showReach: boolean;
   /** The page's stranded-focus rescue (useStrandedFocusRescue): called with true while the grid holds focus as it unmounts (the fight ended), so focus goes to the scene head, never `<body>`. */
   rescueStrandedFocus: (hadFocusInGroup: boolean) => void;
+  /** Move is armed (only ever the seat that controls the active turn), a move is in flight, the callbacks behind a legal square and Escape, and the counter the move's landing bumps. */
+  moveMode: boolean;
+  moveSubmitting: boolean;
+  onMove: (to: SpaceCoordinate) => void;
+  onExitMove: () => void;
+  movedSeq: number;
 }
 
-const noMove = (_to: SpaceCoordinate): void => {};
-const noExit = (): void => {};
-
-function StageBoard({ space, participants, viewerParticipantId, activeParticipantId, round, showReach, rescueStrandedFocus }: StageBoardProps) {
+function StageBoard({ space, participants, viewerParticipantId, activeParticipantId, round, showReach, rescueStrandedFocus, moveMode, moveSubmitting, onMove, onExitMove, movedSeq }: StageBoardProps) {
   const setLine = useStageLine();
   /** The last payload the map reported, kept so a new round re-writes the rest line without the map having to say anything. */
   const lastRef = useRef<InspectLine | null>(null);
@@ -80,10 +83,12 @@ function StageBoard({ space, participants, viewerParticipantId, activeParticipan
       participants={participants}
       viewerParticipantId={viewerParticipantId}
       activeParticipantId={activeParticipantId}
-      moveMode={false}
+      moveMode={moveMode}
+      moveSubmitting={moveSubmitting}
       showReach={showReach}
-      onMove={noMove}
-      onExitMove={noExit}
+      onMove={onMove}
+      onExitMove={onExitMove}
+      movedSeq={movedSeq}
       onInspect={onInspect}
     />
   );

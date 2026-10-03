@@ -41,7 +41,7 @@ function Stage({ combat = true, allDown = false, text = null, board = false, res
         outcomeChooserOpen={open} setOutcomeChooserOpen={setOpen} lastOpenerRef={opener} allHostilesDown={allDown} anyMonsterDown={false} onEndCombat={() => {}} beginCombatRef={begin}
         onBeginEncounter={() => {}} talking={false} sessionLocked={false} rollBusy={false} round={round} variant="hero" bodyLabel={board ? 'Tactical map' : undefined}
       >
-        {board && (showBoard ?? combat) ? <StageBoard space={space} participants={PARTICIPANTS} viewerParticipantId="p1" activeParticipantId="p1" round={round} showReach rescueStrandedFocus={rescue} /> : board ? null : <Writer text={text} />}
+        {board && (showBoard ?? combat) ? <StageBoard space={space} participants={PARTICIPANTS} viewerParticipantId="p1" activeParticipantId="p1" round={round} showReach rescueStrandedFocus={rescue} moveMode={false} moveSubmitting={false} onMove={() => {}} onExitMove={() => {}} movedSeq={0} /> : board ? null : <Writer text={text} />}
       </SceneStage>
     </aside>
   );
