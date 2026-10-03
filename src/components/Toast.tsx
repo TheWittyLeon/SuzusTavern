@@ -468,13 +468,22 @@ function ToastViewport({ toasts, onDismiss }: ToastViewportProps) {
   // the page's fallback (the scene head, `data-focus-fallback`): the removed-focus rule the page already has. Only when focus WAS in the host and is now nowhere.
   const hadFocus = useRef(false);
   const cameFrom = useRef<HTMLElement | null>(null);
+  // A POINTER dismiss leaves a REAL focus where it was (round 9, Miko F3: a mouse click on the x with focus in the composer left it on <body>; 2e73945 kept it in the composer):
+  // the element focused when the press began, if it was outside the host. Nothing focused: nothing is recorded and no focus moves.
+  const pointerReturn = useRef<HTMLElement | null>(null);
   useEffect(() => {
     // A POINTER press on a card (a mouse click on its x) moves no focus of its own and is not a keyboard user's: the rescue forgets it, as the page's other rescue rule does
     // (useRemovedFocus). The press's own focus (Chromium focuses the button) comes between pointerdown and its click: ignored until a task after the click.
     let pressing = false;
     let pressTimer: ReturnType<typeof setTimeout> | null = null;
     const endPress = () => { if (pressTimer) clearTimeout(pressTimer); pressTimer = setTimeout(() => { pressing = false; }, 0); };
-    const onPointerDown = () => { if (pressTimer) clearTimeout(pressTimer); pressing = true; hadFocus.current = false; };
+    const onPointerDown = (e: Event) => {
+      if (pressTimer) clearTimeout(pressTimer);
+      pressing = true;
+      hadFocus.current = false;
+      const a = document.activeElement;
+      pointerReturn.current = e.target instanceof Node && hostRef.current?.contains(e.target) && a instanceof HTMLElement && a !== document.body && !hostRef.current.contains(a) ? a : null;
+    };
     const onFocusIn = (e: FocusEvent) => {
       const inHost = e.target instanceof Node && !!hostRef.current?.contains(e.target);
       hadFocus.current = inHost && !pressing;
@@ -496,12 +505,19 @@ function ToastViewport({ toasts, onDismiss }: ToastViewportProps) {
     };
   }, []);
   useLayoutEffect(() => {
-    if (!hadFocus.current) return;
+    const keyboard = hadFocus.current;
+    const pointer = pointerReturn.current;
+    if (!keyboard && !pointer) return;
     const active = document.activeElement;
     if (active && active !== document.body) return;
     hadFocus.current = false;
-    const back = cameFrom.current;
-    const target = back && back.isConnected && !back.closest('[inert], [hidden]') ? back : document.querySelector<HTMLElement>('[data-focus-fallback]');
+    pointerReturn.current = null;
+    // NEVER a safety control (round 9, Miko F2): the host follows the X-card in Tab order, so a keyboard Dismiss returned focus to the X-card and a held Enter (key auto-repeat)
+    // then fired it (one /x-card POST). Where focus came from is used only if it is not inside the safety block; else the scene head.
+    const usable = (el: HTMLElement | null) => !!el && el.isConnected && !el.closest('[inert], [hidden], [data-toast-avoid="safety"]');
+    const back = keyboard ? cameFrom.current : pointer;
+    const fallback = document.querySelector<HTMLElement>('[data-focus-fallback]');
+    const target = usable(back) ? back : keyboard || back ? fallback : null;
     target?.focus({ preventScroll: true });
   }, [toasts]);
 

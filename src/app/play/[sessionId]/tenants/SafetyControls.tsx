@@ -56,6 +56,9 @@ export default function SafetyControls({ xCardBusy, onRaiseXCard }: SafetyContro
       <button
         type="button"
         onClick={() => void onRaiseXCard()}
+        // A held Enter (key auto-repeat) must never fire the safety control (round 9, Miko F2): a native button clicks on the Enter KEYDOWN, so every repeat was a click (the
+        // xCardBusy latch only closes the gap while a request is in flight). Space clicks on keyup and has no repeat click. Only the first press counts.
+        onKeyDown={(e) => { if (e.repeat && (e.key === 'Enter' || e.key === ' ')) e.preventDefault(); }}
         aria-disabled={xCardBusy || undefined}
         aria-busy={xCardBusy}
         aria-describedby="play-safety-hint"

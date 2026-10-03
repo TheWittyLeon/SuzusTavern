@@ -503,6 +503,84 @@ describe('Toast host: a keyboard Dismiss does not leave focus on <body>', () => 
     expect(document.body).toHaveFocus();
   });
 
+  // Round 9 (Miko F2): the host follows the X-card in Tab order; a keyboard Dismiss returned focus to the X-card and a held Enter then fired it.
+  it('a keyboard Dismiss NEVER returns focus to a safety control: Tab from the X-card into Dismiss, Enter: focus goes to the scene head', () => {
+    render(
+      <ToastProvider>
+        <div data-focus-fallback="" tabIndex={-1}>head</div>
+        <div data-toast-avoid="safety"><button>X-card</button></div>
+        <Fire />
+      </ToastProvider>,
+    );
+    fireEvent.click(screen.getByText('fire'));
+    const xcard = screen.getByText('X-card');
+    act(() => xcard.focus());
+    const dismiss = screen.getByRole('button', { name: 'Dismiss notification' });
+    act(() => dismiss.focus()); // Tab from the X-card
+    fireEvent.click(dismiss);
+    act(() => { jest.advanceTimersByTime(300); });
+    expect(screen.getByText('head')).toHaveFocus();
+    expect(xcard).not.toHaveFocus();
+  });
+
+  it('...and anything INSIDE the safety block counts, not only the button', () => {
+    render(
+      <ToastProvider>
+        <div data-focus-fallback="" tabIndex={-1}>head</div>
+        <div data-toast-avoid="safety"><a href="#hint">Safety hint link</a></div>
+        <Fire />
+      </ToastProvider>,
+    );
+    fireEvent.click(screen.getByText('fire'));
+    const link = screen.getByText('Safety hint link');
+    act(() => link.focus());
+    const dismiss = screen.getByRole('button', { name: 'Dismiss notification' });
+    act(() => dismiss.focus());
+    fireEvent.click(dismiss);
+    act(() => { jest.advanceTimersByTime(300); });
+    expect(screen.getByText('head')).toHaveFocus();
+  });
+
+  // Round 9 (Miko F3): a pointer dismiss leaves a REAL focus where it was (the composer stays focused); with nothing focused it moves no focus.
+  it('a MOUSE click on the x while focus is in the composer leaves the composer focused', () => {
+    render(
+      <ToastProvider>
+        <div data-focus-fallback="" tabIndex={-1}>head</div>
+        <button>composer</button>
+        <Fire />
+      </ToastProvider>,
+    );
+    fireEvent.click(screen.getByText('fire'));
+    const composer = screen.getByText('composer');
+    act(() => composer.focus());
+    const dismiss = screen.getByRole('button', { name: 'Dismiss notification' });
+    fireEvent.pointerDown(dismiss);
+    act(() => dismiss.focus()); // Chromium focuses the pressed button
+    fireEvent.click(dismiss);
+    act(() => { jest.advanceTimersByTime(300); });
+    expect(composer).toHaveFocus();
+  });
+
+  it('...but a pointer dismiss never hands focus BACK to a safety control either (the scene head instead)', () => {
+    render(
+      <ToastProvider>
+        <div data-focus-fallback="" tabIndex={-1}>head</div>
+        <div data-toast-avoid="safety"><button>X-card</button></div>
+        <Fire />
+      </ToastProvider>,
+    );
+    fireEvent.click(screen.getByText('fire'));
+    const xcard = screen.getByText('X-card');
+    act(() => xcard.focus());
+    const dismiss = screen.getByRole('button', { name: 'Dismiss notification' });
+    fireEvent.pointerDown(dismiss);
+    act(() => dismiss.focus());
+    fireEvent.click(dismiss);
+    act(() => { jest.advanceTimersByTime(300); });
+    expect(xcard).not.toHaveFocus();
+    expect(screen.getByText('head')).toHaveFocus();
+  });
+
   it('focus the user had elsewhere is never taken: a card going away while focus is on the page leaves it', () => {
     render(
       <ToastProvider>
