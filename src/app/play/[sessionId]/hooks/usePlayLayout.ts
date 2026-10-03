@@ -23,8 +23,12 @@ import { useTheme } from '@/lib/theme/ThemeProvider';
 import { useMediaQuery } from '@/lib/useMediaQuery';
 import { PLAY_PHONE_QUERY } from '@/lib/breakpoints';
 import { resolveLayout } from '@/lib/theme/theme';
+import { isSpaceUsable } from '@/components/tactical-map/reach';
+import type { CombatSpace } from '@/lib/api/types';
 import {
   LAYOUT_ROWS_BY_ID,
+  type Facts,
+  type FactValue,
   type LayoutId,
   type LayoutRow,
   type Moment,
@@ -35,11 +39,27 @@ export interface PlayLayout {
   /** = `row.id` — the resolved preset, for `data-layout-resolved`. */
   layoutId: LayoutId;
   isPhone: boolean;
+  /** What the page reports to the shell (A10 step 11 S2a, Amendment F.4); the row answers it with `--play-*` values (`factVars`). */
+  facts: Facts;
 }
 
-export function usePlayLayout(moment: Moment): PlayLayout {
+/**
+ * The `room` fact (A10 step 11 S2a, Sora brief 3.1; `unserved` added in round 4, Aoi's "Short Desktop Fights"): what the encounter gives the stage. Not in a fight: `none`. In a fight
+ * whose state body carries NO `space` key, or whose state has not arrived: `unserved` (positioning is off: no board will come, and the stage takes no height and shows nothing).
+ * With the key: a usable `space` -> `board`; `space: null` (the encounter authored no board: theatre of mind) or a malformed one -> `band`. `isSpaceUsable` is the tactical map's ONE seam for "can this
+ * board be drawn" and the map's own fallback reads the same predicate, so the room and the map can never disagree about whether there is a board (a second copy of that test, or a bare
+ * `space != null`, would let a malformed board get a board's room and the map draw its fallback in it). KEY PRESENCE is the engine's own contract (B8c-3 Amendment G.1: a fight is served when
+ * its state body carries the key), read on the object the page holds, which no hop rewrites.
+ */
+export function roomFact(moment: Moment, state: { space?: CombatSpace | null } | null | undefined): FactValue<'room'> {
+  if (moment !== 'combat') return 'none';
+  if (state == null || !('space' in state)) return 'unserved';
+  return isSpaceUsable(state.space) ? 'board' : 'band';
+}
+
+export function usePlayLayout(moment: Moment, state?: { space?: CombatSpace | null } | null): PlayLayout {
   const pref = useTheme().layout;
   const isPhone = useMediaQuery(PLAY_PHONE_QUERY);
   const layoutId = resolveLayout(pref, isPhone, moment);
-  return { row: LAYOUT_ROWS_BY_ID[layoutId], layoutId, isPhone };
+  return { row: LAYOUT_ROWS_BY_ID[layoutId], layoutId, isPhone, facts: { room: roomFact(moment, state) } };
 }

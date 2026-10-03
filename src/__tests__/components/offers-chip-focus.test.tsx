@@ -48,7 +48,8 @@ describe('Offers: a focused chip is brought wholly into view in the scrolling `r
     expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
   });
 
-  it.each(['list', 'chips'] as const)('%s wraps or stacks (nothing scrolls): focus moves nothing', (variant) => {
+  // A10 fix round F3 (named exception: this ran over `list` and `chips`; `list` is deleted)
+  it.each(['chips'] as const)('%s wraps (nothing scrolls): focus moves nothing', (variant) => {
     render(<Offers {...props()} variant={variant} />);
     for (const name of CHIPS) fireEvent.focus(screen.getByRole('button', { name }));
     expect(scrollIntoView).not.toHaveBeenCalled();

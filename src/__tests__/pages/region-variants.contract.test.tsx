@@ -133,8 +133,8 @@ const FIXTURES: { [R in VariantRegionId]?: (variant: (typeof REGION_VARIANTS)[R]
  * alias is named, dated, and held to be IDENTICAL to its target (so it cannot drift into a third form unnoticed).
  */
 const MEMBERS_RENDERED_AS: { [R in VariantRegionId]?: Record<string, string> } = {
-  // debt: sceneStage `hero` renders exactly as `panel`: Table's stage is the hero in the registry and nothing reads the difference yet. ceiling: one member (hero) of one region (sceneStage); every other member of every region differs. until: step 11 (Aoi's stage forms) gives `hero` and `panel` their own readers; then this entry is deleted and the pairwise check covers all three.
-  sceneStage: { hero: 'panel' },
+  // (A10 step 11 S2b, named exception: the `sceneStage` `hero: 'panel'` alias is deleted, as its marker said it would be: `hero` is the scene line
+  // and a body, `panel` the stacked head, and the pairwise check below covers all three members of the stage. No member renders as another now.)
 };
 
 /**

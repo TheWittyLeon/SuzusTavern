@@ -134,7 +134,17 @@ export default function NarratorStrip({
             {combatActive ? 'Combat is underway.' : 'Suzu is setting the scene…'}
           </span>
         ) : (
-          <span className={styles.text}>{line}</span>
+          // The fight's banner is ONE line (A10 step 11 round 4, Aoi): a long turn order
+          // wrapped to two lines on a monster's turn and pushed the verbs and the X-card
+          // down 12px at 1280x650. The CSS ellipsises it; the DOM text stays whole (read
+          // aloud in full) and `title` carries it for the sighted. The initiative tracker
+          // holds the same order.
+          <span
+            className={combatActive ? `${styles.text} ${styles.combatLine}` : styles.text}
+            title={combatActive ? line : undefined}
+          >
+            {line}
+          </span>
         )}
         {narrating && !empty ? (
           <span className={styles.narrating} aria-hidden="true">

@@ -232,10 +232,12 @@ const foldChecked = { collapsible: 0, inert: 0 };
  * partyStrip and suzuPresence included, is a top-level slot).
  */
 const ORDER_LITERALS: Record<string, string> = {
-  'story exploring': 'safetyBanner, topBar, partyStrip, suzuPresence, storyLog, sceneStage, offers, composer, actionBar',
-  'story combat': 'safetyBanner, topBar, partyStrip, suzuPresence, sceneStage, storyLog, offers°, composer, actionBar',
-  'table exploring': 'safetyBanner, partyStrip, topBar▲, sceneStage, characterBlock, suzuPresence, storyLog, offers, composer, actionBar',
-  'table combat': 'safetyBanner, partyStrip, topBar▲, sceneStage, characterBlock, suzuPresence, storyLog, offers°, composer, actionBar',
+  // A10 step 11 round 3 (named exception): the offers are last in both exploring rows (story, text box, X-card, offers)
+  'story exploring': 'safetyBanner, topBar, partyStrip, suzuPresence, storyLog, sceneStage, composer, actionBar, offers',
+  // A10 step 11 round 4 (named exception): the action bar precedes the composer in a fight
+  'story combat': 'safetyBanner, topBar, partyStrip, suzuPresence, sceneStage, storyLog, offers°, actionBar, composer',
+  'table exploring': 'safetyBanner, partyStrip, topBar▲, sceneStage, characterBlock, suzuPresence, storyLog, composer, actionBar, offers',
+  'table combat': 'safetyBanner, partyStrip, topBar▲, sceneStage, characterBlock, suzuPresence, storyLog, offers°, actionBar, composer',
   'phone exploring': 'safetyBanner, topBar, suzuPresence, partyStrip, sceneStage, storyLog, offers, composer, actionBar',
   'phone combat': 'safetyBanner, topBar, suzuPresence, partyStrip, sceneStage, storyLog, offers°, composer, actionBar',
 };

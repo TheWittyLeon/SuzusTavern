@@ -32,6 +32,7 @@
 import {
   ANCHORS,
   ANNOUNCING_REGIONS,
+  FACTS,
   LAYOUT_ROWS,
   LAYOUT_ROWS_BY_ID,
   REGION_VARIANTS,
@@ -41,6 +42,8 @@ import {
   FOLDABLE_ANNOUNCERS,
   FOLDABLE_REGIONS,
   getPlacement,
+  isRegionVariant,
+  type LayoutId,
   type LayoutRow,
   type Moment,
   type Placement,
@@ -461,6 +464,36 @@ describe('TAV-PLAY-SHELL presets.ts — every REGION_VARIANTS member is emitted 
   }
 });
 
+describe('TAV-PLAY-SHELL presets.ts — Table\'s offers are chips and nothing caps them (A10 fix round F3)', () => {
+  it('the offers vocabulary is chips and rows, each emitted by some row x moment (the `list` form is deleted, not kept dead)', () => {
+    expect([...REGION_VARIANTS.offers]).toEqual(['chips', 'rows']);
+    const emitted = new Set(LAYOUT_ROWS.flatMap((row) => MOMENTS.map((m) => getPlacement(row, 'offers', m).variant).filter(Boolean)));
+    expect([...emitted].sort()).toEqual(['chips', 'rows']);
+  });
+
+  it('Table says chips while exploring (and hides offers in a fight), and its offers track is content-sized, never a cap', () => {
+    expect(getPlacement(LAYOUT_ROWS_BY_ID.table, 'offers', 'exploring').variant).toBe('chips');
+    expect(getPlacement(LAYOUT_ROWS_BY_ID.table, 'offers', 'combat')).toMatchObject({ area: null, visible: false });
+    // A10 fix round 2 (named exception: this literal had `auto` bands and a `minmax(0,1fr)` log; the log is a floor now, so the bands beside it are whole: a scroller's automatic minimum is 0)
+    expect(trackList(LAYOUT_ROWS_BY_ID.table.rows.exploring)).toEqual([
+      'max-content', // safety banner
+      'max-content', // the stage's scene line (with the title bar's reserve)
+      'minmax(var(--play-body-floor,0px),var(--play-body,0px))', // the stage's body (0 and 0 while exploring)
+      'minmax(var(--play-floor,calc(240px + 3 * var(--density-gap) + 46px)),1fr)', // the log: 240 inner + the slot's chrome (padding above and below, the gap to the recap, the 46px recap)
+      'max-content', // the offers: whole, as Story's (it was `fit-content(120px)`, and hid two scene transitions)
+      'max-content', // composer
+      'max-content', // action bar
+    ]);
+    for (const row of LAYOUT_ROWS) for (const m of MOMENTS) expect(row.rows[m]).not.toMatch(/fit-content\(\s*120px\s*\)/);
+  });
+
+  it('the guard bites (control): Table back to `list` is not in the vocabulary, and a cap on the offers track is named', () => {
+    const table = LAYOUT_ROWS_BY_ID.table;
+    expect(isRegionVariant('offers', 'list')).toBe(false);
+    expect(trackList(table.rows.exploring.replace(/\)\),1fr\) max-content max-content max-content$/, ')),1fr) fit-content(120px) max-content max-content'))[4]).toBe('fit-content(120px)');
+  });
+});
+
 describe('A9c C7 — a fold hides the region\'s own announcers (R3): every foldable announcer is listed with a reason (build brief 5.5)', () => {
   const collapsibleIn = (rows: readonly LayoutRow[], id: RegionId) =>
     rows.some((row) => MOMENTS.some((m) => getPlacement(row, id, m).collapsible === true));
@@ -535,7 +568,10 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
       offers: 'null visible:false',
       characterBlock: 'null variant:compact layer:true',
       actionBar: 'actionBar variant:chips',
-      composer: 'composer variant:full',
+      // A10 step 11 S1 (named exception: the stage is a `hero` in Story's fight and a hero hosts no tenant, so the dice leave it): `roll`. What pins the
+      // invariant now: this literal, the guard below (every hero or inline stage cell emits a roll composer), play.dice-home.desktop.test.tsx on the real
+      // page, and the harness's o:restControls (desktop) and dice-focus legs.
+      composer: 'composer variant:roll',
       tableControls: 'null layer:true',
       safetyBanner: 'safetyBanner',
     });
@@ -548,10 +584,15 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
       sceneStage: 'sceneStage variant:hero',
       suzuPresence: 'suzuPresence variant:full',
       storyLog: 'storyLog',
-      offers: 'offers variant:list',
+      // A10 fix round F3 (named exception: this was `variant:list`, Table's one full-width button per offer in a 120px scrolling track, which hid two scene transitions
+      // with no cue): Table's offers are chips, as Story's. What pins it now: this literal, the offers describe below (the vocabulary is chips and rows, each emitted), the
+      // track literal of Table's exploring row (content-sized) and the harness's m:offersRest.
+      offers: 'offers variant:chips',
       characterBlock: 'characterBlock variant:full collapsible:true',
       actionBar: 'actionBar variant:bar',
-      composer: 'composer variant:full',
+      // A10 step 11 S1 (named exception): Table's stage is a `hero` in both moments, so Roll is the dice's home in both. Pinned now by this literal,
+      // the hero-stage guard below, play.dice-home.desktop.test.tsx and the harness.
+      composer: 'composer variant:roll',
       tableControls: 'null layer:true',
       safetyBanner: 'safetyBanner',
     });
@@ -567,7 +608,9 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
       offers: 'null visible:false',
       characterBlock: 'characterBlock variant:full collapsible:true',
       actionBar: 'actionBar variant:bar',
-      composer: 'composer variant:full',
+      // A10 step 11 S1 (named exception): Table's stage is a `hero` in both moments, so Roll is the dice's home in both. Pinned now by this literal,
+      // the hero-stage guard below, play.dice-home.desktop.test.tsx and the harness.
+      composer: 'composer variant:roll',
       tableControls: 'null layer:true',
       safetyBanner: 'safetyBanner',
     });
@@ -630,44 +673,53 @@ function normalizeAreas(areasValue: string): string {
 describe('TAV-PLAY-SHELL presets.ts — row geometry is pinned as a literal (🟡-3)', () => {
   it('story/exploring', () => {
     expect(normalizeAreas(LAYOUT_ROWS_BY_ID.story.areas.exploring)).toBe(
+      // A10 step 11 round 3 (named exception): Aoi's order, the text box, the X-card, then the offers last; the stage panel keeps its height down the right.
       normalizeAreas(`"safetyBanner safetyBanner safetyBanner"
                 "topBar       topBar       partyStrip"
                 "suzuPresence storyLog     sceneStage"
-                "suzuPresence offers       sceneStage"
                 "suzuPresence composer     sceneStage"
-                "suzuPresence actionBar    sceneStage"`),
+                "suzuPresence actionBar    sceneStage"
+                "suzuPresence offers       sceneStage"`),
     );
   });
 
   it('story/combat', () => {
     expect(normalizeAreas(LAYOUT_ROWS_BY_ID.story.areas.combat)).toBe(
+      // A10 step 11 S2b (named exception: the hero stage names its area on TWO lines, the scene line and the body): the stage's second line is new.
+      // What pins it now: this literal, the row-track pins and the hero-stage guards below, and the harness's m:stageBody and t:stage-body-holds.
       normalizeAreas(`"safetyBanner safetyBanner safetyBanner"
              "topBar       topBar       partyStrip"
              "suzuPresence sceneStage   partyStrip"
+             "suzuPresence sceneStage   partyStrip"
              "suzuPresence storyLog     partyStrip"
-             "suzuPresence composer     partyStrip"
-             "suzuPresence actionBar    partyStrip"`),
+             "suzuPresence actionBar    partyStrip"
+             "suzuPresence composer     partyStrip"`),
     );
   });
 
   it('table/exploring', () => {
     expect(normalizeAreas(LAYOUT_ROWS_BY_ID.table.areas.exploring)).toBe(
+      // A10 step 11 S2b (named exception): the stage's second line, as Story's combat above. Round 3 (named exception, #54 = `sheet`, Aoi's V2): the sheet stops at the story log and the
+      // text box, the X-card and the offers take the full width under it, in that order.
       normalizeAreas(`"safetyBanner safetyBanner safetyBanner safetyBanner"
                 "partyStrip   sceneStage   sceneStage   characterBlock"
+                "partyStrip   sceneStage   sceneStage   characterBlock"
                 "partyStrip   suzuPresence storyLog     characterBlock"
-                "partyStrip   suzuPresence offers       characterBlock"
-                "partyStrip   suzuPresence composer     characterBlock"
-                "partyStrip   actionBar    actionBar    actionBar"`),
+                "partyStrip   composer     composer     composer"
+                "partyStrip   actionBar    actionBar    actionBar"
+                "partyStrip   offers       offers       offers"`),
     );
   });
 
   it('table/combat', () => {
     expect(normalizeAreas(LAYOUT_ROWS_BY_ID.table.areas.combat)).toBe(
+      // A10 step 11 S2b (named exception): the stage's second line, as Story's combat above.
       normalizeAreas(`"safetyBanner safetyBanner safetyBanner safetyBanner"
              "partyStrip   sceneStage   sceneStage   characterBlock"
+             "partyStrip   sceneStage   sceneStage   characterBlock"
              "partyStrip   suzuPresence storyLog     characterBlock"
-             "partyStrip   suzuPresence composer     characterBlock"
-             "partyStrip   actionBar    actionBar    actionBar"`),
+             "partyStrip   actionBar    actionBar    actionBar"
+             "partyStrip   composer     composer     composer"`),
     );
   });
 
@@ -697,15 +749,266 @@ describe('TAV-PLAY-SHELL presets.ts — row geometry is pinned as a literal (�
   });
 });
 
-// A9d-2 N7 (Amendment E.4): the composer's variants. `full` is every desktop row; `roll` is the phone, whose stage hosts no dice tenant.
-describe('TAV-PLAY-SHELL presets.ts — the composer variant is the dice\'s home (A9d-2 N7)', () => {
-  it.each(MOMENTS)('%s: story and table say full, the phone says roll', (moment) => {
-    expect(getPlacement(LAYOUT_ROWS_BY_ID.story, 'composer', moment).variant).toBe('full');
-    expect(getPlacement(LAYOUT_ROWS_BY_ID.table, 'composer', moment).variant).toBe('full');
-    expect(getPlacement(LAYOUT_ROWS_BY_ID.phone, 'composer', moment).variant).toBe('roll');
+// A9d-2 N7 (Amendment E.4): the composer's variants. `full` is the stage's tray (the `panel` stage: Story while exploring); `roll` is every cell whose
+// stage hosts no tenant: the phone (an `inline` strip), and since A10 step 11 S1 Story's combat and Table in both moments (`hero`).
+describe('TAV-PLAY-SHELL presets.ts — the composer variant is the dice\'s home (A9d-2 N7, A10 S1)', () => {
+  const HOME: Record<LayoutId, Record<Moment, string>> = {
+    story: { exploring: 'full', combat: 'roll' },
+    table: { exploring: 'roll', combat: 'roll' },
+    phone: { exploring: 'roll', combat: 'roll' },
+  };
+  it.each(MOMENTS)('%s: story keeps the tray while exploring and says roll in a fight; table and the phone say roll', (moment) => {
+    for (const id of ['story', 'table', 'phone'] as const) {
+      expect([id, moment, getPlacement(LAYOUT_ROWS_BY_ID[id], 'composer', moment).variant]).toEqual([id, moment, HOME[id][moment]]);
+    }
+  });
+
+  /** The guard (Sora brief 3.1: "a `hero` or `inline` stage hosts no tenant: such a row x moment emits `composer: 'roll'`"): the cells whose stage is not a `panel`. */
+  const heroCellsWithATray = (rows: readonly LayoutRow[]) =>
+    rows.flatMap((row) =>
+      MOMENTS.filter((m) => {
+        const stage = getPlacement(row, 'sceneStage', m).variant;
+        return (stage === 'hero' || stage === 'inline') && getPlacement(row, 'composer', m).variant !== 'roll';
+      }).map((m) => `${row.id}/${m}`),
+    );
+  it('no row x moment whose stage is a hero or an inline strip emits a composer that leaves the tray in the stage', () => {
+    expect(heroCellsWithATray(LAYOUT_ROWS)).toEqual([]);
+  });
+  it('the guard bites: Story combat and Table with `full` in place of `roll` are each named (the control)', () => {
+    const patched = (row: LayoutRow, region: 'composer', placement: Placement): LayoutRow => ({ ...row, regions: { ...row.regions, [region]: { default: placement } } });
+    const full = { area: 'composer', variant: 'full' } as Placement;
+    expect(heroCellsWithATray([patched(LAYOUT_ROWS_BY_ID.table, 'composer', full)])).toEqual(['table/exploring', 'table/combat']);
+    const storyFull = patched(LAYOUT_ROWS_BY_ID.story, 'composer', full);
+    expect(heroCellsWithATray([storyFull])).toEqual(['story/combat']);
   });
   it('the phone row declares no dice-column var any more (the dice open from Roll)', () => {
     expect(Object.keys(LAYOUT_ROWS_BY_ID.phone.vars ?? {})).not.toContain('--play-dice-columns');
+  });
+});
+
+// A10 step 11 S2b (Sora's brief 3.1 / 3.2, Amendment F.1-F.3): a stage that can hold a map has a BODY: its area named on two consecutive lines (the scene
+// line, then the body), a `hero` form, and the room as rows x cell: `--play-cell` on the row and, for every value of the `room` fact, a `--play-body`.
+describe('TAV-PLAY-SHELL presets.ts — the stage\'s body (A10 S2b): a hero names its area on two lines and the row gives every room a size', () => {
+  /** The line (0-based) of the track that reads `--play-body` in this cell, or -1. The stage's body is that line; its scene line is the one above. The EXACT token: a track
+   *  that reads only `--play-body-floor` is not the body's size (`includes('var(--play-body')` matched both: Kage Tavern 9). */
+  const bodyLine = (row: LayoutRow, m: Moment) => trackList(row.rows[m]).findIndex((t) => /var\(--play-body[,)]/.test(t));
+  /** Whether `areas` names the stage on a line (0-based). */
+  const stageOn = (row: LayoutRow, m: Moment, line: number) =>
+    (([...row.areas[m].matchAll(/"([^"]*)"/g)][line]?.[1] ?? '').trim().split(/\s+/)).includes('sceneStage');
+  /** The brief's guards, over any rows: a cell whose row has a body track names the stage on the body's line AND the line above and emits `hero`, and the
+   *  row sizes every room; a `hero` has a body track. (Story's exploring panel names the stage on four lines of a side column and has no body track.) */
+  const stageBodyProblems = (rows: readonly LayoutRow[]) =>
+    rows.flatMap((row) =>
+      MOMENTS.flatMap((m) => {
+        const variant = getPlacement(row, 'sceneStage', m).variant;
+        const line = bodyLine(row, m);
+        const at = `${row.id}/${m}`;
+        const out: string[] = [];
+        if (line >= 0 && variant !== 'hero') out.push(`${at}: has a body track but the stage emits ${variant}, not hero`);
+        if (variant === 'hero' && line < 0) out.push(`${at}: a hero stage with no body track`);
+        if (line >= 0) {
+          if (line < 1 || !stageOn(row, m, line) || !stageOn(row, m, line - 1)) out.push(`${at}: the body track is not under the stage's scene line (the stage must name both lines)`);
+          else if (trackList(row.rows[m])[line - 1] !== 'max-content') out.push(`${at}: the scene line's track is not max-content`);
+          if (!row.vars || !('--play-cell' in row.vars)) out.push(`${at}: a body track and no --play-cell on the row`);
+          for (const value of FACTS.room) {
+            const set = (row.factVars?.room as Record<string, Record<string, string> | undefined> | undefined)?.[value];
+            if (!set || !('--play-body' in set)) out.push(`${at}: room "${value}" has no --play-body`);
+          }
+        }
+        return out;
+      }),
+    );
+
+  it('every row x moment with a body track names the stage on both its lines, emits hero, and sizes every room', () => {
+    expect(stageBodyProblems(LAYOUT_ROWS)).toEqual([]);
+  });
+
+  it('the rooms are the brief\'s: Story 7 rows, Table 8, a short band of 3 in both, none while exploring, all of the 34px cell', () => {
+    const body = (id: 'story' | 'table', room: 'board' | 'band' | 'none') => (LAYOUT_ROWS_BY_ID[id].factVars!.room as Record<string, Record<string, string>>)[room]['--play-body'];
+    expect([body('story', 'board'), body('story', 'band'), body('story', 'none')]).toEqual(['calc(7 * var(--play-cell))', 'calc(3 * var(--play-cell))', '0px']);
+    expect([body('table', 'board'), body('table', 'band'), body('table', 'none')]).toEqual(['calc(8 * var(--play-cell))', 'calc(3 * var(--play-cell))', '0px']);
+    expect(LAYOUT_ROWS_BY_ID.story.vars).toEqual({ '--play-cell': '34px' });
+    expect(LAYOUT_ROWS_BY_ID.table.vars).toEqual({ '--play-cell': '34px' });
+  });
+
+  it('the stage is two tracks, the scene line whole and the body from the row (no hand-summed cap): Story combat, Table both moments', () => {
+    // A10 fix round F1 (named exception: these two combat literals were `minmax(0,var(--play-body,0px))`; the body is OPTIONAL now, between its floor and its size.
+    // What pins the class: the track-class guard and the full-literal pins below). Table exploring keeps its plain body track: nothing there yields.
+    const optional = 'minmax(var(--play-body-floor,0px),var(--play-body,0px))';
+    expect(trackList(LAYOUT_ROWS_BY_ID.story.rows.combat).slice(2, 4)).toEqual(['max-content', optional]);
+    // (A10 fix round 2, named exception: Table exploring's body was `minmax(0,var(--play-body,0px))`; it is the optional class like the combat rows', `none` being 0 and 0)
+    expect(trackList(LAYOUT_ROWS_BY_ID.table.rows.exploring).slice(1, 3)).toEqual(['max-content', optional]);
+    expect(trackList(LAYOUT_ROWS_BY_ID.table.rows.combat).slice(1, 3)).toEqual(['max-content', optional]);
+    for (const row of [LAYOUT_ROWS_BY_ID.story, LAYOUT_ROWS_BY_ID.table]) for (const m of MOMENTS) expect(row.rows[m]).not.toMatch(/fit-content\((290|400)px\)|\b218px\b/);
+  });
+
+  it('the guard bites (controls): Story combat emitting panel, a body track under one stage line, a row missing a room value, a hero whose track nothing sizes, no cell', () => {
+    const story = LAYOUT_ROWS_BY_ID.story;
+    const patched = (row: LayoutRow, over: Partial<LayoutRow>): LayoutRow => ({ ...row, ...over });
+    const asPanel = patched(story, { regions: { ...story.regions, sceneStage: { default: { area: 'sceneStage', variant: 'panel' } } } });
+    expect(stageBodyProblems([asPanel]).join('|')).toMatch(/story\/combat: has a body track but the stage emits panel, not hero/);
+    const oneLine = patched(story, { areas: { ...story.areas, combat: story.areas.combat.replace('"suzuPresence sceneStage   partyStrip"\n             "suzuPresence sceneStage   partyStrip"', '"suzuPresence sceneStage   partyStrip"') } });
+    expect(stageBodyProblems([oneLine]).join('|')).toMatch(/story\/combat: the body track is not under the stage's scene line/);
+    const noBand = patched(story, { factVars: { room: { board: { '--play-body': '1px' }, none: { '--play-body': '0px' } } } as unknown as LayoutRow['factVars'] });
+    expect(stageBodyProblems([noBand]).join('|')).toMatch(/story\/combat: room "band" has no --play-body/);
+    // (named exception, F1: the literal this patched is the optional body track now)
+    const unread = patched(story, { rows: { ...story.rows, combat: story.rows.combat.replace('minmax(var(--play-body-floor,0px),var(--play-body,0px))', 'minmax(0,238px)') } });
+    expect(stageBodyProblems([unread]).join('|')).toMatch(/story\/combat: a hero stage with no body track/);
+    expect(stageBodyProblems([patched(story, { vars: undefined })]).join('|')).toMatch(/no --play-cell/);
+    // A10 fix round (Kage Tavern 9): a body track that reads only the FLOOR is not a body track (the guard used to match the prefix `var(--play-body` of `--play-body-floor` too)
+    const floorOnly = patched(story, { rows: { ...story.rows, combat: story.rows.combat.replace('minmax(var(--play-body-floor,0px),var(--play-body,0px))', 'minmax(var(--play-body-floor,0px),238px)') } });
+    expect(bodyLine(floorOnly, 'combat')).toBe(-1);
+    expect(stageBodyProblems([floorOnly]).join('|')).toMatch(/story\/combat: a hero stage with no body track/);
+  });
+});
+
+// A10 step 11 fix round F1 (Sora's brief 3.2, Amendment F.8): the desktop combat rows have the phone's three track classes. A10 fix round 2 (Kage's suggestion 6): the guard is
+// "every track is one of the three classes" over EVERY row x moment that declares a floored log (the phone's rows, Story combat, Table both moments), not an exact match of two rows'
+// spellings: the phone mount's body track and party band are optional tracks spelled their own way (`minmax(Npx,var(--play-optional,auto))`) and must pass. A row x moment with a
+// floored log has: every track WHOLE (`max-content`), FLOOR (`minmax(var(--play-floor,..),1fr)`, exactly one: the log) or OPTIONAL (a body between its floor and its room's size, or a band
+// between its minimum and `--play-optional`); a banner floor for the shell's yield to read; and, for a track that reads the body floor, a body floor beside its size for EVERY room (a band
+// does not yield: its floor is its size; none is 0).
+describe('TAV-PLAY-SHELL presets.ts — the track classes: every track of a floored row is whole, floor or optional (A10 fix round F1, generalised in fix round 2)', () => {
+  const WHOLE = /^max-content$/;
+  const FLOOR = /^minmax\(var\(--play-floor,(\d+px|calc\(\d+px \+ 3 \* var\(--density-gap\) \+ \d+px\))\),1fr\)$/;
+  // OPTIONAL is defined by what a track READS (Kage suggestion 6, made at the replay): its growth limit is `--play-body` or `--play-optional`, whatever its floor is spelled (a px number, the body's
+  // floor variable, the phone's `var(--play-party-min,91px)`). `--play-body-floor` as the LIMIT is not it (that was the control: a body track that reads only the floor).
+  // The limit is found by PARSING the minmax (A10 step 11 round 5, Kage suggestion 4): the phone mount's planned `minmax(Npx,var(--play-optional,var(--play-body,0px)))` ends in three closing
+  // parens, which a `[^)]*` fallback cannot read. Split at the top-level comma (brackets counted), take the second part, and ask whether it is a `var()` of the body or optional variable.
+  const limitOf = (t: string): string | null => {
+    const m = /^minmax\((.*)\)$/.exec(t);
+    if (!m) return null;
+    let depth = 0;
+    for (let i = 0; i < m[1].length; i++) {
+      const c = m[1][i];
+      if (c === '(') depth++;
+      else if (c === ')') depth--;
+      else if (c === ',' && depth === 0) return m[1].slice(i + 1);
+    }
+    return null;
+  };
+  const isOptional = (t: string) => /^var\(--play-(body|optional),/.test(limitOf(t) ?? '') && /\)$/.test(limitOf(t) ?? '');
+  const readsBodyFloor = (t: string) => /var\(--play-body-floor[,)]/.test(t);
+  const classProblems = (rows: readonly LayoutRow[]) =>
+    rows.flatMap((row) =>
+      MOMENTS.flatMap((m) => {
+        const tracks = trackList(row.rows[m]);
+        const at = `${row.id}/${m}`;
+        if (!tracks.some((t) => FLOOR.test(t))) {
+          // a row x moment with no floored log is not class-based (Story exploring, today): unless it has an optional track, which only means anything beside a floor (the grid hands spare room to it before the log grows)
+          return tracks.some(isOptional) ? [`${at}: a body or band that yields and a log with no floor (minmax(var(--play-floor,Npx),1fr))`] : [];
+        }
+        const out: string[] = [];
+        if (tracks.filter((t) => FLOOR.test(t)).length !== 1) out.push(`${at}: more than one floor track (the log is the one floor)`);
+        tracks.forEach((t, i) => {
+          if (!WHOLE.test(t) && !FLOOR.test(t) && !isOptional(t)) out.push(`${at}: track ${i} "${t}" is not one of the three classes (whole max-content, floor minmax(var(--play-floor,..),1fr), optional): a scroller's automatic minimum is 0, so the grid would squeeze it`);
+        });
+        if (!row.momentVars?.[m]?.['--play-banner-floor']) out.push(`${at}: no --play-banner-floor for the log's yield`);
+        if (tracks.some(readsBodyFloor)) {
+          for (const value of FACTS.room) {
+            const set = (row.factVars?.room as Record<string, Record<string, string> | undefined> | undefined)?.[value];
+            if (!set || !('--play-body-floor' in set)) out.push(`${at}: room "${value}" has no --play-body-floor`);
+            else if (value === 'band' && set['--play-body-floor'] !== set['--play-body']) out.push(`${at}: the band's floor "${set['--play-body-floor']}" is not its size "${set['--play-body']}" (a band does not yield)`);
+            else if ((value === 'none' || value === 'unserved') && set['--play-body-floor'] !== '0px') out.push(`${at}: room "${value}" has a floor of ${set['--play-body-floor']}`);
+          }
+        }
+        return out;
+      }),
+    );
+
+  it('the OPTIONAL class parses a nested var() fallback (the phone mount\'s planned spelling) and still refuses a track that reads only the body FLOOR', () => {
+    expect(isOptional('minmax(91px,var(--play-optional,auto))')).toBe(true);
+    expect(isOptional('minmax(var(--play-body-floor,0px),var(--play-body,0px))')).toBe(true);
+    expect(isOptional('minmax(100px,var(--play-optional,var(--play-body,0px)))')).toBe(true);
+    expect(isOptional('minmax(var(--play-party-min,91px),var(--play-optional,var(--play-body,calc(10px + var(--x,1px)))))')).toBe(true);
+    expect(isOptional('minmax(0,var(--play-body-floor,0px))')).toBe(false);
+    expect(isOptional('minmax(0,1fr)')).toBe(false);
+    expect(isOptional('max-content')).toBe(false);
+  });
+
+  it('every row x moment with a floored log has only whole, floor and optional tracks, a banner floor, and a floor for every room where it has a body', () => {
+    expect(classProblems(LAYOUT_ROWS)).toEqual([]);
+  });
+
+  it('every row x moment is class-based now: the cells judged are all six (both phone moments, both moments of Story and of Table), and none is exempt (round 3 removed Story exploring\'s exemption; a new row with no floor is a red here)', () => {
+    const all = LAYOUT_ROWS.flatMap((row) => MOMENTS.map((m) => `${row.id}/${m}`));
+    const judged = LAYOUT_ROWS.flatMap((row) => MOMENTS.filter((m) => trackList(row.rows[m]).some((t) => FLOOR.test(t))).map((m) => `${row.id}/${m}`));
+    expect(judged).toEqual(all);
+    expect(judged.sort()).toEqual(['phone/combat', 'phone/exploring', 'story/combat', 'story/exploring', 'table/combat', 'table/exploring']);
+  });
+
+  it('the literals: Story combat and Table combat, track by track, with the floor written from its tokens (210 + 3 x --density-gap + 30 status; 100 + the same for the banner)', () => {
+    expect(trackList(LAYOUT_ROWS_BY_ID.story.rows.combat)).toEqual([
+      'max-content', // safety banner
+      'max-content', // top bar
+      'max-content', // the stage's scene line
+      'minmax(var(--play-body-floor,0px),var(--play-body,0px))', // the stage's body: between its floor (3 rows) and its room's size
+      'minmax(var(--play-floor,calc(210px + 3 * var(--density-gap) + 30px)),1fr)', // the log: 210 inner + the slot's chrome (padding above and below, the gap to the status line, the 30px line)
+      'max-content', // composer
+      'max-content', // action bar
+    ]);
+    expect(trackList(LAYOUT_ROWS_BY_ID.table.rows.combat)).toEqual([
+      'max-content',
+      'max-content',
+      'minmax(var(--play-body-floor,0px),var(--play-body,0px))',
+      'minmax(var(--play-floor,calc(210px + 3 * var(--density-gap) + 30px)),1fr)',
+      'max-content',
+      'max-content',
+    ]);
+    // A10 step 11 round 3 (named exception: this was `['auto','auto','minmax(0,1fr)','auto','auto','max-content']`, "the exploring rows are untouched"): Story exploring is the same class row as Table's:
+    // whole bands (an `auto` top track beside a floored log is squeezed: the header was clipped at y 36), the log a floor (240 inner + 3 gaps + the 46px recap), the offers last.
+    expect(trackList(LAYOUT_ROWS_BY_ID.story.rows.exploring)).toEqual([
+      'max-content', // safety banner
+      'max-content', // top bar + party strip
+      'minmax(var(--play-floor,calc(240px + 3 * var(--density-gap) + 46px)),1fr)', // the log
+      'max-content', // composer
+      'max-content', // action bar (the X-card)
+      'max-content', // offers
+    ]);
+    // the Table row's exploring tracks: the same classes (it has the stage's two lines on top)
+    expect(trackList(LAYOUT_ROWS_BY_ID.table.rows.exploring).filter((t) => t !== 'max-content')).toHaveLength(2);
+  });
+
+  it('a floor is its inner log plus the slot\'s chrome WRITTEN FROM THE GAP TOKEN, never a sum at the default gap (Kage Tavern 3: 288 held 210 inner at the default density only; `airy` 186, `compact` 228)', () => {
+    // (the harness's a:storyLog at `airy` and `compact` on the real page is the measuring pin: zd-* shots; this is the spelling)
+    const floors = ['story', 'table'].flatMap((id) => [LAYOUT_ROWS_BY_ID[id as 'story' | 'table'].rows.combat.match(/--play-floor,(calc\([^)]*\)[^)]*\))/)?.[1], LAYOUT_ROWS_BY_ID[id as 'story' | 'table'].momentVars!.combat!['--play-banner-floor']]);
+    expect(floors).toHaveLength(4);
+    for (const f of floors) expect(f).toMatch(/^calc\(\d+px \+ 3 \* var\(--density-gap\) \+ \d+px\)/);
+    // no row spells a floor as a bare px number any more (the sum at one density)
+    for (const row of LAYOUT_ROWS.filter((r) => r.id === 'story' || r.id === 'table')) for (const m of MOMENTS) expect(row.rows[m]).not.toMatch(/--play-floor,\d+px/);
+    for (const row of LAYOUT_ROWS.filter((r) => r.id === 'story' || r.id === 'table')) for (const f of Object.values(row.momentVars ?? {})) expect(f?.['--play-banner-floor']).not.toMatch(/^\d+px$/);
+  });
+
+  it('the floors per room are the brief\'s: a board yields to 3 rows of the cell, a band never (its floor is its size), none is 0px', () => {
+    const room = (id: 'story' | 'table') => LAYOUT_ROWS_BY_ID[id].factVars!.room as Record<string, Record<string, string>>;
+    for (const id of ['story', 'table'] as const) {
+      expect(room(id).board['--play-body-floor']).toBe('calc(3 * var(--play-cell))');
+      expect(room(id).band['--play-body-floor']).toBe(room(id).band['--play-body']);
+      expect(room(id).none['--play-body-floor']).toBe('0px');
+    }
+  });
+
+  it('the guard bites (controls): the log back to minmax(0,1fr), each whole band back to auto, a room with no floor, a band floor that is not its size, no banner floor, a body track that reads only the floor', () => {
+    const story = LAYOUT_ROWS_BY_ID.story;
+    const patched = (row: LayoutRow, over: Partial<LayoutRow>): LayoutRow => ({ ...row, ...over });
+    const withRows = (combat: string) => patched(story, { rows: { ...story.rows, combat } });
+    expect(classProblems([withRows(story.rows.combat.replace('minmax(var(--play-floor,calc(210px + 3 * var(--density-gap) + 30px)),1fr)', 'minmax(0,1fr)'))]).join('|')).toMatch(/story\/combat: a body or band that yields and a log with no floor/);
+    // each whole band back to `auto` (a scroller's minimum is 0: the grid would squeeze it): the banner, the top bar, the scene line, the composer, the action bar
+    const tracks = trackList(story.rows.combat);
+    const withTrack = (i: number, v: string) => withRows(tracks.map((t, j) => (j === i ? v : t)).join(' '));
+    for (const i of [0, 1, 2, 5, 6]) expect(classProblems([withTrack(i, 'auto')]).join('|')).toMatch(new RegExp(`story/combat: track ${i} "auto" is not one of the three classes`));
+    const fv = story.factVars!.room as Record<string, Record<string, string>>;
+    const noFloor = patched(story, { factVars: { room: { ...fv, board: { '--play-body': fv.board['--play-body'] } } } as unknown as LayoutRow['factVars'] });
+    expect(classProblems([noFloor]).join('|')).toMatch(/story\/combat: room "board" has no --play-body-floor/);
+    const tallBandFloor = patched(story, { factVars: { room: { ...fv, band: { ...fv.band, '--play-body-floor': 'calc(2 * var(--play-cell))' } } } as unknown as LayoutRow['factVars'] });
+    expect(classProblems([tallBandFloor]).join('|')).toMatch(/the band's floor "calc\(2 \* var\(--play-cell\)\)" is not its size/);
+    expect(classProblems([patched(story, { momentVars: undefined })]).join('|')).toMatch(/story\/combat: no --play-banner-floor/);
+    // a track of no class on ANY floored row is named (Table exploring's offers back to a 120px cap), and the phone's own optional spelling is accepted (the guard is not exact to two rows)
+    const table = LAYOUT_ROWS_BY_ID.table;
+    const capped = patched(table, { rows: { ...table.rows, exploring: table.rows.exploring.replace(/max-content max-content max-content$/, 'fit-content(120px) max-content max-content') } });
+    expect(classProblems([capped]).join('|')).toMatch(/table\/exploring: track 4 "fit-content\(120px\)" is not one of the three classes/);
+    expect(classProblems([LAYOUT_ROWS_BY_ID.phone])).toEqual([]);
+    expect(classProblems([withRows(story.rows.combat.replace('minmax(var(--play-body-floor,0px),var(--play-body,0px))', 'minmax(0,var(--play-body-floor,0px))'))]).join('|')).toMatch(/story\/combat: track 3 "minmax\(0,var\(--play-body-floor,0px\)\)" is not one of the three classes/);
   });
 });
 
@@ -755,19 +1058,36 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
       // test and composer-density.css.test cover the stylesheet side. (This literal enumerates the set, so it grows with it.)
       '--play-composer-pad': 'var(--space-3)',
       '--play-composer-gap': 'var(--space-4)',
+      // A10 fix round F6 (named exception: this literal enumerates the set, so it grows with it): the `roll` composer's wrap is the phone row's, two values the composer's CSS reads
+      // (the mode row takes a line of its own, the input keeps `flex: 1`), where it was `@media (max-width: 880px)` in the stylesheet. The control is that no cell, check line or
+      // budget line moves on any viewport (the harness run at the commit before and at this one); composer-roll-row.css.test and the readers test pin the two names.
+      '--play-roll-mode-flex': '1 0 100%',
+      '--play-roll-input-flex': '1 1 0%',
     });
-    expect(LAYOUT_ROWS_BY_ID.story.vars).toBeUndefined();
-    expect(LAYOUT_ROWS_BY_ID.table.vars).toBeUndefined();
+    // A10 step 11 S2b (named exception): the desktop rows now carry `--play-cell`, the board's square. They still set no `--play-slot-*` var, which
+    // is what this pins (the old `vars` toBeUndefined was the same claim by a blunter test).
+    expect(Object.keys(LAYOUT_ROWS_BY_ID.story.vars ?? {}).filter((k) => k.startsWith('--play-slot'))).toEqual([]);
+    expect(Object.keys(LAYOUT_ROWS_BY_ID.table.vars ?? {}).filter((k) => k.startsWith('--play-slot'))).toEqual([]);
   });
 
-  it('the phone row carries a banner floor per moment (exploring pays the recap chrome, combat the status line); desktop rows carry none', () => {
+  it('the phone row carries a banner floor per moment (exploring pays the recap chrome, combat the status line); both desktop rows carry one for both moments (their exploring log is a floor, round 3)', () => {
     expect(LAYOUT_ROWS_BY_ID.phone.momentVars).toEqual({
       // 152 = 88 + 64 (exploring chrome: 12 edge + 6 gap + 46 recap); 136 = 88 + 48 (combat). The reflow minimum is gone with the stage's fold.
       exploring: { '--play-banner-floor': '152px' },
       combat: { '--play-banner-floor': '136px' },
     });
-    expect(LAYOUT_ROWS_BY_ID.story.momentVars).toBeUndefined();
-    expect(LAYOUT_ROWS_BY_ID.table.momentVars).toBeUndefined();
+    // A10 fix round F1 (named exception: these two were `toBeUndefined`, "desktop rows carry none"). The desktop combat rows are floored now: 178 = 100 inner (the
+    // harness's banner-up combat floor) + 78 of the story slot's chrome. Exploring has no body to yield and carries none.
+    // A10 fix round 2 (named exception: these two were the literal '178px'): the floor is written from the gap token, so `airy` and `compact` keep 100 inner.
+    expect(LAYOUT_ROWS_BY_ID.story.momentVars).toEqual({
+      exploring: { '--play-banner-floor': 'calc(230px + 3 * var(--density-gap) + 46px)' },
+      combat: { '--play-banner-floor': 'calc(100px + 3 * var(--density-gap) + 30px)', '--play-composer-pad': 'var(--space-3)', '--play-composer-gap': 'var(--space-4)' },
+    });
+    // Exploring has one too (fix round 2 for Table, round 3 for Story: the log is a floor, so the banner's yield reads a value: the shell's `--play-floor: var(--play-banner-floor, 0px)` would be a floor of 0 without it)
+    expect(LAYOUT_ROWS_BY_ID.table.momentVars).toEqual({
+      exploring: { '--play-banner-floor': 'calc(230px + 3 * var(--density-gap) + 46px)' },
+      combat: { '--play-banner-floor': 'calc(100px + 3 * var(--density-gap) + 30px)', '--play-composer-pad': 'var(--space-3)', '--play-composer-gap': 'var(--space-4)' },
+    });
   });
 });
 
@@ -819,11 +1139,10 @@ function areaColumnCount(areasValue: string): number {
   return firstRow ? firstRow[1].trim().split(/\s+/).length : 0;
 }
 
-/** Whitespace-token count of a `grid-template-columns` (or `-rows`) value.
- *  Safe for this file's declared tracks today: none contains a space
- *  (`minmax(0,1fr)` tokenises as one), per Kage-CR S1's own note. */
+/** Track count of a `grid-template-columns` (or `-rows`) value. Paren-aware (`trackList`): a floor written from its tokens is a `calc()` with spaces in it
+ *  (A10 fix round 2; this was a whitespace split, "safe while no track contains a space", Kage-CR S1's own note). */
 function columnsTokenCount(columnsValue: string): number {
-  return columnsValue.trim().split(/\s+/).length;
+  return trackList(columnsValue).length;
 }
 
 /** The number of quoted rows (lines) in a `grid-template-areas` value —

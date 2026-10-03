@@ -83,9 +83,11 @@ import {
   FOLDABLE_REGIONS,
   REGION_TENANTS,
   TENANT_IDS,
+  factVarsFor,
   getPlacement,
   slotOrder,
   type Anchor,
+  type Facts,
   type LayoutRow,
   type Moment,
   type RegionId,
@@ -104,13 +106,16 @@ export interface FoldSpec {
   /** Id of the `[data-fold-body]` part that folds; the rest of the region never does
    *  (A9d-2 F1, Amendment D.4). Absent = the whole region folds.
    *  debt: no row emits a fold body (the phone stage's fold left in A9d-2 N5: the scene is a one-row strip with no picture to fold). ceiling: FoldDock's body mode and the stage's `[data-fold-body]` wrapper run only in their component tests; no browser path reaches them.
-   *  until: step 12 lands the phone map and the phone row re-declares `collapsible` on the stage (Backlog TAV-PHONE-STAGE-FOLD-RETURNS: Iro's fold acceptance, item 4, is re-asserted then). */
+   *  until: the phone mount re-declares `collapsible` on the stage (Sora's step-11 brief 3.6, "Fold": the stage's `[data-fold-body]`, now a `hero`'s body, is what folds; Backlog TAV-PHONE-STAGE-FOLD-RETURNS: Iro's fold acceptance, item 4, is re-asserted then). */
   body?: string;
 }
 
 export interface PlayShellProps {
   row: LayoutRow;
   moment: Moment;
+  /** A10 step 11 S2a (Amendment F.4): the facts the page reports (`room`); the row's `factVars` answer them, emitted after `momentVars`. The
+   *  shell learns nothing about what a fact means. */
+  facts?: Facts;
   /** Built by page.tsx, where the region components' own props/handlers
    *  already live — the shell never imports a region. */
   regions: Partial<Record<RegionId, ReactNode>>;
@@ -165,6 +170,13 @@ const LANDMARKS: Partial<Record<RegionId, LandmarkSpec>> = {
   },
 };
 
+/** The name of a region whose slot is a bounded scroller (`Placement.scrolls`): a named, keyboard-reachable group (A10 step 11 round 3). Not a landmark: the landmark count is a contract (LANDMARKS). */
+export const SCROLL_REGION_NAMES: Partial<Record<RegionId, string>> = {
+  // One name per role (Iro, round 5): the dock's handle is "Character sheet" and its region is "Character sheet: <name>", so the SCROLLER is named for what it is, a scroll area, and a screen
+  // reader does not hear the same three words in a row.
+  characterBlock: 'Character sheet scroll area',
+};
+
 /** In-page skip targets beyond the global "Skip to main content" (layout.tsx).
  *  Keyed by region so a link is rendered only while its target is a visible
  *  slot; the id lives on the slot element, the label here. */
@@ -175,6 +187,7 @@ const SKIP_TARGETS: Partial<Record<RegionId, { id: string; label: string }>> = {
 export default function PlayShell({
   row,
   moment,
+  facts,
   regions,
   tenants,
   foldSpecs,
@@ -192,8 +205,16 @@ export default function PlayShell({
   // commit and on resize, WITH NO BANNER RAISED: the yield changes the answer, so a banner up leaves the last stamp alone. jsdom reads 0
   // and 0, so the stamp is absent there and no jsdom suite sees it. No shell rule names a viewport height.
   const [scrolls, setScrolls] = useState(false);
+  // debt: the story slot (the `main` landmark) is a nested SCROLLER only while the human DM's combat panel is in it (Play.module.css `.slotStack:has(> [data-region="tableControlsDm"])`), so it is named
+  // and made a keyboard stop only then, found by that marker in the DOM. ceiling: this one node; no other tenant of the story slot makes it scroll.
+  // until: play-shell step 10 moves the DM panel into a layer (the Drawer): the story slot never scrolls again and this state and its two attributes go.
+  const [dmStack, setDmStack] = useState(false);
   const measureFit = useCallback(() => {
     const root = rootRef.current;
+    if (root) {
+      const has = root.querySelector(':scope > [data-region-slot="storyLog"] > [data-region="tableControlsDm"]') != null;
+      setDmStack((prev) => (prev === has ? prev : has));
+    }
     if (!root || root.querySelector(':scope > [data-region-slot="safetyBanner"] > :not(:empty)')) return;
     const next = root.scrollHeight > root.clientHeight + 1;
     setScrolls((prev) => (prev === next ? prev : next));
@@ -265,6 +286,7 @@ export default function PlayShell({
         regionNode
       );
     const Tag = landmark?.as ?? 'div';
+    const scrollName = getPlacement(row, regionId, moment).scrolls === true ? SCROLL_REGION_NAMES[regionId] : undefined;
     const slotClass = [
       styles.slot,
       landmark?.layoutClassName,
@@ -278,8 +300,10 @@ export default function PlayShell({
       <Tag
         key={regionId}
         id={landmark?.id ?? SKIP_TARGETS[regionId]?.id}
-        tabIndex={landmark?.tabIndex ?? (SKIP_TARGETS[regionId] ? -1 : undefined)}
-        aria-label={landmark?.['aria-label']}
+        tabIndex={regionId === 'storyLog' && dmStack ? 0 : landmark?.tabIndex ?? (SKIP_TARGETS[regionId] ? -1 : scrollName ? 0 : undefined)}
+        role={scrollName ? 'group' : undefined}
+        aria-label={regionId === 'storyLog' && dmStack ? 'Story and DM controls' : landmark?.['aria-label'] ?? scrollName}
+        data-scroll-stop={scrollName || (regionId === 'storyLog' && dmStack) ? '' : undefined}
         className={slotClass}
         style={area == null ? undefined : { gridArea: area }}
         data-region-slot={regionId}
@@ -337,6 +361,7 @@ export default function PlayShell({
             '--play-rows': row.rows[moment],
             ...row.vars,
             ...row.momentVars?.[moment],
+            ...factVarsFor(row, facts),
           } as React.CSSProperties
         }
       >

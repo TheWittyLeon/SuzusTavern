@@ -1,6 +1,6 @@
 'use client';
 
-import type { RefObject, Dispatch, SetStateAction } from 'react';
+import type { ReactNode, RefObject, Dispatch, SetStateAction } from 'react';
 import type { EndCombatOutcome } from '@/lib/api/types';
 import Icon from '@/components/Icon';
 import AnchoredPopover from '@/components/AnchoredPopover';
@@ -23,7 +23,8 @@ import strip from './SceneStage.module.css';
  */
 /** The part of the stage that folds (A9d-2 F1): the picture only, and from step 12 the
  *  map. The head, the encounter controls and both announcers sit OUTSIDE it, so a folded
- *  stage still announces and can still end the fight. `foldSpecs` reads this id. */
+ *  stage still announces and can still end the fight. `foldSpecs` reads this id.
+ *  A10 step 11 S2b: it is the `hero` stage's BODY, the map's room. */
 export const SCENE_STAGE_BODY_ID = 'play-scene-stage-body';
 
 export interface SceneStageProps {
@@ -51,10 +52,14 @@ export interface SceneStageProps {
   round?: number | null;
   /**
    * A9d-2 N5 (Amendment E.1/E.2): the stage's form, from the registry. `inline` (the phone) is the scene strip: ONE row holding the scene's
-   * name, its objective (exploring) or the combat status, and the encounter's buttons; no picture stand-in, no kicker. `panel` and `hero`
-   * render as today (the picture's stand-in and its fold body) until step 11 gives them their own forms.
+   * name, its objective (exploring) or the combat status, and the encounter's buttons; no picture stand-in, no kicker.
+   * A10 step 11 S2b (Sora's brief 3.1, Amendment F.1): `hero` is that SAME scene line (the strip's own markup and classes) and then a BODY
+   * that fills what is left of the stage's track: it owns its slot's edges (`data-slot-fill`), never scrolls, and its size is the row's. `panel`
+   * (Story exploring) is today's stacked head and encounter block, with no body.
    */
   variant?: RegionVariant<'sceneStage'>;
+  /** What goes in a `hero` stage's body: the tactical map and the theatre-of-mind band (B8c-3 mounts them). With none, a fight shows the stand-in. */
+  children?: ReactNode;
 }
 
 export default function SceneStage({
@@ -79,10 +84,14 @@ export default function SceneStage({
   rollBusy,
   round = null,
   variant = 'panel',
+  children,
 }: SceneStageProps) {
   const inline = variant === 'inline';
-  /** `styles.x` always; plus the strip's own class when this is the phone's strip. */
-  const cx = (base: string, extra: string | false = false) => (inline && extra ? `${base} ${extra}` : base);
+  const hero = variant === 'hero';
+  /** The scene line: one row of the scene's name, its second line and the encounter's buttons, the phone's strip (`inline`) and a hero's top. */
+  const line = inline || hero;
+  /** `styles.x` always; plus the strip's own class when this stage draws the scene line. */
+  const cx = (base: string, extra: string | false = false) => (line && extra ? `${base} ${extra}` : base);
   // A9d-2 N4 (Tora MAJOR-1, Sora lever brief 2.2): the outcome chooser is an anchored popover on EVERY row. Inline in the stage it
   // inherited the band's clip: on a phone it rendered at y 346-718 under a band that ended at 333, so the tap on End combat looked
   // like it did nothing. The hook owns placement, the consumed dismissing click, Escape, Tab past either end and the focus
@@ -100,7 +109,14 @@ export default function SceneStage({
     fallbackFocus: () => sceneHeadRef.current,
   });
   return (
-    <div data-region="sceneStage" data-toast-clear="" data-variant={variant} className={cx(styles.stage, strip.strip)}>
+    <div
+      data-region="sceneStage"
+      data-toast-clear=""
+      data-variant={variant}
+      // A `hero` owns its slot's edges: the slot drops its padding and stops being a scroller (Play.module.css, `data-slot-fill`).
+      data-slot-fill={hero ? '' : undefined}
+      className={hero ? `${cx(styles.stage, strip.strip)} ${strip.hero}` : cx(styles.stage, strip.strip)}
+    >
       {/* FIX-8 (MEDIUM-1): aria-label surfaces the scene name to AT so the "Scene" kicker (now aria-hidden) doesn't duplicate it on
           screen readers. Iro Ship 2 CRITICAL-1: tabIndex={-1} + ref makes this a programmatic focus anchor — refocusSceneHeadIfStranded()
           lands here when a resolved check / taken transition unmounts the control the user was just on, and every anchored popover falls
@@ -114,21 +130,11 @@ export default function SceneStage({
         className={cx(styles.sceneHead, strip.head)}
         aria-label={sceneName ? `Scene: ${sceneName}` : 'Scene'}
       >
-        {!inline && <span className={styles.kicker} aria-hidden>Scene</span>}
+        {!line && <span className={styles.kicker} aria-hidden>Scene</span>}
         {sceneName && <p className={cx(styles.sceneName, strip.name)}>{sceneName}</p>}
         {/* In the strip the second line is the combat status while a fight runs, so the objective stands down. */}
-        {objective && !(inline && combatIsActive) && <span className={cx(styles.sceneObjective, strip.objective)}>{objective}</span>}
+        {objective && !(line && combatIsActive) && <span className={cx(styles.sceneObjective, strip.objective)}>{objective}</span>}
       </div>
-      {/* The picture's stand-in and its fold body (the map's socket, step 12). The strip has none. */}
-      {!inline && (
-        <div id={SCENE_STAGE_BODY_ID} data-fold-body>
-          <div className={styles.scenePlaceholder}>
-            <Icon name="Map" size={22} aria-hidden />
-            <span>The tactical map arrives in a later sprint. Suzu narrates the scene above.</span>
-          </div>
-        </div>
-      )}
-
       {/* Active combat: the status text, End combat, and (all enemies down) Wrap up. A9d-2 N4 (Iro 4): the buttons are SIBLINGS of their
           role="status" text, never inside it (a button in a live region is re-announced when it mounts), each pair under a role-less
           wrapper (no role, no name, no tabindex: it is `display: contents` in the phone's strip and carries the box on every other
@@ -252,6 +258,23 @@ export default function SceneStage({
           {sceneHasEncounter ? 'Stand and fight' : 'Begin an encounter'}
         </button>
       ) : null}
+      {/* A10 step 11 S2b: a `hero`'s body, the map's room: AFTER the encounter block in the DOM, so Tab goes End combat, then the board. Always in the
+          DOM in a `hero` (a body of 0px while exploring: the harness's body legs plant a block in it there too). `panel` and `inline` have none.
+          The mount passes the map (or the band) as `children`.
+          debt: with no `children`, a fight shows the stand-in, whole, in either room (a short band gets its one-line form by a container query).
+          ceiling: both rooms of every fight show it until the map and the band mount; exploring renders nothing here.
+          until: B8c-3 mounts `TacticalMap` and the theatre-of-mind band as this body's children; then delete the fallback.
+      */}
+      {hero && (
+        <div id={SCENE_STAGE_BODY_ID} data-fold-body className={strip.body}>
+          {children ?? (combatIsActive ? (
+            <div className={`${styles.scenePlaceholder} ${strip.standIn}`}>
+              <Icon name="Map" size={22} aria-hidden />
+              <span>The tactical map arrives in a later sprint. Suzu narrates the scene above.</span>
+            </div>
+          ) : null)}
+        </div>
+      )}
     </div>
   );
 }

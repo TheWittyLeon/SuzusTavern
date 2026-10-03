@@ -336,6 +336,25 @@ export type Moment = 'exploring' | 'combat';
 export type LayoutId = 'story' | 'table' | 'phone';
 
 /**
+ * A10 step 11 S2a (Sora's brief 3.2, Amendment F.4) — FACTS: a named value the page reports about what the table holds, which a row answers
+ * with `--play-*` values. `moment` already works this way (`momentVars`); a fact is the same channel for a thing a row cannot know. `room` is
+ * what the encounter gives the stage: a `board` (a usable `space`), a `band` (a fight that authored none: `space: null`, or a malformed one), `unserved` (positioning is off: the state body carries no `space` key; the stage takes no height) or `none` (not in a fight). The shell maps
+ * a key to the row's values and learns nothing about what it means; the tenth fact is an entry here, the rows' values for it, and the one line
+ * where the page computes it (`hooks/usePlayLayout.ts`).
+ */
+export const FACTS = { room: ['board', 'band', 'none', 'unserved'] } as const satisfies Record<string, readonly string[]>;
+/**
+ * The ORDER of `FACTS` is the PRECEDENCE of its facts (Sora's brief K3; Kage A10 Tavern 3): the shell emits each fact's values in this order and the LAST wins a name two
+ * facts both set, whatever order the caller's object lists them in. It runs from what SIZES a thing to what can REMOVE it: `room` first, any `fold:<regionId>` (the
+ * phone mount's fold, reported by the shell itself) last, a `width` fact, if one lands, between. Add a fact at the position its precedence names, not at the end.
+ */
+export type FactId = keyof typeof FACTS;
+export type FactValue<F extends FactId> = (typeof FACTS)[F][number];
+/** What the page reports: a value per fact it has a say about. */
+export type Facts = { [F in FactId]?: FactValue<F> };
+type PlayVars = Readonly<Record<`--play-${string}`, string>>;
+
+/**
  * A9c C4 (Amendment C.1) — the four corners an overlay can anchor to. The
  * shell maps ANY anchor generically (`top|bottom` -> `align-self`,
  * `start|end` -> `justify-self`, through `data-anchor` attribute selectors in
@@ -377,6 +396,12 @@ export interface Placement {
    *  on an `ANNOUNCING_REGIONS` member — see file header. */
   visible?: boolean;
   collapsible?: boolean;
+  /**
+   * A10 step 11 round 3 (Iro; Aoi's "Which Band Pays"): this region's slot is a BOUNDED scroller (Table's character sheet stops at the story log and scrolls inside itself). The shell
+   * names it (`SCROLL_REGION_NAMES` in PlayShell) and makes it a keyboard stop (`tabindex=0`, `role="group"`), so its text has a keyboard path: a nested scroller with no name and no stop
+   * hides its overflow from a keyboard user (WCAG 2.1.1). Only a region with a name there may say it (a registry guard).
+   */
+  scrolls?: boolean;
   /** Rendered as an overlay, outside the grid (D1). When true, `area` is
    *  always null — a layer has no grid position to speak of. */
   layer?: boolean;
@@ -419,6 +444,12 @@ export interface LayoutRow {
    */
   momentVars?: Partial<Record<Moment, Readonly<Record<`--play-${string}`, string>>>>;
   /**
+   * A10 step 11 S2a (Amendment F.4): the same, per VALUE of a fact the page reports (`FACTS`): fact -> value -> `--play-*` values. Emitted after
+   * `momentVars`. A row that has no entry for a fact is not affected by it (the phone's); a row that has one gives EVERY value of the fact its
+   * set (`Record`, and a registry guard), so a reported value never finds a row with nothing to say.
+   */
+  factVars?: { [F in FactId]?: Readonly<Record<FactValue<F>, PlayVars>> };
+  /**
    * A9d-2 N5 (Amendment E.7; Iro 3, Tora A4): a band that hides content says so. When true, every slot of this row that can scroll
    * (all but the story log, which scrolls by design) paints a bottom-fade cue, ONLY while there is more to scroll. `PlayShell` stamps
    * `data-scroll-cue` on the grid and `Play.module.css` reads it. The phone row sets it (its party band hides the tracker in combat);
@@ -446,6 +477,35 @@ export function getPlacement(row: LayoutRow, region: RegionId, moment: Moment): 
   // TypeError on `undefined`.
   if (!entry) throw new Error(`no placement for "${region}" in row "${row.id}"`);
   return entry[moment] ?? entry.default;
+}
+
+/**
+ * A10 step 11 S2a: the `--play-*` values a row gives the facts the page reports. The one read site of `LayoutRow.factVars`, beside
+ * `getPlacement` and `variantFor`. Throws, naming the row and the fact, on a value outside `FACTS` (a typo must not render as "no values") and
+ * on a value the row has no set for. A fact the row has no table for contributes nothing. The facts are applied in `FACTS`' DECLARED order, the last one winning (K3).
+ */
+// debt: `declared` is a parameter of a production function that exists for one test: FACTS has one fact today, so the "last declared fact wins" order (K3) cannot be pinned on the real vocabulary and the test passes a two-fact one.
+// ceiling: this one defaulted parameter; no production caller passes it. until: a second fact joins FACTS (the order is then pinned on the real vocabulary, and this parameter is deleted).
+export function factVarsFor(row: LayoutRow, facts: Facts | undefined, declared: Readonly<Record<string, readonly string[]>> = FACTS): PlayVars {
+  const given = (facts ?? {}) as Readonly<Record<string, string | undefined>>;
+  // A key the vocabulary does not declare is a typo: it throws, naming the row and the fact, whatever its value (it is not "no values").
+  for (const fact of Object.keys(given)) {
+    if (declared[fact] === undefined) throw new Error(`"${fact}" is not a declared fact (row "${row.id}")`);
+  }
+  const out: Record<`--play-${string}`, string> = {};
+  // The vocabulary's declared order, not the caller's object key order: the last declared fact wins (see FACTS). `declared` is a parameter only so the order can be pinned on
+  // a vocabulary with two facts (there is one today).
+  for (const [fact, values] of Object.entries(declared)) {
+    const value = given[fact];
+    if (value === undefined) continue;
+    if (!values.includes(value)) throw new Error(`"${value}" is not a declared value of fact "${fact}" (row "${row.id}")`);
+    const table = (row.factVars as Record<string, Record<string, PlayVars> | undefined> | undefined)?.[fact];
+    if (table === undefined) continue;
+    const vars = table[value];
+    if (vars === undefined) throw new Error(`row "${row.id}" has no values for fact "${fact}" = "${value}"`);
+    Object.assign(out, vars);
+  }
+  return out;
 }
 
 /**
@@ -568,6 +628,30 @@ export function variantFor<R extends VariantRegionId>(
 // invented px values.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// The desktop combat rows' TRACK CLASSES (A10 step 11 fix round; Sora's brief 3.2, Amendment F.8): the phone's three classes (the PHONE_ROW comment below), as data.
+//   WHOLE     `max-content`                                              banner, top bar, scene line, composer, action bar. Never shrinks.
+//   FLOOR     `minmax(var(--play-floor,288px),1fr)`                      the story log. It never goes under its floor: a page that cannot afford it scrolls.
+//   OPTIONAL  `minmax(var(--play-body-floor,0px),var(--play-body,0px))`  the stage's body: between its own floor (3 rows) and the size its room rules.
+// The grid hands spare room to the body before the log grows past its floor, and takes it back from the body first: on a small screen the BOARD gives rows and the
+// STORY keeps its room. Whole bands are `max-content` because a scroll container's automatic minimum is 0 (a slot is one): with `auto` beside a floored log, the grid
+// squeezes the top bar and the composer instead (probe, Sora's brief Q1b; the A9c-2 D0 lesson again). Exploring rows are untouched: they have no body to yield.
+//
+// Floor arithmetic, as the phone's is written beside its row (re-derive when a tenant in the story slot changes height; the harness's a:storyLog measures the inner log on
+// every gated size, so a stale sum reds): a floor is its INNER log plus the story slot's own chrome, and the chrome is written from its tokens (A10 fix round 2, Kage Tavern 3:
+// it was the sum 288 = 210 + 78 at the default density, and `airy` / `compact` re-tune the gap, so the inner log was 186 / 228 there). The slot pays `--density-gap` three times
+// (its padding above and below, and the gap to its last tenant) plus that tenant's own height: the status line in combat (30px), the recap strip while exploring (46px: the phone's
+// 224 = 160 + 12 + 6 + 46 is the same recap). Inner floors: 210 / 100 with the X-card banner up in combat, 240 / 230 while exploring (the harness's, per moment: layout-assertions.mjs).
+// The banner yield (Play.module.css) lowers `--play-floor` to `--play-banner-floor` while the X-card banner is up.
+// ---------------------------------------------------------------------------
+const slotLogFloor = (innerPx: number, lastTenantPx: number) => `calc(${innerPx}px + 3 * var(--density-gap) + ${lastTenantPx}px)`;
+const DESKTOP_COMBAT_LOG_FLOOR = slotLogFloor(210, 30);
+const DESKTOP_COMBAT_BANNER_FLOOR = slotLogFloor(100, 30);
+const DESKTOP_EXPLORING_LOG_FLOOR = slotLogFloor(240, 46);
+const DESKTOP_EXPLORING_BANNER_FLOOR = slotLogFloor(230, 46);
+// Round 4 (the rule's third step): a fight's composer is the band that gives its padding (the phone's two vars, read by Composer.module.css): 99px -> 83px.
+const FIGHT_COMPOSER_VARS = { '--play-composer-pad': 'var(--space-3)', '--play-composer-gap': 'var(--space-4)' } as const;
+
 const STORY_ROW: LayoutRow = {
   id: 'story',
   columns: {
@@ -601,31 +685,53 @@ const STORY_ROW: LayoutRow = {
   // `minmax(0,Npx)` at the time; now `fit-content`) eats the free space: on phone with the X-card banner up it
   // lost 9px and the X-card was clipped (harness (c), 809..853 of 844).
   // `max-content` takes its base size from the content, so it is never shrunk.
-  // A9c-2 D7: the combat stage track is `fit-content(290px)`, content-sized up to
-  // R19's cap, instead of `minmax(0,290px)`, which grows to its cap whatever the
-  // stage holds. It returns 0px today: the stage holds the dice tray AND its
-  // quick-check list (>=556px of content, probed with the cap at 900px), so the
-  // track sits at its 290px cap, and it STAYS at 290 with the tray out of the stage
-  // (Kage's A9c-2 review measurement), so the cap is not the lever here at all.
+  // (History: A9c-2 D7 made the combat stage track `fit-content(290px)`, and it always sat at its cap, because the dice tray's content was taller than the cap
+  // and then, with the tray out of the stage, the stand-in and the head still filled it: the cap was never the lever. A10 S2b replaced the cap with the two
+  // tracks below.)
   // Measured inner log (a:storyLog, desktop 1440x900) after A9d R-1 lever 2 (the recap strip
-  // steps aside in combat): g 226, caster cell l 213, and the X-card-raised caster cell k 105.
+  // steps aside in combat): g 226, caster cell l 226, and the X-card-raised caster cell k 118 (A10 S2b, with the board room: 52 of scene line + 7 x 34).
   // The recap lever took every cell without the X-card banner past 200, and the harness combat floor is 210
-  // (A9d-2; plain cells 213-226 here). The banner (a raised safety row above the stage) is what is left on k,
+  // (A9d-2; plain cells 224-226 here). The banner (a raised safety row above the stage) is what is left on k,
   // which the harness judges against its own banner floor (100), not an exemption.
-  // debt: Story's X-card-raised combat cell (k-story-combat-caster-xcard) is judged against a 100px banner floor, not the 200px target: it measures 105px inner.
-  // ceiling: 105px on a 900px desktop with the X-card banner up, ~3 narration rows; the banner and the stage's 290px track both stay.
+  // debt: Story's X-card-raised combat cell (k-story-combat-caster-xcard) is judged against a 100px banner floor, not the 200px target: it measures 118px inner.
+  // ceiling: 118px on a 900px desktop with the X-card banner up, ~3 narration rows; the banner stays and so does a 7-row board (it yields rows only below 900px tall, down to the log's banner floor: `--play-banner-floor` 178 = 100 + 78, F1).
   // until: Aoi rules the banner-up combat cell (an inline X-card, or the stage giving the banner its rows), Backlog TAV-COMBAT-LOG-FLOOR-200; then raise the harness's banner combat floor to 200.
+  // A10 step 11 S2b (Sora's brief 3.2, Amendment F.2): the combat stage is TWO track lines of one area: `max-content` (the scene line, whole) and
+  // `minmax(0, var(--play-body, 0px))` (the body: `--play-body` is a count of `--play-cell`s, set by the `room` fact below). The old line was a hand-summed
+  // `fit-content(290px)` (52 of strip + 238 of body, re-derived whenever the chrome changed); this one is the strip and the body, each its own number.
   rows: {
-    exploring: 'auto auto minmax(0,1fr) auto auto max-content',
-    combat: 'auto auto fit-content(290px) minmax(0,1fr) auto max-content',
+    // A10 step 11 round 3 (Aoi's rule, "Which Band Pays", Iro MAJOR-1 / Kage Tavern 4 for Table, the same shape here): banner, top bar, LOG, composer, action bar, offers. The log is a FLOOR
+    // and every band beside it is WHOLE (`max-content`): with the floor added and the two top tracks left `auto` the grid squeezes the header (the log's top moved from y 145 to 36: the
+    // title bar and the party strip were clipped, not scrolled; the A9c-2 D0 lesson again). A page that cannot afford the floor and the bands scrolls, and what falls under the fold falls
+    // from the bottom up: the offers first, then the X-card, the text box last.
+    exploring: `max-content max-content minmax(var(--play-floor,${DESKTOP_EXPLORING_LOG_FLOOR}),1fr) max-content max-content max-content`,
+    // banner, top bar, scene line, body, log, composer, action bar: the classes above (A10 fix round: it was `auto auto max-content minmax(0,body) minmax(0,1fr) auto max-content`).
+    combat: `max-content max-content max-content minmax(var(--play-body-floor,0px),var(--play-body,0px)) minmax(var(--play-floor,${DESKTOP_COMBAT_LOG_FLOOR}),1fr) max-content max-content`,
+  },
+  // The banner floor of the log's class (the phone's shape: `--play-banner-floor`, read by the shell's banner yield), for both moments: the exploring log is a floor too (round 3).
+  momentVars: { exploring: { '--play-banner-floor': DESKTOP_EXPLORING_BANNER_FLOOR }, combat: { '--play-banner-floor': DESKTOP_COMBAT_BANNER_FLOOR, ...FIGHT_COMPOSER_VARS } },
+  // The board's size is data (F.3): 34px squares (Aoi's pictures are drawn at 34; 35 fits too, and one size on both layouts means a Story <-> Table
+  // switch mid-fight does not rescale the board), 7 rows in Story (R19), a short band of 3 for a fight with no board (#44 question 4: ruling it
+  // out is `band` taking `board`'s value), nothing while exploring (Story's exploring stage is a `panel`, which has no body).
+  vars: { '--play-cell': '34px' },
+  // Each room carries its size AND its floor (the optional class): a board yields down to 3 rows ("fewer is a lane", Aoi); a band does not yield (its floor is its size).
+  factVars: {
+    room: {
+      board: { '--play-body': 'calc(7 * var(--play-cell))', '--play-body-floor': 'calc(3 * var(--play-cell))' },
+      band: { '--play-body': 'calc(3 * var(--play-cell))', '--play-body-floor': 'calc(3 * var(--play-cell))' },
+      none: { '--play-body': '0px', '--play-body-floor': '0px' },
+      // Positioning is OFF (the state body has no `space` key): the stage's body takes NO height and shows no text (round 4, Aoi's rule; it overrides the phone mount brief's "the band's values" for these rows).
+      unserved: { '--play-body': '0px', '--play-body-floor': '0px' },
+    },
   },
   areas: {
+    // Aoi's order (round 3): the story, the text box, the X-card, the offers last. DOM and focus order follow it (slotOrder walks the areas): story, composer, X-card, offers.
     exploring: `"safetyBanner safetyBanner safetyBanner"
                 "topBar       topBar       partyStrip"
                 "suzuPresence storyLog     sceneStage"
-                "suzuPresence offers       sceneStage"
                 "suzuPresence composer     sceneStage"
-                "suzuPresence actionBar    sceneStage"`,
+                "suzuPresence actionBar    sceneStage"
+                "suzuPresence offers       sceneStage"`,
     // Plan §3.2's illustrative snippet says combat "adds actionBar" —
     // stale: `actionBar` is placed in BOTH moments (Kage-CR Q1 ruling,
     // see the `regions.actionBar` entry below); only its variant changes.
@@ -639,12 +745,17 @@ const STORY_ROW: LayoutRow = {
     // treatment `table.characterBlock` already gets. Keeps 3 stable
     // tracks across moments (R18: "the stage animates in and the story
     // log never remounts") rather than dropping to 2.
+    // (A10 S2b: `sceneStage` is named on two consecutive lines: its scene line, then its body.)
+    // A10 step 11 round 4 (Aoi's "Short Desktop Fights", the rule): in a fight the band you act with comes first: the stage, the story at its floor, the action bar (the verbs and the X-card),
+    // and the composer LAST. What gives, in order: the empty stage box (the `unserved` room), the board's rows down to three, the composer's padding (`momentVars`), and then the page
+    // scrolls, taking the composer and never the verbs or the X-card. (Exploring is the reverse: the player acts by writing.) DOM and Tab order follow: log, verbs, X-card, composer.
     combat: `"safetyBanner safetyBanner safetyBanner"
              "topBar       topBar       partyStrip"
              "suzuPresence sceneStage   partyStrip"
+             "suzuPresence sceneStage   partyStrip"
              "suzuPresence storyLog     partyStrip"
-             "suzuPresence composer     partyStrip"
-             "suzuPresence actionBar    partyStrip"`,
+             "suzuPresence actionBar    partyStrip"
+             "suzuPresence composer     partyStrip"`,
   },
   regions: {
     topBar: { default: { area: 'topBar', variant: 'full' } },
@@ -682,7 +793,10 @@ const STORY_ROW: LayoutRow = {
     // to act in Story-combat either way. Placed in BOTH moments; `areas`
     // strings already carry the token, unchanged.
     actionBar: { default: { area: 'actionBar', variant: 'chips' } },
-    composer: { default: { area: 'composer', variant: 'full' } },
+    // A10 step 11 (S1; Sora's brief 3.1, Amendment F.4): a `hero` stage hosts no tenant, so the dice leave it with the fight. Exploring keeps the
+    // tray in the `panel` stage (`full`); in combat the stage is `hero` and the dice open from Roll in the composer's mode row, as on the phone.
+    // One node, two homes, chosen by the row: the tray remounts at the combat edge, and `advantage` lives in the page and survives it.
+    composer: { default: { area: 'composer', variant: 'full' }, combat: { area: 'composer', variant: 'roll' } },
     tableControls: { default: { area: null, layer: true } },
     safetyBanner: { default: { area: 'safetyBanner' } },
   },
@@ -713,35 +827,60 @@ const TABLE_ROW: LayoutRow = {
     exploring: '160px auto minmax(0,1fr) fit-content(300px)',
     combat: '160px auto minmax(0,1fr) fit-content(300px)',
   },
-  // A9c-2 D7: `fit-content(400px)` (was `minmax(0,400px)`), same lever, same 0px
-  // returned: the stage holds the dice tray and its quick-check list (>=680px of
-  // content probed at a 900px cap), so it always fills its 400px cap.
-  // Measured inner log (a:storyLog, desktop 1440x900) after A9d R-1 lever 2 (the recap strip
-  // steps aside in combat): b 242, i 242, monster-turn c 217, and the X-card-raised caster cell j 134.
-  // The recap lever took every cell without the X-card banner past 200, and the harness combat floor is 210
-  // (A9d-2; plain cells 217-242 here).
-  // debt: Table's X-card-raised combat cell (j-combat-caster-xcard) is judged against a 100px banner floor, not the 200px target: it measures 134px inner.
-  // ceiling: 134px on a 900px desktop with the X-card banner up; the banner and the stage's 400px track both stay.
-  // until: Aoi rules the banner-up combat cell, or the dice tray leaves the stage (step 11), Backlog TAV-COMBAT-LOG-FLOOR-200; then raise the harness's banner combat floor to 200.
-  // debt: Table's `offers` (`list`, one full-width button per offer) is capped at 120px and scrolls inside it; uncapped, 3-4 offers starve the log.
-  // ceiling: 3+ offers scroll in a 120px box, in the table·exploring cell only (offers are hidden in combat).
-  // until: Table's offers take the `chips` form (step 11 Table checkpoint) or the stage track is content-sized.
+  // (History: A9c-2 D7 made the combat stage `fit-content(400px)`, which always filled its cap; A10 S2b replaced the cap with the two tracks below.)
+  // Measured inner log (a:storyLog, desktop 1440x900) after A10 S2b, with the board room (8 x 34 body, 396 of stage with the title bar's reserve):
+  // b 245.5, i 245.5, monster-turn c 221, and the X-card-raised caster cell j 137.5.
+  // The harness combat floor is 210 (A9d-2; plain cells 221-246 here).
+  // debt: Table's X-card-raised combat cell (j-combat-caster-xcard) is judged against a 100px banner floor, not the 200px target: it measures 137.5px inner.
+  // ceiling: 137.5px on a 900px desktop with the X-card banner up; the banner stays and so does an 8-row board (it yields rows only below 900px tall, down to the log's banner floor: `--play-banner-floor` 178 = 100 + 78, F1).
+  // until: Aoi rules the banner-up combat cell, Backlog TAV-COMBAT-LOG-FLOOR-200; then raise the harness's banner combat floor to 200. (The dice tray left the stage at S1.)
   rows: {
-    exploring: 'auto 218px minmax(0,1fr) fit-content(120px) auto max-content',
-    combat: 'auto fit-content(400px) minmax(0,1fr) auto max-content',
+    // The offers track is content-sized, a WHOLE band: Table's offers are chips (A10 fix round F3), whole at rest; the 120px cap and its `debt:` are gone. The log is a FLOOR
+    // (A10 fix round 2, Iro MAJOR-1 / Kage Tavern 4: the chips took the log from 175 to 113px at 1024x768 and to 44 at 1024x690, and nothing scrolled), so a page that cannot afford
+    // the chips AND the log scrolls, and the log is never crushed. The offers track is NOT bounded instead: a cap puts a scroller back around what a player acts with (the 120px
+    // cap hid two transitions), and bounding it by the log's floor would be a number the shell computes from a row's. The body is the optional class, as the combat row's: it is
+    // `none` here (0 and 0), so every Table moment spells it one way.
+    exploring: `max-content max-content minmax(var(--play-body-floor,0px),var(--play-body,0px)) minmax(var(--play-floor,${DESKTOP_EXPLORING_LOG_FLOOR}),1fr) max-content max-content max-content`,
+    // banner, scene line (with the title bar's 72px reserve), body, log, composer, action bar: the classes above (A10 fix round: it was `auto max-content minmax(0,body) minmax(0,1fr) auto max-content`).
+    combat: `max-content max-content minmax(var(--play-body-floor,0px),var(--play-body,0px)) minmax(var(--play-floor,${DESKTOP_COMBAT_LOG_FLOOR}),1fr) max-content max-content`,
+  },
+  momentVars: { exploring: { '--play-banner-floor': DESKTOP_EXPLORING_BANNER_FLOOR }, combat: { '--play-banner-floor': DESKTOP_COMBAT_BANNER_FLOOR, ...FIGHT_COMPOSER_VARS } },
+  // A10 step 11 S2b: the stage is `hero` in BOTH moments and names its area on two lines (the scene line, then the body), as Story's combat does. The room
+  // is rows x cell (F.3): 8 rows (R19) of the 34px cell, 3 for a fight with no board, none while exploring (the scene line IS the stage: 72 + 52 = 124
+  // where the stage was a fixed 218). The title bar's 72px reserve sits in the scene line's track, so the body is exactly rows x cell.
+  //
+  // debt: the four `--play-overlay-*` / `--play-strip-*` readers (Play.module.css, regions/SceneStage.module.css) are set by no row: 40px squares in Table
+  // are five row values (`--play-cell: 40px` and these four) and only the harness's `whatif-cell-40` leg exercises them.
+  // ceiling: 0 rows set them; the picture at 40px is a harness what-if, the default stays 34px. Story cannot take 40 by row value (no title bar over its stage).
+  // until: Needs Leon #44 question 3 is answered (40: the Table row sets the five values; 34: delete the four readers and the leg).
+  vars: { '--play-cell': '34px' },
+  factVars: {
+    room: {
+      board: { '--play-body': 'calc(8 * var(--play-cell))', '--play-body-floor': 'calc(3 * var(--play-cell))' },
+      band: { '--play-body': 'calc(3 * var(--play-cell))', '--play-body-floor': 'calc(3 * var(--play-cell))' },
+      none: { '--play-body': '0px', '--play-body-floor': '0px' },
+      // Positioning is OFF (the state body has no `space` key): the stage's body takes NO height and shows no text (round 4, Aoi's rule; it overrides the phone mount brief's "the band's values" for these rows).
+      unserved: { '--play-body': '0px', '--play-body-floor': '0px' },
+    },
   },
   areas: {
+    // V2 (Aoi's "Which Band Pays", Leon's #54 = `sheet`): the text box, the X-card and the offers take the FULL width under the story, and the character sheet stops at the story log
+    // and scrolls inside itself (a named, keyboard-reachable region: `scrolls` on its placement). At 1024x768 the page then does not scroll (it scrolled 127) and the text box is 522 wide
+    // (360 beside the sheet); what cannot fit falls from the bottom up, the offers first.
     exploring: `"safetyBanner safetyBanner safetyBanner safetyBanner"
                 "partyStrip   sceneStage   sceneStage   characterBlock"
+                "partyStrip   sceneStage   sceneStage   characterBlock"
                 "partyStrip   suzuPresence storyLog     characterBlock"
-                "partyStrip   suzuPresence offers       characterBlock"
-                "partyStrip   suzuPresence composer     characterBlock"
-                "partyStrip   actionBar    actionBar    actionBar"`,
+                "partyStrip   composer     composer     composer"
+                "partyStrip   actionBar    actionBar    actionBar"
+                "partyStrip   offers       offers       offers"`,
+    // Round 4, the same rule: the sheet rail stops at the story log and the action bar, then the composer, take the full width.
     combat: `"safetyBanner safetyBanner safetyBanner safetyBanner"
              "partyStrip   sceneStage   sceneStage   characterBlock"
+             "partyStrip   sceneStage   sceneStage   characterBlock"
              "partyStrip   suzuPresence storyLog     characterBlock"
-             "partyStrip   suzuPresence composer     characterBlock"
-             "partyStrip   actionBar    actionBar    actionBar"`,
+             "partyStrip   actionBar    actionBar    actionBar"
+             "partyStrip   composer     composer     composer"`,
   },
   regions: {
     // Mirrors the mockup's `.top{grid-area:stage}` — the title floats over the
@@ -758,13 +897,14 @@ const TABLE_ROW: LayoutRow = {
     sceneStage: { default: { area: 'sceneStage', variant: 'hero' } },
     storyLog: { default: { area: 'storyLog' } },
     offers: {
-      default: { area: 'offers', variant: 'list' },
+      default: { area: 'offers', variant: 'chips' },
       combat: { area: null, visible: false },
     },
-    characterBlock: { default: { area: 'characterBlock', variant: 'full', collapsible: true } },
+    characterBlock: { default: { area: 'characterBlock', variant: 'full', collapsible: true, scrolls: true } },
     // Amendment B.3 (🟡-7): `'bar'`, Table's bottom-always treatment.
     actionBar: { default: { area: 'actionBar', variant: 'bar' } },
-    composer: { default: { area: 'composer', variant: 'full' } },
+    // A10 step 11 (S1): the stage is `hero` in BOTH moments here, so the dice are never its tenant: Roll, in both (see Story's composer).
+    composer: { default: { area: 'composer', variant: 'roll' } },
     tableControls: { default: { area: null, layer: true } },
     safetyBanner: { default: { area: 'safetyBanner' } },
   },
@@ -822,6 +962,12 @@ const PHONE_ROW: LayoutRow = {
     // density tokens). The 44px targets and the 8px between them are unchanged.
     '--play-composer-pad': 'var(--space-3)',
     '--play-composer-gap': 'var(--space-4)',
+    // The `roll` composer is TWO rows on the phone (A10 fix round F6; Sora K2, Kage Tavern 5): the mode row takes a line of its own and the input keeps its old `flex: 1`
+    // (the mode row's own line already puts it on the next one). Composer.module.css reads both; absent = the desktop's (the mode row shares the line, the input wraps by
+    // itself). This was `@media (max-width: 880px)` in the stylesheet, a copy of the shell's phone breakpoint that a test had to keep honest: the row is where a layout's
+    // choices live. Table and Story set neither, so a tablet row could pick one row at 1024 wide by a row value (the lever is here if Aoi or Tora want it).
+    '--play-roll-mode-flex': '1 0 100%',
+    '--play-roll-input-flex': '1 1 0%',
   },
   // The banner floor: while the X-card banner is raised and the page FIT before it came up (the shell's measured `data-fit`, not a
   // height line: Play.module.css), the story track yields down to THIS, not to 0: 88 inner (log padding 44 + one 42px narration row)
@@ -888,7 +1034,8 @@ const PHONE_ROW: LayoutRow = {
     // action bar in combat".
     actionBar: { default: { area: 'actionBar', variant: 'bar' } },
     // A9d-2 N7 (Amendment E.4): the Roll control sits at the end of the mode row and the stage hosts no dice tray (the tray remounts when the row
-    // changes; `advantage` lives in the page). One node, two homes, chosen by the row.
+    // changes; `advantage` lives in the page). One node, two homes, chosen by the row. (A10 S1: Story's combat and Table say `roll` too; the phone
+    // is the row whose mode row is forced onto a line of its own, by Composer.module.css, at the shell's phone width.)
     composer: { default: { area: 'composer', variant: 'roll' } },
     tableControls: { default: { area: null, layer: true } },
     safetyBanner: { default: { area: 'safetyBanner' } },
