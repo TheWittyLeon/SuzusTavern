@@ -60,14 +60,51 @@ describe('computePlacement (pure)', () => {
   it('never covers a passthrough element (the X-card): the room BELOW stops above it; the room ABOVE stops below it; a zone off to the side is ignored', () => {
     const xcard = { left: 300, right: 372, top: 740, bottom: 784 };
     // opener near the top opening down: the card is the floor
+    // (A10 step 11 round 5, a named exception: this popover used to be CAPPED at the card's top, 740 - 6 - 150 = 584px; it now SLIDES clear of the card (see the slide cases below), so the card
+    // is still never covered and the popover keeps the room. The cap is what remains where it cannot slide: a zone as wide as the screen.)
     const down = computePlacement(opener(100, 280), { width: 200, height: 900 }, view, [xcard], 'bottom', 800);
-    expect(down.maxHeight).toBe(740 - 6 - (144 + 6));
+    expect(down.left + 200 <= 300 - 6 || down.left >= 372 + 6).toBe(true);
+    const wide = { left: 0, right: 400, top: 740, bottom: 784 };
+    expect(computePlacement(opener(100, 280), { width: 200, height: 900 }, view, [wide], 'bottom', 800).maxHeight).toBe(740 - 6 - (144 + 6));
     // the same popover over to the left of it (no horizontal overlap): the screen edge is the floor
     const clear = computePlacement(opener(100, 10), { width: 200, height: 900 }, view, [xcard], 'bottom', 800);
     expect(clear.maxHeight).toBe(800 - 6 - 150);
     // a zone ABOVE the opener bounds a popover opening up
     const header = { left: 0, right: 400, top: 0, bottom: 60 };
     expect(computePlacement(opener(500), { width: 200, height: 900 }, view, [header], 'top', 800).maxHeight).toBe(500 - 6 - 66);
+  });
+});
+
+describe('computePlacement: SLIDING clear of a passthrough zone that overlaps the popover in x (A10 step 11 round 5: the Roll popover in a fight at 960x475, the X-card above the composer)', () => {
+  // a 960-wide screen: the composer's Roll at x 265, y 408..452 (page bottom 475); the X-card above it at x 500..800, y 350..394, so the room above Roll under the card was 13px
+  const wide = { left: 0, top: 0, width: 960, height: 475 };
+  const roll = { left: 265, right: 361, top: 408, bottom: 452 };
+  const card = { left: 500, right: 800, top: 350, bottom: 394 };
+  it('a popover that would be capped to a sliver by the card slides to its LEFT, keeps its height, and never touches the card', () => {
+    const p = computePlacement(roll, { width: 318, height: 339 }, wide, [card], 'auto', 475);
+    expect(p.side).toBe('top');
+    expect(p.maxHeight).toBeGreaterThanOrEqual(339); // the room is the whole content or more: the card no longer caps it
+    expect(p.left).toBe(500 - 6 - 318); // 176: the smaller move (the right side is 541px away)
+    expect(p.left + 318).toBeLessThanOrEqual(500 - 6);
+    // control: the same card with no room on either side of it (it spans the screen) still CAPS the popover, and it does not slide
+    const capped = computePlacement(roll, { width: 318, height: 339 }, wide, [{ left: 0, right: 960, top: 350, bottom: 394 }], 'auto', 475);
+    expect(capped.left).toBe(265);
+    expect(capped.maxHeight).toBeLessThan(339);
+  });
+  it('slides RIGHT when the left has no room, by the smallest move', () => {
+    const p = computePlacement({ ...roll, left: 20, right: 116 }, { width: 318, height: 339 }, wide, [{ left: 10, right: 340, top: 350, bottom: 394 }], 'auto', 475);
+    expect(p.left).toBe(346);
+    expect(p.maxHeight).toBeGreaterThanOrEqual(339);
+  });
+  it('does not move a popover that already fits where it is, though the card overlaps it in x (the room above the card\'s own bottom is enough)', () => {
+    const high = { left: 500, right: 800, top: 0, bottom: 44 }; // room above Roll under it: 408 - 6 - 50 = 352 >= 339
+    const p = computePlacement(roll, { width: 318, height: 339 }, wide, [high], 'auto', 475);
+    expect(p.left).toBe(265);
+    expect(p.maxHeight).toBe(352);
+  });
+  it('a card that does not overlap the popover in x never moves it', () => {
+    const p = computePlacement(roll, { width: 200, height: 339 }, wide, [card], 'auto', 475);
+    expect(p.left).toBe(265);
   });
 });
 

@@ -29,7 +29,8 @@ import { consumeEscape } from './escapeConsume';
  *   iOS keyboard move it: the layout viewport is not the screen). Re-placed on window `resize` and `scroll` and on `visualViewport`
  *   `resize` and `scroll` (Tora C2: iOS fires no window `resize` when the keyboard retracts, and tapping Roll from a focused composer
  *   blurs the textarea). It NEVER covers an element marked `data-popover-passthrough` (the X-card): the popover's height is clamped so the
- *   two do not intersect, whichever side it opens on (including one BESIDE the opener, on its row). Nothing here names a tenant. When clamped it scrolls inside
+ *   two do not intersect, whichever side it opens on (including one BESIDE the opener, on its row), and where such an element overlaps it in x and would cap its height, the popover SLIDES
+ *   sideways to stand clear of it (to either side, the smaller move) before it is capped (A10 step 11 round 5: the X-card sits above the composer in a fight). Nothing here names a tenant. When clamped it scrolls inside
  *   (`overscroll-behavior: contain`, with the shared scroll cue in AnchoredPopover.module.css).
  *
  * DISMISSAL (Tora C1, a safety rule). An outside press closes on `click`, never on `pointerdown` / `touchstart` (a pointer-down close
@@ -175,37 +176,54 @@ export function computePlacement(
 ): Placed {
   const maxWidth = Math.max(0, view.width - 2 * EDGE);
   const w = Math.min(natural.width, maxWidth);
-  const left = Math.max(view.left + EDGE, Math.min(opener.left, view.left + view.width - w - EDGE));
-  const right = left + w;
-  const overlapsX = (z: { left: number; right: number }) => z.right > left && z.left < right;
-  // The vertical room on each side: to the screen edge, or to the nearest passthrough element on that side that the popover would run into.
-  // A zone BESIDE the opener (it shares the opener's row: the Cast button and the X-card block, A9d-2 N8) is on neither side, yet a popover
-  // as wide as the gap between them would run over it: the opener's edge is extended to the zone's on whichever side the popover opens,
-  // so the popover stands clear of the zone and the opener alike.
-  let ot = opener.top;
-  let ob = opener.bottom;
-  let topLimit = view.top + EDGE;
-  let bottomLimit = view.top + view.height - EDGE;
-  for (const z of zones) {
-    if (!overlapsX(z)) continue;
-    if (z.bottom <= opener.top + 1) topLimit = Math.max(topLimit, z.bottom + GAP);
-    else if (z.top >= opener.bottom - 1) bottomLimit = Math.min(bottomLimit, z.top - GAP);
-    else {
-      ot = Math.min(ot, z.top);
-      ob = Math.max(ob, z.bottom);
-    }
-  }
-  const roomAbove = Math.max(0, ot - GAP - topLimit);
-  const roomBelow = Math.max(0, bottomLimit - (ob + GAP));
+  const minLeft = view.left + EDGE;
+  const maxLeft = view.left + view.width - w - EDGE;
+  const left0 = Math.max(minLeft, Math.min(opener.left, maxLeft));
   // `cap`: a consumer that wants its popover no taller than this (it scrolls inside beyond it), so a tall one does not run over the page's
   // lower controls. The side is chosen for the height it will actually be.
   const want = Math.min(natural.height, cap);
-  const chosen: 'top' | 'bottom' =
-    side === 'top' ? 'top' : side === 'bottom' ? 'bottom' : want <= roomAbove ? 'top' : want <= roomBelow ? 'bottom' : roomAbove >= roomBelow ? 'top' : 'bottom';
-  const maxHeight = Math.min(chosen === 'top' ? roomAbove : roomBelow, cap);
-  return chosen === 'top'
-    ? { left, bottom: viewportHeight - ot + GAP, maxHeight, maxWidth, side: chosen }
-    : { left, top: ob + GAP, maxHeight, maxWidth, side: chosen };
+  // The whole placement at one horizontal position: the vertical room on each side, to the screen edge or to the nearest passthrough element on that side that the popover would run into.
+  // A zone BESIDE the opener (it shares the opener's row: the Cast button and the X-card block, A9d-2 N8) is on neither side, yet a popover
+  // as wide as the gap between them would run over it: the opener's edge is extended to the zone's on whichever side the popover opens,
+  // so the popover stands clear of the zone and the opener alike.
+  const at = (left: number) => {
+    const right = left + w;
+    const overlapsX = (z: { left: number; right: number }) => z.right > left && z.left < right;
+    let ot = opener.top;
+    let ob = opener.bottom;
+    let topLimit = view.top + EDGE;
+    let bottomLimit = view.top + view.height - EDGE;
+    for (const z of zones) {
+      if (!overlapsX(z)) continue;
+      if (z.bottom <= opener.top + 1) topLimit = Math.max(topLimit, z.bottom + GAP);
+      else if (z.top >= opener.bottom - 1) bottomLimit = Math.min(bottomLimit, z.top - GAP);
+      else {
+        ot = Math.min(ot, z.top);
+        ob = Math.max(ob, z.bottom);
+      }
+    }
+    const roomAbove = Math.max(0, ot - GAP - topLimit);
+    const roomBelow = Math.max(0, bottomLimit - (ob + GAP));
+    const chosen: 'top' | 'bottom' =
+      side === 'top' ? 'top' : side === 'bottom' ? 'bottom' : want <= roomAbove ? 'top' : want <= roomBelow ? 'bottom' : roomAbove >= roomBelow ? 'top' : 'bottom';
+    return { left, chosen, ot, ob, maxHeight: Math.min(chosen === 'top' ? roomAbove : roomBelow, cap) };
+  };
+  let best = at(left0);
+  // SLIDE (A10 step 11 round 5, the Roll popover in a fight at 960x475): a passthrough element that overlaps the popover in x caps its height to the sliver between the zone and the opener
+  // (13px: the X-card sits just above the composer in a fight). Rather than capping, the popover moves sideways to stand clear of the zone, to either side of it, when that gives it more
+  // height; the smallest move wins, and a popover that already fits where it is, or has nowhere to go, does not move.
+  if (best.maxHeight < want - 0.5) {
+    for (const z of zones) {
+      for (const cand of [z.left - GAP - w, z.right + GAP]) {
+        if (cand < minLeft - 0.5 || cand > maxLeft + 0.5) continue;
+        const t = at(cand);
+        if (t.maxHeight > best.maxHeight + 0.5 || (Math.abs(t.maxHeight - best.maxHeight) <= 0.5 && t.maxHeight > 0 && Math.abs(cand - left0) < Math.abs(best.left - left0))) best = t;
+      }
+    }
+  }
+  return best.chosen === 'top'
+    ? { left: best.left, bottom: viewportHeight - best.ot + GAP, maxHeight: best.maxHeight, maxWidth, side: best.chosen }
+    : { left: best.left, top: best.ob + GAP, maxHeight: best.maxHeight, maxWidth, side: best.chosen };
 }
 
 export function useAnchoredPopover({
