@@ -2,6 +2,18 @@ import { type IconName, ICON_PATHS } from '@/components/icons';
 
 export type { IconName };
 
+/**
+ * A STABLE `{ __html }` object per icon: React re-applies `innerHTML` whenever the prop is a new object, so a fresh literal on every render rebuilt the svg's children (a childList mutation in
+ * whatever holds the icon: the stage's `role="status"` node mutated on every re-render of the stage, which a quiet scene line must not cause; B8c-3 M2, board-line-quiet). A module-level cache,
+ * not a hook: this component is rendered from server components too.
+ */
+const HTML_BY_NAME = new Map<string, { __html: string }>();
+function htmlOf(name: string, paths: string): { __html: string } {
+  let h = HTML_BY_NAME.get(name);
+  if (!h || h.__html !== paths) { h = { __html: paths }; HTML_BY_NAME.set(name, h); }
+  return h;
+}
+
 export interface IconProps {
   name: IconName;
   /** Rendered size in px. Default: 24 */
@@ -41,6 +53,7 @@ export default function Icon({
   className,
 }: IconProps) {
   const paths = ICON_PATHS[name];
+  const html = htmlOf(name, paths);
   const accessibleLabel = title ?? label;
   const isDecorative = !accessibleLabel;
 
@@ -62,7 +75,7 @@ export default function Icon({
       className={className}
       {...svgProps}
        
-      dangerouslySetInnerHTML={{ __html: paths }}
+      dangerouslySetInnerHTML={html}
     />
   );
 }
