@@ -2657,6 +2657,17 @@ export interface NpcActionRequest {
   target_id?: string;
 }
 
+/**
+ * Request body for POST /api/dnd/combat/{combatId}/move (B8c-3 M3, Sora's brief 3 and 5): the client PREVIEWS, the server decides. Exactly these three keys and nothing else: the proxy injects the
+ * actor's username from the cookie (never sent from here), and the combat id is in the URL. `from` is the mover's `at` AS THE PAGE DREW IT: the engine's write is a compare-and-set on it, so a
+ * stale `from` is a 409 `position_changed`, never a silent move.
+ */
+export interface MoveRequest {
+  participant_id: string;
+  from: SpaceCoordinate;
+  to: SpaceCoordinate;
+}
+
 /** Response from POST /api/dnd/combat/{id}/npc-action. */
 export interface NpcActionResult {
   message?: string;

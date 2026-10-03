@@ -64,3 +64,11 @@ export function moveRows(seen: MoveSeen | null, state: CombatState): { rows: str
     seen: { combatId: state.combat_id, turn, at: squares(state) },
   };
 }
+
+/**
+ * The mover's own seat (B8c-3 M3): its landed move writes ITS row at the 200, so the square is ACCOUNTED FOR then: the boundary that follows compares against it and writes no second row
+ * for the same creature. A `seen` that does not exist yet (no state seeded) stays absent; the hook never invents one.
+ */
+export function accountMove(seen: MoveSeen | null, participantId: string, to: SpaceCoordinate): MoveSeen | null {
+  return seen ? { ...seen, at: { ...seen.at, [participantId]: to } } : seen;
+}
