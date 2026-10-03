@@ -27,6 +27,16 @@
   animation: narr-fade 0.18s ease-out;
 }
 
+.combatLine {
+  /* One line, always: the fight's banner holds the strip at its 56px so the
+     action bar and the X-card never move on a long turn order. The full text
+     stays in the DOM (and in `title`). */
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .idle {
   /* --ink-2 not --ink-3: --ink-3 fails AA (~4.0–4.5:1) on the accent-tinted
      strip across all four palettes; --ink-2 clears it everywhere (Iro S3.3). */
