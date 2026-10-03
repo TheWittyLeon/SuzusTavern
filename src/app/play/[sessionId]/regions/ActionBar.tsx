@@ -30,13 +30,14 @@
  * minus combat" end state (plan §2.3's `Composer` row) are both step
  * 6/11 territory (S3 pause), not this commit.
  */
-import { useEffect, useId, useRef, useState, type RefObject } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type Ref, type RefObject } from 'react';
 import Icon from '@/components/Icon';
 import { consumeEscape } from '@/lib/a11y/escapeConsume';
 import { useAnchoredPopover } from '@/lib/a11y/useAnchoredPopover';
 import styles from '@/components/Composer.module.css';
 import popoverStyles from '@/components/AnchoredPopover.module.css';
 import type { RegionVariant } from '../variants';
+import type { MoveControl } from '../hooks/useBoard';
 
 export type CombatAction = 'attack' | 'dodge' | 'dash' | 'endturn' | 'deathsave';
 
@@ -46,8 +47,6 @@ export interface CombatTarget {
   hp?: number | null;
   maxHp?: number | null;
 }
-
-import type { MoveControl } from '../hooks/useBoard';
 
 export interface ActionBarProps {
   targets: CombatTarget[];
@@ -96,7 +95,7 @@ export interface ActionBarProps {
    *  sixth control with a FIXED name, `aria-pressed` for its state, native `disabled` like every other verb (off turn, no feet, busy, session locked), placed before End turn. */
   move?: MoveControl;
   /** The Move button's ref (a separate prop: see useBoard). */
-  moveButtonRef?: RefObject<HTMLButtonElement | null>;
+  moveButtonRef?: Ref<HTMLButtonElement>;
 }
 
 /** Gap between the Attack button and its target menu, and the viewport margin. */
@@ -158,6 +157,14 @@ export default function ActionBar({
       return () => clearTimeout(t);
     }
     prevNotYourTurnRef.current = notYourTurn;
+  }, [notYourTurn]);
+
+  // B8c-3 (Iro): when the turn passes while a verb holds focus, the verb is disabled under the user and focus falls to <body>. One rule for the whole verb row (Dodge, Move, and the rest): the commit that
+  // disables it moves focus to this container instead, in the same frame, so a keyboard user is never stranded. Runs only on the turn flip, so a verb that is merely busy keeps its focus.
+  useLayoutEffect(() => {
+    if (!notYourTurn) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLButtonElement && active.disabled && railRef.current?.contains(active)) railRef.current.focus({ preventScroll: true });
   }, [notYourTurn]);
 
   const fire = (a: CombatAction, payload?: string) => {

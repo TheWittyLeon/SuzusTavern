@@ -456,6 +456,11 @@ export interface LayoutRow {
    * the desktop rows are untouched. Absent = no cue.
    */
   scrollCue?: boolean;
+  /**
+   * B8c-3 (Tora, gate before P1): a row opts IN to the map's Move verb. Absent = no Move in the bar, whatever the stage shows. Story and
+   * Table set it; the phone row does not until P3 lands the selection seam (a thumb must not commit a move on one tap).
+   */
+  boardMove?: boolean;
   regions: Record<RegionId, Partial<Record<Moment, Placement>> & { default: Placement }>;
 }
 
@@ -654,6 +659,7 @@ const FIGHT_COMPOSER_VARS = { '--play-composer-pad': 'var(--space-3)', '--play-c
 
 const STORY_ROW: LayoutRow = {
   id: 'story',
+  boardMove: true,
   columns: {
     // Amendment B §5 "aiOff edge": column 1 is `suzuPresence`'s track.
     // `TopBar` only renders `NarratorStrip` (and therefore `SuzuDM`) when
@@ -816,6 +822,7 @@ const STORY_ROW: LayoutRow = {
 
 const TABLE_ROW: LayoutRow = {
   id: 'table',
+  boardMove: true,
   columns: {
     // Amendment B §5 "aiOff edge": column 2 is `suzuPresence`'s track —
     // `auto` lets an `ai_assist_level:'off'` session's empty slot collapse

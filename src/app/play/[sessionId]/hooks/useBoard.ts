@@ -9,6 +9,7 @@ import type { LogRow } from '@/components/ChatLog';
 import { isSpaceUsable } from '@/components/tactical-map/reach';
 import { accountMove, moveRowText, moveRows, type MoveSeen } from '@/lib/dnd/moveRows';
 import type { UseCombatStateResult } from './useCombatState';
+import { useStrandedFocusRescue } from './useStrandedFocusRescue';
 import type { StageBoardProps } from '../StageBoard';
 import type { FactValue } from '../presets';
 
@@ -30,6 +31,8 @@ export interface UseBoardArgs {
   room: FactValue<'room'> | undefined;
   /** `variantFor(row, 'sceneStage', moment) === 'hero'`: only a stage with a body can hold a map (F-k: a phone has none yet). */
   stageHasBody: boolean;
+  /** `row.boardMove === true` (presets.ts): the layout row opts in to the Move verb. A row value, never a viewport test; the phone row does not until P3. */
+  moveAllowed: boolean;
   /** The session is paused or ended: no move is offered (the verbs are locked the same way). */
   sessionLocked: boolean;
   appendLog: (row: Omit<LogRow, 'id' | 'ts'>) => void;
@@ -43,7 +46,6 @@ export interface UseBoardArgs {
 export interface MoveControl {
   pressed: boolean;
   disabled: boolean;
-  remainingFt: number;
   onToggle: () => void;
 }
 
@@ -52,8 +54,8 @@ export interface UseBoardResult {
   label: string | undefined;
   /** undefined: no Move is offered (no board served, no body, not my creature, no budget on the wire). */
   bar: MoveControl | undefined;
-  /** The Move button's ref, a SEPARATE field (a ref inside the control object reads as a render-time ref access to the compiler lint). */
-  moveButtonRef: RefObject<HTMLButtonElement | null>;
+  /** The Move button's ref, a SEPARATE field (a ref inside the control object reads as a render-time ref access to the compiler lint). A callback ref: its cleanup is the Move button's unmount, where the stranded-focus rescue is decided. */
+  moveButtonRef: (el: HTMLButtonElement | null) => void | (() => void);
 }
 
 /**
@@ -64,7 +66,7 @@ const DISARMING_REASONS = new Set(['no_movement_remaining', 'not_your_turn', 'no
 /** A refusal that carries no `state` and says the board is gone: re-read the state so the page learns it. */
 const BOARD_GONE_REASONS = new Set(['positioning_disabled', 'not_found']);
 
-export function useBoard({ cs, room, stageHasBody, sessionLocked, appendLog, rescueStrandedFocus, railRef }: UseBoardArgs): UseBoardResult {
+export function useBoard({ cs, room, stageHasBody, moveAllowed, sessionLocked, appendLog, rescueStrandedFocus, railRef }: UseBoardArgs): UseBoardResult {
   const { combatState: state, combatIsActive, selfPcId, round, combatId, combatBusy, combatBusyRef, stateSeqRef, setCombatBusy, setRefusedReason, applyState, refreshState, activeIsMine } = cs;
   const served = combatIsActive && state != null && 'space' in state;
 
@@ -90,8 +92,8 @@ export function useBoard({ cs, room, stageHasBody, sessionLocked, appendLog, res
 
   const hasStage = served && stageHasBody && state != null;
   const mine = hasStage ? state.participants.find((p) => p.participant_id === selfPcId) ?? null : null;
-  // Move is offered where there is a board to pick on (F-k: not on a phone row with no body) and my creature has a square and a budget on the wire.
-  const offered = hasStage && room === 'board' && mine != null && mine.at != null && mine.movement_remaining != null;
+  // Move is offered where there is a board to pick on AND the row offers it (`moveAllowed`; the phone row does not yet) and my creature has a square and a budget on the wire.
+  const offered = hasStage && moveAllowed && room === 'board' && mine != null && mine.at != null && mine.movement_remaining != null;
   const myBudget = mine?.movement_remaining ?? 0;
 
   const [armed, setArmed] = useState(false);
@@ -106,21 +108,30 @@ export function useBoard({ cs, room, stageHasBody, sessionLocked, appendLog, res
 
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   // After a disarm the USER caused (Escape, the last feet spent, a refusal that ends Move): focus goes to the Move button, or, when it is disabled, to the action bar's container; never <body>. A disarm
-  // by a poll (the turn passed) moves nothing: the grid stays, read-only.
+  // by a poll (the turn passed) moves nothing: the grid stays, read-only. And only while focus is still in the grid (or stranded on <body>): a user who has gone on to the composer stays there.
   useEffect(() => {
     if (focusMoveTick === 0) return;
+    const active = document.activeElement;
+    if (active != null && active !== document.body && !active.closest('[role="grid"]')) return;
     const btn = buttonRef.current;
     if (btn && !btn.disabled) btn.focus();
     else railRef.current?.focus();
   }, [focusMoveTick, railRef]);
 
-  // The Move button leaves the bar when the board is gone (a `positioning_disabled` answer, then the state without the key): focus that was ON it falls to <body>. It goes to the action bar's container
-  // instead (the same anchor as a disabled Move), so a keyboard user is never stranded by the board disappearing under them.
-  const wasOffered = useRef(offered);
-  useEffect(() => {
-    if (wasOffered.current && !offered && (document.activeElement === document.body || document.activeElement == null)) railRef.current?.focus();
-    wasOffered.current = offered;
-  }, [offered, railRef]);
+  // The Move button leaves the bar when the board is gone (a `positioning_disabled` answer, then the state without the key): focus that was ON it falls to <body>. The decision is the button's own unmount
+  // cleanup (never a poll-time guess about where focus is), routed through the commit-tied rescue with the action bar's container as the target (the anchor a disabled Move also uses).
+  const rescueToBar = useStrandedFocusRescue(railRef);
+  const bindMoveButton = useCallback(
+    (el: HTMLButtonElement | null) => {
+      if (!el) return;
+      buttonRef.current = el;
+      return () => {
+        rescueToBar(document.activeElement === el);
+        buttonRef.current = null;
+      };
+    },
+    [rescueToBar],
+  );
 
   // The move handler reads everything as it is WHEN IT RUNS (a ref refreshed after each commit), never as it was when it was armed: `from` is the mover's `at` in the state the last render drew.
   const latest = useRef({ state, mine, combatId });
@@ -129,18 +140,26 @@ export function useBoard({ cs, room, stageHasBody, sessionLocked, appendLog, res
   });
   const onMove = useCallback(async (to: SpaceCoordinate) => {
     const { mine: me, combatId: id } = latest.current;
-    if (!id || !me?.at || combatBusyRef.current) return; // the shared latch: a second activation in the same tick returns before any request
+    const from = me?.at;
+    // `from` must be a numeric pair (a garbage `at` on the wire sends nothing: the engine would refuse it, and the token cannot be said to move from nowhere).
+    if (!id || !from || !Array.isArray(from) || from.length !== 2 || !from.every(Number.isFinite) || combatBusyRef.current) return; // the shared latch: a second activation in the same tick returns before any request
     combatBusyRef.current = true;
     stateSeqRef.current += 1; // a poll asked before this is discarded
     setCombatBusy(true);
     setMoveSubmitting(true);
     setRefusedReason(null);
     try {
-      const res = await moveToken(id, { participant_id: me.participant_id, from: me.at, to });
-      if (res.state) applyState(res.state);
-      const landed = res.state?.participants.find((p) => p.participant_id === me.participant_id);
+      const res = await moveToken(id, { participant_id: me.participant_id, from, to });
+      if (!res.state) {
+        // A 200 with no `state` cannot move the token, and a row at the 200 would say "moves" before the map shows it. Re-read instead: the poll's own diff writes the mover's row when the square changes
+        // (nothing was accounted here, so it is not written twice), and `movedSeq` stays put (the map has nothing new to sync to).
+        refreshState();
+        return;
+      }
+      applyState(res.state);
+      const landed = res.state.participants.find((p) => p.participant_id === me.participant_id);
       seenRef.current = accountMove(seenRef.current, me.participant_id, landed?.at ?? to);
-      appendRef.current({ who: 'Suzu', kind: 'system', text: moveRowText(me.name) }); // the mover's one row, at the 200; no narration beat
+      appendRef.current({ who: 'Suzu', kind: 'system', text: moveRowText(me.name) }); // the mover's one row, at the 200 that carries the state; no narration beat
       setMovedSeq((n) => n + 1);
       if ((landed?.movement_remaining ?? 1) <= 0) setFocusMoveTick((t) => t + 1);
     } catch (err) {
@@ -167,7 +186,7 @@ export function useBoard({ cs, room, stageHasBody, sessionLocked, appendLog, res
   const onToggle = useCallback(() => setArmed((a) => !a), []);
 
   return useMemo<UseBoardResult>(() => {
-    if (!hasStage) return { stage: null, label: undefined, bar: undefined, moveButtonRef: buttonRef };
+    if (!hasStage) return { stage: null, label: undefined, bar: undefined, moveButtonRef: bindMoveButton };
     return {
       stage: {
         space: state.space,
@@ -184,8 +203,8 @@ export function useBoard({ cs, room, stageHasBody, sessionLocked, appendLog, res
         movedSeq,
       },
       label: isSpaceUsable(state.space) ? 'Tactical map' : undefined,
-      bar: offered ? { pressed: moveMode, disabled: !canMove || moveSubmitting, remainingFt: myBudget, onToggle } : undefined,
-      moveButtonRef: buttonRef,
+      bar: offered ? { pressed: moveMode, disabled: !canMove || moveSubmitting, onToggle } : undefined,
+      moveButtonRef: bindMoveButton,
     };
-  }, [hasStage, state, selfPcId, round, showReach, rescueStrandedFocus, moveMode, moveSubmitting, onMove, onExitMove, movedSeq, offered, canMove, myBudget, onToggle]);
+  }, [hasStage, state, selfPcId, round, showReach, rescueStrandedFocus, moveMode, moveSubmitting, onMove, onExitMove, movedSeq, offered, canMove, onToggle, bindMoveButton]);
 }
