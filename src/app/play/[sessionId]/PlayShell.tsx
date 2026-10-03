@@ -172,7 +172,9 @@ const LANDMARKS: Partial<Record<RegionId, LandmarkSpec>> = {
 
 /** The name of a region whose slot is a bounded scroller (`Placement.scrolls`): a named, keyboard-reachable group (A10 step 11 round 3). Not a landmark: the landmark count is a contract (LANDMARKS). */
 export const SCROLL_REGION_NAMES: Partial<Record<RegionId, string>> = {
-  characterBlock: 'Character sheet',
+  // One name per role (Iro, round 5): the dock's handle is "Character sheet" and its region is "Character sheet: <name>", so the SCROLLER is named for what it is, a scroll area, and a screen
+  // reader does not hear the same three words in a row.
+  characterBlock: 'Character sheet scroll area',
 };
 
 /** In-page skip targets beyond the global "Skip to main content" (layout.tsx).
@@ -203,8 +205,16 @@ export default function PlayShell({
   // commit and on resize, WITH NO BANNER RAISED: the yield changes the answer, so a banner up leaves the last stamp alone. jsdom reads 0
   // and 0, so the stamp is absent there and no jsdom suite sees it. No shell rule names a viewport height.
   const [scrolls, setScrolls] = useState(false);
+  // debt: the story slot (the `main` landmark) is a nested SCROLLER only while the human DM's combat panel is in it (Play.module.css `.slotStack:has(> [data-region="tableControlsDm"])`), so it is named
+  // and made a keyboard stop only then, found by that marker in the DOM. ceiling: this one node; no other tenant of the story slot makes it scroll.
+  // until: play-shell step 10 moves the DM panel into a layer (the Drawer): the story slot never scrolls again and this state and its two attributes go.
+  const [dmStack, setDmStack] = useState(false);
   const measureFit = useCallback(() => {
     const root = rootRef.current;
+    if (root) {
+      const has = root.querySelector(':scope > [data-region-slot="storyLog"] > [data-region="tableControlsDm"]') != null;
+      setDmStack((prev) => (prev === has ? prev : has));
+    }
     if (!root || root.querySelector(':scope > [data-region-slot="safetyBanner"] > :not(:empty)')) return;
     const next = root.scrollHeight > root.clientHeight + 1;
     setScrolls((prev) => (prev === next ? prev : next));
@@ -290,9 +300,10 @@ export default function PlayShell({
       <Tag
         key={regionId}
         id={landmark?.id ?? SKIP_TARGETS[regionId]?.id}
-        tabIndex={landmark?.tabIndex ?? (SKIP_TARGETS[regionId] ? -1 : scrollName ? 0 : undefined)}
+        tabIndex={regionId === 'storyLog' && dmStack ? 0 : landmark?.tabIndex ?? (SKIP_TARGETS[regionId] ? -1 : scrollName ? 0 : undefined)}
         role={scrollName ? 'group' : undefined}
-        aria-label={landmark?.['aria-label'] ?? scrollName}
+        aria-label={regionId === 'storyLog' && dmStack ? 'Story and DM controls' : landmark?.['aria-label'] ?? scrollName}
+        data-scroll-stop={scrollName || (regionId === 'storyLog' && dmStack) ? '' : undefined}
         className={slotClass}
         style={area == null ? undefined : { gridArea: area }}
         data-region-slot={regionId}

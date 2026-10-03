@@ -297,6 +297,13 @@
   background-attachment: local, local, scroll, scroll;
 }
 
+/* A keyboard stop that is a bounded scroller (the character sheet's slot; the story slot while the DM panel is in it) draws its focus ring INSIDE its box (A10 step 11 round 5, Kage Tavern 1 =
+   Iro MINOR-A): the slot sits flush to the viewport's top and right edges and to `.grid`'s `overflow-x: clip`, so a ring drawn outside it (2px + 2px offset) was shaved in every Table cell,
+   combat included. `data-scroll-stop` is stamped by the shell on exactly the slots it makes a stop, so the next scrolling region needs no CSS. */
+.slot[data-scroll-stop]:focus-visible {
+  outline-offset: calc(-1 * var(--focus-ring-width));
+}
+
 /* A9c-2 fix round 1 (Kage IMPORTANT-1): an always-mounted announcer tenant with no
    text (`deadStatus`, `durableRetryRow`, the recap wrapper) is a zero-height flex
    ITEM, and a flex `gap` is paid per item, not per pixel: an empty `deadStatus`

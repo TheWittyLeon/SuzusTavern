@@ -873,7 +873,21 @@ describe('TAV-PLAY-SHELL presets.ts — the track classes: every track of a floo
   const FLOOR = /^minmax\(var\(--play-floor,(\d+px|calc\(\d+px \+ 3 \* var\(--density-gap\) \+ \d+px\))\),1fr\)$/;
   // OPTIONAL is defined by what a track READS (Kage suggestion 6, made at the replay): its growth limit is `--play-body` or `--play-optional`, whatever its floor is spelled (a px number, the body's
   // floor variable, the phone's `var(--play-party-min,91px)`). `--play-body-floor` as the LIMIT is not it (that was the control: a body track that reads only the floor).
-  const OPTIONAL = [/^minmax\(.+,var\(--play-(body|optional),[^)]*\)\)$/];
+  // The limit is found by PARSING the minmax (A10 step 11 round 5, Kage suggestion 4): the phone mount's planned `minmax(Npx,var(--play-optional,var(--play-body,0px)))` ends in three closing
+  // parens, which a `[^)]*` fallback cannot read. Split at the top-level comma (brackets counted), take the second part, and ask whether it is a `var()` of the body or optional variable.
+  const limitOf = (t: string): string | null => {
+    const m = /^minmax\((.*)\)$/.exec(t);
+    if (!m) return null;
+    let depth = 0;
+    for (let i = 0; i < m[1].length; i++) {
+      const c = m[1][i];
+      if (c === '(') depth++;
+      else if (c === ')') depth--;
+      else if (c === ',' && depth === 0) return m[1].slice(i + 1);
+    }
+    return null;
+  };
+  const isOptional = (t: string) => /^var\(--play-(body|optional),/.test(limitOf(t) ?? '') && /\)$/.test(limitOf(t) ?? '');
   const readsBodyFloor = (t: string) => /var\(--play-body-floor[,)]/.test(t);
   const classProblems = (rows: readonly LayoutRow[]) =>
     rows.flatMap((row) =>
@@ -882,12 +896,12 @@ describe('TAV-PLAY-SHELL presets.ts — the track classes: every track of a floo
         const at = `${row.id}/${m}`;
         if (!tracks.some((t) => FLOOR.test(t))) {
           // a row x moment with no floored log is not class-based (Story exploring, today): unless it has an optional track, which only means anything beside a floor (the grid hands spare room to it before the log grows)
-          return tracks.some((t) => OPTIONAL.some((re) => re.test(t))) ? [`${at}: a body or band that yields and a log with no floor (minmax(var(--play-floor,Npx),1fr))`] : [];
+          return tracks.some(isOptional) ? [`${at}: a body or band that yields and a log with no floor (minmax(var(--play-floor,Npx),1fr))`] : [];
         }
         const out: string[] = [];
         if (tracks.filter((t) => FLOOR.test(t)).length !== 1) out.push(`${at}: more than one floor track (the log is the one floor)`);
         tracks.forEach((t, i) => {
-          if (!WHOLE.test(t) && !FLOOR.test(t) && !OPTIONAL.some((re) => re.test(t))) out.push(`${at}: track ${i} "${t}" is not one of the three classes (whole max-content, floor minmax(var(--play-floor,..),1fr), optional): a scroller's automatic minimum is 0, so the grid would squeeze it`);
+          if (!WHOLE.test(t) && !FLOOR.test(t) && !isOptional(t)) out.push(`${at}: track ${i} "${t}" is not one of the three classes (whole max-content, floor minmax(var(--play-floor,..),1fr), optional): a scroller's automatic minimum is 0, so the grid would squeeze it`);
         });
         if (!row.momentVars?.[m]?.['--play-banner-floor']) out.push(`${at}: no --play-banner-floor for the log's yield`);
         if (tracks.some(readsBodyFloor)) {
@@ -901,6 +915,16 @@ describe('TAV-PLAY-SHELL presets.ts — the track classes: every track of a floo
         return out;
       }),
     );
+
+  it('the OPTIONAL class parses a nested var() fallback (the phone mount\'s planned spelling) and still refuses a track that reads only the body FLOOR', () => {
+    expect(isOptional('minmax(91px,var(--play-optional,auto))')).toBe(true);
+    expect(isOptional('minmax(var(--play-body-floor,0px),var(--play-body,0px))')).toBe(true);
+    expect(isOptional('minmax(100px,var(--play-optional,var(--play-body,0px)))')).toBe(true);
+    expect(isOptional('minmax(var(--play-party-min,91px),var(--play-optional,var(--play-body,calc(10px + var(--x,1px)))))')).toBe(true);
+    expect(isOptional('minmax(0,var(--play-body-floor,0px))')).toBe(false);
+    expect(isOptional('minmax(0,1fr)')).toBe(false);
+    expect(isOptional('max-content')).toBe(false);
+  });
 
   it('every row x moment with a floored log has only whole, floor and optional tracks, a banner floor, and a floor for every room where it has a body', () => {
     expect(classProblems(LAYOUT_ROWS)).toEqual([]);
