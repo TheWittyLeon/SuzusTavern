@@ -40,6 +40,7 @@ jest.mock('../../app/play/[sessionId]/format', () => ({ ...jest.requireActual('.
 import * as dnd from '@/lib/api/dnd';
 import { streamDmNarration } from '@/lib/stream';
 import PlayPage from '@/app/play/[sessionId]/page';
+import { LAYOUT_ROWS_BY_ID } from '@/app/play/[sessionId]/presets';
 
 const SPACE: CombatSpace = { kind: 'square', width: 13, height: 7, cell: { value: 5, unit: 'ft' }, blocked: [[5, 2]], features: [] };
 const SESSION: Session = { session_id: 's1', channel: 'c', name: 'Test Table', status: 'active', dm_username: 'suzu', participant_usernames: ['leon'], player_count: 1, active_combat_id: null, dm_mode: 'ai', ai_assist_level: 'off' };
@@ -321,6 +322,20 @@ describe('an observer never moves', () => {
   });
 });
 
+describe('a move in flight', () => {
+  it('disables the Move button (native disabled, still pressed) until the answer, then it is enabled again with feet left', async () => {
+    const hold = deferred<{ message: string; state: CombatState }>();
+    (dnd.moveToken as jest.Mock).mockReturnValue(hold.promise);
+    await load();
+    await armAndStep();
+    key('Enter');
+    await waitFor(() => expect(moveBtn()).toBeDisabled());
+    expect(moveBtn()).toHaveAttribute('aria-pressed', 'true');
+    hold.resolve(landed(combat({ pc: { at: [2, 3], movement_remaining: 25 } })));
+    await waitFor(() => expect(moveBtn()).toBeEnabled());
+  });
+});
+
 describe('a disarm moves focus only while focus is in the grid', () => {
   it('a refusal that ends Move, arriving after the user went to the composer, leaves focus in the composer', async () => {
     const hold = deferred<{ message: string; state: CombatState }>();
@@ -338,14 +353,18 @@ describe('a disarm moves focus only while focus is in the grid', () => {
 
 describe('the phone row', () => {
   const real = window.matchMedia;
-  afterEach(() => { window.matchMedia = real; });
-  it('has no Move (a row value, not the stage: the row opts in and the phone row does not), though the same fight offers it on a desktop row', async () => {
+  const phoneStage = LAYOUT_ROWS_BY_ID.phone.regions.sceneStage as { combat?: { area: string; variant?: string } };
+  const had = phoneStage.combat;
+  afterEach(() => { window.matchMedia = real; if (had) phoneStage.combat = had; else delete phoneStage.combat; });
+  it('has no Move even when its stage HAS a body (the row opts in, the stage does not decide): the board is drawn and the bar has no Move', async () => {
     const { PLAY_PHONE_QUERY } = jest.requireActual('../../lib/breakpoints') as { PLAY_PHONE_QUERY: string };
     window.matchMedia = jest.fn().mockImplementation((query: string) => ({ matches: query === PLAY_PHONE_QUERY, media: query, onchange: null, addEventListener: jest.fn(), removeEventListener: jest.fn(), dispatchEvent: jest.fn() }));
+    phoneStage.combat = { area: 'sceneStage', variant: 'hero' }; // what P1 will do to the phone row: the control is that the board shows up
     (dnd.getCombatState as jest.Mock).mockResolvedValue(combat());
     renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
     await screen.findByText(/In combat/);
+    await waitFor(() => expect(screen.queryAllByRole('gridcell').length).toBeGreaterThan(0));
     expect(screen.queryByRole('button', { name: 'Move' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Dodge' })).toBeInTheDocument();
   });
