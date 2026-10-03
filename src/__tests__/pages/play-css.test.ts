@@ -295,14 +295,12 @@ describe('Play.module.css', () => {
       expect(text).toMatch(/\.topBarCompact \.sessionTitleWrap\s*\{[^}]*min-width:\s*0/);
     });
 
-    it('below 367px the compact header splits its line: the title wrapper takes a full row of its own after the controls (the pill no longer crosses the journal toggle)', () => {
+    it('the compact header WRAPS BY ITSELF (A10 step 11 tail, S3; named exception: a `@media (max-width: 366px)` split with `order: 1` on the title was the hand-derived pin here): the head wraps and the title wrapper has a minimum basis in rem; no viewport width is named', () => {
       const text = strip(css);
-      const start = text.indexOf('@media (max-width: 366px) {');
-      expect(start).toBeGreaterThan(-1);
-      const rest = text.slice(start, text.indexOf('\n}', start));
-      expect(rest).toMatch(/\.topBarCompact \.sessionHead\s*\{[^}]*flex-wrap:\s*wrap/);
-      expect(rest).toMatch(/\.topBarCompact \.sessionTitleWrap\s*\{[^}]*order:\s*1;[^}]*flex:\s*1 0 100%/);
-      expect(rest).toMatch(/\.topBarCompact \.journalToggleBtn\s*\{[^}]*margin-left:\s*auto/);
+      expect(text).not.toMatch(/@media\s*\(max-width:\s*366px\)/);
+      expect(text).not.toMatch(/\.topBarCompact \.sessionTitleWrap\s*\{[^}]*order:\s*1/);
+      expect(text).toMatch(/\.topBarCompact \.sessionHead\s*\{[^}]*flex-wrap:\s*wrap/);
+      expect(text).toMatch(/\.topBarCompact \.sessionTitleWrap\s*\{[^}]*flex:\s*1 1 5rem/);
     });
 
     it('below 480px the pill stacks under the title and the AI-off pill stacks with it, its round lead clipped (A9d-1 lever 4); it is a viewport @media, never a container query on the content-sized Table bar', () => {

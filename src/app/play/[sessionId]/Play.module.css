@@ -517,27 +517,16 @@
     white-space: nowrap;
   }
 }
-/* Below 367px the EXPLORING pill (103px) no longer fits beside the controls under a
-   title that ellipsises: measured, it ran across the journal toggle (7px at 390 and
-   22px at 375 with the old 22px slot inset; over both buttons at 320). The line is
-   split instead: exit and the two toggles on the first, the title and its pill on a
-   second that takes the full width. 367 is where the title wrapper still leaves the
-   pill room: wrapper = viewport - 24 (slot inset) - 56 (presence column) - 26 (bar
-   padding) - 138 (three 46px controls) - 30 (gaps) = viewport - 274, and the pill may
-   spill into the 10px gap beside it, so it fits while viewport - 274 + 10 >= 103.
-   The 375 and 390 sizes keep one line; no fit-class cell pays a second one. */
-@media (max-width: 366px) {
-  .topBarCompact .sessionHead {
-    flex-wrap: wrap;
-    row-gap: var(--space-3);
-  }
-  .topBarCompact .sessionTitleWrap {
-    order: 1;
-    flex: 1 0 100%;
-  }
-  .topBarCompact .journalToggleBtn {
-    margin-left: auto;
-  }
+/* The compact header WRAPS BY ITSELF (A10 step 11 tail, S3; Kage A9d-1 S3, Sora's stage-sizing brief F-h): the head is a wrapping flex row and the title's wrapper has a MINIMUM BASIS in rem, so the line breaks
+   where the title and its pill would be squeezed under that basis and nowhere else. It replaces a hand-derived `@media (max-width: 366px)` split (the EXPLORING pill, 103px, against
+   viewport - 274 + 10: a copy of arithmetic about three other boxes, in a viewport query, that put the title and pill on a second line at 360 wide and cost every 360 phone 52px in every
+   state). At 360 the title now has 86px and keeps the line; at 320 (46px) the last control wraps to a second line. A rem basis, so a larger text size wraps earlier. */
+.topBarCompact .sessionHead {
+  flex-wrap: wrap;
+  row-gap: var(--space-3);
+}
+.topBarCompact .sessionTitleWrap {
+  flex: 1 1 5rem;
 }
 
 /* ── right pane ── */
