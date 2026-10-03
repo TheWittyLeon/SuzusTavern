@@ -171,10 +171,8 @@
   min-width: 0;
 }
 
-.field .input {
-  /* the field's width is the textarea's: it fills it, as it filled the row before it had a wrapper */
-  width: 100%;
-}
+/* (A10 step 11 round 5, Miko: `.field .input { width: 100% }` was DEAD CSS and is gone. `.input` is `flex: 1` (flex-basis 0%), and flex-basis beats `width` on the main axis, so the textarea fills
+   its field without it: measured 564/564 and 104/104 (textarea/field) with and without the rule, in Chromium and WebKit. The harness's lock leg now measures the text box against its field.) */
 
 .input[aria-disabled='true'] {
   padding-inline-end: 28px;
