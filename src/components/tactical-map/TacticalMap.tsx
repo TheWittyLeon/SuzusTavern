@@ -696,6 +696,7 @@ export default function TacticalMap({
     activeParticipant ? `. ${activeParticipant.name}'s turn${activeParticipant.movement_remaining == null ? '' : `, ${activeMovementRemaining} feet remaining`}` : ''
   }`;
 
+  // debt: every pointer commits a move at once on one tap or click, touch laptops included (no select-then-confirm step). ceiling: a mis-tap sends a real move; the engine refuses an illegal one but a legal wrong square lands. until: P3 lands the selection seam (Go and B3 rule 1). Backlog: TAV-MAP-TOUCH-CONFIRM.
   function attemptMove(to: SpaceCoordinate) {
     // B8c-1 IMP-9b: the one guard both activation paths (click's onClick
     // below, and Enter/Space in handleGridKeyDown) go through — a second
