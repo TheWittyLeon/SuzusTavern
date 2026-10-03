@@ -5,7 +5,11 @@
  *   - the rows: appended once at a turn boundary, never inside a turn, never on the first state, never twice for one state.
  * Mutations seen red: the child ungated from `stageHasBody` -> "no body"; the rows effect keyed on every render -> "never twice"; `showReach` read from `moveMode`-style input -> "reach".
  */
-import { renderHook } from '@testing-library/react';
+jest.mock('../../lib/api/dnd', () => ({ ...jest.requireActual('../../lib/api/dnd'), moveToken: jest.fn() }));
+
+import { act, renderHook } from '@testing-library/react';
+import { moveToken } from '@/lib/api/dnd';
+import { makeApiError } from '@/lib/api/client';
 import type { CombatSpace, CombatState } from '@/lib/api/types';
 import { useBoard, type UseBoardArgs } from '@/app/play/[sessionId]/hooks/useBoard';
 import type { UseCombatStateResult } from '@/app/play/[sessionId]/hooks/useCombatState';
@@ -35,7 +39,7 @@ export function fakeCs(state: CombatState | null, over: Over = {}): UseCombatSta
 }
 function args(state: CombatState | null, over: Over = {}): UseBoardArgs {
   const { combatIsActive, combatBusy, activeIsMine, ...rest } = over;
-  return { cs: fakeCs(state, { combatIsActive, combatBusy, activeIsMine }), room: 'board', stageHasBody: true, sessionLocked: false, appendLog: jest.fn(), rescueStrandedFocus: rescue, railRef: { current: null }, ...rest };
+  return { cs: fakeCs(state, { combatIsActive, combatBusy, activeIsMine }), room: 'board', stageHasBody: true, moveAllowed: true, sessionLocked: false, appendLog: jest.fn(), rescueStrandedFocus: rescue, railRef: { current: null }, ...rest };
 }
 
 describe('useBoard: stage and label', () => {
@@ -118,5 +122,114 @@ describe('useBoard: the stage props are STABLE between renders that bring no new
     expect(result.current.stage).toBe(first.stage);
     rerender(args({ ...state }));
     expect(result.current.stage).not.toBe(first.stage);
+  });
+});
+
+describe('useBoard: the Move contracts that no other pin held (B8c-3 fix round: Kage 3, Miko 3, Tora gate)', () => {
+  const mv = moveToken as jest.Mock;
+  beforeEach(() => mv.mockReset());
+  const refuseWith = (reason: string, status = 400) => makeApiError(status, reason, { success: false, data: { reason } });
+  /** Arms Move and commits one step; returns the harness so a test can read what the hook did. */
+  async function step(state: CombatState, over: Over = {}, to: [number, number] = [2, 3]) {
+    const a = args(state, over);
+    const hook = renderHook(() => useBoard(a));
+    act(() => hook.result.current.bar?.onToggle());
+    await act(async () => { await hook.result.current.stage?.onMove(to); });
+    return { a, hook, cs: a.cs };
+  }
+
+  it('Move is OFFERED only where the row opts in: `moveAllowed: false` (the phone row) has no Move though the stage has a body and the creature a budget', () => {
+    const on = renderHook(() => useBoard(args(st()))).result.current;
+    const off = renderHook(() => useBoard(args(st(), { moveAllowed: false }))).result.current;
+    expect(on.bar).toBeDefined();
+    expect(off.stage).not.toBeNull(); // the body is still served: only the verb is withheld
+    expect(off.bar).toBeUndefined();
+  });
+
+  it('disabled while the session is locked, and while a verb is in flight; enabled otherwise', () => {
+    const bar = (over: Over) => renderHook(() => useBoard(args(st(), over))).result.current.bar;
+    expect(bar({})?.disabled).toBe(false);
+    expect(bar({ sessionLocked: true })?.disabled).toBe(true);
+    expect(bar({ combatBusy: true })?.disabled).toBe(true);
+  });
+
+  it('a numeric pair is sent; a garbage `at` sends nothing and takes no latch', async () => {
+    const ok = await step(st());
+    expect(mv).toHaveBeenCalledWith('c1', { participant_id: 'p1', from: [1, 3], to: [2, 3] });
+    mv.mockClear();
+    for (const at of [['a', 3], [1], [1, 3, 5], [NaN, 3], 'x']) {
+      const bad = await step(st({ at: at as never }), {}, [2, 3]);
+      expect(mv).not.toHaveBeenCalled();
+      expect(bad.cs.combatBusyRef.current).toBe(false);
+    }
+    expect(ok.cs.combatBusyRef.current).toBe(false);
+  });
+
+  it('the latch is released after a move (a second move in the same turn goes out) and after a refusal', async () => {
+    mv.mockResolvedValue({ message: 'x', state: st({ at: [2, 3] }) });
+    const a = args(st());
+    const { result } = renderHook(() => useBoard(a));
+    await act(async () => { await result.current.stage?.onMove([2, 3]); });
+    expect(a.cs.combatBusyRef.current).toBe(false);
+    await act(async () => { await result.current.stage?.onMove([3, 3]); });
+    expect(mv).toHaveBeenCalledTimes(2);
+    mv.mockRejectedValueOnce(refuseWith('invalid_destination'));
+    await act(async () => { await result.current.stage?.onMove([4, 3]); });
+    expect(a.cs.combatBusyRef.current).toBe(false);
+  });
+
+  it('a 200 WITHOUT `state`: no row, no `movedSeq`, the state is re-read (the poll\'s diff writes the row once the square changes)', async () => {
+    mv.mockResolvedValue({ message: 'x' });
+    const { a, hook, cs } = await step(st());
+    expect(a.appendLog).not.toHaveBeenCalled();
+    expect(cs.refreshState).toHaveBeenCalledTimes(1);
+    expect(cs.applyState).not.toHaveBeenCalled();
+    expect(hook.result.current.stage?.movedSeq).toBe(0);
+  });
+
+  it('a 200 WITH `state`: the state is applied, ONE row, `movedSeq` bumps', async () => {
+    mv.mockResolvedValue({ message: 'x', state: st({ at: [2, 3] }) });
+    const { a, hook, cs } = await step(st());
+    expect(cs.applyState).toHaveBeenCalledTimes(1);
+    expect(a.appendLog).toHaveBeenCalledTimes(1);
+    expect(hook.result.current.stage?.movedSeq).toBe(1);
+  });
+
+  // The set of refusals that END Move; anything else keeps it armed. Each member is pinned by name, so adding or dropping one is a visible change here.
+  it.each(['no_movement_remaining', 'not_your_turn', 'no_active_turn', 'mover_unplaced', 'no_space', 'positioning_disabled', 'not_found'])('%s disarms Move', async (reason) => {
+    mv.mockRejectedValue(refuseWith(reason, reason === 'not_found' || reason === 'positioning_disabled' ? 404 : 400));
+    const { hook } = await step(st());
+    expect(hook.result.current.bar?.pressed).toBe(false);
+  });
+  it.each(['position_changed', 'invalid_destination', 'same_cell', 'some_future_reason'])('%s keeps Move armed', async (reason) => {
+    mv.mockRejectedValue(refuseWith(reason, reason === 'position_changed' ? 409 : 400));
+    const { hook } = await step(st());
+    expect(hook.result.current.bar?.pressed).toBe(true);
+  });
+
+  it('only the board-gone refusals re-read the state (positioning_disabled, not_found); a budget refusal does not', async () => {
+    const reread = async (reason: string, status: number) => {
+      mv.mockReset().mockRejectedValue(refuseWith(reason, status));
+      return (await step(st())).cs.refreshState as jest.Mock;
+    };
+    expect(await reread('positioning_disabled', 404)).toHaveBeenCalledTimes(1);
+    expect(await reread('not_found', 404)).toHaveBeenCalledTimes(1);
+    expect(await reread('no_movement_remaining', 400)).not.toHaveBeenCalled();
+    expect(await reread('position_changed', 409)).not.toHaveBeenCalled();
+  });
+
+  it('the armed intent resets when the turn passes and does NOT come back when the turn returns', () => {
+    let state = st();
+    const a = args(state);
+    const { result, rerender } = renderHook(({ s }: { s: CombatState }) => useBoard({ ...a, cs: fakeCs(s, { activeIsMine: s.active_participant_id === 'p1' }) }), { initialProps: { s: state } });
+    act(() => result.current.bar?.onToggle());
+    expect(result.current.bar?.pressed).toBe(true);
+    state = st({ active: 'w1' });
+    rerender({ s: state });
+    expect(result.current.bar?.pressed).toBe(false);
+    expect(result.current.bar?.disabled).toBe(true);
+    rerender({ s: st() }); // the turn comes back
+    expect(result.current.bar?.disabled).toBe(false);
+    expect(result.current.bar?.pressed).toBe(false); // not armed behind the user's back
   });
 });

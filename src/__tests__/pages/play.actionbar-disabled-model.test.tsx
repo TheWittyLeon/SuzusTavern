@@ -183,23 +183,23 @@ describe('the Move toggle (B8c-3 M3)', () => {
   it('absent without a `move` prop (the four verbs), present with one: name "Move", between Dash and End turn, aria-pressed follows `pressed`', () => {
     const { rerender } = render(<ActionBar {...BASE} />);
     expect(screen.queryByRole('button', { name: 'Move' })).toBeNull();
-    rerender(<ActionBar {...BASE} move={{ pressed: false, disabled: false, remainingFt: 30, onToggle: jest.fn() }} moveButtonRef={ref} />);
+    rerender(<ActionBar {...BASE} move={{ pressed: false, disabled: false, onToggle: jest.fn() }} moveButtonRef={ref} />);
     const names = screen.getAllByRole('button').map((b) => b.textContent?.trim());
     expect(names.indexOf('Move')).toBe(names.indexOf('Dash') + 1);
     expect(names.indexOf('End turn')).toBe(names.indexOf('Move') + 1);
     expect(screen.getByRole('button', { name: 'Move' })).toHaveAttribute('aria-pressed', 'false');
-    rerender(<ActionBar {...BASE} move={{ pressed: true, disabled: false, remainingFt: 30, onToggle: jest.fn() }} moveButtonRef={ref} />);
+    rerender(<ActionBar {...BASE} move={{ pressed: true, disabled: false, onToggle: jest.fn() }} moveButtonRef={ref} />);
     expect(screen.getByRole('button', { name: 'Move' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: 'Move' })).toHaveAccessibleName('Move');
   });
 
   it('disabled: a forced click reaches no handler; enabled: one click, one call', () => {
     const onToggle = jest.fn();
-    const { rerender } = render(<ActionBar {...BASE} move={{ pressed: false, disabled: true, remainingFt: 0, onToggle }} moveButtonRef={ref} />);
+    const { rerender } = render(<ActionBar {...BASE} move={{ pressed: false, disabled: true, onToggle }} moveButtonRef={ref} />);
     expect(screen.getByRole('button', { name: 'Move' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Move' }));
     expect(onToggle).not.toHaveBeenCalled();
-    rerender(<ActionBar {...BASE} move={{ pressed: false, disabled: false, remainingFt: 30, onToggle }} moveButtonRef={ref} />);
+    rerender(<ActionBar {...BASE} move={{ pressed: false, disabled: false, onToggle }} moveButtonRef={ref} />);
     fireEvent.click(screen.getByRole('button', { name: 'Move' }));
     expect(onToggle).toHaveBeenCalledTimes(1);
   });
@@ -209,11 +209,37 @@ describe('Story\'s one-row bar with Move (B8c-3 M3): the verbs close up only whe
   it('the `chips` rail carries railMove with a `move` prop and not without; the table rail never does; the CSS closes the gap to 8px under it only', () => {
     const { container, rerender } = render(<ActionBar {...BASE} variant="chips" />);
     expect((container.firstChild as HTMLElement).className).not.toContain('railMove');
-    rerender(<ActionBar {...BASE} variant="chips" move={{ pressed: false, disabled: false, remainingFt: 30, onToggle: jest.fn() }} moveButtonRef={{ current: null }} />);
+    rerender(<ActionBar {...BASE} variant="chips" move={{ pressed: false, disabled: false, onToggle: jest.fn() }} moveButtonRef={{ current: null }} />);
     expect((container.firstChild as HTMLElement).className).toContain('railMove');
-    rerender(<ActionBar {...BASE} variant="bar" move={{ pressed: false, disabled: false, remainingFt: 30, onToggle: jest.fn() }} moveButtonRef={{ current: null }} />);
+    rerender(<ActionBar {...BASE} variant="bar" move={{ pressed: false, disabled: false, onToggle: jest.fn() }} moveButtonRef={{ current: null }} />);
     expect((container.firstChild as HTMLElement).className).not.toContain('railMove');
     const css = fs.readFileSync(path.resolve(process.cwd(), 'src/components/Composer.module.css'), 'utf8');
     expect(/\.railChips\.railMove \.railBtns\s*\{[^}]*gap:\s*var\(--space-4\)/.test(css)).toBe(true);
+  });
+});
+
+// B8c-3 fix round (Iro): the turn passes while a verb holds focus. One rule for the verb row: the commit that disables it sends focus to the bar's container, never <body>.
+describe('the turn passes while a verb holds focus', () => {
+  const MOVE = { pressed: false, disabled: false, onToggle: jest.fn() };
+  const railOf = (c: HTMLElement) => c.querySelector('[data-region="actionBar"]') as HTMLElement;
+  it.each(['Dodge', 'Dash', 'Move'])('%s: focus goes to the action bar\'s container', (name) => {
+    const { container, rerender } = render(<ActionBar {...BASE} move={MOVE} />);
+    act(() => screen.getByRole('button', { name }).focus());
+    expect(document.activeElement).toBe(screen.getByRole('button', { name }));
+    rerender(<ActionBar {...BASE} isPlayerTurn={false} move={{ ...MOVE, disabled: true }} />);
+    expect(document.activeElement).toBe(railOf(container));
+  });
+  it('a verb that is merely busy keeps its focus (the rule runs on the turn flip only), and focus elsewhere is never taken', () => {
+    const { container, rerender } = render(<ActionBar {...BASE} move={MOVE} />);
+    act(() => screen.getByRole('button', { name: 'Dodge' }).focus());
+    rerender(<ActionBar {...BASE} busy move={MOVE} />);
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Dodge' }));
+    const outside = document.createElement('input');
+    document.body.appendChild(outside);
+    act(() => outside.focus());
+    rerender(<ActionBar {...BASE} isPlayerTurn={false} move={{ ...MOVE, disabled: true }} />);
+    expect(document.activeElement).toBe(outside);
+    expect(document.activeElement).not.toBe(railOf(container));
+    outside.remove();
   });
 });

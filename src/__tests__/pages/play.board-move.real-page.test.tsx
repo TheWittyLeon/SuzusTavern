@@ -252,16 +252,36 @@ describe('refusals: the copy in the action bar\'s alert, never re-sent, and wher
     expect(document.activeElement).not.toBe(document.body);
   });
 
-  it('404 positioning_disabled (no state): the copy, disarmed, the state is re-read so the page learns the board is gone, the Move button leaves the bar and focus goes to the bar\'s container, never <body>', async () => {
+  const noSpace = () => { const c = combat(); delete (c as { space?: unknown }).space; return c; };
+
+  it('404 positioning_disabled (no state): the copy, disarmed, the state is re-read so the page learns the board is gone; focus was in the grid that left, so it goes to the scene head (the existing grid rescue), never <body>', async () => {
     (dnd.moveToken as jest.Mock).mockRejectedValue(refusal(404, 'positioning_disabled'));
     await load();
     await armAndStep();
-    (dnd.getCombatState as jest.Mock).mockResolvedValue((() => { const c = combat(); delete (c as { space?: unknown }).space; return c; })()); // the next read has no `space` key
+    (dnd.getCombatState as jest.Mock).mockResolvedValue(noSpace()); // the next read has no `space` key
     key('Enter');
     await waitFor(() => expect(alertText()).toBe("The battle map isn't available here."));
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Move' })).toBeNull());
     expect(screen.queryByRole('grid')).toBeNull();
-    await waitFor(() => expect(document.activeElement).toBe(document.querySelector('[data-region="actionBar"]')));
+    await waitFor(() => expect(document.activeElement).toBe(document.querySelector('[data-focus-fallback]')));
+  });
+
+  it('the board goes away (a poll) while focus is ON the Move button: the button\'s own unmount sends focus to the action bar\'s container, never <body>', async () => {
+    await load();
+    act(() => moveBtn().focus());
+    expect(document.activeElement).toBe(moveBtn());
+    (dnd.getCombatState as jest.Mock).mockResolvedValue(noSpace());
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Move' })).toBeNull());
+    expect(document.activeElement).toBe(document.querySelector('[data-region="actionBar"]'));
+  });
+
+  it('a poll that removes the board while focus is in the COMPOSER leaves focus where it is (the rescue never steals)', async () => {
+    await load();
+    const box = screen.getByRole('textbox');
+    act(() => box.focus());
+    (dnd.getCombatState as jest.Mock).mockResolvedValue(noSpace());
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Move' })).toBeNull());
+    expect(document.activeElement).toBe(box);
   });
 });
 
@@ -298,5 +318,35 @@ describe('an observer never moves', () => {
     fireEvent.click(cellOf(4, 9));
     fireEvent.click(cellOf(4, 8));
     expect(dnd.moveToken).not.toHaveBeenCalled();
+  });
+});
+
+describe('a disarm moves focus only while focus is in the grid', () => {
+  it('a refusal that ends Move, arriving after the user went to the composer, leaves focus in the composer', async () => {
+    const hold = deferred<{ message: string; state: CombatState }>();
+    (dnd.moveToken as jest.Mock).mockReturnValue(hold.promise);
+    await load();
+    await armAndStep();
+    key('Enter'); // in flight
+    const box = screen.getByRole('textbox');
+    act(() => box.focus());
+    hold.reject(refusal(400, 'no_movement_remaining', combat({ pc: { movement_remaining: 0 } })));
+    await waitFor(() => expect(moveBtn()).toBeDisabled());
+    expect(document.activeElement).toBe(box);
+  });
+});
+
+describe('the phone row', () => {
+  const real = window.matchMedia;
+  afterEach(() => { window.matchMedia = real; });
+  it('has no Move (a row value, not the stage: the row opts in and the phone row does not), though the same fight offers it on a desktop row', async () => {
+    const { PLAY_PHONE_QUERY } = jest.requireActual('../../lib/breakpoints') as { PLAY_PHONE_QUERY: string };
+    window.matchMedia = jest.fn().mockImplementation((query: string) => ({ matches: query === PLAY_PHONE_QUERY, media: query, onchange: null, addEventListener: jest.fn(), removeEventListener: jest.fn(), dispatchEvent: jest.fn() }));
+    (dnd.getCombatState as jest.Mock).mockResolvedValue(combat());
+    renderPlay(<PlayPage />);
+    await screen.findByText('Test Table');
+    await screen.findByText(/In combat/);
+    expect(screen.queryByRole('button', { name: 'Move' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Dodge' })).toBeInTheDocument();
   });
 });
