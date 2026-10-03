@@ -98,6 +98,31 @@ function isCellValueValid(space: CombatSpace): boolean {
   return typeof value === 'number' && Number.isFinite(value) && value > 0;
 }
 
+/** A coordinate the engine would write: a pair of integers. */
+function isCoordPair(c: unknown): boolean {
+  return Array.isArray(c) && c.length === 2 && Number.isInteger(c[0]) && Number.isInteger(c[1]);
+}
+
+/**
+ * `blocked` and `features` are legal to OMIT (the engine reads `space.get("blocked") or []`, Kage-CR D1 CRITICAL-1: `undefined` and `null` are an empty list), but PRESENT they must be what
+ * the render reads them as: `blocked` an array of integer pairs, `features` an array of objects with a string `label` and an `at` that is an array of integer pairs. A board whose lists are not
+ * (`{}`, `"x"`, `5`, `[null]`, `[{}]`, `[{ at: null }]`, `[{ at: "x" }]`) used to reach the render's `.some`/`.find` and take the whole `/play` page down ("Something went wrong") in both
+ * engines (B8c-3 run 2, Miko MF1); it is now "no usable board" at the same seam as a bad `cell` or bad dimensions, and the stage shows the band.
+ */
+function isListsValid(space: CombatSpace): boolean {
+  const { blocked, features } = space as { blocked?: unknown; features?: unknown };
+  if (blocked != null && !(Array.isArray(blocked) && blocked.every(isCoordPair))) return false;
+  if (features == null) return true;
+  return (
+    Array.isArray(features) &&
+    features.every((f) => {
+      if (typeof f !== 'object' || f === null || Array.isArray(f)) return false;
+      const { at, label } = f as { at?: unknown; label?: unknown };
+      return typeof label === 'string' && Array.isArray(at) && at.every(isCoordPair);
+    })
+  );
+}
+
 /**
  * `width`/`height` must be a real, positive integer — mirrors the
  * STRICTER of the engine's two width/height checks, not
@@ -226,7 +251,8 @@ export function isSpaceUsable(space: CombatSpace | null | undefined): space is C
   // either an empty grid shell or a full, wrong grid instead of degrading
   // to `TheatreOfMindBand` — see `isDimsValid`'s docstring.
   if (!isDimsValid(space)) return false;
-  return isCellValueValid(space);
+  if (!isCellValueValid(space)) return false;
+  return isListsValid(space);
 }
 
 /**
