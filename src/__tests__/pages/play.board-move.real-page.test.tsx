@@ -8,7 +8,7 @@
  * `onCombatAction` -> the narration pin; the mover's square not accounted for -> a second row at the boundary; focus following every change of `at` (map) -> the 409 focus pin.
  */
 import React from 'react';
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, configure, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { CombatSpace, CombatState, GroundingData, Participant, Session } from '@/lib/api/types';
@@ -59,6 +59,10 @@ function combat(o: { pc?: object; foe?: object; turn?: 'p1' | 'w1'; round?: numb
 }
 const refusal = (status: number, reason: string, state?: CombatState) => Object.assign(new Error(reason), { status, code: undefined, body: { success: false, message: reason, data: state ? { reason, state } : { reason } } });
 const deferred = <T,>() => { let resolve!: (v: T) => void; let reject!: (e: unknown) => void; const promise = new Promise<T>((a, b) => { resolve = a; reject = b; }); return { promise, resolve, reject }; };
+
+// The real page renders slowly under a whole-suite run (jsdom, a map, polls every 80 ms): every waitFor gets room, so a loaded machine is not a failure.
+configure({ asyncUtilTimeout: 5000 });
+jest.setTimeout(30000);
 
 beforeEach(() => {
   jest.clearAllMocks();
