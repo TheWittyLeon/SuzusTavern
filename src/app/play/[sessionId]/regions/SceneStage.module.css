@@ -149,8 +149,7 @@
      draws it smaller; absent (a row with no floor) it is 0, as before. The track, not this, decides the size; this keeps the two from disagreeing. */
   min-height: var(--play-body-floor, 0px);
   overflow: hidden;
-  /* debt: the stage hands the cell size to a map that is not mounted. ceiling: `--play-cell` sizes the body track, and nothing reads the mapped property.
-     until: B8c-3 mounts `TacticalMap` in this body (it reads `--tm-cell-size`, its own public sizing API). */
+  /* The stage hands the row's cell size to the map it holds: the map reads `--tm-cell-size`, its own public sizing API (B8c-3 M2 mounted it; the marker that waited for this is gone). */
   --tm-cell-size: var(--play-cell);
 }
 

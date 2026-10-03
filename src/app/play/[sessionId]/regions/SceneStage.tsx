@@ -279,10 +279,10 @@ export default function SceneStage({
       ) : null}
       {/* A10 step 11 S2b: a `hero`'s body, the map's room: AFTER the encounter block in the DOM, so Tab goes End combat, then the board. Always in the
           DOM in a `hero` (a body of 0px while exploring: the harness's body legs plant a block in it there too). `panel` and `inline` have none.
-          The mount passes the map (or the band) as `children`.
-          debt: with no `children`, a fight shows the stand-in, whole, in either room (a short band gets its one-line form by a container query).
-          ceiling: both rooms of every fight show it until the map and the band mount; exploring renders nothing here.
-          until: B8c-3 mounts `TacticalMap` and the theatre-of-mind band as this body's children; then delete the fallback.
+          B8c-3 M2: the page passes the map (or the band) as `children` while the state body carries the `space` key, and `null` otherwise (never `false`: `children ?? standIn`).
+          debt: a fight whose state body has no `space` key shows the stand-in (a short band gets its one-line form by a container query; the `unserved` room gives the body no height and the text goes with it).
+          ceiling: every fight while SUZU_DND_POSITIONING is off; one request after a reload when it is on (the combat id is known one request before the state).
+          until: the flag has been on in prod for 7 days (Backlog TAV-STAND-IN-RETIRE); then delete this fallback, `.standIn`, its container query and the harness comparator's stand-in expectation.
       */}
       {hero && (
         <div id={SCENE_STAGE_BODY_ID} data-fold-body className={strip.body} role={bodyLabel ? 'group' : undefined} aria-label={bodyLabel}>
