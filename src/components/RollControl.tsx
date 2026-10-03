@@ -1,10 +1,11 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useContext, useRef, useState, type RefObject } from 'react';
+import { ComposerFieldContext } from '@/components/composerFieldContext';
 import AnchoredPopover from '@/components/AnchoredPopover';
 import DiceTray, { type Advantage, type DiceTrayProps } from '@/components/DiceTray';
 import Icon from '@/components/Icon';
-import { keepFieldFocus } from '@/lib/a11y/keepFieldFocus';
+import { useFieldFocusKeep } from '@/lib/a11y/useFieldFocusKeep';
 import { useAnchoredPopover } from '@/lib/a11y/useAnchoredPopover';
 import styles from './RollControl.module.css';
 
@@ -30,16 +31,25 @@ import styles from './RollControl.module.css';
 export interface RollControlProps extends Omit<DiceTrayProps, 'layout'> {
   /** Where focus goes if Roll is gone when the popover closes (the scene head): never <body>. */
   fallbackFocus?: () => HTMLElement | null | undefined;
-  /** The `line` composer (A10 step 11 tail, S6): a press on Roll keeps the field's focus, so the phone's soft keyboard does not collapse mid-tap (`keepFieldFocus`). */
+  /**
+   * The `line` composer (A10 step 11 tail, S6; tail fix, Tora MAJOR-1): the soft keyboard stays up through Roll and the dice. A press on Roll made while the field has focus keeps it there, the popover does
+   * not take focus, and a die or check rolled (a press on a button that keeps the field's focus too) closes it with focus still in the field. A keyboard or assistive activation moves focus into the tray, as always.
+   * The composer hands both props to its tools (Composer.tsx `tools`), so no caller names a variant.
+   */
   keepFieldFocus?: boolean;
+  fieldRef?: RefObject<HTMLTextAreaElement | null>;
 }
 
 const SHORT: Record<Advantage, string | null> = { none: null, adv: 'Adv', dis: 'Dis' };
 const FULL: Record<Advantage, string | null> = { none: null, adv: 'Advantage', dis: 'Disadvantage' };
 
-export default function RollControl({ onRoll, quickChecks, advantage = 'none', onAdvantage, disabled, fallbackFocus, keepFieldFocus: keepFocus = false }: RollControlProps) {
+export default function RollControl({ onRoll, quickChecks, advantage = 'none', onAdvantage, disabled, fallbackFocus, keepFieldFocus: keepProp, fieldRef: fieldProp }: RollControlProps) {
+  const ctx = useContext(ComposerFieldContext);
+  const keepFocus = keepProp ?? ctx.keepFieldFocus;
+  const fieldRef = fieldProp ?? ctx.fieldRef;
   const [open, setOpen] = useState(false);
   const anchorRef = useRef<HTMLButtonElement>(null);
+  const keep = useFieldFocusKeep(fieldRef, keepFocus);
   const pop = useAnchoredPopover({
     open,
     onClose: () => setOpen(false),
@@ -47,6 +57,7 @@ export default function RollControl({ onRoll, quickChecks, advantage = 'none', o
     role: 'dialog',
     initialFocus: '[role="toolbar"][aria-label="Dice"] button',
     fallbackFocus,
+    keepFocusInPlace: keep.keepFocusInPlace,
   });
   const short = SHORT[advantage];
   const full = FULL[advantage];
@@ -57,11 +68,14 @@ export default function RollControl({ onRoll, quickChecks, advantage = 'none', o
         type="button"
         className={styles.roll}
         data-roll-control=""
-        onClick={() => setOpen((o) => !o)}
+        onClick={(e) => {
+          keep.decide(e);
+          setOpen((o) => !o);
+        }}
         aria-label={full ? `Roll · ${full}` : 'Roll'}
         data-advantage={advantage}
         {...pop.anchorProps}
-        {...(keepFocus ? keepFieldFocus : null)}
+        {...keep.pressProps}
       >
         <Icon name="D20" size={16} aria-hidden />
         {/* The word, and while a modifier is on its tag. One inline label ("Roll · Dis") on every row; the `line` composer lays the same three nodes out as a fixed box (the d20 and the tag over the word: Composer.module.css,
@@ -83,6 +97,7 @@ export default function RollControl({ onRoll, quickChecks, advantage = 'none', o
           advantage={advantage}
           onAdvantage={onAdvantage}
           disabled={disabled}
+          keepFieldFocus={keepFocus}
           // The roll closes it on that click; a disabled die never calls this (DiceTray's `press` ignores it), so nothing closes on a no-op.
           onRoll={(trigger) => {
             onRoll(trigger);

@@ -310,6 +310,9 @@ describe('/play real-page render matrix (4 desktop + 2 phone)', () => {
     const tray = container.querySelector('[data-tenant="diceTray"]');
     expect([cell.name, 'roll', roll !== null, 'tray', tray !== null]).toEqual([cell.name, 'roll', rollRow, 'tray', !rollRow]);
     if (roll) expect([cell.name, roll.closest('[data-region-slot]')?.getAttribute('data-region-slot')]).toEqual([cell.name, 'composer']);
+    // A10 step 11 tail fix (Kage file-it 2): the COMPOSER decides, from its own variant, whether presses on its tools keep the field's focus (the page names no variant): the phone's `line` row prevents the
+    // default of a pointerdown on Roll (the soft keyboard stays up), every other row leaves it alone.
+    if (roll) expect([cell.name, 'roll keeps the field focus', fireEvent.pointerDown(roll)]).toEqual([cell.name, 'roll keeps the field focus', variantFor(row, 'composer', cell.moment) !== 'line']);
 
     // Kage A9c-2 S2: the X-card stays LAST in its bar: the last tenant of its host slot, and
     // the last tab stop in that slot, so a sighted or keyboard user finds it at the same end in

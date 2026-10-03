@@ -12,6 +12,8 @@ import RollControl from '@/components/RollControl';
 import { DEFAULT_MODES, MODE_RECORD } from '@/components/composeModes';
 import type { Advantage } from '@/components/DiceTray';
 
+const rolled = jest.fn();
+beforeEach(() => rolled.mockClear());
 const PLAYER = DEFAULT_MODES;
 const HUMAN_DM: [ComposeMode, string][] = [['dm_narration', 'DM Narration'], ['ooc', 'OOC']];
 
@@ -26,7 +28,7 @@ function Harness({ modes = PLAYER, initial = 'say' as ComposeMode, advantage = '
       onSend={jest.fn()}
       availableModes={modes}
       variant="line"
-      tools={<RollControl onRoll={jest.fn()} quickChecks={[]} advantage={advantage} onAdvantage={jest.fn()} keepFieldFocus />}
+      tools={<RollControl onRoll={rolled} quickChecks={[]} advantage={advantage} onAdvantage={jest.fn()} />}
     />
   );
 }
@@ -245,5 +247,79 @@ describe('the other variants are untouched', () => {
       expect(screen.getByRole('textbox')).not.toHaveAttribute('enterkeyhint');
       unmount();
     }
+  });
+});
+
+describe('the soft keyboard stays up through Roll and the dice (tail fix, Tora MAJOR-1; the owner\'s ruling)', () => {
+  const dialog = () => screen.getByRole('dialog', { name: 'Roll dice' });
+  const die = (n: number) => within(dialog()).getByRole('button', { name: `Roll d${n}` });
+
+  it('touch with the field focused: Roll opens the dice, focus never leaves the field; a die rolled closes it with focus STILL in the field', () => {
+    render(<Harness />);
+    act(() => field().focus());
+    press(roll());
+    expect(dialog()).toBeInTheDocument();
+    expect(document.activeElement).toBe(field());
+    press(die(20));
+    expect(rolled).toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(field());
+  });
+
+  it('a press on a die, a modifier pill or a check keeps the field\'s focus (pointerdown and mousedown prevented); the field itself is not', () => {
+    render(<Harness />);
+    press(roll());
+    for (const b of within(dialog()).getAllByRole('button')) {
+      expect([b.getAttribute('aria-label'), fireEvent.pointerDown(b)]).toEqual([b.getAttribute('aria-label'), false]);
+      expect(fireEvent.mouseDown(b)).toBe(false);
+    }
+  });
+
+  it('keyboard or assistive activation (click with detail 0): focus goes INTO the tray, and Escape returns it to Roll', () => {
+    render(<Harness />);
+    act(() => roll().focus());
+    keyClick(roll());
+    expect(dialog().contains(document.activeElement)).toBe(true);
+    fireEvent.keyDown(document.activeElement as Element, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(roll());
+  });
+
+  it('a tap with the field NOT focused: the tray takes focus, as before', () => {
+    render(<Harness />);
+    press(roll());
+    expect(dialog().contains(document.activeElement)).toBe(true);
+  });
+
+  it('other rows are untouched: a `roll` composer\'s Roll does not prevent a pointerdown and its popover takes focus', () => {
+    render(<Composer value="" onChange={jest.fn()} mode="say" onMode={jest.fn()} onSend={jest.fn()} variant="roll" tools={<RollControl onRoll={rolled} quickChecks={[]} />} />);
+    expect(fireEvent.pointerDown(roll())).toBe(true);
+    press(roll());
+    expect(dialog().contains(document.activeElement)).toBe(true);
+  });
+});
+
+describe('the Mode menu closes when the player types (Tora MINOR-2), and the field is re-measured on resize (MINOR-3)', () => {
+  it('input and keydown on the field close an open menu', () => {
+    render(<Harness />);
+    act(() => field().focus());
+    press(modeBtn());
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    fireEvent.keyDown(field(), { key: 'a' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    press(modeBtn());
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    fireEvent.input(field(), { target: { value: 'x' } });
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('a window resize sizes the field again (a rotation changes the wrap)', () => {
+    const scroll = jest.spyOn(HTMLTextAreaElement.prototype, 'scrollHeight', 'get').mockReturnValue(45);
+    render(<Composer value="a draft" onChange={jest.fn()} mode="say" onMode={jest.fn()} onSend={jest.fn()} variant="line" />);
+    expect(field().style.height).toBe('47px');
+    scroll.mockReturnValue(67);
+    act(() => { window.dispatchEvent(new Event('resize')); });
+    expect(field().style.height).toBe('69px');
+    scroll.mockRestore();
   });
 });

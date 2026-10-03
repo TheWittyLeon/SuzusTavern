@@ -690,7 +690,7 @@ describe('TAV-PLAY-INPUT-LOCK-NO-FEEDBACK — disabledReason precedence (paused 
       expectLocked(input);
       expect(input).toHaveAttribute(
         'placeholder',
-        'Suzu is narrating — one moment…',
+        'Suzu is narrating…',
       );
 
       // The DM pauses the table while that same beat is still generating.

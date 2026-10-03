@@ -13,6 +13,7 @@
  */
 import { useRef } from 'react';
 import Icon, { type IconName } from '@/components/Icon';
+import { keepFieldFocus } from '@/lib/a11y/keepFieldFocus';
 import { useRovingToolbar } from '@/lib/a11y/useRovingToolbar';
 import styles from './DiceTray.module.css';
 
@@ -47,6 +48,8 @@ export interface DiceTrayProps {
    * two at 340px and under.
    */
   layout?: 'tray' | 'popover';
+  /** The Roll popover under the `line` composer: a press on a die, a check or a modifier keeps the field's focus, so the soft keyboard stays up (`keepFieldFocus`). Off = untouched. */
+  keepFieldFocus?: boolean;
 }
 
 const DICE: { sides: number; icon: IconName }[] = [
@@ -79,6 +82,7 @@ export default function DiceTray({
   onAdvantage,
   disabled = false,
   layout = 'tray',
+  keepFieldFocus: keepField = false,
 }: DiceTrayProps) {
   const popover = layout === 'popover';
   // A9c C5 (Iro IMPORTANT-2): three toolbars, one tab stop each, instead of
@@ -124,6 +128,7 @@ export default function DiceTray({
         <button
           key={sides}
           {...dice.itemProps(i)}
+          {...(keepField ? keepFieldFocus : null)}
           type="button"
           className={styles.die}
           aria-label={`Roll d${sides}`}
@@ -153,6 +158,7 @@ export default function DiceTray({
                 <button
                   type="button"
                   {...checks.itemProps(i)}
+                  {...(keepField ? keepFieldFocus : null)}
                   className={styles.checkRow}
                   aria-label={`Roll ${q.name} check, modifier ${q.mod >= 0 ? '+' : ''}${q.mod}`}
                   onClick={() => press({ kind: 'check', skill: q.skill, label: q.name })}
@@ -178,6 +184,7 @@ export default function DiceTray({
             key={a}
             type="button"
             {...adv.itemProps(i)}
+            {...(keepField ? keepFieldFocus : null)}
             className={advantage === a ? `${styles.advPill} ${styles.advOn}` : styles.advPill}
             aria-pressed={advantage === a}
             aria-label={full}

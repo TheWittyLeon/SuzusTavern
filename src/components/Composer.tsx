@@ -19,6 +19,7 @@
  */
 import { useId, useLayoutEffect, useRef, type ReactNode, type RefObject } from 'react';
 import ComposerModeMenu from '@/components/ComposerModeMenu';
+import { ComposerFieldContext } from '@/components/composerFieldContext';
 import Icon from '@/components/Icon';
 import { DEFAULT_MODES, MODE_RECORD, type ComposeMode } from '@/components/composeModes';
 import { keepFieldFocus } from '@/lib/a11y/keepFieldFocus';
@@ -65,6 +66,7 @@ export interface ComposerProps {
    * (Roll and Mode, then the field and Send together) where the field would be under 9rem. `tools` is painted by `roll` and `line`.
    */
   variant?: RegionVariant<'composer'>;
+  /** The Roll control (`roll` and `line` rows). It reads the composer's own facts about the row (keep the field's focus, the field's ref) from `ComposerFieldContext`. */
   tools?: ReactNode;
 }
 
@@ -114,14 +116,21 @@ export default function Composer({
   useLayoutEffect(() => {
     const el = textareaRef.current;
     if (!line || !el) return;
-    // An EMPTY field is the 44px row (CSS): its scrollHeight counts a wrapping PLACEHOLDER (the lock reason, 2 lines at 148px), and the lock line takes no height (round 3, Aoi), so it is never sized.
-    if (!value) { el.style.height = ''; return; }
-    el.style.height = 'auto';
-    if (el.scrollHeight > 0) el.style.height = `${Math.min(el.scrollHeight + 2, 92)}px`;
+    const fit = () => {
+      // An EMPTY field is the 44px row (CSS): its scrollHeight counts a wrapping PLACEHOLDER (the lock reason, 2 lines at 148px), and the lock line takes no height (round 3, Aoi), so it is never sized.
+      if (!value) { el.style.height = ''; return; }
+      el.style.height = 'auto';
+      if (el.scrollHeight > 0) el.style.height = `${Math.min(el.scrollHeight + 2, 92)}px`;
+    };
+    fit();
+    // The width changes the wrap (a rotation, a keyboard-driven resize, a text-size change): measured again, not only when the text does (Tora MINOR-3).
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
   }, [value, line]);
 
   return (
     // `data-toast-avoid`: a toast must never stand over the composer (Send, the textarea); Toast.tsx places its host by these marks.
+    <ComposerFieldContext.Provider value={{ keepFieldFocus: line, fieldRef: textareaRef }}>
     <div className={styles.composer} data-region="composer" data-variant={variant} data-mode={mode} data-toast-avoid="">
       {/* S5.2: inline error banner — text is preserved in the textarea on error. */}
       {sendError && (
@@ -263,5 +272,6 @@ export default function Composer({
         </div>
       </div>
     </div>
+    </ComposerFieldContext.Provider>
   );
 }

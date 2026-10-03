@@ -1,9 +1,10 @@
 'use client';
 
-import { useId, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
 import AnchoredPopover from '@/components/AnchoredPopover';
 import Icon from '@/components/Icon';
 import { keepFieldFocus } from '@/lib/a11y/keepFieldFocus';
+import { useFieldFocusKeep } from '@/lib/a11y/useFieldFocusKeep';
 import { useAnchoredPopover } from '@/lib/a11y/useAnchoredPopover';
 import { MODE_RECORD, type ComposeMode } from '@/components/composeModes';
 import styles from './ComposerModeMenu.module.css';
@@ -32,17 +33,24 @@ export default function ComposerModeMenu({ mode, onMode, modes, fieldRef }: Comp
   const [open, setOpen] = useState(false);
   const anchorRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  // Whether the field had focus when the press that opened the menu STARTED (a pointer press), and so whether focus stays put. A keyboard activation has no pointerdown: it moves focus in.
-  const fieldHadFocusRef = useRef(false);
-  const keepRef = useRef(false);
+  const keep = useFieldFocusKeep(fieldRef, true); // the shared rule: a press made while the field has focus keeps it there (Roll uses the same)
   const pop = useAnchoredPopover({
     open,
     onClose: () => setOpen(false),
     anchorRef,
     role: 'menu',
     initialFocus: '[role="menuitemradio"][aria-checked="true"]',
-    keepFocusInPlace: () => keepRef.current,
+    keepFocusInPlace: keep.keepFocusInPlace,
   });
+  // Typing in the field closes the menu (Tora MINOR-2): with the keyboard up the menu is a floating thing over a field the player is writing in.
+  useEffect(() => {
+    const el = fieldRef.current;
+    if (!open || !el) return;
+    const close = () => setOpen(false);
+    el.addEventListener('input', close);
+    el.addEventListener('keydown', close);
+    return () => { el.removeEventListener('input', close); el.removeEventListener('keydown', close); };
+  }, [open, fieldRef]);
   const nameId = useId();
   const labelOf = (k: ComposeMode, fallback: string) => MODE_RECORD[k]?.label ?? fallback;
   const current = modes.find(([k]) => k === mode);
@@ -71,15 +79,9 @@ export default function ComposerModeMenu({ mode, onMode, modes, fieldRef }: Comp
         data-mode-menu=""
         aria-label={`${word}, compose mode`}
         {...pop.anchorProps}
-        onPointerDown={(e) => {
-          fieldHadFocusRef.current = !!fieldRef.current && document.activeElement === fieldRef.current;
-          keepFieldFocus.onPointerDown(e);
-        }}
-        onMouseDown={keepFieldFocus.onMouseDown}
+        {...keep.pressProps}
         onClick={(e) => {
-          // `detail` is 0 for a keyboard or assistive activation and 1+ for a press: only a press made while the field had focus keeps it there.
-          keepRef.current = fieldHadFocusRef.current && e.detail > 0;
-          fieldHadFocusRef.current = false;
+          keep.decide(e);
           setOpen((o) => !o);
         }}
       >

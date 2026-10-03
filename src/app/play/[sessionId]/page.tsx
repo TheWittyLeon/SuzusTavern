@@ -1569,7 +1569,7 @@ export default function PlayPage() {
             : isPaused
               ? 'Session is paused.'
               : talking
-                ? 'Suzu is narrating — one moment…'
+                ? 'Suzu is narrating…'
                 : null
         }
         availableModes={composerModes}
@@ -1577,7 +1577,7 @@ export default function PlayPage() {
         sendError={mode === 'dm_narration' ? dmNarrationError : null}
         textareaAnchorRef={composerTextareaAnchorRef}
         variant={variantFor(row, 'composer', moment)}
-        tools={rollRow ? <RollControl {...diceProps} fallbackFocus={() => sceneHeadRef.current} keepFieldFocus={variantFor(row, 'composer', moment) === 'line'} /> : undefined}
+        tools={rollRow ? <RollControl {...diceProps} fallbackFocus={() => sceneHeadRef.current} /> : undefined}
       />
     ),
     sceneStage: (
