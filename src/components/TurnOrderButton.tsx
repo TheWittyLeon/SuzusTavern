@@ -9,7 +9,7 @@
  * The component names no region: the band's scroller is the nearest ancestor that scrolls, the tracker is found by `INITIATIVE_TRACKER_ID`.
  *
  * It exists only while it is needed (`useTurnOrderCue`): when the band can show the whole of the tiles and the tracker, the button is redundant, and its column would only narrow the tracker (at
- * 412x915 from 388 to 336px, growing it 34px taller and making a band that fitted scroll). "Needed" is judged on the UNFRAMED band, so the answer never depends on the answer.
+ * 412x915 from 388 to 336px, growing it 34px taller and making a band that fitted scroll). "Needed" is judged on the UNFRAMED band, with the button out of it, so the answer never depends on the answer.
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import Icon from '@/components/Icon';
@@ -32,39 +32,110 @@ function nearestScroller(el: HTMLElement | null): HTMLElement | null {
   return null;
 }
 
+/** Quiet time after the band's last scroll event and after the last finger lifts, before the cue may change (the fold's gate, useFoldFacts.ts, with the same number). */
+const CUE_QUIET_MS = 150;
+/** A finger that never reports its end stops holding the gate after this long. */
+const CUE_TOUCH_BACKSTOP_MS = 5000;
+
+/** The tracker's row that takes focus: the active one, else the first. */
+function trackerRow(): HTMLElement | null {
+  const tracker = document.getElementById(INITIATIVE_TRACKER_ID);
+  return tracker?.querySelector<HTMLElement>('li[aria-current="true"]') ?? tracker?.querySelector<HTMLElement>('li') ?? null;
+}
+
 /**
- * Whether the band needs the cue: the party band scrolls (the tracker cannot be seen whole beside the tiles). Measured on the band WITHOUT the frame, so the answer is the same framed or not: the
- * frame only ever makes the content taller, and a measurement that included it would keep a button that the unframed band does not need (and flap). The class is lifted and put back in one
- * synchronous step, before paint. Re-measured after every commit and whenever the band or the strip changes size (rotation, a font, a combatant joining). Nothing to measure (no scroller)
+ * Whether the band needs the cue: the party band scrolls (the tracker cannot be seen whole beside the tiles).
+ *
+ * MEASURED WITHOUT THE BUTTON'S COLUMN, and the answer does not depend on the answer: with the frame class off the button is `display: none` (TurnOrderButton.module.css), so the unframed band is the
+ * band as it would be with no button at all, whatever state it came from. The frame class is lifted and put back in one synchronous step, before paint, ONLY when it is on (an unframed band is
+ * measured as it stands). Lifting it can make the engine clamp the band's `scrollTop` to the smaller maximum at the forced layout, so the offset is read first and handed back.
+ *
+ * It never touches a band in motion: while a finger is down, or the band has scrolled in the last 150ms, the measure (and so the flip) waits; it is retried when the gate opens. A flip can move
+ * the tiles by 44px plus the gap, and the lift-and-restore would cancel a momentum scroll. If the button is focused when the cue turns off, focus goes to the tracker's active row first (the button
+ * unmounts; focus would fall to <body>). Re-measured after every commit and whenever the band or the strip changes size (rotation, a font, a combatant joining). Nothing to measure (no scroller)
  * keeps the button: it never hides on a guess.
  */
 export function useTurnOrderCue(rootRef: RefObject<HTMLDivElement | null>, enabled: boolean): boolean {
   const [cue, setCue] = useState(false);
+  const cueRef = useRef(false);
+  const enabledRef = useRef(enabled);
+  const touches = useRef(0);
+  const touchSince = useRef(0);
+  const lastScroll = useRef(0);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const settleRef = useRef<() => void>(() => {});
+
   const measure = useCallback(() => {
     const root = rootRef.current;
     const sc = nearestScroller(root);
     if (!root || !sc) return true;
     const framed = root.classList.contains(TURN_ORDER_FRAME);
-    if (framed) root.classList.remove(TURN_ORDER_FRAME);
+    if (!framed) return sc.scrollHeight > sc.clientHeight + 1;
+    const top = sc.scrollTop;
+    root.classList.remove(TURN_ORDER_FRAME);
     const scrolls = sc.scrollHeight > sc.clientHeight + 1;
-    if (framed) root.classList.add(TURN_ORDER_FRAME);
+    root.classList.add(TURN_ORDER_FRAME);
+    if (sc.scrollTop !== top) sc.scrollTop = top;
     return scrolls;
   }, [rootRef]);
-  // Runs after every commit on purpose (a combatant joining or a font arriving changes the answer with no prop of ours changing); setCue(same value) is a no-op, so it settles.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+
+  const gateOpen = useCallback(() => {
+    const now = Date.now();
+    if (touches.current > 0 && now - touchSince.current >= CUE_TOUCH_BACKSTOP_MS) touches.current = 0;
+    return touches.current === 0 && now - lastScroll.current >= CUE_QUIET_MS;
+  }, []);
+
+  const apply = useCallback((next: boolean) => {
+    if (next === cueRef.current) return;
+    if (cueRef.current && !next) {
+      const btn = rootRef.current?.querySelector('button[data-turn-order]');
+      if (btn && document.activeElement === btn) trackerRow()?.focus({ preventScroll: true });
+    }
+    cueRef.current = next;
+    setCue(next);
+  }, [rootRef]);
+
+  const settle = useCallback(() => {
+    clearTimeout(timer.current);
+    if (!enabledRef.current) { apply(false); return; }
+    if (!gateOpen()) { timer.current = setTimeout(() => settleRef.current(), CUE_QUIET_MS); return; }
+    apply(measure());
+  }, [apply, gateOpen, measure]);
+
+  // Runs after every commit on purpose (a combatant joining or a font arriving changes the answer with no prop of ours changing); a flip to the same value is a no-op, so it settles.
   useLayoutEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- a layout measurement of the band IS the input; it must land before paint so the frame never flashes
-    setCue(enabled && measure());
+    enabledRef.current = enabled;
+    settleRef.current = settle;
+    settle();
   });
   useEffect(() => {
     const root = rootRef.current;
     const sc = nearestScroller(root);
-    if (!enabled || !root || !sc || typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(() => setCue(measure()));
-    ro.observe(sc);
-    ro.observe(root);
-    return () => ro.disconnect();
-  }, [rootRef, enabled, measure]);
+    const onTouch = (e: TouchEvent) => {
+      if (e.type === 'touchstart') touchSince.current = Date.now();
+      touches.current = e.touches.length;
+      if (touches.current === 0) { clearTimeout(timer.current); timer.current = setTimeout(() => settleRef.current(), CUE_QUIET_MS); }
+    };
+    const onScroll = (e: Event) => { if (e.target === sc) { lastScroll.current = Date.now(); } };
+    window.addEventListener('touchstart', onTouch, { capture: true, passive: true });
+    window.addEventListener('touchend', onTouch, { capture: true, passive: true });
+    window.addEventListener('touchcancel', onTouch, { capture: true, passive: true });
+    window.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    let ro: ResizeObserver | undefined;
+    if (enabled && root && sc && typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(() => settleRef.current());
+      ro.observe(sc);
+      ro.observe(root);
+    }
+    return () => {
+      window.removeEventListener('touchstart', onTouch, { capture: true });
+      window.removeEventListener('touchend', onTouch, { capture: true });
+      window.removeEventListener('touchcancel', onTouch, { capture: true });
+      window.removeEventListener('scroll', onScroll, { capture: true });
+      ro?.disconnect();
+      clearTimeout(timer.current);
+    };
+  }, [rootRef, enabled]);
   return cue;
 }
 
@@ -72,7 +143,7 @@ export function useTurnOrderCue(rootRef: RefObject<HTMLDivElement | null>, enabl
  * The button. On a phone the initiative tracker sits BELOW the tile row in a 91px band, so at rest it is off screen, and a keyboard or
  * touch user has no cue that there is an order to see. A 44 x 44 button at the band's edge scrolls the band to the tracker and puts focus on the active row; pressed again it scrolls back to the
  * tiles. `aria-expanded` says which, read from the scroll position (so a hand scroll keeps it true). No smooth scrolling: `instant`. The button is STICKY inside the band, so it stays where the
- * thumb found it while the band scrolls (Play.module.css `.partyTurnOrder`), and it is DOM-after the tiles and their controls, before the tracker.
+ * thumb found it while the band scrolls (TurnOrderButton.module.css `.frame > .button`), and it is DOM-after the tiles and their controls, before the tracker.
  */
 export default function TurnOrderButton({ rootRef }: { rootRef: RefObject<HTMLDivElement | null> }) {
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -88,6 +159,11 @@ export default function TurnOrderButton({ rootRef }: { rootRef: RefObject<HTMLDi
     if (max <= 1) return false; // a band that cannot scroll is never "at" anything: a press still puts focus on the row
     return sc.scrollTop >= Math.min(sc.scrollTop + rel, max) - 1;
   }, [rootRef]);
+  // The state is the scroll position's, read when the button mounts too (it can mount on a band that is already at the tracker).
+  useLayoutEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reading the band's scroll position on mount IS the initial state
+    setAtTracker(read());
+  }, [read]);
   useEffect(() => {
     const sc = nearestScroller(rootRef.current);
     if (!sc) return;
@@ -102,8 +178,7 @@ export default function TurnOrderButton({ rootRef }: { rootRef: RefObject<HTMLDi
     if (!read()) {
       sc.scrollTo({ top: sc.scrollTop + (tracker.getBoundingClientRect().top - sc.getBoundingClientRect().top), behavior: 'instant' });
       // The active row (the tab stop), else the first row: the page must not scroll to it, the band already has.
-      const row = tracker.querySelector<HTMLElement>('li[aria-current="true"]') ?? tracker.querySelector<HTMLElement>('li');
-      row?.focus({ preventScroll: true });
+      trackerRow()?.focus({ preventScroll: true });
       setAtTracker(true);
     } else {
       sc.scrollTo({ top: 0, behavior: 'instant' });

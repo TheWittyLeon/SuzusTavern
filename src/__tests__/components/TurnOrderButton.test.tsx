@@ -77,7 +77,17 @@ afterAll(() => {
   if (protoScrollHeight) Object.defineProperty(HTMLElement.prototype, 'scrollHeight', protoScrollHeight); else delete (HTMLElement.prototype as unknown as Record<string, unknown>).scrollHeight;
   if (protoClientHeight) Object.defineProperty(HTMLElement.prototype, 'clientHeight', protoClientHeight); else delete (HTMLElement.prototype as unknown as Record<string, unknown>).clientHeight;
 });
-beforeEach(() => { band.scrolls = true; band.framedExtra = 0; });
+// The button reads its state from the band's scroll position when it MOUNTS: jsdom's rects are all 0 (a tracker at the band's top), so the tracker starts 120px down unless a case plants otherwise.
+const trackerOffset = { current: 120 };
+let trackerTop = () => trackerOffset.current;
+beforeEach(() => {
+  band.scrolls = true; band.framedExtra = 0; trackerOffset.current = 120; trackerTop = () => trackerOffset.current;
+  jest.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+    const top = this.id === INITIATIVE_TRACKER_ID ? trackerTop() : 0;
+    return { top, bottom: top + 10, left: 0, right: 10, width: 10, height: 10, x: 0, y: top, toJSON: () => ({}) } as DOMRect;
+  });
+});
+afterEach(() => jest.restoreAllMocks());
 
 function mount(over: { variant?: 'strip' | 'rail'; combatIsActive?: boolean; state?: CombatState | null } = {}) {
   const view = render(
@@ -164,18 +174,25 @@ describe('the Turn order button: only while the band cannot show the tiles and t
   });
 });
 
+describe('the Turn order button: its state is the scroll position\'s from the first paint', () => {
+  it('a button that mounts on a band already at the tracker says so (aria-expanded true), not the default false', () => {
+    trackerOffset.current = 4;
+    mount();
+    expect(button()).toHaveAttribute('aria-expanded', 'true');
+  });
+});
+
 describe('the Turn order button: what a press does', () => {
   let scrollTo: jest.Mock;
   /** The band's rect at y 0 and the tracker's at `trackerTop`; the band's own scrollTop. */
-  function plant(trackerTop: { current: number }) {
+  function plant(top: { current: number }) {
     const band = screen.getByTestId('band');
     const tracker = document.getElementById(INITIATIVE_TRACKER_ID) as HTMLElement;
     scrollTo = jest.fn();
     Object.defineProperty(band, 'scrollTo', { configurable: true, value: scrollTo });
     Object.defineProperty(band, 'scrollTop', { configurable: true, value: 0, writable: true });
-    const rect = (top: number) => ({ top, bottom: top + 10, left: 0, right: 10, width: 10, height: 10, x: 0, y: top, toJSON: () => ({}) }) as DOMRect;
-    jest.spyOn(band, 'getBoundingClientRect').mockImplementation(() => rect(0));
-    jest.spyOn(tracker, 'getBoundingClientRect').mockImplementation(() => rect(trackerTop.current));
+    void tracker;
+    trackerTop = () => top.current; // the prototype mock above answers for the tracker only: it is `top.current` down, the band is at 0
     return band;
   }
   afterEach(() => jest.restoreAllMocks());

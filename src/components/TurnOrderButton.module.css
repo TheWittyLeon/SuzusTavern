@@ -13,6 +13,12 @@
   grid-column: 1;
 }
 
+/* Without the frame the button is not in the layout at all: the cue measures the band as it would be with no button (TurnOrderButton.tsx `useTurnOrderCue`), and an unstyled 24px browser button
+   would otherwise be part of that answer. */
+.button {
+  display: none;
+}
+
 .frame > .button {
   grid-column: 2;
   grid-row: 1 / span 2;
@@ -53,4 +59,11 @@
 .frame [data-variant='strip']:has(> [data-party-more]) ul[aria-labelledby='party-panel-label'] {
   padding-right: 16px;
   mask-image: linear-gradient(to right, var(--ink) calc(100% - 16px), transparent);
+}
+
+/* Iro m-6: the pressed state is a tint, and a tint is gone in forced-colors mode; the fold handle gets a 2px border there, so does this. */
+@media (forced-colors: active) {
+  .frame > .button[aria-expanded='true'] {
+    border-width: 2px;
+  }
 }

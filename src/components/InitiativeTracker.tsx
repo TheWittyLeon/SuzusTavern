@@ -83,7 +83,8 @@ function StructuredTracker({
   variant,
 }: InitiativeTrackerStructuredProps) {
   if (participants.length === 0) return null;
-  // The band's one tab stop: the active row, or the first when no one is acting (between turns), so the scroller always has a keyboard path.
+  // The band's one tab stop: the active row, or the first when no one is acting (between turns), so the scroller always has a keyboard path. A single data-driven stop, NOT a roving tabindex: there are no
+  // arrow keys and a tap on a row leaves the stop where it is, because the rows have no actions (they would get arrow keys if they gained any; Iro m-1).
   const stopAt = Math.max(0, participants.findIndex((p) => p.is_active_turn));
 
   return (
