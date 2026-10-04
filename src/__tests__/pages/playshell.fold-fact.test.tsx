@@ -10,7 +10,7 @@
  */
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import type { ReactNode } from 'react';
+import { Profiler, type ProfilerOnRenderCallback, type ReactNode } from 'react';
 import PlayShell, { type FoldSpec, type PlayShellProps } from '@/app/play/[sessionId]/PlayShell';
 import { FoldHandleSlot, useFoldBody } from '@/components/FoldDock';
 import { FOLD_SPECS } from '@/app/play/[sessionId]/foldSpecs';
@@ -55,8 +55,8 @@ function Stage({ slot = true }: { slot?: boolean }) {
 }
 
 type Props = Partial<PlayShellProps>;
-function shell(row: LayoutRow, props: Props = {}, extra: { slot?: boolean; banner?: ReactNode } = {}) {
-  const tree = (p: Props) => (
+function shell(row: LayoutRow, props: Props = {}, extra: { slot?: boolean; banner?: ReactNode; profile?: ProfilerOnRenderCallback } = {}) {
+  const tree = (p: Props) => wrap(
     <PlayShell
       row={row}
       moment="combat"
@@ -67,8 +67,9 @@ function shell(row: LayoutRow, props: Props = {}, extra: { slot?: boolean; banne
       onFoldChoice={jest.fn()}
       {...props}
       {...p}
-    />
+    />,
   );
+  const wrap = (node: ReactNode) => (extra.profile ? <Profiler id="shell" onRender={extra.profile}>{node}</Profiler> : node);
   const view = render(tree({}));
   return { ...view, again: (p: Props) => view.rerender(tree(p)) };
 }
@@ -688,5 +689,39 @@ describe('the after-scroll gate hears EVERY scroller (Tora MAJOR-2): a band, a l
     expect(floorVar()).toBe('FOLDED');
     band.remove();
     restore2();
+  });
+});
+
+
+describe('the touch gate\'s clock and the flush\'s render (Tora MINOR-2 and MINOR-3)', () => {
+  it('every finger down refreshes the backstop\'s clock, not only the first: a second finger at 4 s keeps the gate shut past the first finger\'s 5 s (the mutation: only the first refreshes it)', () => {
+    jest.useFakeTimers();
+    const restore = pageScrolls(false);
+    shell(foldRow());
+    setWidth(390);
+    act(() => ro.cb());
+    restore();
+    const restore2 = pageScrolls(true);
+    act(() => { fireEvent.touchStart(document.body, { touches: [{ clientX: 1, clientY: 1 }] }); });
+    act(() => { jest.advanceTimersByTime(4000); });
+    act(() => { fireEvent.touchStart(document.body, { touches: [{ clientX: 1, clientY: 1 }, { clientX: 9, clientY: 9 }] }); }); // a second finger
+    setWidth(430);
+    act(() => ro.cb());
+    act(() => { jest.advanceTimersByTime(1500); }); // 5.5 s since the FIRST finger, 1.5 s since the second
+    expect(floorVar()).toBe('OPEN');
+    act(() => { jest.advanceTimersByTime(FOLD_TOUCH_BACKSTOP_MS); });
+    expect(floorVar()).toBe('FOLDED'); // the backstop of the LAST finger has let go
+    restore2();
+  });
+
+  it('a flush with nothing queued and no fold waiting for its measurement renders nothing: the 150 ms after every touch is not a render of the whole shell (the mutation: it always ticks)', () => {
+    jest.useFakeTimers();
+    const commits = jest.fn();
+    shell(foldRow(), {}, { profile: commits });
+    const before = commits.mock.calls.length;
+    act(() => { fireEvent.touchStart(document.body, { touches: [{ clientX: 1, clientY: 1 }] }); });
+    act(() => { fireEvent.touchEnd(document.body, { touches: [] }); });
+    act(() => { jest.advanceTimersByTime(FOLD_QUIET_MS + 10); });
+    expect(commits.mock.calls.length).toBe(before);
   });
 });

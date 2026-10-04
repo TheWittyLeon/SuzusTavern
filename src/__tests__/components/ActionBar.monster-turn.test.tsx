@@ -66,6 +66,10 @@ describe('Composer.module.css: the notice takes the kicker\'s place in a wide sl
     expect(plain).not.toMatch(/clip:/);
   });
 
+  it('a locked (aria-disabled) verb takes no iOS tap highlight: a native disabled button never flashed, an aria-disabled one does (Tora MINOR-5)', () => {
+    expect(css).toMatch(/\.action\[aria-disabled='true'\]\s*\{[^}]*-webkit-tap-highlight-color:\s*transparent/);
+  });
+
   it('narrow, NOT described (Story between 881 and 920px; every row but the phone\'s): the notice keeps its own line, as before the phone mount (Kage I-2)', () => {
     const from = css.indexOf('@container (max-width: 560px)');
     const plain = rule(".rail[data-waiting='true'] .notYourTurn", from);
