@@ -46,6 +46,8 @@ export interface UseBoardArgs {
 export interface MoveControl {
   pressed: boolean;
   disabled: boolean;
+  /** Why Move is locked when the turn line does not say (your own turn: no feet left, or your move in flight). Read only by the bar's described form (Iro m-3: a locked verb says why). */
+  reason?: string;
   onToggle: () => void;
 }
 
@@ -203,8 +205,8 @@ export function useBoard({ cs, room, stageHasBody, moveAllowed, sessionLocked, a
         movedSeq,
       },
       label: isSpaceUsable(state.space) ? 'Tactical map' : undefined,
-      bar: offered ? { pressed: moveMode, disabled: !canMove || moveSubmitting, onToggle } : undefined,
+      bar: offered ? { pressed: moveMode, disabled: !canMove || moveSubmitting, reason: moveSubmitting ? 'Moving…' : activeIsMine && state?.state === 'active' && myBudget <= 0 ? 'No movement left' : undefined, onToggle } : undefined,
       moveButtonRef: bindMoveButton,
     };
-  }, [hasStage, state, selfPcId, round, showReach, rescueStrandedFocus, moveMode, moveSubmitting, onMove, onExitMove, movedSeq, offered, canMove, onToggle, bindMoveButton]);
+  }, [hasStage, state, selfPcId, round, showReach, rescueStrandedFocus, moveMode, moveSubmitting, onMove, onExitMove, movedSeq, offered, canMove, activeIsMine, myBudget, onToggle, bindMoveButton]);
 }

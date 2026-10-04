@@ -475,7 +475,8 @@ export interface LayoutRow {
   boardMove?: boolean;
   /**
    * B8c-4 P1b (brief 6.4; the Coordinator addendum): the action bar is in its DESCRIBED form: its verbs are locked with `aria-disabled` (never native `disabled`) and described by the story's own turn line, one
-   * text from one variable; and, in the bar's narrow form, the wait notice is not a row. The phone row sets it. Absent = the bar every other row has, to the attribute.
+   * text from one variable. The bar marks itself `data-described`, and under that mark (and only under it) the wait notice is visually hidden in the bar's narrow form (Composer.module.css), so the
+   * row's flag decides both halves, never the container's width. The phone row sets it. Absent = the bar every other row has, to the attribute.
    */
   barTurnLine?: boolean;
   regions: Record<RegionId, Partial<Record<Moment, Placement>> & { default: Placement }>;

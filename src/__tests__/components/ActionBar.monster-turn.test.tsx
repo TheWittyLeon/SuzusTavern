@@ -49,19 +49,37 @@ describe('Composer.module.css: the notice takes the kicker\'s place in a wide sl
   // B8c-4 P1b (named exception: the two narrow cases below were "the notice is the line it always was" and "every property the wide rule sets is set back"): in the narrow form the notice is NOT A ROW
   // (Sora's phone-mount brief 6.4). It was a 24.5px line that made the phone's bar taller on a monster's turn. It stays in the tree, visually hidden. What pins it now: this case, the next, and the
   // harness's p:barHeight (the bar's height equal across the two turns at every phone size).
-  it('narrow (the phone\'s container query): the kicker is back (it is clipped by its own rule there) and the notice is visually hidden: out of flow, 1px, clipped, NOT a row', () => {
+  it('narrow (a container query): the kicker is back (it is clipped by its own rule there) and, in the DESCRIBED form only, the notice is visually hidden: out of flow, 1px, clipped, NOT a row', () => {
     const from = css.indexOf('@container (max-width: 560px)');
     expect(from).toBeGreaterThan(0);
     expect(rule(".rail[data-waiting='true'] .railLabel", from)).toMatch(/display:\s*block/);
-    const n = rule(".rail[data-waiting='true'] .notYourTurn", from);
+    const n = rule(".rail[data-waiting='true'][data-described='true'] .notYourTurn", from);
     expect(n).toMatch(/position:\s*absolute/);
     expect(n).toMatch(/width:\s*1px/);
     expect(n).toMatch(/height:\s*1px/);
     expect(n).toMatch(/clip:\s*rect\(0,\s*0,\s*0,\s*0\)/);
     expect(n).toMatch(/overflow:\s*hidden/);
-    // no property of a row survives in it: nothing sets a flex basis or a line's padding any more
-    expect(n).not.toMatch(/flex:\s*1 0 100%/);
-    expect(n).not.toMatch(/padding:\s*2px 0 6px/);
+    expect(n).toMatch(/flex:\s*none/);
+    // the hiding rule is keyed by the row's flag: no rule hides the notice by width alone
+    const plain = rule(".rail[data-waiting='true'] .notYourTurn", from);
+    expect(plain).not.toMatch(/position:\s*absolute/);
+    expect(plain).not.toMatch(/clip:/);
+  });
+
+  it('narrow, NOT described (Story between 881 and 920px; every row but the phone\'s): the notice keeps its own line, as before the phone mount (Kage I-2)', () => {
+    const from = css.indexOf('@container (max-width: 560px)');
+    const plain = rule(".rail[data-waiting='true'] .notYourTurn", from);
+    expect(plain).toMatch(/font-size:\s*11px/);
+    expect(plain).toMatch(/padding:\s*2px 0 6px/);
+    expect(plain).toMatch(/flex:\s*1 0 100%/);
+  });
+
+  it('the rail is marked `data-described` exactly when the row gives the bar a turn line; a bar with none has no such attribute (every other row\'s markup is what it was)', () => {
+    const described = render(<ActionBar {...props({ isPlayerTurn: false, turnLine: 'Monster turn — Goblin' })} variant="bar" />);
+    expect(described.container.firstElementChild).toHaveAttribute('data-described', 'true');
+    described.unmount();
+    const plain = render(<ActionBar {...props({ isPlayerTurn: false })} variant="bar" />);
+    expect(plain.container.firstElementChild).not.toHaveAttribute('data-described');
   });
 
   it('narrow: the notice is in the DOM and still a polite live region (visually hidden, not removed), so it keeps announcing and stays the verbs\' description in the tree', () => {

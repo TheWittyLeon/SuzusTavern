@@ -248,6 +248,7 @@ export default function ActionBar({
   // every other row keeps. `describedBy` names the hidden node only while something is locked for the turn or for a downed PC; on your own turn the text ("Your turn!") describes nothing.
   const described = turnLine !== undefined;
   const whyId = `${railUid}-why`;
+  const moveWhyId = `${railUid}-move-why`;
   const hasWhy = described && !!turnLine && (notYourTurn || isDying);
   /** `disabled` + `aria-disabled` as every verb always had them; or, described, `aria-disabled` alone, plus the reason. Same attribute order as before. */
   const lock = (off: boolean | undefined) => (described ? { 'aria-disabled': off, 'aria-describedby': hasWhy ? whyId : undefined } : { disabled: off, 'aria-disabled': off });
@@ -265,6 +266,9 @@ export default function ActionBar({
       // A10 step 11 round 4 (TAV-STORY-BAR-MONSTER-TURN): on a monster's turn the wait notice REPLACES the kicker's text in the kicker's own place and adds no row, so the bar is one height on
       // both turns (Story's was 182px at 1280 wide on a monster's turn: the notice took a line and the verbs wrapped). Composer.module.css reads this attribute; a narrow slot (the phone) keeps today's layout.
       data-waiting={notYourTurn ? 'true' : undefined}
+      // B8c-4 P1b fix round 2 (Kage I-2): the row's `barTurnLine` flag, not the container's width, decides that the notice is hidden: a Story bar that is narrow (881-920px) keeps its notice and its native
+      // `disabled`. Absent where `turnLine` is undefined, so every other row's markup is byte-for-byte what it was.
+      data-described={described ? 'true' : undefined}
       ref={(el) => {
         railRef.current = el;
         if (outerRailRef) outerRailRef.current = el;
@@ -321,6 +325,7 @@ export default function ActionBar({
       )}
       {/* B8c-4 P1b: the verbs' description in the described form: the story's own turn line, from the same variable, visually hidden here (the visible one is above the composer). Not live. */}
       {hasWhy && <span id={whyId} className={styles.srOnly}>{turnLine}</span>}
+      {described && move?.disabled && !hasWhy && move.reason && <span id={moveWhyId} className={styles.srOnly}>{move.reason}</span>}
       <div className={styles.railBtns}>
         <button
           ref={attackBtnRef}
@@ -380,6 +385,8 @@ export default function ActionBar({
             className={move.pressed ? `${styles.action} ${styles.actionOn}` : styles.action}
             onClick={(e) => { if (!swallowed(move.disabled, e)) move.onToggle(); }}
             {...lock(move.disabled)}
+            // Iro m-3: on your own turn Move can be locked with no turn line to say why (no feet left, your move in flight): it gets its own reason node, described form only.
+            {...(described && move.disabled && !hasWhy && move.reason ? { 'aria-describedby': moveWhyId } : {})}
             aria-pressed={move.pressed}
           >
             <Icon name="Map" size={13} /> Move
