@@ -62,6 +62,11 @@ const DAMAGE_TYPES = [
 // debt: mirrors the engine's OverrideDamagePayload bound (le=999). ceiling: the Tavern refuses a value the engine would accept if the engine's bound is raised. until: the wire carries the bound or the engine's bound changes (Backlog TAV-OVERRIDE-HP-BOUND-MIRROR).
 const OVERRIDE_HP_MAX = 999;
 
+// The backdrop ignores clicks for this long after the dialog opens: the second
+// click of a double-click on an opener lands on the backdrop and would close
+// the dialog it just opened.
+const BACKDROP_ARM_MS = 300;
+
 /** Why New HP was refused — one message per cause, so none is false. */
 const NEW_HP_REFUSAL = {
   erased: "New HP is empty. Enter the target's HP after this damage.",
@@ -219,6 +224,10 @@ export default function DmOverrideModal({
   // the field to focus actually exists (see there).
   const pendingReviveFocus = useRef(false);
   const [, setFocusTick] = useState(0);
+  // Backdrop close needs the pointer to have gone DOWN on the backdrop too (a
+  // drag-select released over it must not close), and not within the arm window.
+  const backdropDown = useRef(false);
+  const backdropArmedAt = useRef(0);
   const targetRef = useRef<HTMLSelectElement>(null);
   const sendInFlight = useRef(false);
   const errorRef = useRef<HTMLDivElement>(null);
@@ -265,7 +274,7 @@ export default function DmOverrideModal({
     : targetOptions.find((p) => p.participant_id === targetId);
   const reviveOptions =
     target && target.is_alive ? [...fallen, target] : fallen;
-  const reviveMax = target ? Math.max(1, Math.floor(target.hp_max) || 1) : 1;
+  const reviveMax = target ? Math.min(OVERRIDE_HP_MAX, Math.max(1, Math.floor(target.hp_max) || 1)) : 1;
   const lastAlive = target ? lastAliveHp?.[target.participant_id] : undefined;
   const reviveDefault =
     typeof lastAlive === 'number' && Number.isFinite(lastAlive) && lastAlive >= 1
@@ -316,17 +325,23 @@ export default function DmOverrideModal({
   // Revive focus-on-open. The HP field only exists after the open effect has
   // switched `kind` to 'revive' and the single fallen character is preselected,
   // which is a LATER render than the one that opened the dialog; a setTimeout(0)
-  // raced that render and WebKit lost (focus stayed behind the dialog). So wait
-  // for the field itself: this runs after every commit until it is there. Who
-  // and how much come first: the Character select when there is a choice, else
-  // the HP field (selected so typing replaces it).
+  // raced that render and WebKit lost (focus stayed behind the dialog). So this
+  // runs after commits and acts on the FIRST one after the open effect armed it,
+  // exactly once, whether or not the field is there. Who and how much come
+  // first: the Character select when there is a choice, else the HP field
+  // (selected so typing replaces it); with nobody fallen there is no field, so
+  // the dialog itself takes focus and Escape and the Tab trap work.
   useLayoutEffect(() => {
-    if (!open || !pendingReviveFocus.current || kind !== 'revive') return;
+    if (!open || !pendingReviveFocus.current) return;
+    pendingReviveFocus.current = false;
+    if (kind !== 'revive') return;
     const choose = fallen.length > 1 && !initialTargetId;
     const el = choose ? targetRef.current : reviveHpRef.current;
-    if (!el) return;
-    pendingReviveFocus.current = false;
-    el.focus();
+    if (!el) {
+      dialogRef.current?.focus({ preventScroll: true });
+      return;
+    }
+    el.focus({ preventScroll: true });
     if (!choose) reviveHpRef.current?.select();
   });
 
@@ -360,6 +375,7 @@ export default function DmOverrideModal({
     setConfirmZero(false);
 
     pendingReviveFocus.current = initialKind === 'revive';
+    backdropArmedAt.current = Date.now() + BACKDROP_ARM_MS;
     // A state change guarantees a render after this effect, so the layout
     // effect above gets a chance even when nothing else here changed a value.
     setFocusTick((n) => n + 1);
@@ -373,8 +389,10 @@ export default function DmOverrideModal({
       pendingReviveFocus.current = false;
       const prev = previouslyFocused.current;
       // The opener may be gone (Revive… unmounts once nobody is fallen), or
-      // never held focus (Safari does not focus a button on click, so the
-      // captured element is <body>): then focus goes to the named fallback.
+      // never held focus (the captured element is <body>): then focus goes to
+      // the named fallback. (In WebKit a click on the opener focuses the panel
+      // <section tabIndex=-1> instead, which stays mounted, so focus returns
+      // there; in Chromium the opener holds focus and the fallback is used.)
       if (prev && prev !== document.body && prev.isConnected) prev.focus();
       // eslint-disable-next-line react-hooks/exhaustive-deps -- the LATEST node is wanted at close time
       else fallbackFocusRef?.current?.focus();
@@ -581,8 +599,16 @@ export default function DmOverrideModal({
     <div
       ref={backdropRef}
       className={styles.backdrop}
+      onPointerDown={(e) => {
+        backdropDown.current = e.target === e.currentTarget;
+      }}
       onClick={(e) => {
-        if (e.target === e.currentTarget && !submitting) handleClose();
+        const downHere = backdropDown.current;
+        backdropDown.current = false;
+        if (
+          e.target === e.currentTarget && downHere && !submitting
+          && Date.now() >= backdropArmedAt.current
+        ) handleClose();
       }}
     >
       <div
@@ -864,7 +890,8 @@ export default function DmOverrideModal({
                       type="number"
                       className={`${styles.numInput} ${styles.reviveHp}`}
                       min={1}
-                      max={reviveMax}
+                      max={target ? reviveMax : undefined}
+                      inputMode="numeric"
                       value={reviveHpText}
                       disabled={submitting}
                       aria-invalid={(submitError && errorField === 'reviveHp') || undefined}
@@ -880,22 +907,35 @@ export default function DmOverrideModal({
                     />
                     {target && (
                       <>
-                        <button type="button" className={styles.quickBtn} disabled={submitting} onClick={() => setReviveHpEdit('1')}>
-                          1 HP
-                        </button>
-                        <button type="button" className={styles.quickBtn} disabled={submitting} onClick={() => setReviveHpEdit(String(Math.ceil(reviveMax / 2)))}>
-                          Half ({Math.ceil(reviveMax / 2)})
-                        </button>
-                        <button type="button" className={styles.quickBtn} disabled={submitting} onClick={() => setReviveHpEdit(String(reviveMax))}>
-                          Full ({reviveMax})
-                        </button>
+                        {([
+                          ['1 HP', '1', 'Set to 1 HP', 1],
+                          [`Half (${Math.ceil(reviveMax / 2)})`, String(Math.ceil(reviveMax / 2)), `Set to half, ${Math.ceil(reviveMax / 2)} HP`, 2],
+                          [`Full (${reviveMax})`, String(reviveMax), `Set to full, ${reviveMax} HP`, 3],
+                        ] as const).map(([label, value, name]) => (
+                          <button
+                            key={label}
+                            type="button"
+                            className={styles.quickBtn}
+                            disabled={submitting}
+                            aria-label={name}
+                            onClick={() => {
+                              setReviveHpEdit(value);
+                              // Keep the keyboard on the value just set (no select(): that would fight a caret).
+                              reviveHpRef.current?.focus({ preventScroll: true });
+                            }}
+                          >
+                            {label}
+                          </button>
+                        ))}
                       </>
                     )}
                   </div>
                   <span id={hintId} className={styles.hint}>
                     {typeof lastAlive === 'number' && lastAlive >= 1 && target
                       ? `Was ${Math.min(Math.floor(lastAlive), reviveMax)} before they fell.`
-                      : `1 to ${reviveMax}.`}{' '}
+                      : target
+                        ? `1 to ${reviveMax}.`
+                        : 'Pick a character first.'}{' '}
                     They return conscious and their death saves are cleared. Dodge and concentration are not restored.
                   </span>
                 </div>

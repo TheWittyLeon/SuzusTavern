@@ -564,11 +564,13 @@ describe('S5.4-AC11 — DmOverrideModal: reason required, submit blocked when em
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('backdrop click closes the modal', () => {
+  it('backdrop click closes the modal (press began on the backdrop, after the arm window)', async () => {
     const onClose = jest.fn();
     const { container } = render(<DmOverrideModal {...modalBase} onClose={onClose} />);
     // The backdrop is the outermost element with the backdrop class
     const backdrop = container.firstChild as HTMLElement;
+    await act(async () => { await new Promise((r) => setTimeout(r, 350)); });
+    fireEvent.pointerDown(backdrop);
     fireEvent.click(backdrop);
     expect(onClose).toHaveBeenCalled();
   });

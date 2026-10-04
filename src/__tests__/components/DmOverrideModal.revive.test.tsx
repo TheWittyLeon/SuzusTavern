@@ -120,18 +120,18 @@ describe('HP field', () => {
 
   it('quick buttons set 1 / Half (rounded up) / Full without sending', () => {
     openRevive([GOBLIN, KESTREL]);
-    fireEvent.click(screen.getByRole('button', { name: 'Full (34)' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Set to full, 34 HP' }));
     expect(hpIn().value).toBe('34');
-    fireEvent.click(screen.getByRole('button', { name: 'Half (17)' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Set to half, 17 HP' }));
     expect(hpIn().value).toBe('17');
-    fireEvent.click(screen.getByRole('button', { name: '1 HP' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Set to 1 HP' }));
     expect(hpIn().value).toBe('1');
     expect(mockSubmitOverride).not.toHaveBeenCalled();
   });
 
   it('Half rounds up on an odd max', () => {
     openRevive([GOBLIN, mk('pc-9', 'Odd', 0, 7, { is_alive: false })]);
-    expect(screen.getByRole('button', { name: 'Half (4)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Set to half, 4 HP' })).toBeInTheDocument();
   });
 });
 
