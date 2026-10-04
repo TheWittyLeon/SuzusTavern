@@ -102,6 +102,29 @@ describe('the DM sees the line and both exits', () => {
   });
 });
 
+describe('the DM strip\'s grid (the status line takes the whole width under the buttons)', () => {
+  const root = () => document.querySelector('[data-region="sceneStage"]') as HTMLElement;
+  it('the DM\'s held stage carries the heldDm class (inline and hero); nobody else\'s does, and neither does a running fight', () => {
+    const { rerender } = render(<Stage variant="inline" />);
+    expect(root().className).toMatch(/heldDm/);
+    rerender(<Stage variant="hero" />);
+    expect(root().className).toMatch(/heldDm/);
+    rerender(<Stage dm={false} variant="inline" />);
+    expect(root().className).not.toMatch(/heldDm/);
+    rerender(<Stage state="active" variant="inline" />);
+    expect(root().className).not.toMatch(/heldDm/);
+  });
+
+  it('the stylesheet gives it its own areas in both the strip and the hero: the note spans all three columns, the buttons keep the name\'s row', () => {
+    const css = fs.readFileSync(path.join(__dirname, '../../app/play/[sessionId]/regions/SceneStage.module.css'), 'utf8');
+    for (const sel of ['\\.strip\\.heldDm', '\\.hero\\.heldDm']) {
+      const rule = css.match(new RegExp(`${sel}\\s*\\{[^}]*\\}`))?.[0] ?? '';
+      expect(rule).toMatch(/head end wrap/);
+      expect(rule).toMatch(/note note note/);
+    }
+  });
+});
+
 describe('everyone else sees the waiting line and nothing to press', () => {
   it('no buttons; the longer line', () => {
     render(<Stage dm={false} />);
@@ -139,6 +162,25 @@ describe('focus', () => {
     fireEvent.click(end);
     expect(screen.queryByRole('button', { name: 'End combat' })).toBeNull();
     expect(document.activeElement).toBe(screen.getByRole('group', { name: /^Scene:/ }));
+  });
+});
+
+describe('focus when the fight turns held under the DM', () => {
+  it('the generic End combat held focus and is replaced: focus goes to the scene head, never <body>', () => {
+    const { rerender } = render(<Stage state="active" />);
+    const end = screen.getByRole('button', { name: /End combat — choose outcome/ });
+    end.focus();
+    expect(document.activeElement).toBe(end);
+    rerender(<Stage state="held" />);
+    expect(document.activeElement).toBe(screen.getByRole('group', { name: /^Scene:/ }));
+  });
+
+  it('focus that is somewhere else is left alone', () => {
+    const { rerender } = render(<><input aria-label="draft" /><Stage state="active" /></>);
+    const draft = screen.getByLabelText('draft');
+    draft.focus();
+    rerender(<><input aria-label="draft" /><Stage state="held" /></>);
+    expect(document.activeElement).toBe(draft);
   });
 });
 

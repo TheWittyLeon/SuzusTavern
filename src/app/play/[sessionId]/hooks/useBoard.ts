@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import type { SpaceCoordinate } from '@/lib/api/types';
-import { areTurnsRunning } from '../format';
+import { areTurnsRunning, isFightHeld } from '../format';
 import { moveToken } from '@/lib/api/dnd';
 import { COMBAT_REFUSAL_REASON_MAP } from '@/lib/dnd/engineReasons';
 import { engineErrorMessage, extractReason, isApiError } from '@/lib/dnd/engineError';
@@ -197,6 +197,7 @@ export function useBoard({ cs, room, stageHasBody, moveAllowed, sessionLocked, a
         viewerParticipantId: selfPcId,
         activeParticipantId: state.active_participant_id,
         round,
+        held: isFightHeld(state),
         showReach,
         rescueStrandedFocus,
         moveMode,

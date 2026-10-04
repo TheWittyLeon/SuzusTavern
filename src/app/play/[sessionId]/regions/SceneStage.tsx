@@ -124,11 +124,14 @@ export default function SceneStage({
   // The held End combat has been pressed. The fight ending takes the button with it, so focus is put on the scene head in that same commit (never <body>,
   // and not the composer, which is where the page's stranded-focus rescue would send it). A revive instead takes the Revive… opener; the dialog's own fallback is the scene head.
   const endedFromHold = useRef(false);
+  const wasHeld = useRef(held);
   useLayoutEffect(() => {
-    if (!combatIsActive && endedFromHold.current) {
-      const at = document.activeElement;
-      if (at == null || at === document.body) sceneHeadRef.current?.focus({ preventScroll: true });
-    }
+    const at = document.activeElement;
+    const stranded = at == null || at === document.body;
+    // Two edges drop focus to <body> because the control that held it leaves: the fight ending (the held End combat goes) and the fight turning held (the generic End combat
+    // and its chooser go, another tab's override). Both land on the scene head; focus that is somewhere else is left alone.
+    if (stranded && ((!combatIsActive && endedFromHold.current) || (held && !wasHeld.current))) sceneHeadRef.current?.focus({ preventScroll: true });
+    wasHeld.current = held;
     if (!combatIsActive || !held) endedFromHold.current = false;
   }, [combatIsActive, held, sceneHeadRef]);
   // A chooser left open when the fight turned held (another tab's override) closes with the button that opened it, and does not reopen when the fight resumes.
@@ -155,7 +158,7 @@ export default function SceneStage({
       data-variant={variant}
       // A `hero` owns its slot's edges: the slot drops its padding and stops being a scroller (Play.module.css, `data-slot-fill`).
       data-slot-fill={hero ? '' : undefined}
-      className={hero ? `${cx(styles.stage, strip.strip)} ${strip.hero}` : cx(styles.stage, strip.strip)}
+      className={`${hero ? `${cx(styles.stage, strip.strip)} ${strip.hero}` : cx(styles.stage, strip.strip)}${held && overrideDialog ? ` ${strip.heldDm}` : ''}`}
     >
       {/* FIX-8 (MEDIUM-1): aria-label surfaces the scene name to AT so the "Scene" kicker (now aria-hidden) doesn't duplicate it on
           screen readers. Iro Ship 2 CRITICAL-1: tabIndex={-1} + ref makes this a programmatic focus anchor — refocusSceneHeadIfStranded()
