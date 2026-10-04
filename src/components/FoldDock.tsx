@@ -155,12 +155,19 @@ export default function FoldDock({
       title={`${folded ? 'Open' : 'Fold'} ${label.toLowerCase()}`}
       onClick={locked ? undefined : onToggle}
     >
-      <span className={styles.handleTop}>
+      {inBody ? (
+        <>
+          <span className={styles.handleTop}>
+            <Icon name={icon} size={18} aria-hidden />
+            <Icon name="Chevron" size={12} className={folded ? styles.chevronFolded : styles.chevronOpen} aria-hidden />
+          </span>
+          {text !== undefined && <span className={styles.handleText}>{text}</span>}
+          {locked && <span id={reasonId} hidden>{lockedReason}</span>}
+        </>
+      ) : (
+        // The plain dock's handle is the glyph and nothing else, as it always was (the character sheet's: same markup to the byte).
         <Icon name={icon} size={18} aria-hidden />
-        {inBody && <Icon name="Chevron" size={12} className={folded ? styles.chevronFolded : styles.chevronOpen} aria-hidden />}
-      </span>
-      {inBody && text !== undefined && <span className={styles.handleText}>{text}</span>}
-      {locked && <span id={reasonId} hidden>{lockedReason}</span>}
+      )}
     </button>
   ) : null;
 
