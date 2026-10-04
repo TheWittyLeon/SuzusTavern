@@ -40,7 +40,17 @@
   color: var(--ink);
 }
 
-/* FIVE TILES AT 390 (brief 7.3, "260 px of 262"): measured at 390 the column the button leaves the tile row is 262px, and five tiles need 5 x 46 + 4 x 6 + the row's 16px of end padding = 270. All five are whole, so no "+N" cue is drawn (none is hidden), but the row then scrolls by that padding alone and the sideways-cue rule (v:sidewaysCue, Iro Minor-6) calls a row that scrolls with no cue a defect. While the button is shown the tiles close up from 6px to 4px: 246 + 16 = 262, exactly the column. At 360 (232px) the row scrolls for real and the "+N" cue is drawn as before. Only the framed band is touched: the exploring strip and every desktop rail keep their 6px. */
-.frame ul[aria-labelledby='party-panel-label'] {
-  gap: var(--space-2);
+/* A ROW THAT HIDES NOTHING DOES NOT SCROLL (found by the judged matrix, v:sidewaysCue): the tile row keeps 16px of padding at its end and an edge fade over the last 16px, so that when it IS scrolled to its end the
+   last tile clears the fade. With the button's column the row is 262px at 390 and 247px at 375; five tiles are 254 wide, so at 375 the fifth is partly hidden (the "+1" cue says so) and at 390 all five are whole. But
+   the padding alone made the 390 row 270px wide: it scrolled sideways with no tile hidden, so no "+N" cue was drawn and the rule that a row which scrolls must say so failed in 13 phone cells. The padding and the
+   fade belong to a row that hides a tile, and the strip draws "+N" (`[data-party-more]`) exactly then; so in the framed band the row has neither until it does. Scoped to the band that has the button: the
+   exploring strip and every other row keep what they had. */
+.frame [data-variant='strip'] ul[aria-labelledby='party-panel-label'] {
+  padding-right: 0;
+  mask-image: none;
+}
+
+.frame [data-variant='strip']:has(> [data-party-more]) ul[aria-labelledby='party-panel-label'] {
+  padding-right: 16px;
+  mask-image: linear-gradient(to right, var(--ink) calc(100% - 16px), transparent);
 }

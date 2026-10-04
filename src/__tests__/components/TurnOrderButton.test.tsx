@@ -184,12 +184,19 @@ describe('TurnOrderButton.module.css: the frame, and a sticky 44 x 44 target', (
     expect(b).toMatch(/position:\s*sticky/);
     expect(b).toMatch(/touch-action:\s*manipulation/);
   });
-  it('while the button is shown the tiles close up to 4px so five fit beside it at 390 (measured: 270px needed in a 262px column at 6px); only the framed band, never the plain strip', () => {
-    const at = css.indexOf("ul[aria-labelledby='party-panel-label'] {");
-    expect(at).toBeGreaterThan(-1);
-    expect(css.slice(css.lastIndexOf('\n', at), css.indexOf('}', at))).toMatch(/\.frame ul\[aria-labelledby='party-panel-label'\]\s*\{\s*gap:\s*var\(--space-2\)/);
+  it('a row that hides nothing does not scroll or fade: in the framed band the end padding and the edge fade belong to a row that hides a tile (the "+N" cue is drawn exactly then); the plain strip keeps both', () => {
+    const plain = rule(".frame [data-variant='strip'] ul[aria-labelledby='party-panel-label']");
+    expect(plain).toMatch(/padding-right:\s*0/);
+    expect(plain).toMatch(/mask-image:\s*none/);
+    const hides = rule(".frame [data-variant='strip']:has(> [data-party-more]) ul[aria-labelledby='party-panel-label']");
+    expect(hides).toMatch(/padding-right:\s*16px/);
+    expect(hides).toMatch(/mask-image:\s*linear-gradient\(to right, var\(--ink\) calc\(100% - 16px\), transparent\)/);
+    // the plain strip is untouched: PartyPanel's own rule still pads and fades, and the framed rules are the only ones that name `.frame`
     const party = fs.readFileSync(path.resolve(process.cwd(), 'src/components/PartyPanel.module.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
-    expect(party.slice(party.indexOf('.strip .list {'), party.indexOf('}', party.indexOf('.strip .list {')))).toMatch(/gap:\s*6px/);
+    const list = party.slice(party.indexOf('.strip .list {'), party.indexOf('}', party.indexOf('.strip .list {')));
+    expect(list).toMatch(/padding:\s*var\(--party-label-h\) 16px 0 0/);
+    expect(list).toMatch(/mask-image:\s*linear-gradient/);
+    expect(party).not.toMatch(/\.frame/);
   });
 
   it('the active row\'s focus ring is drawn INSIDE the row (the band is a scroller that clips an outward ring)', () => {
