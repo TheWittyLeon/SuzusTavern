@@ -4,7 +4,7 @@
  *   2. the band has a 44px "Turn order" button, only where the tracker is off screen at rest (the phone's strip, a live fight): it scrolls the band to the tracker (instantly) and puts focus on the
  *      active row; pressed again it scrolls back to the tiles. `aria-expanded` is read from the scroll position, so a hand scroll keeps it true. It is DOM-after the tiles, before the tracker.
  * jsdom has no layout: each case plants the band's and the tracker's rects and the band's `scrollTo`; the geometry (44 x 44, five tiles at 390) is the harness's.
- * Controls: tabIndex on every row -> the "only the active row" case reds; the button rendered in the rail -> the "only the strip" case reds; smooth scrolling -> the instant case reds; focus left on the
+ * Controls: tabIndex 0 on every row -> the "only the active row" case reds; the button rendered in the rail -> the "only the strip" case reds; smooth scrolling -> the instant case reds; focus left on the
  * button -> the focus case reds; aria-expanded fixed -> the hand-scroll case reds.
  */
 import React from 'react';
@@ -35,14 +35,15 @@ describe('the tracker\'s active row is the band\'s tab stop', () => {
     const r = rows(container);
     expect(r).toHaveLength(2);
     expect(r.filter((li) => li.getAttribute('tabindex') === '0').map((li) => li.getAttribute('aria-current'))).toEqual(['true']);
-    expect(r.filter((li) => li.getAttribute('aria-current') !== 'true').every((li) => !li.hasAttribute('tabindex'))).toBe(true);
+    // every other row is -1, never absent: a turn change then changes only the value, and a focused row keeps focus (Miko M1; InitiativeTracker.focus-retention.test)
+    expect(r.filter((li) => li.getAttribute('aria-current') !== 'true').map((li) => li.getAttribute('tabindex'))).toEqual(['-1']);
   });
 
   it('no one acting: the FIRST row is the stop (the scroller always has a keyboard path); the legacy shim follows the same rule', () => {
     const { container, rerender } = render(<InitiativeTracker participants={fight(null).participants} round={2} variant="strip" />);
-    expect(Array.from(container.querySelectorAll('li')).map((li) => li.getAttribute('tabindex'))).toEqual(['0', null]);
+    expect(Array.from(container.querySelectorAll('li')).map((li) => li.getAttribute('tabindex'))).toEqual(['0', '-1']);
     rerender(<InitiativeTracker entries={[{ id: 'a', name: 'A', initiative: 1, kind: 'pc' }, { id: 'b', name: 'B', initiative: 2, kind: 'monster' }]} currentIndex={1} round={1} variant="strip" />);
-    expect(Array.from(container.querySelectorAll('li')).map((li) => li.getAttribute('tabindex'))).toEqual([null, '0']);
+    expect(Array.from(container.querySelectorAll('li')).map((li) => li.getAttribute('tabindex'))).toEqual(['-1', '0']);
   });
 
   it('only the phone\'s strip carries the wrapper id the button controls (the desktop rail\'s markup gains the tab stop and nothing else)', () => {
@@ -53,6 +54,30 @@ describe('the tracker\'s active row is the band\'s tab stop', () => {
     expect(rail.container.querySelector(`#${INITIATIVE_TRACKER_ID}`)).toBeNull();
   });
 });
+
+/**
+ * jsdom has no layout. The band's own geometry (what `useTurnOrderCue` reads) is planted on the prototype, keyed by the band's test id, BEFORE the commit that measures: `scrolls` is whether the
+ * band's content is taller than the band; `framedExtra` is how much taller the content gets while the region carries the frame class (the button's column narrows the tracker).
+ */
+const band = { scrolls: true, framedExtra: 0 };
+const protoScrollHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollHeight');
+const protoClientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight');
+beforeAll(() => {
+  Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+    configurable: true,
+    get(this: HTMLElement) {
+      if (this.dataset.testid !== 'band') return 0;
+      const framed = !!this.querySelector('[data-region="partyStrip"]')?.className.includes('frame');
+      return (band.scrolls ? 300 : 91) + (framed ? band.framedExtra : 0);
+    },
+  });
+  Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, get(this: HTMLElement) { return this.dataset.testid === 'band' ? 91 : 0; } });
+});
+afterAll(() => {
+  if (protoScrollHeight) Object.defineProperty(HTMLElement.prototype, 'scrollHeight', protoScrollHeight); else delete (HTMLElement.prototype as unknown as Record<string, unknown>).scrollHeight;
+  if (protoClientHeight) Object.defineProperty(HTMLElement.prototype, 'clientHeight', protoClientHeight); else delete (HTMLElement.prototype as unknown as Record<string, unknown>).clientHeight;
+});
+beforeEach(() => { band.scrolls = true; band.framedExtra = 0; });
 
 function mount(over: { variant?: 'strip' | 'rail'; combatIsActive?: boolean; state?: CombatState | null } = {}) {
   const view = render(
@@ -106,6 +131,36 @@ describe('the Turn order button: where it exists', () => {
   it('while it is shown the region root takes the frame class (the 44px column the button owns)', () => {
     const { container } = mount();
     expect(container.querySelector('[data-region="partyStrip"]')?.className).toMatch(/frame/);
+  });
+});
+
+describe('the Turn order button: only while the band cannot show the tiles and the whole tracker (a button that cannot move anything is not drawn, and its column is not taken)', () => {
+  it('a band that does not scroll: no button, no frame class (the tracker keeps its full width)', () => {
+    band.scrolls = false;
+    const { container } = mount();
+    expect(button()).toBeNull();
+    expect(container.querySelector('[data-region="partyStrip"]')?.className ?? '').toBe('');
+  });
+
+  it('judged on the UNFRAMED band: content that fits unframed but would scroll once the button\'s column narrows the tracker gets no button, whatever came before', () => {
+    band.framedExtra = 34; // 412x915: the column grows the tracker 34px
+    const view = mount();
+    expect(button()).toBeInTheDocument(); // starts scrolling (300 > 91): framed
+    band.scrolls = false; // the fight shrinks: unframed it fits (91), framed it would be 125
+    view.rerender(
+      <div data-testid="band" style={{ overflowY: 'auto' }}>
+        <PartyStrip participants={party} selfUsername="leon" combatState={fight('p1')} onSelectMember={() => {}} isDm={false} sessionId="s1" combatIsActive sessionLocked={false} onRebindChanged={() => {}} round={2} selfPcId="p1" variant="strip" />
+      </div>,
+    );
+    expect(button()).toBeNull(); // the mutation (measure the framed band) keeps the button
+    expect(view.container.querySelector('[data-region="partyStrip"]')?.className ?? '').toBe('');
+  });
+
+  it('a strip with no scroller to measure keeps the button (it never hides on a guess)', () => {
+    render(
+      <PartyStrip participants={party} selfUsername="leon" combatState={fight()} onSelectMember={() => {}} isDm={false} sessionId="s1" combatIsActive sessionLocked={false} onRebindChanged={() => {}} round={2} selfPcId="p1" variant="strip" />,
+    );
+    expect(button()).toBeInTheDocument();
   });
 });
 

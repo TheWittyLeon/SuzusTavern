@@ -122,8 +122,9 @@ function StructuredTracker({
                 .join(' ')}
               aria-current={p.is_active_turn ? true : undefined}
               // B8c-4 P1c (Iro C6): the party band is a bounded scroller; a scroller with nothing focusable in it is unreachable by keyboard in WebKit. The active row is the band's tab stop (and where the
-              // "Turn order" button puts focus), in the phone's strip and in the desktop rail alike.
-              tabIndex={i === stopAt ? 0 : undefined}
+              // "Turn order" button puts focus), in the phone's strip and in the desktop rail alike. Every other row is -1, never absent: a poll that passes the turn changes only the VALUE, so a focused row keeps focus (an attribute that
+              // disappears from a focused element sends focus to <body> in Chromium and WebKit; Miko M1).
+              tabIndex={i === stopAt ? 0 : -1}
             >
               <span
                 className={styles.dot}
@@ -264,7 +265,7 @@ function LegacyTracker({
               key={e.id}
               className={current ? `${styles.entry} ${styles.current}` : styles.entry}
               aria-current={current ? true : undefined}
-              tabIndex={i === stopAt ? 0 : undefined}
+              tabIndex={i === stopAt ? 0 : -1}
             >
               <span
                 className={styles.dot}

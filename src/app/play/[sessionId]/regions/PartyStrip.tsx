@@ -6,7 +6,7 @@ import AnchoredPopover from '@/components/AnchoredPopover';
 import Icon from '@/components/Icon';
 import PartyPanel from '@/components/PartyPanel';
 import InitiativeTracker from '@/components/InitiativeTracker';
-import TurnOrderButton, { TURN_ORDER_FRAME } from '@/components/TurnOrderButton';
+import TurnOrderButton, { TURN_ORDER_FRAME, useTurnOrderCue } from '@/components/TurnOrderButton';
 import RebindCharacterButton from '@/components/RebindCharacterButton';
 import { useAnchoredPopover } from '@/lib/a11y/useAnchoredPopover';
 import type { RegionVariant } from '../variants';
@@ -140,7 +140,7 @@ export default function PartyStrip({
 
   // The tracker is shown only while the fight is LIVE (see below); the phone's strip is where it is off screen at rest, so only there is a cue to it.
   const trackerShown = combatIsActive && !!combatState && combatState.participants.length > 0;
-  const turnOrder = variant === 'strip' && trackerShown;
+  const turnOrder = useTurnOrderCue(rootRef, variant === 'strip' && trackerShown);
 
   return (
     <div ref={rootRef} data-region="partyStrip" data-toast-clear="" data-variant={variant} className={turnOrder ? TURN_ORDER_FRAME : undefined}>
