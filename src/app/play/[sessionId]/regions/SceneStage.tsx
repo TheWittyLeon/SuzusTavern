@@ -260,7 +260,7 @@ export default function SceneStage({
             </div>
           )}
           {/* B3-1: the outcome chooser: an anchored popover on every row (A9d-2 N4), a named group, never aria-modal. */}
-          {!held && <AnchoredPopover pop={pop} role="group" label="Choose combat outcome" className={styles.outcomeChooser}>
+          <AnchoredPopover pop={pop} role="group" label="Choose combat outcome" className={styles.outcomeChooser}>
             <div className={styles.outcomeChooserLabel}>How does this fight end?</div>
             {(
               [
@@ -298,7 +298,7 @@ export default function SceneStage({
             >
               Cancel
             </button>
-          </AnchoredPopover>}
+          </AnchoredPopover>
         </>
       ) : activeEncounterId ? (
         // Between fights but encounter_id still set — shouldn't happen post-fix.
