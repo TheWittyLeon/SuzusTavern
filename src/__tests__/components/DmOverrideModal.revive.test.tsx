@@ -280,6 +280,25 @@ describe('opened as Revive from elsewhere', () => {
     sel.mockRestore();
   });
 
+  it('focus does not depend on a timer: it is on the HP field as soon as the field renders (WebKit race)', async () => {
+    jest.useFakeTimers();
+    try {
+      render(<DmOverrideModal {...mkProps([GOBLIN, KESTREL], { initialKind: 'revive' })} />);
+      await act(async () => {}); // flush effects and the renders they cause, but run NO timers
+      expect(document.activeElement).toBe(hpIn());
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('the dialog is titled for the act: Revive in Revive mode, DM Override otherwise', () => {
+    const { rerender } = render(<DmOverrideModal {...mkProps([GOBLIN, KESTREL], { initialKind: 'revive' })} />);
+    expect(screen.getByRole('dialog', { name: 'Revive' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('radio', { name: /Damage/i }));
+    expect(screen.getByRole('dialog', { name: 'DM Override' })).toBeInTheDocument();
+    rerender(<DmOverrideModal {...mkProps([GOBLIN, KESTREL])} />);
+  });
+
   it('initialTargetId preselects that character', async () => {
     render(<DmOverrideModal {...mkProps([GOBLIN, KESTREL, LUKE], { initialKind: 'revive', initialTargetId: 'pc-2' })} />);
     await settle();
@@ -317,6 +336,15 @@ describe('F-1: Damage on a target already at 0 HP', () => {
     fireEvent.change(screen.getByLabelText(/Damage dealt/i), { target: { value: '5' } });
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Apply override/i })); });
     expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+  });
+});
+
+describe('Restore to HP field is 44px tall like the quick buttons', () => {
+  it('.reviveHp height is 44px and the field uses it', () => {
+    const css = fs.readFileSync(path.join(__dirname, '../../components/DmOverrideModal.module.css'), 'utf8');
+    expect(css.match(/\.reviveHp\s*\{[^}]*\}/)?.[0] ?? '').toMatch(/height:\s*44px/);
+    openRevive([GOBLIN, KESTREL]);
+    expect(hpIn().className).toMatch(/reviveHp/);
   });
 });
 

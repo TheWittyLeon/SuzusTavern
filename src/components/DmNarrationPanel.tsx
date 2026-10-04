@@ -455,6 +455,8 @@ export default function DmNarrationPanel({
   // Which kind the dialog opens on ('revive' from the Revive… opener).
   const [overrideKind, setOverrideKind] = useState<'revive' | undefined>(undefined);
   const lastAliveHp = useLastAliveHp(combatState.participants);
+  // Focus lands here after a revive if the Revive… opener has unmounted.
+  const overrideBtnRef = useRef<HTMLButtonElement>(null);
   // Revive… is offered only while a player character has fallen in a live fight.
   const canRevive =
     LIVE_COMBAT_STATES.includes(combatState.state) &&
@@ -523,6 +525,7 @@ export default function DmNarrationPanel({
       <div className={styles.dmControls}>
         <button
           type="button"
+          ref={overrideBtnRef}
           className={styles.overrideBtn}
           aria-label="Open DM override modal"
           onClick={() => {
@@ -594,6 +597,7 @@ export default function DmNarrationPanel({
         initialKind={overrideKind}
         lastAliveHp={lastAliveHp}
         onRefresh={onStateRefresh}
+        fallbackFocusRef={overrideBtnRef}
       />
     </section>
   );

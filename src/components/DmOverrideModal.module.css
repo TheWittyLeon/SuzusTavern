@@ -286,6 +286,10 @@
   gap: 6px;
 }
 
+.reviveHp {
+  height: 44px;
+}
+
 .quickBtn {
   min-height: 44px;
   padding: 0 12px;

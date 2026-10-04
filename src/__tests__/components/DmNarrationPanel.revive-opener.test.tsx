@@ -3,14 +3,15 @@
  * Revive's default HP.
  */
 import React from 'react';
-import { render, screen, fireEvent, renderHook } from '@testing-library/react';
+import { render, screen, fireEvent, renderHook, act, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
+const mockSubmitOverride = jest.fn();
 jest.mock('../../lib/api/dnd', () => ({
   setSessionPolicy: jest.fn(),
   npcAction: jest.fn(),
   postSessionEvent: jest.fn(),
-  submitOverride: jest.fn(),
+  submitOverride: (...a: unknown[]) => mockSubmitOverride(...a),
 }));
 
 import DmNarrationPanel from '@/components/DmNarrationPanel';
@@ -79,6 +80,29 @@ describe('Revive… opener', () => {
     render(panel(state([GOBLIN, KESTREL_DEAD])));
     fireEvent.click(screen.getByRole('button', { name: /Revive…/ }));
     expect((screen.getByLabelText(/Restore to HP/i) as HTMLInputElement).value).toBe('1');
+  });
+});
+
+describe('focus after a successful revive', () => {
+  it('goes to DM Override when the Revive… opener unmounts with the last fallen character', async () => {
+    const revivedState = state([GOBLIN, KESTREL_ALIVE]);
+    mockSubmitOverride.mockResolvedValue({ applied: { message: 'Kestrel is back.' }, state: revivedState });
+    function Harness() {
+      const [cs, setCs] = React.useState(state([GOBLIN, KESTREL_DEAD]));
+      return (
+        <DmNarrationPanel
+          combatId="c1" combatState={cs} sessionId="s1" dmUsername="dm"
+          onMessage={jest.fn()} onOverrideMessage={jest.fn()} onStateUpdate={setCs} onStateRefresh={jest.fn()}
+        />
+      );
+    }
+    render(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: /Revive…/ }));
+    fireEvent.change(screen.getByLabelText(/Reason/i), { target: { value: 'prayer' } });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Revive Kestrel/ })); });
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: /Revive…/ })).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: /Open DM override modal/i }));
   });
 });
 

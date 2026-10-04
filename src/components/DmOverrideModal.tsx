@@ -35,8 +35,10 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
+  type RefObject,
 } from 'react';
 import { submitOverride } from '@/lib/api/dnd';
 import type {
@@ -145,6 +147,9 @@ export interface DmOverrideModalProps {
   lastAliveHp?: Readonly<Record<string, number>>;
   /** Re-poll the combat state (Revive's empty case). */
   onRefresh?: () => void;
+  /** Where focus goes on close when the opener is no longer in the page (e.g.
+   *  the Revive… button unmounts once nobody is fallen). */
+  fallbackFocusRef?: RefObject<HTMLElement | null>;
 }
 
 export default function DmOverrideModal({
@@ -158,6 +163,7 @@ export default function DmOverrideModal({
   initialTargetId,
   lastAliveHp,
   onRefresh,
+  fallbackFocusRef,
 }: DmOverrideModalProps) {
   const uid = useId();
   const titleId = `${uid}-title`;
@@ -209,7 +215,10 @@ export default function DmOverrideModal({
   const previouslyFocused = useRef<HTMLElement | null>(null);
   const newHpRef = useRef<HTMLInputElement>(null);
   const reviveHpRef = useRef<HTMLInputElement>(null);
-  const fallenCountRef = useRef(0);
+  // Set on open when opened as Revive; consumed by the layout effect below once
+  // the field to focus actually exists (see there).
+  const pendingReviveFocus = useRef(false);
+  const [, setFocusTick] = useState(0);
   const targetRef = useRef<HTMLSelectElement>(null);
   const sendInFlight = useRef(false);
   const errorRef = useRef<HTMLDivElement>(null);
@@ -304,10 +313,22 @@ export default function DmOverrideModal({
     setNewHpEdit(null);
   }
 
-  // The open effect's focus timer reads this after the commit.
-  useEffect(() => {
-    fallenCountRef.current = fallen.length;
-  }, [fallen.length]);
+  // Revive focus-on-open. The HP field only exists after the open effect has
+  // switched `kind` to 'revive' and the single fallen character is preselected,
+  // which is a LATER render than the one that opened the dialog; a setTimeout(0)
+  // raced that render and WebKit lost (focus stayed behind the dialog). So wait
+  // for the field itself: this runs after every commit until it is there. Who
+  // and how much come first: the Character select when there is a choice, else
+  // the HP field (selected so typing replaces it).
+  useLayoutEffect(() => {
+    if (!open || !pendingReviveFocus.current || kind !== 'revive') return;
+    const choose = fallen.length > 1 && !initialTargetId;
+    const el = choose ? targetRef.current : reviveHpRef.current;
+    if (!el) return;
+    pendingReviveFocus.current = false;
+    el.focus();
+    if (!choose) reviveHpRef.current?.select();
+  });
 
   // Initialise actor when modal opens or participants change
   useEffect(() => {
@@ -338,22 +359,25 @@ export default function DmOverrideModal({
     setNewHpEdit(null);
     setConfirmZero(false);
 
+    pendingReviveFocus.current = initialKind === 'revive';
+    // A state change guarantees a render after this effect, so the layout
+    // effect above gets a chance even when nothing else here changed a value.
+    setFocusTick((n) => n + 1);
+
     const t = setTimeout(() => {
-      if (initialKind === 'revive') {
-        // Who and how much come first: the Character select when there is a
-        // choice, else the HP field (selected so typing replaces it).
-        if (fallenCountRef.current > 1 && !initialTargetId) targetRef.current?.focus();
-        else {
-          reviveHpRef.current?.focus();
-          reviveHpRef.current?.select();
-        }
-        return;
-      }
+      if (initialKind === 'revive') return; // the layout effect owns that path
       (firstFocusRef.current as HTMLElement | null)?.focus();
     }, 0);
     return () => {
       clearTimeout(t);
-      previouslyFocused.current?.focus?.();
+      pendingReviveFocus.current = false;
+      const prev = previouslyFocused.current;
+      // The opener may be gone (Revive… unmounts once nobody is fallen), or
+      // never held focus (Safari does not focus a button on click, so the
+      // captured element is <body>): then focus goes to the named fallback.
+      if (prev && prev !== document.body && prev.isConnected) prev.focus();
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- the LATEST node is wanted at close time
+      else fallbackFocusRef?.current?.focus();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -575,7 +599,7 @@ export default function DmOverrideModal({
       >
         <div className={styles.header}>
           <h2 id={titleId} className={styles.title}>
-            DM Override
+            {isRevive ? 'Revive' : 'DM Override'}
           </h2>
           <button
             type="button"
@@ -838,7 +862,7 @@ export default function DmOverrideModal({
                       id={`${uid}-revive-hp`}
                       ref={reviveHpRef}
                       type="number"
-                      className={styles.numInput}
+                      className={`${styles.numInput} ${styles.reviveHp}`}
                       min={1}
                       max={reviveMax}
                       value={reviveHpText}
