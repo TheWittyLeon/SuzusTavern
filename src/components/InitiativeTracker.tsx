@@ -30,6 +30,9 @@ import type { RegionVariant } from '@/app/play/[sessionId]/variants';
 import type { CombatParticipantState } from '@/lib/api/types';
 import styles from './InitiativeTracker.module.css';
 
+/** The strip's tracker wrapper (the phone's party band): what the band's "Turn order" button controls and scrolls to. */
+export const INITIATIVE_TRACKER_ID = 'play-initiative-tracker';
+
 // ── Legacy shim (kept for existing tests) ───────────────────────────────────
 export interface InitEntry {
   id: string;
@@ -80,9 +83,12 @@ function StructuredTracker({
   variant,
 }: InitiativeTrackerStructuredProps) {
   if (participants.length === 0) return null;
+  // The band's one tab stop: the active row, or the first when no one is acting (between turns), so the scroller always has a keyboard path. A single data-driven stop, NOT a roving tabindex: there are no
+  // arrow keys and a tap on a row leaves the stop where it is, because the rows have no actions (they would get arrow keys if they gained any; Iro m-1).
+  const stopAt = Math.max(0, participants.findIndex((p) => p.is_active_turn));
 
   return (
-    <div className={variant ? `${styles.wrap} ${styles[variant]}` : styles.wrap} data-variant={variant}>
+    <div className={variant ? `${styles.wrap} ${styles[variant]}` : styles.wrap} data-variant={variant} id={variant === 'strip' ? INITIATIVE_TRACKER_ID : undefined}>
       <div className={styles.head}>
         <span className={styles.label} id="initiative-label">
           Initiative
@@ -98,7 +104,7 @@ function StructuredTracker({
         )}
       </div>
       <ol className={styles.list} aria-labelledby="initiative-label">
-        {participants.map((p) => {
+        {participants.map((p, i) => {
           const isYou = selfParticipantId != null && p.participant_id === selfParticipantId;
           const isDead = !p.is_alive;
           const isDowned = p.death_saves?.is_downed ?? false;
@@ -116,6 +122,10 @@ function StructuredTracker({
                 .filter(Boolean)
                 .join(' ')}
               aria-current={p.is_active_turn ? true : undefined}
+              // B8c-4 P1c (Iro C6): the party band is a bounded scroller; a scroller with nothing focusable in it is unreachable by keyboard in WebKit. The active row is the band's tab stop (and where the
+              // "Turn order" button puts focus), in the phone's strip and in the desktop rail alike. Every other row is -1, never absent: a poll that passes the turn changes only the VALUE, so a focused row keeps focus (an attribute that
+              // disappears from a focused element sends focus to <body> in Chromium and WebKit; Miko M1).
+              tabIndex={i === stopAt ? 0 : -1}
             >
               <span
                 className={styles.dot}
@@ -239,6 +249,7 @@ function LegacyTracker({
   variant,
 }: InitiativeTrackerLegacyProps) {
   if (entries.length === 0) return null;
+  const stopAt = currentIndex ?? 0;
   return (
     <div className={variant ? `${styles.wrap} ${styles[variant]}` : styles.wrap} data-variant={variant}>
       <div className={styles.head}>
@@ -255,6 +266,7 @@ function LegacyTracker({
               key={e.id}
               className={current ? `${styles.entry} ${styles.current}` : styles.entry}
               aria-current={current ? true : undefined}
+              tabIndex={i === stopAt ? 0 : -1}
             >
               <span
                 className={styles.dot}

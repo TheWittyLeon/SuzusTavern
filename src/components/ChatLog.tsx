@@ -6,6 +6,7 @@
  * Auto-scrolls to the newest row (respecting reduced-motion). A "thinking" row
  * shows a waveform while Suzu narrates. Roll rows render the shared <Die>.
  */
+import { markOwnScroll } from '@/lib/ownScroll';
 import {
   useCallback,
   useEffect,
@@ -173,6 +174,7 @@ export default function ChatLog({
     if (!el) return;
     // scrollTo is the smooth/instant-capable path; fall back to scrollTop for
     // environments without it (jsdom).
+    markOwnScroll(el, behavior === 'smooth' ? 800 : 150); // the page's own scroll: the fold's quiet period does not count it
     if (typeof el.scrollTo === 'function') el.scrollTo({ top: el.scrollHeight, behavior });
     else el.scrollTop = el.scrollHeight;
   }, []);

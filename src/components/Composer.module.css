@@ -322,7 +322,7 @@
   cursor: pointer;
 }
 
-.action:hover:not(:disabled) {
+.action:hover:not(:disabled):not([aria-disabled='true']) {
   border-color: color-mix(in oklab, var(--accent) 35%, transparent);
   color: var(--ink);
 }
@@ -332,15 +332,23 @@
   color: var(--ink);
 }
 
-.action:disabled {
+/* B8c-4 P1b: the bar's described form locks a verb with `aria-disabled` alone (it stays focusable); it looks exactly like the native lock every other row uses. Where both are set the two selectors agree. */
+.action:disabled,
+.action[aria-disabled='true'] {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* B8c-4 fix round 2 (Tora MINOR-5): a native `disabled` button takes no tap highlight on iOS; an `aria-disabled` one does (a grey flash on a press that does nothing). */
+.action[aria-disabled='true'] {
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* A9d E5: the bar fits a NARROW slot. The query reads the nearest inline-size
    container, which is the `actionBar` slot (Play.module.css declares
    `container-type` on it and owns the 560px threshold for the safety block;
-   this is the same query). Desktop bars sit in slots >= 900px and never match.
+   this is the same query). A desktop bar CAN match (Story's rail is narrower than 560px between about 881 and 920px wide): what a narrow bar does to the wait notice is therefore decided by the
+   row's `barTurnLine` flag (`[data-described]` on the rail), never by this width alone.
    - the "Your character's actions" kicker is visually hidden, NOT removed: the
      group keeps `aria-labelledby` pointing at it;
    - the verbs share one row, each a >= 44x44 target with the icon over its label;
@@ -352,11 +360,11 @@
     margin-bottom: 0;
   }
 
-  /* the phone keeps the wait notice as its own line (round 4 left it alone: the phone cells do not move) */
   .rail[data-waiting='true'] .railLabel {
     display: block;
   }
 
+  /* The notice keeps its own line in a narrow bar that is not in the described form (every row but the phone's): round 4 left it alone, and Story at 881-920px wide still has it. */
   .rail[data-waiting='true'] .notYourTurn {
     font-size: 11px;
     letter-spacing: normal;
@@ -365,6 +373,23 @@
     padding: 2px 0 6px;
     margin: 0;
     flex: 1 0 100%;
+  }
+
+  /* B8c-4 P1b (Sora's phone-mount brief 6.4): in the DESCRIBED form (`data-described`, the phone row's `barTurnLine`) the wait notice is NOT A ROW. It was a 24.5px line that made the bar taller on a
+     monster's turn, stepped the board's bottom edge every turn and made the map's default depend on who acts first. It stays in the tree, visually hidden, still its polite live text; on screen the
+     reason is the story's turn line directly above the composer ("Monster turn - X") and the verbs, dimmed. A wide bar (a phone row's bar over 560px included) is unchanged: the notice takes the
+     kicker's place above. */
+  .rail[data-waiting='true'][data-described='true'] .notYourTurn {
+    position: absolute;
+    flex: none;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 
   .railLabel {

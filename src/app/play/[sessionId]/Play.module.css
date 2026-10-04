@@ -148,13 +148,23 @@
   overflow: visible;
 }
 
+/* B8c-4 P0 (brief 2.3, "the fill rule matches through a dock and drops the slot's block edge"; Kage I-5): a stage whose body folds sits INSIDE a body dock (slot > dock > panel > stage), so the rule above
+   must see through the dock, and a slot that fills owns its edges: no transparent block border either. Only a dock WITH a body, inert or foldable: on desktop the dock is INERT (`data-foldable='false'`, `display: contents`) and the slot must still fill (Kage R2-3: Table's stage slot regained 16px 22px of padding and `overflow: auto`, 324 to 356px). The character sheet's plain dock is unchanged. No row folds a stage until P1, so
+   this matches nothing today (zero pixels); it is HP1's `p:bleed` positive control. */
+.slot:has(> [data-has-body] > * > [data-slot-fill]) {
+  padding: 0;
+  overflow: visible;
+  border-block: 0;
+}
+
 /* A9d E3 (build brief 2.3): the fold handle is never squeezed out. A slot whose dock is foldable keeps room for the handle (44px,
    FoldDock.module.css `.handle`) plus its own block padding, whatever the row's track gives it. Generic: it names a dock, never a
    region or a layout. (A9d-2 N5: the stage's own reflow minimum, `--play-foldable-min`, is gone with the stage's fold: the phone's
    scene strip is a whole band and needs no minimum of its own.) */
-.slot:has(> [data-foldable='true']) {
+.slot:has(> [data-foldable='true']:not([data-has-body])) {
   min-height: calc(44px + 2 * var(--play-slot-edge, var(--density-gap)));
 }
+/* B8c-4 P0 (brief 2.3, "the handle-row minimum excludes docks with a body"): a body dock's handle is placed by its region in its own row (the scene line), so the slot needs no minimum for a floated one. */
 
 /* A9d E3 (build brief 2.3): safety yield. A9c section 8 ranks a raised safety banner above party and stage; this is that rank
    enforced by layout. While the banner slot has content, a row's optional tracks drop to their minimums (party -> one tile row) and the

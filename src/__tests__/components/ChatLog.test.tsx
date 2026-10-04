@@ -7,6 +7,7 @@
 import { render, screen, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import ChatLog, { type LogRow } from '../../components/ChatLog';
+import { isOwnScroll } from '@/lib/ownScroll';
 
 function makeRows(): LogRow[] {
   return [
@@ -157,5 +158,18 @@ describe('ChatLog — a roll is announced from inside the log (A9d-2 N7: Roll mo
     const text = within(log).getByText(/d20: 17/);
     expect(log).toContainElement(text);
     expect(text.closest('[aria-hidden="true"]')).toBeNull();
+  });
+});
+
+describe('ChatLog — a pin to the bottom is the page\'s own scroll (lib/ownScroll.ts)', () => {
+  afterEach(() => jest.useRealTimers());
+  it('a new line while pinned marks the log, so the fold\'s quiet period does not count the scroll it causes (the mutation: no mark)', () => {
+    jest.useFakeTimers();
+    const { rerender } = render(<ChatLog rows={makeRows()} />);
+    const log = screen.getByRole('log');
+    jest.advanceTimersByTime(1000); // the first pin's mark has expired
+    expect(isOwnScroll(log)).toBe(false);
+    rerender(<ChatLog rows={[...makeRows(), { id: 'r3', who: 'Suzu', kind: 'narration', text: 'Something stirs.', ts: '10:02' }]} />);
+    expect(isOwnScroll(log)).toBe(true);
   });
 });

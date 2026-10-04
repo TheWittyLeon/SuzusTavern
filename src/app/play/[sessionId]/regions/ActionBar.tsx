@@ -96,6 +96,14 @@ export interface ActionBarProps {
   move?: MoveControl;
   /** The Move button's ref (a separate prop: see useBoard). */
   moveButtonRef?: Ref<HTMLButtonElement>;
+  /**
+   * B8c-4 P1b (Sora's phone-mount brief 6.4; the Coordinator addendum): the row's turn line, the SAME text the story shows above the composer ("Monster turn — Goblin Skulker"), from the page's one
+   * `turnStatusText`. A row that sets `barTurnLine` passes it (`null` when no one is acting); every other row passes nothing, and the bar is byte-for-byte what it was.
+   * Given (even as `null`) the bar is in its DESCRIBED form: a verb that is off for the turn or for a downed PC is locked with `aria-disabled`, never native `disabled` (a native one cannot be focused, so
+   * its reason could never be reached), stays focusable and is described by a visually hidden node holding this text; the activation is swallowed by a guard. In the bar's narrow form the wait
+   * notice stops being a row (Composer.module.css): on screen the reason is the story's turn line and the dimmed verbs, so the bar is one height on both turns.
+   */
+  turnLine?: string | null;
 }
 
 /** Gap between the Attack button and its target menu, and the viewport margin. */
@@ -113,6 +121,7 @@ export default function ActionBar({
   variant = 'bar',
   move,
   moveButtonRef,
+  turnLine,
 }: ActionBarProps) {
   const [targetOpen, setTargetOpen] = useState(false);
   const railRef = useRef<HTMLDivElement>(null);
@@ -235,6 +244,21 @@ export default function ActionBar({
   // only other gate (isDying already implies it's this player's turn).
   const deathSaveDisabled = busy;
 
+  // B8c-4 P1b: the described form (see `turnLine`). One lock for every verb: `aria-disabled` (focus is kept, the verb stays reachable) and an event guard, in place of the native `disabled`
+  // every other row keeps. `describedBy` names the hidden node only while something is locked for the turn or for a downed PC; on your own turn the text ("Your turn!") describes nothing.
+  const described = turnLine !== undefined;
+  const whyId = `${railUid}-why`;
+  const moveWhyId = `${railUid}-move-why`;
+  const hasWhy = described && !!turnLine && (notYourTurn || isDying);
+  /** `disabled` + `aria-disabled` as every verb always had them; or, described, `aria-disabled` alone, plus the reason. Same attribute order as before. */
+  const lock = (off: boolean | undefined) => (described ? { 'aria-disabled': off, 'aria-describedby': hasWhy ? whyId : undefined } : { disabled: off, 'aria-disabled': off });
+  /** The event guard of a locked verb in the described form (the same swallow `guardLocked` does): true = the activation is dropped. A native `disabled` never reaches a handler, so other rows need none. */
+  const swallowed = (off: boolean | undefined, e: React.SyntheticEvent) => {
+    if (!described || off !== true) return false;
+    e.preventDefault();
+    return true;
+  };
+
   return (
     <div
       className={variant === 'chips' ? `${styles.rail} ${styles.railChips}${move ? ` ${styles.railMove}` : ''}` : styles.rail}
@@ -242,6 +266,9 @@ export default function ActionBar({
       // A10 step 11 round 4 (TAV-STORY-BAR-MONSTER-TURN): on a monster's turn the wait notice REPLACES the kicker's text in the kicker's own place and adds no row, so the bar is one height on
       // both turns (Story's was 182px at 1280 wide on a monster's turn: the notice took a line and the verbs wrapped). Composer.module.css reads this attribute; a narrow slot (the phone) keeps today's layout.
       data-waiting={notYourTurn ? 'true' : undefined}
+      // B8c-4 P1b fix round 2 (Kage I-2): the row's `barTurnLine` flag, not the container's width, decides that the notice is hidden: a Story bar that is narrow (881-920px) keeps its notice and its native
+      // `disabled`. Absent where `turnLine` is undefined, so every other row's markup is byte-for-byte what it was.
+      data-described={described ? 'true' : undefined}
       ref={(el) => {
         railRef.current = el;
         if (outerRailRef) outerRailRef.current = el;
@@ -296,14 +323,16 @@ export default function ActionBar({
           Waiting for your turn…
         </div>
       )}
+      {/* B8c-4 P1b: the verbs' description in the described form: the story's own turn line, from the same variable, visually hidden here (the visible one is above the composer). Not live. */}
+      {hasWhy && <span id={whyId} className={styles.srOnly}>{turnLine}</span>}
+      {described && move?.disabled && !hasWhy && move.reason && <span id={moveWhyId} className={styles.srOnly}>{move.reason}</span>}
       <div className={styles.railBtns}>
         <button
           ref={attackBtnRef}
           type="button"
           className={targetOpen ? `${styles.action} ${styles.actionOn}` : styles.action}
-          onClick={() => setTargetOpen((o) => !o)}
-          disabled={attackDisabled}
-          aria-disabled={attackDisabled}
+          onClick={(e) => { if (!swallowed(attackDisabled, e)) setTargetOpen((o) => !o); }}
+          {...lock(attackDisabled)}
           {...pop.anchorProps}
           aria-label={
             isDying
@@ -322,9 +351,8 @@ export default function ActionBar({
         <button
           type="button"
           className={styles.action}
-          onClick={() => fire('dodge')}
-          disabled={actionDisabled}
-          aria-disabled={actionDisabled}
+          onClick={(e) => { if (!swallowed(actionDisabled, e)) fire('dodge'); }}
+          {...lock(actionDisabled)}
           aria-label={
             isDying
               ? 'Dodge (unavailable — you are down)'
@@ -338,9 +366,8 @@ export default function ActionBar({
         <button
           type="button"
           className={styles.action}
-          onClick={() => fire('dash')}
-          disabled={actionDisabled}
-          aria-disabled={actionDisabled}
+          onClick={(e) => { if (!swallowed(actionDisabled, e)) fire('dash'); }}
+          {...lock(actionDisabled)}
           aria-label={
             isDying
               ? 'Dash (unavailable — you are down)'
@@ -356,9 +383,10 @@ export default function ActionBar({
             ref={moveButtonRef}
             type="button"
             className={move.pressed ? `${styles.action} ${styles.actionOn}` : styles.action}
-            onClick={move.onToggle}
-            disabled={move.disabled}
-            aria-disabled={move.disabled}
+            onClick={(e) => { if (!swallowed(move.disabled, e)) move.onToggle(); }}
+            {...lock(move.disabled)}
+            // Iro m-3: on your own turn Move can be locked with no turn line to say why (no feet left, your move in flight): it gets its own reason node, described form only.
+            {...(described && move.disabled && !hasWhy && move.reason ? { 'aria-describedby': moveWhyId } : {})}
             aria-pressed={move.pressed}
           >
             <Icon name="Map" size={13} /> Move
@@ -367,9 +395,8 @@ export default function ActionBar({
         <button
           type="button"
           className={styles.action}
-          onClick={() => fire('endturn')}
-          disabled={endTurnDisabled}
-          aria-disabled={endTurnDisabled}
+          onClick={(e) => { if (!swallowed(endTurnDisabled, e)) fire('endturn'); }}
+          {...lock(endTurnDisabled)}
           aria-label={notYourTurn ? 'End turn (not your turn)' : 'End turn'}
         >
           <Icon name="Check" size={13} /> End turn
@@ -380,9 +407,8 @@ export default function ActionBar({
           <button
             type="button"
             className={`${styles.action} ${styles.deathSaveBtn}`}
-            onClick={() => fire('deathsave')}
-            disabled={deathSaveDisabled}
-            aria-disabled={deathSaveDisabled}
+            onClick={(e) => { if (!swallowed(deathSaveDisabled, e)) fire('deathsave'); }}
+            {...lock(deathSaveDisabled)}
             aria-label="Roll death save"
           >
             <Icon name="Heart" size={13} /> Roll death save

@@ -6,6 +6,7 @@ import AnchoredPopover from '@/components/AnchoredPopover';
 import Icon from '@/components/Icon';
 import PartyPanel from '@/components/PartyPanel';
 import InitiativeTracker from '@/components/InitiativeTracker';
+import TurnOrderButton, { TURN_ORDER_FRAME, useTurnOrderCue } from '@/components/TurnOrderButton';
 import RebindCharacterButton from '@/components/RebindCharacterButton';
 import { useAnchoredPopover } from '@/lib/a11y/useAnchoredPopover';
 import type { RegionVariant } from '../variants';
@@ -78,6 +79,7 @@ export default function PartyStrip({
   fallbackFocus,
 }: PartyStripProps) {
   const [sessionOpen, setSessionOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
   const sessionBtnRef = useRef<HTMLButtonElement>(null);
   const pop = useAnchoredPopover({
     open: sessionOpen,
@@ -136,8 +138,12 @@ export default function PartyStrip({
     <div className={styles.rebindSection}>{rebindRow(selfRow)}</div>
   ) : null;
 
+  // The tracker is shown only while the fight is LIVE (see below); the phone's strip is where it is off screen at rest, so only there is a cue to it.
+  const trackerShown = combatIsActive && !!combatState && combatState.participants.length > 0;
+  const turnOrder = useTurnOrderCue(rootRef, variant === 'strip' && trackerShown);
+
   return (
-    <div data-region="partyStrip" data-toast-clear="" data-variant={variant}>
+    <div ref={rootRef} data-region="partyStrip" data-toast-clear="" data-variant={variant} className={turnOrder ? TURN_ORDER_FRAME : undefined}>
       <PartyPanel
         variant={variant}
         participants={participants}
@@ -157,10 +163,12 @@ export default function PartyStrip({
           )}
         </AnchoredPopover>
       )}
+      {/* Only while the tracker is shown: the cue lags the tracker by a commit, and a button that outlives the tracker holds focus past the page's fight-end rescue (it drops to <body>; Kage R2-2). */}
+      {turnOrder && trackerShown && <TurnOrderButton rootRef={rootRef} />}
       {/* ADV-7/8: structured tracker when combatState available; legacy shim otherwise. A10 step 11 round 5 (Kage Tavern 2, Miko): only while the fight is LIVE. A polled `ended`
           keeps `combatState` (the poller stops at `ended` and never clears it) while `combatIsActive` flips false and the moment goes `exploring`, so the tracker used to outlive the
           fight it described and, in Story at 1440x900, scrolled the page 25px. The strip itself is not bounded: a bounded band clips what the exploring page needs. */}
-      {combatIsActive && combatState && combatState.participants.length > 0 ? (
+      {trackerShown && combatState ? (
         <InitiativeTracker
           participants={combatState.participants}
           round={round}

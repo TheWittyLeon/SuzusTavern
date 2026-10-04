@@ -178,6 +178,19 @@ describe('useBoard: the Move contracts that no other pin held (B8c-3 fix round: 
     expect(a.cs.combatBusyRef.current).toBe(false);
   });
 
+  it('Move\'s reason has a SOURCE here (the bar\'s described form reads it): no feet left says "No movement left", a move in flight says "Moving…", an open Move says nothing (Iro m-3)', async () => {
+    const bar = (over: Over, state = st()) => renderHook(() => useBoard(args(state, over))).result.current.bar;
+    expect(bar({}, st({ mr: 0 }))).toMatchObject({ disabled: true, reason: 'No movement left' });
+    expect(bar({})?.reason).toBeUndefined();
+    expect(bar({ sessionLocked: true })?.reason).toBeUndefined(); // locked for another reason: the turn line or nothing says why
+    mv.mockReturnValue(new Promise(() => {})); // a move that never answers: in flight
+    const a = args(st());
+    const hook = renderHook(() => useBoard(a));
+    act(() => hook.result.current.bar?.onToggle());
+    act(() => { void hook.result.current.stage?.onMove([2, 3]); });
+    expect(hook.result.current.bar).toMatchObject({ disabled: true, reason: 'Moving…' });
+  });
+
   it('a 200 WITHOUT `state`: no row, no `movedSeq`, the state is re-read (the poll\'s diff writes the row once the square changes)', async () => {
     mv.mockResolvedValue({ message: 'x' });
     const { a, hook, cs } = await step(st());

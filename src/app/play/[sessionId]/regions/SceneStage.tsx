@@ -4,6 +4,7 @@ import { createContext, useContext, useState, type ReactNode, type RefObject, ty
 import type { EndCombatOutcome } from '@/lib/api/types';
 import Icon from '@/components/Icon';
 import AnchoredPopover from '@/components/AnchoredPopover';
+import { FoldHandleSlot, useFoldBody } from '@/components/FoldDock';
 import { useAnchoredPopover } from '@/lib/a11y/useAnchoredPopover';
 import type { RegionVariant } from '../variants';
 import styles from '../Play.module.css';
@@ -99,6 +100,8 @@ export default function SceneStage({
   bodyLabel,
 }: SceneStageProps) {
   const [lineText, setLineText] = useState<string | null>(null);
+  // B8c-4 P0: the dock provides whether the body is folded; the body takes the `hidden` ATTRIBUTE (not a class alone: the removed-focus probe, the AX tree and every engine read it). False outside a dock.
+  const bodyFolded = useFoldBody();
   const inline = variant === 'inline';
   const hero = variant === 'hero';
   /** The scene line: one row of the scene's name, its second line and the encounter's buttons, the phone's strip (`inline`) and a hero's top. */
@@ -284,8 +287,11 @@ export default function SceneStage({
           ceiling: every fight while SUZU_DND_POSITIONING is off; one request after a reload when it is on (the combat id is known one request before the state).
           until: the flag has been on in prod for 7 days (Backlog TAV-STAND-IN-RETIRE); then delete this fallback, `.standIn`, its container query and the harness comparator's stand-in expectation.
       */}
+      {/* B8c-4 P0 (H.4): where a body dock's handle is drawn: a `hero`'s, after the encounter buttons and before the body. It renders nothing unless a body dock wraps this stage (no row folds the stage until P1,
+          which gives the handle its place on the scene line and its look), so it moves no pixel today. */}
+      {hero && <FoldHandleSlot />}
       {hero && (
-        <div id={SCENE_STAGE_BODY_ID} data-fold-body className={strip.body} role={bodyLabel ? 'group' : undefined} aria-label={bodyLabel}>
+        <div id={SCENE_STAGE_BODY_ID} data-fold-body hidden={bodyFolded} className={strip.body} role={bodyLabel ? 'group' : undefined} aria-label={bodyLabel}>
           {children ?? (combatIsActive ? (
             <div className={`${styles.scenePlaceholder} ${strip.standIn}`}>
               <Icon name="Map" size={22} aria-hidden />

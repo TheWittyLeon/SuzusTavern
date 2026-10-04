@@ -22,6 +22,7 @@
  * transitions (`t2-breakpoint`, `t3-auto-combat-start`) are the real pin;
  * `snapshotScroll`/`restoreScroll` are pure and unit-tested in jsdom.
  */
+import { markOwnScroll } from '@/lib/ownScroll';
 import { Component, type ReactNode, type RefObject } from 'react';
 
 /** Within this many px of the end counts as "at the end" (sub-pixel scroll). */
@@ -62,6 +63,7 @@ export function restoreScroll(snapshot: ScrollSnapshotEntry[]): void {
     // INSTANT, whatever the element's own `scroll-behavior`. The story log carries `scroll-behavior: smooth`, and assigning `scrollTop` on such an
     // element starts an ANIMATION that the next layout cancels (A9d-2 fix round 4, Kage I-D: part-way 185 -> 0 at a fight's start, a pinned log
     // visiting 0, 69px short at a fight's end; motion allowed only). A restore is a correction of where the user already was, never a scroll.
+    markOwnScroll(el); // the page's own scroll: the fold's quiet period does not count it
     const before = el.style.scrollBehavior;
     el.style.scrollBehavior = 'auto';
     el.scrollTop = atEnd ? el.scrollHeight : top;

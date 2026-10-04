@@ -1,7 +1,7 @@
 /** A9c C7 (build brief 5.2) -- FoldDock is a disclosure with ONE handle. */
 import { fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import FoldDock from '@/components/FoldDock';
+import FoldDock, { FoldHandleSlot, useFoldBody } from '@/components/FoldDock';
 import { readFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 
@@ -53,6 +53,7 @@ describe('FoldDock', () => {
       return render(
         <FoldDock folded={folded} onToggle={() => {}} label="Scene stage" icon="Map" body="the-body">
           <p id="head">head</p>
+          <FoldHandleSlot />
           <div id="the-body" data-fold-body>picture</div>
           <button type="button">End</button>
         </FoldDock>,
@@ -130,12 +131,90 @@ describe('FoldDock', () => {
 describe('FoldDock with a body: data-has-body says only that a part folds (it no longer sizes the dock)', () => {
   it('the dock carries data-has-body only when a body is declared, and the stylesheet carries no sizing rule keyed on it', () => {
     const { container, rerender } = render(
-      <FoldDock folded={false} onToggle={() => {}} label="Scene stage" icon="Map" body="b"><div id="b" data-fold-body /></FoldDock>,
+      <FoldDock folded={false} onToggle={() => {}} label="Scene stage" icon="Map" body="b"><FoldHandleSlot /><div id="b" data-fold-body /></FoldDock>,
     );
     expect(container.querySelector('[data-foldable]')).toHaveAttribute('data-has-body', 'true');
     rerender(<FoldDock folded={false} onToggle={() => {}} label="Character sheet" icon="Scroll"><div /></FoldDock>);
     expect(container.querySelector('[data-foldable]')).not.toHaveAttribute('data-has-body');
     const css = readFileSync(resolvePath(process.cwd(), 'src/components/FoldDock.module.css'), 'utf8');
     expect(css.replace(/\/\*[\s\S]*?\*\//g, '')).not.toMatch(/data-has-body/);
+  });
+});
+
+// B8c-4 P0 (Amendment H.3, H.4): in body mode the dock PROVIDES its handle and the region PLACES it; the dock provides the folded state and the region hides its body.
+describe('FoldDock body mode: the handle is placed by the region, the folded state is provided (B8c-4 P0)', () => {
+  function Region() {
+    const folded = useFoldBody();
+    return (
+      <>
+        <button type="button">End</button>
+        <FoldHandleSlot />
+        <div id="b" data-fold-body hidden={folded}><button type="button">sq</button></div>
+      </>
+    );
+  }
+  const mount = (p: Partial<React.ComponentProps<typeof FoldDock>> = {}) =>
+    render(<FoldDock folded={false} onToggle={jest.fn()} label="Map" icon="Map" body="b" text="Map" {...p}><Region /></FoldDock>);
+
+  it('the slot draws the handle where the region put it (after End, before the body); the dock paints none of its own', () => {
+    const { container } = mount();
+    expect(container.querySelectorAll('button[aria-expanded]')).toHaveLength(1);
+    const handle = screen.getByRole('button', { name: 'Map' });
+    expect(screen.getByRole('button', { name: 'End' }).compareDocumentPosition(handle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(handle.compareDocumentPosition(document.getElementById('b') as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(handle).toHaveTextContent('Map');
+    expect(handle).toHaveAttribute('aria-controls', 'b');
+  });
+
+  it('the same handle node in both states; the body takes the hidden attribute from the provided state', () => {
+    const { rerender } = mount();
+    const handle = screen.getByRole('button', { name: 'Map' });
+    rerender(<FoldDock folded onToggle={jest.fn()} label="Map" icon="Map" body="b" text="Map"><Region /></FoldDock>);
+    expect(screen.getByRole('button', { name: 'Map' })).toBe(handle);
+    expect(handle).toHaveAttribute('aria-expanded', 'false');
+    expect(document.getElementById('b')).toHaveAttribute('hidden');
+    expect(screen.getByRole('button', { name: 'End' })).toBeVisible();
+  });
+
+  it('lockedReason: aria-disabled, still focusable, aria-expanded false, described by the reason, and a press is deaf', () => {
+    const onToggle = jest.fn();
+    mount({ onToggle, lockedReason: 'Folded while the safety card is showing' });
+    const handle = screen.getByRole('button', { name: 'Map' });
+    expect(handle).toHaveAttribute('aria-disabled', 'true');
+    expect(handle).toHaveAttribute('aria-expanded', 'false');
+    expect(document.getElementById(handle.getAttribute('aria-describedby') as string)).toHaveTextContent('Folded while the safety card is showing');
+    handle.focus();
+    expect(handle).toHaveFocus();
+    fireEvent.click(handle);
+    expect(onToggle).not.toHaveBeenCalled();
+  });
+
+  it('a locked handle\'s tooltip is its reason, never "Open map" over a press that does nothing (Iro m-4)', () => {
+    mount({ onToggle: jest.fn(), lockedReason: 'Folded while the safety card is showing' });
+    expect(screen.getByRole('button', { name: 'Map' })).toHaveAttribute('title', 'Folded while the safety card is showing');
+  });
+
+  it('the handle takes touch-action: manipulation (a second tap inside the 400ms guard must not be a double-tap zoom) and the corner-float rule never matches a body handle (Tora MINOR-4, Iro m-5)', () => {
+    const css = readFileSync(resolvePath(process.cwd(), 'src/components/FoldDock.module.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const rule = (sel: string) => { const at = css.indexOf(`${sel} {`); return at < 0 ? '' : css.slice(at, css.indexOf('}', at)); };
+    expect(rule('.handle')).toMatch(/touch-action:\s*manipulation/);
+    expect(rule(".dock:not([data-folded='true']) .handle:not(.handleBody)")).toMatch(/position:\s*absolute/);
+  });
+
+  it('a body dock whose region renders no slot throws in development', () => {
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    expect(() => render(<FoldDock folded={false} onToggle={jest.fn()} label="Map" icon="Map" body="b"><div id="b" data-fold-body /></FoldDock>)).toThrow(/FoldHandleSlot/);
+    spy.mockRestore();
+  });
+
+  it('outside a dock: no state is provided (false) and the slot renders nothing, so a region used alone never hides its body', () => {
+    const { container } = render(<Region />);
+    expect(container.querySelectorAll('button[aria-expanded]')).toHaveLength(0);
+    expect(document.getElementById('b')).not.toHaveAttribute('hidden');
+  });
+
+  it('an inert body dock (foldable false) paints no handle and needs no slot', () => {
+    const { container } = render(<FoldDock folded={false} foldable={false} onToggle={jest.fn()} label="Map" icon="Map" body="b"><div id="b" data-fold-body /></FoldDock>);
+    expect(container.querySelectorAll('button')).toHaveLength(0);
   });
 });

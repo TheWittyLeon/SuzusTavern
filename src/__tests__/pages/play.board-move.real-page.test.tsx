@@ -363,7 +363,8 @@ describe('the phone row', () => {
     (dnd.getCombatState as jest.Mock).mockResolvedValue(combat());
     renderPlay(<PlayPage />);
     await screen.findByText('Test Table');
-    await screen.findByText(/In combat/);
+    // SceneStage's status line, by its whole text: "In combat" alone also matches the map's line ("In combat · round 1 · Anomaly: 30 ft left"), and whether the first poll renders the two in one commit or two is the page's timing, not this case's subject.
+    await screen.findByText(/In combat · use the action bar/);
     await waitFor(() => expect(screen.queryAllByRole('gridcell').length).toBeGreaterThan(0));
     expect(screen.queryByRole('button', { name: 'Move' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Dodge' })).toBeInTheDocument();

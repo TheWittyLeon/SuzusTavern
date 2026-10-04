@@ -168,7 +168,8 @@ describe('Play.module.css', () => {
     // A9d-2 N5 (named exception: foldable-min). The stage's reflow minimum, `--play-foldable-min`, is deleted with the stage's fold; the 44px
     // handle floor stays. What pins the deletion: the last case of this describe (no foldable-min / reflow-min anywhere in the file).
     it('a slot whose dock is foldable keeps the 44px handle plus its block padding (the handle is never squeezed out)', () => {
-      const rule = strip(blockFrom(".slot:has(> [data-foldable='true']) {"));
+      // B8c-4 fix round 2 (named exception: the handle-row minimum EXCLUDES docks with a body, brief 2.3): the selector gained `:not([data-has-body])`; the declaration is unchanged.
+      const rule = strip(blockFrom(".slot:has(> [data-foldable='true']:not([data-has-body])) {"));
       expect(rule).toMatch(/min-height:\s*calc\(44px \+ 2 \* var\(--play-slot-edge, var\(--density-gap\)\)\)/);
       expect(rule).not.toMatch(/foldable-min/);
     });
@@ -354,6 +355,16 @@ describe('the stage\'s body (A10 S2b): the fill rule, the size container, the fo
     expect(r).toMatch(/padding:\s*0/);
     expect(r).toMatch(/overflow:\s*visible/); // round 3: not `clip` (its focus rings); the slot is no scroller either way
     expect(play).not.toMatch(/data-slot-fill[^{]*sceneStage|sceneStage[^{]*data-slot-fill/);
+  });
+
+  it('the fill rule matches THROUGH a body dock (slot > dock > panel > stage), foldable OR inert, and drops the slot\'s block edge too; a plain dock (no body) is not matched (Kage I-5 and R2-3, brief 2.3)', () => {
+    const r = rule(play, ".slot:has(> [data-has-body] > * > [data-slot-fill])");
+    expect(r).toMatch(/padding:\s*0/);
+    expect(r).toMatch(/overflow:\s*visible/);
+    expect(r).toMatch(/border-block:\s*0/);
+    // an inert dock (desktop: `data-foldable='false'`, display: contents) is a body dock too: the selector names the body, never the mode
+    expect(play).not.toMatch(/\[data-foldable='true'\]\[data-has-body\]\s*>/);
+    expect(play).not.toMatch(/\[data-foldable='true'\]\s*>\s*\*\s*>\s*\[data-slot-fill\]/);
   });
 
   it('the hero\'s slot does not clip (Iro MINOR-1, round 3): visible, so the scene line\'s focus rings (reach 4px from buttons 4px from the edge) are whole in every engine, and no engine-specific clip margin is left', () => {

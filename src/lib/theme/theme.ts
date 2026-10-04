@@ -79,6 +79,11 @@ export function isLayoutPref(v: string | null | undefined): v is LayoutPref {
  * `presets.ts` is not.)
  */
 export const FOLDS_KEY = 'tavern.folds';
+/**
+ * B8c-4 P0 (brief 2.3): a fold has THREE stored states, folded, open and none. `tavern.folds` stays the list of folded ids (an older build reads it unchanged); this second key holds the ids the
+ * user EXPLICITLY opened, which a measured default (`foldDefault: 'fits'`) may never override. Same shape and tolerant parse as `FOLDS_KEY`; only a press on a handle writes either.
+ */
+export const FOLDS_OPEN_KEY = 'tavern.foldsOpen';
 
 export type Folds = Partial<Record<RegionId, true>>;
 

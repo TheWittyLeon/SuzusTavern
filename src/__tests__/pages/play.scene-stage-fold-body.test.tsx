@@ -7,6 +7,7 @@ import { createRef } from 'react';
 import { render } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import SceneStage, { SCENE_STAGE_BODY_ID, type SceneStageProps } from '@/app/play/[sessionId]/regions/SceneStage';
+import FoldDock from '@/components/FoldDock';
 import { FOLD_SPECS } from '@/app/play/[sessionId]/foldSpecs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -100,5 +101,42 @@ describe('FoldDock.module.css: the body fold is a stylesheet rule keyed on the d
   const css = fs.readFileSync(path.join(process.cwd(), 'src/components/FoldDock.module.css'), 'utf8');
   it('hides only [data-fold-body] under a folded dock', () => {
     expect(css).toMatch(/\.dock\[data-folded='true'\]\s+\[data-fold-body\]\s*\{\s*display:\s*none;?\s*\}/);
+  });
+});
+
+// B8c-4 P0 (brief 2.3, Iro F-n): the dock provides the folded state and the stage puts the `hidden` ATTRIBUTE on its body: a class alone is invisible to the removed-focus probe and the AX tree.
+describe('SceneStage under a body dock: the body takes the hidden attribute, and the handle is placed by the stage', () => {
+  const inDock = (folded: boolean, variant: 'hero' | 'inline' = 'hero') => render(
+    <FoldDock folded={folded} onToggle={() => {}} label="Map" icon="Map" body={SCENE_STAGE_BODY_ID} text="Map">
+      <SceneStage {...{ ...base(), combatIsActive: true }} variant={variant} />
+    </FoldDock>,
+  );
+  it('folded: [data-fold-body] is hidden (the attribute); open: it is not; the head and the controls are never hidden', () => {
+    const { container, rerender } = inDock(true);
+    expect(container.querySelector('[data-fold-body]')).toHaveAttribute('hidden');
+    expect(container.querySelector('[data-region="sceneStage"] [role="group"][data-focus-fallback]')).not.toHaveAttribute('hidden');
+    rerender(
+      <FoldDock folded={false} onToggle={() => {}} label="Map" icon="Map" body={SCENE_STAGE_BODY_ID} text="Map">
+        <SceneStage {...{ ...base(), combatIsActive: true }} variant="hero" />
+      </FoldDock>,
+    );
+    expect(container.querySelector('[data-fold-body]')).not.toHaveAttribute('hidden');
+  });
+  it('the handle is the stage\'s: after End combat, before the body', () => {
+    const { container } = inDock(false);
+    const handle = container.querySelector('button[aria-controls="' + SCENE_STAGE_BODY_ID + '"]') as HTMLElement;
+    const end = Array.from(container.querySelectorAll('button')).find((b) => /End combat/.test(b.getAttribute('aria-label') ?? '')) as HTMLElement;
+    expect(end.compareDocumentPosition(handle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(handle.compareDocumentPosition(container.querySelector('[data-fold-body]') as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+  it('outside any dock the body is never hidden and no handle is drawn (a stage used alone)', () => {
+    const { container } = render(<SceneStage {...{ ...base(), combatIsActive: true }} variant="hero" />);
+    expect(container.querySelector('[data-fold-body]')).not.toHaveAttribute('hidden');
+    expect(container.querySelector('button[aria-controls]')).toBeNull();
+  });
+  it('a stage with no body (inline) inside a body dock has no slot: the dev guard throws (the registry never pairs them)', () => {
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    expect(() => inDock(false, 'inline')).toThrow(/FoldHandleSlot/);
+    spy.mockRestore();
   });
 });

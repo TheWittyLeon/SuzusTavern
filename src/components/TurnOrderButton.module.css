@@ -1,0 +1,69 @@
+/* ── B8c-4 P1c (Sora's phone-mount brief 7.3): "Turn order" in the party band ──────────────────────────────────────────────────────────────────────────────────────────────────────
+   On a phone in a fight the band holds the tile row and, below it, the initiative tracker; the band is 91px, so the tracker is off screen at rest. A 44x44 button scrolls the band to
+   it and back (components/TurnOrderButton.tsx). Only while it is shown (`.frame` is on the region root only then) the root is a grid of the content column and a 44px column that
+   belongs to the button, so the tiles and the tracker both leave it clear: the button sits over nothing. The button spans both rows and is STICKY, so while the band scrolls it stays
+   where the thumb found it: at the bottom of the first tile row, aligned with the band's other trailing controls (the row is 22px of label and 57px of tile, so 35px down). */
+.frame {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  column-gap: var(--space-4);
+}
+
+.frame > * {
+  grid-column: 1;
+}
+
+/* Without the frame the button is not in the layout at all: the cue measures the band as it would be with no button (TurnOrderButton.tsx `useTurnOrderCue`), and an unstyled 24px browser button
+   would otherwise be part of that answer. */
+.button {
+  display: none;
+}
+
+.frame > .button {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: start;
+  position: sticky;
+  top: 35px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: var(--radius-xs);
+  /* A11Y-BUTTON-BORDER-CONTRAST: clickable - --line-strong clears WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px solid var(--line-strong);
+  background: color-mix(in oklab, var(--ink) 4%, transparent);
+  color: var(--ink-2);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.frame > .button:hover,
+.frame > .button[aria-expanded='true'] {
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
+  color: var(--ink);
+}
+
+/* A ROW THAT HIDES NOTHING DOES NOT SCROLL (found by the judged matrix, v:sidewaysCue): the tile row keeps 16px of padding at its end and an edge fade over the last 16px, so that when it IS scrolled to its end the
+   last tile clears the fade. With the button's column the row is 262px at 390 and 247px at 375; five tiles are 254 wide, so at 375 the fifth is partly hidden (the "+1" cue says so) and at 390 all five are whole. But
+   the padding alone made the 390 row 270px wide: it scrolled sideways with no tile hidden, so no "+N" cue was drawn and the rule that a row which scrolls must say so failed in 13 phone cells. The padding and the
+   fade belong to a row that hides a tile, and the strip draws "+N" (`[data-party-more]`) exactly then; so in the framed band the row has neither until it does. Scoped to the band that has the button: the
+   exploring strip and every other row keep what they had. */
+.frame [data-variant='strip'] ul[aria-labelledby='party-panel-label'] {
+  padding-right: 0;
+  mask-image: none;
+}
+
+.frame [data-variant='strip']:has(> [data-party-more]) ul[aria-labelledby='party-panel-label'] {
+  padding-right: 16px;
+  mask-image: linear-gradient(to right, var(--ink) calc(100% - 16px), transparent);
+}
+
+/* Iro m-6: the pressed state is a tint, and a tint is gone in forced-colors mode; the fold handle gets a 2px border there, so does this. */
+@media (forced-colors: active) {
+  .frame > .button[aria-expanded='true'] {
+    border-width: 2px;
+  }
+}

@@ -94,6 +94,8 @@ import {
   type TenantId,
 } from './presets';
 import ScrollKeeper from './ScrollKeeper';
+import { whenMatches, type FoldChoice } from './foldState';
+import { SAFETY_BANNER_SELECTOR, useFoldFacts, type FoldCandidate } from './hooks/useFoldFacts';
 import styles from './Play.module.css';
 
 /** Copy and icon for a region's fold handle — labels only, no behaviour. */
@@ -108,6 +110,10 @@ export interface FoldSpec {
    *  debt: no row emits a fold body (the phone stage's fold left in A9d-2 N5: the scene is a one-row strip with no picture to fold). ceiling: FoldDock's body mode and the stage's `[data-fold-body]` wrapper run only in their component tests; no browser path reaches them.
    *  until: the phone mount re-declares `collapsible` on the stage (Sora's step-11 brief 3.6, "Fold": the stage's `[data-fold-body]`, now a `hero`'s body, is what folds; Backlog TAV-PHONE-STAGE-FOLD-RETURNS: Iro's fold acceptance, item 4, is re-asserted then). */
   body?: string;
+  /** B8c-4 P0 (Amendment H.3): a body fold's visible label (the word under the glyph). `label` stays the accessible name and contains it. */
+  text?: string;
+  /** B8c-4 P0 (Amendment H.3): the facts under which this fold EXISTS (every named fact must hold). Absent = always. A fold that does not exist reports no `fold:` fact and its dock is inert. */
+  when?: Partial<Facts>;
 }
 
 export interface PlayShellProps {
@@ -125,6 +131,12 @@ export interface PlayShellProps {
   /** Regions the user has folded (absent = open, R20). */
   foldedRegions?: ReadonlySet<RegionId>;
   onToggleFold?: (id: RegionId) => void;
+  /** B8c-4 P0: the ids the user explicitly OPENED (the third stored state; a measured default never overrides it). */
+  openedRegions?: ReadonlySet<RegionId>;
+  /** B8c-4 P0: the ids the page opened for THIS fight only (`reveal`); session state, never stored. */
+  revealedRegions?: ReadonlySet<RegionId>;
+  /** B8c-4 P0: writes a stored choice from a press on a body or measured fold's handle. Absent = such a press calls `onToggleFold`. A region whose default is open uses `onToggleFold`, as before. */
+  onFoldChoice?: (id: RegionId, choice: 'folded' | 'open' | 'none') => void;
   /** The two `<Drawer>`s + `<ConfirmDialog>` — overlay hosts, outside the
    *  grid; position within this root doesn't matter (they are
    *  fixed/portal-adjacent), kept trailing for file readability. */
@@ -193,6 +205,9 @@ export default function PlayShell({
   foldSpecs,
   foldedRegions,
   onToggleFold,
+  openedRegions,
+  revealedRegions,
+  onFoldChoice,
   layers,
 }: PlayShellProps) {
   // Tenants grouped by host, in TENANT_IDS declaration order (the tenth
@@ -215,7 +230,7 @@ export default function PlayShell({
       const has = root.querySelector(':scope > [data-region-slot="storyLog"] > [data-region="tableControlsDm"]') != null;
       setDmStack((prev) => (prev === has ? prev : has));
     }
-    if (!root || root.querySelector(':scope > [data-region-slot="safetyBanner"] > :not(:empty)')) return;
+    if (!root || root.querySelector(SAFETY_BANNER_SELECTOR)) return;
     const next = root.scrollHeight > root.clientHeight + 1;
     setScrolls((prev) => (prev === next ? prev : next));
   }, []);
@@ -226,6 +241,18 @@ export default function PlayShell({
     window.addEventListener('resize', measureFit);
     return () => window.removeEventListener('resize', measureFit);
   }, [measureFit]);
+  // B8c-4 P0: the LIVE folds (a placed, collapsible region with a spec whose `when` holds) and their facts. A region with no live fold keeps an inert dock.
+  const candidates: FoldCandidate[] = [];
+  for (const id of FOLDABLE_REGIONS) {
+    const spec = foldSpecs?.[id];
+    const placement = getPlacement(row, id, moment);
+    if (!spec || regions[id] == null || placement.collapsible !== true || !whenMatches(spec.when, facts)) continue;
+    candidates.push({ id, body: spec.body, fits: placement.foldDefault === 'fits' });
+  }
+  const storedChoice = (id: RegionId): FoldChoice => (foldedRegions?.has(id) ? 'folded' : openedRegions?.has(id) ? 'open' : 'none');
+  const { values: foldValues, press: pressFold, lockedReason } = useFoldFacts({ rootRef, moment, candidates, stored: storedChoice, revealed: (id) => revealedRegions?.has(id) ?? false });
+  const foldFacts: Partial<Record<`fold:${RegionId}`, 'auto' | 'open' | 'folded'>> = {};
+  for (const [id, value] of foldValues) foldFacts[`fold:${id}`] = value;
   const tenantsByHost = new Map<RegionId, ReactNode[]>();
   for (const tenantId of TENANT_IDS) {
     const node = tenants[tenantId];
@@ -272,13 +299,25 @@ export default function PlayShell({
     const landmark = LANDMARKS[regionId];
     const regionNode = regions[regionId];
     const foldSpec = FOLDABLE_REGIONS.has(regionId) ? foldSpecs?.[regionId] : undefined;
+    const candidate = candidates.find((c) => c.id === regionId);
     const body =
       foldSpec && regionNode != null ? (
         <FoldDock
-          {...foldSpec}
-          foldable={getPlacement(row, regionId, moment).collapsible === true}
-          folded={foldedRegions?.has(regionId) ?? false}
-          onToggle={() => onToggleFold?.(regionId)}
+          label={foldSpec.label}
+          icon={foldSpec.icon}
+          labelledBy={foldSpec.labelledBy}
+          body={foldSpec.body}
+          text={foldSpec.text}
+          foldable={candidate !== undefined}
+          folded={candidate ? foldValues.get(regionId) === 'folded' : false}
+          lockedReason={candidate ? lockedReason(candidate) : undefined}
+          onToggle={() => {
+            // ONE press path (Kage I-3): every live fold's press goes through `pressFold` and writes a choice, so a press clears that id's reveal for every region. A region whose default is open and that
+            // has no body is the legacy two-state fold (folded or nothing): its "open" is written as `none`, exactly what it always stored. A caller with no `onFoldChoice` keeps the old toggle.
+            if (!candidate || !onFoldChoice) { onToggleFold?.(regionId); return; }
+            const legacy = candidate.body === undefined && !candidate.fits;
+            pressFold(candidate, (next) => onFoldChoice(regionId, legacy && next === 'open' ? 'none' : next));
+          }}
         >
           {regionNode}
         </FoldDock>
@@ -361,7 +400,7 @@ export default function PlayShell({
             '--play-rows': row.rows[moment],
             ...row.vars,
             ...row.momentVars?.[moment],
-            ...factVarsFor(row, facts),
+            ...factVarsFor(row, { ...facts, ...foldFacts }),
           } as React.CSSProperties
         }
       >
