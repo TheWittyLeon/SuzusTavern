@@ -76,7 +76,7 @@ import { COMBAT_REFUSAL_REASON_MAP, monsterTurnFailureClass } from '@/lib/dnd/en
 import type { CombatAction } from '../regions/ActionBar';
 import type { LogRow } from '@/components/ChatLog';
 import type { CombatState, EndCombatOutcome, Session } from '@/lib/api/types';
-import { areTurnsRunning, drivesMonsterTurns, isFightEnded, isSessionDm, isSessionLocked } from '../format';
+import { areTurnsRunning, combatEndedLine, drivesMonsterTurns, isFightEnded, isSessionDm, isSessionLocked } from '../format';
 import type { UseCombatStateResult } from './useCombatState';
 import type { NarrateFn, NarrateDurableBeatFn } from './useNarration';
 import type { UseSceneActionsResult } from './useSceneActions';
@@ -513,13 +513,10 @@ export function useCombatActions(
           stateSeqRef.current += 1;
           setCombatState(result.state);
         }
-        const outcomeLabel = result.outcome
-          ? result.outcome.charAt(0).toUpperCase() + result.outcome.slice(1)
-          : 'Unresolved';
         appendLog({
           who: 'Suzu',
           kind: 'system',
-          text: `Combat ended. ${outcomeLabel}.`,
+          text: combatEndedLine(result.outcome, result.message),
         });
         // Tora MINOR-1: close on SUCCESS only.
         setOutcomeChooserOpen(false);

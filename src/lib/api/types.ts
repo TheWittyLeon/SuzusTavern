@@ -1286,6 +1286,7 @@ export type TerrainNotes =
  * `held`: a DM override left no character alive; nothing moves until the DM
  * revives one or ends the fight (ENGINE TPK-HOLD).
  */
+// debt: CombatStateValue is a hand-maintained client mirror of the engine's CombatState enum (engine/combat.py). ceiling: a seventh engine state is unknown to this closed type; the predicates in format.ts treat it as live and frozen (fails closed) but the compiler cannot see it. until: the engine publishes CombatState's values as a digest-pinned fixture and a drift test reads it (Backlog TAV-COMBAT-STATE-ENUM-MIRROR, same shape as TAV-SPACE-KINDS-HAND-MIRROR).
 export type CombatStateValue =
   | 'idle'
   | 'rolling_initiative'
@@ -2357,6 +2358,8 @@ export interface EndCombatRequest {
 export interface EndCombatResult {
   state: CombatState;
   outcome: string;
+  /** The engine's own sentence for the end ("Combat ended. The party has fallen."); the log prefers it to the Tavern's outcome map. */
+  message?: string;
   xp_earned?: number;
   defeated?: string[];
   scene_advance?: CombatSceneAdvance | null;

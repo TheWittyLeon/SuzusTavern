@@ -198,6 +198,21 @@ export const HELD_LINE_DM = 'Every character has fallen.';
 export const HELD_LINE_WAITING = 'Every character has fallen. The DM decides what happens next.';
 export const HELD_FROZEN_NOTE = 'The fight is on hold.';
 
+/**
+ * How a fight ended, in the log's two-sentence shape ("Combat ended. <this>"). ONE map from the engine's outcome key to its sentence; an outcome not in it falls back to the
+ * key capitalised, as the handler always did. A row here is how a new outcome gets its own words (a tenth outcome is a row, not a branch in the handler).
+ */
+const OUTCOME_SENTENCES: Readonly<Record<string, string>> = { tpk: 'The party has fallen.' };
+
+/** The log line for an ended fight. The engine's own `message` wins when it sent one (it builds the same sentence); else the map; else the capitalised key. */
+export function combatEndedLine(outcome: string | null | undefined, engineMessage?: string | null): string {
+  const said = engineMessage?.trim();
+  if (said) return said;
+  const key = outcome?.trim();
+  if (!key) return 'Combat ended. Unresolved.';
+  return `Combat ended. ${OUTCOME_SENTENCES[key] ?? `${key.charAt(0).toUpperCase()}${key.slice(1)}.`}`;
+}
+
 const END_SESSION_BODY = "This ends the table for everyone at it. Players won't be able to act until a new session starts. This can't be undone from here.";
 
 /** The End session confirm's body. While a fight is held it leads with the fight (the owner's ruling, WARN): ending the session leaves a held fight live, and its

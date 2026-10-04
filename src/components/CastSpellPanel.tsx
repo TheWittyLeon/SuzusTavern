@@ -395,7 +395,7 @@ export default function CastSpellPanel({
             className={styles.castBtn}
             aria-label={
               notYourTurn
-                ? `Cast ${selectedSpell?.name ?? 'spell'} (not your turn)`
+                ? `Cast ${selectedSpell?.name ?? 'spell'} (${held ? 'fight on hold' : 'not your turn'})`
                 : `Cast ${selectedSpell?.name ?? 'spell'}`
             }
             {...lockProps(castLocked, { busy })}

@@ -59,6 +59,7 @@ import { useAuth } from '@/lib/auth/AuthProvider';
 import { useToast } from '@/components/Toast';
 import { advanceScene, resolveCheck } from '@/lib/api/dnd';
 import { engineErrorMessage, extractReason, isApiError } from '@/lib/dnd/engineError';
+import { SCENE_MOVE_REASON_COPY } from '@/lib/dnd/engineReasons';
 import { DURABLE_GENERATION_ENABLED } from '@/lib/config';
 import type { Advantage } from '@/components/DiceTray';
 import type { LogRow } from '@/components/ChatLog';
@@ -225,7 +226,10 @@ export function useSceneActions(
         confirmBeat('We move on.', transitionContext, 'scene_advance');
       } catch (err) {
         const status = (err as { status?: number } | null)?.status;
-        if (status === 400) {
+        if (isApiError(err) && extractReason(err) === 'combat_live') {
+          // A stale tab: a fight began (or was held) after this tab last read the session.
+          toast({ tone: 'info', message: SCENE_MOVE_REASON_COPY.combat_live });
+        } else if (status === 400) {
           // freeform_session or unknown_scene — quiet info, not a crash.
           toast({ tone: 'info', message: 'No authored adventure to advance through.' });
         } else if (status === 503) {
@@ -349,6 +353,7 @@ export function useSceneActions(
             // curated copy wins over the engine's own 409 message.
             check_locked: 'That approach is closed — find another way.',
             check_resolved: "You've already settled that one.",
+            combat_live: SCENE_MOVE_REASON_COPY.combat_live,
           },
         });
         toast({ tone: message === fallback ? 'error' : 'info', message });

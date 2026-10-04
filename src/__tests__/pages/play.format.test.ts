@@ -12,7 +12,7 @@
  * does not touch or rewrite any existing test (Miko-QA, TAV-PLAY-SHELL A1
  * QA pass).
  */
-import { isSessionLocked, buildReadAloudBlock, areTurnsRunning, isFightEnded, isFightHeld, isFightLive } from '../../app/play/[sessionId]/format';
+import { combatEndedLine, isSessionLocked, buildReadAloudBlock, areTurnsRunning, isFightEnded, isFightHeld, isFightLive } from '../../app/play/[sessionId]/format';
 import type { CombatState, GroundingData, Session } from '../../lib/api/types';
 
 function makeSession(status: Session['status']): Session {
@@ -125,5 +125,26 @@ describe('buildReadAloudBlock', () => {
 
   it('returns an empty string when grounding carries none of the block fields', () => {
     expect(buildReadAloudBlock({} as GroundingData)).toBe('');
+  });
+});
+
+describe('combatEndedLine: one outcome -> sentence map, the key capitalised as the fallback, the engine\'s own message first', () => {
+  it.each([
+    ['tpk', 'Combat ended. The party has fallen.'],
+    ['victory', 'Combat ended. Victory.'],
+    ['retreat', 'Combat ended. Retreat.'],
+    ['unresolved', 'Combat ended. Unresolved.'],
+    ['a_tenth_outcome', 'Combat ended. A_tenth_outcome.'],
+  ])("outcome '%s' -> %s", (outcome, line) => {
+    expect(combatEndedLine(outcome)).toBe(line);
+  });
+  it('no outcome at all is Unresolved, as it always was', () => {
+    expect(combatEndedLine(undefined)).toBe('Combat ended. Unresolved.');
+    expect(combatEndedLine('')).toBe('Combat ended. Unresolved.');
+  });
+  it('the engine\'s message wins when it sent one, and a blank one does not', () => {
+    expect(combatEndedLine('tpk', 'Combat ended. The party has fallen. (engine)')).toBe('Combat ended. The party has fallen. (engine)');
+    expect(combatEndedLine('tpk', '   ')).toBe('Combat ended. The party has fallen.');
+    expect(combatEndedLine('tpk', null)).toBe('Combat ended. The party has fallen.');
   });
 });
