@@ -57,7 +57,6 @@ import { DURABLE_GENERATION_ENABLED } from '@/lib/config';
 import type { Participant } from '@/lib/api/types';
 import type { QuickCheck } from '@/components/DiceTray';
 import { statusPills } from './statusPills';
-import { OverrideDialogHost } from './overrideDialog';
 import PageSkeleton from '@/components/PageSkeleton';
 import { type LogRow } from '@/components/ChatLog';
 import RollControl from '@/components/RollControl';
@@ -67,6 +66,7 @@ import ActionBar from './regions/ActionBar';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Drawer from '@/components/Drawer';
 import SafetyBanner from './regions/SafetyBanner';
+import { OverrideDialogHost } from './overrideDialog'; // before TableControls: DmOverrideModal's stylesheet keeps its place in the cascade (ahead of DmNarrationPanel's), as when the panel imported it
 import { SessionControls, DmCombatControls } from './regions/TableControls';
 import PartyStrip from './regions/PartyStrip';
 import SceneStage from './regions/SceneStage';
@@ -1327,7 +1327,7 @@ export default function PlayPage() {
 
   // anyMonsterDown/allHostilesDown now come from useCombatState's destructure
   // above (Amendment A §A.6).
-  const { statusPill, narratorStatusPill } = statusPills(combatIsActive, round);
+  const { statusPill, narratorStatusPill } = statusPills(combatIsActive, round, styles.pillRound);
   // Iro-A11y CRITICAL (review pass) — NarratorStrip's OWN combat line
   // already states "Round N" explicitly (see its `combatParts`); embedding
   // the full `statusPill` (which ALSO says "round N") in its `status` slot
