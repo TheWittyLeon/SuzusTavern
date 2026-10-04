@@ -198,6 +198,15 @@ export const HELD_LINE_DM = 'Every character has fallen.';
 export const HELD_LINE_WAITING = 'Every character has fallen. The DM decides what happens next.';
 export const HELD_FROZEN_NOTE = 'The fight is on hold.';
 
+const END_SESSION_BODY = "This ends the table for everyone at it. Players won't be able to act until a new session starts. This can't be undone from here.";
+
+/** The End session confirm's body. While a fight is held it leads with the fight (the owner's ruling, WARN): ending the session leaves a held fight live, and its
+ *  characters undeletable, because the engine's session end touches no combat. Confirm stays "End it"; the ordinary words follow. */
+export function endSessionBody(combatState: CombatState | null | undefined): string {
+  if (!isFightHeld(combatState)) return END_SESSION_BODY;
+  return `A fight is waiting for your ruling: every character has fallen. Ending the session leaves it unresolved, and the characters in it can't be deleted until it ends. ${END_SESSION_BODY}`;
+}
+
 /** Every character has fallen after a DM override; the fight waits for the DM
  *  to revive one or end it. Live, and frozen. */
 export function isFightHeld(combatState: CombatState | null | undefined): boolean {

@@ -81,7 +81,7 @@ import {
   buildReadAloudBlock,
   deathSaveTally,
   groundingCreatureNames,
-  initiativeNames, isCombatEncounterUnstarted, areTurnsRunning,
+  endSessionBody, initiativeNames, isCombatEncounterUnstarted, areTurnsRunning,
   isSessionDm,
   scanXCardTracking,
 } from './format';
@@ -1706,7 +1706,7 @@ export default function PlayPage() {
             open={endSessionConfirmOpen}
             tone="danger"
             title="End this session?"
-            body="This ends the table for everyone at it. Players won't be able to act until a new session starts. This can't be undone from here."
+            body={endSessionBody(combatState)}
             // DDX-25: deliberately NOT "End session" — the left-pane trigger
             // already has that accessible name, and both are on screen at once
             // while the dialog is open (mirrors DeleteCampaignButton's trigger
