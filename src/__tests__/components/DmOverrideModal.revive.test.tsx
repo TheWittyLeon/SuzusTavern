@@ -195,6 +195,22 @@ describe('apply', () => {
     await waitFor(() => expect(mockSubmitOverride).toHaveBeenCalledTimes(1));
   });
 
+  it('a living PC picked as a Damage target is not carried into Revive', () => {
+    render(<DmOverrideModal {...mkProps([GOBLIN, LIVING, KESTREL, LUKE])} />);
+    fireEvent.click(screen.getByRole('radio', { name: /Damage/i }));
+    fireEvent.change(screen.getByLabelText(/^Target(?! new)/), { target: { value: 'pc-3' } });
+    fireEvent.click(screen.getByRole('radio', { name: /Revive/i }));
+    expect(charSel().value).toBe('');
+  });
+
+  it('a typed Restore HP does not survive leaving and re-entering Revive', () => {
+    openRevive([GOBLIN, KESTREL]);
+    fireEvent.change(hpIn(), { target: { value: '9' } });
+    fireEvent.click(screen.getByRole('radio', { name: /Check/i }));
+    fireEvent.click(screen.getByRole('radio', { name: /Revive/i }));
+    expect(hpIn().value).toBe('1');
+  });
+
   it('switching kind away and back drops the chosen character', () => {
     openRevive([GOBLIN, KESTREL, LUKE]);
     fireEvent.change(charSel(), { target: { value: 'pc-2' } });
@@ -256,9 +272,12 @@ describe('opened as Revive from elsewhere', () => {
   });
 
   it('one fallen: focus lands on the HP field with its text selected', async () => {
+    const sel = jest.spyOn(HTMLInputElement.prototype, 'select');
     render(<DmOverrideModal {...mkProps([GOBLIN, KESTREL], { initialKind: 'revive' })} />);
     await settle();
     expect(document.activeElement).toBe(hpIn());
+    expect(sel).toHaveBeenCalled();
+    sel.mockRestore();
   });
 
   it('initialTargetId preselects that character', async () => {
