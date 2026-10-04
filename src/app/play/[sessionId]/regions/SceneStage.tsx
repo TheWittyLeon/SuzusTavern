@@ -7,6 +7,7 @@ import AnchoredPopover from '@/components/AnchoredPopover';
 import { FoldHandleSlot, useFoldBody } from '@/components/FoldDock';
 import { useAnchoredPopover } from '@/lib/a11y/useAnchoredPopover';
 import type { RegionVariant } from '../variants';
+import { HELD_LINE_DM } from '../format';
 import styles from '../Play.module.css';
 import strip from './SceneStage.module.css';
 
@@ -60,6 +61,8 @@ export interface SceneStageProps {
   /** The combat round, shown beside the status text in the phone's strip (an `aria-hidden` span: the tracker stays the one region that
    *  announces the round, Iro A9d-1 Minor-2). Null = not in combat or unknown. */
   round?: number | null;
+  /** Every character has fallen and the fight waits for the DM (`isFightHeld`): the status node says so, in place of "In combat · use the action bar". */
+  held?: boolean;
   /**
    * A9d-2 N5 (Amendment E.1/E.2): the stage's form, from the registry. `inline` (the phone) is the scene strip: ONE row holding the scene's
    * name, its objective (exploring) or the combat status, and the encounter's buttons; no picture stand-in, no kicker.
@@ -95,6 +98,7 @@ export default function SceneStage({
   sessionLocked,
   rollBusy,
   round = null,
+  held = false,
   variant = 'panel',
   children,
   bodyLabel,
@@ -160,7 +164,7 @@ export default function SceneStage({
         <>
           <div className={cx(styles.combatNote, strip.wrapper)}>
             <div className={cx(styles.noteText, allHostilesDown || lineText != null ? strip.noteClipped : strip.note)} role="status" aria-live="polite">
-              <Icon name="Sword" size={13} aria-hidden /> In combat · use the action bar
+              <Icon name={held ? 'Skull' : 'Sword'} size={13} aria-hidden /> {held ? HELD_LINE_DM : 'In combat · use the action bar'}
               {inline && round != null && <span aria-hidden className={strip.round}> · round {round}</span>}
             </div>
             {/* B8c-3 M2 (Iro ruling 1): the map's line, PLAIN READABLE TEXT, the status node's next sibling and never inside it. No role, no aria-live, no aria-hidden here or on any

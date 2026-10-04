@@ -184,6 +184,11 @@ export function areTurnsRunning(combatState: CombatState | null | undefined): bo
   return combatState?.state === 'active';
 }
 
+/** The held fight's words, once. The strip's line for the DM and for everyone else, and the note on the controls the freeze switches off. */
+export const HELD_LINE_DM = 'Every character has fallen.';
+export const HELD_LINE_WAITING = 'Every character has fallen. The DM decides what happens next.';
+export const HELD_FROZEN_NOTE = 'The fight is on hold.';
+
 /** Every character has fallen after a DM override; the fight waits for the DM
  *  to revive one or end it. Live, and frozen. */
 export function isFightHeld(combatState: CombatState | null | undefined): boolean {

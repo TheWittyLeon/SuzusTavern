@@ -48,6 +48,7 @@ import type {
   SheetSpellSlot,
   SpellListResult,
 } from '@/lib/api/types';
+import { HELD_FROZEN_NOTE } from '@/app/play/[sessionId]/format';
 import styles from './CastSpellPanel.module.css';
 
 type FetchState = 'idle' | 'loading' | 'ok' | 'error';
@@ -101,6 +102,8 @@ export interface CastSpellPanelProps {
   spellSlots: Record<string, SheetSpellSlot>;
   /** Mirrors ActionRail's turn gate: disables (never hides) controls off-turn. */
   isPlayerTurn: boolean;
+  /** The fight is held (every character fallen): the lock notice says so, and is not a live region (the stage's status line announces the hold once). */
+  held?: boolean;
   /** Extra disable — session paused/ended, or another combat mutation in flight. */
   disabled?: boolean;
   /** Fired with the cast result message so the parent appends it to the shared log. */
@@ -125,6 +128,7 @@ export default function CastSpellPanel({
   participants,
   spellSlots,
   isPlayerTurn,
+  held = false,
   disabled = false,
   onCast,
   onSheetChanged,
@@ -403,8 +407,8 @@ export default function CastSpellPanel({
         </div>
       )}
       {notYourTurn && (
-        <p className={styles.notYourTurn} aria-live="polite" aria-atomic="true">
-          Waiting for your turn…
+        <p className={styles.notYourTurn} aria-live={held ? undefined : 'polite'} aria-atomic={held ? undefined : true}>
+          {held ? HELD_FROZEN_NOTE : 'Waiting for your turn…'}
         </p>
       )}
     </>

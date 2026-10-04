@@ -340,7 +340,7 @@ export default function PlayPage() {
   const {
     combatId, setCombatId, combatState, setCombatState, combatBusy, setCombatBusy,
     refusedReason, outcomeChooserOpen, setOutcomeChooserOpen, stateSeqRef, applyState, refreshState,
-    combatEngaged, combatIsActive, round, targetableFoes, activeParticipant,
+    combatEngaged, fightLive, fightHeld, combatIsActive, round, targetableFoes, activeParticipant,
     activeIsMine, isPlayerTurn, isDying, anyMonsterDown, allHostilesDown, selfPcId,
   } = combatStateResult;
 
@@ -442,7 +442,7 @@ export default function PlayPage() {
   // `sceneState` (the hook's own return object) is kept alongside the
   // destructure below -- useNarration and useSceneActions both take it as
   // one bundle (A5; see their own headers).
-  const sceneState = useSceneState(sessionId, combatEngaged, appendLog);
+  const sceneState = useSceneState(sessionId, fightLive, appendLog);
   const {
     grounding, setGrounding, sceneAdvanceBusy, adventureComplete, completionSeries,
     checkBusy, offeredCheckSkill, setOfferedCheckSkill, freeformOfferedCheck,
@@ -1543,7 +1543,7 @@ export default function PlayPage() {
           deathSaves={deathSaveTally(activeParticipant)}
           variant={variantFor(row, 'actionBar', moment)}
           outerRailRef={composerRailAnchorRef}
-          localTurnActionRef={localTurnActionRef} move={board.bar} moveButtonRef={board.moveButtonRef} turnLine={row.barTurnLine ? turnStatusText : undefined}
+          localTurnActionRef={localTurnActionRef} held={fightHeld} move={board.bar} moveButtonRef={board.moveButtonRef} turnLine={row.barTurnLine ? turnStatusText : undefined}
         />
       ) : undefined,
     composer: (
@@ -1598,7 +1598,7 @@ export default function PlayPage() {
         onEndCombat={(key) => void onEndCombat(key)}
         beginCombatRef={beginCombatRef}
         onBeginEncounter={beginEncounter}
-        talking={talking} sessionLocked={sessionLocked} rollBusy={rollBusy} round={round}
+        talking={talking} sessionLocked={sessionLocked} rollBusy={rollBusy} round={round} held={fightHeld}
         variant={variantFor(row, 'sceneStage', moment)} bodyLabel={board.label}
       >
         {board.stage ? <StageBoard {...board.stage} /> : null}
@@ -1640,7 +1640,7 @@ export default function PlayPage() {
         onCast={(text) => appendLog({ who: username ?? 'you', kind: 'system', text })}
         onSheetChanged={setMySheet}
         onStateRefresh={refreshState}
-        onBusyChange={setCombatBusy} fallbackFocus={() => sceneHeadRef.current}
+        onBusyChange={setCombatBusy} fallbackFocus={() => sceneHeadRef.current} held={fightHeld}
       />
     ),
     // T4p2: completion next-part offer (design doc §6.4) — a tenant of

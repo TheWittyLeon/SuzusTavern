@@ -2,7 +2,7 @@
 
 import { useRef, useState, type ReactNode } from 'react';
 import type { CombatState, Participant } from '@/lib/api/types';
-import { areTurnsRunning } from '../format';
+import { isFightLive } from '../format';
 import AnchoredPopover from '@/components/AnchoredPopover';
 import Icon from '@/components/Icon';
 import PartyPanel from '@/components/PartyPanel';
@@ -115,7 +115,7 @@ export default function PartyStrip({
         targetUsername={p.username}
         selfUsername={selfUsername ?? ''}
         isDm={isDm}
-        combatActive={combatIsActive && areTurnsRunning(combatState)}
+        combatActive={combatIsActive && isFightLive(combatState)}
         // DDX-25 R2 (D2-D4): a paused/ended session must not allow a rebind either — mirrors every other player-action gate
         // (Composer, combat rail, skill check, Move on, DiceTray) which all extend `sessionLocked`.
         sessionLocked={sessionLocked}

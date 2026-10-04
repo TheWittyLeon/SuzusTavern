@@ -38,6 +38,7 @@ import styles from '@/components/Composer.module.css';
 import popoverStyles from '@/components/AnchoredPopover.module.css';
 import type { RegionVariant } from '../variants';
 import type { MoveControl } from '../hooks/useBoard';
+import { HELD_FROZEN_NOTE } from '../format';
 
 export type CombatAction = 'attack' | 'dodge' | 'dash' | 'endturn' | 'deathsave';
 
@@ -104,6 +105,8 @@ export interface ActionBarProps {
    * notice stops being a row (Composer.module.css): on screen the reason is the story's turn line and the dimmed verbs, so the bar is one height on both turns.
    */
   turnLine?: string | null;
+  /** The fight is held (every character fallen, waiting on the DM): the verbs are locked as on any turn that is not yours, and the notice says why in the held words, not as a live region (the stage's status line announces it once). */
+  held?: boolean;
 }
 
 /** Gap between the Attack button and its target menu, and the viewport margin. */
@@ -122,6 +125,7 @@ export default function ActionBar({
   move,
   moveButtonRef,
   turnLine,
+  held = false,
 }: ActionBarProps) {
   const [targetOpen, setTargetOpen] = useState(false);
   const railRef = useRef<HTMLDivElement>(null);
@@ -249,7 +253,9 @@ export default function ActionBar({
   const described = turnLine !== undefined;
   const whyId = `${railUid}-why`;
   const moveWhyId = `${railUid}-move-why`;
-  const hasWhy = described && !!turnLine && (notYourTurn || isDying);
+  // Held: the reason a verb is locked is the hold, not a turn line (there is none: no one is acting).
+  const whyText = held ? HELD_FROZEN_NOTE : turnLine;
+  const hasWhy = described && !!whyText && (notYourTurn || isDying);
   /** `disabled` + `aria-disabled` as every verb always had them; or, described, `aria-disabled` alone, plus the reason. Same attribute order as before. */
   const lock = (off: boolean | undefined) => (described ? { 'aria-disabled': off, 'aria-describedby': hasWhy ? whyId : undefined } : { disabled: off, 'aria-disabled': off });
   /** The event guard of a locked verb in the described form (the same swallow `guardLocked` does): true = the activation is dropped. A native `disabled` never reaches a handler, so other rows need none. */
@@ -319,12 +325,12 @@ export default function ActionBar({
       )}
       {/* Turn indicator — polite because it's informational, not urgent. */}
       {notYourTurn && (
-        <div className={styles.notYourTurn} aria-live="polite" aria-atomic="true">
-          Waiting for your turn…
+        <div className={styles.notYourTurn} aria-live={held ? undefined : 'polite'} aria-atomic={held ? undefined : true}>
+          {held ? HELD_FROZEN_NOTE : 'Waiting for your turn…'}
         </div>
       )}
       {/* B8c-4 P1b: the verbs' description in the described form: the story's own turn line, from the same variable, visually hidden here (the visible one is above the composer). Not live. */}
-      {hasWhy && <span id={whyId} className={styles.srOnly}>{turnLine}</span>}
+      {hasWhy && <span id={whyId} className={styles.srOnly}>{whyText}</span>}
       {described && move?.disabled && !hasWhy && move.reason && <span id={moveWhyId} className={styles.srOnly}>{move.reason}</span>}
       <div className={styles.railBtns}>
         <button
