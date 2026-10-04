@@ -100,6 +100,16 @@ describe('a held fight: the dialog offers Revive only', () => {
     expect(screen.getAllByRole('radio')).toHaveLength(5);
   });
 
+  it('held with no one fallen (the engine\'s own S3 edge): the dialog says so and offers Refresh, and no Apply (End combat stays on the strip)', () => {
+    const onStateRefresh = jest.fn();
+    render(host({ combatState: fight([GOBLIN, mk('pc-1', 'Kestrel', 5, 34)], 'held'), onStateRefresh }));
+    fireEvent.click(screen.getByRole('button', { name: 'open A' }));
+    expect(screen.getByText(/No character has fallen\./)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Revive / })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(onStateRefresh).toHaveBeenCalledTimes(1);
+  });
+
   it('a fight that turns held under an open Attack dialog switches it to Revive', () => {
     const { rerender } = render(host());
     fireEvent.click(screen.getByRole('button', { name: 'open A' }));
