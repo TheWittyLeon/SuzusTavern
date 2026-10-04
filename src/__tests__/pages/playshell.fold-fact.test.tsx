@@ -78,10 +78,10 @@ const handle = () => screen.getByRole('button', { name: 'Map' });
 const bodyEl = () => document.getElementById(BODY) as HTMLElement;
 const floorVar = () => grid().style.getPropertyValue('--play-body-floor');
 
-/** Plant what the shell measures: the page (grid) content height against its box, and the width the observer reports. */
-function plant(g: HTMLElement, o: { scrollHeight?: number; clientHeight?: number; clientWidth?: number }) {
-  for (const [k, v] of Object.entries(o)) Object.defineProperty(g, k, { configurable: true, value: v });
-}
+/** The width the fold watches is the WINDOW's (a classic scrollbar shrinks the root's `clientWidth` on a height-only step). */
+const originalInnerWidth = window.innerWidth;
+function setWidth(w: number) { Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: w }); }
+afterEach(() => setWidth(originalInnerWidth));
 
 // Every ResizeObserver the page makes (the shell's fit measurement and the fold's width watch): a report is delivered to all of them.
 const observers: Array<() => void> = [];
@@ -237,8 +237,7 @@ describe('the decision is made again on exactly three events', () => {
   it('3. the shell root\'s WIDTH changing: decided again; a pure HEIGHT step decides nothing (the mutation: re-deciding on any resize turns the second half red)', () => {
     const restore = pageScrolls(false);
     shell(foldRow());
-    const g = grid();
-    plant(g, { clientWidth: 390 });
+    setWidth(390);
     act(() => ro.cb()); // first report: the baseline width
     expect(floorVar()).toBe('OPEN');
     restore();
@@ -248,9 +247,25 @@ describe('the decision is made again on exactly three events', () => {
     act(() => { window.dispatchEvent(new Event('resize')); });
     expect(floorVar()).toBe('OPEN');
     // a width change: decided again, and the page now scrolls
-    plant(g, { clientWidth: 430 });
+    setWidth(430);
     act(() => ro.cb());
     expect(floorVar()).toBe('FOLDED');
+    restore2();
+  });
+
+  it('a classic scrollbar is not a width change: the ROOT\'s clientWidth shrinks when the page starts to scroll, the window\'s innerWidth does not (WebKit, a narrow desktop window)', () => {
+    const restore = pageScrolls(false);
+    shell(foldRow());
+    const g = grid();
+    setWidth(390);
+    Object.defineProperty(g, 'clientWidth', { configurable: true, value: 390 });
+    act(() => ro.cb());
+    expect(floorVar()).toBe('OPEN');
+    restore();
+    const restore2 = pageScrolls(true);
+    Object.defineProperty(g, 'clientWidth', { configurable: true, value: 375 }); // 15px of scrollbar
+    act(() => ro.cb());
+    expect(floorVar()).toBe('OPEN'); // the mutation (compare the root's clientWidth) folds it
     restore2();
   });
 
@@ -266,7 +281,7 @@ describe('the decision is made again on exactly three events', () => {
 });
 
 describe('never while a touch is down, nor for 150 ms after the last scroll event: queued, then applied once (4.2, T C-1)', () => {
-  const widthChange = (w: number) => { plant(grid(), { clientWidth: w }); act(() => ro.cb()); };
+  const widthChange = (w: number) => { setWidth(w); act(() => ro.cb()); };
 
   it('a finger on the page holds a width change; the decision is applied 150 ms after the finger lifts', () => {
     jest.useFakeTimers();
@@ -553,5 +568,51 @@ describe('the automatic cases (addendum): the page is left at its end, once, nev
     to.mockClear();
     t.again({ moment: 'combat' });
     expect(to).not.toHaveBeenCalled();
+  });
+});
+
+describe('a finger that is CANCELLED (a system gesture, a call) lets go of the gate like a lift: the decision lands 150 ms later, not at the 5 s backstop', () => {
+  it('touchcancel with no finger left: applied within FOLD_QUIET_MS (the mutation: no touchcancel listener leaves it OPEN until the backstop)', () => {
+    jest.useFakeTimers();
+    const restore = pageScrolls(false);
+    shell(foldRow());
+    setWidth(390);
+    act(() => ro.cb());
+    restore();
+    const restore2 = pageScrolls(true);
+    act(() => { fireEvent.touchStart(document.body, { touches: [{ clientX: 1, clientY: 1 }] }); });
+    setWidth(430);
+    act(() => ro.cb());
+    expect(floorVar()).toBe('OPEN');
+    act(() => { fireEvent.touchCancel(document.body, { touches: [] }); });
+    act(() => { jest.advanceTimersByTime(FOLD_QUIET_MS + 10); });
+    expect(floorVar()).toBe('FOLDED');
+    restore2();
+  });
+});
+
+describe('what a press on the handle writes: the legacy two-state fold only where the region has no body AND its default is not measured', () => {
+  const NO_BODY: FoldSpec = { label: 'Map', icon: 'Map', when: { room: 'board' } };
+  function press(row: LayoutRow, spec: FoldSpec) {
+    const onToggleFold = jest.fn();
+    const onFoldChoice = jest.fn();
+    shell(row, { onToggleFold, onFoldChoice, foldSpecs: { sceneStage: spec } });
+    fireEvent.click(handle());
+    return { onToggleFold, onFoldChoice };
+  }
+  it('no body, default open: the legacy toggle (the character sheet\'s fold, as it always was)', () => {
+    const r = press(foldRow({ foldDefault: 'open' }), NO_BODY);
+    expect(r.onToggleFold).toHaveBeenCalledWith('sceneStage');
+    expect(r.onFoldChoice).not.toHaveBeenCalled();
+  });
+  it('no body, measured default: a stored choice (folded / open), never the legacy toggle (a measured fold needs the third state)', () => {
+    const r = press(foldRow({ foldDefault: 'fits' }), NO_BODY);
+    expect(r.onFoldChoice).toHaveBeenCalledWith('sceneStage', 'folded');
+    expect(r.onToggleFold).not.toHaveBeenCalled();
+  });
+  it.each(['open', 'fits'] as const)('a body, default %s: a stored choice', (foldDefault) => {
+    const r = press(foldRow({ foldDefault }), SPEC);
+    expect(r.onFoldChoice).toHaveBeenCalledWith('sceneStage', 'folded');
+    expect(r.onToggleFold).not.toHaveBeenCalled();
   });
 });

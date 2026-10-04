@@ -20,9 +20,12 @@ export function useRegionFolds(moment: Moment) {
   const openedRegions = useMemo(() => new Set(Object.keys(foldsOpen) as RegionId[]), [foldsOpen]);
   const [revealedRegions, setRevealed] = useState<ReadonlySet<RegionId>>(() => new Set());
   const onToggleFold = useCallback((id: RegionId) => setFold(id, !folds[id]), [folds, setFold]);
-  const onFoldChoice = useCallback((id: RegionId, choice: 'folded' | 'open') => setFoldChoice(id, choice), [setFoldChoice]);
-  const unfold = useCallback((id: RegionId) => setFold(id, false), [setFold]);
   const reveal = useCallback((id: RegionId) => setRevealed((prev) => (prev.has(id) ? prev : new Set(prev).add(id))), []);
+  const unreveal = useCallback((id: RegionId) => setRevealed((prev) => { if (!prev.has(id)) return prev; const next = new Set(prev); next.delete(id); return next; }), []);
+  // A press on the handle is the user's own choice and it outranks the page's reveal: the reveal outranks a stored fold (so Move can open a folded map), so a press that only wrote the
+  // choice would be dead while the reveal stood (the map stays open under a press that says fold). The press hands the decision back to the stored choice.
+  const onFoldChoice = useCallback((id: RegionId, choice: 'folded' | 'open') => { setFoldChoice(id, choice); unreveal(id); }, [setFoldChoice, unreveal]);
+  const unfold = useCallback((id: RegionId) => setFold(id, false), [setFold]);
   // Session state, beside the stored choice: a reveal lasts one fight.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- clearing session state when the moment changes is the reveal's whole lifecycle

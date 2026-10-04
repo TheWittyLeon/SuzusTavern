@@ -65,6 +65,7 @@ export function useFoldFacts({ rootRef, moment, candidates, stored, revealed }: 
   const userScrolled = useRef(false);
   const want = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const schedule = useRef<(ms?: number) => void>(() => {});
   const gen = useRef(0);
   const parkedGen = useRef(-1);
   const lastPress = useRef(-Infinity);
@@ -103,13 +104,17 @@ export function useFoldFacts({ rootRef, moment, candidates, stored, revealed }: 
   const redecide = useCallback(() => {
     gen.current += 1;
     if (gateOpen()) setDecided((prev) => (Object.keys(prev).length ? {} : prev));
-    else want.current = true;
+    else {
+      want.current = true;
+      // Queued is not enough: if the gate is held by a scroll event alone, no later event is promised, so the flush is scheduled here (it re-checks the gate and re-arms itself).
+      schedule.current();
+    }
   }, [gateOpen]);
 
   useEffect(() => {
     const flush = () => {
       timer.current = undefined;
-      if (!gateOpen()) { schedule(); return; }
+      if (!gateOpen()) { arm(); return; }
       if (want.current) {
         want.current = false;
         setDecided((prev) => (Object.keys(prev).length ? {} : prev));
@@ -117,23 +122,25 @@ export function useFoldFacts({ rootRef, moment, candidates, stored, revealed }: 
       setTick((t) => t + 1);
       if (anyOpenBody()) park();
     };
-    function schedule(ms = FOLD_QUIET_MS) {
+    function arm(ms = FOLD_QUIET_MS) {
       clearTimeout(timer.current);
       timer.current = setTimeout(flush, ms);
     }
+    schedule.current = arm;
     const onTouch = (e: TouchEvent) => {
       if (touches.current === 0 && e.touches.length > 0) touchSince.current = Date.now();
       touches.current = e.touches.length;
       // A finger down holds the gate; if its end never arrives, the backstop lets go (and flushes whatever was queued).
-      schedule(touches.current === 0 ? FOLD_QUIET_MS : FOLD_TOUCH_BACKSTOP_MS);
+      arm(touches.current === 0 ? FOLD_QUIET_MS : FOLD_TOUCH_BACKSTOP_MS);
     };
     const onScroll = () => {
       lastScroll.current = Date.now();
       if (Date.now() > ownScrollUntil.current) userScrolled.current = true;
       setNoRoom((prev) => (prev === null ? prev : null));
-      if (want.current) schedule();
+      if (want.current) arm();
     };
     const onResize = () => { if (anyOpenBody()) park(); };
+    if (want.current) arm(); // a decision queued before this effect ran
     window.addEventListener('touchstart', onTouch, { capture: true, passive: true });
     window.addEventListener('touchend', onTouch, { capture: true, passive: true });
     window.addEventListener('touchcancel', onTouch, { capture: true, passive: true });
@@ -155,7 +162,9 @@ export function useFoldFacts({ rootRef, moment, candidates, stored, revealed }: 
     if (!root || typeof ResizeObserver === 'undefined') return;
     let last: number | null = null;
     const ro = new ResizeObserver(() => {
-      const w = root.clientWidth;
+      // The window's width, not the root's: a classic scrollbar (WebKit, a desktop window) takes its 15px from the root's `clientWidth` the moment the page starts to scroll, and a height-only
+      // step would then read as a width change and fold or reopen the map. `innerWidth` includes the scrollbar; rotation, a split view and a zoom step still change it.
+      const w = window.innerWidth;
       if (last !== null && w !== last) redecide();
       last = w;
     });
