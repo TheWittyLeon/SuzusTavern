@@ -322,7 +322,7 @@
   cursor: pointer;
 }
 
-.action:hover:not(:disabled) {
+.action:hover:not(:disabled):not([aria-disabled='true']) {
   border-color: color-mix(in oklab, var(--accent) 35%, transparent);
   color: var(--ink);
 }
@@ -332,7 +332,9 @@
   color: var(--ink);
 }
 
-.action:disabled {
+/* B8c-4 P1b: the bar's described form locks a verb with `aria-disabled` alone (it stays focusable); it looks exactly like the native lock every other row uses. Where both are set the two selectors agree. */
+.action:disabled,
+.action[aria-disabled='true'] {
   opacity: 0.45;
   cursor: not-allowed;
 }
@@ -352,19 +354,23 @@
     margin-bottom: 0;
   }
 
-  /* the phone keeps the wait notice as its own line (round 4 left it alone: the phone cells do not move) */
   .rail[data-waiting='true'] .railLabel {
     display: block;
   }
 
+  /* B8c-4 P1b (Sora's phone-mount brief 6.4): in the narrow form the wait notice is NOT A ROW. It was a 24.5px line that made the bar taller on a monster's turn, stepped the board's bottom edge
+     every turn and made the map's default depend on who acts first. It stays in the tree, visually hidden, still its polite live text; on screen the reason is the story's turn line directly above
+     the composer ("Monster turn - X") and the verbs, dimmed. A wide bar (every desktop, and a phone row's bar over 560px) is unchanged: the notice takes the kicker's place above. */
   .rail[data-waiting='true'] .notYourTurn {
-    font-size: 11px;
-    letter-spacing: normal;
-    text-transform: none;
-    font-style: italic;
-    padding: 2px 0 6px;
-    margin: 0;
-    flex: 1 0 100%;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 
   .railLabel {

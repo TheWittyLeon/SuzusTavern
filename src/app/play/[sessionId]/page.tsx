@@ -1543,7 +1543,7 @@ export default function PlayPage() {
           deathSaves={deathSaveTally(activeParticipant)}
           variant={variantFor(row, 'actionBar', moment)}
           outerRailRef={composerRailAnchorRef}
-          localTurnActionRef={localTurnActionRef} move={board.bar} moveButtonRef={board.moveButtonRef}
+          localTurnActionRef={localTurnActionRef} move={board.bar} moveButtonRef={board.moveButtonRef} turnLine={row.barTurnLine ? turnStatusText : undefined}
         />
       ) : undefined,
     composer: (

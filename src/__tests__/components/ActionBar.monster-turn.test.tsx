@@ -46,20 +46,28 @@ describe('Composer.module.css: the notice takes the kicker\'s place in a wide sl
     expect(n).toMatch(/padding:\s*0;/);
   });
 
-  it('narrow (the phone\'s container query): the kicker is back (it is clipped by its own rule there) and the notice is the line it always was', () => {
-    const q = css.slice(css.indexOf('@container (max-width: 560px)'));
-    expect(rule(".rail[data-waiting='true'] .railLabel", css.indexOf('@container (max-width: 560px)'))).toMatch(/display:\s*block/);
-    const n = rule(".rail[data-waiting='true'] .notYourTurn", css.indexOf('@container (max-width: 560px)'));
-    expect(n).toMatch(/flex:\s*1 0 100%/);
-    expect(n).toMatch(/padding:\s*2px 0 6px/);
-    expect(q.length).toBeGreaterThan(0);
+  // B8c-4 P1b (named exception: the two narrow cases below were "the notice is the line it always was" and "every property the wide rule sets is set back"): in the narrow form the notice is NOT A ROW
+  // (Sora's phone-mount brief 6.4). It was a 24.5px line that made the phone's bar taller on a monster's turn. It stays in the tree, visually hidden. What pins it now: this case, the next, and the
+  // harness's p:barHeight (the bar's height equal across the two turns at every phone size).
+  it('narrow (the phone\'s container query): the kicker is back (it is clipped by its own rule there) and the notice is visually hidden: out of flow, 1px, clipped, NOT a row', () => {
+    const from = css.indexOf('@container (max-width: 560px)');
+    expect(from).toBeGreaterThan(0);
+    expect(rule(".rail[data-waiting='true'] .railLabel", from)).toMatch(/display:\s*block/);
+    const n = rule(".rail[data-waiting='true'] .notYourTurn", from);
+    expect(n).toMatch(/position:\s*absolute/);
+    expect(n).toMatch(/width:\s*1px/);
+    expect(n).toMatch(/height:\s*1px/);
+    expect(n).toMatch(/clip:\s*rect\(0,\s*0,\s*0,\s*0\)/);
+    expect(n).toMatch(/overflow:\s*hidden/);
+    // no property of a row survives in it: nothing sets a flex basis or a line's padding any more
+    expect(n).not.toMatch(/flex:\s*1 0 100%/);
+    expect(n).not.toMatch(/padding:\s*2px 0 6px/);
   });
 
-  it('narrow: every property the wide rule sets on the notice is set back (a property left over moved the phone\'s bar by 6px: margin)', () => {
-    const props = (r: string) => [...r.matchAll(/([a-z-]+)\s*:/g)].map((m) => m[1]).filter((n) => n !== 'notYourTurn');
-    const wide = props(rule(".rail[data-waiting='true'] .notYourTurn").split('{')[1]);
-    const narrow = props(rule(".rail[data-waiting='true'] .notYourTurn", css.indexOf('@container (max-width: 560px)')).split('{')[1]);
-    expect(wide.length).toBeGreaterThan(4);
-    for (const p of wide) expect(narrow).toContain(p);
+  it('narrow: the notice is in the DOM and still a polite live region (visually hidden, not removed), so it keeps announcing and stays the verbs\' description in the tree', () => {
+    render(<ActionBar {...props({ isPlayerTurn: false })} variant="bar" />);
+    const notice = screen.getByText('Waiting for your turn…');
+    expect(notice).toBeInTheDocument();
+    expect(notice).toHaveAttribute('aria-live', 'polite');
   });
 });

@@ -473,6 +473,11 @@ export interface LayoutRow {
    * Table set it; the phone row does not until P3 lands the selection seam (a thumb must not commit a move on one tap).
    */
   boardMove?: boolean;
+  /**
+   * B8c-4 P1b (brief 6.4; the Coordinator addendum): the action bar is in its DESCRIBED form: its verbs are locked with `aria-disabled` (never native `disabled`) and described by the story's own turn line, one
+   * text from one variable; and, in the bar's narrow form, the wait notice is not a row. The phone row sets it. Absent = the bar every other row has, to the attribute.
+   */
+  barTurnLine?: boolean;
   regions: Record<RegionId, Partial<Record<Moment, Placement>> & { default: Placement }>;
 }
 
@@ -986,6 +991,8 @@ const PHONE_ROW: LayoutRow = {
   id: 'phone',
   // Every slot that can hide content paints the bottom-fade cue while it has more to scroll (E.7): the party band does in combat.
   scrollCue: true,
+  // B8c-4 P1b: the bar's described form (its verbs are described by the story's turn line; the narrow bar's wait notice is not a row).
+  barTurnLine: true,
   vars: {
     '--play-slot-edge': 'var(--space-3)',
     '--play-slot-pad': '0px',
