@@ -2331,16 +2331,19 @@ export interface RollResult {
 }
 
 /**
- * B3: DM-chooser outcome values. 'tpk' and 'alert' exist on the engine but are
+ * B3: DM-chooser outcome values, plus 'tpk'. 'alert' exists on the engine but is
  * reserved for system-driven resolution paths — intentionally excluded from the
- * UI chooser.
+ * UI chooser. 'tpk' is NOT a chooser entry either: it is what the held strip's
+ * single End combat sends (TPK-HOLD W4), because the engine ends a held fight as
+ * a TPK whatever outcome is sent. The chooser's list stays as it is.
  */
 export type EndCombatOutcome =
   | 'victory'
   | 'retreat'
   | 'parley'
   | 'flee'
-  | 'unresolved';
+  | 'unresolved'
+  | 'tpk';
 
 /** Request body for POST /api/dnd/combat/{id}/end. */
 export interface EndCombatRequest {

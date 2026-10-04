@@ -1,13 +1,14 @@
 'use client';
 
-import { createContext, useContext, useState, type ReactNode, type RefObject, type Dispatch, type SetStateAction } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject, type Dispatch, type SetStateAction } from 'react';
 import type { EndCombatOutcome } from '@/lib/api/types';
 import Icon from '@/components/Icon';
 import AnchoredPopover from '@/components/AnchoredPopover';
 import { FoldHandleSlot, useFoldBody } from '@/components/FoldDock';
 import { useAnchoredPopover } from '@/lib/a11y/useAnchoredPopover';
 import type { RegionVariant } from '../variants';
-import { HELD_LINE_DM } from '../format';
+import { HELD_LINE_DM, HELD_LINE_WAITING } from '../format';
+import { useOverrideDialog } from '../overrideDialog';
 import styles from '../Play.module.css';
 import strip from './SceneStage.module.css';
 
@@ -61,7 +62,8 @@ export interface SceneStageProps {
   /** The combat round, shown beside the status text in the phone's strip (an `aria-hidden` span: the tracker stays the one region that
    *  announces the round, Iro A9d-1 Minor-2). Null = not in combat or unknown. */
   round?: number | null;
-  /** Every character has fallen and the fight waits for the DM (`isFightHeld`): the status node says so, in place of "In combat · use the action bar". */
+  /** Every character has fallen and the fight waits for the DM (`isFightHeld`): the status node says so, in place of "In combat · use the action bar", and the
+   *  encounter's buttons become the DM's two exits (Revive…, and one End combat that sends `tpk`); everyone else gets the line and no buttons. */
   held?: boolean;
   /**
    * A9d-2 N5 (Amendment E.1/E.2): the stage's form, from the registry. `inline` (the phone) is the scene strip: ONE row holding the scene's
@@ -116,8 +118,25 @@ export default function SceneStage({
   // inherited the band's clip: on a phone it rendered at y 346-718 under a band that ended at 333, so the tap on End combat looked
   // like it did nothing. The hook owns placement, the consumed dismissing click, Escape, Tab past either end and the focus
   // rules; End combat and Wrap up both open it, so the opener is whichever was activated (`lastOpenerRef`, recorded from the click).
+  // TPK-HOLD W4: the DM is whoever the override dialog's host opened for (the human-DM seat). Held, the generic End combat and its chooser give way to the
+  // two exits below: the engine ends a held fight as a TPK whatever outcome is sent, so a chooser would only offer outcomes that are not true.
+  const overrideDialog = useOverrideDialog();
+  // The held End combat has been pressed. The fight ending takes the button with it, so focus is put on the scene head in that same commit (never <body>,
+  // and not the composer, which is where the page's stranded-focus rescue would send it). A revive instead takes the Revive… opener; the dialog's own fallback is the scene head.
+  const endedFromHold = useRef(false);
+  useLayoutEffect(() => {
+    if (!combatIsActive && endedFromHold.current) {
+      const at = document.activeElement;
+      if (at == null || at === document.body) sceneHeadRef.current?.focus({ preventScroll: true });
+    }
+    if (!combatIsActive || !held) endedFromHold.current = false;
+  }, [combatIsActive, held, sceneHeadRef]);
+  // A chooser left open when the fight turned held (another tab's override) closes with the button that opened it, and does not reopen when the fight resumes.
+  useEffect(() => {
+    if (held) setOutcomeChooserOpen(false);
+  }, [held, setOutcomeChooserOpen]);
   const pop = useAnchoredPopover({
-    open: outcomeChooserOpen,
+    open: outcomeChooserOpen && !held,
     // Closing is gated on `!combatBusy` as the Escape path always was: an end-the-fight request in flight keeps the chooser.
     onClose: () => { if (!combatBusy) setOutcomeChooserOpen(false); },
     anchorRef: endCombatBtnRef,
@@ -164,7 +183,7 @@ export default function SceneStage({
         <>
           <div className={cx(styles.combatNote, strip.wrapper)}>
             <div className={cx(styles.noteText, allHostilesDown || lineText != null ? strip.noteClipped : strip.note)} role="status" aria-live="polite">
-              <Icon name={held ? 'Skull' : 'Sword'} size={13} aria-hidden /> {held ? HELD_LINE_DM : 'In combat · use the action bar'}
+              <Icon name={held ? 'Skull' : 'Sword'} size={13} aria-hidden /> {held ? (overrideDialog ? HELD_LINE_DM : HELD_LINE_WAITING) : 'In combat · use the action bar'}
               {inline && round != null && <span aria-hidden className={strip.round}> · round {round}</span>}
             </div>
             {/* B8c-3 M2 (Iro ruling 1): the map's line, PLAIN READABLE TEXT, the status node's next sibling and never inside it. No role, no aria-live, no aria-hidden here or on any
@@ -172,7 +191,30 @@ export default function SceneStage({
                 them no inspector at all. The status above stays in the tree, unchanged and live, only clipped while this shows. Do not tidy this into the status node or add a role.
                 `data-stage-line` is how the harness finds it (n:line asserts it is the status node's next sibling). Clipped, not removed, while the "All enemies are down" prompt owns the cell. */}
             {lineText != null && <span data-stage-line="" className={allHostilesDown ? strip.noteClipped : strip.line}>{lineText}</span>}
-            {/* B3-1: "End combat" opens the outcome chooser. Tora MAJOR-2: ref so focus returns here when the chooser is dismissed. */}
+            {held ? (
+              // Held: the DM's two exits, SIBLINGS of the status node (a button in a live region is re-announced when it mounts). Revive… leads and is the accent
+              // (the recovery); End combat is the danger outline and sits last. Nothing for anyone else: the line says what is happening.
+              overrideDialog && (
+                <>
+                  <button type="button" className={cx(styles.reviveBtn, strip.end)} aria-haspopup="dialog" disabled={combatBusy} onClick={() => overrideDialog.open({ kind: 'revive' })}>
+                    Revive…
+                  </button>
+                  <button
+                    type="button"
+                    className={cx(styles.endCombatBtn, strip.wrap)}
+                    disabled={combatBusy}
+                    aria-busy={combatBusy}
+                    onClick={() => {
+                      endedFromHold.current = true;
+                      onEndCombat('tpk');
+                    }}
+                  >
+                    End combat
+                  </button>
+                </>
+              )
+            ) : (
+            // B3-1: "End combat" opens the outcome chooser. Tora MAJOR-2: ref so focus returns here when the chooser is dismissed.
             <button
               ref={endCombatBtnRef}
               type="button"
@@ -188,6 +230,7 @@ export default function SceneStage({
             >
               End combat
             </button>
+            )}
           </div>
           {/* F3/COMBAT-NO-AUTO-RESOLVE: advisory-only prompt (never auto-resolves — the DM still picks victory/defeat/retreat/etc.).
               Opens the SAME outcome chooser as the "End combat" button above. */}
@@ -214,7 +257,7 @@ export default function SceneStage({
             </div>
           )}
           {/* B3-1: the outcome chooser: an anchored popover on every row (A9d-2 N4), a named group, never aria-modal. */}
-          <AnchoredPopover pop={pop} role="group" label="Choose combat outcome" className={styles.outcomeChooser}>
+          {!held && <AnchoredPopover pop={pop} role="group" label="Choose combat outcome" className={styles.outcomeChooser}>
             <div className={styles.outcomeChooserLabel}>How does this fight end?</div>
             {(
               [
@@ -252,7 +295,7 @@ export default function SceneStage({
             >
               Cancel
             </button>
-          </AnchoredPopover>
+          </AnchoredPopover>}
         </>
       ) : activeEncounterId ? (
         // Between fights but encounter_id still set — shouldn't happen post-fix.

@@ -95,6 +95,7 @@ function parseNewHp(text: string, edited: boolean): NewHpParse {
 /** The dialog's kinds: the wire's OverrideKind plus 'revive', which is sent as a 'damage' override. */
 type DialogKind = OverrideKind | 'revive';
 const KIND_ORDER: DialogKind[] = ['attack', 'check', 'save', 'damage', 'revive'];
+const REVIVE_ONLY: DialogKind[] = ['revive'];
 
 /** Revive: HP the character comes back with. Whole number 1..max (a revive to 0 is not a revive). */
 function parseReviveHp(text: string, max: number): { ok: true; value: number } | { ok: false; message: string } {
@@ -147,6 +148,9 @@ export interface DmOverrideModalProps {
   initialKind?: DialogKind;
   /** Preselect this participant (revive: the fallen character). */
   initialTargetId?: string | null;
+  /** The fight is held (every character fallen, waiting on the DM): the engine takes only a revive, so only Revive is offered and the dialog opens on it,
+   *  whatever the opener asked for. A fight that BECOMES held under an open dialog switches it to Revive. The page derives this; the dialog does not read the wire. */
+  held?: boolean;
   /** HP each PC was last seen alive with (this tab) — Revive's default. */
   lastAliveHp?: Readonly<Record<string, number>>;
   /** Re-poll the combat state (Revive's empty case). */
@@ -166,10 +170,14 @@ export default function DmOverrideModal({
   onClose,
   initialKind,
   initialTargetId,
+  held = false,
   lastAliveHp,
   onRefresh,
   fallbackFocus,
 }: DmOverrideModalProps) {
+  // Held: Revive is the whole list, and the only place the dialog may open.
+  const kinds = held ? REVIVE_ONLY : KIND_ORDER;
+  const openKind = held ? 'revive' : initialKind;
   const uid = useId();
   const titleId = `${uid}-title`;
 
@@ -264,6 +272,13 @@ export default function DmOverrideModal({
   const targetOptions = participants.filter(
     (p) => p.is_alive && p.participant_id !== actorId,
   );
+  // A fight that turned held under an open dialog: the only kind the engine will take is Revive (render-time adjustment, like the target reset below).
+  if (held && kind !== 'revive') {
+    setKind('revive');
+    setTargetId('');
+    setNewHpEdit(null);
+    setReviveHpEdit(null);
+  }
   const isRevive = kind === 'revive';
   // Revive lists the fallen player characters only (the engine's revive
   // predicate: a dead PC). A chosen character a poll has since shown alive stays
@@ -362,7 +377,7 @@ export default function DmOverrideModal({
     setSubmitting(false);
     setReviveHpEdit(null);
     // Reset outcome fields to sensible defaults
-    setKind(initialKind ?? 'attack');
+    setKind(openKind ?? 'attack');
     setHit(true);
     setCriticalHit(false);
     setDamageAmount(0);
@@ -374,14 +389,14 @@ export default function DmOverrideModal({
     setNewHpEdit(null);
     setConfirmZero(false);
 
-    pendingReviveFocus.current = initialKind === 'revive';
+    pendingReviveFocus.current = openKind === 'revive';
     backdropArmedAt.current = Date.now() + BACKDROP_ARM_MS;
     // A state change guarantees a render after this effect, so the layout
     // effect above gets a chance even when nothing else here changed a value.
     setFocusTick((n) => n + 1);
 
     const t = setTimeout(() => {
-      if (initialKind === 'revive') return; // the layout effect owns that path
+      if (openKind === 'revive') return; // the layout effect owns that path
       (firstFocusRef.current as HTMLElement | null)?.focus();
     }, 0);
     return () => {
@@ -648,7 +663,7 @@ export default function DmOverrideModal({
           <fieldset className={styles.fieldset}>
             <legend className={styles.legend}>Override kind</legend>
             <div className={styles.kindRadios} role="radiogroup" aria-label="Override kind">
-              {KIND_ORDER.map((k) => (
+              {kinds.map((k) => (
                 <label key={k} className={styles.radioLabel}>
                   <input
                     ref={k === 'attack' ? (el) => { firstFocusRef.current = el; } : undefined}

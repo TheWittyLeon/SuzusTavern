@@ -4,7 +4,7 @@ import DmOverrideModal from '@/components/DmOverrideModal';
 import type { LogRow } from '@/components/ChatLog';
 import { useLastAliveHp } from '@/lib/useLastAliveHp';
 import type { CombatState } from '@/lib/api/types';
-import { isFightLive } from './format';
+import { isFightHeld, isFightLive } from './format';
 
 /**
  * The DM override dialog's ONE mount (TPK-HOLD W3; Aoi's Revive spec 1: "lifted to the page, and the panel's button and the strip's button
@@ -87,6 +87,7 @@ export function OverrideDialogHost({
           onClose={() => setRequest(null)}
           initialKind={request?.kind}
           initialTargetId={request?.targetId}
+          held={isFightHeld(combatState)}
           lastAliveHp={lastAliveHp}
           onRefresh={onStateRefresh}
           fallbackFocus={() => request?.fallback?.() ?? fallbackFocus()}

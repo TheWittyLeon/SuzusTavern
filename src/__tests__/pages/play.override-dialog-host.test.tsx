@@ -85,6 +85,31 @@ describe('one mount, many openers', () => {
   });
 });
 
+describe('a held fight: the dialog offers Revive only', () => {
+  it('the generic opener (DM Override) opens on Revive with one kind', () => {
+    render(host({ combatState: fight([GOBLIN, DEAD], 'held') }));
+    fireEvent.click(screen.getByRole('button', { name: 'open A' }));
+    expect(screen.getAllByRole('radio')).toHaveLength(1);
+    expect(screen.getByRole('radio', { name: /Revive/i })).toBeChecked();
+    expect(screen.queryByLabelText('Actor')).toBeNull();
+  });
+
+  it('not held: all five kinds, opening on Attack (the control)', () => {
+    render(host());
+    fireEvent.click(screen.getByRole('button', { name: 'open A' }));
+    expect(screen.getAllByRole('radio')).toHaveLength(5);
+  });
+
+  it('a fight that turns held under an open Attack dialog switches it to Revive', () => {
+    const { rerender } = render(host());
+    fireEvent.click(screen.getByRole('button', { name: 'open A' }));
+    expect(screen.getByRole('radio', { name: /Attack/i })).toBeChecked();
+    rerender(host({ combatState: fight([GOBLIN, DEAD], 'held') }));
+    expect(screen.getAllByRole('radio')).toHaveLength(1);
+    expect(screen.getByRole('radio', { name: /Revive/i })).toBeChecked();
+  });
+});
+
 describe('a successful override', () => {
   it('writes the amber ruling row, hands the new state up, and closes', async () => {
     const after = fight([GOBLIN, mk('pc-1', 'Kestrel', 14, 34)]);

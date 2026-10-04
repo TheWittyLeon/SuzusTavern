@@ -30,6 +30,7 @@ jest.mock('../../lib/stream', () => ({ streamDmNarration: jest.fn() }));
 
 import * as dnd from '@/lib/api/dnd';
 import PlayPage from '@/app/play/[sessionId]/page';
+import { HELD_LINE_WAITING } from '@/app/play/[sessionId]/format';
 import PartyStrip from '@/app/play/[sessionId]/regions/PartyStrip';
 import CastSpellPanel from '@/components/CastSpellPanel';
 
@@ -73,7 +74,7 @@ async function renderWith(state: CombatState['state'] | null) {
 describe('a held fight is live and frozen', () => {
   it('says so in the stage status node and offers no turn controls', async () => {
     await renderWith('held');
-    const status = await screen.findByText('Every character has fallen.');
+    const status = await screen.findByText(HELD_LINE_WAITING);
     expect(status.closest('[role="status"]')).not.toBeNull();
     expect(screen.queryByText(/In combat · use the action bar/)).toBeNull();
 
@@ -90,7 +91,7 @@ describe('a held fight is live and frozen', () => {
 
   it('withholds Move on and the scene checks', async () => {
     await renderWith('held');
-    await screen.findByText('Every character has fallen.');
+    await screen.findByText(HELD_LINE_WAITING);
     expect(screen.queryByText('Press forward')).toBeNull();
     expect(screen.queryByText(/perception/i)).toBeNull();
   });
