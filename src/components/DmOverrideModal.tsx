@@ -10,6 +10,10 @@
  *   check   — success, degree, total
  *   save    — success, degree, total
  *   damage  — damage_dealt, target_new_hp
+ *   revive  — restore a fallen PC: sent as the damage override with
+ *             target_new_hp > 0 on a dead PC (the engine's restore path); the
+ *             wire kind stays 'damage'. Openable from elsewhere via
+ *             initialKind / initialTargetId.
  *
  * On success: calls onSuccess with the resolved applied.message + new state.
  * On {success:false}: surfaces engine message inline; keeps modal open.
@@ -41,6 +45,7 @@ import type {
   OverrideAttackOutcome,
   OverrideCheckOutcome,
   OverrideDamageOutcome,
+  SubmitOverrideRequest,
 } from '@/lib/api/types';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { consumeEscape } from '@/lib/a11y/escapeConsume';
@@ -81,6 +86,20 @@ function parseNewHp(text: string, edited: boolean): NewHpParse {
   return v > OVERRIDE_HP_MAX ? { ok: false, why: 'tooBig' } : { ok: true, value: v };
 }
 
+/** The dialog's kinds: the wire's OverrideKind plus 'revive', which is sent as a 'damage' override. */
+type DialogKind = OverrideKind | 'revive';
+const KIND_ORDER: DialogKind[] = ['attack', 'check', 'save', 'damage', 'revive'];
+
+/** Revive: HP the character comes back with. Whole number 1..max (a revive to 0 is not a revive). */
+function parseReviveHp(text: string, max: number): { ok: true; value: number } | { ok: false; message: string } {
+  const t = text.trim();
+  if (t === '') return { ok: false, message: `Restore to HP is empty. Enter 1 to ${max}.` };
+  if (!/^\d+$/.test(t)) return { ok: false, message: `Restore to HP must be a whole number from 1 to ${max}.` };
+  const v = parseInt(t, 10);
+  if (v < 1 || v > max) return { ok: false, message: `Restore to HP must be between 1 and ${max}.` };
+  return { ok: true, value: v };
+}
+
 const DEGREE_OPTIONS: Array<{ value: OverrideCheckOutcome['degree']; label: string }> = [
   { value: 'crit_failure', label: 'Critical Failure' },
   { value: 'failure', label: 'Failure' },
@@ -118,6 +137,14 @@ export interface DmOverrideModalProps {
   defaultActorId?: string | null;
   onSuccess: (message: string, state: import('@/lib/api/types').CombatState | undefined) => void;
   onClose: () => void;
+  /** Open on this kind instead of Attack (e.g. 'revive' from the Revive… opener). */
+  initialKind?: DialogKind;
+  /** Preselect this participant (revive: the fallen character). */
+  initialTargetId?: string | null;
+  /** HP each PC was last seen alive with (this tab) — Revive's default. */
+  lastAliveHp?: Readonly<Record<string, number>>;
+  /** Re-poll the combat state (Revive's empty case). */
+  onRefresh?: () => void;
 }
 
 export default function DmOverrideModal({
@@ -127,12 +154,16 @@ export default function DmOverrideModal({
   defaultActorId,
   onSuccess,
   onClose,
+  initialKind,
+  initialTargetId,
+  lastAliveHp,
+  onRefresh,
 }: DmOverrideModalProps) {
   const uid = useId();
   const titleId = `${uid}-title`;
 
   // Form state
-  const [kind, setKind] = useState<OverrideKind>('attack');
+  const [kind, setKind] = useState<DialogKind>('attack');
   const [actorId, setActorId] = useState<string>('');
   const [targetId, setTargetId] = useState<string>('');
   const [reason, setReason] = useState('');
@@ -155,6 +186,8 @@ export default function DmOverrideModal({
   // derivedNewHp below). Never defaults to 0: the engine reads target_new_hp as
   // "is this target down", so a silent 0 downs a PC / deactivates a monster.
   const [newHpEdit, setNewHpEdit] = useState<string | null>(null);
+  // Revive: the HP the DM typed (null = untouched, follows the default).
+  const [reviveHpEdit, setReviveHpEdit] = useState<string | null>(null);
   // Second step for New HP = 0 — rendered as a ConfirmDialog over this form.
   const [confirmZero, setConfirmZero] = useState(false);
 
@@ -164,7 +197,7 @@ export default function DmOverrideModal({
   // Which field the current error belongs to (drives aria-invalid /
   // aria-describedby). 'form' = a notice about no particular field (a poll
   // changed something); engine refusals and 'Reason is required' stay on Reason.
-  const [errorField, setErrorField] = useState<'reason' | 'target' | 'newHp' | 'form'>('reason');
+  const [errorField, setErrorField] = useState<'reason' | 'target' | 'newHp' | 'reviveHp' | 'form'>('reason');
   // Bumped on every refusal so an identical repeated message remounts the
   // role="alert" node and is announced again.
   const [errorAttempt, setErrorAttempt] = useState(0);
@@ -175,12 +208,14 @@ export default function DmOverrideModal({
   const firstFocusRef = useRef<HTMLInputElement | HTMLSelectElement | null>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
   const newHpRef = useRef<HTMLInputElement>(null);
+  const reviveHpRef = useRef<HTMLInputElement>(null);
+  const fallenCountRef = useRef(0);
   const targetRef = useRef<HTMLSelectElement>(null);
   const sendInFlight = useRef(false);
   const errorRef = useRef<HTMLDivElement>(null);
   const focusErrorNext = useRef(false);
 
-  const refuse = (message: string, field: 'reason' | 'target' | 'newHp' | 'form') => {
+  const refuse = (message: string, field: 'reason' | 'target' | 'newHp' | 'reviveHp' | 'form') => {
     setSubmitError(message);
     setErrorField(field);
     setErrorAttempt((n) => n + 1);
@@ -211,7 +246,25 @@ export default function DmOverrideModal({
   const targetOptions = participants.filter(
     (p) => p.is_alive && p.participant_id !== actorId,
   );
-  const target = targetOptions.find((p) => p.participant_id === targetId);
+  const isRevive = kind === 'revive';
+  // Revive lists the fallen player characters only (the engine's revive
+  // predicate: a dead PC). A chosen character a poll has since shown alive stays
+  // selectable so Apply can refuse it by name instead of silently dropping it.
+  const fallen = participants.filter((p) => p.is_pc && !p.is_alive);
+  const target = isRevive
+    ? participants.find((p) => p.is_pc && p.participant_id === targetId)
+    : targetOptions.find((p) => p.participant_id === targetId);
+  const reviveOptions =
+    target && target.is_alive ? [...fallen, target] : fallen;
+  const reviveMax = target ? Math.max(1, Math.floor(target.hp_max) || 1) : 1;
+  const lastAlive = target ? lastAliveHp?.[target.participant_id] : undefined;
+  const reviveDefault =
+    typeof lastAlive === 'number' && Number.isFinite(lastAlive) && lastAlive >= 1
+      ? Math.min(Math.floor(lastAlive), reviveMax)
+      : 1;
+  const reviveHpText = reviveHpEdit ?? (target ? String(reviveDefault) : '');
+  const reviveParsed = parseReviveHp(reviveHpText, reviveMax);
+  fallenCountRef.current = fallen.length;
   const targetHp =
     typeof target?.hp_current === 'number' && Number.isFinite(target.hp_current)
       ? target.hp_current
@@ -237,10 +290,14 @@ export default function DmOverrideModal({
       );
     }
   }
+  // Revive with exactly one fallen character preselects them.
+  if (isRevive && !targetId && fallen.length === 1) {
+    setTargetId(fallen[0].participant_id);
+  }
   // A target that left the select (became the Actor, or died in a poll) is
   // cleared, and a hand-typed New HP for it is released.
   if (targetId !== (target?.participant_id ?? '')) {
-    if (open && (kind === 'attack' || kind === 'damage')) {
+    if (open && (kind === 'attack' || kind === 'damage' || kind === 'revive')) {
       const gone = participants.find((p) => p.participant_id === targetId);
       notice(`${gone?.name ?? 'The target'} is no longer a valid target. Pick another.`);
     }
@@ -259,12 +316,13 @@ export default function DmOverrideModal({
     // focus/timeout side effects apart from the state reset.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setActorId(initial);
-    setTargetId('');
+    setTargetId(initialTargetId ?? '');
     setReason('');
     setSubmitError(null);
     setSubmitting(false);
+    setReviveHpEdit(null);
     // Reset outcome fields to sensible defaults
-    setKind('attack');
+    setKind(initialKind ?? 'attack');
     setHit(true);
     setCriticalHit(false);
     setDamageAmount(0);
@@ -277,6 +335,16 @@ export default function DmOverrideModal({
     setConfirmZero(false);
 
     const t = setTimeout(() => {
+      if (initialKind === 'revive') {
+        // Who and how much come first: the Character select when there is a
+        // choice, else the HP field (selected so typing replaces it).
+        if (fallenCountRef.current > 1 && !initialTargetId) targetRef.current?.focus();
+        else {
+          reviveHpRef.current?.focus();
+          reviveHpRef.current?.select();
+        }
+        return;
+      }
       (firstFocusRef.current as HTMLElement | null)?.focus();
     }, 0);
     return () => {
@@ -346,6 +414,28 @@ export default function DmOverrideModal({
       refuse('Reason is required.', 'reason');
       return;
     }
+    if (isRevive) {
+      if (!target) {
+        refuse('Pick the character to revive.', 'target');
+        targetRef.current?.focus();
+        return;
+      }
+      // Stale guard: a poll since the dialog opened shows them alive. The
+      // engine would NOT refuse this (it is an ordinary damage override that
+      // sets HP, possibly lowering it), so the client must.
+      if (target.is_alive) {
+        refuse(`${target.name} is already back on their feet. Nothing was sent.`, 'target');
+        targetRef.current?.focus();
+        return;
+      }
+      if (!reviveParsed.ok) {
+        refuse(reviveParsed.message, 'reviveHp');
+        reviveHpRef.current?.focus();
+        return;
+      }
+      void send(false);
+      return;
+    }
     if ((kind === 'attack' || kind === 'damage') && !target) {
       refuse('Target is required for attack and damage overrides.', 'target');
       targetRef.current?.focus();
@@ -354,6 +444,13 @@ export default function DmOverrideModal({
     if (kind === 'damage') {
       if (!newHpParsed.ok) {
         refuse(NEW_HP_REFUSAL[newHpParsed.why], 'newHp');
+        newHpRef.current?.focus();
+        return;
+      }
+      if (newHpParsed.value === 0 && targetHp === 0 && damageDealt === 0) {
+        // Already at 0 HP and no damage to apply: nothing would change, and
+        // saying nothing looked like a dead button.
+        refuse(`${target?.name ?? 'The target'} is already at 0 HP. Nothing to apply.`, 'newHp');
         newHpRef.current?.focus();
         return;
       }
@@ -374,6 +471,19 @@ export default function DmOverrideModal({
       setConfirmZero(false);
       return;
     }
+    // Revive goes out as the damage override on a dead PC with HP > 0; the
+    // character is both actor and target (no in-fiction attacker).
+    let reviveRequest: SubmitOverrideRequest | null = null;
+    if (isRevive) {
+      if (!target || !reviveParsed.ok || target.is_alive) return;
+      reviveRequest = {
+        kind: 'damage',
+        actor_id: target.participant_id,
+        target_id: target.participant_id,
+        outcome: { damage_dealt: 0, target_new_hp: reviveParsed.value, raw_damage: 0 } satisfies OverrideDamageOutcome,
+        reason: reason.trim(),
+      };
+    }
     // In-flight latch: two confirm clicks in one batch share a closure where
     // `submitting` is still false.
     if (sendInFlight.current) return;
@@ -383,8 +493,8 @@ export default function DmOverrideModal({
     setSubmitError(null);
 
     try {
-      const result = await submitOverride(combatId, {
-        kind,
+      const result = await submitOverride(combatId, reviveRequest ?? {
+        kind: kind as OverrideKind,
         actor_id: actorId,
         target_id: (kind === 'attack' || kind === 'damage') ? target?.participant_id ?? null : null,
         outcome:
@@ -410,7 +520,11 @@ export default function DmOverrideModal({
         (body as { data?: { reason?: string } } | null)?.data?.reason ?? null;
 
       focusErrorNext.current = true;
-      if (engineReason === 'override_malformed') {
+      if (isRevive && engineReason === 'combat_not_active') {
+        refuse('The fight has ended, so no one can be revived in it.', 'reason');
+      } else if (isRevive && engineReason === 'target_down') {
+        refuse(`${target?.name ?? 'That character'} can't be revived.${engineMessage ? ` ${engineMessage}` : ''}`, 'reason');
+      } else if (engineReason === 'override_malformed') {
         refuse(`Override refused: ${engineMessage ?? 'shape invalid'}`, 'reason');
       } else {
         refuse(
@@ -475,7 +589,7 @@ export default function DmOverrideModal({
           <fieldset className={styles.fieldset}>
             <legend className={styles.legend}>Override kind</legend>
             <div className={styles.kindRadios} role="radiogroup" aria-label="Override kind">
-              {(['attack', 'check', 'save', 'damage'] as OverrideKind[]).map((k) => (
+              {KIND_ORDER.map((k) => (
                 <label key={k} className={styles.radioLabel}>
                   <input
                     ref={k === 'attack' ? (el) => { firstFocusRef.current = el; } : undefined}
@@ -484,6 +598,13 @@ export default function DmOverrideModal({
                     value={k}
                     checked={kind === k}
                     onChange={() => {
+                      // Revive picks from a different list (the fallen), so a
+                      // target chosen on either side of the switch is dropped.
+                      if (k === 'revive' || kind === 'revive') {
+                        setTargetId('');
+                        setNewHpEdit(null);
+                        setReviveHpEdit(null);
+                      }
                       setKind(k);
                       setSubmitError(null);
                     }}
@@ -495,7 +616,8 @@ export default function DmOverrideModal({
             </div>
           </fieldset>
 
-          {/* Actor */}
+          {/* Actor — not for Revive: the revived character is both actor and target */}
+          {!isRevive && (
           <div className={styles.field}>
             <label className={styles.label} htmlFor={`${uid}-actor`}>
               Actor
@@ -514,6 +636,48 @@ export default function DmOverrideModal({
               ))}
             </select>
           </div>
+          )}
+
+          {/* Character — Revive: fallen player characters only */}
+          {isRevive && fallen.length === 0 && !target && (
+            <div className={styles.field}>
+              <span className={styles.label}>No character has fallen.</span>
+              {onRefresh && (
+                <button type="button" className={styles.quickBtn} onClick={onRefresh}>
+                  Refresh
+                </button>
+              )}
+            </div>
+          )}
+          {isRevive && (fallen.length > 0 || target) && (
+            <div className={styles.field}>
+              <label className={styles.label} htmlFor={`${uid}-target`}>
+                Character <span className={styles.required} aria-hidden>*</span>
+              </label>
+              <select
+                id={`${uid}-target`}
+                className={styles.select}
+                ref={targetRef}
+                value={target?.participant_id ?? ''}
+                disabled={submitting}
+                aria-invalid={(submitError && errorField === 'target') || undefined}
+                aria-describedby={submitError && errorField === 'target' ? errorId : undefined}
+                onChange={(e) => {
+                  setTargetId(e.target.value);
+                  setReviveHpEdit(null);
+                  if (errorField === 'target' || errorField === 'form') setSubmitError(null);
+                }}
+                required
+              >
+                <option value="">— pick character —</option>
+                {reviveOptions.map((p) => (
+                  <option key={p.participant_id} value={p.participant_id}>
+                    {p.name} (max {p.hp_max})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Target — only for attack + damage */}
           {needsTarget && (
@@ -659,6 +823,57 @@ export default function DmOverrideModal({
               </div>
             )}
 
+            {isRevive && (fallen.length > 0 || target) && (
+              <div className={styles.outcomeGrid}>
+                <div className={styles.field}>
+                  <label className={styles.label} htmlFor={`${uid}-revive-hp`}>
+                    Restore to HP <span className={styles.required} aria-hidden>*</span>
+                  </label>
+                  <div className={styles.quickRow}>
+                    <input
+                      id={`${uid}-revive-hp`}
+                      ref={reviveHpRef}
+                      type="number"
+                      className={styles.numInput}
+                      min={1}
+                      max={reviveMax}
+                      value={reviveHpText}
+                      disabled={submitting}
+                      aria-invalid={(submitError && errorField === 'reviveHp') || undefined}
+                      aria-describedby={
+                        submitError && errorField === 'reviveHp'
+                          ? `${hintId} ${errorId}`
+                          : hintId
+                      }
+                      onChange={(e) => {
+                        setReviveHpEdit(e.target.value);
+                        if (errorField === 'reviveHp') setSubmitError(null);
+                      }}
+                    />
+                    {target && (
+                      <>
+                        <button type="button" className={styles.quickBtn} disabled={submitting} onClick={() => setReviveHpEdit('1')}>
+                          1 HP
+                        </button>
+                        <button type="button" className={styles.quickBtn} disabled={submitting} onClick={() => setReviveHpEdit(String(Math.ceil(reviveMax / 2)))}>
+                          Half ({Math.ceil(reviveMax / 2)})
+                        </button>
+                        <button type="button" className={styles.quickBtn} disabled={submitting} onClick={() => setReviveHpEdit(String(reviveMax))}>
+                          Full ({reviveMax})
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  <span id={hintId} className={styles.hint}>
+                    {typeof lastAlive === 'number' && lastAlive >= 1 && target
+                      ? `Was ${Math.min(Math.floor(lastAlive), reviveMax)} before they fell.`
+                      : `1 to ${reviveMax}.`}{' '}
+                    They return conscious and their death saves are cleared. Dodge and concentration are not restored.
+                  </span>
+                </div>
+              </div>
+            )}
+
             {kind === 'damage' && (
               <div className={styles.outcomeGrid}>
                 <div className={styles.field}>
@@ -717,7 +932,7 @@ export default function DmOverrideModal({
               className={styles.textarea}
               rows={2}
               maxLength={500}
-              placeholder="Why are you overriding this outcome?"
+              placeholder={isRevive ? 'Why are you reviving them?' : 'Why are you overriding this outcome?'}
               value={reason}
               disabled={submitting}
               required
@@ -756,15 +971,23 @@ export default function DmOverrideModal({
             >
               Cancel
             </button>
+            {!(isRevive && fallen.length === 0 && !target) && (
             <button
               type="submit"
               className={styles.submitBtn}
               disabled={submitting || !reason.trim()}
               aria-busy={submitting || undefined}
-              aria-label={submitting ? 'Submitting override…' : undefined}
+              aria-label={submitting ? (isRevive ? 'Reviving…' : 'Submitting override…') : undefined}
             >
-              {submitting ? 'Applying…' : 'Apply override'}
+              {submitting
+                ? (isRevive ? 'Reviving…' : 'Applying…')
+                : isRevive && target && reviveParsed.ok
+                  ? `Revive ${target.name} at ${reviveParsed.value} HP`
+                  : isRevive
+                    ? 'Revive'
+                    : 'Apply override'}
             </button>
+            )}
           </div>
         </form>
       </div>

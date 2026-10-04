@@ -99,7 +99,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  min-height: 36px;
+  min-height: 44px;
   padding: 4px 10px;
   /* A11Y-BUTTON-BORDER-CONTRAST: clickable radio-styled chip — --line-strong
      clears WCAG 1.4.11's 3:1 non-text contrast. */
@@ -276,6 +276,35 @@
   border-radius: var(--radius-xs);
   background: color-mix(in oklab, var(--bad) 8%, transparent);
   border: 1px solid color-mix(in oklab, var(--bad) 22%, transparent);
+}
+
+/* Revive: the HP field with its three quick-set buttons (wrap under it on a phone). */
+.quickRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.quickBtn {
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.quickBtn:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: color-mix(in oklab, var(--ink) 25%, transparent);
+}
+
+.quickBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .error:focus-visible {
