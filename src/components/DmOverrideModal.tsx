@@ -599,6 +599,12 @@ export default function DmOverrideModal({
     <div
       ref={backdropRef}
       className={styles.backdrop}
+      // A press on the scrim must not move focus: the dialog is not portalled, so the
+      // press would focus the panel behind it (tabIndex=-1) and Escape and Tab would
+      // then act on the page. Whether it then closes is the click handler's call.
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) e.preventDefault();
+      }}
       onPointerDown={(e) => {
         backdropDown.current = e.target === e.currentTarget;
       }}
