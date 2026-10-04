@@ -80,7 +80,7 @@ import {
   buildReadAloudBlock,
   deathSaveTally,
   groundingCreatureNames,
-  isCombatEncounterUnstarted,
+  isCombatEncounterUnstarted, areTurnsRunning,
   isSessionDm,
   scanXCardTracking,
 } from './format';
@@ -436,7 +436,7 @@ export default function PlayPage() {
   //
   // Amendment A §A.1: the one derived boolean useSceneState reads off
   // combat's state -- `combatEngaged` comes straight from useCombatState's
-  // destructure above (A2); the isCombatEngaged() call itself lives inside
+  // destructure above (A2); the areTurnsRunning() call itself lives inside
   // that hook, not here.
   //
   // `sceneState` (the hook's own return object) is kept alongside the
@@ -838,7 +838,7 @@ export default function PlayPage() {
   // consumer of both, not owned by either one.
   useEffect(() => {
     if (
-      combatState?.state === 'active' &&
+      combatEngaged &&
       myCharacterIdStr === null &&
       !noCharToastFiredRef.current
     ) {
@@ -852,7 +852,7 @@ export default function PlayPage() {
     // call returns -- referentially stable across renders like any ref,
     // listed explicitly because the linter can't prove that through an
     // intermediate hook (same as the XP-guard effect above).
-  }, [combatState?.state, myCharacterIdStr, toast, noCharToastFiredRef]);
+  }, [combatEngaged, myCharacterIdStr, toast, noCharToastFiredRef]);
 
   // checkShouldOpen/openScene moved into useSceneState (TAV-PLAY-SHELL step
   // 5 hook 6) -- see the useSceneState() call above, right after appendLog.
@@ -1030,7 +1030,7 @@ export default function PlayPage() {
   // folding the tally into this label too would double-announce the same
   // event through two separate aria-live regions.
   const turnStatusText: string | null =
-    !combatId || combatState?.state !== 'active' || !activeParticipant
+    !combatId || !combatEngaged || !activeParticipant
       ? null
       : activeIsMine
         ? isDying
@@ -1045,7 +1045,7 @@ export default function PlayPage() {
   // Determine valid "Move on" transitions from grounding (ADV-7T).
   // Show the button only when: no active combat AND at least one transition is available
   // that doesn't require an unresolved encounter.
-  const activeEncounterId = combatState?.state === 'active'
+  const activeEncounterId = combatState && areTurnsRunning(combatState)
     ? combatState.encounter_id
     : null;
 

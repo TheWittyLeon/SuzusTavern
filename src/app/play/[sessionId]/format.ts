@@ -158,12 +158,36 @@ export function drivesMonsterTurns(s: Session | null | undefined, username: stri
   return isSessionDm(s, username);
 }
 
-/** A live turn order is running. NOT page.tsx's `combatIsActive`
- *  (`!!combatId && state !== 'ended'`), which is also true before initiative
- *  and between turns. This is the exact predicate the scene's offer memos
- *  have always used — keep them identical. */
-export function isCombatEngaged(combatState: CombatState | null): boolean {
+/*
+ * The four questions a reader may ask of a fight's state. No reader compares
+ * `CombatState.state` against a string: it asks one of these, so a new engine
+ * state is classified here once. A value outside `CombatStateValue` (an engine
+ * newer than this build) counts as LIVE and FROZEN: nothing offered, nothing
+ * hidden that would let a DM walk away from it. That is the fail-closed side.
+ */
+
+/** The fight is over (the only state the poller stops on). */
+export function isFightEnded(combatState: CombatState | null | undefined): boolean {
+  return combatState?.state === 'ended';
+}
+
+/** A fight exists and has not ended: before initiative, running, between
+ *  turns, held. Page.tsx's `combatIsActive` is this plus "has an id". */
+export function isFightLive(combatState: CombatState | null | undefined): boolean {
+  return combatState != null && !isFightEnded(combatState);
+}
+
+/** A live turn order is running: the one state in which a turn verb can be
+ *  accepted. NOT `combatIsActive`, which is also true before initiative, between
+ *  turns and while held. */
+export function areTurnsRunning(combatState: CombatState | null | undefined): boolean {
   return combatState?.state === 'active';
+}
+
+/** Every character has fallen after a DM override; the fight waits for the DM
+ *  to revive one or end it. Live, and frozen. */
+export function isFightHeld(combatState: CombatState | null | undefined): boolean {
+  return combatState?.state === 'held';
 }
 
 /**

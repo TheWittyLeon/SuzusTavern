@@ -345,7 +345,7 @@ describe('TAV-COMBAT-VERB-NO-MECHANICS — ordering vs the movement fast-path', 
     // Kage-CR A2 IMPORTANT-1 (verbatim ask): "one `between_turns` + `combatId`
     // fixture ... asserting the keyword fast-path still advances (transitions
     // NOT filtered)." `combatEngaged` (useCombatState.ts) must be the exact
-    // `isCombatEngaged` predicate (`state === 'active'`), NOT `combatIsActive`
+    // `areTurnsRunning` predicate (`state === 'active'`), NOT `combatIsActive`
     // (`!!combatId && state !== 'ended'`) -- the two disagree on
     // `between_turns`/`rolling_initiative`/`idle`. Same scene and same
     // movement phrase as the negative control just above, but with combat

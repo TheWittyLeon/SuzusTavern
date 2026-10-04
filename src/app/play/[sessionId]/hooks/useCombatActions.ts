@@ -76,7 +76,7 @@ import { COMBAT_REFUSAL_REASON_MAP, monsterTurnFailureClass } from '@/lib/dnd/en
 import type { CombatAction } from '../regions/ActionBar';
 import type { LogRow } from '@/components/ChatLog';
 import type { CombatState, EndCombatOutcome, Session } from '@/lib/api/types';
-import { drivesMonsterTurns, isSessionDm, isSessionLocked } from '../format';
+import { areTurnsRunning, drivesMonsterTurns, isFightEnded, isSessionDm, isSessionLocked } from '../format';
 import type { UseCombatStateResult } from './useCombatState';
 import type { NarrateFn, NarrateDurableBeatFn } from './useNarration';
 import type { UseSceneActionsResult } from './useSceneActions';
@@ -444,7 +444,7 @@ export function useCombatActions(
         }
 
         // If combat ended, refresh grounding for the "Move on" affordance.
-        if (newState?.state === 'ended') {
+        if (isFightEnded(newState)) {
           void refreshGrounding();
         }
       } catch (err) {
@@ -576,7 +576,7 @@ export function useCombatActions(
   // S5.3: skip the auto-driver entirely when dm_mode === 'human' — the DM
   // drives monster turns manually via the DmNarrationPanel (npc-action route).
   useEffect(() => {
-    if (!combatState || combatState.state !== 'active' || !combatId || !username) return;
+    if (!combatState || !areTurnsRunning(combatState) || !combatId || !username) return;
     // Only ONE tab drives monsters (A9d-2 Kage F3 re-verify S7, N2 I-2): `/monster-turn` is `guard_dm` on the engine, so every other
     // tab of an AI-auto table POSTed it on each poll and got a 404 back. The DM's tab and nothing else (`drivesMonsterTurns`, format.ts).
     if (!drivesMonsterTurns(session, username)) return;
@@ -682,7 +682,7 @@ export function useCombatActions(
             if (led.attempts >= MONSTER_TURN_ATTEMPTS_PER_TURN) sayMonsterTurnExhausted(led);
             break;
           }
-          if (st.state !== 'active') break;
+          if (!areTurnsRunning(st)) break;
           const next = st.participants.find((p) => p.participant_id === st.active_participant_id);
           if (!next || next.is_pc || !next.is_alive) break; // reached the player / nobody to drive
           // The turn moved on to another monster: it gets its own ledger.
@@ -728,7 +728,7 @@ export function useCombatActions(
   // Only this effect reads or writes it.
   const prevActiveParticipantIdRef = useRef<string | null>(null);
   useEffect(() => {
-    const active = combatId && combatState?.state !== 'ended' ? combatState : null;
+    const active = combatId && !isFightEnded(combatState) ? combatState : null;
     const current = active?.active_participant_id ?? null;
     const prev = prevActiveParticipantIdRef.current;
     prevActiveParticipantIdRef.current = current;

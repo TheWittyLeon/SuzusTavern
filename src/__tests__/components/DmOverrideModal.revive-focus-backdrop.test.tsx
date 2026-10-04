@@ -176,7 +176,7 @@ describe('backdrop', () => {
 });
 
 describe('panel openers', () => {
-  const st = (ps: CombatParticipantState[], state = 'active'): CombatState => ({ combat_id: 'c1', session_id: 's1', round: 1, state, turn_index: 0, active_participant_id: 'goblin-1', initiative: ps.map((x) => x.participant_id), participants: ps });
+  const st = (ps: CombatParticipantState[], state: CombatState['state'] = 'active'): CombatState => ({ combat_id: 'c1', session_id: 's1', round: 1, state, turn_index: 0, active_participant_id: 'goblin-1', initiative: ps.map((x) => x.participant_id), participants: ps });
   const panel = (cs: CombatState) => (
     <DmNarrationPanel combatId="c1" combatState={cs} sessionId="s1" dmUsername="dm" onMessage={jest.fn()} onOverrideMessage={jest.fn()} onStateUpdate={jest.fn()} onStateRefresh={jest.fn()} />
   );

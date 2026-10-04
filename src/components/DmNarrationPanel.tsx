@@ -26,7 +26,7 @@ import { npcAction, postSessionEvent, setSessionPolicy } from '@/lib/api/dnd';
 import type { CombatParticipantState, CombatState } from '@/lib/api/types';
 import DmOverrideModal from '@/components/DmOverrideModal';
 import { useLastAliveHp } from '@/lib/useLastAliveHp';
-import { isCombatEngaged } from '@/app/play/[sessionId]/format';
+import { areTurnsRunning } from '@/app/play/[sessionId]/format';
 import Icon from '@/components/Icon';
 import { consumeEscape } from '@/lib/a11y/escapeConsume';
 import styles from './DmNarrationPanel.module.css';
@@ -456,9 +456,9 @@ export default function DmNarrationPanel({
   // Focus lands here after a revive if the Revive… opener has unmounted.
   const overrideBtnRef = useRef<HTMLButtonElement>(null);
   // Revive… is offered only while a player character has fallen in a live fight.
-  // debt: a held fight (everyone down, waiting on the DM) is not covered; the engine accepts a revive there too, so the opener should show. ceiling: Revive… is hidden in a held fight. until: ENGINE-TPK-UNDO (the HOLD build widens isCombatEngaged / this check).
+  // debt: a held fight (everyone down, waiting on the DM) is not covered; the engine accepts a revive there too, so the opener should show. ceiling: Revive… is hidden in a held fight. until: ENGINE-TPK-UNDO (W3 widens this check to isFightHeld).
   const canRevive =
-    isCombatEngaged(combatState) &&
+    areTurnsRunning(combatState) &&
     combatState.participants.some((p) => p.is_pc && !p.is_alive);
 
   // S5.4: visibility toggle (optimistic local state, persisted via setSessionPolicy)

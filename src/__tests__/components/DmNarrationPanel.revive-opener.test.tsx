@@ -27,7 +27,7 @@ const GOBLIN = mk('goblin-1', 'Goblin', 7, 7);
 const KESTREL_ALIVE = mk('pc-1', 'Kestrel', 12, 34);
 const KESTREL_DEAD = mk('pc-1', 'Kestrel', 0, 34, { is_alive: false });
 
-const state = (participants: CombatParticipantState[], st = 'active'): CombatState => ({
+const state = (participants: CombatParticipantState[], st: CombatState['state'] = 'active'): CombatState => ({
   combat_id: 'c1', session_id: 's1', round: 1, state: st, turn_index: 0,
   active_participant_id: 'goblin-1', initiative: participants.map((p) => p.participant_id), participants,
 });

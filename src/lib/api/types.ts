@@ -1276,13 +1276,30 @@ export type TerrainNotes =
   | string
   | { lighting?: string; cover?: string; hazards?: string[] };
 
+/**
+ * The engine's `CombatState` enum as it reaches the wire (`state`). Closed on
+ * purpose: a tenth state is a compile error at every reader that switches on
+ * it, not a silent "not 'active'". Readers never compare these strings; they
+ * go through the predicates in `app/play/[sessionId]/format.ts`
+ * (`isFightLive`, `areTurnsRunning`, `isFightHeld`, `isFightEnded`), which
+ * treat a value outside this list as live and frozen (fail closed).
+ * `held`: a DM override left no character alive; nothing moves until the DM
+ * revives one or ends the fight (ENGINE TPK-HOLD).
+ */
+export type CombatStateValue =
+  | 'idle'
+  | 'rolling_initiative'
+  | 'active'
+  | 'between_turns'
+  | 'held'
+  | 'ended';
+
 /** Full combat state snapshot — source of truth for all UI state during combat. */
 export interface CombatState {
   combat_id: string;
   session_id: string;
   round: number;
-  /** 'idle' | 'rolling_initiative' | 'active' | 'between_turns' | 'ended' */
-  state: string;
+  state: CombatStateValue;
   turn_index: number;
   /** participant_id of the current combatant; null when ended. */
   active_participant_id: string | null;

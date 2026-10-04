@@ -26,7 +26,7 @@
  * value through is the correct read of "no unrequested parameter", the
  * same rule that keeps `density` off a region that doesn't vary by it):
  *   - `combatEngaged` (Amendment A §A.1) — the ONE derived boolean this hook
- *     reads off combat's state (`isCombatEngaged(combatState)`, see
+ *     reads off combat's state (`areTurnsRunning(combatState)`, see
  *     `../format.ts`), not `CombatState` itself. Gates
  *     `availableTransitions`/`availableChecks` during active combat — a
  *     DATA gate, not a presentation one (see A.1's own reasoning, unchanged
@@ -564,7 +564,7 @@ export function useSceneState(
   // keyword-fast-path (page.tsx onSend) depends on this array, and a fresh
   // array literal every render would recreate that callback every render
   // too. `combatEngaged` is a parameter (Amendment A §A.1:
-  // `isCombatEngaged(combatState)`, owned by useCombatState) — transitions/
+  // `areTurnsRunning(combatState)`, owned by useCombatState) — transitions/
   // checks are an exploration-beat affordance, hidden during active combat.
   // This is a DATA gate, not a presentation one — see this hook's own
   // header comment for why.
