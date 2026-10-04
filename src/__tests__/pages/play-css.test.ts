@@ -357,12 +357,14 @@ describe('the stage\'s body (A10 S2b): the fill rule, the size container, the fo
     expect(play).not.toMatch(/data-slot-fill[^{]*sceneStage|sceneStage[^{]*data-slot-fill/);
   });
 
-  it('the fill rule matches THROUGH a body dock (slot > dock > panel > stage) and drops the slot\'s block edge too; a plain dock (no body) is not matched (Kage I-5, brief 2.3)', () => {
-    const r = rule(play, ".slot:has(> [data-foldable='true'][data-has-body] > * > [data-slot-fill])");
+  it('the fill rule matches THROUGH a body dock (slot > dock > panel > stage), foldable OR inert, and drops the slot\'s block edge too; a plain dock (no body) is not matched (Kage I-5 and R2-3, brief 2.3)', () => {
+    const r = rule(play, ".slot:has(> [data-has-body] > * > [data-slot-fill])");
     expect(r).toMatch(/padding:\s*0/);
     expect(r).toMatch(/overflow:\s*visible/);
     expect(r).toMatch(/border-block:\s*0/);
-    expect(play).not.toMatch(/\[data-foldable='true'\]\s*>\s*\*\s*>\s*\[data-slot-fill\]/); // always with [data-has-body]: the sheet's plain dock is untouched
+    // an inert dock (desktop: `data-foldable='false'`, display: contents) is a body dock too: the selector names the body, never the mode
+    expect(play).not.toMatch(/\[data-foldable='true'\]\[data-has-body\]\s*>/);
+    expect(play).not.toMatch(/\[data-foldable='true'\]\s*>\s*\*\s*>\s*\[data-slot-fill\]/);
   });
 
   it('the hero\'s slot does not clip (Iro MINOR-1, round 3): visible, so the scene line\'s focus rings (reach 4px from buttons 4px from the edge) are whole in every engine, and no engine-specific clip margin is left', () => {

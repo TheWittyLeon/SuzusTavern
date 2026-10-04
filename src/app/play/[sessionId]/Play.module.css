@@ -149,9 +149,9 @@
 }
 
 /* B8c-4 P0 (brief 2.3, "the fill rule matches through a dock and drops the slot's block edge"; Kage I-5): a stage whose body folds sits INSIDE a body dock (slot > dock > panel > stage), so the rule above
-   must see through the dock, and a slot that fills owns its edges: no transparent block border either. Only a dock WITH a body: the character sheet's plain dock is unchanged. No row folds a stage until P1, so
+   must see through the dock, and a slot that fills owns its edges: no transparent block border either. Only a dock WITH a body, inert or foldable: on desktop the dock is INERT (`data-foldable='false'`, `display: contents`) and the slot must still fill (Kage R2-3: Table's stage slot regained 16px 22px of padding and `overflow: auto`, 324 to 356px). The character sheet's plain dock is unchanged. No row folds a stage until P1, so
    this matches nothing today (zero pixels); it is HP1's `p:bleed` positive control. */
-.slot:has(> [data-foldable='true'][data-has-body] > * > [data-slot-fill]) {
+.slot:has(> [data-has-body] > * > [data-slot-fill]) {
   padding: 0;
   overflow: visible;
   border-block: 0;

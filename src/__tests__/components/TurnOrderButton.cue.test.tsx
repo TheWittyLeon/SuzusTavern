@@ -108,6 +108,16 @@ describe('under a finger or in a moving band the cue neither measures nor flips;
     expect(button()).toBeNull();
   });
 
+  it('a finger that never reports its end stops holding the gate after the 5 s backstop (the mutation: the count is never reset)', () => {
+    jest.useFakeTimers();
+    const view = render(tree());
+    act(() => { fireEvent.touchStart(document.body, { touches: [{ clientX: 1, clientY: 1 }] }); });
+    act(() => { jest.advanceTimersByTime(5001); });
+    geo.framed = 91; geo.unframed = 91;
+    view.rerender(tree());
+    expect(button()).toBeNull();
+  });
+
   it('the band scrolling: a commit inside 150 ms of its last scroll event waits for the quiet (a flick is not cancelled by a lift-and-restore)', () => {
     jest.useFakeTimers();
     const view = render(tree());

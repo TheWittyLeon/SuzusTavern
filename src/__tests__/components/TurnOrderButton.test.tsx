@@ -187,11 +187,9 @@ describe('the Turn order button: what a press does', () => {
   /** The band's rect at y 0 and the tracker's at `trackerTop`; the band's own scrollTop. */
   function plant(top: { current: number }) {
     const band = screen.getByTestId('band');
-    const tracker = document.getElementById(INITIATIVE_TRACKER_ID) as HTMLElement;
     scrollTo = jest.fn();
     Object.defineProperty(band, 'scrollTo', { configurable: true, value: scrollTo });
     Object.defineProperty(band, 'scrollTop', { configurable: true, value: 0, writable: true });
-    void tracker;
     trackerTop = () => top.current; // the prototype mock above answers for the tracker only: it is `top.current` down, the band is at 0
     return band;
   }
