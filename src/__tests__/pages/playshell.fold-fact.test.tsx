@@ -14,7 +14,8 @@ import { Profiler, useLayoutEffect, type ProfilerOnRenderCallback, type ReactNod
 import PlayShell, { type FoldSpec, type PlayShellProps } from '@/app/play/[sessionId]/PlayShell';
 import { FoldHandleSlot, useFoldBody } from '@/components/FoldDock';
 import { FOLD_SPECS } from '@/app/play/[sessionId]/foldSpecs';
-import { FOLD_BANNER_REASON, FOLD_NO_ROOM_REASON, FOLD_QUIET_MS, FOLD_REACTIVATE_MS, FOLD_TOUCH_BACKSTOP_MS } from '@/app/play/[sessionId]/hooks/useFoldFacts';
+import { markOwnScroll } from '@/lib/ownScroll';
+import { FOLD_MAX_HELD_RETRIES, FOLD_BANNER_REASON, FOLD_NO_ROOM_REASON, FOLD_QUIET_MS, FOLD_REACTIVATE_MS, FOLD_TOUCH_BACKSTOP_MS } from '@/app/play/[sessionId]/hooks/useFoldFacts';
 import { LAYOUT_ROWS, LAYOUT_ROWS_BY_ID, REGION_IDS, getPlacement, type LayoutRow, type Moment } from '@/app/play/[sessionId]/presets';
 
 // The registry's foldable set is computed from the real rows, and no real row folds the stage until P1: the test row below does, so the stage joins the set here (and only here).
@@ -572,6 +573,17 @@ describe('the automatic cases (addendum): the page is left at its end, once, nev
     expect(to).toHaveBeenCalledTimes(2);
   });
 
+  it('a scroll the user made in ONE fight does not suppress the park of the NEXT (the reset when the fold is no longer live; the mutation: no reset)', () => {
+    jest.useFakeTimers();
+    const s = shell(foldRow(), { ...stored, moment: 'exploring' });
+    s.again({ moment: 'combat' });
+    expect(to).toHaveBeenCalledTimes(1);
+    act(() => { jest.advanceTimersByTime(1000); document.dispatchEvent(new Event('scroll')); jest.advanceTimersByTime(FOLD_QUIET_MS + 1); }); // the user scrolls during the fight
+    s.again({ moment: 'exploring' }); // the fight is over: no live body fold
+    s.again({ moment: 'combat' });
+    expect(to).toHaveBeenCalledTimes(2);
+  });
+
   it('not while a finger is down; and a map that is folded is not parked at all', () => {
     jest.useFakeTimers();
     const s = shell(foldRow(), { ...stored, moment: 'exploring' });
@@ -616,8 +628,6 @@ describe('ONE press path: every live fold writes a choice through the same press
     const s = shell(row, { onToggleFold, onFoldChoice, foldSpecs: { sceneStage: spec } });
     fireEvent.click(handle());
     s.again({ foldedRegions: new Set(['sceneStage']) });
-    jest.useFakeTimers(); // (only to be explicit: no body fold's 400ms clock is involved for a body-less one)
-    jest.useRealTimers();
     return { onToggleFold, onFoldChoice, s };
   }
   it('no body, default open (the character sheet\'s fold): folded, then NONE (what it always stored), never the old toggle', () => {
@@ -746,6 +756,46 @@ describe('a decision that the gate holds IN the commit that would make it is ask
     scrollOnLayout = false;
     act(() => { jest.advanceTimersByTime(FOLD_QUIET_MS * 3); });
     expect(floorVar()).toBe('FOLDED');
+    restore2();
+  });
+});
+
+describe('the page\'s own scrolls do not hold a decision (lib/ownScroll.ts) and a held measurement is bounded (Kage re-review: the decide() retry)', () => {
+  afterEach(() => { scrollOnLayout = false; });
+  it('a scroll on an element the page itself is scrolling (the log\'s stick-to-bottom) is not counted by the quiet period; an unmarked one still is', () => {
+    jest.useFakeTimers();
+    const restore = pageScrolls(false);
+    shell(foldRow());
+    setWidth(390);
+    act(() => ro.cb());
+    restore();
+    const restore2 = pageScrolls(true);
+    const log = document.createElement('div');
+    document.body.appendChild(log);
+    for (let i = 0; i < 5; i++) { markOwnScroll(log); act(() => { log.dispatchEvent(new Event('scroll')); jest.advanceTimersByTime(40); }); } // narration streaming: a pin every 40 ms
+    setWidth(430);
+    act(() => ro.cb());
+    expect(floorVar()).toBe('FOLDED'); // decided at once: the pins did not hold it (the mutation: they count)
+    log.remove();
+    restore2();
+  });
+
+  it('a page that is NEVER quiet (a scroll in every commit) decides after FOLD_MAX_HELD_RETRIES asks, not never, and re-renders a bounded number of times (the mutation: no cap loops for ever)', () => {
+    jest.useFakeTimers();
+    const commits = jest.fn();
+    const restore = pageScrolls(false);
+    shell(foldRow(), {}, { profile: commits });
+    setWidth(390);
+    act(() => ro.cb());
+    restore();
+    const restore2 = pageScrolls(true);
+    scrollOnLayout = true;
+    setWidth(430);
+    act(() => ro.cb());
+    const c0 = commits.mock.calls.length;
+    for (let i = 0; i < FOLD_MAX_HELD_RETRIES + 5; i++) act(() => { jest.advanceTimersByTime(FOLD_QUIET_MS); });
+    expect(floorVar()).toBe('FOLDED');
+    expect(commits.mock.calls.length - c0).toBeLessThan(FOLD_MAX_HELD_RETRIES * 3);
     restore2();
   });
 });

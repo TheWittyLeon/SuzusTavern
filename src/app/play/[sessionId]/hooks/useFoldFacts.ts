@@ -18,6 +18,7 @@
  *     never while an editable field has focus (a soft keyboard may be up), never if the user has scrolled since the last decision, never while a finger is down.
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { isOwnScroll } from '@/lib/ownScroll';
 import { foldValue, isEditable, scrollStep, type FoldChoice, type FoldFact } from '../foldState';
 import type { Moment, RegionId } from '../presets';
 
@@ -36,6 +37,8 @@ export const FOLD_QUIET_MS = 150;
 export const FOLD_REACTIVATE_MS = 400;
 /** A finger that never reports its end (a removed target) stops holding the gate after this long. */
 export const FOLD_TOUCH_BACKSTOP_MS = 5000;
+/** How many times a measurement held by the gate in its own commit is asked for again (150 ms apart) before it is made anyway. */
+export const FOLD_MAX_HELD_RETRIES = 20;
 /** The handle's reason while a banner folded the body. Described, not announced: the handle stays focusable. */
 export const FOLD_BANNER_REASON = 'Folded while the safety card is showing';
 /** The handle's reason when it was pressed with the handle partly out of view: the open is refused, not slid under the viewport. */
@@ -69,6 +72,7 @@ export function useFoldFacts({ rootRef, moment, candidates, stored, revealed }: 
   const schedule = useRef<(ms?: number) => void>(() => {});
   const gen = useRef(0);
   const parkedGen = useRef(-1);
+  const heldRetries = useRef(0);
   // One press clock per fold: a second fold's handle is not deafened by the first's (the 400ms guard is for a handle that leaves from under a thumb, and only a body fold's does).
   const lastPress = useRef(new Map<RegionId, number>());
   const step = useRef<{ dir: 'open' | 'fold'; before: number; body: string } | null>(null);
@@ -142,6 +146,8 @@ export function useFoldFacts({ rootRef, moment, candidates, stored, revealed }: 
     const onScroll = (e: Event) => {
       // ANY scroller counts for the quiet period (element scroll events do not bubble: a capture listener hears the party band, the story log and the board's window glide, which the touch gate
       // no longer holds once the finger is up). Only the PAGE's own scroll is "the user scrolled the page" and clears a refused open (Tora MAJOR-2).
+      // A scroll the page makes by itself (the story log pinning to the bottom while narration streams, the shell's scroll restore) is not the user's and does not hold anything (lib/ownScroll.ts).
+      if (isOwnScroll(e.target)) return;
       lastScroll.current = Date.now();
       if (e.target === document) {
         if (Date.now() > ownScrollUntil.current) userScrolled.current = true;
@@ -210,7 +216,12 @@ export function useFoldFacts({ rootRef, moment, candidates, stored, revealed }: 
     if (!root || autos.length === 0) return;
     // Held by a finger or a scroll that landed in this very commit (WebKit fires scroll events as a layout shrinks): ask again when the gate opens, or the fold stays `auto` with nothing left to measure
     // it (found in WebKit: the map never decided after a width change while another scroller was moving). The flush renders because a fold is `auto`.
-    if (!gateOpen()) { schedule.current(); return; }
+    if (!gateOpen()) {
+      // Bounded: a page that is never quiet (something scrolls on every commit) decides after FOLD_MAX_HELD_RETRIES asks (about 3 s) rather than re-rendering the shell for ever. A finger is still held by
+      // its own backstop, so only scrolls reach this.
+      if ((heldRetries.current += 1) <= FOLD_MAX_HELD_RETRIES) { schedule.current(); return; }
+    }
+    heldRetries.current = 0;
     const fits = root.scrollHeight <= root.clientHeight + 1;
     setDecided((prev) => {
       const next = { ...prev };
