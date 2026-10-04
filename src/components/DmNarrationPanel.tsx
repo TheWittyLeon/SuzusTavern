@@ -25,6 +25,8 @@ import { useEffect, useRef, useState, type RefObject } from 'react';
 import { npcAction, postSessionEvent, setSessionPolicy } from '@/lib/api/dnd';
 import type { CombatParticipantState, CombatState } from '@/lib/api/types';
 import DmOverrideModal from '@/components/DmOverrideModal';
+import { useLastAliveHp } from '@/lib/useLastAliveHp';
+import { isCombatEngaged } from '@/app/play/[sessionId]/format';
 import Icon from '@/components/Icon';
 import { consumeEscape } from '@/lib/a11y/escapeConsume';
 import styles from './DmNarrationPanel.module.css';
@@ -448,6 +450,16 @@ export default function DmNarrationPanel({
 
   // S5.4: override modal state
   const [overrideOpen, setOverrideOpen] = useState(false);
+  // Which kind the dialog opens on ('revive' from the Revive… opener).
+  const [overrideKind, setOverrideKind] = useState<'revive' | undefined>(undefined);
+  const lastAliveHp = useLastAliveHp(combatState.participants);
+  // Focus lands here after a revive if the Revive… opener has unmounted.
+  const overrideBtnRef = useRef<HTMLButtonElement>(null);
+  // Revive… is offered only while a player character has fallen in a live fight.
+  // debt: a held fight (everyone down, waiting on the DM) is not covered; the engine accepts a revive there too, so the opener should show. ceiling: Revive… is hidden in a held fight. until: ENGINE-TPK-UNDO (the HOLD build widens isCombatEngaged / this check).
+  const canRevive =
+    isCombatEngaged(combatState) &&
+    combatState.participants.some((p) => p.is_pc && !p.is_alive);
 
   // S5.4: visibility toggle (optimistic local state, persisted via setSessionPolicy)
   const [overrideVisible, setOverrideVisible] = useState(overridePlayerVisible);
@@ -512,9 +524,14 @@ export default function DmNarrationPanel({
       <div className={styles.dmControls}>
         <button
           type="button"
+          ref={overrideBtnRef}
           className={styles.overrideBtn}
           aria-label="Open DM override modal"
-          onClick={() => setOverrideOpen(true)}
+          aria-haspopup="dialog"
+          onClick={() => {
+            setOverrideKind(undefined);
+            setOverrideOpen(true);
+          }}
         >
           <Icon name="Sword" size={11} aria-hidden /> DM Override
         </button>
@@ -532,6 +549,20 @@ export default function DmNarrationPanel({
             Show overrides to players
           </span>
         </label>
+
+        {canRevive && (
+          <button
+            type="button"
+            className={styles.overrideBtn}
+            aria-haspopup="dialog"
+            onClick={() => {
+              setOverrideKind('revive');
+              setOverrideOpen(true);
+            }}
+          >
+            Revive…
+          </button>
+        )}
 
         {toggleError && (
           <div className={styles.toggleError} role="alert">
@@ -564,6 +595,10 @@ export default function DmNarrationPanel({
         defaultActorId={combatState.active_participant_id}
         onSuccess={handleOverrideSuccess}
         onClose={() => setOverrideOpen(false)}
+        initialKind={overrideKind}
+        lastAliveHp={lastAliveHp}
+        onRefresh={onStateRefresh}
+        fallbackFocusRef={overrideBtnRef}
       />
     </section>
   );
