@@ -182,6 +182,9 @@ export interface TacticalMapProps {
    *  built from, so `buildLine` (a11y.ts) and the name can never disagree. `null`: nothing to add to the stage's own line. Called from an effect keyed on the line's
    *  CONTENT, never on a render, and never with the initial `null`. The mount writes the text in the scene line; this component stays ignorant of the shell. */
   onInspect?: (line: InspectLine | null) => void;
+  /** A counter the mount bumps when the VIEWER'S OWN move lands (the 200, in the same batch as the new state). With Move engaged, the map takes focus to the token's new square and follows it
+   *  on a change of this and on nothing else: not a poll that redraws the token, not a refusal that redraws it (focus stays on the square the user was on). Omitted: it never changes. */
+  movedSeq?: number;
   className?: string;
 }
 
@@ -327,6 +330,7 @@ export default function TacticalMap({
   onMove,
   onExitMove,
   onInspect,
+  movedSeq = 0,
   className,
 }: TacticalMapProps) {
   const cellRefs = useRef(new Map<string, HTMLDivElement>());
@@ -417,11 +421,14 @@ export default function TacticalMap({
   // deliberately gated on `moveMode` so an observer's own roving-tabindex
   // position is never yanked by someone else's move.
   const activeAtKey = activeAt ? coordKeyStr(activeAt) : null;
-  const focusSyncKey = moveMode ? activeAtKey : null;
-  const [prevFocusSyncKey, setPrevFocusSyncKey] = useState<string | null>(focusSyncKey);
-  if (focusSyncKey !== prevFocusSyncKey) {
-    setPrevFocusSyncKey(focusSyncKey);
-    if (moveMode && activeAt) setFocus({ coord: activeAt, by: 'sync', landed: prevFocusSyncKey !== null });
+  // The Move sync (B8c-3 M3): focus ENTERS the grid at the token when Move is armed, and FOLLOWS it when the viewer's own move lands (`movedSeq`). It does not follow a change of `at` as such:
+  // a poll that moves the token, or a 409 that redraws it, leaves focus on the square the user was on (the brief's focus table). Re-arming always re-syncs.
+  const [prevMoveMode, setPrevMoveMode] = useState(moveMode);
+  const [prevMovedSeq, setPrevMovedSeq] = useState(movedSeq);
+  if (moveMode !== prevMoveMode || movedSeq !== prevMovedSeq) {
+    setPrevMoveMode(moveMode);
+    setPrevMovedSeq(movedSeq);
+    if (moveMode && activeAt && (!prevMoveMode || movedSeq !== prevMovedSeq)) setFocus({ coord: activeAt, by: 'sync', landed: prevMoveMode && movedSeq !== prevMovedSeq });
   }
 
   // The follow rule (follow.ts): ONE function for the turn change and for focus. A square wholly inside the window scrolls nothing; otherwise each axis that needs it
@@ -689,6 +696,7 @@ export default function TacticalMap({
     activeParticipant ? `. ${activeParticipant.name}'s turn${activeParticipant.movement_remaining == null ? '' : `, ${activeMovementRemaining} feet remaining`}` : ''
   }`;
 
+  // debt: every pointer commits a move at once on one tap or click, touch laptops included (no select-then-confirm step). ceiling: a mis-tap sends a real move; the engine refuses an illegal one but a legal wrong square lands. until: P3 lands the selection seam (Go and B3 rule 1). Backlog: TAV-MAP-TOUCH-CONFIRM.
   function attemptMove(to: SpaceCoordinate) {
     // B8c-1 IMP-9b: the one guard both activation paths (click's onClick
     // below, and Enter/Space in handleGridKeyDown) go through — a second
@@ -722,6 +730,7 @@ export default function TacticalMap({
       // Outside Move mode these only CHOOSE the square for the scene line and nothing else (Iro): they never arm Move, select a destination or move a token. Space is
       // consumed so it does not scroll the page from a grid that has focus.
       e.preventDefault();
+      setHoverCoord(null); // the key commits the FOCUSED square, so the ring and the line must say that square, not one a resting mouse is over (Tora M-1)
       if (moveMode) attemptMove(focusedCoord);
       else choose(focusedCoord);
       return;
@@ -729,6 +738,7 @@ export default function TacticalMap({
     const next = nextFocusCoord(e.key, focusedCoord, space.width, space.height);
     if (next) {
       e.preventDefault();
+      setHoverCoord(null); // keyboard wins until the next pointer ENTER: a mouse resting over the board no longer outranks the arrows (Tora M-1)
       setFocus({ coord: next, by: 'key' });
       choose(next);
     }
@@ -807,7 +817,7 @@ export default function TacticalMap({
                       choose(coord);
                       setKeyFocus(isFocusVisible(e.currentTarget));
                     }}
-                    onClick={() => {
+                    onClick={(e) => {
                       // Tora-Gesture MAJOR-2: a click never synced
                       // `focusedCoord`, desyncing DOM focus (which a click
                       // on a tabindex-bearing div already moves natively)
@@ -819,12 +829,16 @@ export default function TacticalMap({
                       // moves no focus under VoiceOver or TalkBack).
                       setFocus((prev) => (coordsEqual(prev.coord, coord) ? prev : { coord, by: 'native' }));
                       choose(coord);
+                      // A tap that moves no focus (a screen reader's, iOS Safari's) leaves `keyFocus` as the LAST focus set it: a keyboard visit earlier must not make this empty square read as keyboard-on.
+                      setKeyFocus(isFocusVisible(e.currentTarget));
                       attemptMove(coord);
                     }}
-                    onMouseEnter={() => {
-                      if (moveMode) setHoverCoord(coord);
+                    // HOVER is a mouse's (or a pen's), never a finger's: a tap makes the browser fire emulated enter events and the hover then STAYS until another tap, so a touch user would read
+                    // a destination ring and a target line for a square they only touched (B3, Tora-Gesture). Pointer events say which kind of pointer it is.
+                    onPointerEnter={(e) => {
+                      if (moveMode && e.pointerType !== 'touch') setHoverCoord(coord);
                     }}
-                    onMouseLeave={() => {
+                    onPointerLeave={() => {
                       setHoverCoord((prev) => (coordsEqual(prev, coord) ? null : prev));
                     }}
                   >

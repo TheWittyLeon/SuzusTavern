@@ -469,7 +469,7 @@ export default function PlayPage() {
   } = useFocusAnchors(isDying, sceneHasEncounter, combatId, sceneHeadRef, combatIsActive, layoutId);
 
   // B8c-3 M2/M2b: the map as the stage's body (null with the flag off or on a stage with no body) and the observers' move rows.
-  const board = useBoard({ state: combatState, combatIsActive, room: facts.room, stageHasBody: variantFor(row, 'sceneStage', moment) === 'hero', selfPcId, round, appendLog, rescueStrandedFocus: refocusSceneHeadIfStranded });
+  const board = useBoard({ cs: combatStateResult, room: facts.room, stageHasBody: variantFor(row, 'sceneStage', moment) === 'hero', moveAllowed: row.boardMove === true, sessionLocked, appendLog, rescueStrandedFocus: refocusSceneHeadIfStranded, railRef: composerRailAnchorRef });
 
   // TAV-PLAY-SHELL step 5, hook 7 of ~9 (Amendment A §A.2 row 7):
   // narration. Composed BELOW useSceneState (narrate() reads
@@ -1543,7 +1543,7 @@ export default function PlayPage() {
           deathSaves={deathSaveTally(activeParticipant)}
           variant={variantFor(row, 'actionBar', moment)}
           outerRailRef={composerRailAnchorRef}
-          localTurnActionRef={localTurnActionRef}
+          localTurnActionRef={localTurnActionRef} move={board.bar} moveButtonRef={board.moveButtonRef}
         />
       ) : undefined,
     composer: (

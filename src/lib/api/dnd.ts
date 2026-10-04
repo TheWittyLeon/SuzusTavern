@@ -46,6 +46,7 @@ import type {
   LevelUpStep,
   ListResourcesResult,
   NpcActionRequest,
+  MoveRequest,
   NpcActionResult,
   OpeningLine,
   OverrideResult,
@@ -1652,6 +1653,18 @@ export const npcAction = (
     `/api/dnd/combat/${encodeURIComponent(combatId)}/npc-action`,
     { method: 'POST', json: req, signal },
   );
+
+/**
+ * POST /api/dnd/combat/{combatId}/move (B8c-3 M3). Body `{ participant_id, from, to }` and nothing else (the proxy stamps the actor from the cookie). 200: the new state; refusals throw ApiError with
+ * `data.reason` (position_changed 409, invalid_destination, no_movement_remaining, not_your_turn, no_active_turn, mover_unplaced, same_cell, no_space: all carrying `data.state`; positioning_disabled and
+ * not_found 404 without it). A refusal is NEVER re-sent: a 409's `from` is known stale.
+ */
+export const moveToken = (combatId: string, req: MoveRequest, signal?: AbortSignal) =>
+  apiCall<CombatMessageResult>(`/api/dnd/combat/${encodeURIComponent(combatId)}/move`, {
+    method: 'POST',
+    json: { participant_id: req.participant_id, from: req.from, to: req.to },
+    signal,
+  });
 
 export const castSpell = (req: SpellCastRequest, signal?: AbortSignal) =>
   apiCall<CombatMessageResult>('/api/dnd/spells/cast', {

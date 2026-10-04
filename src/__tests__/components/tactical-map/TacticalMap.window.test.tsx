@@ -443,11 +443,11 @@ describe('TacticalMap — onInspect: the payloads (brief 2.2/2.3) and what drive
   it('while choosing a move: a `target` line for the focused square; a hovered square wins; a legal square carries its cost and the budget, an illegal one says why', () => {
     const { onInspect } = mount({ moveMode: true });
     expect(lastOf(onInspect)).toMatchObject({ kind: 'target', legal: false }); // the cursor starts on the mover's own square
-    fireEvent.mouseEnter(screen.getByRole('gridcell', { name: /Row 2, column 1\./ }));
+    fireEvent.pointerEnter(screen.getByRole('gridcell', { name: /Row 2, column 1\./ }));
     expect(lastOf(onInspect)).toMatchObject({ kind: 'target', legal: true, costFt: 5, budgetFt: 30, input: { row1: 2, col1: 1, inRange: true, moveModeActive: true } });
-    fireEvent.mouseEnter(screen.getByRole('gridcell', { name: /Row 2, column 2\./ })); // blocked
+    fireEvent.pointerEnter(screen.getByRole('gridcell', { name: /Row 2, column 2\./ })); // blocked
     expect(lastOf(onInspect)).toMatchObject({ kind: 'target', legal: false, input: { blocked: true } });
-    fireEvent.mouseLeave(screen.getByRole('gridcell', { name: /Row 2, column 2\./ }));
+    fireEvent.pointerLeave(screen.getByRole('gridcell', { name: /Row 2, column 2\./ }));
     expect(lastOf(onInspect)).toMatchObject({ kind: 'target', legal: false }); // back to the focused (own) square
   });
 
@@ -456,7 +456,7 @@ describe('TacticalMap — onInspect: the payloads (brief 2.2/2.3) and what drive
     let offered = 0;
     let occupied = 0;
     for (const cell of screen.getAllByRole('gridcell')) {
-      fireEvent.mouseEnter(cell);
+      fireEvent.pointerEnter(cell);
       const line = lastOf(onInspect);
       expect(line).toMatchObject({ kind: 'target' });
       const legal = (line as Extract<InspectLine, { kind: 'target' }>).legal;
@@ -736,7 +736,7 @@ describe('TacticalMap — Move engaged and the grid holding focus: the mover\'s 
     expect(document.activeElement).toBe(start); // Move engaged took focus in
     fireEvent.keyDown(start, { key: 'ArrowRight' });
     fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'ArrowRight' }); // the cursor is on [3,1]; the move lands on [2,1]
-    rerender(<TacticalMap {...engaged({ participants: [bren({ at: [2, 1], movement_remaining: 25 })] })} />);
+    rerender(<TacticalMap {...engaged({ participants: [bren({ at: [2, 1], movement_remaining: 25 })], movedSeq: 1 })} />); // the viewer's own move landed: the mount bumps movedSeq with the new state
     const token = screen.getByRole('gridcell', { name: /Bren — you/ });
     expect(token).toHaveAttribute('tabindex', '0');
     expect(container.querySelectorAll('[role="gridcell"][tabindex="0"]')).toHaveLength(1);
@@ -828,7 +828,7 @@ describe('TacticalMap — P2: the follow margin applies to the map\'s OWN follow
     expect(win.scrollLeft).toBe(0);
     layoutP2(container, { left: 0, top: 0 });
     withMargin(win, 1);
-    rerender(<TacticalMap {...crewProps('e4', { participants: where([4, 2]), moveMode: true })} />); // landing, Move still engaged
+    rerender(<TacticalMap {...crewProps('e4', { participants: where([4, 2]), moveMode: true, movedSeq: 1 })} />); // landing, Move still engaged
     expect(win.scrollLeft).toBe(40);
   });
 });
@@ -1812,7 +1812,10 @@ describe('TacticalMap — a browser without :focus-visible, and the empty square
   it('iOS before 15.4 throws a SyntaxError on the selector: the follow still runs, as if nothing were held (the mover is followed whole)', () => {
     const { container, rerender } = render(<TacticalMap {...at('a')} />);
     const win = layoutP2(container, { left: 0, top: 0 });
-    const cell = container.querySelectorAll('[role="gridcell"]')[0] as HTMLElement;
+    withMargin(win, 1);
+    // A HELD candidate (Kage, run 3): the square the user is on is column 2, which is what the same test in the previous describe (A1) HOLDS (scroll 80) when :focus-visible answers true. Here the selector
+    // THROWS, so it reads as not held, and the plain mover follow runs, margin and all (120). The old case focused the mover's own square, where held and not held scroll the same.
+    const cell = container.querySelectorAll('[role="gridcell"]')[2] as HTMLElement;
     act(() => { cell.focus(); });
     const real = Element.prototype.matches;
     const spy = jest.spyOn(Element.prototype, 'matches').mockImplementation(function (this: Element, q: string) {
@@ -1821,7 +1824,7 @@ describe('TacticalMap — a browser without :focus-visible, and the empty square
     });
     expect(() => rerender(<TacticalMap {...at('c')} />)).not.toThrow();
     spy.mockRestore();
-    expect(win.scrollLeft).toBe(80);
+    expect(win.scrollLeft).toBe(120);
   });
 
   describe('Iro-A11y condition C: while the grid holds KEYBOARD focus the line names the square the user is on, even when it is empty, in the cell\'s own words', () => {
@@ -1869,5 +1872,97 @@ describe('TacticalMap — a browser without :focus-visible, and the empty square
       act(() => { cal.focus(); });
       expect(buildLine(lastOf(onInspect) as InspectLine, { round: 2 })).toBe('Cal · Foe');
     });
+  });
+});
+
+
+describe('TacticalMap — B8c-3 M3: the Move sync follows the viewer\'s OWN landed move (`movedSeq`) and nothing else', () => {
+  const six = () => makeSpace({ width: 6, height: 6 });
+  const bren = (o: Partial<CombatParticipantState> = {}) => makeParticipant({ name: 'Bren', at: [1, 1], movement_remaining: 30, ...o });
+  const engaged = (o: Partial<TacticalMapProps> = {}) => baseProps({ space: six(), participants: [bren()], moveMode: true, ...o });
+
+  it('a token redrawn by a poll or a 409 (its `at` changes, `movedSeq` does not) leaves focus on the square the user was on; the landed move (movedSeq bumped) takes it to the token', () => {
+    const { rerender } = render(<TacticalMap {...engaged()} />);
+    const start = screen.getByRole('gridcell', { name: /Bren — you/ });
+    fireEvent.keyDown(start, { key: 'ArrowRight' });
+    const chosen = document.activeElement as HTMLElement; // the user\'s square, one to the right of the token
+    expect(chosen).not.toBe(start);
+    rerender(<TacticalMap {...engaged({ participants: [bren({ at: [3, 3], movement_remaining: 30 })] })} />); // redrawn elsewhere by the server
+    expect(document.activeElement).toBe(chosen);
+    rerender(<TacticalMap {...engaged({ participants: [bren({ at: [3, 3], movement_remaining: 25 })], movedSeq: 1 })} />);
+    expect(document.activeElement).toBe(screen.getByRole('gridcell', { name: /Bren — you/ }));
+  });
+
+  it('re-arming always re-syncs (focus enters at the token); a map that is never armed ignores movedSeq', () => {
+    const { rerender } = render(<TacticalMap {...engaged({ moveMode: false })} />);
+    rerender(<TacticalMap {...engaged({ moveMode: false, movedSeq: 3 })} />);
+    expect(document.activeElement).toBe(document.body);
+    rerender(<TacticalMap {...engaged({ moveMode: true, movedSeq: 3 })} />);
+    expect(document.activeElement).toBe(screen.getByRole('gridcell', { name: /Bren — you/ }));
+  });
+});
+
+describe('TacticalMap — B8c-3 M3: hover is a mouse\'s, never a finger\'s (B3: no sticky touch hover); keyFocus is not stale after a tap (Kage)', () => {
+  const six = () => makeSpace({ width: 6, height: 6 });
+  const bren = makeParticipant({ name: 'Bren', at: [1, 1], movement_remaining: 30 });
+  const last = (fn: jest.Mock) => fn.mock.calls[fn.mock.calls.length - 1]?.[0];
+  const touchEnter = (el: Element) => { const e = new Event('pointerover', { bubbles: true }); Object.defineProperty(e, 'pointerType', { value: 'touch' }); act(() => { el.dispatchEvent(e); }); };
+
+  it('a mouse pointer entering a square in Move mode sets the destination (the target line); a TOUCH pointer entering one does not, and does not leave one behind', () => {
+    const onInspect = jest.fn();
+    render(<TacticalMap {...baseProps({ space: six(), participants: [bren], moveMode: true, onInspect })} />);
+    const cell = screen.getByRole('gridcell', { name: /Row 4, column 4\./ });
+    touchEnter(cell);
+    const afterTouch = JSON.stringify(last(onInspect));
+    expect(afterTouch).not.toContain('"row1":4,"col1":4');
+    fireEvent.pointerEnter(cell, { pointerType: 'mouse' });
+    expect(JSON.stringify(last(onInspect))).toContain('"row1":4,"col1":4');
+    fireEvent.pointerLeave(cell);
+    expect(JSON.stringify(last(onInspect))).not.toContain('"row1":4,"col1":4');
+  });
+
+  it('KAGE: keyboard focus on an empty square, focus leaves, then a tap that moves no focus on another empty square reads the rest line, not the cell line', () => {
+    const onInspect = jest.fn();
+    render(<><button type="button">outside</button><TacticalMap {...baseProps({ space: six(), participants: [bren], moveMode: false, onInspect })} /></>);
+    act(() => { screen.getByRole('gridcell', { name: /Row 2, column 2\./ }).focus(); }); // keyboard-style focus (jsdom: :focus-visible)
+    expect(last(onInspect)?.kind).toBe('cell');
+    act(() => { screen.getByRole('button', { name: 'outside' }).focus(); });
+    fireEvent.click(screen.getByRole('gridcell', { name: /Row 3, column 3\./ })); // a tap: no focus move
+    expect(last(onInspect)?.kind).toBe('turn');
+  });
+});
+
+
+describe('TacticalMap — Tora M-1: the keyboard wins over a mouse that is resting over the board', () => {
+  const six = () => makeSpace({ width: 6, height: 6 });
+  const bren = makeParticipant({ name: 'Bren', at: [1, 1], movement_remaining: 30 });
+  const last = (fn: jest.Mock) => fn.mock.calls[fn.mock.calls.length - 1]?.[0];
+
+  it('hover A, arrow to B, Enter: the line and the ring are on B and the move goes to B (not A)', () => {
+    const onInspect = jest.fn();
+    const onMove = jest.fn();
+    render(<TacticalMap {...baseProps({ space: six(), participants: [bren], moveMode: true, onInspect, onMove })} />);
+    const a = screen.getByRole('gridcell', { name: /Row 4, column 4\./ });
+    fireEvent.pointerEnter(a, { pointerType: 'mouse' });
+    expect(JSON.stringify(last(onInspect))).toContain('"row1":4,"col1":4'); // the hover shows A
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'ArrowRight' }); // the focused square is now B = [2,1]
+    const line = last(onInspect);
+    expect(line.kind).toBe('target');
+    expect(line.input).toMatchObject({ row1: 2, col1: 3 }); // B, not A
+    expect(document.querySelectorAll('[class*="cellDestination"]')).toHaveLength(1);
+    expect(document.querySelector('[class*="cellDestination"]')).toBe(screen.getByRole('gridcell', { name: /Row 2, column 3\./ }));
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Enter' });
+    expect(onMove).toHaveBeenCalledWith([2, 1]);
+  });
+
+  it('Enter alone (no arrow) after a hover also commits the focused square, and the next pointer enter hands the ring back to the mouse', () => {
+    const onInspect = jest.fn();
+    const onMove = jest.fn();
+    render(<TacticalMap {...baseProps({ space: six(), participants: [bren], moveMode: true, onInspect, onMove })} />);
+    fireEvent.pointerEnter(screen.getByRole('gridcell', { name: /Row 4, column 4\./ }), { pointerType: 'mouse' });
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: ' ' });
+    expect(last(onInspect).input).toMatchObject({ row1: 2, col1: 2 }); // the token\'s own square, where focus is
+    fireEvent.pointerEnter(screen.getByRole('gridcell', { name: /Row 5, column 5\./ }), { pointerType: 'mouse' });
+    expect(last(onInspect).input).toMatchObject({ row1: 5, col1: 5 });
   });
 });

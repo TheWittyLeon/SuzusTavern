@@ -177,6 +177,18 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+/* TAP FEEDBACK (B8c-3 run 3, Tora-Gesture: required before a board is touchable): the browser's own tap flash is off above, so a finger gets a shade UNDER it while it is down, on a coarse pointer only.
+   A pseudo-element, so the reach's tint and ring (background, box-shadow) and the focus ring are left as they are; it takes no hit. It is the press, not the commit: the selection ring on lift stays. */
+@media (pointer: coarse) {
+  .cell:active::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: color-mix(in oklab, var(--ink) 22%, transparent);
+  }
+}
+
 .cell:focus-visible {
   outline: var(--focus-ring-width) solid var(--accent);
   outline-offset: calc(-1 * var(--focus-ring-width));

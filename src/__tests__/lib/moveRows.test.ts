@@ -9,7 +9,7 @@
  *   - the sentence stating a number                                                -> "never states a number" goes red
  */
 import type { CombatParticipantState, CombatSpace, CombatState, SpaceCoordinate } from '@/lib/api/types';
-import { MOVE_ROWS_COLLAPSED, MOVE_ROWS_PER_FLUSH_MAX, moveRowText, moveRows, type MoveSeen } from '@/lib/dnd/moveRows';
+import { MOVE_ROWS_COLLAPSED, MOVE_ROWS_PER_FLUSH_MAX, accountMove, moveRowText, moveRows, type MoveSeen } from '@/lib/dnd/moveRows';
 
 const SPACE: CombatSpace = { kind: 'square', width: 13, height: 7, cell: { value: 5, unit: 'ft' }, blocked: [], features: [] };
 
@@ -130,5 +130,18 @@ describe('moveRows: one row per creature per turn, when the turn passes', () => 
     const once = run([state(), boundary]);
     expect(once.rows).toEqual(['Kestrel Ashwood moves.']);
     expect(run([boundary, boundary], once.seen).rows).toEqual([]);
+  });
+});
+
+describe('accountMove: the mover\'s own landed move is accounted for, so the boundary writes it no second row (M3)', () => {
+  it('after accounting, the turn passing writes no row for the mover; without it the boundary writes one (the control); another creature that moved still writes its own', () => {
+    const start = moveRows(null, state()).seen as MoveSeen;
+    const moved = state({ at: { p1: [4, 3] } });
+    const boundary = state({ active: 'g1', at: { p1: [4, 3], g1: [8, 3] } });
+    expect(moveRows(start, boundary).rows).toEqual(['Kestrel Ashwood moves.', 'Goblin Skulker moves.']); // the control: nothing accounted
+    const accounted = accountMove(start, 'p1', [4, 3]) as MoveSeen;
+    expect(moveRows(accounted, moved).rows).toEqual([]);
+    expect(moveRows(accounted, boundary).rows).toEqual(['Goblin Skulker moves.']);
+    expect(accountMove(null, 'p1', [1, 1])).toBeNull();
   });
 });

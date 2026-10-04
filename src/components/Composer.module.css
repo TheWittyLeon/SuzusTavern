@@ -291,6 +291,13 @@
   margin-top: 0;
 }
 
+/* B8c-3 M3: Move is a fifth verb. In Story's one-row bar (`chips`: the kicker, the verbs and the X-card block share a row) at 1280x650 the fifth button pushed the X-card block onto a second row
+   (+70px, the X-card at 666..710 of 650: the fight rule's "verbs and X-card in view" failed in three cells). The verbs close up to 8px apart ONLY when Move is offered (`railMove`), so a page
+   without the map keeps the 16px it always had, to the pixel. */
+.railChips.railMove .railBtns {
+  gap: var(--space-4);
+}
+
 .railBtns {
   display: flex;
   gap: var(--density-gap);

@@ -15,13 +15,15 @@ jest.mock('../../components/tactical-map/TacticalMap', () => ({ __esModule: true
 const SPACE = { kind: 'square', width: 6, height: 4, cell: { value: 5, unit: 'ft' }, blocked: [], features: [] } as unknown as CombatSpace;
 const PARTICIPANTS = [{ participant_id: 'p1', name: 'A' }] as unknown as CombatParticipantState[];
 const rescue = () => {};
+const onMove = () => {};
+const onExit = () => {};
 
 function Parent({ participants }: { participants: CombatParticipantState[] }) {
   const [n, setN] = useState(0);
   return (
     <div>
       <button type="button" onClick={() => setN(n + 1)}>chunk {n}</button>
-      <StageBoard space={SPACE} participants={participants} viewerParticipantId="p1" activeParticipantId="p1" round={2} showReach rescueStrandedFocus={rescue} />
+      <StageBoard space={SPACE} participants={participants} viewerParticipantId="p1" activeParticipantId="p1" round={2} showReach rescueStrandedFocus={rescue} moveMode={false} moveSubmitting={false} onMove={onMove} onExitMove={onExit} movedSeq={0} />
     </div>
   );
 }

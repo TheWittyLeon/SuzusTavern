@@ -1526,3 +1526,12 @@ describe('TAV-PLAY-SHELL presets.ts — getPlacement', () => {
  *      layer:true and grid-placed`). Reverted immediately; full
  *      235-case file reconfirmed green.
  */
+
+describe('B8c-3 fix round (Tora, gate before P1) — the Move verb is a ROW value, opted into', () => {
+  it('Story and Table offer Move; the phone row does not (until P3 lands the selection seam); every row says it explicitly or not at all', () => {
+    expect(LAYOUT_ROWS_BY_ID.story.boardMove).toBe(true);
+    expect(LAYOUT_ROWS_BY_ID.table.boardMove).toBe(true);
+    expect(LAYOUT_ROWS_BY_ID.phone.boardMove).not.toBe(true);
+    for (const r of LAYOUT_ROWS) expect([true, undefined]).toContain(r.boardMove);
+  });
+});

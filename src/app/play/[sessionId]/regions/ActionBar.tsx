@@ -30,13 +30,14 @@
  * minus combat" end state (plan §2.3's `Composer` row) are both step
  * 6/11 territory (S3 pause), not this commit.
  */
-import { useEffect, useId, useRef, useState, type RefObject } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type Ref, type RefObject } from 'react';
 import Icon from '@/components/Icon';
 import { consumeEscape } from '@/lib/a11y/escapeConsume';
 import { useAnchoredPopover } from '@/lib/a11y/useAnchoredPopover';
 import styles from '@/components/Composer.module.css';
 import popoverStyles from '@/components/AnchoredPopover.module.css';
 import type { RegionVariant } from '../variants';
+import type { MoveControl } from '../hooks/useBoard';
 
 export type CombatAction = 'attack' | 'dodge' | 'dash' | 'endturn' | 'deathsave';
 
@@ -90,6 +91,11 @@ export interface ActionBarProps {
    *  `chips` puts the kicker inline with the buttons so a story column spends
    *  one row. Same elements, same names, same live regions. */
   variant?: RegionVariant<'actionBar'>;
+  /** B8c-3 M3: the Move toggle. Absent (undefined) where no board is served, the stage has no body, or the creature has no square or budget: the bar then has the four verbs it always had. Present: a
+   *  sixth control with a FIXED name, `aria-pressed` for its state, native `disabled` like every other verb (off turn, no feet, busy, session locked), placed before End turn. */
+  move?: MoveControl;
+  /** The Move button's ref (a separate prop: see useBoard). */
+  moveButtonRef?: Ref<HTMLButtonElement>;
 }
 
 /** Gap between the Attack button and its target menu, and the viewport margin. */
@@ -105,6 +111,8 @@ export default function ActionBar({
   outerRailRef,
   localTurnActionRef,
   variant = 'bar',
+  move,
+  moveButtonRef,
 }: ActionBarProps) {
   const [targetOpen, setTargetOpen] = useState(false);
   const railRef = useRef<HTMLDivElement>(null);
@@ -149,6 +157,14 @@ export default function ActionBar({
       return () => clearTimeout(t);
     }
     prevNotYourTurnRef.current = notYourTurn;
+  }, [notYourTurn]);
+
+  // B8c-3 (Iro): when the turn passes while a verb holds focus, the verb is disabled under the user and focus falls to <body>. One rule for the whole verb row (Dodge, Move, and the rest): the commit that
+  // disables it moves focus to this container instead, in the same frame, so a keyboard user is never stranded. Runs only on the turn flip, so a verb that is merely busy keeps its focus.
+  useLayoutEffect(() => {
+    if (!notYourTurn) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLButtonElement && active.disabled && railRef.current?.contains(active)) railRef.current.focus({ preventScroll: true });
   }, [notYourTurn]);
 
   const fire = (a: CombatAction, payload?: string) => {
@@ -221,7 +237,7 @@ export default function ActionBar({
 
   return (
     <div
-      className={variant === 'chips' ? `${styles.rail} ${styles.railChips}` : styles.rail}
+      className={variant === 'chips' ? `${styles.rail} ${styles.railChips}${move ? ` ${styles.railMove}` : ''}` : styles.rail}
       data-variant={variant}
       // A10 step 11 round 4 (TAV-STORY-BAR-MONSTER-TURN): on a monster's turn the wait notice REPLACES the kicker's text in the kicker's own place and adds no row, so the bar is one height on
       // both turns (Story's was 182px at 1280 wide on a monster's turn: the notice took a line and the verbs wrapped). Composer.module.css reads this attribute; a narrow slot (the phone) keeps today's layout.
@@ -335,6 +351,19 @@ export default function ActionBar({
         >
           <Icon name="Compass" size={13} /> Dash
         </button>
+        {move && (
+          <button
+            ref={moveButtonRef}
+            type="button"
+            className={move.pressed ? `${styles.action} ${styles.actionOn}` : styles.action}
+            onClick={move.onToggle}
+            disabled={move.disabled}
+            aria-disabled={move.disabled}
+            aria-pressed={move.pressed}
+          >
+            <Icon name="Map" size={13} /> Move
+          </button>
+        )}
         <button
           type="button"
           className={styles.action}
