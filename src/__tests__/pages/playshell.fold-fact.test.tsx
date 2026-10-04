@@ -509,6 +509,19 @@ describe('the scroll step (4.3, addendum): the map opens UPWARD, and the handle 
     act(() => { document.dispatchEvent(new Event('scroll')); }); // the PAGE scrolled: a document scroll
     expect(handle()).not.toHaveAttribute('aria-disabled');
   });
+
+  it('a scroll inside the party band, the log or the board\'s window is NOT the page scrolling: it does not clear a refused open (only the document\'s scroll does; Tora MAJOR-2)', () => {
+    jest.useFakeTimers();
+    layout(() => 0, 640);
+    shell(foldRow(), { foldedRegions: new Set(['sceneStage']), onFoldChoice: jest.fn() });
+    fireEvent.click(handle());
+    expect(handle()).toHaveAttribute('aria-disabled', 'true');
+    const band = document.createElement('div');
+    document.body.appendChild(band);
+    act(() => { band.dispatchEvent(new Event('scroll')); });
+    expect(handle()).toHaveAttribute('aria-disabled', 'true'); // the mutation (any target counts) clears it here
+    band.remove();
+  });
 });
 
 describe('the automatic cases (addendum): the page is left at its end, once, never under a keyboard or a hand', () => {
