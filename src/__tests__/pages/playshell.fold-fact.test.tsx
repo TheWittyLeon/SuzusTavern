@@ -799,3 +799,43 @@ describe('the page\'s own scrolls do not hold a decision (lib/ownScroll.ts) and 
     restore2();
   });
 });
+
+describe('the retry cap counts SCROLLS, never a finger (Kage R3: it decided under the finger after 20 commits)', () => {
+  afterEach(() => { scrollOnLayout = false; });
+  it('a board arrives while a touch is down, then 25 ordinary commits (polls, streamed narration) arrive with the finger still down: the fold stays auto until the lift (the mutation: the cap counts the finger)', () => {
+    jest.useFakeTimers();
+    const s = shell(foldRow(), { facts: { room: 'none' } });
+    const restore = pageScrolls(true);
+    act(() => { fireEvent.touchStart(document.body, { touches: [{ clientX: 1, clientY: 1 }] }); });
+    s.again({ facts: { room: 'board' } });
+    expect(floorVar()).toBe('AUTO');
+    for (let i = 0; i < 25; i++) { act(() => { jest.advanceTimersByTime(40); }); s.again({ facts: { room: 'board' } }); }
+    expect(floorVar()).toBe('AUTO');
+    act(() => { fireEvent.touchEnd(document.body, { touches: [] }); });
+    act(() => { jest.advanceTimersByTime(FOLD_QUIET_MS + 1); });
+    expect(floorVar()).toBe('FOLDED');
+    restore();
+  });
+
+  it('a new decision gets the whole allowance: asked again after 15 held retries, it waits its own 20 (the mutation: the count is not reset by a new decision)', () => {
+    jest.useFakeTimers();
+    const restore = pageScrolls(false);
+    shell(foldRow());
+    setWidth(390);
+    act(() => ro.cb());
+    restore();
+    const restore2 = pageScrolls(true);
+    scrollOnLayout = true;
+    setWidth(430);
+    act(() => ro.cb());
+    for (let i = 0; i < 15; i++) act(() => { jest.advanceTimersByTime(FOLD_QUIET_MS); });
+    expect(floorVar()).toBe('AUTO');
+    setWidth(390);
+    act(() => ro.cb()); // a second width change: a new decision
+    for (let i = 0; i < 12; i++) act(() => { jest.advanceTimersByTime(FOLD_QUIET_MS); });
+    expect(floorVar()).toBe('AUTO'); // 12 asks into ITS 20 (without the reset it is 27 in, past the cap)
+    for (let i = 0; i < 12; i++) act(() => { jest.advanceTimersByTime(FOLD_QUIET_MS); });
+    expect(floorVar()).toBe('FOLDED');
+    restore2();
+  });
+});

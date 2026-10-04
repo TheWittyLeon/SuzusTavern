@@ -110,6 +110,7 @@ export function useFoldFacts({ rootRef, moment, candidates, stored, revealed }: 
   // A decision is asked for again: now, or queued until the gate opens.
   const redecide = useCallback(() => {
     gen.current += 1;
+    heldRetries.current = 0; // a new decision is asked for: it gets the whole allowance
     if (gateOpen()) setDecided((prev) => (Object.keys(prev).length ? {} : prev));
     else {
       want.current = true;
@@ -217,9 +218,9 @@ export function useFoldFacts({ rootRef, moment, candidates, stored, revealed }: 
     // Held by a finger or a scroll that landed in this very commit (WebKit fires scroll events as a layout shrinks): ask again when the gate opens, or the fold stays `auto` with nothing left to measure
     // it (found in WebKit: the map never decided after a width change while another scroller was moving). The flush renders because a fold is `auto`.
     if (!gateOpen()) {
-      // Bounded: a page that is never quiet (something scrolls on every commit) decides after FOLD_MAX_HELD_RETRIES asks (about 3 s) rather than re-rendering the shell for ever. A finger is still held by
-      // its own backstop, so only scrolls reach this.
-      if ((heldRetries.current += 1) <= FOLD_MAX_HELD_RETRIES) { schedule.current(); return; }
+      // Bounded for SCROLLS: a page that is never quiet (something scrolls on every commit) decides after FOLD_MAX_HELD_RETRIES asks (about 3 s) rather than re-rendering the shell for ever. A finger is
+      // never counted: it holds the decision for as long as it is down (until the 5 s backstop zeroes the touch count in `gateOpen`), however many commits (polls, streamed narration) arrive meanwhile.
+      if (touches.current > 0 || (heldRetries.current += 1) <= FOLD_MAX_HELD_RETRIES) { schedule.current(); return; }
     }
     heldRetries.current = 0;
     const fits = root.scrollHeight <= root.clientHeight + 1;
