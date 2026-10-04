@@ -33,6 +33,7 @@ import {
   DEFAULT_VIBE_PREF,
   DENSITY_KEY,
   FOLDS_KEY,
+  FOLDS_OPEN_KEY,
   LAYOUT_KEY,
   VIBE_KEY,
   isDensity,
@@ -68,7 +69,11 @@ interface ThemeContextValue {
   layout: LayoutPref;
   /** R20 (A9c C7): the docked regions the user has folded. Absent = open. */
   folds: Folds;
+  /** The ids the user explicitly opened (B8c-4 P0): the third stored state beside folded and none. */
+  foldsOpen: Folds;
   setFold: (region: RegionId, folded: boolean) => void;
+  /** Writes one region's stored fold choice: `folded`, `open` (explicit) or `none` (the default decides). Only a press on a handle calls it. */
+  setFoldChoice: (region: RegionId, choice: 'folded' | 'open' | 'none') => void;
   setVibe: (v: VibePref) => void;
   setDensity: (d: Density) => void;
   setLayout: (l: LayoutPref) => void;
@@ -107,6 +112,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [layout, setLayoutState] = useState<LayoutPref>(DEFAULT_LAYOUT_PREF);
   const [folds, setFoldsState] = useState<Folds>({});
   const foldsRef = useRef<Folds>({});
+  const [foldsOpen, setFoldsOpenState] = useState<Folds>({});
+  const foldsOpenRef = useRef<Folds>({});
 
   // Sync React state with what the no-flash script already painted.
   useEffect(() => {
@@ -159,6 +166,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     // R20: folds are storage-only (no attribute — nothing paints before React).
     foldsRef.current = parseFolds(safeGet(FOLDS_KEY));
     setFoldsState(foldsRef.current);
+    foldsOpenRef.current = parseFolds(safeGet(FOLDS_OPEN_KEY));
+    setFoldsOpenState(foldsOpenRef.current);
   }, []);
 
   // While following the system, react to live OS light/dark changes.
@@ -217,23 +226,36 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setLayoutState(l);
   }, []);
 
-  const setFold = useCallback((region: RegionId, folded: boolean) => {
-    // Computed from a ref, not from the `folds` closure: two folds set in one
-    // tick must not clobber each other, and with storage unavailable the
-    // in-memory state is the only copy.
-    const next = { ...foldsRef.current };
-    if (folded) next[region] = true;
-    else delete next[region];
-    const raw = serializeFolds(next);
-    if (raw === null) safeRemove(FOLDS_KEY);
-    else safeSet(FOLDS_KEY, raw);
-    foldsRef.current = next;
-    setFoldsState(next);
+  const writeFolds = useCallback((folded: Folds, opened: Folds) => {
+    // Computed from refs, not from the state closures: two folds set in one tick must not clobber each other, and with storage unavailable the in-memory state is the only copy.
+    for (const [key, next, ref, set] of [
+      [FOLDS_KEY, folded, foldsRef, setFoldsState],
+      [FOLDS_OPEN_KEY, opened, foldsOpenRef, setFoldsOpenState],
+    ] as const) {
+      const raw = serializeFolds(next);
+      if (raw === null) safeRemove(key);
+      else safeSet(key, raw);
+      ref.current = next;
+      set(next);
+    }
   }, []);
+
+  const setFoldChoice = useCallback((region: RegionId, choice: 'folded' | 'open' | 'none') => {
+    const folded = { ...foldsRef.current };
+    const opened = { ...foldsOpenRef.current };
+    delete folded[region];
+    delete opened[region];
+    if (choice === 'folded') folded[region] = true;
+    if (choice === 'open') opened[region] = true;
+    writeFolds(folded, opened);
+  }, [writeFolds]);
+
+  // The legacy two-state write (a region whose default is open): folded, or nothing. Never writes an explicit open.
+  const setFold = useCallback((region: RegionId, folded: boolean) => setFoldChoice(region, folded ? 'folded' : 'none'), [setFoldChoice]);
 
   return (
     <ThemeContext.Provider
-      value={{ vibe, vibePref, density, layout, folds, setVibe, setDensity, setLayout, setFold }}
+      value={{ vibe, vibePref, density, layout, folds, foldsOpen, setVibe, setDensity, setLayout, setFold, setFoldChoice }}
     >
       {children}
     </ThemeContext.Provider>

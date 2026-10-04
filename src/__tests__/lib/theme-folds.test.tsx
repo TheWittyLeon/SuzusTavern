@@ -1,6 +1,6 @@
 /** A9c C7 (build brief 5.3) -- ThemeProvider `folds`: R20's per-user fold preference. */
 import { act, render } from '@testing-library/react';
-import { FOLDS_KEY, parseFolds, serializeFolds } from '@/lib/theme/theme';
+import { FOLDS_KEY, FOLDS_OPEN_KEY, parseFolds, serializeFolds } from '@/lib/theme/theme';
 import { ThemeProvider, useTheme } from '@/lib/theme/ThemeProvider';
 
 describe('parseFolds / serializeFolds', () => {
@@ -74,5 +74,64 @@ describe('ThemeProvider folds', () => {
     act(() => latest.setFold('characterBlock', true));
     expect(latest.folds).toEqual({ characterBlock: true });
     spy.mockRestore();
+  });
+});
+
+// B8c-4 P0 (brief 2.3): a fold has THREE stored states. `tavern.folds` stays the folded list; `tavern.foldsOpen` holds the ids the user explicitly opened.
+describe('ThemeProvider: the third stored state (an explicit open)', () => {
+  let latest: ReturnType<typeof useTheme>;
+  const Probe = () => {
+    latest = useTheme();
+    return null;
+  };
+  const mount = () => render(<ThemeProvider><Probe /></ThemeProvider>);
+  const clear = () => { window.localStorage.removeItem(FOLDS_KEY); window.localStorage.removeItem(FOLDS_OPEN_KEY); };
+  beforeEach(clear);
+  afterEach(clear);
+
+  it('seeds both keys from storage on mount; absent is none', () => {
+    mount();
+    expect(latest.foldsOpen).toEqual({});
+    clear();
+    window.localStorage.setItem(FOLDS_OPEN_KEY, '["sceneStage"]');
+    window.localStorage.setItem(FOLDS_KEY, '["characterBlock"]');
+    mount();
+    expect(latest.folds).toEqual({ characterBlock: true });
+    expect(latest.foldsOpen).toEqual({ sceneStage: true });
+  });
+
+  it('setFoldChoice writes exactly one of folded / open / none per region, and a default is never written', () => {
+    mount();
+    act(() => latest.setFoldChoice('sceneStage', 'open'));
+    expect(window.localStorage.getItem(FOLDS_OPEN_KEY)).toBe('["sceneStage"]');
+    expect(window.localStorage.getItem(FOLDS_KEY)).toBeNull();
+    act(() => latest.setFoldChoice('sceneStage', 'folded'));
+    expect(window.localStorage.getItem(FOLDS_KEY)).toBe('["sceneStage"]');
+    expect(window.localStorage.getItem(FOLDS_OPEN_KEY)).toBeNull();
+    act(() => latest.setFoldChoice('sceneStage', 'none'));
+    expect(window.localStorage.getItem(FOLDS_KEY)).toBeNull();
+    expect(window.localStorage.getItem(FOLDS_OPEN_KEY)).toBeNull();
+    expect(latest.folds).toEqual({});
+    expect(latest.foldsOpen).toEqual({});
+  });
+
+  it('the legacy two-state write never writes an explicit open, and clears one (a region whose default is open)', () => {
+    mount();
+    act(() => latest.setFoldChoice('characterBlock', 'open'));
+    act(() => latest.setFold('characterBlock', false));
+    expect(window.localStorage.getItem(FOLDS_OPEN_KEY)).toBeNull();
+    act(() => latest.setFold('characterBlock', true));
+    expect(window.localStorage.getItem(FOLDS_KEY)).toBe('["characterBlock"]');
+    expect(window.localStorage.getItem(FOLDS_OPEN_KEY)).toBeNull();
+  });
+
+  it('two regions set in one tick both land in their own keys', () => {
+    mount();
+    act(() => {
+      latest.setFoldChoice('characterBlock', 'folded');
+      latest.setFoldChoice('sceneStage', 'open');
+    });
+    expect(latest.folds).toEqual({ characterBlock: true });
+    expect(latest.foldsOpen).toEqual({ sceneStage: true });
   });
 });

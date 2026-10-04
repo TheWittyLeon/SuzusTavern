@@ -99,6 +99,10 @@ describe('Rule 3 (ii): no position: fixed reachable from regions/ and tenants/',
     const v = mutate((m) => {
       const f = `${PLAY}/PlayShell.tsx`;
       m.set(f, m.get(f)!.replace(/import FoldDock from '@\/components\/FoldDock';/, ''));
+      // B8c-4 P0: the stage now imports FoldDock too (`FoldHandleSlot`, `useFoldBody`), so FoldDock's stylesheet is also reached through regions/. The control cuts that second route as well, so what it
+      // proves is still that PlayShell's own import is what the scope walk needs when it is the only one.
+      const g = `${PLAY}/regions/SceneStage.tsx`;
+      m.set(g, m.get(g)!.replace(/import \{ FoldHandleSlot, useFoldBody \} from '@\/components\/FoldDock';/, ''));
     });
     expect(v.some((x) => /scope is vacuous: src\/components\/FoldDock\.module\.css/.test(x))).toBe(true);
   });

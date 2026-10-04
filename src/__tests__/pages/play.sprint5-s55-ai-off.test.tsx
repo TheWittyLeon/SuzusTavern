@@ -74,7 +74,9 @@ jest.mock('../../lib/theme/ThemeProvider', () => {
       setDensity: jest.fn(),
       // A9c C7: the shell's fold state (nothing folded).
       folds: {},
+      foldsOpen: {},
       setFold: jest.fn(),
+      setFoldChoice: jest.fn(),
     }),
   };
 });

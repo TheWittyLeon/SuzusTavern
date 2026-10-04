@@ -54,3 +54,53 @@
   border-color: color-mix(in oklab, var(--accent) 35%, transparent);
   color: var(--ink);
 }
+
+/* B8c-4 P0 (brief 2.4, "the handle, drawn"): a BODY dock's handle is placed by its region (`FoldHandleSlot`), in flow, never floated over a corner. 44 x 44 with the glyph and the
+   chevron on the top line and the word under them at 11px; open is a tinted fill with the chevron down, folded an outline with the chevron right. Nothing paints it until a row
+   declares a body fold (P1), so this moves no pixel today. The `.dock .handle.handleBody` selector outranks the corner-float rule above. */
+.dock .handle.handleBody {
+  position: static;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  flex: none;
+  padding: 0;
+}
+
+.handleTop {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.handleText {
+  font-size: 11px;
+  line-height: 1;
+}
+
+.dock:not([data-folded='true']) .handleBody {
+  background: color-mix(in oklab, var(--accent) 16%, transparent);
+  border-color: color-mix(in oklab, var(--accent) 45%, var(--line-strong));
+  color: var(--ink);
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
+.chevronFolded {
+  transform: none;
+}
+
+.handleBody[aria-disabled='true'] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@media (forced-colors: active) {
+  .handleBody[aria-expanded='true'] {
+    border-width: 2px;
+  }
+}

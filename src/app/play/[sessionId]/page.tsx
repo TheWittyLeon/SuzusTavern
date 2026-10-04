@@ -1250,7 +1250,7 @@ export default function PlayPage() {
   // contract (Amendment A §A.1: combatIsActive, never combatEngaged).
   // `row` is read downstream, in the JSX below, by the regions/tenants
   // maps `<PlayShell>` renders from.
-  const { foldedRegions, onToggleFold, unfold } = useRegionFolds();
+  const { unfold, shellProps: foldProps } = useRegionFolds(moment);
   const revealSheet = useCallback(() => unfold('characterBlock'), [unfold]);
   const characterBlockIsLayer = getPlacement(row, 'characterBlock', moment).layer === true;
   const memberSheetDrawer = useMemberSheetDrawer(username, mySheet, !characterBlockIsLayer, revealSheet);
@@ -1669,7 +1669,7 @@ export default function PlayPage() {
       regions={regions}
       tenants={tenants}
       foldSpecs={FOLD_SPECS}
-      foldedRegions={foldedRegions} onToggleFold={onToggleFold}
+      {...foldProps}
       layers={
         <>
           {/* Both drawers go through the shared <Drawer> primitive

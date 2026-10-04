@@ -50,6 +50,7 @@ import {
   type Placement,
   type RegionId,
 } from '../../app/play/[sessionId]/presets';
+import { FOLD_FACT_VALUES } from '../../app/play/[sessionId]/foldState';
 
 const MOMENTS: readonly Moment[] = ['exploring', 'combat'];
 
@@ -1533,5 +1534,51 @@ describe('B8c-3 fix round (Tora, gate before P1) — the Move verb is a ROW valu
     expect(LAYOUT_ROWS_BY_ID.table.boardMove).toBe(true);
     expect(LAYOUT_ROWS_BY_ID.phone.boardMove).not.toBe(true);
     for (const r of LAYOUT_ROWS) expect([true, undefined]).toContain(r.boardMove);
+  });
+});
+
+describe('B8c-4 P0 (Amendment H.1, H.2) — the fold registry guards', () => {
+  type FoldTables = Record<string, Record<string, Record<string, string> | undefined> | undefined>;
+  /** Over any rows: a `foldDefault` is only meaningful on a collapsible placement; a `fold:<regionId>` table names a region that is collapsible in some moment of the row and answers EVERY fold value; a measured
+   *  fold (`foldDefault: 'fits'`) answers `auto` with a floor (`--play-body-floor`: without one the page has nothing to be judged at). */
+  const foldProblems = (rows: readonly LayoutRow[]) =>
+    rows.flatMap((row) => {
+      const out: string[] = [];
+      for (const id of REGION_IDS) {
+        for (const m of MOMENTS) {
+          const p = getPlacement(row, id, m);
+          if (p.foldDefault !== undefined && p.collapsible !== true) out.push(`${row.id}/${m}: ${id} has foldDefault "${p.foldDefault}" but is not collapsible`);
+        }
+      }
+      for (const [key, table] of Object.entries((row.factVars ?? {}) as FoldTables)) {
+        if (!key.startsWith('fold:')) continue;
+        const id = key.slice('fold:'.length) as (typeof REGION_IDS)[number];
+        if (!REGION_IDS.includes(id)) { out.push(`${row.id}: "${key}" names no region`); continue; }
+        if (!MOMENTS.some((m) => getPlacement(row, id, m).collapsible === true)) out.push(`${row.id}: "${key}" has a table but ${id} is never collapsible in this row`);
+        for (const value of FOLD_FACT_VALUES) if (!table?.[value]) out.push(`${row.id}: "${key}" has no values for "${value}"`);
+        const measured = MOMENTS.some((m) => getPlacement(row, id, m).foldDefault === 'fits');
+        if (measured && !table?.auto?.['--play-body-floor']) out.push(`${row.id}: "${key}" is measured (foldDefault fits) but auto sets no --play-body-floor`);
+      }
+      return out;
+    });
+
+  it('the real registry passes (no row declares a fold yet; P1 adds the phone row\'s and these still hold)', () => {
+    expect(foldProblems(LAYOUT_ROWS)).toEqual([]);
+  });
+
+  it('control: each defect is named — foldDefault without collapsible, a table for a region that never folds, a missing value, a measured fold with no auto floor', () => {
+    const phone = LAYOUT_ROWS_BY_ID.phone;
+    const stage = getPlacement(phone, 'sceneStage', 'combat');
+    const withStage = (p: Placement, table?: Record<string, Record<string, string>>): LayoutRow => ({
+      ...phone,
+      regions: { ...phone.regions, sceneStage: { default: p, combat: p } },
+      factVars: { ...phone.factVars, ...(table ? { 'fold:sceneStage': table } : {}) } as LayoutRow['factVars'],
+    });
+    const full = { auto: { '--play-body-floor': '1px' }, open: { '--play-x': '1' }, folded: { '--play-x': '0' } };
+    expect(foldProblems([withStage({ ...stage, foldDefault: 'fits' })])).toEqual(expect.arrayContaining([expect.stringMatching(/foldDefault "fits" but is not collapsible/)]));
+    expect(foldProblems([withStage({ ...stage }, full)])).toEqual(expect.arrayContaining([expect.stringMatching(/never collapsible/)]));
+    expect(foldProblems([withStage({ ...stage, collapsible: true }, { auto: full.auto, open: full.open })])).toEqual(expect.arrayContaining([expect.stringMatching(/no values for "folded"/)]));
+    expect(foldProblems([withStage({ ...stage, collapsible: true, foldDefault: 'fits' }, { ...full, auto: { '--play-x': '1' } })])).toEqual(expect.arrayContaining([expect.stringMatching(/auto sets no --play-body-floor/)]));
+    expect(foldProblems([withStage({ ...stage, collapsible: true, foldDefault: 'fits' }, full)])).toEqual([]);
   });
 });

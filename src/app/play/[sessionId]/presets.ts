@@ -219,6 +219,7 @@ export const ANNOUNCING_REGIONS: ReadonlySet<RegionId> = new Set<RegionId>([
 ]);
 
 import { REGION_VARIANTS, composerHasRoll, isRegionVariant, type RegionVariant, type VariantRegionId } from './variants';
+import { FOLD_FACT_VALUES, type FoldFact } from './foldState';
 
 export { REGION_VARIANTS, composerHasRoll };
 export type { RegionVariant, VariantRegionId };
@@ -350,8 +351,13 @@ export const FACTS = { room: ['board', 'band', 'none', 'unserved'] } as const sa
  */
 export type FactId = keyof typeof FACTS;
 export type FactValue<F extends FactId> = (typeof FACTS)[F][number];
-/** What the page reports: a value per fact it has a say about. */
-export type Facts = { [F in FactId]?: FactValue<F> };
+/**
+ * B8c-4 P0 (Amendment H.1): the fold is a fact too, reported by the SHELL (never the page) for every region that has a live fold: `fold:<regionId>` = `auto` | `open` | `folded`
+ * (`foldState.ts`). It is last in precedence: a fold removes a thing, and what removes wins. A row answers it with `factVars['fold:<regionId>']`; a row with no table is not affected.
+ */
+export type FoldFactId = `fold:${RegionId}`;
+/** What the page reports: a value per fact it has a say about (and, from the shell, a `fold:<regionId>` per live fold). */
+export type Facts = { [F in FactId]?: FactValue<F> } & { [K in FoldFactId]?: FoldFact };
 type PlayVars = Readonly<Record<`--play-${string}`, string>>;
 
 /**
@@ -396,6 +402,12 @@ export interface Placement {
    *  on an `ANNOUNCING_REGIONS` member — see file header. */
   visible?: boolean;
   collapsible?: boolean;
+  /**
+   * B8c-4 P0 (Amendment H.2): how a collapsible region's fold starts when the user has chosen nothing. `'open'` (absent) is today's: open. `'fits'` is MEASURED: the fold reports `auto`, the row
+   * answers with a floor the page can be judged at, and the shell opens it only if the page then fits its viewport (decided at a fight's start, when the fold's `when` starts to match and when
+   * the shell's width changes; never under a touch). Only meaningful with `collapsible: true` (a registry guard).
+   */
+  foldDefault?: 'open' | 'fits';
   /**
    * A10 step 11 round 3 (Iro; Aoi's "Which Band Pays"): this region's slot is a BOUNDED scroller (Table's character sheet stops at the story log and scrolls inside itself). The shell
    * names it (`SCROLL_REGION_NAMES` in PlayShell) and makes it a keyboard stop (`tabindex=0`, `role="group"`), so its text has a keyboard path: a nested scroller with no name and no stop
@@ -448,7 +460,7 @@ export interface LayoutRow {
    * `momentVars`. A row that has no entry for a fact is not affected by it (the phone's); a row that has one gives EVERY value of the fact its
    * set (`Record`, and a registry guard), so a reported value never finds a row with nothing to say.
    */
-  factVars?: { [F in FactId]?: Readonly<Record<FactValue<F>, PlayVars>> };
+  factVars?: { [F in FactId]?: Readonly<Record<FactValue<F>, PlayVars>> } & { [K in FoldFactId]?: Readonly<Record<FoldFact, PlayVars>> };
   /**
    * A9d-2 N5 (Amendment E.7; Iro 3, Tora A4): a band that hides content says so. When true, every slot of this row that can scroll
    * (all but the story log, which scrolls by design) paints a bottom-fade cue, ONLY while there is more to scroll. `PlayShell` stamps
@@ -495,7 +507,7 @@ export function factVarsFor(row: LayoutRow, facts: Facts | undefined, declared: 
   const given = (facts ?? {}) as Readonly<Record<string, string | undefined>>;
   // A key the vocabulary does not declare is a typo: it throws, naming the row and the fact, whatever its value (it is not "no values").
   for (const fact of Object.keys(given)) {
-    if (declared[fact] === undefined) throw new Error(`"${fact}" is not a declared fact (row "${row.id}")`);
+    if (declared[fact] === undefined && !isFoldFactId(fact)) throw new Error(`"${fact}" is not a declared fact (row "${row.id}")`);
   }
   const out: Record<`--play-${string}`, string> = {};
   // The vocabulary's declared order, not the caller's object key order: the last declared fact wins (see FACTS). `declared` is a parameter only so the order can be pinned on
@@ -510,7 +522,23 @@ export function factVarsFor(row: LayoutRow, facts: Facts | undefined, declared: 
     if (vars === undefined) throw new Error(`row "${row.id}" has no values for fact "${fact}" = "${value}"`);
     Object.assign(out, vars);
   }
+  // The fold facts come LAST (Amendment H.1), in the order of REGION_IDS so two folds never depend on the caller's key order.
+  for (const id of REGION_IDS) {
+    const key: FoldFactId = `fold:${id}`;
+    const value = given[key];
+    if (value === undefined) continue;
+    if (!(FOLD_FACT_VALUES as readonly string[]).includes(value)) throw new Error(`"${value}" is not a declared value of fact "${key}" (row "${row.id}")`);
+    const table = (row.factVars as Record<string, Record<string, PlayVars> | undefined> | undefined)?.[key];
+    if (table === undefined) continue;
+    const vars = table[value];
+    if (vars === undefined) throw new Error(`row "${row.id}" has no values for fact "${key}" = "${value}"`);
+    Object.assign(out, vars);
+  }
   return out;
+}
+
+function isFoldFactId(key: string): key is FoldFactId {
+  return key.startsWith('fold:') && (REGION_IDS as readonly string[]).includes(key.slice('fold:'.length));
 }
 
 /**
