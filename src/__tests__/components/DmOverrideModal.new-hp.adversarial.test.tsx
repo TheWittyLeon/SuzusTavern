@@ -113,12 +113,13 @@ describe('target HP edge values', () => {
   const run = async (target: CombatParticipantState) => {
     openDamage([ACTOR, target], target.participant_id);
   };
-  it('hp_current 0 (already down): prefill 0, Apply asks for confirm', async () => {
+  it('hp_current 0 (already down), no damage: prefill 0, Apply says nothing to apply (F-1), no confirm, no POST', async () => {
     await run(mk('pc-9', 'Downed', 0, 10));
     expect(hpInput().value).toBe('0');
     await apply();
     expect(mockSubmitOverride).not.toHaveBeenCalled();
-    expect(confirmDialog()).toBeInTheDocument();
+    expect(confirmDialog()).not.toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('Downed is already at 0 HP. Nothing to apply.');
   });
   it('negative hp_current floors to 0 and asks for confirm', async () => {
     await run(mk('pc-9', 'Weird', -3, 10));

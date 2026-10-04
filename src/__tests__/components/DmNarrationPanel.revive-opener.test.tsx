@@ -3,7 +3,7 @@
  * Revive's default HP.
  */
 import React from 'react';
-import { render, screen, fireEvent, act, renderHook } from '@testing-library/react';
+import { render, screen, fireEvent, renderHook } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 jest.mock('../../lib/api/dnd', () => ({

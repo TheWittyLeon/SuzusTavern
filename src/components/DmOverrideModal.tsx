@@ -264,7 +264,6 @@ export default function DmOverrideModal({
       : 1;
   const reviveHpText = reviveHpEdit ?? (target ? String(reviveDefault) : '');
   const reviveParsed = parseReviveHp(reviveHpText, reviveMax);
-  fallenCountRef.current = fallen.length;
   const targetHp =
     typeof target?.hp_current === 'number' && Number.isFinite(target.hp_current)
       ? target.hp_current
@@ -304,6 +303,11 @@ export default function DmOverrideModal({
     setTargetId('');
     setNewHpEdit(null);
   }
+
+  // The open effect's focus timer reads this after the commit.
+  useEffect(() => {
+    fallenCountRef.current = fallen.length;
+  }, [fallen.length]);
 
   // Initialise actor when modal opens or participants change
   useEffect(() => {
