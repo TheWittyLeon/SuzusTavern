@@ -207,7 +207,10 @@ export function useFoldFacts({ rootRef, moment, candidates, stored, revealed }: 
   const decide = useCallback(() => {
     const root = rootRef.current;
     const autos = latest.current.candidates.filter((c) => latest.current.values.get(c.id) === 'auto');
-    if (!root || autos.length === 0 || !gateOpen()) return;
+    if (!root || autos.length === 0) return;
+    // Held by a finger or a scroll that landed in this very commit (WebKit fires scroll events as a layout shrinks): ask again when the gate opens, or the fold stays `auto` with nothing left to measure
+    // it (found in WebKit: the map never decided after a width change while another scroller was moving). The flush renders because a fold is `auto`.
+    if (!gateOpen()) { schedule.current(); return; }
     const fits = root.scrollHeight <= root.clientHeight + 1;
     setDecided((prev) => {
       const next = { ...prev };

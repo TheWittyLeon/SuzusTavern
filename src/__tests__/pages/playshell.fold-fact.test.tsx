@@ -10,7 +10,7 @@
  */
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import { Profiler, type ProfilerOnRenderCallback, type ReactNode } from 'react';
+import { Profiler, useLayoutEffect, type ProfilerOnRenderCallback, type ReactNode } from 'react';
 import PlayShell, { type FoldSpec, type PlayShellProps } from '@/app/play/[sessionId]/PlayShell';
 import { FoldHandleSlot, useFoldBody } from '@/components/FoldDock';
 import { FOLD_SPECS } from '@/app/play/[sessionId]/foldSpecs';
@@ -41,8 +41,10 @@ function foldRow(over: { foldDefault?: 'open' | 'fits'; table?: boolean; everywh
 
 const SPEC: FoldSpec = { label: 'Map', text: 'Map', icon: 'Map', body: BODY, when: { room: 'board' } };
 
+let scrollOnLayout = false; // a scroll event that lands in the very commit that renders the stage (an engine adjusting a shrinking layout)
 function Stage({ slot = true }: { slot?: boolean }) {
   const folded = useFoldBody();
+  useLayoutEffect(() => { if (scrollOnLayout) window.dispatchEvent(new Event('scroll')); });
   return (
     <div data-region="sceneStage">
       <button type="button">End combat</button>
@@ -723,5 +725,27 @@ describe('the touch gate\'s clock and the flush\'s render (Tora MINOR-2 and MINO
     act(() => { fireEvent.touchEnd(document.body, { touches: [] }); });
     act(() => { jest.advanceTimersByTime(FOLD_QUIET_MS + 10); });
     expect(commits.mock.calls.length).toBe(before);
+  });
+});
+
+describe('a decision that the gate holds IN the commit that would make it is asked for again (found in WebKit: the map never decided)', () => {
+  afterEach(() => { scrollOnLayout = false; });
+  it('a width change decides at once (gate open), a scroll event lands in that very commit, so the measurement is held: it is retried 150 ms later (the mutation: no retry leaves the fold `auto` for good)', () => {
+    jest.useFakeTimers();
+    const restore = pageScrolls(false);
+    shell(foldRow());
+    setWidth(390);
+    act(() => ro.cb());
+    expect(floorVar()).toBe('OPEN');
+    restore();
+    const restore2 = pageScrolls(true);
+    scrollOnLayout = true;
+    setWidth(430);
+    act(() => ro.cb());
+    expect(floorVar()).toBe('AUTO'); // held
+    scrollOnLayout = false;
+    act(() => { jest.advanceTimersByTime(FOLD_QUIET_MS * 3); });
+    expect(floorVar()).toBe('FOLDED');
+    restore2();
   });
 });
