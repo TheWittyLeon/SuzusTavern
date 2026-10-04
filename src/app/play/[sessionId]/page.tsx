@@ -56,7 +56,8 @@ import { matchCombatIntent, matchKeywordIntent } from '@/lib/dnd/intentFastPath'
 import { DURABLE_GENERATION_ENABLED } from '@/lib/config';
 import type { Participant } from '@/lib/api/types';
 import type { QuickCheck } from '@/components/DiceTray';
-import Pill from '@/components/Pill';
+import { statusPills } from './statusPills';
+import { OverrideDialogHost } from './overrideDialog';
 import PageSkeleton from '@/components/PageSkeleton';
 import { type LogRow } from '@/components/ChatLog';
 import RollControl from '@/components/RollControl';
@@ -80,7 +81,7 @@ import {
   buildReadAloudBlock,
   deathSaveTally,
   groundingCreatureNames,
-  isCombatEncounterUnstarted, areTurnsRunning,
+  initiativeNames, isCombatEncounterUnstarted, areTurnsRunning,
   isSessionDm,
   scanXCardTracking,
 } from './format';
@@ -1298,11 +1299,7 @@ export default function PlayPage() {
   // initiative_order); mapped to display names and filtered defensively
   // (a stale/unknown id — e.g. a monster removed mid-encounter — just drops
   // out rather than rendering "undefined").
-  const narratorInitiativeOrder = combatIsActive && combatState
-    ? combatState.initiative
-        .map((id) => combatState.participants.find((p) => p.participant_id === id)?.name)
-        .filter((name): name is string => !!name)
-    : [];
+  const narratorInitiativeOrder = combatIsActive ? initiativeNames(combatState) : [];
 
   // TAV-SOLO-DM-CAST-RAIL: a solo-table human DM who ALSO has a bound
   // character (the GM-PC pattern) keeps their DM controls (DmNarrationPanel /
@@ -1330,13 +1327,7 @@ export default function PlayPage() {
 
   // anyMonsterDown/allHostilesDown now come from useCombatState's destructure
   // above (Amendment A §A.6).
-  const statusPill = combatIsActive ? (
-    <Pill tone="lav" dot><span className={styles.pillRound} aria-hidden>round {round ?? 1} · </span>combat</Pill>
-  ) : (
-    <Pill tone="muted" dot>
-      exploring
-    </Pill>
-  );
+  const { statusPill, narratorStatusPill } = statusPills(combatIsActive, round);
   // Iro-A11y CRITICAL (review pass) — NarratorStrip's OWN combat line
   // already states "Round N" explicitly (see its `combatParts`); embedding
   // the full `statusPill` (which ALSO says "round N") in its `status` slot
@@ -1349,11 +1340,6 @@ export default function PlayPage() {
   // still uses the full `statusPill` with its round, visually. The round is
   // `aria-hidden` there (A9d-2, Iro A9d-1 MINOR-5): the initiative tracker in the
   // party strip is the one polite region that says it, in every row.
-  const narratorStatusPill = combatIsActive ? (
-    <Pill tone="lav" dot>
-      combat
-    </Pill>
-  ) : statusPill;
 
   // selfPcId now comes from useCombatState's destructure above.
 
@@ -1662,6 +1648,7 @@ export default function PlayPage() {
   };
 
   return (
+    <OverrideDialogHost isHumanDM={isHumanDM} combatId={combatId} combatState={combatState} dmUsername={session?.dm_username ?? username ?? ''} appendLog={appendLog} onStateUpdate={applyState} onStateRefresh={refreshState} fallbackFocus={() => sceneHeadRef.current}>
     <PlayShell
       row={row}
       moment={moment}
@@ -1733,5 +1720,6 @@ export default function PlayPage() {
         </>
       }
     />
+    </OverrideDialogHost>
   );
 }

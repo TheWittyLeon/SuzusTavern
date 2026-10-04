@@ -139,7 +139,7 @@ jest.mock('../../lib/stream', () => ({
 
 import PlayPage from '@/app/play/[sessionId]/page';
 import ChatLog, { type LogRow } from '@/components/ChatLog';
-import DmNarrationPanel from '@/components/DmNarrationPanel';
+import { PanelWithHost } from '@/test-utils/OverrideHostFor';
 import DmOverrideModal from '@/components/DmOverrideModal';
 import type { Session, CombatState, CombatParticipantState } from '@/lib/api/types';
 import type { Participant } from '@/lib/api/types';
@@ -446,7 +446,7 @@ describe('ADV-S5.4A — override modal: target_down engine error keeps modal ope
   });
 
   it('target_down: modal stays open, error visible, onOverrideMessage NOT called', async () => {
-    render(<DmNarrationPanel {...panelBase} />);
+    render(<PanelWithHost {...panelBase} />);
 
     fireEvent.click(screen.getByRole('button', { name: /DM Override/i }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeInTheDocument());
@@ -506,7 +506,7 @@ describe('ADV-S5.4B — override modal: not_dm engine error keeps modal open', (
   });
 
   it('not_dm: modal stays open, specific error shown, onOverrideMessage not called', async () => {
-    render(<DmNarrationPanel {...panelBase} />);
+    render(<PanelWithHost {...panelBase} />);
 
     fireEvent.click(screen.getByRole('button', { name: /DM Override/i }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeInTheDocument());
@@ -565,7 +565,7 @@ describe('ADV-S5.4H — override modal: combat_not_found engine error (WF-I) kee
   });
 
   it('combat_not_found: modal stays open, honest non-leaking message shown, onOverrideMessage not called', async () => {
-    render(<DmNarrationPanel {...panelBase} />);
+    render(<PanelWithHost {...panelBase} />);
 
     fireEvent.click(screen.getByRole('button', { name: /DM Override/i }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeInTheDocument());
@@ -637,7 +637,7 @@ describe('ADV-S5.4I — override modal: combat_not_active engine error keeps mod
   });
 
   it('combat_not_active: modal stays open, map copy shown verbatim, onOverrideMessage not called', async () => {
-    render(<DmNarrationPanel {...panelBase} />);
+    render(<PanelWithHost {...panelBase} />);
 
     fireEvent.click(screen.getByRole('button', { name: /DM Override/i }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeInTheDocument());
@@ -690,7 +690,7 @@ describe('ADV-S5.4J — override modal: actor_not_found engine error keeps modal
   });
 
   it('actor_not_found: modal stays open, map copy shown verbatim, onOverrideMessage not called', async () => {
-    render(<DmNarrationPanel {...panelBase} />);
+    render(<PanelWithHost {...panelBase} />);
 
     fireEvent.click(screen.getByRole('button', { name: /DM Override/i }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeInTheDocument());
@@ -745,7 +745,7 @@ describe('ADV-S5.4K — override modal: target_not_found engine error keeps moda
   });
 
   it('target_not_found: modal stays open, map copy shown verbatim, onOverrideMessage not called', async () => {
-    render(<DmNarrationPanel {...panelBase} />);
+    render(<PanelWithHost {...panelBase} />);
 
     fireEvent.click(screen.getByRole('button', { name: /DM Override/i }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeInTheDocument());
@@ -904,7 +904,7 @@ describe('ADV-S5.4E — visibility toggle: optimistic rollback when setSessionPo
   });
 
   it('checkbox reverts to original state after network failure', async () => {
-    render(<DmNarrationPanel {...baseProps} overridePlayerVisible={true} />);
+    render(<PanelWithHost {...baseProps} overridePlayerVisible={true} />);
 
     const checkbox = screen.getByRole('checkbox', { name: /Show my overrides to players/i });
     expect(checkbox).toBeChecked(); // starts checked
@@ -973,7 +973,7 @@ describe('ADV-S5.3A — monster panel: npc_incapacitated refusal surfaced inline
 
   it('incapacitated monster skip shows inline error and does not call streamDmNarration', async () => {
     render(
-      <DmNarrationPanel
+      <PanelWithHost
         combatId="c1"
         combatState={ACTIVE_COMBAT}
         sessionId="s1"
@@ -1019,7 +1019,7 @@ describe('ADV-S5.3B — dead monster: action buttons not rendered', () => {
     // Even if the dead goblin is listed as "active" (stale state), no action
     // buttons should render. The gate is `isCurrentTurn && !isDown`.
     render(
-      <DmNarrationPanel
+      <PanelWithHost
         combatId="c1"
         combatState={COMBAT_WITH_DEAD_GOBLIN}
         sessionId="s1"
@@ -1052,7 +1052,7 @@ describe('ADV-S5.3C — speak-as-NPC posts dm_narration event; zero streamDmNarr
 
   it('submitting NPC dialogue calls postSessionEvent once and never streamDmNarration', async () => {
     render(
-      <DmNarrationPanel
+      <PanelWithHost
         combatId="c1"
         combatState={ACTIVE_COMBAT}
         sessionId="s1"

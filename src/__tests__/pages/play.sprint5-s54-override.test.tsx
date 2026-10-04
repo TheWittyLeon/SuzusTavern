@@ -96,7 +96,7 @@ jest.mock('../../lib/stream', () => ({
 
 import PlayPage from '@/app/play/[sessionId]/page';
 import ChatLog, { type LogRow } from '@/components/ChatLog';
-import DmNarrationPanel from '@/components/DmNarrationPanel';
+import { PanelWithHost } from '@/test-utils/OverrideHostFor';
 import DmOverrideModal from '@/components/DmOverrideModal';
 import type { Session, CombatState, CombatParticipantState } from '@/lib/api/types';
 import type { Participant } from '@/lib/api/types';
@@ -244,7 +244,7 @@ describe('S5.4-AC4 — DmNarrationPanel: submit override with attack payload', (
   });
 
   it('submit fires submitOverride with correct attack payload', async () => {
-    render(<DmNarrationPanel {...panelBase} />);
+    render(<PanelWithHost {...panelBase} />);
 
     // Open modal
     fireEvent.click(screen.getByRole('button', { name: /DM Override/i }));
@@ -298,7 +298,7 @@ describe('S5.4-AC4 — DmNarrationPanel: submit override with attack payload', (
     });
     mockSubmitOverride.mockRejectedValue(engineErr);
 
-    render(<DmNarrationPanel {...panelBase} />);
+    render(<PanelWithHost {...panelBase} />);
 
     fireEvent.click(screen.getByRole('button', { name: /DM Override/i }));
     await waitFor(() =>
@@ -417,24 +417,24 @@ describe('S5.4-AC12 — DmNarrationPanel: override button + toggle present', () 
   });
 
   it('renders override button', () => {
-    render(<DmNarrationPanel {...baseProps} />);
+    render(<PanelWithHost {...baseProps} />);
     expect(screen.getByRole('button', { name: /DM Override/i })).toBeInTheDocument();
   });
 
   it('toggle defaults to checked when overridePlayerVisible=true', () => {
-    render(<DmNarrationPanel {...baseProps} overridePlayerVisible={true} />);
+    render(<PanelWithHost {...baseProps} overridePlayerVisible={true} />);
     const checkbox = screen.getByRole('checkbox', { name: /Show my overrides to players/i });
     expect(checkbox).toBeChecked();
   });
 
   it('toggle defaults to unchecked when overridePlayerVisible=false', () => {
-    render(<DmNarrationPanel {...baseProps} overridePlayerVisible={false} />);
+    render(<PanelWithHost {...baseProps} overridePlayerVisible={false} />);
     const checkbox = screen.getByRole('checkbox', { name: /Show my overrides to players/i });
     expect(checkbox).not.toBeChecked();
   });
 
   it('clicking toggle fires setSessionPolicy with toggled value', async () => {
-    render(<DmNarrationPanel {...baseProps} overridePlayerVisible={true} />);
+    render(<PanelWithHost {...baseProps} overridePlayerVisible={true} />);
     const checkbox = screen.getByRole('checkbox', { name: /Show my overrides to players/i });
     await act(async () => {
       fireEvent.click(checkbox);
@@ -447,7 +447,7 @@ describe('S5.4-AC12 — DmNarrationPanel: override button + toggle present', () 
   });
 
   it('override button opens the override modal on click', async () => {
-    render(<DmNarrationPanel {...baseProps} />);
+    render(<PanelWithHost {...baseProps} />);
     fireEvent.click(screen.getByRole('button', { name: /DM Override/i }));
     await waitFor(() =>
       expect(screen.queryByRole('dialog')).toBeInTheDocument(),

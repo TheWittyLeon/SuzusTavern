@@ -265,13 +265,15 @@ const PAGE = join(ROOT, PAGE_REL);
 // -> 806 (B8c-3 M2): the three inline "bump the sequence and set the combat state" closures (`onCombatStateUpdate`, `onCombatStateRefresh`, `onStateRefresh`, 24 code lines) are
 // `applyState` / `refreshState` on `useCombatState`, one prop each; they pay for the map's mount (`useBoard`, the stage's child and `bodyLabel`, the `StageBoard` import: 8 lines).
 // Net -16 against 822.
+// -> 794 (TPK-HOLD W3): the two status pills (12 code lines) move to `statusPills.tsx` and the narrator's turn-order glance (5) to `initiativeNames` in format.ts; they pay for the override
+// dialog's host (`overrideDialog.tsx`, one wrapper element on two lines) and its imports. Net -12 against 806.
 // Update this value, in the SAME commit, whenever page.tsx's actual
 // non-comment, non-blank line count drops below it. Never raise it
 // silently -- unless the growth is deliberate and reviewed, in which case
 // raise it in the same commit and say why (this file's own rule, restated
 // correctly per the A7 pre-merge ratchet ruling: the runbook's "may only go
 // down" was a paraphrase that was never this file's actual rule).
-export const RATCHET_CEILING = 806;
+export const RATCHET_CEILING = 794;
 
 /**
  * Pure: counts lines the way `wc -l` does (newline-byte count). Exported so

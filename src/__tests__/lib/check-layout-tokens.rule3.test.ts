@@ -34,7 +34,7 @@ describe('Rule 3: baseline', () => {
     const { violations, scope } = evaluateRule3(real());
     expect(violations).toEqual([]);
     for (const need of VACUITY_SCOPE) expect(scope).toContain(need);
-    expect(IN_REGION_MODALS).toHaveLength(3);
+    expect(IN_REGION_MODALS).toHaveLength(2);
     expect(ANCHORED_MENUS).toHaveLength(1);
   });
 });
@@ -66,7 +66,7 @@ describe('Rule 3 (ii): no position: fixed reachable from regions/ and tenants/',
     expect(red(mutate((m) => append(m, 'src/components/PartyPanel.module.css', `.zzz { position:fixed }`)))).toBe(true);
   });
 
-  it('a fourth in-region modal is red (two hops: TableControls -> DmNarrationPanel -> DmOverrideModal is already exempt, ConditionsPanel is not)', () => {
+  it('a fourth in-region modal is red (two hops: TableControls -> DmNarrationPanel; ConditionsPanel is not exempt. DmOverrideModal left the list: it is mounted above the shell, TPK-HOLD W3)', () => {
     expect(red(mutate((m) => append(m, 'src/components/ConditionsPanel.module.css', `.modal { position: fixed; inset: 0; }`)))).toBe(true);
   });
 
@@ -165,7 +165,7 @@ describe('Rule 3 (ii): no position: fixed reachable from regions/ and tenants/',
   });
 
   it('an exemption that matches nothing is stale and red (the modal portaled or was deleted)', () => {
-    const v = mutate((m) => m.set('src/components/DmOverrideModal.module.css', `.backdrop { position: absolute; }`));
+    const v = mutate((m) => m.set('src/components/RebindCharacterButton.module.css', `.backdrop { position: absolute; }`));
     expect(v.some((x) => /stale IN_REGION_MODALS entry/.test(x))).toBe(true);
     const w = mutate((m) => m.set('src/components/Composer.module.css', m.get('src/components/Composer.module.css')!.replace(/position:\s*fixed/g, 'position: absolute')));
     expect(w.some((x) => /stale ANCHORED_MENUS entry/.test(x))).toBe(true);

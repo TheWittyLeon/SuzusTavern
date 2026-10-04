@@ -38,7 +38,6 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  type RefObject,
 } from 'react';
 import { submitOverride } from '@/lib/api/dnd';
 import type {
@@ -153,8 +152,9 @@ export interface DmOverrideModalProps {
   /** Re-poll the combat state (Revive's empty case). */
   onRefresh?: () => void;
   /** Where focus goes on close when the opener is no longer in the page (e.g.
-   *  the Revive… button unmounts once nobody is fallen). */
-  fallbackFocusRef?: RefObject<HTMLElement | null>;
+   *  the Revive… button unmounts once nobody is fallen). Asked at close time,
+   *  so it returns the LATEST node. */
+  fallbackFocus?: () => HTMLElement | null | undefined;
 }
 
 export default function DmOverrideModal({
@@ -168,7 +168,7 @@ export default function DmOverrideModal({
   initialTargetId,
   lastAliveHp,
   onRefresh,
-  fallbackFocusRef,
+  fallbackFocus,
 }: DmOverrideModalProps) {
   const uid = useId();
   const titleId = `${uid}-title`;
@@ -394,8 +394,7 @@ export default function DmOverrideModal({
       // <section tabIndex=-1> instead, which stays mounted, so focus returns
       // there; in Chromium the opener holds focus and the fallback is used.)
       if (prev && prev !== document.body && prev.isConnected) prev.focus();
-      // eslint-disable-next-line react-hooks/exhaustive-deps -- the LATEST node is wanted at close time
-      else fallbackFocusRef?.current?.focus();
+      else fallbackFocus?.()?.focus();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);

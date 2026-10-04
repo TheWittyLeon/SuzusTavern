@@ -184,6 +184,15 @@ export function areTurnsRunning(combatState: CombatState | null | undefined): bo
   return combatState?.state === 'active';
 }
 
+/** NarratorStrip's turn-order glance (TAV-NARRATION-DECOUPLE): `combatState.initiative` is the ordered participant ids; mapped to display names and filtered
+ *  defensively (a stale/unknown id, e.g. a monster removed mid-encounter, drops out rather than rendering "undefined"). */
+export function initiativeNames(combatState: CombatState | null): string[] {
+  if (!combatState) return [];
+  return combatState.initiative
+    .map((id) => combatState.participants.find((p) => p.participant_id === id)?.name)
+    .filter((name): name is string => !!name);
+}
+
 /** The held fight's words, once. The strip's line for the DM and for everyone else, and the note on the controls the freeze switches off. */
 export const HELD_LINE_DM = 'Every character has fallen.';
 export const HELD_LINE_WAITING = 'Every character has fallen. The DM decides what happens next.';

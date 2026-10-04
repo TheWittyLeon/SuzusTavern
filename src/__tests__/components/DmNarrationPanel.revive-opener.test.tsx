@@ -16,6 +16,7 @@ jest.mock('../../lib/api/dnd', () => ({
 
 import DmNarrationPanel from '@/components/DmNarrationPanel';
 import { useLastAliveHp } from '@/lib/useLastAliveHp';
+import { OverrideHostFor } from '@/test-utils/OverrideHostFor';
 import type { CombatState, CombatParticipantState } from '@/lib/api/types';
 
 const mk = (id: string, name: string, hp: number, max: number, extra: Partial<CombatParticipantState> = {}): CombatParticipantState => ({
@@ -31,11 +32,14 @@ const state = (participants: CombatParticipantState[], st: CombatState['state'] 
   combat_id: 'c1', session_id: 's1', round: 1, state: st, turn_index: 0,
   active_participant_id: 'goblin-1', initiative: participants.map((p) => p.participant_id), participants,
 });
+// The dialog is the page's one mount (overrideDialog.tsx); the panel only opens it, so a panel on its own needs the host around it.
 const panel = (cs: CombatState) => (
-  <DmNarrationPanel
-    combatId="c1" combatState={cs} sessionId="s1" dmUsername="dm"
-    onMessage={jest.fn()} onOverrideMessage={jest.fn()} onStateUpdate={jest.fn()} onStateRefresh={jest.fn()}
-  />
+  <OverrideHostFor combatState={cs}>
+    <DmNarrationPanel
+      combatId="c1" combatState={cs} sessionId="s1" dmUsername="dm"
+      onMessage={jest.fn()} onStateUpdate={jest.fn()} onStateRefresh={jest.fn()}
+    />
+  </OverrideHostFor>
 );
 
 describe('Revive… opener', () => {
@@ -90,10 +94,12 @@ describe('focus after a successful revive', () => {
     function Harness() {
       const [cs, setCs] = React.useState(state([GOBLIN, KESTREL_DEAD]));
       return (
-        <DmNarrationPanel
-          combatId="c1" combatState={cs} sessionId="s1" dmUsername="dm"
-          onMessage={jest.fn()} onOverrideMessage={jest.fn()} onStateUpdate={setCs} onStateRefresh={jest.fn()}
-        />
+        <OverrideHostFor combatState={cs} onStateUpdate={setCs}>
+          <DmNarrationPanel
+            combatId="c1" combatState={cs} sessionId="s1" dmUsername="dm"
+            onMessage={jest.fn()} onStateUpdate={setCs} onStateRefresh={jest.fn()}
+          />
+        </OverrideHostFor>
       );
     }
     render(<Harness />);
