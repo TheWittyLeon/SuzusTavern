@@ -24,7 +24,7 @@ export function useRegionFolds(moment: Moment) {
   const unreveal = useCallback((id: RegionId) => setRevealed((prev) => { if (!prev.has(id)) return prev; const next = new Set(prev); next.delete(id); return next; }), []);
   // A press on the handle is the user's own choice and it outranks the page's reveal: the reveal outranks a stored fold (so Move can open a folded map), so a press that only wrote the
   // choice would be dead while the reveal stood (the map stays open under a press that says fold). The press hands the decision back to the stored choice.
-  const onFoldChoice = useCallback((id: RegionId, choice: 'folded' | 'open') => { setFoldChoice(id, choice); unreveal(id); }, [setFoldChoice, unreveal]);
+  const onFoldChoice = useCallback((id: RegionId, choice: 'folded' | 'open' | 'none') => { setFoldChoice(id, choice); unreveal(id); }, [setFoldChoice, unreveal]);
   const unfold = useCallback((id: RegionId) => setFold(id, false), [setFold]);
   // Session state, beside the stored choice: a reveal lasts one fight.
   useEffect(() => {

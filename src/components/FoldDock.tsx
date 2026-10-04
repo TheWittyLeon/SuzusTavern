@@ -152,7 +152,8 @@ export default function FoldDock({
       aria-controls={body ?? panelId}
       aria-disabled={locked ? true : undefined}
       aria-describedby={locked ? reasonId : undefined}
-      title={`${folded ? 'Open' : 'Fold'} ${label.toLowerCase()}`}
+      // A locked handle's tooltip is its reason (a sighted hover or long-press user reads it; `aria-describedby` serves assistive technology), never "Open map" over a press that does nothing.
+      title={locked ? lockedReason : `${folded ? 'Open' : 'Fold'} ${label.toLowerCase()}`}
       onClick={locked ? undefined : onToggle}
     >
       {inBody ? (

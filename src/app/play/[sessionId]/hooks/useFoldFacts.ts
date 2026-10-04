@@ -41,7 +41,8 @@ export const FOLD_BANNER_REASON = 'Folded while the safety card is showing';
 /** The handle's reason when it was pressed with the handle partly out of view: the open is refused, not slid under the viewport. */
 export const FOLD_NO_ROOM_REASON = 'Scroll the handle into view to open';
 
-const BANNER = ':scope > [data-region-slot="safetyBanner"] > :not(:empty)';
+/** A raised safety banner, from the shell root: the ONE copy of the selector (PlayShell's fit measurement reads it too). */
+export const SAFETY_BANNER_SELECTOR = ':scope > [data-region-slot="safetyBanner"] > :not(:empty)';
 
 interface Args {
   rootRef: RefObject<HTMLDivElement | null>;
@@ -68,13 +69,15 @@ export function useFoldFacts({ rootRef, moment, candidates, stored, revealed }: 
   const schedule = useRef<(ms?: number) => void>(() => {});
   const gen = useRef(0);
   const parkedGen = useRef(-1);
-  const lastPress = useRef(-Infinity);
-  const step = useRef<{ id: RegionId; dir: 'open' | 'fold'; before: number; body: string } | null>(null);
+  // One press clock per fold: a second fold's handle is not deafened by the first's (the 400ms guard is for a handle that leaves from under a thumb, and only a body fold's does).
+  const lastPress = useRef(new Map<RegionId, number>());
+  const step = useRef<{ dir: 'open' | 'fold'; before: number; body: string } | null>(null);
 
   const gateOpen = useCallback(() => {
     const now = Date.now();
-    const held = touches.current > 0 && now - touchSince.current < FOLD_TOUCH_BACKSTOP_MS;
-    return !held && now - lastScroll.current >= FOLD_QUIET_MS;
+    // A finger that never reports its end stops holding the gate after the backstop, and stops being counted: the next touch starts from none (Tora MINOR-2).
+    if (touches.current > 0 && now - touchSince.current >= FOLD_TOUCH_BACKSTOP_MS) touches.current = 0;
+    return touches.current === 0 && now - lastScroll.current >= FOLD_QUIET_MS;
   }, []);
 
   const values = new Map<RegionId, FoldFact>();
@@ -115,11 +118,14 @@ export function useFoldFacts({ rootRef, moment, candidates, stored, revealed }: 
     const flush = () => {
       timer.current = undefined;
       if (!gateOpen()) { arm(); return; }
-      if (want.current) {
+      const wasWanted = want.current;
+      if (wasWanted) {
         want.current = false;
         setDecided((prev) => (Object.keys(prev).length ? {} : prev));
       }
-      setTick((t) => t + 1);
+      // Render again only where a render is what is wanted: a decision that was queued (it may land on `decided` already `{}`), or a fold still `auto` (it is waiting for its measurement, and the
+      // gate that held it is open now). Every other flush, the 150ms after every touch, changes nothing (Tora MINOR-3).
+      if (wasWanted || [...latest.current.values.values()].includes('auto')) setTick((t) => t + 1);
       if (anyOpenBody()) park();
     };
     function arm(ms = FOLD_QUIET_MS) {
@@ -128,15 +134,19 @@ export function useFoldFacts({ rootRef, moment, candidates, stored, revealed }: 
     }
     schedule.current = arm;
     const onTouch = (e: TouchEvent) => {
-      if (touches.current === 0 && e.touches.length > 0) touchSince.current = Date.now();
+      if (e.type === 'touchstart') touchSince.current = Date.now(); // every finger down refreshes the backstop's clock, not only the first
       touches.current = e.touches.length;
       // A finger down holds the gate; if its end never arrives, the backstop lets go (and flushes whatever was queued).
       arm(touches.current === 0 ? FOLD_QUIET_MS : FOLD_TOUCH_BACKSTOP_MS);
     };
-    const onScroll = () => {
+    const onScroll = (e: Event) => {
+      // ANY scroller counts for the quiet period (element scroll events do not bubble: a capture listener hears the party band, the story log and the board's window glide, which the touch gate
+      // no longer holds once the finger is up). Only the PAGE's own scroll is "the user scrolled the page" and clears a refused open (Tora MAJOR-2).
       lastScroll.current = Date.now();
-      if (Date.now() > ownScrollUntil.current) userScrolled.current = true;
-      setNoRoom((prev) => (prev === null ? prev : null));
+      if (e.target === document) {
+        if (Date.now() > ownScrollUntil.current) userScrolled.current = true;
+        setNoRoom((prev) => (prev === null ? prev : null));
+      }
       if (want.current) arm();
     };
     const onResize = () => { if (anyOpenBody()) park(); };
@@ -144,13 +154,13 @@ export function useFoldFacts({ rootRef, moment, candidates, stored, revealed }: 
     window.addEventListener('touchstart', onTouch, { capture: true, passive: true });
     window.addEventListener('touchend', onTouch, { capture: true, passive: true });
     window.addEventListener('touchcancel', onTouch, { capture: true, passive: true });
-    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('scroll', onScroll, { capture: true, passive: true });
     window.addEventListener('resize', onResize);
     return () => {
       window.removeEventListener('touchstart', onTouch, { capture: true });
       window.removeEventListener('touchend', onTouch, { capture: true });
       window.removeEventListener('touchcancel', onTouch, { capture: true });
-      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('scroll', onScroll, { capture: true });
       window.removeEventListener('resize', onResize);
       clearTimeout(timer.current);
     };
@@ -177,14 +187,16 @@ export function useFoldFacts({ rootRef, moment, candidates, stored, revealed }: 
   useLayoutEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- a fight starting / a fold appearing IS the event that asks for the decision again; it must land before paint (the shell's fit measurement does the same)
     redecide();
-    // A scroll the user made before this fight is refused, not forgotten: it holds the automatic scroll until the page settles or the fight is over.
-    if (moment !== 'combat') userScrolled.current = false;
-    if (moment === 'combat' && anyOpenBody()) park();
+    // A scroll the user made before this fight is refused, not forgotten: it holds the automatic scroll until the page settles or the fight is over. "The fight" is whatever moment the row gives a
+    // body fold: no moment is named here, the candidates (placed, collapsible, `when` holding) are the row's data.
+    const liveBody = latest.current.candidates.some((c) => c.body !== undefined);
+    if (!liveBody) userScrolled.current = false;
+    if (liveBody && anyOpenBody()) park();
   }, [moment, liveKey, redecide, anyOpenBody, park]);
 
   // A banner is stamped from the DOM, the way the shell's fit measurement reads it: a safety banner up with a body fold folds it at once.
   const stampBanner = useCallback(() => {
-    const up = !!rootRef.current?.querySelector(BANNER);
+    const up = !!rootRef.current?.querySelector(SAFETY_BANNER_SELECTOR);
     setBanner((prev) => (prev === up ? prev : up));
   }, [rootRef]);
   useLayoutEffect(() => {
@@ -230,20 +242,20 @@ export function useFoldFacts({ rootRef, moment, candidates, stored, revealed }: 
     window.scrollBy({ top: by, behavior: 'instant' });
   });
 
-  /** A press on a handle. `write` stores the user's choice (the only thing that ever does). */
+  /** A press on a handle: the ONE path every fold's press takes. `write` stores the user's choice (the only thing that ever does); the caller's `write` also hands the id back from a reveal. */
   const press = useCallback((c: FoldCandidate, write: (next: 'folded' | 'open') => void) => {
-    const now = Date.now();
-    if (now - lastPress.current < FOLD_REACTIVATE_MS) return;
-    lastPress.current = now;
     const open = latest.current.values.get(c.id) !== 'folded';
     const next = open ? 'folded' : 'open';
     if (c.body !== undefined) {
+      const now = Date.now();
+      if (now - (lastPress.current.get(c.id) ?? -Infinity) < FOLD_REACTIVATE_MS) return;
+      lastPress.current.set(c.id, now);
       const bodyEl = document.getElementById(c.body);
       if (next === 'open') {
         const r = rootRef.current?.querySelector(`[aria-controls="${c.body}"]`)?.getBoundingClientRect();
         if (r && (r.top < 0 || r.bottom > window.innerHeight)) { setNoRoom(c.id); return; }
       }
-      step.current = { id: c.id, dir: next === 'open' ? 'open' : 'fold', before: bodyEl?.getBoundingClientRect().height ?? 0, body: c.body };
+      step.current = { dir: next === 'open' ? 'open' : 'fold', before: bodyEl?.getBoundingClientRect().height ?? 0, body: c.body };
     }
     write(next);
   }, [rootRef]);

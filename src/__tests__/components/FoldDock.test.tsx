@@ -189,6 +189,18 @@ describe('FoldDock body mode: the handle is placed by the region, the folded sta
     expect(onToggle).not.toHaveBeenCalled();
   });
 
+  it('a locked handle\'s tooltip is its reason, never "Open map" over a press that does nothing (Iro m-4)', () => {
+    mount({ onToggle: jest.fn(), lockedReason: 'Folded while the safety card is showing' });
+    expect(screen.getByRole('button', { name: 'Map' })).toHaveAttribute('title', 'Folded while the safety card is showing');
+  });
+
+  it('the handle takes touch-action: manipulation (a second tap inside the 400ms guard must not be a double-tap zoom) and the corner-float rule never matches a body handle (Tora MINOR-4, Iro m-5)', () => {
+    const css = readFileSync(resolvePath(process.cwd(), 'src/components/FoldDock.module.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const rule = (sel: string) => { const at = css.indexOf(`${sel} {`); return at < 0 ? '' : css.slice(at, css.indexOf('}', at)); };
+    expect(rule('.handle')).toMatch(/touch-action:\s*manipulation/);
+    expect(rule(".dock:not([data-folded='true']) .handle:not(.handleBody)")).toMatch(/position:\s*absolute/);
+  });
+
   it('a body dock whose region renders no slot throws in development', () => {
     const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
     expect(() => render(<FoldDock folded={false} onToggle={jest.fn()} label="Map" icon="Map" body="b"><div id="b" data-fold-body /></FoldDock>)).toThrow(/FoldHandleSlot/);

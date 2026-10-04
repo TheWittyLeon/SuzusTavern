@@ -12,6 +12,7 @@ import { FOLDS_KEY, FOLDS_OPEN_KEY } from '@/lib/theme/theme';
 import { FoldHandleSlot, useFoldBody } from '@/components/FoldDock';
 import { useRegionFolds } from '@/app/play/[sessionId]/hooks/useRegionFolds';
 import { LAYOUT_ROWS_BY_ID, getPlacement, type LayoutRow } from '@/app/play/[sessionId]/presets';
+import { FOLD_QUIET_MS } from '@/app/play/[sessionId]/hooks/useFoldFacts';
 
 jest.mock('../../app/play/[sessionId]/presets', () => {
   const actual = jest.requireActual('../../app/play/[sessionId]/presets');
@@ -89,7 +90,7 @@ describe('a decision queued behind a scroll event is applied once the page is qu
     setWidth(430);
     act(() => observers.forEach((f) => f()));
     expect(floorVar()).toBe('OPEN'); // held: correct
-    act(() => { jest.advanceTimersByTime(5000); });
+    act(() => { jest.advanceTimersByTime(FOLD_QUIET_MS + 1); }); // 150 ms after the last scroll: not 5 s, the flush is SCHEDULED
     expect(floorVar()).toBe('FOLDED'); // red if the queue is never flushed
     delete (proto as unknown as Record<string, unknown>).scrollHeight;
     delete (proto as unknown as Record<string, unknown>).clientHeight;

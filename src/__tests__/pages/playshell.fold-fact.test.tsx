@@ -27,11 +27,11 @@ const BODY = 'play-scene-stage-body';
 const phone = LAYOUT_ROWS_BY_ID.phone;
 
 /** The phone row with a measured, collapsible stage and a table for `fold:sceneStage`: the vars it answers are what the grid's style shows. */
-function foldRow(over: { foldDefault?: 'open' | 'fits'; table?: boolean } = {}): LayoutRow {
+function foldRow(over: { foldDefault?: 'open' | 'fits'; table?: boolean; everywhere?: boolean } = {}): LayoutRow {
   const place = { ...getPlacement(phone, 'sceneStage', 'combat'), collapsible: true, foldDefault: over.foldDefault ?? 'fits' };
   return {
     ...phone,
-    regions: { ...phone.regions, sceneStage: { default: { ...place, area: 'sceneStage' }, combat: place } },
+    regions: { ...phone.regions, sceneStage: { default: over.everywhere ? { ...place, area: 'sceneStage' } : { ...phone.regions.sceneStage.default, area: 'sceneStage' }, combat: place } }, // collapsible in the fight only, as a real row declares it
     factVars: over.table === false ? phone.factVars : {
       ...phone.factVars,
       'fold:sceneStage': { auto: { '--play-body-floor': 'AUTO' }, open: { '--play-body-floor': 'OPEN' }, folded: { '--play-body-floor': 'FOLDED' } },
@@ -215,8 +215,8 @@ describe('the measured default (4.2): the page renders once at the `auto` floor,
 describe('the decision is made again on exactly three events', () => {
   it('1. a fight starting: the moment changes', () => {
     const restore = pageScrolls(false);
-    const s = shell(foldRow(), { moment: 'exploring' });
-    // exploring: the fold is live (it only needs `when`); decided open on the fitting page
+    const s = shell(foldRow({ everywhere: true }), { moment: 'exploring' });
+    // exploring: the fold is live here (this row declares it in every moment); decided open on the fitting page
     expect(floorVar()).toBe('OPEN');
     restore();
     const restore2 = pageScrolls(true);
@@ -506,7 +506,7 @@ describe('the scroll step (4.3, addendum): the map opens UPWARD, and the handle 
     expect(onFoldChoice).not.toHaveBeenCalled();
     expect(handle()).toHaveAttribute('aria-disabled', 'true');
     expect(document.getElementById(handle().getAttribute('aria-describedby')!)).toHaveTextContent(FOLD_NO_ROOM_REASON);
-    act(() => { window.dispatchEvent(new Event('scroll')); });
+    act(() => { document.dispatchEvent(new Event('scroll')); }); // the PAGE scrolled: a document scroll
     expect(handle()).not.toHaveAttribute('aria-disabled');
   });
 });
@@ -551,7 +551,7 @@ describe('the automatic cases (addendum): the page is left at its end, once, nev
     s.again({ moment: 'combat' });
     expect(to).toHaveBeenCalledTimes(2);
     s.again({ moment: 'exploring' });
-    act(() => { jest.advanceTimersByTime(1000); window.dispatchEvent(new Event('scroll')); jest.advanceTimersByTime(FOLD_QUIET_MS + 1); });
+    act(() => { jest.advanceTimersByTime(1000); document.dispatchEvent(new Event('scroll')); jest.advanceTimersByTime(FOLD_QUIET_MS + 1); });
     s.again({ moment: 'combat' });
     expect(to).toHaveBeenCalledTimes(2);
   });
@@ -591,28 +591,89 @@ describe('a finger that is CANCELLED (a system gesture, a call) lets go of the g
   });
 });
 
-describe('what a press on the handle writes: the legacy two-state fold only where the region has no body AND its default is not measured', () => {
+describe('ONE press path: every live fold writes a choice through the same press (so it clears a reveal); only the legacy two-state fold writes "none" for open', () => {
   const NO_BODY: FoldSpec = { label: 'Map', icon: 'Map', when: { room: 'board' } };
-  function press(row: LayoutRow, spec: FoldSpec) {
+  /** Press, then press again with the first choice stored (the shell is rendered from storage, as the page does). */
+  function twice(row: LayoutRow, spec: FoldSpec) {
     const onToggleFold = jest.fn();
     const onFoldChoice = jest.fn();
-    shell(row, { onToggleFold, onFoldChoice, foldSpecs: { sceneStage: spec } });
+    const s = shell(row, { onToggleFold, onFoldChoice, foldSpecs: { sceneStage: spec } });
     fireEvent.click(handle());
-    return { onToggleFold, onFoldChoice };
+    s.again({ foldedRegions: new Set(['sceneStage']) });
+    jest.useFakeTimers(); // (only to be explicit: no body fold's 400ms clock is involved for a body-less one)
+    jest.useRealTimers();
+    return { onToggleFold, onFoldChoice, s };
   }
-  it('no body, default open: the legacy toggle (the character sheet\'s fold, as it always was)', () => {
-    const r = press(foldRow({ foldDefault: 'open' }), NO_BODY);
-    expect(r.onToggleFold).toHaveBeenCalledWith('sceneStage');
-    expect(r.onFoldChoice).not.toHaveBeenCalled();
-  });
-  it('no body, measured default: a stored choice (folded / open), never the legacy toggle (a measured fold needs the third state)', () => {
-    const r = press(foldRow({ foldDefault: 'fits' }), NO_BODY);
-    expect(r.onFoldChoice).toHaveBeenCalledWith('sceneStage', 'folded');
+  it('no body, default open (the character sheet\'s fold): folded, then NONE (what it always stored), never the old toggle', () => {
+    const r = twice(foldRow({ foldDefault: 'open' }), NO_BODY);
+    fireEvent.click(handle());
+    expect(r.onFoldChoice.mock.calls).toEqual([['sceneStage', 'folded'], ['sceneStage', 'none']]);
     expect(r.onToggleFold).not.toHaveBeenCalled();
   });
-  it.each(['open', 'fits'] as const)('a body, default %s: a stored choice', (foldDefault) => {
-    const r = press(foldRow({ foldDefault }), SPEC);
-    expect(r.onFoldChoice).toHaveBeenCalledWith('sceneStage', 'folded');
-    expect(r.onToggleFold).not.toHaveBeenCalled();
+  it('no body, measured default: folded, then OPEN (a measured fold needs the third state); the mutation (the legacy test flipped) writes none here', () => {
+    const r = twice(foldRow({ foldDefault: 'fits' }), NO_BODY);
+    fireEvent.click(handle());
+    expect(r.onFoldChoice.mock.calls).toEqual([['sceneStage', 'folded'], ['sceneStage', 'open']]);
+  });
+  it('a body: folded, then open (after its 400ms re-activation guard)', () => {
+    jest.useFakeTimers();
+    const onFoldChoice = jest.fn();
+    const s = shell(foldRow({ foldDefault: 'fits' }), { onFoldChoice });
+    fireEvent.click(handle());
+    s.again({ foldedRegions: new Set(['sceneStage']) });
+    act(() => { jest.advanceTimersByTime(FOLD_REACTIVATE_MS + 1); });
+    fireEvent.click(handle());
+    expect(onFoldChoice.mock.calls).toEqual([['sceneStage', 'folded'], ['sceneStage', 'open']]);
+  });
+  it('a caller that gives no `onFoldChoice` keeps the old toggle (nothing stores a third state for it)', () => {
+    const onToggleFold = jest.fn();
+    shell(foldRow({ foldDefault: 'open' }), { onToggleFold, onFoldChoice: undefined, foldSpecs: { sceneStage: NO_BODY } });
+    fireEvent.click(handle());
+    expect(onToggleFold).toHaveBeenCalledWith('sceneStage');
+  });
+  it('the 400ms guard is per fold and for a BODY handle only: a body-less fold can be pressed twice at once (a desktop sheet\'s fold was never deafened)', () => {
+    const onFoldChoice = jest.fn();
+    shell(foldRow({ foldDefault: 'open' }), { onFoldChoice, foldSpecs: { sceneStage: NO_BODY } });
+    fireEvent.click(handle());
+    fireEvent.click(handle());
+    expect(onFoldChoice).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('a fold that APPEARS under a finger is not decided until the finger lifts (the decide() gate; Kage I-4)', () => {
+  it('event 2 under a finger: a board arrives while a touch is down -> auto (held), then decided 150 ms after the lift (the mutation: no gate in decide() folds it under the finger)', () => {
+    jest.useFakeTimers();
+    const s = shell(foldRow(), { facts: { room: 'none' } });
+    const restore = pageScrolls(true);
+    act(() => { fireEvent.touchStart(document.body, { touches: [{ clientX: 1, clientY: 1 }] }); });
+    s.again({ facts: { room: 'board' } });
+    expect(floorVar()).toBe('AUTO');
+    act(() => { fireEvent.touchEnd(document.body, { touches: [] }); });
+    act(() => { jest.advanceTimersByTime(FOLD_QUIET_MS + 1); });
+    expect(floorVar()).toBe('FOLDED');
+    restore();
+  });
+});
+
+describe('the after-scroll gate hears EVERY scroller (Tora MAJOR-2): a band, a log or a board window gliding after the finger lifted holds a decision for 150 ms after its last scroll', () => {
+  it('a scroll event on an ELEMENT (no bubbling) holds a queued width change; it lands 150 ms after that scroll, and the page is not "scrolled by the user" (a park is still allowed)', () => {
+    jest.useFakeTimers();
+    const restore = pageScrolls(false);
+    shell(foldRow());
+    setWidth(390);
+    act(() => ro.cb());
+    restore();
+    const restore2 = pageScrolls(true);
+    const band = document.createElement('div');
+    document.body.appendChild(band);
+    act(() => { band.dispatchEvent(new Event('scroll')); }); // does not bubble: only a capture listener on the window hears it
+    setWidth(430);
+    act(() => ro.cb());
+    act(() => { jest.advanceTimersByTime(100); band.dispatchEvent(new Event('scroll')); jest.advanceTimersByTime(100); });
+    expect(floorVar()).toBe('OPEN'); // 100 ms after the LAST element scroll
+    act(() => { jest.advanceTimersByTime(60); });
+    expect(floorVar()).toBe('FOLDED');
+    band.remove();
+    restore2();
   });
 });

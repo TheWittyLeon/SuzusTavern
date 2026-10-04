@@ -95,7 +95,7 @@ import {
 } from './presets';
 import ScrollKeeper from './ScrollKeeper';
 import { whenMatches, type FoldChoice } from './foldState';
-import { useFoldFacts, type FoldCandidate } from './hooks/useFoldFacts';
+import { SAFETY_BANNER_SELECTOR, useFoldFacts, type FoldCandidate } from './hooks/useFoldFacts';
 import styles from './Play.module.css';
 
 /** Copy and icon for a region's fold handle — labels only, no behaviour. */
@@ -136,7 +136,7 @@ export interface PlayShellProps {
   /** B8c-4 P0: the ids the page opened for THIS fight only (`reveal`); session state, never stored. */
   revealedRegions?: ReadonlySet<RegionId>;
   /** B8c-4 P0: writes a stored choice from a press on a body or measured fold's handle. Absent = such a press calls `onToggleFold`. A region whose default is open uses `onToggleFold`, as before. */
-  onFoldChoice?: (id: RegionId, choice: 'folded' | 'open') => void;
+  onFoldChoice?: (id: RegionId, choice: 'folded' | 'open' | 'none') => void;
   /** The two `<Drawer>`s + `<ConfirmDialog>` — overlay hosts, outside the
    *  grid; position within this root doesn't matter (they are
    *  fixed/portal-adjacent), kept trailing for file readability. */
@@ -230,7 +230,7 @@ export default function PlayShell({
       const has = root.querySelector(':scope > [data-region-slot="storyLog"] > [data-region="tableControlsDm"]') != null;
       setDmStack((prev) => (prev === has ? prev : has));
     }
-    if (!root || root.querySelector(':scope > [data-region-slot="safetyBanner"] > :not(:empty)')) return;
+    if (!root || root.querySelector(SAFETY_BANNER_SELECTOR)) return;
     const next = root.scrollHeight > root.clientHeight + 1;
     setScrolls((prev) => (prev === next ? prev : next));
   }, []);
@@ -312,9 +312,11 @@ export default function PlayShell({
           folded={candidate ? foldValues.get(regionId) === 'folded' : false}
           lockedReason={candidate ? lockedReason(candidate) : undefined}
           onToggle={() => {
-            // A region whose default is open and that has no body is the legacy two-state fold (folded or nothing). A body or a measured fold writes folded / open (brief 2.3).
-            if (!candidate || (candidate.body === undefined && !candidate.fits) || !onFoldChoice) onToggleFold?.(regionId);
-            else pressFold(candidate, (next) => onFoldChoice(regionId, next));
+            // ONE press path (Kage I-3): every live fold's press goes through `pressFold` and writes a choice, so a press clears that id's reveal for every region. A region whose default is open and that
+            // has no body is the legacy two-state fold (folded or nothing): its "open" is written as `none`, exactly what it always stored. A caller with no `onFoldChoice` keeps the old toggle.
+            if (!candidate || !onFoldChoice) { onToggleFold?.(regionId); return; }
+            const legacy = candidate.body === undefined && !candidate.fits;
+            pressFold(candidate, (next) => onFoldChoice(regionId, legacy && next === 'open' ? 'none' : next));
           }}
         >
           {regionNode}
