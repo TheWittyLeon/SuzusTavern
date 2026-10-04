@@ -184,6 +184,14 @@ describe('TurnOrderButton.module.css: the frame, and a sticky 44 x 44 target', (
     expect(b).toMatch(/position:\s*sticky/);
     expect(b).toMatch(/touch-action:\s*manipulation/);
   });
+  it('while the button is shown the tiles close up to 4px so five fit beside it at 390 (measured: 270px needed in a 262px column at 6px); only the framed band, never the plain strip', () => {
+    const at = css.indexOf("ul[aria-labelledby='party-panel-label'] {");
+    expect(at).toBeGreaterThan(-1);
+    expect(css.slice(css.lastIndexOf('\n', at), css.indexOf('}', at))).toMatch(/\.frame ul\[aria-labelledby='party-panel-label'\]\s*\{\s*gap:\s*var\(--space-2\)/);
+    const party = fs.readFileSync(path.resolve(process.cwd(), 'src/components/PartyPanel.module.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(party.slice(party.indexOf('.strip .list {'), party.indexOf('}', party.indexOf('.strip .list {')))).toMatch(/gap:\s*6px/);
+  });
+
   it('the active row\'s focus ring is drawn INSIDE the row (the band is a scroller that clips an outward ring)', () => {
     const t = fs.readFileSync(path.resolve(process.cwd(), 'src/components/InitiativeTracker.module.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
     const at = t.indexOf('.entry:focus-visible {');

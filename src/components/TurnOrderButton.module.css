@@ -39,3 +39,8 @@
   background: color-mix(in oklab, var(--accent) 12%, transparent);
   color: var(--ink);
 }
+
+/* FIVE TILES AT 390 (brief 7.3, "260 px of 262"): measured at 390 the column the button leaves the tile row is 262px, and five tiles need 5 x 46 + 4 x 6 + the row's 16px of end padding = 270. All five are whole, so no "+N" cue is drawn (none is hidden), but the row then scrolls by that padding alone and the sideways-cue rule (v:sidewaysCue, Iro Minor-6) calls a row that scrolls with no cue a defect. While the button is shown the tiles close up from 6px to 4px: 246 + 16 = 262, exactly the column. At 360 (232px) the row scrolls for real and the "+N" cue is drawn as before. Only the framed band is touched: the exploring strip and every desktop rail keep their 6px. */
+.frame ul[aria-labelledby='party-panel-label'] {
+  gap: var(--space-2);
+}
