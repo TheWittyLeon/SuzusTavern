@@ -127,10 +127,11 @@ export default function SceneStage({
   const wasHeld = useRef(held);
   useLayoutEffect(() => {
     const at = document.activeElement;
-    const stranded = at == null || at === document.body;
-    // Two edges drop focus to <body> because the control that held it leaves: the fight ending (the held End combat goes) and the fight turning held (the generic End combat
-    // and its chooser go, another tab's override). Both land on the scene head; focus that is somewhere else is left alone.
-    if (stranded && ((!combatIsActive && endedFromHold.current) || (held && !wasHeld.current))) sceneHeadRef.current?.focus({ preventScroll: true });
+    // A modal dialog that is open owns focus (the override dialog moves it itself when its own radio unmounts): the stage never drags focus out from behind it.
+    const stranded = (at == null || at === document.body) && !document.querySelector('[role="dialog"][aria-modal="true"]');
+    // Three edges drop focus to <body> because the control that held it leaves: the fight ending (the held End combat goes), the fight turning held (the generic End combat and its
+    // chooser go, another tab's override) and the hold lifting (the held buttons go, another tab's revive). All land on the scene head; focus that is somewhere else is left alone.
+    if (stranded && ((!combatIsActive && endedFromHold.current) || (held !== wasHeld.current))) sceneHeadRef.current?.focus({ preventScroll: true });
     wasHeld.current = held;
     if (!combatIsActive || !held) endedFromHold.current = false;
   }, [combatIsActive, held, sceneHeadRef]);

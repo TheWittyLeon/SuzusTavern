@@ -40,8 +40,10 @@ import {
   useState,
 } from 'react';
 import { submitOverride } from '@/lib/api/dnd';
+import { isFightHeld } from '@/app/play/[sessionId]/format';
 import type {
   CombatParticipantState,
+  CombatState,
   OverrideKind,
   OverrideAttackOutcome,
   OverrideCheckOutcome,
@@ -96,6 +98,8 @@ function parseNewHp(text: string, edited: boolean): NewHpParse {
 type DialogKind = OverrideKind | 'revive';
 const KIND_ORDER: DialogKind[] = ['attack', 'check', 'save', 'damage', 'revive'];
 const REVIVE_ONLY: DialogKind[] = ['revive'];
+/** The engine's sentence for a non-revive override on a held fight; the fallback when the refusal carries none. */
+const HELD_REFUSAL_COPY = 'The fight is waiting for the DM: revive a character or end the combat.';
 
 /** Revive: HP the character comes back with. Whole number 1..max (a revive to 0 is not a revive). */
 function parseReviveHp(text: string, max: number): { ok: true; value: number } | { ok: false; message: string } {
@@ -360,6 +364,18 @@ export default function DmOverrideModal({
     if (!choose) reviveHpRef.current?.select();
   });
 
+  // The fight turns HELD under an open dialog (another tab's override): the kinds shrink to Revive, so the radio that held focus unmounts and focus would fall to <body>.
+  // Put it on the Revive radio. Focus that is still inside the dialog (the Reason box, say) is left where it is.
+  const wasHeldRef = useRef(held);
+  useLayoutEffect(() => {
+    const rising = held && !wasHeldRef.current;
+    wasHeldRef.current = held;
+    if (!open || !rising) return;
+    const at = document.activeElement;
+    if (at && at !== document.body && dialogRef.current?.contains(at)) return;
+    dialogRef.current?.querySelector<HTMLElement>('input[type="radio"][value="revive"]')?.focus({ preventScroll: true });
+  });
+
   // Initialise actor when modal opens or participants change
   useEffect(() => {
     if (!open) return;
@@ -580,7 +596,12 @@ export default function DmOverrideModal({
         (body as { data?: { reason?: string } } | null)?.data?.reason ?? null;
 
       focusErrorNext.current = true;
-      if (isRevive && engineReason === 'combat_not_active') {
+      // The refusal carries the fight's state (the engine sends the whole object). A HELD fight refuses a non-revive with its own sentence; the static map's "Combat is not active."
+      // (and a revive's "The fight has ended") would be untrue of it.
+      const refusedState = (body as { data?: { state?: CombatState } } | null)?.data?.state;
+      if (engineReason === 'combat_not_active' && isFightHeld(refusedState)) {
+        refuse(engineMessage ?? HELD_REFUSAL_COPY, 'reason');
+      } else if (isRevive && engineReason === 'combat_not_active') {
         refuse('The fight has ended, so no one can be revived in it.', 'reason');
       } else if (isRevive && engineReason === 'target_down') {
         refuse(`${target?.name ?? 'That character'} can't be revived.${engineMessage ? ` ${engineMessage}` : ''}`, 'reason');

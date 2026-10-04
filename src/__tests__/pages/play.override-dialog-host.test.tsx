@@ -120,6 +120,55 @@ describe('a held fight: the dialog offers Revive only', () => {
   });
 });
 
+describe('a refused combat_not_active: the engine\'s own sentence when the refusal says the fight is held', () => {
+  const HELD_SENTENCE = 'The fight is waiting for the DM: revive a character or end the combat.';
+  const refusal = (stateObj: unknown, message = HELD_SENTENCE) =>
+    Object.assign(new Error('refused'), { status: 400, body: { success: false, message, data: { reason: 'combat_not_active', state: stateObj, message } } });
+  const send = async (kindRadio: RegExp | null) => {
+    if (kindRadio) fireEvent.click(screen.getByRole('radio', { name: kindRadio }));
+    fireEvent.change(screen.getByLabelText(/Reason/i), { target: { value: 'because' } });
+    await act(async () => { fireEvent.click(document.querySelector('button[type="submit"]') as HTMLElement); });
+  };
+
+  it('a non-revive refused with a HELD state shows the engine\'s sentence, not "Combat is not active."', async () => {
+    mockSubmitOverride.mockRejectedValue(refusal(fight([GOBLIN, DEAD], 'held')));
+    render(host());
+    fireEvent.click(screen.getByRole('button', { name: 'open A' }));
+    await send(/Check/i);
+    expect((await screen.findByRole('alert')).textContent).toBe(HELD_SENTENCE);
+  });
+
+  it('a revive refused with a HELD state shows it too, not "The fight has ended"', async () => {
+    mockSubmitOverride.mockRejectedValue(refusal(fight([GOBLIN, DEAD], 'held')));
+    render(host());
+    fireEvent.click(screen.getByRole('button', { name: 'open B' }));
+    await send(null);
+    expect((await screen.findByRole('alert')).textContent).toBe(HELD_SENTENCE);
+  });
+
+  it('the fallback sentence is used when a held refusal carries no message', async () => {
+    mockSubmitOverride.mockRejectedValue(Object.assign(new Error('refused'), { status: 400, body: { data: { reason: 'combat_not_active', state: fight([GOBLIN, DEAD], 'held') } } }));
+    render(host());
+    fireEvent.click(screen.getByRole('button', { name: 'open B' }));
+    await send(null);
+    expect((await screen.findByRole('alert')).textContent).toBe(HELD_SENTENCE);
+  });
+
+  it('controls: a refusal whose state is ended, or carries none, keeps the static copy (a revive: the fight has ended)', async () => {
+    mockSubmitOverride.mockRejectedValue(refusal(fight([GOBLIN, DEAD], 'ended'), 'Combat is not active.'));
+    const { unmount } = render(host());
+    fireEvent.click(screen.getByRole('button', { name: 'open B' }));
+    await send(null);
+    expect((await screen.findByRole('alert')).textContent).toBe('The fight has ended, so no one can be revived in it.');
+    unmount();
+    mockSubmitOverride.mockRejectedValue(Object.assign(new Error('refused'), { status: 400, body: { data: { reason: 'combat_not_active' } } }));
+    render(host());
+    fireEvent.click(screen.getByRole('button', { name: 'open B' }));
+    await send(null);
+    expect((await screen.findByRole('alert')).textContent).toBe('The fight has ended, so no one can be revived in it.');
+  });
+});
+
 describe('a successful override', () => {
   it('writes the amber ruling row, hands the new state up, and closes', async () => {
     const after = fight([GOBLIN, mk('pc-1', 'Kestrel', 14, 34)]);
