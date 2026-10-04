@@ -186,6 +186,12 @@
   color: var(--crit-ink); /* text-safe on candlelit (A11Y S3.1) */
 }
 
+/* B8c-4 P1c: the active row is the party band's tab stop. The band is a scroller (a ring drawn outside the row is clipped by it), so the ring is drawn INSIDE the row. */
+.entry:focus-visible {
+  outline: var(--focus-ring-width) solid var(--accent);
+  outline-offset: calc(-1 * var(--focus-ring-width));
+}
+
 /* Death-save assertive live region — visually hidden but screen-reader audible */
 .deathAlert {
   position: absolute;

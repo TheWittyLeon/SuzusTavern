@@ -1,0 +1,41 @@
+/* ── B8c-4 P1c (Sora's phone-mount brief 7.3): "Turn order" in the party band ──────────────────────────────────────────────────────────────────────────────────────────────────────
+   On a phone in a fight the band holds the tile row and, below it, the initiative tracker; the band is 91px, so the tracker is off screen at rest. A 44x44 button scrolls the band to
+   it and back (components/TurnOrderButton.tsx). Only while it is shown (`.frame` is on the region root only then) the root is a grid of the content column and a 44px column that
+   belongs to the button, so the tiles and the tracker both leave it clear: the button sits over nothing. The button spans both rows and is STICKY, so while the band scrolls it stays
+   where the thumb found it: at the bottom of the first tile row, aligned with the band's other trailing controls (the row is 22px of label and 57px of tile, so 35px down). */
+.frame {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  column-gap: var(--space-4);
+}
+
+.frame > * {
+  grid-column: 1;
+}
+
+.frame > .button {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: start;
+  position: sticky;
+  top: 35px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: var(--radius-xs);
+  /* A11Y-BUTTON-BORDER-CONTRAST: clickable - --line-strong clears WCAG 1.4.11's 3:1 non-text contrast. */
+  border: 1px solid var(--line-strong);
+  background: color-mix(in oklab, var(--ink) 4%, transparent);
+  color: var(--ink-2);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.frame > .button:hover,
+.frame > .button[aria-expanded='true'] {
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
+  color: var(--ink);
+}
