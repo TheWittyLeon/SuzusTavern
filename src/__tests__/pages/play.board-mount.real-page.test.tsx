@@ -13,7 +13,7 @@
  * comes back for `space: null`); a participant spread into the line -> 5 goes red; the child ungated from `stageHasBody` -> 6's flag-off case goes red; the phone row's combat stage put back to `inline` -> 6's board case goes red.
  */
 import React from 'react';
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { renderPlay } from '@/test-utils/renderPlay';
 import '@testing-library/jest-dom';
 import type { CombatSpace, CombatState, GroundingData, Participant, Session } from '@/lib/api/types';
@@ -291,6 +291,17 @@ describe('the phone row (B8c-4 P1): a fight\'s stage is a hero, the map in its b
     const endCombat = within(stage(c)).getByRole('button', { name: /^End combat/ });
     expect(endCombat.compareDocumentPosition(h) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(h.compareDocumentPosition(body(c)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('the page passes the row\'s stripLine to the stage: the phone\'s hero strip shows the round beside the status; a desktop hero does not (the real wiring, not the component\'s)', async () => {
+    phone();
+    const p = await load(combat(SPACE));
+    expect(statusNode(p)).toHaveTextContent(/· round 1/);
+    expect(statusNode(p).querySelector('span[aria-hidden]')).not.toBeNull();
+    cleanup();
+    desktop();
+    const d = await load(combat(SPACE));
+    expect(statusNode(d)).not.toHaveTextContent(/round 1/);
   });
 
   it('the handle folds the body: `hidden`, the grid still mounted; a second press opens it again', async () => {
