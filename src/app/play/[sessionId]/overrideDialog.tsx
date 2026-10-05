@@ -26,6 +26,8 @@ export interface OverrideRequest {
 
 export interface OverrideDialog {
   open: (request?: OverrideRequest) => void;
+  /** The dialog is up. The held strip's End combat does not open its confirm over it. */
+  isOpen: boolean;
 }
 
 const OverrideDialogContext = createContext<OverrideDialog | null>(null);
@@ -65,7 +67,7 @@ export function OverrideDialogHost({
   // Kept for the whole tab, not just while the dialog is open: Revive's default is the HP this tab last SAW them alive with.
   const lastAliveHp = useLastAliveHp(combatState?.participants ?? NO_PARTICIPANTS);
   const enabled = isHumanDM && !!combatId && isFightLive(combatState);
-  const dialog = useMemo<OverrideDialog | null>(() => (enabled ? { open: (r = {}) => setRequest(r) } : null), [enabled]);
+  const dialog = useMemo<OverrideDialog | null>(() => (enabled ? { open: (r = {}) => setRequest(r), isOpen: request !== null } : null), [enabled, request]);
   // The fight ending (or the seat losing the DM) takes the dialog with it; a request left behind would reopen it with the next fight.
   if (!enabled && request) setRequest(null);
 

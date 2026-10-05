@@ -9,14 +9,14 @@
 import fs from 'fs';
 import path from 'path';
 import { useEffect, useRef, useState } from 'react';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 const mockSubmitOverride = jest.fn();
 jest.mock('../../lib/api/dnd', () => ({ submitOverride: (...a: unknown[]) => mockSubmitOverride(...a) }));
 
 import SceneStage from '@/app/play/[sessionId]/regions/SceneStage';
-import { HELD_LINE_DM, HELD_LINE_WAITING } from '@/app/play/[sessionId]/format';
+import { HELD_END_BODY, HELD_LINE_DM, HELD_LINE_WAITING } from '@/app/play/[sessionId]/format';
 import { OverrideHostFor } from '@/test-utils/OverrideHostFor';
 import type { CombatParticipantState, CombatState } from '@/lib/api/types';
 
@@ -32,7 +32,7 @@ const fight = (state: CombatState['state']): CombatState => ({
 const endCalls: string[] = [];
 let setChooser: ((open: boolean) => void) | null = null;
 
-function Stage({ state = 'held', dm = true, variant }: { state?: CombatState['state'] | null; dm?: boolean; variant?: 'inline' | 'panel' | 'hero' }) {
+function Stage({ state = 'held', dm = true, host = false, aiTable = false, variant }: { state?: CombatState['state'] | null; dm?: boolean; host?: boolean; aiTable?: boolean; variant?: 'inline' | 'panel' | 'hero' }) {
   const headRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLButtonElement>(null);
   const openerRef = useRef<HTMLButtonElement>(null);
@@ -48,11 +48,11 @@ function Stage({ state = 'held', dm = true, variant }: { state?: CombatState['st
         sceneHasEncounter={false} combatBusy={false} endCombatBtnRef={endRef} outcomeChooserOpen={chooser} setOutcomeChooserOpen={setChooserOpen}
         lastOpenerRef={openerRef} allHostilesDown={false} anyMonsterDown onEndCombat={(o) => { endCalls.push(o); setLive(false); }}
         beginCombatRef={beginRef} onBeginEncounter={() => {}} talking={false} sessionLocked={false} rollBusy={false}
-        held={state === 'held'} variant={variant} round={2}
+        held={state === 'held'} canEndHeld={host} variant={variant} round={2}
       />
     </aside>
   );
-  return dm ? <OverrideHostFor combatState={cs}>{stage}</OverrideHostFor> : stage;
+  return dm ? <OverrideHostFor combatState={cs} isHumanDM={!aiTable}>{stage}</OverrideHostFor> : stage;
 }
 
 const status = () => document.querySelector('[data-region="sceneStage"] [role="status"]') as HTMLElement;
@@ -74,9 +74,13 @@ describe('the DM sees the line and both exits', () => {
     expect(revive.compareDocumentPosition(end) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('End combat sends exactly `tpk`, once, and opens no chooser', () => {
+  it('End combat asks first, then sends exactly `tpk`, once, and opens no chooser', () => {
     render(<Stage />);
     fireEvent.click(screen.getByRole('button', { name: 'End combat' }));
+    expect(endCalls).toEqual([]);
+    const dialog = screen.getByRole('dialog', { name: 'End the fight?' });
+    expect(dialog).toHaveTextContent(HELD_END_BODY);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'End combat' }));
     expect(endCalls).toEqual(['tpk']);
     expect(screen.queryByText('How does this fight end?')).toBeNull();
     expect(screen.queryByRole('group', { name: 'Choose combat outcome' })).toBeNull();
@@ -160,7 +164,9 @@ describe('focus', () => {
     const end = screen.getByRole('button', { name: 'End combat' });
     end.focus();
     fireEvent.click(end);
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'End combat' }));
     expect(screen.queryByRole('button', { name: 'End combat' })).toBeNull();
+    expect(screen.queryByRole('dialog')).toBeNull();
     expect(document.activeElement).toBe(screen.getByRole('group', { name: /^Scene:/ }));
   });
 });
@@ -193,5 +199,95 @@ describe('Revive… opens the dialog, Revive only', () => {
     expect(screen.getAllByRole('radio')).toHaveLength(1);
     expect((screen.getByLabelText(/^Character/) as HTMLSelectElement).value).toBe('pc-1');
     expect(screen.queryByLabelText('Actor')).toBeNull();
+  });
+});
+
+describe('the held End combat confirm', () => {
+  const confirm = () => screen.getByRole('dialog', { name: 'End the fight?' });
+  const press = () => fireEvent.click(screen.getByRole('button', { name: 'End combat' }));
+
+  it('Cancel is the default focus, and the confirm names its two buttons', async () => {
+    render(<Stage />);
+    press();
+    await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+    expect(document.activeElement).toBe(within(confirm()).getByRole('button', { name: 'Keep waiting' }));
+    expect(within(confirm()).getByRole('button', { name: 'End combat' })).toBeInTheDocument();
+  });
+
+  it('Keep waiting sends nothing and returns focus to End combat', async () => {
+    render(<Stage />);
+    press();
+    await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+    fireEvent.click(within(confirm()).getByRole('button', { name: 'Keep waiting' }));
+    expect(endCalls).toEqual([]);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'End combat' }));
+  });
+
+  it('Escape sends nothing and returns focus to End combat', async () => {
+    render(<Stage />);
+    press();
+    await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+    fireEvent.keyDown(confirm(), { key: 'Escape' });
+    expect(endCalls).toEqual([]);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'End combat' }));
+  });
+
+  it('a double press of the confirm is one request', () => {
+    render(<Stage />);
+    press();
+    const go = within(confirm()).getByRole('button', { name: 'End combat' });
+    fireEvent.click(go);
+    fireEvent.click(go);
+    expect(endCalls).toEqual(['tpk']);
+  });
+
+  it('does not open over the revive dialog', () => {
+    render(<Stage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Revive…' }));
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    // A programmatic click on the strip's button (the modal makes a real one unreachable) opens nothing.
+    fireEvent.click(document.querySelector('[data-region="sceneStage"] button:last-of-type') as HTMLElement);
+    expect(screen.queryByRole('dialog', { name: 'End the fight?' })).toBeNull();
+    expect(endCalls).toEqual([]);
+  });
+
+  it('a held fight that resolves under an open confirm closes it', () => {
+    const { rerender } = render(<Stage />);
+    press();
+    expect(screen.getByRole('dialog', { name: 'End the fight?' })).toBeInTheDocument();
+    rerender(<Stage state="active" />);
+    expect(screen.queryByRole('dialog', { name: 'End the fight?' })).toBeNull();
+  });
+});
+
+describe('the session host at a Suzu-DM table (QA F3)', () => {
+  it('sees the DM line and End combat, no Revive…; End asks, then sends `tpk`', () => {
+    render(<Stage aiTable host />);
+    expect(status()).toHaveTextContent(HELD_LINE_DM);
+    expect(status().textContent).not.toMatch(/The DM decides/);
+    expect(names()).toEqual(['End combat']);
+    fireEvent.click(screen.getByRole('button', { name: 'End combat' }));
+    expect(endCalls).toEqual([]);
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'End the fight?' })).getByRole('button', { name: 'End combat' }));
+    expect(endCalls).toEqual(['tpk']);
+  });
+
+  it('with no host and no override host: the waiting line and no buttons (a player at an AI-DM table)', () => {
+    render(<Stage dm={false} host={false} />);
+    expect(status()).toHaveTextContent(HELD_LINE_WAITING);
+    expect(names()).toEqual([]);
+  });
+
+  it('a player whose seat is not the DM account, inside an AI-DM host, also gets nothing', () => {
+    render(<Stage aiTable host={false} />);
+    expect(status()).toHaveTextContent(HELD_LINE_WAITING);
+    expect(names()).toEqual([]);
+  });
+
+  it('the host keeps the DM strip\'s grid class', () => {
+    render(<Stage aiTable host variant="inline" />);
+    expect((document.querySelector('[data-region="sceneStage"]') as HTMLElement).className).toMatch(/heldDm/);
   });
 });

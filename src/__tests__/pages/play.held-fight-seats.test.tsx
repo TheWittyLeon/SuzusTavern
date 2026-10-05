@@ -84,6 +84,12 @@ async function mount(opts: { user: string; dm: string; mode: 'human' | 'ai'; fig
   await screen.findByText(opts.findText);
 }
 const stage = () => document.querySelector('[data-region="sceneStage"]') as HTMLElement;
+/** Press the strip's End combat, then the confirm's End combat (the held End asks first). */
+const pressEnd = async () => {
+  fireEvent.click(within(stage()).getByRole('button', { name: 'End combat' }));
+  const go = within(screen.getByRole('dialog', { name: 'End the fight?' })).getByRole('button', { name: 'End combat' });
+  await act(async () => { fireEvent.click(go); });
+};
 
 beforeEach(() => { jest.clearAllMocks(); });
 
@@ -92,10 +98,12 @@ describe('P1 the held End combat: one request, exactly {username, outcome: tpk},
     await mount({ user: 'dm_alice', dm: 'dm_alice', mode: 'human', fight: heldFight(), findText: /^Every character has fallen\.$/ });
     let release!: (v: unknown) => void;
     mock<typeof dnd.endCombat>(dnd.endCombat).mockImplementation(() => new Promise((r) => { release = r; }) as never);
-    const end = within(stage()).getByRole('button', { name: 'End combat' });
-    fireEvent.click(end);
-    fireEvent.click(end);
-    fireEvent.keyDown(end, { key: 'Enter' });
+    fireEvent.click(within(stage()).getByRole('button', { name: 'End combat' }));
+    expect(dnd.endCombat).not.toHaveBeenCalled();
+    const go = within(screen.getByRole('dialog', { name: 'End the fight?' })).getByRole('button', { name: 'End combat' });
+    fireEvent.click(go);
+    fireEvent.click(go);
+    fireEvent.keyDown(go, { key: 'Enter' });
     expect(dnd.endCombat).toHaveBeenCalledTimes(1);
     expect(dnd.endCombat).toHaveBeenCalledWith('combat-1', { username: 'dm_alice', outcome: 'tpk' });
     expect(within(stage()).queryByText(/How does this fight end/)).toBeNull();
@@ -108,16 +116,18 @@ describe('P1 the held End combat: one request, exactly {username, outcome: tpk},
   it("the engine's own message wins when it sent one", async () => {
     await mount({ user: 'dm_alice', dm: 'dm_alice', mode: 'human', fight: heldFight(), findText: /^Every character has fallen\.$/ });
     mock<typeof dnd.endCombat>(dnd.endCombat).mockResolvedValue({ state: heldFight('ended'), outcome: 'tpk', message: 'Combat ended. The party has fallen. (engine)' } as never);
-    await act(async () => { fireEvent.click(within(stage()).getByRole('button', { name: 'End combat' })); });
+    await pressEnd();
     expect(await screen.findByText('Combat ended. The party has fallen. (engine)')).toBeInTheDocument();
   });
 
   it('a failed /end keeps the fight held and the End button usable again (retry)', async () => {
     await mount({ user: 'dm_alice', dm: 'dm_alice', mode: 'human', fight: heldFight(), findText: /^Every character has fallen\.$/ });
     mock<typeof dnd.endCombat>(dnd.endCombat).mockRejectedValueOnce(Object.assign(new Error('boom'), { status: 500 }));
-    const end = within(stage()).getByRole('button', { name: 'End combat' });
-    await act(async () => { fireEvent.click(end); });
-    await waitFor(() => expect(within(stage()).getByRole('button', { name: 'End combat' })).toBeEnabled());
+    await pressEnd();
+    await waitFor(() => expect(dnd.endCombat).toHaveBeenCalledTimes(1));
+    // The request failed with the fight still held: the confirm is gone and End combat is usable again.
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'End the fight?' })).toBeNull());
+    expect(within(stage()).getByRole('button', { name: 'End combat' })).toBeEnabled();
     expect(within(stage()).getByText(/^Every character has fallen\.$/)).toBeInTheDocument();
   });
 });
@@ -128,9 +138,17 @@ describe('P2 who gets buttons', () => {
     expect(within(stage()).queryByRole('button', { name: /End combat|Revive/ })).toBeNull();
   });
 
-  it('an AI-DM table (dm_mode ai), host is the session DM: the waiting line and no strip buttons (Leon to rule whether that seat gets an End)', async () => {
-    await mount({ user: 'dm_alice', dm: 'dm_alice', mode: 'ai', fight: heldFight(), findText: /The DM decides what happens next/ });
-    // The Tavern offers no override to an AI-DM seat, so a hold there arises only from a direct API call.
+  it('an AI-DM table, the session host: the DM line and End combat (it asks, then sends tpk), and NO Revive…', async () => {
+    await mount({ user: 'dm_alice', dm: 'dm_alice', mode: 'ai', fight: heldFight(), findText: /^Every character has fallen\.$/ });
+    expect(within(stage()).queryByRole('button', { name: /Revive/ })).toBeNull();
+    mock<typeof dnd.endCombat>(dnd.endCombat).mockResolvedValue({ state: heldFight('ended'), outcome: 'tpk' } as never);
+    await pressEnd();
+    expect(dnd.endCombat).toHaveBeenCalledTimes(1);
+    expect(dnd.endCombat).toHaveBeenCalledWith('combat-1', { username: 'dm_alice', outcome: 'tpk' });
+  });
+
+  it('an AI-DM table, a player who is not the host: the waiting line and no strip buttons', async () => {
+    await mount({ user: 'leon', dm: 'dm_alice', mode: 'ai', fight: heldFight(), findText: /The DM decides what happens next/ });
     expect(within(stage()).queryByRole('button', { name: /End combat|Revive/ })).toBeNull();
   });
 });

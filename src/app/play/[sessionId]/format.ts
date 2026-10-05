@@ -197,6 +197,11 @@ export function initiativeNames(combatState: CombatState | null): string[] {
 export const HELD_LINE_DM = 'Every character has fallen.';
 export const HELD_LINE_WAITING = 'Every character has fallen. The DM decides what happens next.';
 export const HELD_FROZEN_NOTE = 'The fight is on hold.';
+/** The held End combat's confirm. Ending it records a total party wipe, so the DM is asked once; "Keep waiting" is the safe side and takes focus. */
+export const HELD_END_TITLE = 'End the fight?';
+export const HELD_END_BODY = "Every character has fallen. Ending it now records a total party wipe and can't be undone.";
+export const HELD_END_CONFIRM = 'End combat';
+export const HELD_END_CANCEL = 'Keep waiting';
 
 /**
  * How a fight ended, in the log's two-sentence shape ("Combat ended. <this>"). ONE map from the engine's outcome key to its sentence; an outcome not in it falls back to the

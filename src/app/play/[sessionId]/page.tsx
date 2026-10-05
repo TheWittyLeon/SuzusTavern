@@ -1584,7 +1584,7 @@ export default function PlayPage() {
         onEndCombat={(key) => void onEndCombat(key)}
         beginCombatRef={beginCombatRef}
         onBeginEncounter={beginEncounter}
-        talking={talking} sessionLocked={sessionLocked} rollBusy={rollBusy} round={round} held={fightHeld}
+        talking={talking} sessionLocked={sessionLocked} rollBusy={rollBusy} round={round} held={fightHeld} canEndHeld={isDm}
         variant={variantFor(row, 'sceneStage', moment)} bodyLabel={board.label}
       >
         {board.stage ? <StageBoard {...board.stage} /> : null}

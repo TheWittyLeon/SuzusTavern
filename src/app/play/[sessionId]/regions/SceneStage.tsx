@@ -4,10 +4,11 @@ import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState
 import type { EndCombatOutcome } from '@/lib/api/types';
 import Icon from '@/components/Icon';
 import AnchoredPopover from '@/components/AnchoredPopover';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import { FoldHandleSlot, useFoldBody } from '@/components/FoldDock';
 import { useAnchoredPopover } from '@/lib/a11y/useAnchoredPopover';
 import type { RegionVariant } from '../variants';
-import { HELD_LINE_DM, HELD_LINE_WAITING } from '../format';
+import { HELD_END_BODY, HELD_END_CANCEL, HELD_END_CONFIRM, HELD_END_TITLE, HELD_LINE_DM, HELD_LINE_WAITING } from '../format';
 import { useOverrideDialog } from '../overrideDialog';
 import styles from '../Play.module.css';
 import strip from './SceneStage.module.css';
@@ -65,6 +66,9 @@ export interface SceneStageProps {
   /** Every character has fallen and the fight waits for the DM (`isFightHeld`): the status node says so, in place of "In combat · use the action bar", and the
    *  encounter's buttons become the DM's two exits (Revive…, and one End combat that sends `tpk`); everyone else gets the line and no buttons. */
   held?: boolean;
+  /** The session's DM account (`isDm`), whoever holds the DM seat. Held, it gets the line and End combat (behind a confirm) even at a Suzu-DM table, where the override
+   *  dialog is not offered and Revive… stays away. The human DM has both regardless of this. */
+  canEndHeld?: boolean;
   /**
    * A9d-2 N5 (Amendment E.1/E.2): the stage's form, from the registry. `inline` (the phone) is the scene strip: ONE row holding the scene's
    * name, its objective (exploring) or the combat status, and the encounter's buttons; no picture stand-in, no kicker.
@@ -101,6 +105,7 @@ export default function SceneStage({
   rollBusy,
   round = null,
   held = false,
+  canEndHeld = false,
   variant = 'panel',
   children,
   bodyLabel,
@@ -121,6 +126,18 @@ export default function SceneStage({
   // TPK-HOLD W4: the DM is whoever the override dialog's host opened for (the human-DM seat). Held, the generic End combat and its chooser give way to the
   // two exits below: the engine ends a held fight as a TPK whatever outcome is sent, so a chooser would only offer outcomes that are not true.
   const overrideDialog = useOverrideDialog();
+  // The DM's held strip: the human DM (the override dialog is open to them) or the session's DM account at a Suzu-DM table. Revive… follows `overrideDialog` alone.
+  const heldDm = held && (!!overrideDialog || canEndHeld);
+  // The held End combat asks first: it records a wipe and cannot be undone. The confirm is the app's ConfirmDialog; it keeps itself open (busy) while the request is in flight,
+  // so one press is one request, and it goes when the fight does or when the request fails with the fight still held.
+  const [endConfirm, setEndConfirm] = useState<'closed' | 'open' | 'sent'>('closed');
+  const [wasBusy, setWasBusy] = useState(combatBusy);
+  // Adjusted while rendering (as the override host does), not in an effect: the confirm goes when the strip does, and when a request it sent has settled with the fight still held.
+  if (endConfirm !== 'closed' && !(heldDm && combatIsActive)) setEndConfirm('closed');
+  if (wasBusy !== combatBusy) {
+    setWasBusy(combatBusy);
+    if (!combatBusy && endConfirm === 'sent') setEndConfirm('closed');
+  }
   // The held End combat has been pressed. The fight ending takes the button with it, so focus is put on the scene head in that same commit (never <body>,
   // and not the composer, which is where the page's stranded-focus rescue would send it). A revive instead takes the Revive… opener; the dialog's own fallback is the scene head.
   const endedFromHold = useRef(false);
@@ -159,7 +176,7 @@ export default function SceneStage({
       data-variant={variant}
       // A `hero` owns its slot's edges: the slot drops its padding and stops being a scroller (Play.module.css, `data-slot-fill`).
       data-slot-fill={hero ? '' : undefined}
-      className={`${hero ? `${cx(styles.stage, strip.strip)} ${strip.hero}` : cx(styles.stage, strip.strip)}${held && overrideDialog ? ` ${strip.heldDm}` : ''}`}
+      className={`${hero ? `${cx(styles.stage, strip.strip)} ${strip.hero}` : cx(styles.stage, strip.strip)}${heldDm ? ` ${strip.heldDm}` : ''}`}
     >
       {/* FIX-8 (MEDIUM-1): aria-label surfaces the scene name to AT so the "Scene" kicker (now aria-hidden) doesn't duplicate it on
           screen readers. Iro Ship 2 CRITICAL-1: tabIndex={-1} + ref makes this a programmatic focus anchor — refocusSceneHeadIfStranded()
@@ -187,7 +204,7 @@ export default function SceneStage({
         <>
           <div className={cx(styles.combatNote, strip.wrapper)}>
             <div className={cx(styles.noteText, allHostilesDown || lineText != null ? strip.noteClipped : strip.note)} role="status" aria-live="polite">
-              <Icon name={held ? 'Skull' : 'Sword'} size={13} aria-hidden /> {held ? (overrideDialog ? HELD_LINE_DM : HELD_LINE_WAITING) : 'In combat · use the action bar'}
+              <Icon name={held ? 'Skull' : 'Sword'} size={13} aria-hidden /> {held ? (heldDm ? HELD_LINE_DM : HELD_LINE_WAITING) : 'In combat · use the action bar'}
               {inline && round != null && <span aria-hidden className={strip.round}> · round {round}</span>}
             </div>
             {/* B8c-3 M2 (Iro ruling 1): the map's line, PLAIN READABLE TEXT, the status node's next sibling and never inside it. No role, no aria-live, no aria-hidden here or on any
@@ -198,19 +215,24 @@ export default function SceneStage({
             {held ? (
               // Held: the DM's two exits, SIBLINGS of the status node (a button in a live region is re-announced when it mounts). Revive… leads and is the accent
               // (the recovery); End combat is the danger outline and sits last. Nothing for anyone else: the line says what is happening.
-              overrideDialog && (
+              heldDm && (
                 <>
-                  <button type="button" className={cx(styles.reviveBtn, strip.end)} aria-haspopup="dialog" disabled={combatBusy} onClick={() => overrideDialog.open({ kind: 'revive' })}>
-                    Revive…
-                  </button>
+                  {overrideDialog && (
+                    <button type="button" className={cx(styles.reviveBtn, strip.end)} aria-haspopup="dialog" disabled={combatBusy} onClick={() => overrideDialog.open({ kind: 'revive' })}>
+                      Revive…
+                    </button>
+                  )}
                   <button
                     type="button"
                     className={cx(styles.endCombatBtn, strip.wrap)}
                     disabled={combatBusy}
                     aria-busy={combatBusy}
-                    onClick={() => {
-                      endedFromHold.current = true;
-                      onEndCombat('tpk');
+                    aria-haspopup="dialog"
+                    onClick={(e) => {
+                      // Never over the revive dialog. Focus the button first so the confirm's focus return is deterministic (Safari does not focus a clicked button).
+                      if (overrideDialog?.isOpen) return;
+                      e.currentTarget.focus();
+                      setEndConfirm('open');
                     }}
                   >
                     End combat
@@ -300,6 +322,23 @@ export default function SceneStage({
               Cancel
             </button>
           </AnchoredPopover>
+          {/* The held End combat's confirm (a total party wipe cannot be undone). Not the outcome chooser: held has one outcome. Cancel takes focus; cancel and Escape give it back to End combat. */}
+          <ConfirmDialog
+            open={endConfirm !== 'closed'}
+            tone="danger"
+            title={HELD_END_TITLE}
+            body={HELD_END_BODY}
+            confirmLabel={HELD_END_CONFIRM}
+            cancelLabel={HELD_END_CANCEL}
+            busy={combatBusy}
+            onConfirm={() => {
+              if (endConfirm !== 'open') return;
+              setEndConfirm('sent');
+              endedFromHold.current = true;
+              onEndCombat('tpk');
+            }}
+            onCancel={() => setEndConfirm('closed')}
+          />
         </>
       ) : activeEncounterId ? (
         // Between fights but encounter_id still set — shouldn't happen post-fix.
