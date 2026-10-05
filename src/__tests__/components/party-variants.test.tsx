@@ -246,6 +246,9 @@ describe('PartyPanel strip: downed and level-up chips', () => {
     const css = readFileSync(join(__dirname, '../../components/PartyPanel.module.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
     expect(/\.strip \.badgeRow\s*\{[^}]*\}/.exec(css)?.[0]).toMatch(/display:\s*contents/);
     expect(/\.strip \.badgeRow\s*\{[^}]*\}/.exec(css)?.[0]).not.toMatch(/margin/);
+    // the focus caption is placed against the LINK; a positioned `.member` (inside it, behind a 1px border) moved its anchor and the caption stood 3px from the ring instead of 4 (the party-name-focus leg)
+    for (const m of css.matchAll(/\.strip \.member\s*\{[^}]*\}/g)) expect(m[0]).not.toMatch(/position/);
+    expect(/\.strip \.link\s*\{[^}]*position:\s*relative/.test(css)).toBe(true);
     const chip = /\.strip \.downedBadge,\s*\.strip \.levelUpBadge\s*\{[^}]*\}/.exec(css)?.[0] ?? '';
     expect(chip).toMatch(/position:\s*absolute/);
     expect(chip).toMatch(/width:\s*16px/);
