@@ -89,14 +89,19 @@ export function useFoldBody(): boolean {
   return useContext(FoldBodyContext).folded;
 }
 
-/** Where a body dock's handle is drawn. A region renders it once, where the handle belongs in its own layout; with no body dock around it, it renders nothing. */
-export function FoldHandleSlot() {
+/**
+ * Where a body dock's handle is drawn. A region renders it once, where the handle belongs in its own layout; with no body dock around it, it renders nothing, not even a wrapper. `className` is the region's own
+ * cell for the handle (the stage's scene line puts it in a grid area): the wrapper exists only while there is a handle to hold, so a row that folds no body (every desktop row, the phone's exploring stage, a
+ * fight with no board) has the DOM it always had (B8c-4 P1: an always-present empty span changed every desktop stage's markup and so the flag-off page's digest).
+ */
+export function FoldHandleSlot({ className }: { className?: string } = {}) {
   const { handle, claim } = useContext(FoldBodyContext);
   useLayoutEffect(() => {
     claim(true);
     return () => claim(false);
   }, [claim]);
-  return <>{handle}</>;
+  if (handle === null || className === undefined) return <>{handle}</>;
+  return <span className={className}>{handle}</span>;
 }
 
 export default function FoldDock({

@@ -398,8 +398,9 @@ export default function SceneStage({
           until: the flag has been on in prod for 7 days (Backlog TAV-STAND-IN-RETIRE); then delete this fallback, `.standIn`, its container query and the harness comparator's stand-in expectation.
       */}
       {/* B8c-4 P0/P1 (H.4; brief 2.4, 4.1): where a body dock's handle is drawn: a `hero`'s scene line, its last control, after the encounter buttons and before the body in the DOM. The slot is the grid cell the handle
-          sits in (`.foldSlot`): empty, so display: none, on every row that folds no body (every desktop row, the phone's exploring stage), where it takes no cell and no pixel. */}
-      {hero && <span className={strip.foldSlot}><FoldHandleSlot /></span>}
+          sits in (`.foldSlot`), and it exists only while there is a handle (`FoldHandleSlot` renders no wrapper without a body dock): every row that folds no body (every desktop row, the phone's exploring stage, a fight with no
+          board) keeps the markup it always had, to the byte. */}
+      {hero && <FoldHandleSlot className={strip.foldSlot} />}
       {hero && (
         <div id={SCENE_STAGE_BODY_ID} data-fold-body hidden={bodyFolded} className={strip.body} role={bodyLabel ? 'group' : undefined} aria-label={bodyLabel}>
           {children ?? (combatIsActive ? (

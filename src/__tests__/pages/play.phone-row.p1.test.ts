@@ -69,7 +69,7 @@ describe('the two readers of the row\'s map values: the stage\'s body hands them
     expect(body).toMatch(/--tm-edge-guard:\s*var\(--play-edge-guard,\s*0px\)/);
     expect(body).toMatch(/--tm-cell-size:\s*var\(--play-cell\)/);
   });
-  it('`.hero` has a sixth column and a `fold` area on both of the scene line\'s rows (the held strip: in the buttons\' row); `.foldSlot` sits in it and is gone when empty', () => {
+  it('`.hero` has a sixth column and a `fold` area on both of the scene line\'s rows (the held strip: in the buttons\' row); `.foldSlot` sits in it', () => {
     const hero = /\.hero\s*\{[^}]*\}/.exec(stageCss)?.[0] ?? '';
     const held = /\.hero\.heldDm\s*\{[^}]*\}/.exec(stageCss)?.[0] ?? '';
     expect(hero).toMatch(/'\. head end wrap fold \.'/);
@@ -77,6 +77,5 @@ describe('the two readers of the row\'s map values: the stage\'s body hands them
     expect(held).toMatch(/'\. head end wrap fold \.'/);
     expect(held).toMatch(/'\. note note note note \.'/); // the held strip's status keeps the whole width: the handle is in the buttons' row only
     expect(/\.foldSlot\s*\{[^}]*\}/.exec(stageCss)?.[0]).toMatch(/grid-area:\s*fold/);
-    expect(/\.foldSlot:empty\s*\{[^}]*\}/.exec(stageCss)?.[0]).toMatch(/display:\s*none/);
   });
 });

@@ -218,3 +218,19 @@ describe('FoldDock body mode: the handle is placed by the region, the folded sta
     expect(container.querySelectorAll('button')).toHaveLength(0);
   });
 });
+
+// B8c-4 P1: the region's own cell for the handle (`className`) exists only while there is a handle to hold. An always-present empty wrapper changed every desktop stage's markup (the flag-off page's digest).
+describe('FoldHandleSlot: its wrapper exists only while there is a handle', () => {
+  it('a live body dock: the handle sits in one wrapper carrying the region\'s class', () => {
+    const { container } = render(<FoldDock folded={false} onToggle={jest.fn()} label="Map" icon="Map" body="b"><div data-root><FoldHandleSlot className="cell" /><div id="b" data-fold-body /></div></FoldDock>);
+    const root = container.querySelector('[data-root]') as HTMLElement;
+    expect(root.querySelector(':scope > span.cell > button')).not.toBeNull();
+  });
+  it('an inert dock (a row that folds no body) and no dock at all: no wrapper, no markup, nothing', () => {
+    const inert = render(<FoldDock folded={false} foldable={false} onToggle={jest.fn()} label="Map" icon="Map" body="b"><div data-root><FoldHandleSlot className="cell" /><div id="b" data-fold-body /></div></FoldDock>);
+    expect((inert.container.querySelector('[data-root]') as HTMLElement).querySelector('.cell, span, button')).toBeNull();
+    inert.unmount();
+    const bare = render(<div data-root><FoldHandleSlot className="cell" /></div>);
+    expect((bare.container.querySelector('[data-root]') as HTMLElement).innerHTML).toBe('');
+  });
+});

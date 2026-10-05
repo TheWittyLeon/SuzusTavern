@@ -170,16 +170,12 @@
 }
 
 /* B8c-4 P1 (brief 2.4, 4.1): the cell the fold handle sits in, the scene line's last control: 44 x 44 (its own box), 8px from End combat (the same margin the encounter buttons keep from each other), centred on
-   the line's two text rows. Empty where nothing folds, and then it takes no cell. */
+   the line's two text rows. It exists only while there is a handle (FoldHandleSlot renders no wrapper without one). */
 .foldSlot {
   grid-area: fold;
   align-self: center;
   justify-self: end;
   margin: 0 0 0 var(--space-4);
-}
-
-.foldSlot:empty {
-  display: none;
 }
 
 .body {

@@ -138,6 +138,9 @@ describe('a served board: the grid and the scene line', () => {
     expect(body(c)).toHaveAttribute('role', 'group');
     expect(body(c)).toHaveAccessibleName('Tactical map');
     expect(within(body(c)).queryByText(STAND_IN)).toBeNull();
+    // B8c-4 P1: a desktop stage has no fold, so no handle cell: its markup is what it was (the flag-off page is byte for byte, and so is a served one)
+    expect(stage(c).querySelector(':scope > span')).toBeNull();
+    expect(stage(c).querySelector('button[aria-controls]')).toBeNull();
   });
 
   it('the line is the status node\'s NEXT SIBLING, plain readable text: no role, no aria-live, no aria-hidden on it or any ancestor up to the stage; never inside the status node', async () => {
