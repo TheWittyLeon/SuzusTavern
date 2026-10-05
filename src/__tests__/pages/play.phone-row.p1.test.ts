@@ -83,3 +83,18 @@ describe('the two readers of the row\'s map values: the stage\'s body hands them
     expect(/\.foldSlot\s*\{[^}]*\}/.exec(stageCss)?.[0]).toMatch(/grid-area:\s*fold/);
   });
 });
+
+describe('the map\'s line: a lead that shrinks, a tail that does not, and a wrap under 11rem (Miko M1; brief M2-4, M2-10)', () => {
+  const rule = (sel: string) => new RegExp(`${sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{[^}]*\\}`).exec(stageCss)?.[0] ?? '';
+  it('the lead takes the ellipsis; the tail is `flex: 0 0 auto`, keeps its leading space (`white-space: pre`) and is clipped only at its OWN end when it alone is wider than the line', () => {
+    expect(rule('.strip .lineLead')).toMatch(/text-overflow:\s*ellipsis/);
+    expect(rule('.strip .lineLead')).toMatch(/min-width:\s*0/);
+    expect(rule('.strip .lineTail')).toMatch(/flex:\s*0 0 auto/);
+    expect(rule('.strip .lineTail')).toMatch(/white-space:\s*pre/);
+    expect(rule('.strip .lineTail')).toMatch(/max-width:\s*100%/);
+  });
+  it('the line is a size container and both spans wrap in the block form under 11rem', () => {
+    expect(rule('.strip .line')).toMatch(/container-type:\s*inline-size/);
+    expect(stageCss).toMatch(/@container \(max-width: 11rem\)\s*\{[\s\S]*\.strip \.lineBox\s*\{[^}]*display:\s*block[\s\S]*white-space:\s*normal/);
+  });
+});

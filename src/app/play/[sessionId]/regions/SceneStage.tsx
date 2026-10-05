@@ -36,8 +36,10 @@ export const SCENE_STAGE_BODY_ID = 'play-scene-stage-body';
  * B8c-3 M2 (Sora's mount brief 2.2): the scene line's SECOND slot can be written by the stage's body. The context's value is the SETTER only, so a hovered square re-renders this
  * stage's scene line and nothing else (F-i: a page-level inspector state re-rendered all of /play per square). `null` clears it. Outside a stage the setter does nothing.
  */
-const StageLineContext = createContext<(text: string | null) => void>(() => {});
-export function useStageLine(): (text: string | null) => void {
+/** The scene line's text: a string, or its two parts (the lead shrinks and takes the ellipsis, the tail does not: brief M2-4). */
+export type StageLineText = string | { lead: string; tail: string };
+const StageLineContext = createContext<(text: StageLineText | null) => void>(() => {});
+export function useStageLine(): (text: StageLineText | null) => void {
   return useContext(StageLineContext);
 }
 
@@ -126,7 +128,8 @@ export default function SceneStage({
   children,
   bodyLabel,
 }: SceneStageProps) {
-  const [lineText, setLineText] = useState<string | null>(null);
+  const [lineParts, setLineText] = useState<StageLineText | null>(null);
+  const lineText = lineParts == null ? null : typeof lineParts === 'string' ? lineParts : lineParts.lead + lineParts.tail;
   // B8c-4 P0: the dock provides whether the body is folded; the body takes the `hidden` ATTRIBUTE (not a class alone: the removed-focus probe, the AX tree and every engine read it). False outside a dock.
   const bodyFolded = useFoldBody();
   const inline = variant === 'inline';
@@ -231,7 +234,15 @@ export default function SceneStage({
                 ancestor up to the stage: it is not a second live region (a changed text announces nothing) and a touch user who taps a token moves no focus, so a hidden line would leave
                 them no inspector at all. The status above stays in the tree, unchanged and live, only clipped while this shows. Do not tidy this into the status node or add a role.
                 `data-stage-line` is how the harness finds it (n:line asserts it is the status node's next sibling). Clipped, not removed, while the "All enemies are down" prompt owns the cell. */}
-            {lineText != null && <span data-stage-line="" className={allHostilesDown ? strip.noteClipped : strip.line}>{lineText}</span>}
+            {lineParts != null && (
+              // The two spans are one text (no separator between them: `lead + tail` is the line, to the character). The outer node is the line's CONTAINER (it wraps under 11rem: M2-10) and the status node's next sibling; no
+              // role, no aria, no title (a title on text is read twice by some AT), as before.
+              <span data-stage-line="" className={allHostilesDown ? strip.noteClipped : strip.line}>
+                <span className={strip.lineBox}>
+                  {typeof lineParts === 'string' ? lineParts : (<><span className={strip.lineLead}>{lineParts.lead}</span><span className={strip.lineTail}>{lineParts.tail}</span></>)}
+                </span>
+              </span>
+            )}
             {held ? (
               // Held: the DM's two exits, SIBLINGS of the status node (a button in a live region is re-announced when it mounts). Revive… leads and is the accent
               // (the recovery); End combat is the danger outline and sits last. Nothing for anyone else: the line says what is happening.

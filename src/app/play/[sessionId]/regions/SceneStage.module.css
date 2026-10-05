@@ -70,7 +70,11 @@
   white-space: nowrap;
 }
 
-/* B8c-3 M2: the map's line, in the status node's cell (one row, ellipsised, the whole text in the DOM). The status is clipped while it shows (`.noteClipped`). */
+/* B8c-3 M2: the map's line, in the status node's cell (one row, the whole text in the DOM). B8c-4 P1 fix round (Miko M1; brief M2-4 and M2-10): TWO spans. The LEAD (the name; "In combat · round 2 · Kestrel Ashwood")
+   shrinks and takes the ellipsis; the TAIL (": 30 ft left"; " · Foe · Invisible · Poisoned, Prone"; " · 15 ft of 30") never shrinks, so at 100% text a narrow phone cuts the end of a NAME and never the movement left.
+   When the tail ALONE is wider than the line (three conditions at 360 wide) it is clipped at its own end with an ellipsis and the lead is gone: the conditions' first words survive and the rest is the cell's name and P4's tag.
+   Under 11rem of line (a larger root font: the harness's text200 leg) both spans wrap instead of clipping (M2-10). The outer node is the size container; the inner `.lineBox` is the flex row that becomes plain flow.
+   The leading space of the tail is preserved (`white-space: pre`): a flex item would drop it. */
 .strip .line {
   grid-area: note;
   min-width: 0;
@@ -78,8 +82,43 @@
   line-height: 1.3;
   color: var(--ink-2);
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+  container-type: inline-size;
+}
+
+.strip .lineBox {
+  display: flex;
+  min-width: 0;
+}
+
+.strip .lineLead {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.strip .lineTail {
+  flex: 0 0 auto;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+
+@container (max-width: 11rem) {
+  .strip .lineBox {
+    display: block;
+    white-space: normal;
+  }
+
+  .strip .lineLead,
+  .strip .lineTail {
+    display: inline;
+    overflow: visible;
+    max-width: none;
+    white-space: normal;
+  }
 }
 
 .strip .end {

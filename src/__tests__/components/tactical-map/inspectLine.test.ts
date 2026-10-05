@@ -2,7 +2,7 @@
  * buildLine (B8c-3 M1.1; Sora's mount brief 2.2, Iro-A11y's ruling 1 acceptances 4 and 5): the scene line and the cell's accessible name are two renderings of ONE
  * `CellNameInput`. Every fact in one is in the other (name, side, conditions, feet, the feature's label); the words of the line are pinned here, and Aoi settles them.
  */
-import { buildLine, cellAccessibleName, type CellNameInput, type CellOccupant, type InspectLine } from '@/components/tactical-map/a11y';
+import { buildLine, buildLineParts, cellAccessibleName, type CellNameInput, type CellOccupant, type InspectLine } from '@/components/tactical-map/a11y';
 
 const occ = (o: Partial<CellOccupant> = {}): CellOccupant => ({
   name: 'Goblin Skulker', isSelf: false, isAlly: false, hostile: true, invisible: false, dead: false, downed: false, occupiesCell: true, otherConditions: [], ...o,
@@ -100,5 +100,25 @@ describe('buildLine and cellAccessibleName read the same CellNameInput: the same
 
   it('the line carries no markup and no live-region attribute: it is plain text (Iro ruling 1)', () => {
     for (const [, i] of cases) expect(buildLine({ kind: 'cell', input: i }, { round: 1 })).not.toMatch(/[<>]|aria-/);
+  });
+});
+
+// B8c-4 P1 fix round (Miko M1; brief M2-4): the line is two spans, a LEAD that shrinks and a TAIL that does not. `lead + tail` is `buildLine`'s text to the character, and the tail is what a narrow phone must never cut:
+// the movement left, the creature's side and conditions, a move's cost.
+describe('buildLineParts — a lead that shrinks and a tail that does not', () => {
+  const cases: Array<[string, InspectLine | null, number | null, string, string]> = [
+    ['rest', null, 2, 'In combat · round 2', ''],
+    ['turn', { kind: 'turn', name: 'Kestrel Ashwood', feetLeft: 30 }, 2, 'In combat · round 2 · Kestrel Ashwood', ': 30 ft left'],
+    ['a creature', cell({ occupant: occ({ invisible: true, otherConditions: ['Poisoned', 'Prone'] }) }), 2, 'Goblin Skulker', ' · Foe · Invisible · Poisoned, Prone'],
+    ['a move', { kind: 'target', input: input(), legal: true, costFt: 15, budgetFt: 30 }, 2, 'Move to row 6, column 10', ' · 15 ft of 30'],
+    ['a feature', cell({ featureLabel: 'Stalagmites' }), 2, 'Stalagmites', ''],
+  ];
+  it.each(cases)('%s: the parts, and lead + tail is buildLine\'s text', (_n, line, round, lead, tail) => {
+    expect(buildLineParts(line, { round })).toEqual({ lead, tail });
+    expect(lead + tail).toBe(buildLine(line, { round }));
+  });
+  it('the number is in the tail for every kind that has one (never in the lead the ellipsis eats)', () => {
+    expect(buildLineParts({ kind: 'turn', name: 'A Very Long Name Indeed Of A Hero', feetLeft: 5 }, { round: 12 }).tail).toMatch(/5 ft left/);
+    expect(buildLineParts(cell({ occupant: occ({ name: 'Long', downed: true }) }), { round: 1 }).tail).toMatch(/Downed/);
   });
 });

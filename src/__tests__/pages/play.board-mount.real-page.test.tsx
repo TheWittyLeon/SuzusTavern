@@ -323,6 +323,19 @@ describe('the phone row (B8c-4 P1): a fight\'s stage is a hero, the map in its b
     expect(stage(d).className).not.toMatch(/heldClamp/);
   });
 
+  it('the scene line is two spans (a lead and a tail whose text is the line\'s, to the character), a plain text node\'s siblings still: no role, no aria, no title', async () => {
+    phone();
+    const c = await load(combat(SPACE));
+    await waitFor(() => expect(lineNode(c)).not.toBeNull());
+    const line = lineNode(c) as HTMLElement;
+    const spans = line.querySelectorAll(':scope > span > span');
+    expect(spans).toHaveLength(2);
+    expect(line.textContent).toBe((spans[0].textContent ?? '') + (spans[1].textContent ?? ''));
+    expect(spans[0].textContent).toMatch(/^In combat · round 1/);
+    expect(spans[1].textContent).toMatch(/ft left$/);
+    for (const el of [line, ...Array.from(spans)]) { expect(el).not.toHaveAttribute('role'); expect(el).not.toHaveAttribute('title'); expect(el.getAttributeNames().filter((n) => n.startsWith('aria-'))).toEqual([]); }
+  });
+
   it('the handle folds the body: `hidden`, the grid still mounted; a second press opens it again', async () => {
     phone();
     const c = await load(combat(SPACE));

@@ -3,7 +3,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import type { CombatParticipantState, CombatSpace, SpaceCoordinate } from '@/lib/api/types';
 import TacticalMap from '@/components/tactical-map/TacticalMap';
-import { buildLine, type InspectLine } from '@/components/tactical-map/a11y';
+import { buildLineParts, type InspectLine } from '@/components/tactical-map/a11y';
 import { isSpaceUsable } from '@/components/tactical-map/reach';
 import { useStageLine } from './regions/SceneStage';
 
@@ -60,7 +60,7 @@ function StageBoard({ space, participants, viewerParticipantId, activeParticipan
    *  it writes `null`, so a stale rest line never sits beside the band with the status clipped under it. */
   const show = useCallback(() => {
     // Held: no rest line (nothing inspected), so the stage's status paints; an inspected square still has its line.
-    setLine(usableRef.current && !(heldRef.current && lastRef.current === null) ? buildLine(lastRef.current, { round: roundRef.current }) : null);
+    setLine(usableRef.current && !(heldRef.current && lastRef.current === null) ? buildLineParts(lastRef.current, { round: roundRef.current }) : null);
   }, [setLine]);
 
   const onInspect = useCallback((line: InspectLine | null) => {

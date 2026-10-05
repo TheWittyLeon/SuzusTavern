@@ -238,21 +238,31 @@ function sideWord(o: CellOccupant): string {
  *   empty     the cell's own accessible name, "Row 1, column 3. Empty." (the map reports an empty square only while the grid holds KEYBOARD focus on it)
  *   target    legal: "Move to row 6, column 10 · 15 ft of 30"; not legal: the cell's own name (the square and why, in its own words)
  */
-export function buildLine(line: InspectLine | null, { round }: { round: number | null }): string {
+export function buildLine(line: InspectLine | null, opts: { round: number | null }): string {
+  const { lead, tail } = buildLineParts(line, opts);
+  return lead + tail;
+}
+
+/**
+ * The same line in TWO spans (brief M2-4): a LEAD that shrinks and takes the ellipsis (the creature's name, "In combat · round 2 · Kestrel Ashwood", "Move to row 6, column 10") and a TAIL that does not
+ * (the movement left, "30 ft left"; the creature's side and conditions; the cost of a move), so a narrow phone cuts the name's end and never the number or the condition. `lead + tail` is `buildLine`'s text,
+ * to the character: the DOM text, the accessible text and every pin on the line are unchanged. Pure.
+ */
+export function buildLineParts(line: InspectLine | null, { round }: { round: number | null }): { lead: string; tail: string } {
   const rest = round == null ? 'In combat' : `In combat · round ${round}`;
-  if (!line) return rest;
-  if (line.kind === 'turn') return `${rest} · ${line.name}: ${line.feetLeft} ft left`;
+  if (!line) return { lead: rest, tail: '' };
+  if (line.kind === 'turn') return { lead: `${rest} · ${line.name}`, tail: `: ${line.feetLeft} ft left` };
   if (line.kind === 'target') {
-    if (!line.legal) return cellAccessibleName(line.input);
-    return `Move to row ${line.input.row1}, column ${line.input.col1} · ${line.costFt} ft of ${line.budgetFt}`;
+    if (!line.legal) return { lead: cellAccessibleName(line.input), tail: '' };
+    return { lead: `Move to row ${line.input.row1}, column ${line.input.col1}`, tail: ` · ${line.costFt} ft of ${line.budgetFt}` };
   }
   const o = line.input.occupant;
-  if (!o) return line.input.featureLabel ?? cellAccessibleName(line.input); // an empty square the keyboard is on: the cell's OWN name
-  const parts = [o.name, sideWord(o)];
+  if (!o) return { lead: line.input.featureLabel ?? cellAccessibleName(line.input), tail: '' }; // an empty square the keyboard is on: the cell's OWN name
+  const parts = [sideWord(o)];
   if (o.dead) parts.push('Dead');
   else if (o.downed) parts.push('Downed');
   if (o.invisible) parts.push('Invisible');
   if (o.otherConditions && o.otherConditions.length > 0) parts.push(o.otherConditions.join(', '));
   if (line.input.featureLabel) parts.push(line.input.featureLabel);
-  return parts.join(' · ');
+  return { lead: o.name, tail: ` · ${parts.join(' · ')}` };
 }
