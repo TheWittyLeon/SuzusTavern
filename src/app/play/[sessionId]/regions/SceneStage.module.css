@@ -158,11 +158,13 @@
     'body body body body body body';
 }
 
+/* The held strip's second line takes the WHOLE width under the buttons (as `.strip.heldDm` does), the handle with them in the first: with the handle's column running down both rows the status lost 52px, wrapped
+   to two lines at 360 and took the strip to 83px against its 75px ceiling (Revive.../Resume... + End combat + Map in one row, a held fight at the DM's seat: the harness's held-strip legs). */
 .hero.heldDm {
   grid-template-areas:
     '. . . . . .'
     '. head end wrap fold .'
-    '. note note note fold .'
+    '. note note note note .'
     '. . . . . .'
     'body body body body body body';
 }

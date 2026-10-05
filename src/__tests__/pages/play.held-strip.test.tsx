@@ -32,7 +32,7 @@ const fight = (state: CombatState['state']): CombatState => ({
 const endCalls: string[] = [];
 let setChooser: ((open: boolean) => void) | null = null;
 
-function Stage({ state = 'held', dm = true, host = false, aiTable = false, standing = false, variant, onEnd }: { state?: CombatState['state'] | null; dm?: boolean; host?: boolean; aiTable?: boolean; standing?: boolean; variant?: 'inline' | 'panel' | 'hero'; onEnd?: (o: string) => Promise<boolean | void> | void }) {
+function Stage({ state = 'held', dm = true, host = false, aiTable = false, standing = false, variant, stripLine, onEnd }: { state?: CombatState['state'] | null; dm?: boolean; host?: boolean; aiTable?: boolean; standing?: boolean; variant?: 'inline' | 'panel' | 'hero'; stripLine?: boolean; onEnd?: (o: string) => Promise<boolean | void> | void }) {
   const headRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLButtonElement>(null);
   const openerRef = useRef<HTMLButtonElement>(null);
@@ -49,7 +49,7 @@ function Stage({ state = 'held', dm = true, host = false, aiTable = false, stand
         sceneHasEncounter={false} combatBusy={false} endCombatBtnRef={endRef} outcomeChooserOpen={chooser} setOutcomeChooserOpen={setChooserOpen}
         lastOpenerRef={openerRef} allHostilesDown={false} anyMonsterDown onEndCombat={(o) => { endCalls.push(o); if (onEnd) return onEnd(o); setLive(false); }}
         beginCombatRef={beginRef} onBeginEncounter={() => {}} talking={false} sessionLocked={false} rollBusy={false}
-        held={state === 'held' && live} canEndHeld={host} humanDmTable={!aiTable} heldStanding={standing} variant={variant} round={2}
+        held={state === 'held' && live} canEndHeld={host} humanDmTable={!aiTable} heldStanding={standing} variant={variant} stripLine={stripLine} round={2}
       />
     </aside>
   );
@@ -413,6 +413,23 @@ describe('the phone\'s held strip clamps the scene NAME to one line (Aoi addendu
     expect(root().className).not.toMatch(/heldClamp/);
     rerender(<Stage variant="hero" dm={false} />);
     expect(root().className).not.toMatch(/heldClamp/);
+  });
+  // B8c-4 P1: the phone's fight stage is a `hero` (it has a body) and the row says `stripLine`: it is still the phone's strip, so the held name is one line and a running fight shows the round beside the status.
+  // A `hero` on a desktop row says nothing and gets neither (its DOM is what it was: a flag-off page is byte for byte).
+  it('a hero stage on the phone row (stripLine): held, the name is clamped with its title; running, the round shows beside the status (aria-hidden)', () => {
+    const { rerender } = render(<Stage variant="hero" stripLine dm={false} />);
+    expect(root().className).toMatch(/heldClamp/);
+    expect(name()).toHaveAttribute('title', 'The Sundered Hollow');
+    rerender(<Stage state="active" variant="hero" stripLine dm={false} />);
+    expect(root().className).not.toMatch(/heldClamp/);
+    const round = status().querySelector('span[aria-hidden]');
+    expect(round).toHaveTextContent('· round 2');
+  });
+  it('a hero stage on a desktop row (no stripLine): no clamp held, no round span while running', () => {
+    const { rerender } = render(<Stage variant="hero" dm={false} />);
+    expect(root().className).not.toMatch(/heldClamp/);
+    rerender(<Stage state="active" variant="hero" dm={false} />);
+    expect(status().querySelector('span[aria-hidden]')).toBeNull();
   });
   it('the stylesheet: one line, ellipsis, nothing hidden from the DOM; and the 1.2 leading hack is gone', () => {
     const css = fs.readFileSync(path.join(__dirname, '../../app/play/[sessionId]/regions/SceneStage.module.css'), 'utf8');
