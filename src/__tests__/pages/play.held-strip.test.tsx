@@ -386,3 +386,12 @@ describe('focus nobody lost is left alone (Kage T-1)', () => {
     expect(document.activeElement).toBe(screen.getByRole('group', { name: /^Scene:/ }));
   });
 });
+
+describe('the round span (the phone\'s strip) is not drawn while held (Tora M-1: the two-sentence line already costs a line)', () => {
+  it('held, inline: no " · round N"; running, inline: it is there', () => {
+    const { rerender } = render(<Stage variant="inline" dm={false} />);
+    expect(status().textContent).not.toMatch(/round/);
+    rerender(<Stage variant="inline" state="active" dm={false} />);
+    expect(status().textContent).toMatch(/· round 2/);
+  });
+});

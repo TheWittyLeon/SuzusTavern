@@ -211,7 +211,8 @@ export default function SceneStage({
           <div className={cx(styles.combatNote, strip.wrapper)}>
             <div className={cx(styles.noteText, allHostilesDown || lineText != null ? strip.noteClipped : strip.note)} role="status" aria-live="polite">
               <Icon name={held ? 'Skull' : 'Sword'} size={13} aria-hidden /> {held ? heldLine({ humanDmTable, canEnd: heldDm, standing: heldStanding }) : 'In combat · use the action bar'}
-              {inline && round != null && <span aria-hidden className={strip.round}> · round {round}</span>}
+              {/* Not while held: the player's line is two sentences, and the round's span costs a line at 360 with a long scene name (the strip's 75px cap; the tracker says the round). */}
+              {inline && !held && round != null && <span aria-hidden className={strip.round}> · round {round}</span>}
             </div>
             {/* B8c-3 M2 (Iro ruling 1): the map's line, PLAIN READABLE TEXT, the status node's next sibling and never inside it. No role, no aria-live, no aria-hidden here or on any
                 ancestor up to the stage: it is not a second live region (a changed text announces nothing) and a touch user who taps a token moves no focus, so a hidden line would leave

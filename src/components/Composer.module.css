@@ -275,6 +275,8 @@
   font-size: 11px;
   letter-spacing: 0;
   text-transform: none;
+  /* The same line box as the 9px notice above (9px at the body's 1.5): the notice takes the kicker's place, and 11px at 1.5 would grow the bar by 3px on the turn the hold lands. */
+  line-height: calc(9px * 1.5);
 }
 
 /* A9c-2 D2: `chips` (Story) -- the kicker shares the row with the buttons; the
