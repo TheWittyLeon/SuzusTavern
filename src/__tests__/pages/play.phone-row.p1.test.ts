@@ -49,8 +49,12 @@ describe('the phone fight row: what each room gives the stage, and what a fold d
   it('the fold: auto asks for 4 rows, open adds nothing, folded is no height (and keeps the party band at its minimum: the room set that)', () => {
     expect((phone.factVars as Record<string, unknown>)['fold:sceneStage']).toEqual({ auto: { '--play-body-floor': 'calc(4 * var(--play-cell))' }, open: {}, folded: { '--play-body': '0px', '--play-body-floor': '0px' } });
   });
-  it('the map\'s sizes are row vars: 30px squares, a follow margin of one square, a 16px edge guard', () => {
-    expect(phone.vars).toMatchObject({ '--play-cell': '30px', '--play-follow-margin': '1', '--play-edge-guard': '16px' });
+  it('the map\'s sizes are the fight\'s row vars: 30px squares, a follow margin of one square, a 16px edge guard; the exploring grid carries none (the harness prints a map row count wherever a grid has a cell)', () => {
+    expect(phone.momentVars?.combat).toMatchObject({ '--play-cell': '30px', '--play-follow-margin': '1', '--play-edge-guard': '16px' });
+    for (const k of ['--play-cell', '--play-follow-margin', '--play-edge-guard']) {
+      expect(phone.vars).not.toHaveProperty(k);
+      expect(phone.momentVars?.exploring).not.toHaveProperty(k);
+    }
   });
   it('the fight stage folds only in a board fight, by the stage\'s body, named Map; the flag-off room has no fold', () => {
     expect(FOLD_SPECS.sceneStage).toMatchObject({ label: 'Map', text: 'Map', body: 'play-scene-stage-body', when: { room: 'board' } });

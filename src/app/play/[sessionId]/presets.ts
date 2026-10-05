@@ -1020,11 +1020,6 @@ const PHONE_ROW: LayoutRow = {
     // density tokens). The 44px targets and the 8px between them are unchanged.
     '--play-composer-pad': 'var(--space-3)',
     '--play-composer-gap': 'var(--space-4)',
-    // B8c-4 P1 (brief 2.1): the map's three sizes. `--play-cell` is the square (30px: the owner's ruling), `--play-follow-margin` the map's own follows' margin in squares, `--play-edge-guard` the start inset of a board
-    // that pans sideways (against the iOS back swipe). The stage's body hands the last two to the map (`--tm-follow-margin`, `--tm-edge-guard`); the exploring stage has no body, so nothing reads them there.
-    '--play-cell': '30px',
-    '--play-follow-margin': '1',
-    '--play-edge-guard': '16px',
   },
   // The banner floor: while the X-card banner is raised and the page FIT before it came up (the shell's measured `data-fit`, not a
   // height line: Play.module.css), the story track yields down to THIS, not to 0: 88 inner (log padding 44 + one 42px narration row)
@@ -1033,7 +1028,10 @@ const PHONE_ROW: LayoutRow = {
   // (A9d-2 N5 deleted `--play-foldable-reflow-min`: the stage is a whole band, one scene strip, and needs no minimum of its own.)
   momentVars: {
     exploring: { '--play-banner-floor': '152px' },
-    combat: { '--play-banner-floor': PHONE_COMBAT_BANNER_FLOOR },
+    // B8c-4 P1 (brief 2.1, which puts these in `vars`; here so the exploring page's grid is what it was, to the harness's printed budget line): the map's three sizes. `--play-cell` is the square (30px: the owner's
+    // ruling), `--play-follow-margin` the map's own follows' margin in squares, `--play-edge-guard` the start inset of a board that pans sideways (against the iOS back swipe). The stage's body hands the last two to
+    // the map (`--tm-follow-margin`, `--tm-edge-guard`). Exploring's stage has no body, and the harness prints a map row count wherever the grid carries a cell size.
+    combat: { '--play-banner-floor': PHONE_COMBAT_BANNER_FLOOR, '--play-cell': '30px', '--play-follow-margin': '1', '--play-edge-guard': '16px' },
   },
   // Column 2 is `suzuPresence`'s track: 0px when she is absent (AI assist off).
   columns: {

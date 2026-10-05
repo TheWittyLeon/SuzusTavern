@@ -816,7 +816,8 @@ describe('TAV-PLAY-SHELL presets.ts — the stage\'s body (A10 S2b): a hero name
         if (line >= 0) {
           if (line < 1 || !stageOn(row, m, line) || !stageOn(row, m, line - 1)) out.push(`${at}: the body track is not under the stage's scene line (the stage must name both lines)`);
           else if (trackList(row.rows[m])[line - 1] !== 'max-content') out.push(`${at}: the scene line's track is not max-content`);
-          if (!row.vars || !('--play-cell' in row.vars)) out.push(`${at}: a body track and no --play-cell on the row`);
+          // the row's vars or the moment's own (B8c-4 P1: the phone's fight carries the cell in its combat moment only, so the exploring grid is untouched)
+          if (!('--play-cell' in { ...row.vars, ...row.momentVars?.[m] })) out.push(`${at}: a body track and no --play-cell on the row`);
           for (const value of FACTS.room) {
             const set = (row.factVars?.room as Record<string, Record<string, string> | undefined> | undefined)?.[value];
             if (!set || !('--play-body' in set)) out.push(`${at}: room "${value}" has no --play-body`);
@@ -1068,10 +1069,6 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
       // test and composer-density.css.test cover the stylesheet side. (This literal enumerates the set, so it grows with it.)
       '--play-composer-pad': 'var(--space-3)',
       '--play-composer-gap': 'var(--space-4)',
-      // B8c-4 P1 (named exception: the map's three sizes join the phone's vars; the exploring stage has no body, so nothing reads them there).
-      '--play-cell': '30px',
-      '--play-follow-margin': '1',
-      '--play-edge-guard': '16px',
       // A10 step 11 tail, S6 (named exception: the two F6 values `--play-roll-mode-flex` / `--play-roll-input-flex` are DELETED with their readers: the phone is `line`, whose wrap is the stylesheet's own
       // flex-basis arithmetic, not a row value). What pins the deletion: this literal, and composer-roll-row.css.test (no `--play-roll-` var is read or set).
     });
@@ -1086,7 +1083,8 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
       // 152 = 88 + 64 (exploring chrome: 12 edge + 6 gap + 46 recap); 136 = 88 + 48 (combat). The reflow minimum is gone with the stage's fold.
       exploring: { '--play-banner-floor': '152px' },
       // B8c-4 P1: 136px is written `max(136px, 8.5rem)` (the same at 100% text).
-      combat: { '--play-banner-floor': 'max(136px, 8.5rem)' },
+      // B8c-4 P1: the map's three sizes are the fight's: `--play-cell` 30px, the follow margin 1 square, the edge guard 16px.
+      combat: { '--play-banner-floor': 'max(136px, 8.5rem)', '--play-cell': '30px', '--play-follow-margin': '1', '--play-edge-guard': '16px' },
     });
     // A10 fix round F1 (named exception: these two were `toBeUndefined`, "desktop rows carry none"). The desktop combat rows are floored now: 178 = 100 inner (the
     // harness's banner-up combat floor) + 78 of the story slot's chrome. Exploring has no body to yield and carries none.
