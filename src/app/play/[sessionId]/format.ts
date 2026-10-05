@@ -43,6 +43,11 @@
  */
 import type { CombatParticipantState, CombatState, EngineSessionEvent, GroundingData, Session } from '@/lib/api/types';
 
+// The fight-state predicates live in lib (components import them from there); re-exported so every play-route import keeps working.
+import { isFightHeld } from '@/lib/dnd/combatState';
+export { HELD_END_BODY, HELD_END_CANCEL, HELD_END_CONFIRM, HELD_END_TITLE, HELD_FROZEN_NOTE, HELD_LINE_DM, HELD_LINE_WAITING, HELD_VERB_SUFFIX, anyPcStanding, heldLine } from '@/lib/dnd/heldFight';
+export { areTurnsRunning, isFightEnded, isFightHeld, isFightLive } from '@/lib/dnd/combatState';
+
 /** Title-case an engine skill slug ('sleight_of_hand' -> 'Sleight Of Hand'). */
 export function titleCaseSkill(skill: string): string {
   return skill
@@ -158,32 +163,6 @@ export function drivesMonsterTurns(s: Session | null | undefined, username: stri
   return isSessionDm(s, username);
 }
 
-/*
- * The four questions a reader may ask of a fight's state. No reader compares
- * `CombatState.state` against a string: it asks one of these, so a new engine
- * state is classified here once. A value outside `CombatStateValue` (an engine
- * newer than this build) counts as LIVE and FROZEN: nothing offered, nothing
- * hidden that would let a DM walk away from it. That is the fail-closed side.
- */
-
-/** The fight is over (the only state the poller stops on). */
-export function isFightEnded(combatState: CombatState | null | undefined): boolean {
-  return combatState?.state === 'ended';
-}
-
-/** A fight exists and has not ended: before initiative, running, between
- *  turns, held. Page.tsx's `combatIsActive` is this plus "has an id". */
-export function isFightLive(combatState: CombatState | null | undefined): boolean {
-  return combatState != null && !isFightEnded(combatState);
-}
-
-/** A live turn order is running: the one state in which a turn verb can be
- *  accepted. NOT `combatIsActive`, which is also true before initiative, between
- *  turns and while held. */
-export function areTurnsRunning(combatState: CombatState | null | undefined): boolean {
-  return combatState?.state === 'active';
-}
-
 /** NarratorStrip's turn-order glance (TAV-NARRATION-DECOUPLE): `combatState.initiative` is the ordered participant ids; mapped to display names and filtered
  *  defensively (a stale/unknown id, e.g. a monster removed mid-encounter, drops out rather than rendering "undefined"). */
 export function initiativeNames(combatState: CombatState | null): string[] {
@@ -193,21 +172,12 @@ export function initiativeNames(combatState: CombatState | null): string[] {
     .filter((name): name is string => !!name);
 }
 
-/** The held fight's words, once. The strip's line for the DM and for everyone else, and the note on the controls the freeze switches off. */
-export const HELD_LINE_DM = 'Every character has fallen.';
-export const HELD_LINE_WAITING = 'Every character has fallen. The DM decides what happens next.';
-export const HELD_FROZEN_NOTE = 'The fight is on hold.';
-/** The held End combat's confirm. Ending it records a total party wipe, so the DM is asked once; "Keep waiting" is the safe side and takes focus. */
-export const HELD_END_TITLE = 'End the fight?';
-export const HELD_END_BODY = "Every character has fallen. Ending it now records a total party wipe and can't be undone.";
-export const HELD_END_CONFIRM = 'End combat';
-export const HELD_END_CANCEL = 'Keep waiting';
-
 /**
  * How a fight ended, in the log's two-sentence shape ("Combat ended. <this>"). ONE map from the engine's outcome key to its sentence; an outcome not in it falls back to the
  * key capitalised, as the handler always did. A row here is how a new outcome gets its own words (a tenth outcome is a row, not a branch in the handler).
  */
-const OUTCOME_SENTENCES: Readonly<Record<string, string>> = { tpk: 'The party has fallen.' };
+// debt: the engine already sends its own `message` on /end (it wins below), so this map is only reached against an engine that does not; it mirrors the engine's sentences. ceiling: a sentence the engine words differently reads differently until the engine's message arrives. until: the engine publishes its outcome sentences, or every deployed engine sends `message` (Backlog TAV-COMBAT-OUTCOME-SENTENCES).
+const OUTCOME_SENTENCES: Readonly<Record<string, string>> = { tpk: 'The party has fallen.', noop: 'Combat had already ended.' };
 
 /** The log line for an ended fight. The engine's own `message` wins when it sent one (it builds the same sentence); else the map; else the capitalised key. */
 export function combatEndedLine(outcome: string | null | undefined, engineMessage?: string | null): string {
@@ -215,7 +185,9 @@ export function combatEndedLine(outcome: string | null | undefined, engineMessag
   if (said) return said;
   const key = outcome?.trim();
   if (!key) return 'Combat ended. Unresolved.';
-  return `Combat ended. ${OUTCOME_SENTENCES[key] ?? `${key.charAt(0).toUpperCase()}${key.slice(1)}.`}`;
+  // hasOwn: a key such as `constructor` is not a sentence.
+  const known = Object.hasOwn(OUTCOME_SENTENCES, key) ? OUTCOME_SENTENCES[key] : undefined;
+  return `Combat ended. ${known ?? `${key.charAt(0).toUpperCase()}${key.slice(1)}.`}`;
 }
 
 const END_SESSION_BODY = "This ends the table for everyone at it. Players won't be able to act until a new session starts. This can't be undone from here.";
@@ -227,11 +199,6 @@ export function endSessionBody(combatState: CombatState | null | undefined): str
   return `A fight is waiting for your ruling: every character has fallen. Ending the session leaves it unresolved, and the characters in it can't be deleted until it ends. ${END_SESSION_BODY}`;
 }
 
-/** Every character has fallen after a DM override; the fight waits for the DM
- *  to revive one or end it. Live, and frozen. */
-export function isFightHeld(combatState: CombatState | null | undefined): boolean {
-  return combatState?.state === 'held';
-}
 
 /**
  * DDX-26 — event kinds that count as a "narration beat" for the X-card

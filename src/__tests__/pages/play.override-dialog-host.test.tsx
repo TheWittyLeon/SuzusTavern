@@ -100,14 +100,13 @@ describe('a held fight: the dialog offers Revive only', () => {
     expect(screen.getAllByRole('radio')).toHaveLength(5);
   });
 
-  it('held with no one fallen (the engine\'s own S3 edge): the dialog says so and offers Refresh, and no Apply (End combat stays on the strip)', () => {
-    const onStateRefresh = jest.fn();
-    render(host({ combatState: fight([GOBLIN, mk('pc-1', 'Kestrel', 5, 34)], 'held'), onStateRefresh }));
+  it('held with a character still standing (the engine\'s heal-resume): "Resume the fight", no kind radios, and the living character is listed with their HP', () => {
+    render(host({ combatState: fight([GOBLIN, mk('pc-1', 'Kestrel', 5, 34)], 'held') }));
     fireEvent.click(screen.getByRole('button', { name: 'open A' }));
-    expect(screen.getByText(/No character has fallen\./)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^Revive / })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
-    expect(onStateRefresh).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('dialog', { name: 'Resume the fight' })).toBeInTheDocument();
+    expect(screen.queryAllByRole('radio')).toHaveLength(0);
+    expect(screen.queryByText(/No character has fallen\./)).toBeNull();
+    expect((screen.getByLabelText(/HP after resuming/) as HTMLInputElement).value).toBe('5');
   });
 
   it('a fight that turns held under an open Attack dialog switches it to Revive', () => {
@@ -136,6 +135,15 @@ describe('a refused combat_not_active: the engine\'s own sentence when the refus
     fireEvent.click(screen.getByRole('button', { name: 'open A' }));
     await send(/Check/i);
     expect((await screen.findByRole('alert')).textContent).toBe(HELD_SENTENCE);
+  });
+
+  it('the ENGINE\'s sentence wins over the fallback: a different sentence is shown verbatim (the fixture\'s sentence used to equal the fallback, so a mutant that always showed the fallback passed)', async () => {
+    const ENGINE = 'The fight is on hold: resume it with a living character or end it.';
+    mockSubmitOverride.mockRejectedValue(refusal(fight([GOBLIN, DEAD], 'held'), ENGINE));
+    render(host());
+    fireEvent.click(screen.getByRole('button', { name: 'open A' }));
+    await send(/Check/i);
+    expect((await screen.findByRole('alert')).textContent).toBe(ENGINE);
   });
 
   it('a revive refused with a HELD state shows it too, not "The fight has ended"', async () => {

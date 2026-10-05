@@ -87,7 +87,7 @@ const stage = () => document.querySelector('[data-region="sceneStage"]') as HTML
 /** Press the strip's End combat, then the confirm's End combat (the held End asks first). */
 const pressEnd = async () => {
   fireEvent.click(within(stage()).getByRole('button', { name: 'End combat' }));
-  const go = within(screen.getByRole('dialog', { name: 'End the fight?' })).getByRole('button', { name: 'End combat' });
+  const go = within(screen.getByRole('dialog', { name: 'End the fight?' })).getByRole('button', { name: 'End the fight' });
   await act(async () => { fireEvent.click(go); });
 };
 
@@ -100,7 +100,7 @@ describe('P1 the held End combat: one request, exactly {username, outcome: tpk},
     mock<typeof dnd.endCombat>(dnd.endCombat).mockImplementation(() => new Promise((r) => { release = r; }) as never);
     fireEvent.click(within(stage()).getByRole('button', { name: 'End combat' }));
     expect(dnd.endCombat).not.toHaveBeenCalled();
-    const go = within(screen.getByRole('dialog', { name: 'End the fight?' })).getByRole('button', { name: 'End combat' });
+    const go = within(screen.getByRole('dialog', { name: 'End the fight?' })).getByRole('button', { name: 'End the fight' });
     fireEvent.click(go);
     fireEvent.click(go);
     fireEvent.keyDown(go, { key: 'Enter' });
@@ -120,15 +120,22 @@ describe('P1 the held End combat: one request, exactly {username, outcome: tpk},
     expect(await screen.findByText('Combat ended. The party has fallen. (engine)')).toBeInTheDocument();
   });
 
-  it('a failed /end keeps the fight held and the End button usable again (retry)', async () => {
+  it('a failed /end keeps the confirm open with the error, retryable; the retry sends again and the fight ends', async () => {
     await mount({ user: 'dm_alice', dm: 'dm_alice', mode: 'human', fight: heldFight(), findText: /^Every character has fallen\.$/ });
     mock<typeof dnd.endCombat>(dnd.endCombat).mockRejectedValueOnce(Object.assign(new Error('boom'), { status: 500 }));
     await pressEnd();
     await waitFor(() => expect(dnd.endCombat).toHaveBeenCalledTimes(1));
-    // The request failed with the fight still held: the confirm is gone and End combat is usable again.
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'End the fight?' })).toBeNull());
-    expect(within(stage()).getByRole('button', { name: 'End combat' })).toBeEnabled();
+    // The request failed with the fight still held: the confirm stays, says so, and its button is live again.
+    const dlg = await screen.findByRole('dialog', { name: 'End the fight?' });
+    await waitFor(() => expect(within(dlg).getByRole('alert')).toHaveTextContent('Could not end the fight. Try again.'));
+    const go = within(dlg).getByRole('button', { name: 'End the fight' });
+    expect(go).toBeEnabled();
     expect(within(stage()).getByText(/^Every character has fallen\.$/)).toBeInTheDocument();
+    mock<typeof dnd.endCombat>(dnd.endCombat).mockResolvedValue({ state: heldFight('ended'), outcome: 'tpk' } as never);
+    await act(async () => { fireEvent.click(go); });
+    expect(dnd.endCombat).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'End the fight?' })).toBeNull());
+    expect(await screen.findByText('Combat ended. The party has fallen.')).toBeInTheDocument();
   });
 });
 
@@ -139,8 +146,8 @@ describe('P2 who gets buttons', () => {
   });
 
   it('an AI-DM table, the session host: the DM line and End combat (it asks, then sends tpk), and NO Revive…', async () => {
-    await mount({ user: 'dm_alice', dm: 'dm_alice', mode: 'ai', fight: heldFight(), findText: /^Every character has fallen\.$/ });
-    expect(within(stage()).queryByRole('button', { name: /Revive/ })).toBeNull();
+    await mount({ user: 'dm_alice', dm: 'dm_alice', mode: 'ai', fight: heldFight(), findText: /^Every character has fallen\. You can end the fight\.$/ });
+    expect(within(stage()).queryByRole('button', { name: /Revive|Resume/ })).toBeNull();
     mock<typeof dnd.endCombat>(dnd.endCombat).mockResolvedValue({ state: heldFight('ended'), outcome: 'tpk' } as never);
     await pressEnd();
     expect(dnd.endCombat).toHaveBeenCalledTimes(1);
@@ -148,8 +155,8 @@ describe('P2 who gets buttons', () => {
   });
 
   it('an AI-DM table, a player who is not the host: the waiting line and no strip buttons', async () => {
-    await mount({ user: 'leon', dm: 'dm_alice', mode: 'ai', fight: heldFight(), findText: /The DM decides what happens next/ });
-    expect(within(stage()).queryByRole('button', { name: /End combat|Revive/ })).toBeNull();
+    await mount({ user: 'leon', dm: 'dm_alice', mode: 'ai', fight: heldFight(), findText: /^Every character has fallen\. The host can end the fight\.$/ });
+    expect(within(stage()).queryByRole('button', { name: /End combat|Revive|Resume/ })).toBeNull();
   });
 });
 

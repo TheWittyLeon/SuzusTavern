@@ -8,7 +8,7 @@
 //
 // Pure: `moveRows(seen, state)` returns the rows to append and the `seen` to keep. The thin effect that appends them is in hooks/useBoard.ts.
 import type { CombatState, SpaceCoordinate } from '@/lib/api/types';
-import { isFightEnded } from '@/app/play/[sessionId]/format';
+import { isFightEnded } from '@/lib/dnd/combatState';
 import { coordsEqual, isSpaceUsable } from '@/components/tactical-map/reach';
 
 /** More rows than this in ONE flush (a tab that was hidden across several turns) is a single row instead of a flood. */

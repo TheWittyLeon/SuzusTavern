@@ -85,7 +85,8 @@ import type { UseSceneStateResult } from './useSceneState';
 export interface UseCombatActionsResult {
   beginEncounter: () => Promise<void>;
   onCombatAction: (action: CombatAction, payload?: string) => Promise<void>;
-  onEndCombat: (outcome?: EndCombatOutcome) => Promise<void>;
+  /** Resolves true when the fight ended, false when it did not (a refusal, a failed request, another action in flight). */
+  onEndCombat: (outcome?: EndCombatOutcome) => Promise<boolean>;
 }
 
 /**
@@ -500,15 +501,17 @@ export function useCombatActions(
    */
   const onEndCombat = useCallback(
     async (outcome: EndCombatOutcome = 'unresolved') => {
-      if (!combatId || !username || combatBusyRef.current) return;
+      if (!combatId || !username || combatBusyRef.current) return false;
       combatBusyRef.current = true;
       // Tora MINOR-2: increment seq at mutation START so any in-flight poll is discarded.
       stateSeqRef.current += 1;
       setCombatBusy(true);
       // Tora MINOR-1: do NOT close the chooser here — only close on success so the
       // user can retry on engine error without re-opening the panel.
+      let ended = false;
       try {
         const result = await endCombat(combatId, { username, outcome });
+        ended = true;
         if (result.state) {
           stateSeqRef.current += 1;
           setCombatState(result.state);
@@ -533,6 +536,7 @@ export function useCombatActions(
           playOutcomeLine(result.outcome_line);
           void refreshGrounding();
         }
+        return true;
       } catch (err) {
         const body = (err as { body?: unknown } | null)?.body;
         const data = (body as { data?: { reason?: string } } | null)?.data;
@@ -542,7 +546,8 @@ export function useCombatActions(
         } else {
           toast({ tone: 'error', message: 'Could not end combat.' });
         }
-        // Tora MINOR-1: chooser stays open on error so the user can retry.
+        // Tora MINOR-1: chooser stays open on error so the user can retry. (An error AFTER the fight ended, in the scene advance, is not a failed end.)
+        return ended;
       } finally {
         combatBusyRef.current = false;
         setCombatBusy(false);

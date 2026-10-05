@@ -48,7 +48,7 @@ import type {
   SheetSpellSlot,
   SpellListResult,
 } from '@/lib/api/types';
-import { HELD_FROZEN_NOTE } from '@/app/play/[sessionId]/format';
+import { HELD_FROZEN_NOTE, HELD_VERB_SUFFIX } from '@/lib/dnd/heldFight';
 import styles from './CastSpellPanel.module.css';
 
 type FetchState = 'idle' | 'loading' | 'ok' | 'error';
@@ -395,7 +395,7 @@ export default function CastSpellPanel({
             className={styles.castBtn}
             aria-label={
               notYourTurn
-                ? `Cast ${selectedSpell?.name ?? 'spell'} (${held ? 'fight on hold' : 'not your turn'})`
+                ? `Cast ${selectedSpell?.name ?? 'spell'} (${held ? HELD_VERB_SUFFIX : 'not your turn'})`
                 : `Cast ${selectedSpell?.name ?? 'spell'}`
             }
             {...lockProps(castLocked, { busy })}

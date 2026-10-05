@@ -24,7 +24,7 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { npcAction, postSessionEvent, setSessionPolicy } from '@/lib/api/dnd';
 import type { CombatParticipantState, CombatState } from '@/lib/api/types';
-import { areTurnsRunning, isFightHeld } from '@/app/play/[sessionId]/format';
+import { areTurnsRunning, isFightHeld } from '@/lib/dnd/combatState';
 import { useOverrideDialog } from '@/app/play/[sessionId]/overrideDialog';
 import Icon from '@/components/Icon';
 import { consumeEscape } from '@/lib/a11y/escapeConsume';

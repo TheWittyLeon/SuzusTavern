@@ -9,7 +9,7 @@
 import fs from 'fs';
 import path from 'path';
 import { useEffect, useRef, useState } from 'react';
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 const mockSubmitOverride = jest.fn();
@@ -32,7 +32,7 @@ const fight = (state: CombatState['state']): CombatState => ({
 const endCalls: string[] = [];
 let setChooser: ((open: boolean) => void) | null = null;
 
-function Stage({ state = 'held', dm = true, host = false, aiTable = false, variant }: { state?: CombatState['state'] | null; dm?: boolean; host?: boolean; aiTable?: boolean; variant?: 'inline' | 'panel' | 'hero' }) {
+function Stage({ state = 'held', dm = true, host = false, aiTable = false, standing = false, variant, onEnd }: { state?: CombatState['state'] | null; dm?: boolean; host?: boolean; aiTable?: boolean; standing?: boolean; variant?: 'inline' | 'panel' | 'hero'; onEnd?: (o: string) => Promise<boolean | void> | void }) {
   const headRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLButtonElement>(null);
   const openerRef = useRef<HTMLButtonElement>(null);
@@ -41,14 +41,15 @@ function Stage({ state = 'held', dm = true, host = false, aiTable = false, varia
   const [live, setLive] = useState(state !== null);
   useEffect(() => { setChooser = setChooserOpen; }, []);
   const cs = fight(state ?? 'ended');
+  if (standing) cs.participants = [mk('pc-1', 'Kestrel', 5, 34), cs.participants[1]];
   const stage = (
     <aside data-region-slot="sceneStage">
       <SceneStage
         sceneName="The Sundered Hollow" objective="Find the source." sceneHeadRef={headRef} combatIsActive={live} activeEncounterId={null}
         sceneHasEncounter={false} combatBusy={false} endCombatBtnRef={endRef} outcomeChooserOpen={chooser} setOutcomeChooserOpen={setChooserOpen}
-        lastOpenerRef={openerRef} allHostilesDown={false} anyMonsterDown onEndCombat={(o) => { endCalls.push(o); setLive(false); }}
+        lastOpenerRef={openerRef} allHostilesDown={false} anyMonsterDown onEndCombat={(o) => { endCalls.push(o); if (onEnd) return onEnd(o); setLive(false); }}
         beginCombatRef={beginRef} onBeginEncounter={() => {}} talking={false} sessionLocked={false} rollBusy={false}
-        held={state === 'held'} canEndHeld={host} variant={variant} round={2}
+        held={state === 'held' && live} canEndHeld={host} humanDmTable={!aiTable} heldStanding={standing} variant={variant} round={2}
       />
     </aside>
   );
@@ -80,7 +81,7 @@ describe('the DM sees the line and both exits', () => {
     expect(endCalls).toEqual([]);
     const dialog = screen.getByRole('dialog', { name: 'End the fight?' });
     expect(dialog).toHaveTextContent(HELD_END_BODY);
-    fireEvent.click(within(dialog).getByRole('button', { name: 'End combat' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'End the fight' }));
     expect(endCalls).toEqual(['tpk']);
     expect(screen.queryByText('How does this fight end?')).toBeNull();
     expect(screen.queryByRole('group', { name: 'Choose combat outcome' })).toBeNull();
@@ -164,7 +165,7 @@ describe('focus', () => {
     const end = screen.getByRole('button', { name: 'End combat' });
     end.focus();
     fireEvent.click(end);
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'End combat' }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'End the fight' }));
     expect(screen.queryByRole('button', { name: 'End combat' })).toBeNull();
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(document.activeElement).toBe(screen.getByRole('group', { name: /^Scene:/ }));
@@ -211,7 +212,7 @@ describe('the held End combat confirm', () => {
     press();
     await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
     expect(document.activeElement).toBe(within(confirm()).getByRole('button', { name: 'Keep waiting' }));
-    expect(within(confirm()).getByRole('button', { name: 'End combat' })).toBeInTheDocument();
+    expect(within(confirm()).getByRole('button', { name: 'End the fight' })).toBeInTheDocument();
   });
 
   it('Keep waiting sends nothing and returns focus to End combat', async () => {
@@ -237,7 +238,7 @@ describe('the held End combat confirm', () => {
   it('a double press of the confirm is one request', () => {
     render(<Stage />);
     press();
-    const go = within(confirm()).getByRole('button', { name: 'End combat' });
+    const go = within(confirm()).getByRole('button', { name: 'End the fight' });
     fireEvent.click(go);
     fireEvent.click(go);
     expect(endCalls).toEqual(['tpk']);
@@ -265,12 +266,12 @@ describe('the held End combat confirm', () => {
 describe('the session host at a Suzu-DM table (QA F3)', () => {
   it('sees the DM line and End combat, no Revive…; End asks, then sends `tpk`', () => {
     render(<Stage aiTable host />);
-    expect(status()).toHaveTextContent(HELD_LINE_DM);
+    expect(status()).toHaveTextContent('Every character has fallen. You can end the fight.');
     expect(status().textContent).not.toMatch(/The DM decides/);
     expect(names()).toEqual(['End combat']);
     fireEvent.click(screen.getByRole('button', { name: 'End combat' }));
     expect(endCalls).toEqual([]);
-    fireEvent.click(within(screen.getByRole('dialog', { name: 'End the fight?' })).getByRole('button', { name: 'End combat' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'End the fight?' })).getByRole('button', { name: 'End the fight' }));
     expect(endCalls).toEqual(['tpk']);
   });
 
@@ -282,12 +283,106 @@ describe('the session host at a Suzu-DM table (QA F3)', () => {
 
   it('a player whose seat is not the DM account, inside an AI-DM host, also gets nothing', () => {
     render(<Stage aiTable host={false} />);
-    expect(status()).toHaveTextContent(HELD_LINE_WAITING);
+    expect(status()).toHaveTextContent('Every character has fallen. The host can end the fight.');
     expect(names()).toEqual([]);
   });
 
   it('the host keeps the DM strip\'s grid class', () => {
     render(<Stage aiTable host variant="inline" />);
     expect((document.querySelector('[data-region="sceneStage"]') as HTMLElement).className).toMatch(/heldDm/);
+  });
+});
+
+describe('the line at every table (a map, not a branch)', () => {
+  const line = () => status().textContent?.replace(/\s*· round \d+\s*$/, '').trim();
+  it.each([
+    ['human table, the DM, all fallen', { }, 'Every character has fallen.'],
+    ['human table, the DM, one standing', { standing: true }, 'The fight is on hold. A character is still standing.'],
+    ['human table, a player, all fallen', { dm: false }, 'Every character has fallen. The DM decides what happens next.'],
+    ['human table, a player, one standing', { dm: false, standing: true }, 'The fight is on hold. The DM decides what happens next.'],
+    ['Suzu table, the host, all fallen', { aiTable: true, host: true }, 'Every character has fallen. You can end the fight.'],
+    ['Suzu table, the host, one standing', { aiTable: true, host: true, standing: true }, 'The fight is on hold. You can end the fight.'],
+    ['Suzu table, a player, all fallen', { aiTable: true, dm: true, host: false }, 'Every character has fallen. The host can end the fight.'],
+    ['Suzu table, a player, one standing', { aiTable: true, dm: false, standing: true }, 'The fight is on hold. The host can end the fight.'],
+  ] as const)('%s', (_n, props, want) => {
+    render(<Stage {...(props as object)} />);
+    expect(line()).toBe(want);
+  });
+});
+
+describe('Resume… (a character still standing) takes Revive…\'s place', () => {
+  it('the DM\'s strip: Resume… then End combat, no Revive…', () => {
+    render(<Stage standing />);
+    expect(names()).toEqual(['Resume…', 'End combat']);
+  });
+  it('Resume… opens the one dialog: "Resume the fight", the living character listed with their HP, no kind radios', () => {
+    render(<Stage standing />);
+    fireEvent.click(screen.getByRole('button', { name: 'Resume…' }));
+    const dlg = screen.getByRole('dialog', { name: 'Resume the fight' });
+    expect(within(dlg).queryAllByRole('radio')).toHaveLength(0);
+    expect(within(dlg).getByRole('option', { name: 'Kestrel (5 of 34 HP)' })).toBeInTheDocument();
+  });
+  it('the host at a Suzu-DM table with a living PC still has End combat only', () => {
+    render(<Stage aiTable host standing />);
+    expect(names()).toEqual(['End combat']);
+  });
+});
+
+describe('the confirm: a failed request keeps it open for a retry; the end hands focus to the scene head', () => {
+  it('a /end that fails (false) leaves the confirm up, says so, and the button is live again', async () => {
+    let n = 0;
+    render(<Stage onEnd={async () => { n += 1; return n === 1 ? false : true; }} />);
+    fireEvent.click(screen.getByRole('button', { name: 'End combat' }));
+    await act(async () => { fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'End the fight' })); });
+    const dlg = screen.getByRole('dialog', { name: 'End the fight?' });
+    expect(within(dlg).getByRole('alert')).toHaveTextContent('Could not end the fight. Try again.');
+    expect(within(dlg).getByRole('button', { name: 'End the fight' })).toBeEnabled();
+    await act(async () => { fireEvent.click(within(dlg).getByRole('button', { name: 'End the fight' })); });
+    expect(endCalls).toEqual(['tpk', 'tpk']);
+  });
+
+  it('the confirm awaits the request: it is busy (both buttons dead) until it settles, however the page\'s busy flag moves', async () => {
+    let release!: (v: boolean) => void;
+    render(<Stage onEnd={() => new Promise<boolean>((r) => { release = r; })} />);
+    fireEvent.click(screen.getByRole('button', { name: 'End combat' }));
+    const dlg = screen.getByRole('dialog', { name: 'End the fight?' });
+    await act(async () => { fireEvent.click(within(dlg).getByRole('button', { name: 'End the fight' })); });
+    expect(within(dlg).getByRole('button', { name: 'Keep waiting' })).toBeDisabled();
+    expect(within(dlg).getByRole('button', { name: /End the fight/ })).toBeDisabled();
+    await act(async () => { release(false); });
+    expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'Keep waiting' })).toBeEnabled();
+  });
+
+  it('a pointer press on the confirm button (which forgets the control focus was on) still ends with focus on the scene head, never <body>', async () => {
+    render(<Stage />);
+    const end = screen.getByRole('button', { name: 'End combat' });
+    end.focus();
+    fireEvent.click(end);
+    await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+    const go = within(screen.getByRole('dialog')).getByRole('button', { name: 'End the fight' });
+    fireEvent.pointerDown(go);
+    await act(async () => { fireEvent.click(go); });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(document.activeElement).toBe(screen.getByRole('group', { name: /^Scene:/ }));
+  });
+});
+
+describe('focus nobody lost is left alone (Kage T-1)', () => {
+  it('a cold load into a held fight: nothing was focused, so nothing is moved', () => {
+    render(<Stage />);
+    expect(document.activeElement).toBe(document.body);
+  });
+  it('a user resting on <body> when the hold lifts keeps resting there', () => {
+    const { rerender } = render(<Stage />);
+    expect(document.activeElement).toBe(document.body);
+    rerender(<Stage state="active" />);
+    expect(document.activeElement).toBe(document.body);
+  });
+  it('a verb that was natively disabled under focus counts as taken away (the hold arriving under a focused control is rescued)', () => {
+    const { rerender } = render(<Stage state="active" />);
+    const end = screen.getByRole('button', { name: /End combat — choose outcome/ });
+    end.focus();
+    rerender(<Stage state="held" />);
+    expect(document.activeElement).toBe(screen.getByRole('group', { name: /^Scene:/ }));
   });
 });

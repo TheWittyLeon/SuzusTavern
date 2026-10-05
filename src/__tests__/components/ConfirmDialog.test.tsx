@@ -53,13 +53,37 @@ test('Escape cancels; confirm/cancel buttons fire; busy disables', () => {
   expect(screen.getByRole('button', { name: /cancel/i })).toBeDisabled();
 });
 
-test('backdrop click cancels', () => {
+test('a press and release on the backdrop, after the arm window, cancels', async () => {
   const onCancel = jest.fn();
   render(<ConfirmDialog open title="X" onConfirm={() => {}} onCancel={onCancel} />);
   // The backdrop is the dialog's parent (the outermost element).
   const backdrop = screen.getByRole('dialog').parentElement as HTMLElement;
+  await new Promise((r) => setTimeout(r, 350));
+  fireEvent.pointerDown(backdrop);
   fireEvent.click(backdrop);
   expect(onCancel).toHaveBeenCalledTimes(1);
+});
+
+test('a click within the arm window after open is ignored (the second click of a double press on the opener)', () => {
+  const onCancel = jest.fn();
+  render(<ConfirmDialog open title="X" onConfirm={() => {}} onCancel={onCancel} />);
+  const backdrop = screen.getByRole('dialog').parentElement as HTMLElement;
+  fireEvent.pointerDown(backdrop);
+  fireEvent.click(backdrop);
+  expect(onCancel).not.toHaveBeenCalled();
+});
+
+test('a press that began inside the dialog and was released on the backdrop does not cancel; nor does a click with no press on it', async () => {
+  const onCancel = jest.fn();
+  render(<ConfirmDialog open title="X" onConfirm={() => {}} onCancel={onCancel} />);
+  const dialog = screen.getByRole('dialog');
+  const backdrop = dialog.parentElement as HTMLElement;
+  await new Promise((r) => setTimeout(r, 350));
+  fireEvent.pointerDown(dialog);
+  fireEvent.click(backdrop);
+  expect(onCancel).not.toHaveBeenCalled();
+  fireEvent.click(backdrop);
+  expect(onCancel).not.toHaveBeenCalled();
 });
 
 test('busy flip parks focus on the dialog itself (Kage m5 focus park)', async () => {

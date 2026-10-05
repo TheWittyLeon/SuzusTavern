@@ -134,9 +134,13 @@ describe('combatEndedLine: one outcome -> sentence map, the key capitalised as t
     ['victory', 'Combat ended. Victory.'],
     ['retreat', 'Combat ended. Retreat.'],
     ['unresolved', 'Combat ended. Unresolved.'],
+    ['noop', 'Combat ended. Combat had already ended.'],
     ['a_tenth_outcome', 'Combat ended. A_tenth_outcome.'],
   ])("outcome '%s' -> %s", (outcome, line) => {
     expect(combatEndedLine(outcome)).toBe(line);
+  });
+  it.each(['constructor', 'toString', '__proto__', 'hasOwnProperty'])("an object-prototype key ('%s') is a key, not a sentence", (key) => {
+    expect(combatEndedLine(key)).toBe(`Combat ended. ${key.charAt(0).toUpperCase()}${key.slice(1)}.`);
   });
   it('no outcome at all is Unresolved, as it always was', () => {
     expect(combatEndedLine(undefined)).toBe('Combat ended. Unresolved.');
@@ -146,5 +150,29 @@ describe('combatEndedLine: one outcome -> sentence map, the key capitalised as t
     expect(combatEndedLine('tpk', 'Combat ended. The party has fallen. (engine)')).toBe('Combat ended. The party has fallen. (engine)');
     expect(combatEndedLine('tpk', '   ')).toBe('Combat ended. The party has fallen.');
     expect(combatEndedLine('tpk', null)).toBe('Combat ended. The party has fallen.');
+  });
+});
+
+describe('a state this build has never heard of is live and frozen, says so once, and an object-prototype key is not a state', () => {
+  const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  afterAll(() => warn.mockRestore());
+  const odd = (state: string) => makeCombatState(state as CombatState['state']);
+  it('reaction_window: live, not running, not held, not ended', () => {
+    const cs = odd('reaction_window');
+    expect([isFightLive(cs), areTurnsRunning(cs), isFightHeld(cs), isFightEnded(cs)]).toEqual([true, false, false, false]);
+  });
+  it('the warning names the state and is said once per state', () => {
+    warn.mockClear();
+    const cs = odd('rising_tide');
+    isFightLive(cs); areTurnsRunning(cs); isFightHeld(cs);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toMatch(/rising_tide/);
+  });
+  it.each(['constructor', 'toString', '__proto__'])("'%s' is unknown (live, frozen), not a lookup that finds an Object member", (key) => {
+    const cs = odd(key);
+    expect([isFightLive(cs), areTurnsRunning(cs), isFightHeld(cs), isFightEnded(cs)]).toEqual([true, false, false, false]);
+  });
+  it('a fight not read yet (null) is none of the four', () => {
+    expect([isFightLive(null), areTurnsRunning(null), isFightHeld(null), isFightEnded(null)]).toEqual([false, false, false, false]);
   });
 });

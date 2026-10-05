@@ -5,7 +5,7 @@
  * - role="dialog" + aria-modal, labelled by the title and described by the body.
  * - On open: focuses the Cancel (least-destructive) button and remembers the
  *   previously-focused element; on close: restores focus to it.
- * - Esc cancels; clicking the backdrop cancels; Tab is trapped between the two
+ * - Esc cancels; clicking the backdrop cancels (the press must BEGIN on the scrim, and not within 300 ms of opening: a double press on the opener never opens and cancels it); Tab is trapped between the two
  *   buttons so focus can't escape behind the dialog.
  * - `busy` disables both buttons while the confirm action is in flight.
  * - `confirmDisabled` disables only the confirm button (distinct from `busy` —
@@ -26,6 +26,10 @@ import { createPortal } from 'react-dom';
 import Button from '@/components/Button';
 import { consumeEscape } from '@/lib/a11y/escapeConsume';
 import styles from '@/components/ConfirmDialog.module.css';
+
+/** The scrim ignores clicks for this long after the dialog opens: the second click of a double press on the opener lands on it and would cancel the dialog it just opened
+ *  (the override dialog's own arm window, `DmOverrideModal` BACKDROP_ARM_MS). */
+const BACKDROP_ARM_MS = 300;
 
 export interface ConfirmDialogProps {
   open: boolean;
@@ -72,6 +76,8 @@ export default function ConfirmDialog({
   const confirmRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
+  const backdropDown = useRef(false);
+  const backdropArmedAt = useRef(0);
   const uid = useId();
   const titleId = `${uid}-title`;
   const bodyId = `${uid}-body`;
@@ -80,6 +86,7 @@ export default function ConfirmDialog({
   useEffect(() => {
     if (!open) return;
     previouslyFocused.current = document.activeElement as HTMLElement | null;
+    backdropArmedAt.current = Date.now() + BACKDROP_ARM_MS;
     // Focus after paint so the node exists.
     const t = setTimeout(() => cancelRef.current?.focus(), 0);
     return () => {
@@ -167,11 +174,17 @@ export default function ConfirmDialog({
   const dialogContent = (
     <div
       className={styles.backdrop}
+      onPointerDown={(e) => {
+        backdropDown.current = e.target === e.currentTarget;
+      }}
       onClick={(e) => {
         // onClick (not mousedown) so a click only cancels when it both starts AND
         // ends on the backdrop — a drag that overshoots onto/off the dialog won't
-        // dismiss it.
-        if (e.target === e.currentTarget && !busy) onCancel();
+        // dismiss it (the press state is what says where it started) — and not in the
+        // arm window after open.
+        const downHere = backdropDown.current;
+        backdropDown.current = false;
+        if (e.target === e.currentTarget && downHere && !busy && Date.now() >= backdropArmedAt.current) onCancel();
       }}
     >
       <div

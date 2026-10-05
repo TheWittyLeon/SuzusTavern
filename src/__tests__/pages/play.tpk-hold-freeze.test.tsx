@@ -30,7 +30,10 @@ jest.mock('../../lib/stream', () => ({ streamDmNarration: jest.fn() }));
 
 import * as dnd from '@/lib/api/dnd';
 import PlayPage from '@/app/play/[sessionId]/page';
-import { HELD_LINE_WAITING } from '@/app/play/[sessionId]/format';
+import { heldLine } from '@/app/play/[sessionId]/format';
+
+// The page's table is Suzu's (`dm_mode: 'ai'`) and the viewer is a player, not its host.
+const HELD_LINE_WAITING = heldLine({ humanDmTable: false, canEnd: false, standing: false });
 import PartyStrip from '@/app/play/[sessionId]/regions/PartyStrip';
 import CastSpellPanel from '@/components/CastSpellPanel';
 

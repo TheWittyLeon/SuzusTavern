@@ -38,4 +38,10 @@ describe('stylesheet order is not moved by a code move', () => {
     expect(indexOfImport(lines, "'./overrideDialog'")).toBeGreaterThan(-1);
     expect(indexOfImport(lines, "'./overrideDialog'")).toBeLessThan(indexOfImport(lines, "'./regions/TableControls'"));
   });
+
+  it('the Session popover\'s width does not depend on the order: its rule has more specificity than `.popover`\'s (one class each was decided by import order)', () => {
+    const play = fs.readFileSync(path.join(PLAY, 'Play.module.css'), 'utf8');
+    expect(play).toMatch(/\.sessionPopover\.sessionPopover\s*\{[^}]*width:\s*320px/);
+    expect(play).not.toMatch(/^\.sessionPopover\s*\{/m);
+  });
 });

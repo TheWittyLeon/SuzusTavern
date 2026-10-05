@@ -40,7 +40,7 @@ import {
   useState,
 } from 'react';
 import { submitOverride } from '@/lib/api/dnd';
-import { isFightHeld } from '@/app/play/[sessionId]/format';
+import { isFightHeld } from '@/lib/dnd/combatState';
 import type {
   CombatParticipantState,
   CombatState,
@@ -98,6 +98,9 @@ function parseNewHp(text: string, edited: boolean): NewHpParse {
 type DialogKind = OverrideKind | 'revive';
 const KIND_ORDER: DialogKind[] = ['attack', 'check', 'save', 'damage', 'revive'];
 const REVIVE_ONLY: DialogKind[] = ['revive'];
+/** A held fight with a character still standing (the engine's heal-resume): the dialog lists every player character and the title says what the DM is doing. */
+const RESUME_TITLE = 'Resume the fight';
+const RESUME_STALE = 'The fight is already going again. Nothing was sent.';
 /** The engine's sentence for a non-revive override on a held fight; the fallback when the refusal carries none. */
 const HELD_REFUSAL_COPY = 'The fight is waiting for the DM: revive a character or end the combat.';
 
@@ -152,8 +155,9 @@ export interface DmOverrideModalProps {
   initialKind?: DialogKind;
   /** Preselect this participant (revive: the fallen character). */
   initialTargetId?: string | null;
-  /** The fight is held (every character fallen, waiting on the DM): the engine takes only a revive, so only Revive is offered and the dialog opens on it,
-   *  whatever the opener asked for. A fight that BECOMES held under an open dialog switches it to Revive. The page derives this; the dialog does not read the wire. */
+  /** The fight is held (every character fallen, or waiting on the DM): the engine takes only an override that leaves a player character above 0 HP, so only that is offered (Revive,
+   *  and with a character still standing, Resume) and the dialog opens on it, whatever the opener asked for. A fight that BECOMES held under an open dialog switches it over. The page
+   *  derives this; the dialog does not read the wire. */
   held?: boolean;
   /** HP each PC was last seen alive with (this tab) — Revive's default. */
   lastAliveHp?: Readonly<Record<string, number>>;
@@ -284,19 +288,24 @@ export default function DmOverrideModal({
     setReviveHpEdit(null);
   }
   const isRevive = kind === 'revive';
-  // Revive lists the fallen player characters only (the engine's revive
-  // predicate: a dead PC). A chosen character a poll has since shown alive stays
-  // selectable so Apply can refuse it by name instead of silently dropping it.
-  const fallen = participants.filter((p) => p.is_pc && !p.is_alive);
+  // Held with a character still standing: the engine accepts an override that leaves ANY player character above 0 HP, so the list is every player character (display only; the
+  // engine's refusal is the authority) and the form is "Resume the fight". Otherwise Revive lists the fallen only (the engine's revive predicate: a dead PC); a chosen character
+  // a poll has since shown alive stays selectable so Apply can refuse it by name instead of silently dropping it.
+  const resumeMode = held && participants.some((p) => p.is_pc && p.is_alive);
+  const fallen = participants.filter((p) => p.is_pc && (resumeMode || !p.is_alive));
   const target = isRevive
     ? participants.find((p) => p.is_pc && p.participant_id === targetId)
     : targetOptions.find((p) => p.participant_id === targetId);
   const reviveOptions =
-    target && target.is_alive ? [...fallen, target] : fallen;
+    target && target.is_alive && !fallen.includes(target) ? [...fallen, target] : fallen;
   const reviveMax = target ? Math.min(OVERRIDE_HP_MAX, Math.max(1, Math.floor(target.hp_max) || 1)) : 1;
   const lastAlive = target ? lastAliveHp?.[target.participant_id] : undefined;
-  const reviveDefault =
-    typeof lastAlive === 'number' && Number.isFinite(lastAlive) && lastAlive >= 1
+  // A character still standing resumes at the HP they have (setting it to that changes nothing); a fallen one comes back with what they had before they fell, else 1.
+  const resuming = isRevive && held && !!target?.is_alive;
+  const standingHp = typeof target?.hp_current === 'number' && Number.isFinite(target.hp_current) ? Math.floor(target.hp_current) : null;
+  const reviveDefault = resuming && standingHp !== null
+    ? Math.min(Math.max(1, standingHp), reviveMax)
+    : typeof lastAlive === 'number' && Number.isFinite(lastAlive) && lastAlive >= 1
       ? Math.min(Math.floor(lastAlive), reviveMax)
       : 1;
   const reviveHpText = reviveHpEdit ?? (target ? String(reviveDefault) : '');
@@ -327,13 +336,14 @@ export default function DmOverrideModal({
     }
   }
   // Revive with exactly one fallen character preselects them.
-  if (isRevive && !targetId && fallen.length === 1) {
+  if (isRevive && !targetId && fallen.length === 1 && !(held && kind !== 'revive')) {
     setTargetId(fallen[0].participant_id);
   }
   // A target that left the select (became the Actor, or died in a poll) is
   // cleared, and a hand-typed New HP for it is released.
   if (targetId !== (target?.participant_id ?? '')) {
-    if (open && (kind === 'attack' || kind === 'damage' || kind === 'revive')) {
+    // Not while the hold is switching this dialog over to Revive: the target who just fell is about to be preselected, and "no longer a valid target" beside them is false.
+    if (open && !(held && kind !== 'revive') && (kind === 'attack' || kind === 'damage' || kind === 'revive')) {
       const gone = participants.find((p) => p.participant_id === targetId);
       notice(`${gone?.name ?? 'The target'} is no longer a valid target. Pick another.`);
     }
@@ -367,13 +377,17 @@ export default function DmOverrideModal({
   // The fight turns HELD under an open dialog (another tab's override): the kinds shrink to Revive, so the radio that held focus unmounts and focus would fall to <body>.
   // Put it on the Revive radio. Focus that is still inside the dialog (the Reason box, say) is left where it is.
   const wasHeldRef = useRef(held);
+  // Held at any point since the dialog opened: a living pick that goes stale is then "the fight is going again", not "back on their feet".
+  const heldSeenRef = useRef(held);
   useLayoutEffect(() => {
     const rising = held && !wasHeldRef.current;
     wasHeldRef.current = held;
+    if (held) heldSeenRef.current = true;
     if (!open || !rising) return;
     const at = document.activeElement;
     if (at && at !== document.body && dialogRef.current?.contains(at)) return;
-    dialogRef.current?.querySelector<HTMLElement>('input[type="radio"][value="revive"]')?.focus({ preventScroll: true });
+    // With a character standing there is no radio (the title says Resume): the Character select, else the dialog itself, so Escape and Tab still act on it.
+    (dialogRef.current?.querySelector<HTMLElement>('input[type="radio"][value="revive"]') ?? targetRef.current ?? dialogRef.current)?.focus({ preventScroll: true });
   });
 
   // Initialise actor when modal opens or participants change
@@ -405,6 +419,7 @@ export default function DmOverrideModal({
     setNewHpEdit(null);
     setConfirmZero(false);
 
+    heldSeenRef.current = held;
     pendingReviveFocus.current = openKind === 'revive';
     backdropArmedAt.current = Date.now() + BACKDROP_ARM_MS;
     // A state change guarantees a render after this effect, so the layout
@@ -496,11 +511,10 @@ export default function DmOverrideModal({
         targetRef.current?.focus();
         return;
       }
-      // Stale guard: a poll since the dialog opened shows them alive. The
-      // engine would NOT refuse this (it is an ordinary damage override that
-      // sets HP, possibly lowering it), so the client must.
-      if (target.is_alive) {
-        refuse(`${target.name} is already back on their feet. Nothing was sent.`, 'target');
+      // Stale guard: the fight is not held (a poll since the dialog opened shows it going again), so this is an ordinary damage override that sets a living
+      // character's HP, possibly lowering it, and the engine would NOT refuse it. Held, a living pick is the resume itself and goes out.
+      if (target.is_alive && !held) {
+        refuse(heldSeenRef.current ? RESUME_STALE : `${target.name} is already back on their feet. Nothing was sent.`, 'target');
         targetRef.current?.focus();
         return;
       }
@@ -551,7 +565,7 @@ export default function DmOverrideModal({
     // character is both actor and target (no in-fiction attacker).
     let reviveRequest: SubmitOverrideRequest | null = null;
     if (isRevive) {
-      if (!target || !reviveParsed.ok || target.is_alive) return;
+      if (!target || !reviveParsed.ok || (target.is_alive && !held)) return;
       reviveRequest = {
         kind: 'damage',
         actor_id: target.participant_id,
@@ -666,7 +680,7 @@ export default function DmOverrideModal({
       >
         <div className={styles.header}>
           <h2 id={titleId} className={styles.title}>
-            {isRevive ? 'Revive' : 'DM Override'}
+            {resumeMode && isRevive ? RESUME_TITLE : isRevive ? 'Revive' : 'DM Override'}
           </h2>
           <button
             type="button"
@@ -680,7 +694,8 @@ export default function DmOverrideModal({
         </div>
 
         <form onSubmit={handleSubmit} noValidate>
-          {/* Kind radio */}
+          {/* Kind radio: with a character still standing the only kind is Resume, which the title names, so there is no choice to draw. */}
+          {!resumeMode && (
           <fieldset className={styles.fieldset}>
             <legend className={styles.legend}>Override kind</legend>
             <div className={styles.kindRadios} role="radiogroup" aria-label="Override kind">
@@ -710,6 +725,7 @@ export default function DmOverrideModal({
               ))}
             </div>
           </fieldset>
+          )}
 
           {/* Actor — not for Revive: the revived character is both actor and target */}
           {!isRevive && (
@@ -767,7 +783,7 @@ export default function DmOverrideModal({
                 <option value="">— pick character —</option>
                 {reviveOptions.map((p) => (
                   <option key={p.participant_id} value={p.participant_id}>
-                    {p.name} (max {p.hp_max})
+                    {resumeMode ? (p.is_alive ? `${p.name} (${p.hp_current} of ${p.hp_max} HP)` : `${p.name} (fallen, max ${p.hp_max})`) : `${p.name} (max ${p.hp_max})`}
                   </option>
                 ))}
               </select>
@@ -922,7 +938,7 @@ export default function DmOverrideModal({
               <div className={styles.outcomeGrid}>
                 <div className={styles.field}>
                   <label className={styles.label} htmlFor={`${uid}-revive-hp`}>
-                    Restore to HP <span className={styles.required} aria-hidden>*</span>
+                    {resuming ? 'HP after resuming' : 'Restore to HP'} <span className={styles.required} aria-hidden>*</span>
                   </label>
                   <div className={styles.quickRow}>
                     <input
@@ -972,12 +988,16 @@ export default function DmOverrideModal({
                     )}
                   </div>
                   <span id={hintId} className={styles.hint}>
-                    {typeof lastAlive === 'number' && lastAlive >= 1 && target
-                      ? `Was ${Math.min(Math.floor(lastAlive), reviveMax)} before they fell.`
-                      : target
-                        ? `1 to ${reviveMax}.`
-                        : 'Pick a character first.'}{' '}
-                    They return conscious and their death saves are cleared. Dodge and concentration are not restored.
+                    {resuming
+                      ? 'Set to their current HP to change nothing. Any other number changes their HP.'
+                      : <>
+                        {typeof lastAlive === 'number' && lastAlive >= 1 && target
+                          ? `Was ${Math.min(Math.floor(lastAlive), reviveMax)} before they fell.`
+                          : target
+                            ? `1 to ${reviveMax}.`
+                            : 'Pick a character first.'}{' '}
+                        They return conscious and their death saves are cleared. Dodge and concentration are not restored.
+                      </>}
                   </span>
                 </div>
               </div>
@@ -1041,7 +1061,7 @@ export default function DmOverrideModal({
               className={styles.textarea}
               rows={2}
               maxLength={500}
-              placeholder={isRevive ? 'Why are you reviving them?' : 'Why are you overriding this outcome?'}
+              placeholder={isRevive ? (resumeMode ? 'Why is the fight resuming?' : 'Why are you reviving them?') : 'Why are you overriding this outcome?'}
               value={reason}
               disabled={submitting}
               required
@@ -1086,12 +1106,12 @@ export default function DmOverrideModal({
               className={styles.submitBtn}
               disabled={submitting || !reason.trim()}
               aria-busy={submitting || undefined}
-              aria-label={submitting ? (isRevive ? 'Reviving…' : 'Submitting override…') : undefined}
+              aria-label={submitting ? (resuming ? 'Resuming…' : isRevive ? 'Reviving…' : 'Submitting override…') : undefined}
             >
               {submitting
-                ? (isRevive ? 'Reviving…' : 'Applying…')
+                ? (resuming ? 'Resuming…' : isRevive ? 'Reviving…' : 'Applying…')
                 : isRevive && target && reviveParsed.ok
-                  ? `Revive ${target.name} at ${reviveParsed.value} HP`
+                  ? `${resuming ? 'Resume with' : 'Revive'} ${target.name} at ${reviveParsed.value} HP`
                   : isRevive
                     ? 'Revive'
                     : 'Apply override'}

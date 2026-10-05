@@ -269,6 +269,14 @@
   margin-bottom: 0;
 }
 
+/* A held fight's notice is the only visible reason the verbs are dimmed, so it is read, not glanced at: 11px, sentence case, no tracking (Iro MINOR-3, Aoi addendum 2). The wait notice
+   above keeps its 9px uppercase (it repeats every turn). `data-held` is set beside `data-waiting` by the bar; the rail's height is the same in both (the harness measures it). */
+.rail[data-held='true'] .notYourTurn {
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
 /* A9c-2 D2: `chips` (Story) -- the kicker shares the row with the buttons; the
    refusal / wait / death-save rows still take a full line of their own. The
    buttons keep their 44px target (they are the same .action). */

@@ -39,7 +39,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { RegionVariant } from '@/app/play/[sessionId]/variants';
 import type { CombatState, Participant } from '@/lib/api/types';
-import { isFightEnded } from '@/app/play/[sessionId]/format';
+import { isFightEnded } from '@/lib/dnd/combatState';
 import styles from './PartyPanel.module.css';
 
 export interface PartyPanelProps {

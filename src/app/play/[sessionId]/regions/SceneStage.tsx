@@ -8,8 +8,9 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 import { FoldHandleSlot, useFoldBody } from '@/components/FoldDock';
 import { useAnchoredPopover } from '@/lib/a11y/useAnchoredPopover';
 import type { RegionVariant } from '../variants';
-import { HELD_END_BODY, HELD_END_CANCEL, HELD_END_CONFIRM, HELD_END_TITLE, HELD_LINE_DM, HELD_LINE_WAITING } from '../format';
+import { HELD_END_BODY, HELD_END_CANCEL, HELD_END_CONFIRM, HELD_END_TITLE, heldLine } from '../format';
 import { useOverrideDialog } from '../overrideDialog';
+import { useRemovedFocus } from '../hooks/useRemovedFocus';
 import styles from '../Play.module.css';
 import strip from './SceneStage.module.css';
 
@@ -54,7 +55,8 @@ export interface SceneStageProps {
   lastOpenerRef: RefObject<HTMLButtonElement | null>;
   allHostilesDown: boolean;
   anyMonsterDown: boolean;
-  onEndCombat: (outcome: EndCombatOutcome) => void;
+  /** Ends the fight. Resolves true when it ended, false when the request failed (the held confirm stays open for a retry); a caller that cannot tell may resolve nothing. */
+  onEndCombat: (outcome: EndCombatOutcome) => void | Promise<boolean | void>;
   beginCombatRef: RefObject<HTMLButtonElement | null>;
   onBeginEncounter: () => void;
   talking: boolean;
@@ -69,6 +71,10 @@ export interface SceneStageProps {
   /** The session's DM account (`isDm`), whoever holds the DM seat. Held, it gets the line and End combat (behind a confirm) even at a Suzu-DM table, where the override
    *  dialog is not offered and Revive… stays away. The human DM has both regardless of this. */
   canEndHeld?: boolean;
+  /** The table's DM seat is a person (`dm_mode` human), not Suzu. It picks the held line (a Suzu-DM table's line names the host, who has the one move that is left). */
+  humanDmTable?: boolean;
+  /** A player character is still standing in a held fight (the engine's heal-resume race): the line says the fight is on hold and Revive… reads Resume…. */
+  heldStanding?: boolean;
   /**
    * A9d-2 N5 (Amendment E.1/E.2): the stage's form, from the registry. `inline` (the phone) is the scene strip: ONE row holding the scene's
    * name, its objective (exploring) or the combat status, and the encounter's buttons; no picture stand-in, no kicker.
@@ -106,6 +112,8 @@ export default function SceneStage({
   round = null,
   held = false,
   canEndHeld = false,
+  humanDmTable = true,
+  heldStanding = false,
   variant = 'panel',
   children,
   bodyLabel,
@@ -128,30 +136,28 @@ export default function SceneStage({
   const overrideDialog = useOverrideDialog();
   // The DM's held strip: the human DM (the override dialog is open to them) or the session's DM account at a Suzu-DM table. Revive… follows `overrideDialog` alone.
   const heldDm = held && (!!overrideDialog || canEndHeld);
-  // The held End combat asks first: it records a wipe and cannot be undone. The confirm is the app's ConfirmDialog; it keeps itself open (busy) while the request is in flight,
-  // so one press is one request, and it goes when the fight does or when the request fails with the fight still held.
+  // The held End combat asks first: it records a wipe and cannot be undone. The confirm is the app's ConfirmDialog. It stays open (busy) while the request is in flight, so one press is
+  // one request; it goes when the fight does (or the hold lifts), and when the request FAILED with the fight still held it stays, with the error, for a retry.
   const [endConfirm, setEndConfirm] = useState<'closed' | 'open' | 'sent'>('closed');
-  const [wasBusy, setWasBusy] = useState(combatBusy);
-  // Adjusted while rendering (as the override host does), not in an effect: the confirm goes when the strip does, and when a request it sent has settled with the fight still held.
+  const [endFailed, setEndFailed] = useState(false);
+  // Adjusted while rendering (as the override host does), not in an effect: the confirm goes when the strip does.
   if (endConfirm !== 'closed' && !(heldDm && combatIsActive)) setEndConfirm('closed');
-  if (wasBusy !== combatBusy) {
-    setWasBusy(combatBusy);
-    if (!combatBusy && endConfirm === 'sent') setEndConfirm('closed');
-  }
-  // The held End combat has been pressed. The fight ending takes the button with it, so focus is put on the scene head in that same commit (never <body>,
-  // and not the composer, which is where the page's stranded-focus rescue would send it). A revive instead takes the Revive… opener; the dialog's own fallback is the scene head.
-  const endedFromHold = useRef(false);
+  if (endConfirm === 'closed' && endFailed) setEndFailed(false);
+  // Focus is only ever moved when the control that held it was taken away (`useRemovedFocus`): a cold load into a held fight, or a user resting on <body>, has lost nothing. Three
+  // edges remove it: the fight turning held (the generic End combat and its chooser go, another tab's override), the hold lifting (the held buttons go, another tab's revive) and
+  // the fight ending (the held End combat and the confirm go: the confirm owned focus, and a press on its button forgot the control it had). All land on the scene head, never the
+  // composer, which is where the page's stranded-focus rescue would send it; focus that is somewhere else is left alone.
   const wasHeld = useRef(held);
+  const confirmWasOpen = useRef(false);
+  const focusWasRemoved = useRemovedFocus();
   useLayoutEffect(() => {
     const at = document.activeElement;
     // A modal dialog that is open owns focus (the override dialog moves it itself when its own radio unmounts): the stage never drags focus out from behind it.
-    const stranded = (at == null || at === document.body) && !document.querySelector('[role="dialog"][aria-modal="true"]');
-    // Three edges drop focus to <body> because the control that held it leaves: the fight ending (the held End combat goes), the fight turning held (the generic End combat and its
-    // chooser go, another tab's override) and the hold lifting (the held buttons go, another tab's revive). All land on the scene head; focus that is somewhere else is left alone.
-    if (stranded && ((!combatIsActive && endedFromHold.current) || (held !== wasHeld.current))) sceneHeadRef.current?.focus({ preventScroll: true });
+    const stranded = (focusWasRemoved() || (confirmWasOpen.current && (at == null || at === document.body))) && !document.querySelector('[role="dialog"][aria-modal="true"]');
+    if (stranded && held !== wasHeld.current) sceneHeadRef.current?.focus({ preventScroll: true });
     wasHeld.current = held;
-    if (!combatIsActive || !held) endedFromHold.current = false;
-  }, [combatIsActive, held, sceneHeadRef]);
+    confirmWasOpen.current = endConfirm !== 'closed';
+  }, [held, endConfirm, sceneHeadRef, focusWasRemoved]);
   // A chooser left open when the fight turned held (another tab's override) closes with the button that opened it, and does not reopen when the fight resumes.
   useEffect(() => {
     if (held) setOutcomeChooserOpen(false);
@@ -204,7 +210,7 @@ export default function SceneStage({
         <>
           <div className={cx(styles.combatNote, strip.wrapper)}>
             <div className={cx(styles.noteText, allHostilesDown || lineText != null ? strip.noteClipped : strip.note)} role="status" aria-live="polite">
-              <Icon name={held ? 'Skull' : 'Sword'} size={13} aria-hidden /> {held ? (heldDm ? HELD_LINE_DM : HELD_LINE_WAITING) : 'In combat · use the action bar'}
+              <Icon name={held ? 'Skull' : 'Sword'} size={13} aria-hidden /> {held ? heldLine({ humanDmTable, canEnd: heldDm, standing: heldStanding }) : 'In combat · use the action bar'}
               {inline && round != null && <span aria-hidden className={strip.round}> · round {round}</span>}
             </div>
             {/* B8c-3 M2 (Iro ruling 1): the map's line, PLAIN READABLE TEXT, the status node's next sibling and never inside it. No role, no aria-live, no aria-hidden here or on any
@@ -219,7 +225,7 @@ export default function SceneStage({
                 <>
                   {overrideDialog && (
                     <button type="button" className={cx(styles.reviveBtn, strip.end)} aria-haspopup="dialog" disabled={combatBusy} onClick={() => overrideDialog.open({ kind: 'revive' })}>
-                      Revive…
+                      {heldStanding ? 'Resume…' : 'Revive…'}
                     </button>
                   )}
                   <button
@@ -327,15 +333,18 @@ export default function SceneStage({
             open={endConfirm !== 'closed'}
             tone="danger"
             title={HELD_END_TITLE}
-            body={HELD_END_BODY}
+            body={endFailed ? <>{HELD_END_BODY} <span role="alert">Could not end the fight. Try again.</span></> : HELD_END_BODY}
             confirmLabel={HELD_END_CONFIRM}
             cancelLabel={HELD_END_CANCEL}
-            busy={combatBusy}
-            onConfirm={() => {
+            busy={endConfirm === 'sent'}
+            onConfirm={async () => {
               if (endConfirm !== 'open') return;
               setEndConfirm('sent');
-              endedFromHold.current = true;
-              onEndCombat('tpk');
+              setEndFailed(false);
+              const ended = await onEndCombat('tpk');
+              // Ended: the fight leaves, and the render-time reset above closes the confirm. Failed with the fight still held: back to open, with the error, for a retry.
+              if (ended === false) setEndFailed(true);
+              setEndConfirm((c) => (c === 'sent' ? 'open' : c));
             }}
             onCancel={() => setEndConfirm('closed')}
           />

@@ -43,6 +43,7 @@ import { useAuth } from '@/lib/auth/AuthProvider';
 import { useAuthGate } from '@/lib/auth/useAuthGate';
 import { useToast } from '@/components/Toast';
 import { sessionTitle } from '@/lib/format';
+import { useOpenSnapshot } from '@/lib/useOpenSnapshot';
 import {
   getCombatState,
   getCharacterSheet,
@@ -81,7 +82,7 @@ import {
   buildReadAloudBlock,
   deathSaveTally,
   groundingCreatureNames,
-  endSessionBody, initiativeNames, isCombatEncounterUnstarted, areTurnsRunning,
+  endSessionBody, initiativeNames, isCombatEncounterUnstarted, areTurnsRunning, anyPcStanding,
   isSessionDm,
   scanXCardTracking,
 } from './format';
@@ -443,7 +444,10 @@ export default function PlayPage() {
   // `sceneState` (the hook's own return object) is kept alongside the
   // destructure below -- useNarration and useSceneActions both take it as
   // one bundle (A5; see their own headers).
-  const sceneState = useSceneState(sessionId, fightLive, appendLog);
+  // `fightLive` is false until the fight's state is READ, while `combatIsActive` (the id is bound) is already true: an unread fight is live but not frozen, so the scene's moves wait on either.
+  // The End-session confirm's words are read once, when it opens: a hold that lands under it must not grow the body under a tap in flight.
+  const endSessionText = useOpenSnapshot(endSessionConfirmOpen, endSessionBody(combatState));
+  const sceneState = useSceneState(sessionId, fightLive || combatIsActive, appendLog);
   const {
     grounding, setGrounding, sceneAdvanceBusy, adventureComplete, completionSeries,
     checkBusy, offeredCheckSkill, setOfferedCheckSkill, freeformOfferedCheck,
@@ -1581,10 +1585,10 @@ export default function PlayPage() {
         lastOpenerRef={lastOpenerRef}
         allHostilesDown={allHostilesDown}
         anyMonsterDown={anyMonsterDown}
-        onEndCombat={(key) => void onEndCombat(key)}
+        onEndCombat={(key) => onEndCombat(key)}
         beginCombatRef={beginCombatRef}
         onBeginEncounter={beginEncounter}
-        talking={talking} sessionLocked={sessionLocked} rollBusy={rollBusy} round={round} held={fightHeld} canEndHeld={isDm}
+        talking={talking} sessionLocked={sessionLocked} rollBusy={rollBusy} round={round} held={fightHeld} canEndHeld={isDm} humanDmTable={session?.dm_mode === 'human'} heldStanding={fightHeld && anyPcStanding(combatState?.participants)}
         variant={variantFor(row, 'sceneStage', moment)} bodyLabel={board.label}
       >
         {board.stage ? <StageBoard {...board.stage} /> : null}
@@ -1596,11 +1600,7 @@ export default function PlayPage() {
     sessionRecap: <SessionRecapTenant session={session} username={username} stepAside={combatIsActive} />,
     sessionPausedEnded: <SessionPausedEndedTenant isEnded={isEnded} isPaused={isPaused} />,
     turnStatus: (
-      <TurnStatusTenant
-        combatIsActive={combatIsActive}
-        activeIsMine={activeIsMine}
-        turnStatusText={turnStatusText}
-      />
+      <TurnStatusTenant combatIsActive={combatIsActive} activeIsMine={activeIsMine} turnStatusText={turnStatusText} held={fightHeld} />
     ),
     deadStatus: <DeadStatusTenant combatIsActive={combatIsActive} isMyPcDead={isMyPcDead} />,
     durableRetryRow: (
@@ -1706,7 +1706,7 @@ export default function PlayPage() {
             open={endSessionConfirmOpen}
             tone="danger"
             title="End this session?"
-            body={endSessionBody(combatState)}
+            body={endSessionText}
             // DDX-25: deliberately NOT "End session" — the left-pane trigger
             // already has that accessible name, and both are on screen at once
             // while the dialog is open (mirrors DeleteCampaignButton's trigger

@@ -38,7 +38,7 @@ import styles from '@/components/Composer.module.css';
 import popoverStyles from '@/components/AnchoredPopover.module.css';
 import type { RegionVariant } from '../variants';
 import type { MoveControl } from '../hooks/useBoard';
-import { HELD_FROZEN_NOTE } from '../format';
+import { HELD_FROZEN_NOTE, HELD_VERB_SUFFIX } from '../format';
 
 export type CombatAction = 'attack' | 'dodge' | 'dash' | 'endturn' | 'deathsave';
 
@@ -154,6 +154,10 @@ export default function ActionBar({
   });
 
   const notYourTurn = isPlayerTurn === false;
+  // The Attack menu's items carry no lock of their own: when the turn goes (a monster's, or the fight held under it) the menu goes with it, so no tap is left that the engine would refuse.
+  if (notYourTurn && targetOpen) setTargetOpen(false);
+  /** What a locked verb's name says: the hold, or the turn. */
+  const lockedWhy = held ? HELD_VERB_SUFFIX : 'not your turn';
 
   // A11Y (Iro HIGH-3): announce "Your turn" when the turn flips to the player.
   // The notYourTurn div disappearing does NOT trigger a live-region update.
@@ -272,6 +276,7 @@ export default function ActionBar({
       // A10 step 11 round 4 (TAV-STORY-BAR-MONSTER-TURN): on a monster's turn the wait notice REPLACES the kicker's text in the kicker's own place and adds no row, so the bar is one height on
       // both turns (Story's was 182px at 1280 wide on a monster's turn: the notice took a line and the verbs wrapped). Composer.module.css reads this attribute; a narrow slot (the phone) keeps today's layout.
       data-waiting={notYourTurn ? 'true' : undefined}
+      data-held={held ? 'true' : undefined}
       // B8c-4 P1b fix round 2 (Kage I-2): the row's `barTurnLine` flag, not the container's width, decides that the notice is hidden: a Story bar that is narrow (881-920px) keeps its notice and its native
       // `disabled`. Absent where `turnLine` is undefined, so every other row's markup is byte-for-byte what it was.
       data-described={described ? 'true' : undefined}
@@ -344,7 +349,7 @@ export default function ActionBar({
             isDying
               ? 'Attack (unavailable — you are down)'
               : notYourTurn
-                ? 'Attack (not your turn)'
+                ? `Attack (${lockedWhy})`
                 : actionSpent
                   ? 'Attack (action already spent this turn)'
                   : targets.length === 0
@@ -363,7 +368,7 @@ export default function ActionBar({
             isDying
               ? 'Dodge (unavailable — you are down)'
               : notYourTurn
-                ? 'Dodge (not your turn)'
+                ? `Dodge (${lockedWhy})`
                 : 'Dodge'
           }
         >
@@ -378,7 +383,7 @@ export default function ActionBar({
             isDying
               ? 'Dash (unavailable — you are down)'
               : notYourTurn
-                ? 'Dash (not your turn)'
+                ? `Dash (${lockedWhy})`
                 : 'Dash'
           }
         >
@@ -403,7 +408,7 @@ export default function ActionBar({
           className={styles.action}
           onClick={(e) => { if (!swallowed(endTurnDisabled, e)) fire('endturn'); }}
           {...lock(endTurnDisabled)}
-          aria-label={notYourTurn ? 'End turn (not your turn)' : 'End turn'}
+          aria-label={notYourTurn ? `End turn (${lockedWhy})` : 'End turn'}
         >
           <Icon name="Check" size={13} /> End turn
         </button>

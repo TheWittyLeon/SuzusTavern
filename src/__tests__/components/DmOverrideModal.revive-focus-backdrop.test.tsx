@@ -6,7 +6,7 @@
 import React from 'react';
 import fs from 'fs';
 import path from 'path';
-import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 const mockSubmitOverride = jest.fn();
 jest.mock('../../lib/api/dnd', () => ({ setSessionPolicy: jest.fn(), npcAction: jest.fn(), postSessionEvent: jest.fn(), submitOverride: (...a: unknown[]) => mockSubmitOverride(...a) }));

@@ -1207,7 +1207,9 @@
 
 /* The Session popover (AnchoredPopover owns its surface, position and scroll cue). A bounded width: the card's buttons are full width, and
    the popover would otherwise grow to its widest panel. The card sheds its own box in here (the popover has one). */
-.sessionPopover {
+/* Doubled on purpose: `.popover` (AnchoredPopover.module.css) sets `width: max-content; min-width: 220px` on the same element at ONE class of specificity, so this rule used to win only
+   because page.tsx happened to import this sheet later (and a code move that reordered two imports made the popover 378px wide). Two classes beat one whatever the sheet order (Kage T-6). */
+.sessionPopover.sessionPopover {
   width: 320px;
   min-width: 0;
 }
