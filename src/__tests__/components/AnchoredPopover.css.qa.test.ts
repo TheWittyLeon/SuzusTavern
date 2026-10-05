@@ -17,7 +17,7 @@ const block = (css: string, selector: string) => {
 
 describe('AnchoredPopover.module.css', () => {
   const css = read('src/components/AnchoredPopover.module.css');
-  const pop = block(css, '.popover');
+  const pop = block(css, ':where(.popover)');
 
   it('a clamped popover scrolls inside and never hands the scroll to the page: overflow-y auto + overscroll-behavior contain', () => {
     expect(pop).toMatch(/overflow-y:\s*auto/);
@@ -40,7 +40,9 @@ describe('AnchoredPopover.module.css', () => {
 
   it('it paints the scroll cue only while there is more to scroll: the local-attachment cover over a scroll-attached shadow, in the shared `.scrollCue` class the popover composes', () => {
     // A9d-2 fix round 2: the cue moved out of `.popover` into `.scrollCue` so the Attack menu (its own DOM position) shares ONE. This case read `.popover`.
-    expect(pop).toMatch(/composes:\s*scrollCue/);
+    expect(block(css, '.popover')).toMatch(/composes:\s*scrollCue/);
+    // and its box is zero-specificity, so a one-class override from any sheet wins whatever the load order
+    expect(css).toMatch(/^:where\(\.popover\)\s*\{/m);
     expect(block(css, '.scrollCue')).toMatch(/background-attachment:\s*local,\s*local,\s*scroll,\s*scroll/);
   });
 

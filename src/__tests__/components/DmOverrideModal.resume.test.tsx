@@ -156,3 +156,94 @@ describe('the hold landing under an open dialog (no stale "no longer a valid tar
     expect(screen.queryByText(/no longer a valid target/)).toBeNull();
   });
 });
+
+describe('before a character is picked (Aoi addendum 3, 2): the label, hint and Apply are the Resume dialog\'s, and the refusals name the field the label shows', () => {
+  it('no pick yet in "Resume the fight": "HP after resuming", the pre-pick hint, and a disabled Apply that reads "Resume"', async () => {
+    render(<DmOverrideModal {...props([GOBLIN, KESTREL, DALEN])} />);
+    await settle();
+    expect(sel().value).toBe('');
+    expect(screen.getByLabelText(/HP after resuming/)).toBeInTheDocument();
+    expect(screen.getByText('Pick a character first. The HP you enter is what they have when the fight resumes.')).toBeInTheDocument();
+    expect(submit()).toHaveTextContent(/^Resume$/);
+    expect(submit()).toBeDisabled();
+  });
+
+  it('no pick, and Apply pressed with a reason: the refusal asks for a character (resume wording), and sends nothing', async () => {
+    render(<DmOverrideModal {...props([GOBLIN, KESTREL, DALEN])} />);
+    await settle();
+    fireEvent.change(reason(), { target: { value: 'x' } });
+    await act(async () => { fireEvent.click(submit()); });
+    expect(screen.getByRole('alert')).toHaveTextContent('Pick the character to resume with.');
+    expect(mockSubmitOverride).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['', 'HP after resuming is empty. Enter 1 to 34.'],
+    ['1.5', 'HP after resuming must be a whole number from 1 to 34.'],
+    ['99', 'HP after resuming must be between 1 and 34.'],
+  ])('a living pick, HP %j: the refusal names "HP after resuming"', async (value, message) => {
+    render(<DmOverrideModal {...props([GOBLIN, DALEN])} />);
+    await settle();
+    fireEvent.change(hp(), { target: { value } });
+    fireEvent.change(reason(), { target: { value: 'x' } });
+    await act(async () => { fireEvent.click(submit()); });
+    expect(screen.getByRole('alert')).toHaveTextContent(message);
+  });
+
+  it.each([
+    ['', 'Restore to HP is empty. Enter 1 to 34.'],
+    ['99', 'Restore to HP must be between 1 and 34.'],
+  ])('a fallen pick, HP %j: the refusal names "Restore to HP"', async (value, message) => {
+    render(<DmOverrideModal {...props([GOBLIN, KESTREL, DALEN])} />);
+    await settle();
+    fireEvent.change(sel(), { target: { value: 'pc-1' } });
+    fireEvent.change(hp(), { target: { value } });
+    fireEvent.change(reason(), { target: { value: 'x' } });
+    await act(async () => { fireEvent.click(submit()); });
+    expect(screen.getByRole('alert')).toHaveTextContent(message);
+  });
+
+  it('control: the all-fallen dialog (no one standing) keeps the revive words before a pick', async () => {
+    render(<DmOverrideModal {...props([GOBLIN, KESTREL, mk('pc-4', 'Luke', 0, 30, { is_alive: false })])} />);
+    await settle();
+    expect(screen.getByLabelText(/Restore to HP/)).toBeInTheDocument();
+    expect(submit()).toHaveTextContent(/^Revive$/);
+    expect(screen.getAllByRole('radio')).toHaveLength(1);
+  });
+});
+
+describe('edge defaults for a standing character (Kage S: the default is what can be sent, and the hint says so)', () => {
+  it('at 0 HP (dying): the default is 1 and the hint is the range, not "changes nothing"', async () => {
+    render(<DmOverrideModal {...props([GOBLIN, mk('pc-3', 'Sola', 0, 20)])} />);
+    await settle();
+    expect(hp().value).toBe('1');
+    expect(screen.queryByText(/changes? nothing|change nothing/)).toBeNull();
+    expect(screen.getByText('1 to 20.')).toBeInTheDocument();
+  });
+  it('above their max (12 of 9): the default is 9 and the hint is the range', async () => {
+    render(<DmOverrideModal {...props([GOBLIN, mk('pc-3', 'Sola', 12, 9)])} />);
+    await settle();
+    expect(hp().value).toBe('9');
+    expect(screen.getByText('1 to 9.')).toBeInTheDocument();
+  });
+  it('control: inside the range the hint is "change nothing"', async () => {
+    render(<DmOverrideModal {...props([GOBLIN, SOLO])} />);
+    await settle();
+    expect(screen.getByText(/to change nothing/)).toBeInTheDocument();
+  });
+});
+
+describe('the dialog turns into "Resume the fight" while open (a character stands up in a poll): focus is rescued (Tora MINOR-C)', () => {
+  it('focus on the Revive radio when the radios go: the Character select takes it, never <body>', async () => {
+    const { rerender } = render(<DmOverrideModal {...props([GOBLIN, KESTREL, mk('pc-4', 'Luke', 0, 30, { is_alive: false })])} />);
+    await settle();
+    const radio = screen.getByRole('radio', { name: /Revive/i });
+    act(() => radio.focus());
+    expect(radio).toHaveFocus();
+    rerender(<DmOverrideModal {...props([GOBLIN, KESTREL, mk('pc-4', 'Luke', 9, 30)])} />);
+    await settle();
+    expect(screen.queryAllByRole('radio')).toHaveLength(0);
+    expect(document.activeElement).not.toBe(document.body);
+    expect(sel()).toHaveFocus();
+  });
+});

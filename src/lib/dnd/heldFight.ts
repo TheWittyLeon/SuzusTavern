@@ -41,5 +41,20 @@ export function anyPcStanding(participants: readonly CombatParticipantState[] | 
  *  the strip's button has that name and both are on the page while the dialog is open (Iro). */
 export const HELD_END_TITLE = 'End the fight?';
 export const HELD_END_BODY = "Every character has fallen. Ending it now records a total party wipe and can't be undone.";
+/** The confirm's body, as data keyed by the two facts the strip already uses (Aoi addendum 3, 1): is a character still standing, and can the viewer Resume (the human DM; the host at a Suzu-DM table has End alone).
+ *  "Keep waiting" is the cancel button's exact name, so the sentence tells the DM which button to press. */
+const HELD_END_BODIES = {
+  fallen: HELD_END_BODY,
+  standingResume: "A character is still standing. Ending the fight now records a total party wipe and can't be undone. To play on, choose Keep waiting, then use Resume.",
+  standingEndOnly: "A character is still standing. Ending the fight now records a total party wipe and can't be undone.",
+} as const;
+export function heldEndBody({ standing, canResume }: { standing: boolean; canResume: boolean }): string {
+  return HELD_END_BODIES[!standing ? 'fallen' : canResume ? 'standingResume' : 'standingEndOnly'];
+}
+/** The End-session warning's lead while a fight is held (Aoi addendum 3, 1): all fallen, or with a character still standing. The ordinary tail follows. */
+export const HELD_SESSION_WARN = {
+  fallen: "A fight is waiting for your ruling: every character has fallen. Ending the session leaves it unresolved, and the characters in it can't be deleted until it ends.",
+  standing: "A fight is on hold with a character still standing. Ending the session leaves the fight unresolved, and its characters can't be deleted until the fight ends.",
+} as const;
 export const HELD_END_CONFIRM = 'End the fight';
 export const HELD_END_CANCEL = 'Keep waiting';

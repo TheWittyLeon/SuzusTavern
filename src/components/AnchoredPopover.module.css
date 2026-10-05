@@ -2,8 +2,14 @@
  * A9d-2 fix round N3 — the anchored popover surface (components/AnchoredPopover.tsx; the contract is lib/a11y/useAnchoredPopover.ts).
  * Position, left, top and max-height are inline, from the hook's placement; everything else is here.
  */
+/* `composes` needs a bare class selector, so the class itself is declared here and its box below, in `:where(.popover)`: ZERO specificity. Every consumer that sizes a popover (the Session popover's
+   width, the Cast panel's, the Roll control's, the mode menu's) overrides it with ONE class from its own sheet; at equal specificity the later sheet won, so the result depended on which sheet
+   happened to be imported last (a code move that reordered two imports made the Session popover 378px wide). At zero specificity any class beats it, whatever the order (Kage S-2). */
 .popover {
   composes: scrollCue;
+}
+
+:where(.popover) {
   /* Above the page's slots and the header, below the drawers' scrim (899) and a modal's (1000): a popover is dismissed by any press
      outside it, so it is never open under a modal. It never covers the X-card (the placement clamps around it). */
   z-index: 800;

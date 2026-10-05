@@ -134,7 +134,7 @@ describe('combatEndedLine: one outcome -> sentence map, the key capitalised as t
     ['victory', 'Combat ended. Victory.'],
     ['retreat', 'Combat ended. Retreat.'],
     ['unresolved', 'Combat ended. Unresolved.'],
-    ['noop', 'Combat ended. Combat had already ended.'],
+    ['noop', 'Combat had already ended.'],
     ['a_tenth_outcome', 'Combat ended. A_tenth_outcome.'],
   ])("outcome '%s' -> %s", (outcome, line) => {
     expect(combatEndedLine(outcome)).toBe(line);

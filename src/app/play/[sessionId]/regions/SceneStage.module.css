@@ -98,10 +98,13 @@
     'note note note';
 }
 
-/* The held strip of someone who cannot act: no buttons, and a line of two sentences ("Every character has fallen. The DM decides what happens next.") that wraps to two lines under a scene name that
-   wraps to two. At 1.3 that is 77px against the strip's 75px cap (a 59-character name at 360 and 390: Tora M-1); at 1.2 the note is 2.6px shorter and the strip is under it. Only the note's leading changes. */
-.strip.heldWatch .note {
-  line-height: 1.2;
+/* The held strip on a phone: the scene NAME is one line with an ellipsis. A 59-character name wrapped to two lines and took the strip to 77-78px against its 75px cap at the DM's seat and the
+   watcher's (the cap held by 0.4px on a tightened leading, and not at all for the DM), and the name is a label while the note beside it is the reason (Aoi addendum 3, 5: clamp the name).
+   Only while held (`clampName`); the full text is still in the DOM, in the group's accessible name and in `title`. A running fight's name still wraps. */
+.strip.heldClamp .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .strip .begin {

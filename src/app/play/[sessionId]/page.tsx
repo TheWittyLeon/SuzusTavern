@@ -1585,7 +1585,7 @@ export default function PlayPage() {
         lastOpenerRef={lastOpenerRef}
         allHostilesDown={allHostilesDown}
         anyMonsterDown={anyMonsterDown}
-        onEndCombat={(key) => onEndCombat(key)}
+        onEndCombat={(key, opts) => onEndCombat(key, opts)}
         beginCombatRef={beginCombatRef}
         onBeginEncounter={beginEncounter}
         talking={talking} sessionLocked={sessionLocked} rollBusy={rollBusy} round={round} held={fightHeld} canEndHeld={isDm} humanDmTable={session?.dm_mode === 'human'} heldStanding={fightHeld && anyPcStanding(combatState?.participants)}

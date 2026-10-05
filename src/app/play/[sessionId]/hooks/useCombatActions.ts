@@ -86,7 +86,7 @@ export interface UseCombatActionsResult {
   beginEncounter: () => Promise<void>;
   onCombatAction: (action: CombatAction, payload?: string) => Promise<void>;
   /** Resolves true when the fight ended, false when it did not (a refusal, a failed request, another action in flight). */
-  onEndCombat: (outcome?: EndCombatOutcome) => Promise<boolean>;
+  onEndCombat: (outcome?: EndCombatOutcome, opts?: { quiet?: boolean }) => Promise<boolean>;
 }
 
 /**
@@ -500,7 +500,7 @@ export function useCombatActions(
    * Previously hardcoded 'unresolved'; now driven by the outcome chooser.
    */
   const onEndCombat = useCallback(
-    async (outcome: EndCombatOutcome = 'unresolved') => {
+    async (outcome: EndCombatOutcome = 'unresolved', opts?: { quiet?: boolean }) => {
       if (!combatId || !username || combatBusyRef.current) return false;
       combatBusyRef.current = true;
       // Tora MINOR-2: increment seq at mutation START so any in-flight poll is discarded.
@@ -541,7 +541,10 @@ export function useCombatActions(
         const body = (err as { body?: unknown } | null)?.body;
         const data = (body as { data?: { reason?: string } } | null)?.data;
         const reason = data?.reason;
-        if (reason === 'victory_refused') {
+        // `quiet`: the caller (the held confirm) shows the failure in its own dialog, and a toast beside it would be a second announcement of one failure (Iro MINOR-6).
+        if (opts?.quiet) {
+          // nothing: the caller says it
+        } else if (reason === 'victory_refused') {
           toast({ tone: 'error', message: "Can't claim victory — no enemies are down yet." });
         } else {
           toast({ tone: 'error', message: 'Could not end combat.' });

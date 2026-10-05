@@ -396,20 +396,30 @@ describe('the round span (the phone\'s strip) is not drawn while held (Tora M-1:
   });
 });
 
-describe('the held strip of someone who cannot act carries heldWatch (its note\'s leading keeps the strip under the 75px cap with a long scene name)', () => {
+describe('the phone\'s held strip clamps the scene NAME to one line (Aoi addendum 3, 5); a running fight\'s name wraps as it always did', () => {
   const root = () => document.querySelector('[data-region="sceneStage"]') as HTMLElement;
-  it('a player\'s held strip has it (and not heldDm); the DM\'s has heldDm (and not heldWatch); a running fight has neither', () => {
-    const { rerender } = render(<Stage dm={false} variant="inline" />);
-    expect(root().className).toMatch(/heldWatch/);
-    expect(root().className).not.toMatch(/heldDm/);
-    rerender(<Stage variant="inline" />);
-    expect(root().className).toMatch(/heldDm/);
-    expect(root().className).not.toMatch(/heldWatch/);
-    rerender(<Stage state="active" variant="inline" dm={false} />);
-    expect(root().className).not.toMatch(/held(Dm|Watch)/);
+  const name = () => root().querySelector('p') as HTMLElement;
+  it.each([['a player', { dm: false }], ['the DM', {}], ['the host at a Suzu-DM table', { aiTable: true, host: true }]] as const)('%s: held and inline: heldClamp, and the name carries its full text as `title`', (_n, props) => {
+    render(<Stage variant="inline" {...(props as object)} />);
+    expect(root().className).toMatch(/heldClamp/);
+    expect(name()).toHaveAttribute('title', 'The Sundered Hollow');
+    expect(name()).toHaveTextContent('The Sundered Hollow');
   });
-  it('the stylesheet gives the note a tighter leading there', () => {
+  it('a running fight has neither the class nor the title; nor does a wide (panel / hero) held stage', () => {
+    const { rerender } = render(<Stage state="active" variant="inline" dm={false} />);
+    expect(root().className).not.toMatch(/heldClamp/);
+    expect(name()).not.toHaveAttribute('title');
+    rerender(<Stage variant="panel" dm={false} />);
+    expect(root().className).not.toMatch(/heldClamp/);
+    rerender(<Stage variant="hero" dm={false} />);
+    expect(root().className).not.toMatch(/heldClamp/);
+  });
+  it('the stylesheet: one line, ellipsis, nothing hidden from the DOM; and the 1.2 leading hack is gone', () => {
     const css = fs.readFileSync(path.join(__dirname, '../../app/play/[sessionId]/regions/SceneStage.module.css'), 'utf8');
-    expect(css.match(/\.strip\.heldWatch \.note\s*\{[^}]*\}/)?.[0] ?? '').toMatch(/line-height:\s*1\.2/);
+    const rule = css.match(/\.strip\.heldClamp \.name\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(rule).toMatch(/white-space:\s*nowrap/);
+    expect(rule).toMatch(/text-overflow:\s*ellipsis/);
+    expect(rule).toMatch(/overflow:\s*hidden/);
+    expect(css).not.toMatch(/heldWatch/);
   });
 });

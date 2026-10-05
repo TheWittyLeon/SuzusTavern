@@ -197,14 +197,75 @@ describe('no reader reads a fight state outside the predicates (AST, typed)', ()
     expect([...rows].sort()).toEqual([...members].sort());
   });
 
-  it('components and lib take the fight-state predicates and the held words from lib, never from the play route\'s format module (Kage T-8: the dependency points down)', () => {
-    const offenders: string[] = [];
-    for (const dir of ['components', 'lib']) {
-      for (const f of walk(path.join(SRC, dir))) {
-        const text = fs.readFileSync(f, 'utf8');
-        if (/from\s+['"]@\/app\/play\/\[sessionId\]\/format['"]/.test(text)) offenders.push(path.relative(ROOT, f));
+  describe('components/ and lib/ take no VALUE import from app/ (the dependency points down: Kage T-8, N-6)', () => {
+    /** The app/ modules a file takes a value from: static imports and re-exports that are not type-only, dynamic `import()` and `require()`, in any spelling (`@/app/..`, relative). */
+    const appValueImports = (file: string, text: string): string[] => {
+      const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, file.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+      const found: string[] = [];
+      const fromApp = (spec: string) => {
+        const resolved = spec.startsWith('@/') ? path.join(SRC, spec.slice(2)) : spec.startsWith('.') ? path.resolve(path.dirname(file), spec) : '';
+        return !!resolved && (resolved === path.join(SRC, 'app') || resolved.startsWith(path.join(SRC, 'app') + path.sep));
+      };
+      const visit = (n: ts.Node) => {
+        if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) {
+          const c = n.importClause;
+          const typeOnly = !!c && (c.isTypeOnly || (!c.name && !!c.namedBindings && ts.isNamedImports(c.namedBindings) && c.namedBindings.elements.length > 0 && c.namedBindings.elements.every((e) => e.isTypeOnly)));
+          if (!typeOnly && fromApp(n.moduleSpecifier.text)) found.push(n.moduleSpecifier.text);
+        } else if (ts.isExportDeclaration(n) && n.moduleSpecifier && ts.isStringLiteral(n.moduleSpecifier) && !n.isTypeOnly && fromApp(n.moduleSpecifier.text)) {
+          found.push(n.moduleSpecifier.text);
+        } else if (ts.isCallExpression(n) && (n.expression.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(n.expression) && n.expression.text === 'require')) && n.arguments[0] && ts.isStringLiteralLike(n.arguments[0]) && fromApp(n.arguments[0].text)) {
+          found.push(n.arguments[0].text);
+        }
+        ts.forEachChild(n, visit);
+      };
+      visit(sf);
+      return found;
+    };
+    /** The ONE exemption: a value import this file carries a `debt:` marker for. */
+    const EXEMPT = new Map([['components/DmNarrationPanel.tsx', '@/app/play/[sessionId]/overrideDialog']]);
+    const offenders = () => {
+      const out: string[] = [];
+      for (const dir of ['components', 'lib']) {
+        for (const f of walk(path.join(SRC, dir))) {
+          const rel = path.relative(SRC, f).split(path.sep).join('/');
+          const text = fs.readFileSync(f, 'utf8');
+          for (const spec of appValueImports(f, text)) {
+            if (EXEMPT.get(rel) === spec && /\/\/ debt: [^\n]*until: /.test(text)) continue;
+            out.push(`${rel} imports ${spec}`);
+          }
+        }
       }
-    }
-    expect(offenders).toEqual([]);
+      return out;
+    };
+    it('the tree is clean but for the one marked exemption', () => {
+      expect(offenders()).toEqual([]);
+    });
+    it('the exemption is real (it is there, with its debt: marker and an until: trigger)', () => {
+      const text = fs.readFileSync(path.join(SRC, 'components/DmNarrationPanel.tsx'), 'utf8');
+      expect(appValueImports(path.join(SRC, 'components/DmNarrationPanel.tsx'), text)).toEqual(['@/app/play/[sessionId]/overrideDialog']);
+      expect(text).toMatch(/\/\/ debt: [^\n]*until: /);
+    });
+    const BAD_IMPORTS: Record<string, string> = {
+      'the route\'s format module': "import { isFightHeld } from '@/app/play/[sessionId]/format';",
+      'another route module': "import { statusPills } from '@/app/play/[sessionId]/statusPills';",
+      'a route hook': "import { useBoard } from '@/app/play/[sessionId]/hooks/useBoard';",
+      'a relative spelling': "import { isFightHeld } from '../app/play/[sessionId]/format';",
+      'a dynamic import': "export const load = () => import('@/app/play/[sessionId]/format');",
+      'require': "export const m = require('@/app/play/[sessionId]/format');",
+      'a re-export': "export { isFightHeld } from '@/app/play/[sessionId]/format';",
+      'a mixed import (one value specifier)': "import { type RegionVariant, useOverrideDialog } from '@/app/play/[sessionId]/overrideDialog';",
+    };
+    const FINE_IMPORTS: Record<string, string> = {
+      'a type-only import': "import type { RegionVariant } from '@/app/play/[sessionId]/variants';",
+      'an inline type-only import': "import { type RegionVariant } from '@/app/play/[sessionId]/variants';",
+      'lib': "import { isFightHeld } from '@/lib/dnd/combatState';",
+      'a type-only re-export': "export type { RegionVariant } from '@/app/play/[sessionId]/variants';",
+    };
+    it.each(Object.entries(BAD_IMPORTS))('RED: %s', (_n, src) => {
+      expect(appValueImports(path.join(SRC, 'components/X.tsx'), src).length).toBeGreaterThan(0);
+    });
+    it.each(Object.entries(FINE_IMPORTS))('legal: %s', (_n, src) => {
+      expect(appValueImports(path.join(SRC, 'components/X.tsx'), src)).toEqual([]);
+    });
   });
 });

@@ -53,6 +53,9 @@ describe('the four verbs while held', () => {
     const wait = css.match(/\.rail\[data-waiting='true'\] \.notYourTurn\s*\{[^}]*\}/)?.[0] ?? '';
     expect(wait).toMatch(/font-size:\s*9px/);
     expect(wait).toMatch(/text-transform:\s*uppercase/);
+    // in a narrow bar the wait notice is 11px at the INHERITED leading, so the held notice takes the inherited leading there too (Story 881x700 was 74.5 waiting, 71.5 held: Kage N-3)
+    const q = css.slice(css.indexOf('@container (max-width: 560px)'));
+    expect(q.match(/\.rail\[data-held='true'\] \.notYourTurn\s*\{[^}]*\}/)?.[0] ?? '').toMatch(/line-height:\s*inherit/);
     // later in the sheet, so equal specificity goes to the held rule
     expect(css.indexOf(".rail[data-held='true'] .notYourTurn")).toBeGreaterThan(css.indexOf(".rail[data-waiting='true'] .notYourTurn {"));
   });

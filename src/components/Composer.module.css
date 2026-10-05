@@ -385,6 +385,12 @@
     flex: 1 0 100%;
   }
 
+  /* The held notice's own line box (the base rule pins it to the 9px notice's) is for the wide bar, where the wait notice is 9px. In a narrow bar the wait notice is 11px at the inherited leading, so the
+     held one takes the inherited leading too, and the bar is the same height both ways (Story at 881x700 was 74.5px waiting and 71.5px held: Kage N-3). */
+  .rail[data-held='true'] .notYourTurn {
+    line-height: inherit;
+  }
+
   /* B8c-4 P1b (Sora's phone-mount brief 6.4): in the DESCRIBED form (`data-described`, the phone row's `barTurnLine`) the wait notice is NOT A ROW. It was a 24.5px line that made the bar taller on a
      monster's turn, stepped the board's bottom edge every turn and made the map's default depend on who acts first. It stays in the tree, visually hidden, still its polite live text; on screen the
      reason is the story's turn line directly above the composer ("Monster turn - X") and the verbs, dimmed. A wide bar (a phone row's bar over 560px included) is unchanged: the notice takes the

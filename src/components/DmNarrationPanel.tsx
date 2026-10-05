@@ -25,6 +25,8 @@ import { useEffect, useRef, useState, type RefObject } from 'react';
 import { npcAction, postSessionEvent, setSessionPolicy } from '@/lib/api/dnd';
 import type { CombatParticipantState, CombatState } from '@/lib/api/types';
 import { areTurnsRunning, isFightHeld } from '@/lib/dnd/combatState';
+import { anyPcStanding } from '@/lib/dnd/heldFight';
+// debt: a component importing the play route's override-dialog context (the one value import from app/ left in components/ and lib/). ceiling: components/ depends on a route module until the host moves. until: the override dialog's context object and hook move into components/ (Backlog TAV-OVERRIDE-HOST-TO-COMPONENTS).
 import { useOverrideDialog } from '@/app/play/[sessionId]/overrideDialog';
 import Icon from '@/components/Icon';
 import { consumeEscape } from '@/lib/a11y/escapeConsume';
@@ -449,9 +451,11 @@ export default function DmNarrationPanel({
   const overrideBtnRef = useRef<HTMLButtonElement>(null);
   const focusOverrideBtn = () => overrideBtnRef.current;
   // Revive… is offered while a player character has fallen and the engine would take a revive: a running fight, or a held one.
+  // A held fight with a character still standing offers it too, as Resume… (the same dialog: its title and list follow the polled state), even when nobody has fallen.
+  const heldStanding = isFightHeld(combatState) && anyPcStanding(combatState.participants);
   const canRevive =
-    (areTurnsRunning(combatState) || isFightHeld(combatState)) &&
-    combatState.participants.some((p) => p.is_pc && !p.is_alive);
+    (areTurnsRunning(combatState) && combatState.participants.some((p) => p.is_pc && !p.is_alive)) ||
+    (isFightHeld(combatState) && combatState.participants.some((p) => p.is_pc));
 
   // S5.4: visibility toggle (optimistic local state, persisted via setSessionPolicy)
   const [overrideVisible, setOverrideVisible] = useState(overridePlayerVisible);
@@ -528,7 +532,7 @@ export default function DmNarrationPanel({
             aria-haspopup="dialog"
             onClick={() => overrideDialog?.open({ kind: 'revive', fallback: focusOverrideBtn })}
           >
-            Revive…
+            {heldStanding ? 'Resume…' : 'Revive…'}
           </button>
         )}
 

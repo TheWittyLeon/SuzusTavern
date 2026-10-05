@@ -45,7 +45,8 @@ import type { CombatParticipantState, CombatState, EngineSessionEvent, Grounding
 
 // The fight-state predicates live in lib (components import them from there); re-exported so every play-route import keeps working.
 import { isFightHeld } from '@/lib/dnd/combatState';
-export { HELD_END_BODY, HELD_END_CANCEL, HELD_END_CONFIRM, HELD_END_TITLE, HELD_FROZEN_NOTE, HELD_LINE_DM, HELD_LINE_WAITING, HELD_VERB_SUFFIX, anyPcStanding, heldLine } from '@/lib/dnd/heldFight';
+import { HELD_SESSION_WARN, anyPcStanding } from '@/lib/dnd/heldFight';
+export { HELD_END_BODY, HELD_SESSION_WARN, heldEndBody, HELD_END_CANCEL, HELD_END_CONFIRM, HELD_END_TITLE, HELD_FROZEN_NOTE, HELD_LINE_DM, HELD_LINE_WAITING, HELD_VERB_SUFFIX, anyPcStanding, heldLine } from '@/lib/dnd/heldFight';
 export { areTurnsRunning, isFightEnded, isFightHeld, isFightLive } from '@/lib/dnd/combatState';
 
 /** Title-case an engine skill slug ('sleight_of_hand' -> 'Sleight Of Hand'). */
@@ -173,21 +174,20 @@ export function initiativeNames(combatState: CombatState | null): string[] {
 }
 
 /**
- * How a fight ended, in the log's two-sentence shape ("Combat ended. <this>"). ONE map from the engine's outcome key to its sentence; an outcome not in it falls back to the
+ * How a fight ended, in the log's two-sentence shape ("Combat ended. <this>"). ONE map from the engine's outcome key to its line; an outcome not in it falls back to the
  * key capitalised, as the handler always did. A row here is how a new outcome gets its own words (a tenth outcome is a row, not a branch in the handler).
  */
 // debt: the engine already sends its own `message` on /end (it wins below), so this map is only reached against an engine that does not; it mirrors the engine's sentences. ceiling: a sentence the engine words differently reads differently until the engine's message arrives. until: the engine publishes its outcome sentences, or every deployed engine sends `message` (Backlog TAV-COMBAT-OUTCOME-SENTENCES).
-const OUTCOME_SENTENCES: Readonly<Record<string, string>> = { tpk: 'The party has fallen.', noop: 'Combat had already ended.' };
+const OUTCOME_LINES: Readonly<Record<string, string>> = { tpk: 'Combat ended. The party has fallen.', noop: 'Combat had already ended.' };
 
-/** The log line for an ended fight. The engine's own `message` wins when it sent one (it builds the same sentence); else the map; else the capitalised key. */
+/** The log line for an ended fight. The engine's own `message` wins when it sent one (it builds the same line); else the map (whole lines: `noop` is not "Combat ended. ..."); else the capitalised key. */
 export function combatEndedLine(outcome: string | null | undefined, engineMessage?: string | null): string {
   const said = engineMessage?.trim();
   if (said) return said;
   const key = outcome?.trim();
   if (!key) return 'Combat ended. Unresolved.';
-  // hasOwn: a key such as `constructor` is not a sentence.
-  const known = Object.hasOwn(OUTCOME_SENTENCES, key) ? OUTCOME_SENTENCES[key] : undefined;
-  return `Combat ended. ${known ?? `${key.charAt(0).toUpperCase()}${key.slice(1)}.`}`;
+  // hasOwn: a key such as `constructor` is not a line.
+  return Object.hasOwn(OUTCOME_LINES, key) ? OUTCOME_LINES[key] : `Combat ended. ${key.charAt(0).toUpperCase()}${key.slice(1)}.`;
 }
 
 const END_SESSION_BODY = "This ends the table for everyone at it. Players won't be able to act until a new session starts. This can't be undone from here.";
@@ -196,7 +196,7 @@ const END_SESSION_BODY = "This ends the table for everyone at it. Players won't 
  *  characters undeletable, because the engine's session end touches no combat. Confirm stays "End it"; the ordinary words follow. */
 export function endSessionBody(combatState: CombatState | null | undefined): string {
   if (!isFightHeld(combatState)) return END_SESSION_BODY;
-  return `A fight is waiting for your ruling: every character has fallen. Ending the session leaves it unresolved, and the characters in it can't be deleted until it ends. ${END_SESSION_BODY}`;
+  return `${HELD_SESSION_WARN[anyPcStanding(combatState?.participants) ? 'standing' : 'fallen']} ${END_SESSION_BODY}`;
 }
 
 

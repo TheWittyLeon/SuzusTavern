@@ -8,7 +8,7 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 import { FoldHandleSlot, useFoldBody } from '@/components/FoldDock';
 import { useAnchoredPopover } from '@/lib/a11y/useAnchoredPopover';
 import type { RegionVariant } from '../variants';
-import { HELD_END_BODY, HELD_END_CANCEL, HELD_END_CONFIRM, HELD_END_TITLE, heldLine } from '../format';
+import { HELD_END_CANCEL, HELD_END_CONFIRM, HELD_END_TITLE, heldEndBody, heldLine } from '../format';
 import { useOverrideDialog } from '../overrideDialog';
 import { useRemovedFocus } from '../hooks/useRemovedFocus';
 import styles from '../Play.module.css';
@@ -55,8 +55,9 @@ export interface SceneStageProps {
   lastOpenerRef: RefObject<HTMLButtonElement | null>;
   allHostilesDown: boolean;
   anyMonsterDown: boolean;
-  /** Ends the fight. Resolves true when it ended, false when the request failed (the held confirm stays open for a retry); a caller that cannot tell may resolve nothing. */
-  onEndCombat: (outcome: EndCombatOutcome) => void | Promise<boolean | void>;
+  /** Ends the fight. Resolves true when it ended, false when the request failed (the held confirm stays open for a retry); a caller that cannot tell may resolve nothing. `quiet`: the caller shows the
+   *  failure itself, so no toast (the held confirm owns its error: one announcement, in context). */
+  onEndCombat: (outcome: EndCombatOutcome, opts?: { quiet?: boolean }) => void | Promise<boolean | void>;
   beginCombatRef: RefObject<HTMLButtonElement | null>;
   onBeginEncounter: () => void;
   talking: boolean;
@@ -136,6 +137,10 @@ export default function SceneStage({
   const overrideDialog = useOverrideDialog();
   // The DM's held strip: the human DM (the override dialog is open to them) or the session's DM account at a Suzu-DM table. Revive… follows `overrideDialog` alone.
   const heldDm = held && (!!overrideDialog || canEndHeld);
+  const endBody = heldEndBody({ standing: heldStanding, canResume: !!overrideDialog });
+  // The phone's strip while held: the scene NAME is one line with an ellipsis (its full text stays in the DOM and in the group's name; `title` is for a pointer). The strip is the one place the
+  // name shows on a phone, so it is clamped ONLY while held, where the two-sentence line already takes the room (Aoi addendum 3, 5); a running fight's name wraps as it always did.
+  const clampName = held && inline;
   // The held End combat asks first: it records a wipe and cannot be undone. The confirm is the app's ConfirmDialog. It stays open (busy) while the request is in flight, so one press is
   // one request; it goes when the fight does (or the hold lifts), and when the request FAILED with the fight still held it stays, with the error, for a retry.
   const [endConfirm, setEndConfirm] = useState<'closed' | 'open' | 'sent'>('closed');
@@ -182,7 +187,7 @@ export default function SceneStage({
       data-variant={variant}
       // A `hero` owns its slot's edges: the slot drops its padding and stops being a scroller (Play.module.css, `data-slot-fill`).
       data-slot-fill={hero ? '' : undefined}
-      className={`${hero ? `${cx(styles.stage, strip.strip)} ${strip.hero}` : cx(styles.stage, strip.strip)}${heldDm ? ` ${strip.heldDm}` : held ? ` ${strip.heldWatch}` : ''}`}
+      className={`${hero ? `${cx(styles.stage, strip.strip)} ${strip.hero}` : cx(styles.stage, strip.strip)}${heldDm ? ` ${strip.heldDm}` : ''}${clampName ? ` ${strip.heldClamp}` : ''}`}
     >
       {/* FIX-8 (MEDIUM-1): aria-label surfaces the scene name to AT so the "Scene" kicker (now aria-hidden) doesn't duplicate it on
           screen readers. Iro Ship 2 CRITICAL-1: tabIndex={-1} + ref makes this a programmatic focus anchor — refocusSceneHeadIfStranded()
@@ -198,7 +203,7 @@ export default function SceneStage({
         aria-label={sceneName ? `Scene: ${sceneName}` : 'Scene'}
       >
         {!line && <span className={styles.kicker} aria-hidden>Scene</span>}
-        {sceneName && <p className={cx(styles.sceneName, strip.name)}>{sceneName}</p>}
+        {sceneName && <p className={cx(styles.sceneName, strip.name)} title={clampName ? sceneName : undefined}>{sceneName}</p>}
         {/* In the strip the second line is the combat status while a fight runs, so the objective stands down. */}
         {objective && !(line && combatIsActive) && <span className={cx(styles.sceneObjective, strip.objective)}>{objective}</span>}
       </div>
@@ -334,7 +339,7 @@ export default function SceneStage({
             open={endConfirm !== 'closed'}
             tone="danger"
             title={HELD_END_TITLE}
-            body={endFailed ? <>{HELD_END_BODY} <span role="alert">Could not end the fight. Try again.</span></> : HELD_END_BODY}
+            body={endFailed ? <>{endBody} <span role="alert">Could not end the fight. Try again.</span></> : endBody}
             confirmLabel={HELD_END_CONFIRM}
             cancelLabel={HELD_END_CANCEL}
             busy={endConfirm === 'sent'}
@@ -342,10 +347,11 @@ export default function SceneStage({
               if (endConfirm !== 'open') return;
               setEndConfirm('sent');
               setEndFailed(false);
-              const ended = await onEndCombat('tpk');
-              // Ended: the fight leaves, and the render-time reset above closes the confirm. Failed with the fight still held: back to open, with the error, for a retry.
-              if (ended === false) setEndFailed(true);
-              setEndConfirm((c) => (c === 'sent' ? 'open' : c));
+              const ended = await onEndCombat('tpk', { quiet: true });
+              // Ended (true): the confirm closes now, whatever the response carried (a 200 with no state leaves the fight looking held until the poll). Failed (false) with the fight still held: back to open,
+              // with the error, for a retry. A caller that cannot say stays busy until the fight leaves.
+              if (ended === true) setEndConfirm('closed');
+              else if (ended === false) { setEndFailed(true); setEndConfirm((c) => (c === 'sent' ? 'open' : c)); }
             }}
             onCancel={() => setEndConfirm('closed')}
           />

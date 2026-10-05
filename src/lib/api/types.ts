@@ -1280,7 +1280,7 @@ export type TerrainNotes =
  * The engine's `CombatState` enum as it reaches the wire (`state`). Closed on
  * purpose: a tenth state is a compile error at every reader that switches on
  * it, not a silent "not 'active'". Readers never compare these strings; they
- * go through the predicates in `app/play/[sessionId]/format.ts`
+ * go through the predicates in `lib/dnd/combatState.ts`
  * (`isFightLive`, `areTurnsRunning`, `isFightHeld`, `isFightEnded`), which
  * treat a value outside this list as live and frozen (fail closed).
  * `held`: a DM override left no character alive; nothing moves until the DM
