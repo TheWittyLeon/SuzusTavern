@@ -234,3 +234,18 @@ describe('FoldHandleSlot: its wrapper exists only while there is a handle', () =
     expect((bare.container.querySelector('[data-root]') as HTMLElement).innerHTML).toBe('');
   });
 });
+
+// Miko M5: a press on a body handle leaves focus ON the handle (WebKit does not focus a button a pointer press lands on, and moves focus off the square that held it).
+describe('FoldDock body handle: a press takes focus', () => {
+  it('a click moves focus to the handle even when it was elsewhere (jsdom does not focus on click, so this is the dock\'s own focus call); the plain dock\'s handle is untouched', () => {
+    const { container } = render(<FoldDock folded={false} onToggle={jest.fn()} label="Map" icon="Map" body="b"><div><FoldHandleSlot /><button data-sq>sq</button><div id="b" data-fold-body /></div></FoldDock>);
+    (container.querySelector('[data-sq]') as HTMLElement).focus();
+    const handle = container.querySelector('button[aria-controls="b"]') as HTMLElement;
+    fireEvent.click(handle);
+    expect(document.activeElement).toBe(handle);
+    const plain = render(<FoldDock folded={false} onToggle={jest.fn()} label="Character sheet" icon="Scroll"><button data-sq2>x</button></FoldDock>);
+    (plain.container.querySelector('[data-sq2]') as HTMLElement).focus();
+    fireEvent.click(plain.container.querySelector('button[aria-controls]') as HTMLElement);
+    expect(document.activeElement).toBe(plain.container.querySelector('[data-sq2]'));
+  });
+});

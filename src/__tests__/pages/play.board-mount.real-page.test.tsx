@@ -354,6 +354,26 @@ describe('the phone row (B8c-4 P1): a fight\'s stage is a hero, the map in its b
   });
 });
 
+describe('a fight that LOSES its board (the room turns to a band) with focus on a square (Miko M5)', () => {
+  it('`space: null` in a poll: the grid goes, focus lands on the scene head, never <body>', async () => {
+    const c = await load(combat(SPACE));
+    const stop = screen.getAllByRole('gridcell').find((cell) => cell.getAttribute('tabindex') === '0') as HTMLElement;
+    act(() => stop.focus());
+    expect(document.activeElement).toBe(stop);
+    (dnd.getCombatState as jest.Mock).mockResolvedValue(combat(null));
+    await waitFor(() => expect(screen.queryByRole('grid')).toBeNull(), { timeout: 3000 });
+    await waitFor(() => expect(document.activeElement).toBe(stage(c).querySelector('[data-focus-fallback]')));
+  });
+  it('focus that was NOT on a square is left where it was when the room turns to a band', async () => {
+    const c = await load(combat(SPACE));
+    const field = c.querySelector('textarea, input[type="text"]') as HTMLElement | null;
+    if (field) act(() => field.focus());
+    (dnd.getCombatState as jest.Mock).mockResolvedValue(combat(null));
+    await waitFor(() => expect(screen.queryByRole('grid')).toBeNull(), { timeout: 3000 });
+    if (field) expect(document.activeElement).toBe(field);
+  });
+});
+
 describe('the page\'s stranded-focus wiring (`rescueStrandedFocus` -> the scene head)', () => {
   it('the fight ending (a poll says `ended`) with focus in the grid lands focus on the scene head, never <body>, and the line goes with the board', async () => {
     const c = await load(combat(SPACE));

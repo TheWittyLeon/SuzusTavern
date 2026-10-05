@@ -466,6 +466,22 @@ describe('the scroll step (4.3, addendum): the map opens UPWARD, and the handle 
     expect(by).toHaveBeenCalledWith({ top: 90, behavior: 'instant' });
   });
 
+  it('after the step the page is NOT parked at its end ~300ms later: a press is the user\'s act, so the decision\'s automatic park is spent (Miko: the X-card moved 15px at 360x640 when the folded page already scrolled a little)', () => {
+    jest.useFakeTimers();
+    const to = jest.fn();
+    window.scrollTo = to as unknown as typeof window.scrollTo;
+    let h = 0;
+    layout(() => h, 300);
+    const s = shell(foldRow(), { foldedRegions: new Set(['sceneStage']), onFoldChoice: jest.fn() });
+    fireEvent.click(handle());
+    h = 90;
+    s.again({ foldedRegions: new Set(), openedRegions: new Set(['sceneStage']) });
+    expect(by).toHaveBeenCalledWith({ top: 90, behavior: 'instant' });
+    // what follows an open in a browser: a resize (the layout settling, a scrollbar appearing) and the quiet-period flush; both run `park()`, which must find this decision already spent
+    act(() => { jest.advanceTimersByTime(400); window.dispatchEvent(new Event('resize')); jest.advanceTimersByTime(1500); });
+    expect(to).not.toHaveBeenCalled();
+  });
+
   it('the handle is never scrolled out of view: the step is clamped to the handle\'s distance from the top edge', () => {
     jest.useFakeTimers();
     let h = 0;

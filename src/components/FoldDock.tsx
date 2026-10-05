@@ -159,7 +159,9 @@ export default function FoldDock({
       aria-describedby={locked ? reasonId : undefined}
       // A locked handle's tooltip is its reason (a sighted hover or long-press user reads it; `aria-describedby` serves assistive technology), never "Open map" over a press that does nothing.
       title={locked ? lockedReason : `${folded ? 'Open' : 'Fold'} ${label.toLowerCase()}`}
-      onClick={locked ? undefined : onToggle}
+      // A body handle takes focus on a press: WebKit (Safari, iOS) does not focus a button a pointer press lands on, and moves focus off whatever held it (the map's square), so focus fell to <body> on a tap on Map
+      // (Miko M5). The same node holds it in every engine now, as the keyboard press always did. Only a body fold: the plain dock's handle is as it was.
+      onClick={locked ? undefined : () => { if (inBody) handleRef.current?.focus({ preventScroll: true }); onToggle(); }}
     >
       {inBody ? (
         <>

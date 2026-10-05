@@ -83,6 +83,25 @@ function StageBoard({ space, participants, viewerParticipantId, activeParticipan
     };
   }, [setLine]);
 
+  // The board goes away WITHOUT this component unmounting when the room turns to a band (`space: null`, a malformed board): the map swaps its grid for the band inside, and the grid's removal is a child's, so the cleanup
+  // above never runs and focus that was on a square fell to <body> (Miko M5, both engines). The last focus is tracked (`focusin`), and the commit after `usable` turns false asks for the same rescue when focus is
+  // on <body> and the last place it was is the window that has just gone. A layout effect runs after the commit's DOM removal, so `document.activeElement` is already the body.
+  const focusWasInWindow = useRef(false);
+  useEffect(() => {
+    const onIn = (e: FocusEvent) => { focusWasInWindow.current = (e.target as Element | null)?.closest?.('[data-board-window]') != null; };
+    document.addEventListener('focusin', onIn);
+    return () => document.removeEventListener('focusin', onIn);
+  }, []);
+  const wasUsable = useRef(usable);
+  useLayoutEffect(() => {
+    if (wasUsable.current && !usable && focusWasInWindow.current) {
+      const a = document.activeElement;
+      if (!a || a === document.body) rescueRef.current(true);
+      focusWasInWindow.current = false;
+    }
+    wasUsable.current = usable;
+  }, [usable]);
+
   return (
     <TacticalMap
       space={space}

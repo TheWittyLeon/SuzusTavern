@@ -255,6 +255,9 @@ export function useFoldFacts({ rootRef, moment, candidates, stored, revealed }: 
       by = scrollStep({ dir: 'fold', added, handleTop: 0, handleBottom: 0, viewport: 0 });
     }
     if (by === 0) return;
+    // A handle press is the user's own act, so this decision's automatic park is spent: without this, the correct step (the map's height, so the bar and the X-card stay where they were) was followed ~295ms later by the
+    // park's `scrollTo(end)`, which on a page that already scrolled a little moved the X-card (Miko, B8c-4 P1: 15px at 360x640, 41px with Wrap up; WebKit 67px).
+    parkedGen.current = gen.current;
     ownScrollUntil.current = Date.now() + 100;
     window.scrollBy({ top: by, behavior: 'instant' });
   });
