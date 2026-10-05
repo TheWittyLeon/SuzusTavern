@@ -6,10 +6,11 @@
  *      status node unchanged and still in the tree; the body a named `group`; no new live region anywhere.
  *   4. The pair pin (2.6): for each malformed board the room is `band` and the body holds the band, never a grid.
  *   5. The sentinel pin (Kuro 1): a DM's payload (`tactics`, `position`, `terrain`) puts none of the three strings anywhere in the stage's DOM, text or attributes.
- *   6. The phone row has no stage body, so no map and no line, served or not (F-k).
+ *   6. The phone row's FIGHT stage is a `hero` since B8c-4 P1 (it was `inline` with no body, F-k): a served board mounts the map in its body behind a Map handle on the scene line; the flag-off page and a band
+ *      mount no grid and no handle (`FoldSpec.when`). Exploring's phone stage is still the one-row strip with no body.
  *
  * Mutations seen red (each one line): the page passes `false` for `null` -> 1 and 2 go red (the stand-in is gone); `served` read as `state.space != null` -> 2 goes red (the stand-in
- * comes back for `space: null`); a participant spread into the line -> 5 goes red; the child ungated from `stageHasBody` -> 6 goes red.
+ * comes back for `space: null`); a participant spread into the line -> 5 goes red; the child ungated from `stageHasBody` -> 6's flag-off case goes red; the phone row's combat stage put back to `inline` -> 6's board case goes red.
  */
 import React from 'react';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
@@ -271,17 +272,55 @@ describe('the sentinel pin (Kuro 1): a DM\'s payload puts no DM-only string anyw
   });
 });
 
-describe('the phone row has no stage body: served or not, no map and no line (F-k)', () => {
-  it('a served board on a phone: no grid, no line node, no body to name', async () => {
+describe('the phone row (B8c-4 P1): a fight\'s stage is a hero, the map in its body behind a Map handle', () => {
+  const handle = (c: HTMLElement) => stage(c).querySelector('button[aria-controls="play-scene-stage-body"]') as HTMLElement | null;
+
+  it('a served board on a phone: the grid in the body (a named group), and the Map handle on the scene line, expanded, naming the body', async () => {
     phone();
-    (dnd.getSession as jest.Mock).mockResolvedValue({ ...SESSION, active_combat_id: 'combat-flight' });
-    (dnd.getCombatState as jest.Mock).mockResolvedValue(combat(SPACE));
-    const { container } = renderPlay(<PlayPage />);
-    await screen.findByText('Test Table');
-    await screen.findByText(/In combat · use the action bar/);
+    const c = await load(combat(SPACE));
+    expect(stage(c)).toHaveAttribute('data-variant', 'hero');
+    expect(within(body(c)).getByRole('grid')).toBeInTheDocument();
+    expect(body(c)).toHaveAttribute('role', 'group');
+    expect(within(body(c)).queryByText(STAND_IN)).toBeNull();
+    const h = handle(c)!;
+    expect(h).not.toBeNull();
+    expect(h).toHaveAccessibleName('Map');
+    expect(h).toHaveTextContent('Map');
+    expect(h).toHaveAttribute('aria-expanded', 'true');
+    // the handle follows the encounter buttons and precedes the body, in the stage's DOM (End combat, Map, the body)
+    const endCombat = within(stage(c)).getByRole('button', { name: /^End combat/ });
+    expect(endCombat.compareDocumentPosition(h) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(h.compareDocumentPosition(body(c)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('the handle folds the body: `hidden`, the grid still mounted; a second press opens it again', async () => {
+    phone();
+    const c = await load(combat(SPACE));
+    fireEvent.click(handle(c)!);
+    await waitFor(() => expect(handle(c)).toHaveAttribute('aria-expanded', 'false'));
+    expect(body(c)).toHaveAttribute('hidden');
+    expect(body(c).querySelector('[role="grid"]')).not.toBeNull();
+    // the handle ignores a second activation for 400ms (it leaves from under the thumb: B8c-4 P0)
+    await act(async () => { await new Promise((r) => setTimeout(r, 450)); });
+    fireEvent.click(handle(c)!);
+    await waitFor(() => expect(handle(c)).toHaveAttribute('aria-expanded', 'true'));
+    expect(body(c)).not.toHaveAttribute('hidden');
+  });
+
+  it('flag off on a phone (no `space` key): the stand-in, no grid, no handle, no line', async () => {
+    phone();
+    const c = await load(combat());
+    expect(within(body(c)).getByText(STAND_IN)).toBeInTheDocument();
     expect(screen.queryByRole('grid')).toBeNull();
-    expect(lineNode(container)).toBeNull();
-    expect(stage(container).querySelector('[data-fold-body]')).toBeNull();
+    expect(handle(c)).toBeNull();
+    expect(lineNode(c)).toBeNull();
+  });
+
+  it('`space: null` on a phone: the band and no handle (a fight with no board has nothing to fold)', async () => {
+    phone();
+    const c = await load(combat(null));
+    expect(within(body(c)).getByRole('list', { name: 'Combatants' })).toBeInTheDocument();
+    expect(handle(c)).toBeNull();
   });
 });
 

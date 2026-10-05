@@ -642,7 +642,8 @@ describe('TAV-PLAY-SHELL presets.ts — full row pin (IMPORTANT-3, 🟡-4 compos
     expect(pin(LAYOUT_ROWS_BY_ID.phone, 'combat')).toEqual({
       topBar: 'topBar variant:compact',
       partyStrip: 'partyStrip variant:strip',
-      sceneStage: 'sceneStage variant:inline',
+      // B8c-4 P1: a fight's stage is a `hero` with a foldable body; exploring (above) is the one-row strip, untouched.
+      sceneStage: 'sceneStage variant:hero collapsible:true',
       suzuPresence: 'suzuPresence variant:compact',
       storyLog: 'storyLog',
       offers: 'null visible:false',
@@ -741,9 +742,11 @@ describe('TAV-PLAY-SHELL presets.ts — row geometry is pinned as a literal (�
 
   it('phone/combat', () => {
     expect(normalizeAreas(LAYOUT_ROWS_BY_ID.phone.areas.combat)).toBe(
+      // B8c-4 P1: the stage names its area on two lines (the scene line, then the map's body).
       normalizeAreas(`"safetyBanner safetyBanner"
              "topBar       suzuPresence"
              "partyStrip   partyStrip"
+             "sceneStage   sceneStage"
              "sceneStage   sceneStage"
              "storyLog     storyLog"
              "composer     composer"
@@ -874,7 +877,8 @@ describe('TAV-PLAY-SHELL presets.ts — the stage\'s body (A10 S2b): a hero name
 // does not yield: its floor is its size; none is 0).
 describe('TAV-PLAY-SHELL presets.ts — the track classes: every track of a floored row is whole, floor or optional (A10 fix round F1, generalised in fix round 2)', () => {
   const WHOLE = /^max-content$/;
-  const FLOOR = /^minmax\(var\(--play-floor,(\d+px|calc\(\d+px \+ 3 \* var\(--density-gap\) \+ \d+px\))\),1fr\)$/;
+  // B8c-4 P1: the phone's combat floor is `max(208px, 13rem)` (px at 100% text, rem above it: Iro 8), a third spelling beside a px number and the desktop's gap-token sum.
+  const FLOOR = /^minmax\(var\(--play-floor,(\d+px|max\(\d+px, \d+(\.\d+)?rem\)|calc\(\d+px \+ 3 \* var\(--density-gap\) \+ \d+px\))\),1fr\)$/;
   // OPTIONAL is defined by what a track READS (Kage suggestion 6, made at the replay): its growth limit is `--play-body` or `--play-optional`, whatever its floor is spelled (a px number, the body's
   // floor variable, the phone's `var(--play-party-min,91px)`). `--play-body-floor` as the LIMIT is not it (that was the control: a body track that reads only the floor).
   // The limit is found by PARSING the minmax (A10 step 11 round 5, Kage suggestion 4): the phone mount's planned `minmax(Npx,var(--play-optional,var(--play-body,0px)))` ends in three closing
@@ -1041,9 +1045,11 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
     expect(trackList(LAYOUT_ROWS_BY_ID.phone.rows.combat)).toEqual([
       'max-content',
       'max-content',
-      'minmax(var(--play-party-min,91px),var(--play-optional,auto))',
+      // B8c-4 P1: the party band's minimum and the log's floor are `max(px, rem)` (the same px at 100% text), its growth limit reads `--play-party-max` (a room's cap: the spare is the map's), then `auto`.
+      'minmax(var(--play-party-min,max(91px, 5.6875rem)),var(--play-optional,var(--play-party-max,auto)))',
       'max-content',
-      'minmax(var(--play-floor,208px),1fr)',
+      'minmax(var(--play-body-floor,0px),var(--play-body,0px))',
+      'minmax(var(--play-floor,max(208px, 13rem)),1fr)',
       'max-content',
       'max-content',
     ]);
@@ -1062,6 +1068,10 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
       // test and composer-density.css.test cover the stylesheet side. (This literal enumerates the set, so it grows with it.)
       '--play-composer-pad': 'var(--space-3)',
       '--play-composer-gap': 'var(--space-4)',
+      // B8c-4 P1 (named exception: the map's three sizes join the phone's vars; the exploring stage has no body, so nothing reads them there).
+      '--play-cell': '30px',
+      '--play-follow-margin': '1',
+      '--play-edge-guard': '16px',
       // A10 step 11 tail, S6 (named exception: the two F6 values `--play-roll-mode-flex` / `--play-roll-input-flex` are DELETED with their readers: the phone is `line`, whose wrap is the stylesheet's own
       // flex-basis arithmetic, not a row value). What pins the deletion: this literal, and composer-roll-row.css.test (no `--play-roll-` var is read or set).
     });
@@ -1075,7 +1085,8 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
     expect(LAYOUT_ROWS_BY_ID.phone.momentVars).toEqual({
       // 152 = 88 + 64 (exploring chrome: 12 edge + 6 gap + 46 recap); 136 = 88 + 48 (combat). The reflow minimum is gone with the stage's fold.
       exploring: { '--play-banner-floor': '152px' },
-      combat: { '--play-banner-floor': '136px' },
+      // B8c-4 P1: 136px is written `max(136px, 8.5rem)` (the same at 100% text).
+      combat: { '--play-banner-floor': 'max(136px, 8.5rem)' },
     });
     // A10 fix round F1 (named exception: these two were `toBeUndefined`, "desktop rows carry none"). The desktop combat rows are floored now: 178 = 100 inner (the
     // harness's banner-up combat floor) + 78 of the story slot's chrome. Exploring has no body to yield and carries none.
@@ -1092,20 +1103,28 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
   });
 });
 
-// A9d-2 N5 (Sora lever brief 2.1, Tora 3): the phone has no scene picture and no stage fold until step 12's map. No phone placement may set
-// `collapsible` on the stage (the fold returns with the map and re-asserts Iro's fold acceptance, Backlog TAV-PHONE-STAGE-FOLD-RETURNS), the
-// stage is the strip in both moments, and the only band that may be optional is the party's.
-describe('TAV-PLAY-SHELL presets.ts — the phone stage is a whole, never-collapsible scene strip (A9d-2 N5)', () => {
+// A9d-2 N5 (Sora lever brief 2.1, Tora 3): exploring's phone stage is the one-row strip and never folds. B8c-4 P1 (brief 2.1, H.2, H.6): a FIGHT's stage is a `hero` whose body (the map) folds; that is
+// the fold A9d-2 N5 removed, returned with Iro's fold acceptance re-asserted by the harness's `p:foldBody` (Backlog TAV-PHONE-STAGE-FOLD-RETURNS closes). The only band that may be optional beside
+// the stage's body is the party's.
+describe('TAV-PLAY-SHELL presets.ts — the phone stage: a strip while exploring, a foldable hero in a fight (A9d-2 N5, B8c-4 P1)', () => {
   const phone = LAYOUT_ROWS_BY_ID.phone;
-  it.each(MOMENTS)('%s: variant inline, not collapsible', (moment) => {
-    const p = getPlacement(phone, 'sceneStage', moment);
+  it('exploring: variant inline, not collapsible, no fold default', () => {
+    const p = getPlacement(phone, 'sceneStage', 'exploring');
     expect(p.variant).toBe('inline');
     expect(p.collapsible).toBeUndefined();
+    expect(p.foldDefault).toBeUndefined();
   });
-  it('no phone placement of ANY region sets collapsible on the stage, and the stage is in no FOLDABLE set a phone moment reaches', () => {
-    for (const moment of MOMENTS) expect(getPlacement(phone, 'sceneStage', moment).collapsible).not.toBe(true);
-    expect(FOLDABLE_REGIONS.has('sceneStage')).toBe(false);
-    expect(FOLDABLE_REGIONS.has('characterBlock')).toBe(true); // Table's docked sheet is the one fold left
+  it("combat: a hero that is collapsible and starts open only where the page fits ('fits')", () => {
+    const p = getPlacement(phone, 'sceneStage', 'combat');
+    expect(p.variant).toBe('hero');
+    expect(p.collapsible).toBe(true);
+    expect(p.foldDefault).toBe('fits');
+  });
+  it('the stage is foldable in the phone and in no desktop row; the character sheet is the other fold', () => {
+    expect(getPlacement(phone, 'sceneStage', 'exploring').collapsible).not.toBe(true);
+    for (const row of LAYOUT_ROWS.filter((r) => r.id !== 'phone')) for (const moment of MOMENTS) expect(getPlacement(row, 'sceneStage', moment).collapsible).not.toBe(true);
+    expect(FOLDABLE_REGIONS.has('sceneStage')).toBe(true);
+    expect(FOLDABLE_REGIONS.has('characterBlock')).toBe(true);
   });
   it('the stage track is `max-content` in both moments, and the party band is the only OPTIONAL track (--play-optional)', () => {
     for (const moment of MOMENTS) {
@@ -1562,13 +1581,14 @@ describe('B8c-4 P0 (Amendment H.1, H.2) — the fold registry guards', () => {
       return out;
     });
 
-  it('the real registry passes (no row declares a fold yet; P1 adds the phone row\'s and these still hold)', () => {
+  it('the real registry passes (the phone row declares the stage\'s measured fold since P1, and these hold for it)', () => {
     expect(foldProblems(LAYOUT_ROWS)).toEqual([]);
   });
 
   it('control: each defect is named — foldDefault without collapsible, a table for a region that never folds, a missing value, a measured fold with no auto floor', () => {
     const phone = LAYOUT_ROWS_BY_ID.phone;
-    const stage = getPlacement(phone, 'sceneStage', 'combat');
+    // The phone's real combat stage is a measured, collapsible fold since P1: the controls start from the same placement with both removed.
+    const stage: Placement = { ...getPlacement(phone, 'sceneStage', 'combat'), collapsible: undefined, foldDefault: undefined };
     const withStage = (p: Placement, table?: Record<string, Record<string, string>>): LayoutRow => ({
       ...phone,
       regions: { ...phone.regions, sceneStage: { default: p, combat: p } },

@@ -8,6 +8,7 @@ import { useEffect } from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import PlayShell from '@/app/play/[sessionId]/PlayShell';
+import { FoldHandleSlot } from '@/components/FoldDock';
 import { FOLD_SPECS } from '@/app/play/[sessionId]/foldSpecs';
 import {
   FOLDABLE_REGIONS,
@@ -32,6 +33,8 @@ function regionNodes(): Partial<Record<RegionId, React.ReactNode>> {
     out[id] = body ? (
       <span data-probe-region={id}>
         {id}
+        {/* B8c-4 P1: the stage's fold is live in a board fight, and a body dock whose region places no handle throws in development: the real stage renders the slot, so the stub does. */}
+        <FoldHandleSlot />
         <span id={body} data-fold-body data-probe-fold-body={id} />
       </span>
     ) : (
@@ -67,8 +70,10 @@ describe('a region whose node is null renders nothing, not an empty dock (Kage S
 
 describe('PlayShell folds a region because its PLACEMENT says collapsible, in every real row x moment', () => {
   it.each(COMBOS)('%s: a handle exists for exactly the collapsible, non-layer regions', (_n, row, moment) => {
+    // A board fight: the phone's stage fold exists only where `FoldSpec.when` (`room: 'board'`) holds. Every other fold here has no `when`. No safety banner: a raised one folds a body fold at once (P0), and this case asks
+    // for the folds' resting state.
     const { container } = render(
-      <PlayShell row={row} moment={moment} regions={regionNodes()} tenants={{}} foldSpecs={FOLD_SPECS} />,
+      <PlayShell row={row} moment={moment} facts={{ room: 'board' }} regions={{ ...regionNodes(), safetyBanner: null }} tenants={{}} foldSpecs={FOLD_SPECS} />,
     );
     const handles = Array.from(container.querySelectorAll('button[aria-expanded]'));
     const expected = collapsibleIds(row, moment).map((id) => FOLD_SPECS[id as RegionId]!.label);
@@ -161,18 +166,20 @@ describe('PlayShell fold state', () => {
     expect(screen.queryByRole('button', { name: 'Scene stage' })).not.toBeInTheDocument();
   });
 
-  // A9d-2 N5 (named exception: the phone's stage was collapsible, with a fold that visibly did nothing at 390x844). The strip does not
-  // fold, so these two cases now pin its ABSENCE: no handle, no dock, nothing of the stage inside a fold, whatever a persisted pref says.
-  // What pins the invariant: these, the registry's "no phone placement sets collapsible on the stage", and the harness's o:restControls.
-  it('phone: the stage gets NO handle, and no extra landmark (it is the Scene aside, and the strip does not fold)', () => {
-    render(<PlayShell row={phone} moment="exploring" regions={regionNodes()} tenants={{}} foldSpecs={FOLD_SPECS} />);
+  // B8c-4 P1 (named exception: these two cases pinned the ABSENCE of any stage dock while no row folded it). The phone's EXPLORING stage still has no handle and no fold, but since the stage has a FoldSpec its
+  // region always sits in a dock, INERT (`data-foldable="false"`, `display: contents`) where it does not fold: a row switch changes the dock's mode, never its place in the tree. What pins the invariant:
+  // these, the registry's "the stage is collapsible in the phone's fight only", the render matrix and the harness's o:restControls.
+  it('phone exploring: the stage gets NO handle and no extra landmark (it is the Scene aside); its dock is inert', () => {
+    render(<PlayShell row={phone} moment="exploring" facts={{ room: 'none' }} regions={regionNodes()} tenants={{}} foldSpecs={FOLD_SPECS} />);
+    expect(screen.queryByRole('button', { name: 'Map' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Scene stage' })).not.toBeInTheDocument();
-    expect(document.querySelector('[data-region-slot="sceneStage"] [data-foldable]')).toBeNull();
+    expect(document.querySelector('[data-region-slot="sceneStage"] [data-foldable="true"]')).toBeNull();
+    expect(document.querySelector('[data-region-slot="sceneStage"] [data-foldable="false"]')).not.toBeNull();
     const scene = screen.getByRole('complementary', { name: 'Scene' });
     expect(within(scene).queryByRole('region')).not.toBeInTheDocument();
   });
 
-  it('a stage fold left in the preferences (from the old phone row) folds nothing: the stage and the tray it hosts stay visible, in no dock', () => {
+  it('a stage fold left in the preferences folds nothing where the stage does not fold: the stage and the tray it hosts stay visible, in an inert dock', () => {
     render(
       <PlayShell
         row={phone}
@@ -184,10 +191,10 @@ describe('PlayShell fold state', () => {
       />,
     );
     expect(document.querySelector('[data-probe-region="sceneStage"]')).toBeVisible();
-    expect(document.querySelector('[data-probe-region="sceneStage"]')?.closest('[data-foldable]')).toBeNull();
+    expect(document.querySelector('[data-probe-region="sceneStage"]')?.closest('[data-foldable]')).toHaveAttribute('data-foldable', 'false');
     const tray = document.querySelector('[data-probe-tenant="diceTray"]') as HTMLElement;
     expect(tray).toBeVisible();
-    expect(tray.closest('[data-foldable]')).toBeNull();
+    expect(tray.closest('[data-foldable="true"]')).toBeNull();
   });
 });
 

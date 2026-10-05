@@ -1,12 +1,12 @@
 /**
  * B8c-4 P0 (Sora's phone-mount brief 2.3, 4.2, 4.3, 4.4; the Coordinator addendum, binding) — the fold as a FACT, zero pixels.
  *
- * Nothing in the real registry emits a body fold yet (P1 declares the phone row's), so every case here mounts a TEST row: the phone row with its stage made collapsible,
- * `foldDefault: 'fits'` and a `fold:sceneStage` table. What is pinned is the mechanism: the fact and its precedence, the measured default and the three events that decide it again, the
+ * The real registry declares the phone fight's body fold since P1; the cases here still mount a TEST row (the phone row with its stage made collapsible, `foldDefault: 'fits'` and a `fold:sceneStage`
+ * table of marker values) so each mechanism can be told from the room's own values. What is pinned is the mechanism: the fact and its precedence, the measured default and the three events that decide it again, the
  * touch gate, the banner, the scroll step, the automatic scroll, the `hidden` body and the focus hand-over. jsdom has no layout, so each case plants the numbers the shell reads
  * (`scrollHeight`, `clientHeight`, rects, the document's scroller) and names which of them a case moves.
  *
- * The zero-pixel pin is the first block: the REAL registry with its REAL specs renders the same grid style, handle set and region markup whether or not the fold machinery is there.
+ * The first block pins the REAL registry: every cell but the phone's fight renders the same grid style, handle set and region markup whether or not the fold machinery is there, and the phone's fight is the one live fold.
  */
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
@@ -123,22 +123,35 @@ function pageScrolls(on: boolean) {
   return restore;
 }
 
-describe('zero pixels: the real registry is the same page with or without a fold fact', () => {
+describe('the real registry: the phone\'s fight is the one row that folds a body; every other cell is the same page with or without a fold fact', () => {
   const combos = LAYOUT_ROWS.flatMap((row) => (['exploring', 'combat'] as Moment[]).map((m): [string, LayoutRow, Moment] => [`${row.id}/${m}`, row, m]));
   const regions = () => Object.fromEntries(REGION_IDS.map((id) => [id, <span key={id} data-probe-region={id}>{id}</span>]));
-  it.each(combos)('%s: the grid style, the handles and the slots carry no fold fact and no fold var', (_n, row, moment) => {
+  const folds = (row: LayoutRow, moment: Moment) => getPlacement(row, 'sceneStage', moment).collapsible === true;
+  it.each(combos.filter(([, row, m]) => !folds(row, m)))('%s: the grid style, the handles and the slots carry no fold fact and no fold var', (_n, row, moment) => {
     const { container } = render(<PlayShell row={row} moment={moment} facts={{ room: 'board' }} regions={regions()} tenants={{}} foldSpecs={FOLD_SPECS} />);
     const style = container.querySelector<HTMLElement>('[data-layout-resolved]')!.getAttribute('style') ?? '';
     expect(style).not.toMatch(/fold/i);
-    // No row declares a measured fold: no `auto`-floor var, nothing hidden, no body handle.
+    // No fold of the stage here: no `auto`-floor var, nothing hidden, no body handle.
     expect(container.querySelectorAll('[hidden]:not(span)')).toHaveLength(0);
     expect(container.querySelector('[aria-controls="play-scene-stage-body"]')).toBeNull();
   });
 
-  it('no registry row declares a measured fold or a fold table yet (P1 does): the registry is where the zero-pixel claim lives', () => {
+  it('phone/combat in a board fight: the live fold the registry declares (P1): the fold fact answers the row\'s table, the body is open and a Map handle exists', () => {
+    const phoneRow = LAYOUT_ROWS_BY_ID.phone;
+    const { container } = render(<PlayShell row={phoneRow} moment="combat" facts={{ room: 'board' }} regions={{ sceneStage: <Stage /> }} tenants={{}} foldSpecs={FOLD_SPECS} onFoldChoice={jest.fn()} />);
+    const style = container.querySelector<HTMLElement>('[data-layout-resolved]')!;
+    // jsdom's page fits (0 <= 0 + 1), so the measured default decided open: the room's floor (3 rows), never the `auto` trial's 4 and never the folded 0
+    expect(style.style.getPropertyValue('--play-body-floor')).toBe('calc(3 * var(--play-cell))');
+    expect(screen.getByRole('button', { name: 'Map' })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('only the phone\'s fight declares a measured fold or a fold table: the registry is where the claim lives', () => {
     for (const row of LAYOUT_ROWS) {
-      expect(Object.keys(row.factVars ?? {}).filter((k) => k.startsWith('fold:'))).toEqual([]);
-      for (const id of REGION_IDS) for (const m of ['exploring', 'combat'] as Moment[]) expect(getPlacement(row, id, m).foldDefault).toBeUndefined();
+      const tables = Object.keys(row.factVars ?? {}).filter((k) => k.startsWith('fold:'));
+      expect(tables).toEqual(row.id === 'phone' ? ['fold:sceneStage'] : []);
+      for (const id of REGION_IDS) for (const m of ['exploring', 'combat'] as Moment[]) {
+        expect([row.id, id, m, getPlacement(row, id, m).foldDefault]).toEqual([row.id, id, m, row.id === 'phone' && id === 'sceneStage' && m === 'combat' ? 'fits' : undefined]);
+      }
     }
   });
 });
@@ -160,7 +173,9 @@ describe('the fact: `fold:<regionId>` is reported by the shell, last, and a row 
   it('a fold that does not exist (its `when` does not hold) reports no fact and its dock is inert: no handle, never hidden', () => {
     shell(foldRow(), { facts: { room: 'band' } });
     expect(screen.queryByRole('button', { name: 'Map' })).toBeNull();
-    expect(floorVar()).toBe('');
+    // the row's own `band` room (a 44px body) answers; none of the fold table's values do
+    expect(grid().getAttribute('style') ?? '').not.toMatch(/AUTO|OPEN|FOLDED/);
+    expect(floorVar()).toBe('44px');
     expect(bodyEl()).not.toHaveAttribute('hidden');
   });
 

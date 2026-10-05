@@ -479,6 +479,13 @@ export interface LayoutRow {
    * row's flag decides both halves, never the container's width. The phone row sets it. Absent = the bar every other row has, to the attribute.
    */
   barTurnLine?: boolean;
+  /**
+   * B8c-4 P1 (brief F-d): the stage's scene line is the phone's STRIP whatever the stage's variant: the combat round shows beside the status text, and while the fight is held the scene name is one
+   * ellipsised line. Today both are tied to the stage being `inline`; the phone's combat stage is a `hero` from P1 (it has a body), and a `hero` on a desktop row shows neither, so the row says it. It is a typed
+   * row field and not a `--play-*` value because it decides whether a DOM node EXISTS (a CSS value cannot, and a hidden span on every desktop `hero` would change a flag-off page's DOM). Absent = the stage's
+   * variant decides, as before.
+   */
+  stripLine?: boolean;
   regions: Record<RegionId, Partial<Record<Moment, Placement>> & { default: Placement }>;
 }
 
@@ -988,12 +995,20 @@ const TABLE_ROW: LayoutRow = {
 // + 8 gap + 57 tile row + 12 slot edge: one tile row. At 320px wide and under (a 400% zoom) the tiles WRAP and the page scrolls anyway, so Play.module.css
 // sets `--play-party-min: max-content` there and the band sizes to its content instead of clipping the wrapped rows at 91px (Tora MINOR-1, Iro Minor-2). A focused tile's name caption sits ABOVE the
 // tile, in the label's row (PartyPanel.module.css), so it fits at this minimum.
+// B8c-4 P1 (brief 2.1; Iro 8): the phone's COMBAT floors are `max(px, rem)`: the same px at 100% text, and they grow with the root font so a larger text size is given room by the tracks, not by a clipped band.
+// Written as `5.6875rem` (91px at the 16px root) and not the brief's `5.7rem`, which is 91.2px and would move every phone line by 0.2px at 100% text. 208px is 13rem and 136px is 8.5rem exactly.
+// Exploring keeps its literals: that row is untouched by this mount.
+const PHONE_PARTY_MIN = 'max(91px, 5.6875rem)';
+const PHONE_COMBAT_LOG_FLOOR = 'max(208px, 13rem)';
+const PHONE_COMBAT_BANNER_FLOOR = 'max(136px, 8.5rem)';
 const PHONE_ROW: LayoutRow = {
   id: 'phone',
   // Every slot that can hide content paints the bottom-fade cue while it has more to scroll (E.7): the party band does in combat.
   scrollCue: true,
   // B8c-4 P1b: the bar's described form (its verbs are described by the story's turn line; the narrow bar's wait notice is not a row).
   barTurnLine: true,
+  // B8c-4 P1: the scene line is the strip in a fight's `hero` stage too (the round beside the status; the held name on one line).
+  stripLine: true,
   vars: {
     '--play-slot-edge': 'var(--space-3)',
     '--play-slot-pad': '0px',
@@ -1005,6 +1020,11 @@ const PHONE_ROW: LayoutRow = {
     // density tokens). The 44px targets and the 8px between them are unchanged.
     '--play-composer-pad': 'var(--space-3)',
     '--play-composer-gap': 'var(--space-4)',
+    // B8c-4 P1 (brief 2.1): the map's three sizes. `--play-cell` is the square (30px: the owner's ruling), `--play-follow-margin` the map's own follows' margin in squares, `--play-edge-guard` the start inset of a board
+    // that pans sideways (against the iOS back swipe). The stage's body hands the last two to the map (`--tm-follow-margin`, `--tm-edge-guard`); the exploring stage has no body, so nothing reads them there.
+    '--play-cell': '30px',
+    '--play-follow-margin': '1',
+    '--play-edge-guard': '16px',
   },
   // The banner floor: while the X-card banner is raised and the page FIT before it came up (the shell's measured `data-fit`, not a
   // height line: Play.module.css), the story track yields down to THIS, not to 0: 88 inner (log padding 44 + one 42px narration row)
@@ -1013,7 +1033,7 @@ const PHONE_ROW: LayoutRow = {
   // (A9d-2 N5 deleted `--play-foldable-reflow-min`: the stage is a whole band, one scene strip, and needs no minimum of its own.)
   momentVars: {
     exploring: { '--play-banner-floor': '152px' },
-    combat: { '--play-banner-floor': '136px' },
+    combat: { '--play-banner-floor': PHONE_COMBAT_BANNER_FLOOR },
   },
   // Column 2 is `suzuPresence`'s track: 0px when she is absent (AI assist off).
   columns: {
@@ -1026,8 +1046,26 @@ const PHONE_ROW: LayoutRow = {
   rows: {
     exploring:
       'max-content max-content minmax(var(--play-party-min,91px),var(--play-optional,auto)) max-content minmax(var(--play-floor,224px),1fr) max-content max-content max-content',
-    combat:
-      'max-content max-content minmax(var(--play-party-min,91px),var(--play-optional,auto)) max-content minmax(var(--play-floor,208px),1fr) max-content max-content',
+    // B8c-4 P1 (brief 2.1), eight lines: banner, top bar, the party band (the optional class: its growth limit is `--play-optional`, then `--play-party-max`, which a room sets to the band's minimum so the spare goes to
+    // the map's body, then `auto`), the scene LINE (whole), the stage's BODY (the optional class: its own floor and its room's size, from the `room` and `fold:sceneStage` facts below), the log (the floor), the composer and
+    // the action bar. The stage names its area on two lines, as Story's and Table's combat do.
+    combat: `max-content max-content minmax(var(--play-party-min,${PHONE_PARTY_MIN}),var(--play-optional,var(--play-party-max,auto))) max-content minmax(var(--play-body-floor,0px),var(--play-body,0px)) minmax(var(--play-floor,${PHONE_COMBAT_LOG_FLOOR}),1fr) max-content max-content`,
+  },
+  // B8c-4 P1 (brief 2.1, 2.2): what each room gives the stage's body, and what a fold does to it. A board: 7 rows of 30px, down to 3 (the page yields the map's rows before the story's), and the party band held to its
+  // minimum so the spare room is the map's; `auto` (the measured default's trial) asks for 4 rows, and a folded map is no height at all. A band (a fight with no board): one row of chips, 44px. `none` and `unserved`
+  // (the flag-off page: the state body has no `space` key) give the body nothing and leave the party band free, as today. `open` adds nothing: the room's values stand.
+  factVars: {
+    room: {
+      board: { '--play-body': 'calc(7 * var(--play-cell))', '--play-body-floor': 'calc(3 * var(--play-cell))', '--play-party-max': PHONE_PARTY_MIN },
+      band: { '--play-body': '44px', '--play-body-floor': '44px', '--play-party-max': PHONE_PARTY_MIN },
+      none: { '--play-body': '0px', '--play-body-floor': '0px' },
+      unserved: { '--play-body': '0px', '--play-body-floor': '0px' },
+    },
+    'fold:sceneStage': {
+      auto: { '--play-body-floor': 'calc(4 * var(--play-cell))' },
+      open: {},
+      folded: { '--play-body': '0px', '--play-body-floor': '0px' },
+    },
   },
   areas: {
     exploring: `"safetyBanner safetyBanner"
@@ -1042,6 +1080,7 @@ const PHONE_ROW: LayoutRow = {
              "topBar       suzuPresence"
              "partyStrip   partyStrip"
              "sceneStage   sceneStage"
+             "sceneStage   sceneStage"
              "storyLog     storyLog"
              "composer     composer"
              "actionBar    actionBar"`,
@@ -1053,9 +1092,11 @@ const PHONE_ROW: LayoutRow = {
     partyStrip: { default: { area: 'partyStrip', variant: 'strip' } },
     // A9d-2 N5 (E.1/E.2): the scene strip in BOTH moments, never collapsible. No picture and no fold on the phone until the map
     // (step 12): the stand-in was 58px of a band whose job is the controls, and a fold that visibly did nothing was Iro's Major.
+    // B8c-4 P1 (brief 2.1, H.2, H.6): exploring is untouched (the one-row strip, not collapsible). A fight's stage is a `hero`: the same scene line and a BODY the map fills, which folds behind the handle on the scene line
+    // and starts open only where the page fits with four rows of it (`foldDefault: 'fits'`, measured by the shell). The fold exists only in a board fight (`FOLD_SPECS.sceneStage.when`).
     sceneStage: {
       default: { area: 'sceneStage', variant: 'inline' },
-      combat: { area: 'sceneStage', variant: 'inline' },
+      combat: { area: 'sceneStage', variant: 'hero', collapsible: true, foldDefault: 'fits' },
     },
     storyLog: { default: { area: 'storyLog' } },
     offers: {
@@ -1115,6 +1156,7 @@ export const FOLDABLE_REGIONS: ReadonlySet<RegionId> = new Set(
 export const FOLDABLE_ANNOUNCERS: Partial<Record<RegionId, string>> = {
   characterBlock:
     'its announcers report only the sheet\'s own loading/error; a folded sheet has nothing to say',
-  // (A9d-2 N5: `sceneStage` is no longer foldable in any row: the phone's strip does not fold. When the phone map returns at step 12
-  // and the row re-declares `collapsible`, the entry returns with it: its announcers sit outside the fold body, only the picture folds.)
+  // B8c-4 P1: the phone's fight stage is foldable again (the map's body folds behind the handle). Its announcers (the status node, the line, "All enemies are down") sit OUTSIDE the fold body: only the body is hidden.
+  sceneStage:
+    'only its body folds: the status, the line and the encounter buttons sit outside it, in the scene line, and stay reachable and announcing',
 };

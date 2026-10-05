@@ -84,6 +84,8 @@ export interface SceneStageProps {
    * (Story exploring) is today's stacked head and encounter block, with no body.
    */
   variant?: RegionVariant<'sceneStage'>;
+  /** B8c-4 P1: the scene line is the phone's STRIP even though the stage is a `hero` (the row's `stripLine`): the round shows beside the status and a held scene name is one ellipsised line. Absent = only an `inline` stage is. */
+  stripLine?: boolean;
   /** What goes in a `hero` stage's body: the tactical map and the theatre-of-mind band (B8c-3 mounts them). With none, a fight shows the stand-in. */
   children?: ReactNode;
   /** B8c-3 M2 (Iro, step 11 MINOR-2): the body's accessible name once a MAP is in it (a `group`); never a name or a role while the body is empty or holds the stand-in. */
@@ -116,6 +118,7 @@ export default function SceneStage({
   humanDmTable = true,
   heldStanding = false,
   variant = 'panel',
+  stripLine = false,
   children,
   bodyLabel,
 }: SceneStageProps) {
@@ -140,7 +143,8 @@ export default function SceneStage({
   const endBody = heldEndBody({ standing: heldStanding, canResume: !!overrideDialog });
   // The phone's strip while held: the scene NAME is one line with an ellipsis (its full text stays in the DOM and in the group's name; `title` is for a pointer). The strip is the one place the
   // name shows on a phone, so it is clamped ONLY while held, where the two-sentence line already takes the room (Aoi addendum 3, 5); a running fight's name wraps as it always did.
-  const clampName = held && inline;
+  const stripForm = inline || stripLine;
+  const clampName = held && stripForm;
   // The held End combat asks first: it records a wipe and cannot be undone. The confirm is the app's ConfirmDialog. It stays open (busy) while the request is in flight, so one press is
   // one request; it goes when the fight does (or the hold lifts), and when the request FAILED with the fight still held it stays, with the error, for a retry.
   const [endConfirm, setEndConfirm] = useState<'closed' | 'open' | 'sent'>('closed');
@@ -217,7 +221,7 @@ export default function SceneStage({
             <div className={cx(styles.noteText, allHostilesDown || lineText != null ? strip.noteClipped : strip.note)} role="status" aria-live="polite">
               <Icon name={held ? 'Skull' : 'Sword'} size={13} aria-hidden /> {held ? heldLine({ humanDmTable, canEnd: heldDm, standing: heldStanding }) : 'In combat · use the action bar'}
               {/* Not while held: the player's line is two sentences, and the round's span costs a line at 360 with a long scene name (the strip's 75px cap; the tracker says the round). */}
-              {inline && !held && round != null && <span aria-hidden className={strip.round}> · round {round}</span>}
+              {stripForm && !held && round != null && <span aria-hidden className={strip.round}> · round {round}</span>}
             </div>
             {/* B8c-3 M2 (Iro ruling 1): the map's line, PLAIN READABLE TEXT, the status node's next sibling and never inside it. No role, no aria-live, no aria-hidden here or on any
                 ancestor up to the stage: it is not a second live region (a changed text announces nothing) and a touch user who taps a token moves no focus, so a hidden line would leave
@@ -393,9 +397,9 @@ export default function SceneStage({
           ceiling: every fight while SUZU_DND_POSITIONING is off; one request after a reload when it is on (the combat id is known one request before the state).
           until: the flag has been on in prod for 7 days (Backlog TAV-STAND-IN-RETIRE); then delete this fallback, `.standIn`, its container query and the harness comparator's stand-in expectation.
       */}
-      {/* B8c-4 P0 (H.4): where a body dock's handle is drawn: a `hero`'s, after the encounter buttons and before the body. It renders nothing unless a body dock wraps this stage (no row folds the stage until P1,
-          which gives the handle its place on the scene line and its look), so it moves no pixel today. */}
-      {hero && <FoldHandleSlot />}
+      {/* B8c-4 P0/P1 (H.4; brief 2.4, 4.1): where a body dock's handle is drawn: a `hero`'s scene line, its last control, after the encounter buttons and before the body in the DOM. The slot is the grid cell the handle
+          sits in (`.foldSlot`): empty, so display: none, on every row that folds no body (every desktop row, the phone's exploring stage), where it takes no cell and no pixel. */}
+      {hero && <span className={strip.foldSlot}><FoldHandleSlot /></span>}
       {hero && (
         <div id={SCENE_STAGE_BODY_ID} data-fold-body hidden={bodyFolded} className={strip.body} role={bodyLabel ? 'group' : undefined} aria-label={bodyLabel}>
           {children ?? (combatIsActive ? (

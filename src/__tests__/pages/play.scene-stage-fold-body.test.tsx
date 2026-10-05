@@ -43,12 +43,11 @@ const STATES: Array<[string, Partial<SceneStageProps>]> = [
 ];
 
 describe('SceneStage fold body', () => {
-  // A9d-2 N5 (named exception): the stage's FOLD_SPECS entry is deleted with its fold (no row sets `collapsible` on it); the body contract
-  // is DORMANT (the `debt:` on FoldSpec.body) until the phone map returns at step 12. The wrapper it will fold stays in `panel` and `hero`.
-  // A10 step 11 S2b (named exception: `panel` loses its body; the stand-in is gone while exploring): the body is a `hero`'s, the map's room. What pins
-  // the invariant now: this test (a body in a `hero` only, in every state), the `panel` / `inline` assertions below, and the registry's hero-stage guards.
-  it('no FoldSpec names the stage (dormant: the fold returns with the phone map at step 12); the body wrapper it will fold is rendered in a `hero` and in no other form', () => {
-    expect(FOLD_SPECS.sceneStage).toBeUndefined();
+  // B8c-4 P1 (named exception): the stage's FOLD_SPECS entry is back with its fold: the phone's fight stage folds its body (`when: { room: 'board' }`), named "Map". The wrapper it folds is
+  // rendered in a `hero` and in no other form. A10 step 11 S2b (named exception: `panel` loses its body; the stand-in is gone while exploring): the body is a `hero`'s, the map's room.
+  // What pins the invariant: this test (a body in a `hero` only, in every state), the `panel` / `inline` assertions below, and the registry's hero-stage guards.
+  it('FoldSpec names the stage\'s body (Map, only in a board fight); the body wrapper it folds is rendered in a `hero` and in no other form', () => {
+    expect(FOLD_SPECS.sceneStage).toEqual({ label: 'Map', text: 'Map', icon: 'Map', body: 'play-scene-stage-body', when: { room: 'board' } });
     for (const [variant, bodies] of [['panel', 0], ['inline', 0], ['hero', 1]] as const) {
       const { container, unmount } = render(<SceneStage {...base()} variant={variant} />);
       expect(container.querySelectorAll('[data-fold-body]')).toHaveLength(bodies);

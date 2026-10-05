@@ -86,6 +86,8 @@ import {
   type RegionId,
 } from '@/app/play/[sessionId]/presets';
 import type { CombatState } from '@/lib/api/types';
+import { FOLD_SPECS } from '@/app/play/[sessionId]/foldSpecs';
+import { whenMatches } from '@/app/play/[sessionId]/foldState';
 
 const SESSION: Session = {
   session_id: 's1',
@@ -342,7 +344,9 @@ describe('/play real-page render matrix (4 desktop + 2 phone)', () => {
       const slot = container.querySelector(`[data-region-slot="${id}"]`);
       if (!slot) continue; // a layer: no slot, no dock of its own
       const dock = slot.querySelector('[data-foldable]');
-      const collapsible = getPlacement(row, id, cell.moment).collapsible === true;
+      // B8c-4 P1: a fold EXISTS where the placement is collapsible AND the spec's `when` holds. These fights are served with no `space` key (the flag-off page: `room` is `unserved`), so the phone's map
+      // fold (`when: { room: 'board' }`) is inert here, and a served board's live fold is pinned by play.board-mount.real-page and playshell.fold-fact on the real page.
+      const collapsible = getPlacement(row, id, cell.moment).collapsible === true && whenMatches(FOLD_SPECS[id]?.when, { room: cell.moment === 'combat' ? 'unserved' : 'none' });
       expect([cell.name, id, dock?.getAttribute('data-foldable')]).toEqual([cell.name, id, String(collapsible)]);
       const handle = dock?.querySelector(':scope > button[aria-expanded]') ?? null;
       expect([cell.name, id, handle !== null]).toEqual([cell.name, id, collapsible]);

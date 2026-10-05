@@ -106,9 +106,8 @@ export interface FoldSpec {
    *  already names it (the stage is the "Scene" aside). */
   labelledBy?: string;
   /** Id of the `[data-fold-body]` part that folds; the rest of the region never does
-   *  (A9d-2 F1, Amendment D.4). Absent = the whole region folds.
-   *  debt: no row emits a fold body (the phone stage's fold left in A9d-2 N5: the scene is a one-row strip with no picture to fold). ceiling: FoldDock's body mode and the stage's `[data-fold-body]` wrapper run only in their component tests; no browser path reaches them.
-   *  until: the phone mount re-declares `collapsible` on the stage (Sora's step-11 brief 3.6, "Fold": the stage's `[data-fold-body]`, now a `hero`'s body, is what folds; Backlog TAV-PHONE-STAGE-FOLD-RETURNS: Iro's fold acceptance, item 4, is re-asserted then). */
+   *  (A9d-2 F1, Amendment D.4). Absent = the whole region folds. The phone's fight stage emits one from B8c-4 P1
+   *  (its map's body), which retired the `debt:` this field carried while no row did. */
   body?: string;
   /** B8c-4 P0 (Amendment H.3): a body fold's visible label (the word under the glyph). `label` stays the accessible name and contains it. */
   text?: string;

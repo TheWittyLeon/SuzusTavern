@@ -147,23 +147,37 @@
   --strip-edge: var(--play-slot-inline, var(--density-pad));
   --strip-half: max(0px, calc((var(--play-strip-min, 0px) - 2 * var(--space-2)) / 2));
   height: 100%;
-  grid-template-columns: var(--play-strip-start, var(--strip-edge)) minmax(0, 1fr) auto auto var(--strip-edge);
+  /* The sixth column is the fold handle's (B8c-4 P1, `.foldSlot`): `auto`, so it is 0 wide where no fold exists, which is every row but the phone's fight. */
+  grid-template-columns: var(--play-strip-start, var(--strip-edge)) minmax(0, 1fr) auto auto auto var(--strip-edge);
   grid-template-rows: var(--space-2) minmax(var(--strip-half), auto) minmax(var(--strip-half), auto) var(--space-2) minmax(0, 1fr);
   grid-template-areas:
-    '. . . . .'
-    '. head end wrap .'
-    '. note end wrap .'
-    '. . . . .'
-    'body body body body body';
+    '. . . . . .'
+    '. head end wrap fold .'
+    '. note end wrap fold .'
+    '. . . . . .'
+    'body body body body body body';
 }
 
 .hero.heldDm {
   grid-template-areas:
-    '. . . . .'
-    '. head end wrap .'
-    '. note note note .'
-    '. . . . .'
-    'body body body body body';
+    '. . . . . .'
+    '. head end wrap fold .'
+    '. note note note fold .'
+    '. . . . . .'
+    'body body body body body body';
+}
+
+/* B8c-4 P1 (brief 2.4, 4.1): the cell the fold handle sits in, the scene line's last control: 44 x 44 (its own box), 8px from End combat (the same margin the encounter buttons keep from each other), centred on
+   the line's two text rows. Empty where nothing folds, and then it takes no cell. */
+.foldSlot {
+  grid-area: fold;
+  align-self: center;
+  justify-self: end;
+  margin: 0 0 0 var(--space-4);
+}
+
+.foldSlot:empty {
+  display: none;
 }
 
 .body {
@@ -178,6 +192,10 @@
   overflow: hidden;
   /* The stage hands the row's cell size to the map it holds: the map reads `--tm-cell-size`, its own public sizing API (B8c-3 M2 mounted it; the marker that waited for this is gone). */
   --tm-cell-size: var(--play-cell);
+  /* B8c-4 P1 (brief 5): the row's two other map values, handed over the same way. The map reads them from its window (`--tm-follow-margin`: whole squares kept around a followed square on the map's own follows;
+     `--tm-edge-guard`: how far in from the start edge a board that pans sideways starts). Absent in a row = 0, as the map defaults them. */
+  --tm-follow-margin: var(--play-follow-margin, 0);
+  --tm-edge-guard: var(--play-edge-guard, 0px);
 }
 
 /* The stand-in (a fight with no map yet) in the body: it fills its room and sheds the margin the panel's box carries. In a short band (three rows,

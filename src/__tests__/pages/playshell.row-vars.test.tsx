@@ -24,7 +24,8 @@ describe('PlayShell emits a row\'s custom properties on .grid', () => {
     // A9d-2 N5 (named exception): the exploring floor is re-derived (169 -> 152: the recap measures 46, not 63); the stage's
     // `--play-foldable-reflow-min` is deleted with its fold, so it is emitted by no row any more.
     expect(grid(phone, 'exploring').style.getPropertyValue('--play-banner-floor')).toBe('152px');
-    expect(grid(phone, 'combat').style.getPropertyValue('--play-banner-floor')).toBe('136px');
+    // B8c-4 P1: the combat floor is `max(136px, 8.5rem)`: 136px at 100% text, larger with the root font.
+    expect(grid(phone, 'combat').style.getPropertyValue('--play-banner-floor')).toBe('max(136px, 8.5rem)');
     expect(grid(phone, 'exploring').style.getPropertyValue('--play-foldable-reflow-min')).toBe('');
     expect(grid(phone, 'combat').style.getPropertyValue('--play-foldable-reflow-min')).toBe('');
   });

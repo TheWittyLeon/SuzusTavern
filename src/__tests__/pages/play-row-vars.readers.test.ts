@@ -61,7 +61,11 @@ describe('every row-declared --play-* var has a reader FOR THE ROW THAT DECLARES
   it('the control that the loosening let through: `--play-body` is read by Story\'s and Table\'s OWN tracks and by no stylesheet, so the PHONE row (whose tracks never read it) has no reader for it', () => {
     expect(readersOf('--play-body', LAYOUT_ROWS_BY_ID.story)).toEqual(['presets.ts (story tracks and values)']);
     expect(readersOf('--play-body', LAYOUT_ROWS_BY_ID.table)).toEqual(['presets.ts (table tracks and values)']);
-    expect(readersOf('--play-body', LAYOUT_ROWS_BY_ID.phone)).toEqual([]);
+    // B8c-4 P1: the phone's fight row reads `--play-body` in its own body track now. The control stays alive on a copy of the phone row whose tracks do NOT read it (the exploring list on both
+    // moments, and no fact values): the same row, with the reader taken out, reports none, which is what the old assertion pinned while no phone track read it.
+    expect(readersOf('--play-body', LAYOUT_ROWS_BY_ID.phone)).toEqual(['presets.ts (phone tracks and values)']);
+    const phone = LAYOUT_ROWS_BY_ID.phone;
+    expect(readersOf('--play-body', { ...phone, rows: { exploring: phone.rows.exploring, combat: phone.rows.exploring }, factVars: undefined })).toEqual([]);
   });
 
   it('the rows declare something (an empty set is a refused pass)', () => {
