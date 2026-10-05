@@ -16,6 +16,7 @@ jest.mock('../../lib/api/dnd', () => ({
 
 import DmNarrationPanel from '@/components/DmNarrationPanel';
 import { useLastAliveHp } from '@/lib/useLastAliveHp';
+import { OverrideHostFor } from '@/test-utils/OverrideHostFor';
 import type { CombatState, CombatParticipantState } from '@/lib/api/types';
 
 const mk = (id: string, name: string, hp: number, max: number, extra: Partial<CombatParticipantState> = {}): CombatParticipantState => ({
@@ -27,15 +28,18 @@ const GOBLIN = mk('goblin-1', 'Goblin', 7, 7);
 const KESTREL_ALIVE = mk('pc-1', 'Kestrel', 12, 34);
 const KESTREL_DEAD = mk('pc-1', 'Kestrel', 0, 34, { is_alive: false });
 
-const state = (participants: CombatParticipantState[], st = 'active'): CombatState => ({
+const state = (participants: CombatParticipantState[], st: CombatState['state'] = 'active'): CombatState => ({
   combat_id: 'c1', session_id: 's1', round: 1, state: st, turn_index: 0,
   active_participant_id: 'goblin-1', initiative: participants.map((p) => p.participant_id), participants,
 });
+// The dialog is the page's one mount (overrideDialog.tsx); the panel only opens it, so a panel on its own needs the host around it.
 const panel = (cs: CombatState) => (
-  <DmNarrationPanel
-    combatId="c1" combatState={cs} sessionId="s1" dmUsername="dm"
-    onMessage={jest.fn()} onOverrideMessage={jest.fn()} onStateUpdate={jest.fn()} onStateRefresh={jest.fn()}
-  />
+  <OverrideHostFor combatState={cs}>
+    <DmNarrationPanel
+      combatId="c1" combatState={cs} sessionId="s1" dmUsername="dm"
+      onMessage={jest.fn()} onStateUpdate={jest.fn()} onStateRefresh={jest.fn()}
+    />
+  </OverrideHostFor>
 );
 
 describe('Revive… opener', () => {
@@ -52,6 +56,28 @@ describe('Revive… opener', () => {
     render(panel(cs));
     expect(screen.queryByRole('button', { name: /Revive…/ })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Open DM override modal/i })).toBeInTheDocument();
+  });
+
+  // The engine takes a revive while a fight is running OR held (ENGINE TPK-HOLD); before initiative and between turns it does not. The opener follows (it retired the debt marker
+  // that said a held fight was not covered).
+  it.each([
+    ['active', true], ['held', true], ['between_turns', false], ['rolling_initiative', false], ['idle', false], ['ended', false],
+  ] as const)("a fallen PC in a '%s' fight: Revive… shown %s", (st, shown) => {
+    render(panel(state([GOBLIN, KESTREL_DEAD], st)));
+    expect(screen.queryByRole('button', { name: /Revive…/ }) !== null).toBe(shown);
+  });
+
+  it('a held fight\'s DM Override opens the dialog on Revive only (the opener asked for Attack; the engine takes nothing else)', () => {
+    render(panel(state([GOBLIN, KESTREL_DEAD], 'held')));
+    fireEvent.click(screen.getByRole('button', { name: /Open DM override modal/i }));
+    expect(screen.getAllByRole('radio')).toHaveLength(1);
+    expect(screen.getByRole('radio', { name: /Revive/i })).toBeChecked();
+  });
+
+  it('a held fight\'s DM Override puts focus where a Revive opener would: the HP field (one fallen), not nowhere', async () => {
+    render(panel(state([GOBLIN, KESTREL_DEAD], 'held')));
+    fireEvent.click(screen.getByRole('button', { name: /Open DM override modal/i }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText(/Restore to HP/i)));
   });
 
   it('opens the dialog on Revive, with the fallen character preselected', () => {
@@ -90,10 +116,12 @@ describe('focus after a successful revive', () => {
     function Harness() {
       const [cs, setCs] = React.useState(state([GOBLIN, KESTREL_DEAD]));
       return (
-        <DmNarrationPanel
-          combatId="c1" combatState={cs} sessionId="s1" dmUsername="dm"
-          onMessage={jest.fn()} onOverrideMessage={jest.fn()} onStateUpdate={setCs} onStateRefresh={jest.fn()}
-        />
+        <OverrideHostFor combatState={cs} onStateUpdate={setCs}>
+          <DmNarrationPanel
+            combatId="c1" combatState={cs} sessionId="s1" dmUsername="dm"
+            onMessage={jest.fn()} onStateUpdate={setCs} onStateRefresh={jest.fn()}
+          />
+        </OverrideHostFor>
       );
     }
     render(<Harness />);

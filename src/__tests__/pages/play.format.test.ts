@@ -12,7 +12,7 @@
  * does not touch or rewrite any existing test (Miko-QA, TAV-PLAY-SHELL A1
  * QA pass).
  */
-import { isSessionLocked, buildReadAloudBlock, isCombatEngaged } from '../../app/play/[sessionId]/format';
+import { combatEndedLine, isSessionLocked, buildReadAloudBlock, areTurnsRunning, isFightEnded, isFightHeld, isFightLive } from '../../app/play/[sessionId]/format';
 import type { CombatState, GroundingData, Session } from '../../lib/api/types';
 
 function makeSession(status: Session['status']): Session {
@@ -54,26 +54,38 @@ describe('isSessionLocked', () => {
   });
 });
 
-describe('isCombatEngaged', () => {
+describe('the fight-state predicates (TPK-HOLD W1)', () => {
   // A2 commit 0 (Kage-CR A1b IMPORTANT-2, verbatim): "`isCombatEngaged` is
   // unpinned against the exact `combatIsActive` confusion it exists to
-  // prevent ... replacing its body with `!!combatState && combatState.state
-  // !== 'ended'` (M3) -> all green. The corpus only ever sets `state:
-  // 'active'` or `'ended'` -- zero fixtures for the three states the
-  // predicates disagree on." This table covers all five states plus null so
-  // M3 (the combatIsActive body swap) cannot survive silently again.
+  // prevent ... zero fixtures for the three states the predicates disagree
+  // on." One table over EVERY value of the closed type, plus a value the
+  // closed type does not list (an engine newer than this build) and null:
+  // swapping any predicate body for a neighbour's changes a row.
+  //                      [state,                live,  running, held,  ended]
   it.each([
-    ['active', true],
-    ['between_turns', false],
-    ['rolling_initiative', false],
-    ['idle', false],
-    ['ended', false],
-  ] as const)("combat state '%s' -> %s", (state, expected) => {
-    expect(isCombatEngaged(makeCombatState(state))).toBe(expected);
+    ['idle',               true,  false,  false, false],
+    ['rolling_initiative', true,  false,  false, false],
+    ['active',             true,  true,   false, false],
+    ['between_turns',      true,  false,  false, false],
+    ['held',               true,  false,  true,  false],
+    ['ended',              false, false,  false, true],
+    // Fail closed: live and frozen, never "ended", never running, never held.
+    ['a_state_from_a_newer_engine', true, false, false, false],
+  ] as const)("combat state '%s' -> live %s, turns running %s, held %s, ended %s", (state, live, running, held, ended) => {
+    const cs = makeCombatState(state as CombatState['state']);
+    expect(isFightLive(cs)).toBe(live);
+    expect(areTurnsRunning(cs)).toBe(running);
+    expect(isFightHeld(cs)).toBe(held);
+    expect(isFightEnded(cs)).toBe(ended);
   });
 
-  it('is false for null (no active combat)', () => {
-    expect(isCombatEngaged(null)).toBe(false);
+  it('answers false to all four for null / undefined (no fight loaded)', () => {
+    for (const cs of [null, undefined]) {
+      expect(isFightLive(cs)).toBe(false);
+      expect(areTurnsRunning(cs)).toBe(false);
+      expect(isFightHeld(cs)).toBe(false);
+      expect(isFightEnded(cs)).toBe(false);
+    }
   });
 });
 
@@ -113,5 +125,54 @@ describe('buildReadAloudBlock', () => {
 
   it('returns an empty string when grounding carries none of the block fields', () => {
     expect(buildReadAloudBlock({} as GroundingData)).toBe('');
+  });
+});
+
+describe('combatEndedLine: one outcome -> sentence map, the key capitalised as the fallback, the engine\'s own message first', () => {
+  it.each([
+    ['tpk', 'Combat ended. The party has fallen.'],
+    ['victory', 'Combat ended. Victory.'],
+    ['retreat', 'Combat ended. Retreat.'],
+    ['unresolved', 'Combat ended. Unresolved.'],
+    ['noop', 'Combat had already ended.'],
+    ['a_tenth_outcome', 'Combat ended. A_tenth_outcome.'],
+  ])("outcome '%s' -> %s", (outcome, line) => {
+    expect(combatEndedLine(outcome)).toBe(line);
+  });
+  it.each(['constructor', 'toString', '__proto__', 'hasOwnProperty'])("an object-prototype key ('%s') is a key, not a sentence", (key) => {
+    expect(combatEndedLine(key)).toBe(`Combat ended. ${key.charAt(0).toUpperCase()}${key.slice(1)}.`);
+  });
+  it('no outcome at all is Unresolved, as it always was', () => {
+    expect(combatEndedLine(undefined)).toBe('Combat ended. Unresolved.');
+    expect(combatEndedLine('')).toBe('Combat ended. Unresolved.');
+  });
+  it('the engine\'s message wins when it sent one, and a blank one does not', () => {
+    expect(combatEndedLine('tpk', 'Combat ended. The party has fallen. (engine)')).toBe('Combat ended. The party has fallen. (engine)');
+    expect(combatEndedLine('tpk', '   ')).toBe('Combat ended. The party has fallen.');
+    expect(combatEndedLine('tpk', null)).toBe('Combat ended. The party has fallen.');
+  });
+});
+
+describe('a state this build has never heard of is live and frozen, says so once, and an object-prototype key is not a state', () => {
+  const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  afterAll(() => warn.mockRestore());
+  const odd = (state: string) => makeCombatState(state as CombatState['state']);
+  it('reaction_window: live, not running, not held, not ended', () => {
+    const cs = odd('reaction_window');
+    expect([isFightLive(cs), areTurnsRunning(cs), isFightHeld(cs), isFightEnded(cs)]).toEqual([true, false, false, false]);
+  });
+  it('the warning names the state and is said once per state', () => {
+    warn.mockClear();
+    const cs = odd('rising_tide');
+    isFightLive(cs); areTurnsRunning(cs); isFightHeld(cs);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toMatch(/rising_tide/);
+  });
+  it.each(['constructor', 'toString', '__proto__'])("'%s' is unknown (live, frozen), not a lookup that finds an Object member", (key) => {
+    const cs = odd(key);
+    expect([isFightLive(cs), areTurnsRunning(cs), isFightHeld(cs), isFightEnded(cs)]).toEqual([true, false, false, false]);
+  });
+  it('a fight not read yet (null) is none of the four', () => {
+    expect([isFightLive(null), areTurnsRunning(null), isFightHeld(null), isFightEnded(null)]).toEqual([false, false, false, false]);
   });
 });

@@ -246,3 +246,14 @@ describe('useBoard: the Move contracts that no other pin held (B8c-3 fix round: 
     expect(result.current.bar?.pressed).toBe(false); // not armed behind the user's back
   });
 });
+
+describe('useBoard: a held fight (TPK-HOLD) is handed to the stage\'s body (so the map writes no rest line and the held status paints)', () => {
+  const stageOf = (state: CombatState) => renderHook(() => useBoard(args(state))).result.current.stage;
+  it('held: the stage says so, and the reach is not shown (nobody holds the turn); a running fight is not held', () => {
+    expect(stageOf(st({ state: 'held' }))).toMatchObject({ held: true, showReach: false });
+    expect(stageOf(st({ state: 'active' }))).toMatchObject({ held: false, showReach: true });
+  });
+  it('an unknown state is not held (it is frozen by the predicates, not drawn as held)', () => {
+    expect(stageOf(st({ state: 'reaction_window' }))).toMatchObject({ held: false });
+  });
+});

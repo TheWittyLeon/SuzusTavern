@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef } from 'react';
 
 /** Focus can rest on `el` only while it is in the page and not under `inert` or `hidden`. */
-const focusable = (el: Element) => el.isConnected && el.closest('[inert], [hidden]') === null;
+// A `:disabled` control is taken away too: a native `disabled` button drops focus in a real browser, and no control the user can act on is left under it.
+const focusable = (el: Element) => el.isConnected && el.closest('[inert], [hidden]') === null && !el.matches(':disabled');
 
 /**
  * A9d-2 fix round 4 (Kage whole-branch I-C) — "was the control focus was on REMOVED?", the one question every stranded-focus rescue is about.

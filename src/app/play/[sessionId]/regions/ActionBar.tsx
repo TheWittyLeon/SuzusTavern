@@ -38,6 +38,7 @@ import styles from '@/components/Composer.module.css';
 import popoverStyles from '@/components/AnchoredPopover.module.css';
 import type { RegionVariant } from '../variants';
 import type { MoveControl } from '../hooks/useBoard';
+import { HELD_FROZEN_NOTE, HELD_VERB_SUFFIX } from '../format';
 
 export type CombatAction = 'attack' | 'dodge' | 'dash' | 'endturn' | 'deathsave';
 
@@ -104,6 +105,8 @@ export interface ActionBarProps {
    * notice stops being a row (Composer.module.css): on screen the reason is the story's turn line and the dimmed verbs, so the bar is one height on both turns.
    */
   turnLine?: string | null;
+  /** The fight is held (every character fallen, waiting on the DM): the verbs are locked as on any turn that is not yours, and the notice says why in the held words, not as a live region (the stage's status line announces it once). */
+  held?: boolean;
 }
 
 /** Gap between the Attack button and its target menu, and the viewport margin. */
@@ -122,6 +125,7 @@ export default function ActionBar({
   move,
   moveButtonRef,
   turnLine,
+  held = false,
 }: ActionBarProps) {
   const [targetOpen, setTargetOpen] = useState(false);
   const railRef = useRef<HTMLDivElement>(null);
@@ -150,6 +154,10 @@ export default function ActionBar({
   });
 
   const notYourTurn = isPlayerTurn === false;
+  // The Attack menu's items carry no lock of their own: when the turn goes (a monster's, or the fight held under it) the menu goes with it, so no tap is left that the engine would refuse.
+  if (notYourTurn && targetOpen) setTargetOpen(false);
+  /** What a locked verb's name says: the hold, or the turn. */
+  const lockedWhy = held ? HELD_VERB_SUFFIX : 'not your turn';
 
   // A11Y (Iro HIGH-3): announce "Your turn" when the turn flips to the player.
   // The notYourTurn div disappearing does NOT trigger a live-region update.
@@ -249,7 +257,9 @@ export default function ActionBar({
   const described = turnLine !== undefined;
   const whyId = `${railUid}-why`;
   const moveWhyId = `${railUid}-move-why`;
-  const hasWhy = described && !!turnLine && (notYourTurn || isDying);
+  // Held: the reason a verb is locked is the hold, not a turn line (there is none: no one is acting).
+  const whyText = held ? HELD_FROZEN_NOTE : turnLine;
+  const hasWhy = described && !!whyText && (notYourTurn || isDying);
   /** `disabled` + `aria-disabled` as every verb always had them; or, described, `aria-disabled` alone, plus the reason. Same attribute order as before. */
   const lock = (off: boolean | undefined) => (described ? { 'aria-disabled': off, 'aria-describedby': hasWhy ? whyId : undefined } : { disabled: off, 'aria-disabled': off });
   /** The event guard of a locked verb in the described form (the same swallow `guardLocked` does): true = the activation is dropped. A native `disabled` never reaches a handler, so other rows need none. */
@@ -266,6 +276,7 @@ export default function ActionBar({
       // A10 step 11 round 4 (TAV-STORY-BAR-MONSTER-TURN): on a monster's turn the wait notice REPLACES the kicker's text in the kicker's own place and adds no row, so the bar is one height on
       // both turns (Story's was 182px at 1280 wide on a monster's turn: the notice took a line and the verbs wrapped). Composer.module.css reads this attribute; a narrow slot (the phone) keeps today's layout.
       data-waiting={notYourTurn ? 'true' : undefined}
+      data-held={held ? 'true' : undefined}
       // B8c-4 P1b fix round 2 (Kage I-2): the row's `barTurnLine` flag, not the container's width, decides that the notice is hidden: a Story bar that is narrow (881-920px) keeps its notice and its native
       // `disabled`. Absent where `turnLine` is undefined, so every other row's markup is byte-for-byte what it was.
       data-described={described ? 'true' : undefined}
@@ -319,12 +330,12 @@ export default function ActionBar({
       )}
       {/* Turn indicator — polite because it's informational, not urgent. */}
       {notYourTurn && (
-        <div className={styles.notYourTurn} aria-live="polite" aria-atomic="true">
-          Waiting for your turn…
+        <div className={styles.notYourTurn} aria-live={held ? undefined : 'polite'} aria-atomic={held ? undefined : true}>
+          {held ? HELD_FROZEN_NOTE : 'Waiting for your turn…'}
         </div>
       )}
       {/* B8c-4 P1b: the verbs' description in the described form: the story's own turn line, from the same variable, visually hidden here (the visible one is above the composer). Not live. */}
-      {hasWhy && <span id={whyId} className={styles.srOnly}>{turnLine}</span>}
+      {hasWhy && <span id={whyId} className={styles.srOnly}>{whyText}</span>}
       {described && move?.disabled && !hasWhy && move.reason && <span id={moveWhyId} className={styles.srOnly}>{move.reason}</span>}
       <div className={styles.railBtns}>
         <button
@@ -338,7 +349,7 @@ export default function ActionBar({
             isDying
               ? 'Attack (unavailable — you are down)'
               : notYourTurn
-                ? 'Attack (not your turn)'
+                ? `Attack (${lockedWhy})`
                 : actionSpent
                   ? 'Attack (action already spent this turn)'
                   : targets.length === 0
@@ -357,7 +368,7 @@ export default function ActionBar({
             isDying
               ? 'Dodge (unavailable — you are down)'
               : notYourTurn
-                ? 'Dodge (not your turn)'
+                ? `Dodge (${lockedWhy})`
                 : 'Dodge'
           }
         >
@@ -372,7 +383,7 @@ export default function ActionBar({
             isDying
               ? 'Dash (unavailable — you are down)'
               : notYourTurn
-                ? 'Dash (not your turn)'
+                ? `Dash (${lockedWhy})`
                 : 'Dash'
           }
         >
@@ -397,7 +408,7 @@ export default function ActionBar({
           className={styles.action}
           onClick={(e) => { if (!swallowed(endTurnDisabled, e)) fire('endturn'); }}
           {...lock(endTurnDisabled)}
-          aria-label={notYourTurn ? 'End turn (not your turn)' : 'End turn'}
+          aria-label={notYourTurn ? `End turn (${lockedWhy})` : 'End turn'}
         >
           <Icon name="Check" size={13} /> End turn
         </button>

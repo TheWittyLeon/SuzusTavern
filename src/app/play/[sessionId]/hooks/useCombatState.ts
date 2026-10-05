@@ -10,7 +10,7 @@
  *
  * Composed ABOVE `useScene` (Amendment A §A.1/§A.6) so `useScene` can take
  * `combatEngaged: boolean` as a plain downward parameter instead of the
- * whole `CombatState` — `isCombatEngaged` itself stays in `../format.ts`
+ * whole `CombatState` — `areTurnsRunning` itself stays in `../format.ts`
  * (Amendment A §A.1); only the CALL moves here from page.tsx.
  *
  * Owns plan §1.4's state half: `combatId`, `combatState`, `combatBusy`,
@@ -72,7 +72,7 @@ import { isLivingTargetableFoe } from '@/lib/dnd/combatTargets';
 // extracted region -- see regions/ActionBar.tsx's own header.
 import type { CombatTarget } from '../regions/ActionBar';
 import type { CombatParticipantState, CombatState, Participant } from '@/lib/api/types';
-import { POLL_INTERVAL_MS, isCombatEngaged } from '../format';
+import { POLL_INTERVAL_MS, areTurnsRunning, isFightEnded, isFightHeld, isFightLive } from '../format';
 
 export interface UseCombatStateResult {
   combatId: string | null;
@@ -92,10 +92,14 @@ export interface UseCombatStateResult {
   refreshState: () => void;
   combatBusyRef: MutableRefObject<boolean>;
   monsterDrivingRef: MutableRefObject<boolean>;
-  /** Amendment A §A.1 — the ONE derived boolean useScene reads. NOT
-   *  `combatIsActive` below (see that field's own note). */
+  /** Amendment A §A.1 — the ONE derived boolean useScene reads
+   *  (`areTurnsRunning`). NOT `combatIsActive` below (see that field's own note). */
   combatEngaged: boolean;
-  /** `!!combatId && combatState?.state !== 'ended'` — also true before
+  /** A fight exists and has not ended (`isFightLive`): what the scene's "Move on", its checks and the rebind button wait on. */
+  fightLive: boolean;
+  /** Every character has fallen after a DM override and the fight waits for the DM (`isFightHeld`). */
+  fightHeld: boolean;
+  /** `!!combatId && !isFightEnded(combatState)` — also true before
    *  initiative and between turns, unlike `combatEngaged`. Kept as a
    *  SEPARATE field (never unified — Amendment A §A.1's naming note) since
    *  page.tsx's render gates (`statusPill`, `TopBar`, `PartyStrip`, ...)
@@ -165,7 +169,7 @@ export function useCombatState(
     const poll = async () => {
       if (document.hidden) return;
       // Short-circuit: if combat has ended, skip the fetch.
-      if (combatStateRef.current?.state === 'ended') return;
+      if (isFightEnded(combatStateRef.current)) return;
       const mySeq = stateSeqRef.current;
       try {
         const cs = await getCombatState(combatId);
@@ -202,8 +206,10 @@ export function useCombatState(
     })();
   }, [combatId, applyState]);
 
-  const combatEngaged = isCombatEngaged(combatState);
-  const combatIsActive = !!combatId && combatState?.state !== 'ended';
+  const combatEngaged = areTurnsRunning(combatState);
+  const fightLive = isFightLive(combatState);
+  const fightHeld = isFightHeld(combatState);
+  const combatIsActive = !!combatId && !isFightEnded(combatState);
   // Round from combatState is authoritative; fall back to null when no state
   // yet. (Kage-CR A2 minor: this comment used to say "fall back to 1" —
   // main:page.tsx:3527 pre-A2 — but the code has always done `?? null`. The
@@ -241,9 +247,11 @@ export function useCombatState(
     myCharacterIdStr != null &&
     activeParticipant.entity_id === myCharacterIdStr;
 
-  const isPlayerTurn = combatState?.state === 'active'
+  // A fight that is live but whose turns are not running (before initiative, between turns, held) is not anyone's turn: the controls stay
+  // locked rather than enabled to be refused (TPK-HOLD W2). No fight, or an ended one: always enabled.
+  const isPlayerTurn = areTurnsRunning(combatState)
     ? activeIsMine
-    : true; // out of combat: always enabled
+    : !fightLive;
 
   // Combat-UX Fixes 2026-07-27, Fix B: the gate for the "Roll death save"
   // affordance — the viewer's own PC, on their turn, at 0 HP, not stable, not
@@ -264,7 +272,7 @@ export function useCombatState(
   // state==='active' explicitly (not just emptiness) — targetableFoes is ALSO
   // empty before combat starts and after it ends, for a different reason;
   // this must not fire in either case.
-  const allHostilesDown = combatState?.state === 'active' && targetableFoes.length === 0;
+  const allHostilesDown = areTurnsRunning(combatState) && targetableFoes.length === 0;
 
   // Find the selfParticipantId for the "you" badge in the tracker.
   // B1-4: prefer entity_id match (precise); fall back to name match for older engine.
@@ -302,6 +310,8 @@ export function useCombatState(
     combatBusyRef,
     monsterDrivingRef,
     combatEngaged,
+    fightLive,
+    fightHeld,
     combatIsActive,
     round,
     targetableFoes,

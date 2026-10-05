@@ -269,6 +269,16 @@
   margin-bottom: 0;
 }
 
+/* A held fight's notice is the only visible reason the verbs are dimmed, so it is read, not glanced at: 11px, sentence case, no tracking (Iro MINOR-3, Aoi addendum 2). The wait notice
+   above keeps its 9px uppercase (it repeats every turn). `data-held` is set beside `data-waiting` by the bar; the rail's height is the same in both (the harness measures it). */
+.rail[data-held='true'] .notYourTurn {
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: none;
+  /* The same line box as the 9px notice above (9px at the body's 1.5): the notice takes the kicker's place, and 11px at 1.5 would grow the bar by 3px on the turn the hold lands. */
+  line-height: calc(9px * 1.5);
+}
+
 /* A9c-2 D2: `chips` (Story) -- the kicker shares the row with the buttons; the
    refusal / wait / death-save rows still take a full line of their own. The
    buttons keep their 44px target (they are the same .action). */
@@ -373,6 +383,12 @@
     padding: 2px 0 6px;
     margin: 0;
     flex: 1 0 100%;
+  }
+
+  /* The held notice's own line box (the base rule pins it to the 9px notice's) is for the wide bar, where the wait notice is 9px. In a narrow bar the wait notice is 11px at the inherited leading, so the
+     held one takes the inherited leading too, and the bar is the same height both ways (Story at 881x700 was 74.5px waiting and 71.5px held: Kage N-3). */
+  .rail[data-held='true'] .notYourTurn {
+    line-height: inherit;
   }
 
   /* B8c-4 P1b (Sora's phone-mount brief 6.4): in the DESCRIBED form (`data-described`, the phone row's `barTurnLine`) the wait notice is NOT A ROW. It was a 24.5px line that made the bar taller on a

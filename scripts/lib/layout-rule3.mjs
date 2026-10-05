@@ -45,6 +45,9 @@ export const LAYER_HOSTS = Object.freeze([
   // is the layer (backdrop + panel), like Drawer. It became reachable when page.tsx
   // joined the entry set.
   'src/components/TweaksPanel.module.css',
+  // DmOverrideModal is mounted ONCE by `overrideDialog.tsx`, above the whole shell (TPK-HOLD W3), not inside the DM panel's slot, so no region clips it
+  // and its fixed backdrop is the layer. It left IN_REGION_MODALS by moving here, which is what that list's own entry promised.
+  'src/components/DmOverrideModal.module.css',
 ]);
 
 /**
@@ -55,8 +58,6 @@ export const LAYER_HOSTS = Object.freeze([
 export const IN_REGION_MODALS = Object.freeze([
   // debt: RebindCharacterButton's modal renders inside the partyStrip slot, fixed. ceiling: this one file; a fourth in-region modal is red. until: it portals to document.body (plan §6, One Dialog), then it moves to LAYER_HOSTS.
   'src/components/RebindCharacterButton.module.css',
-  // debt: DmOverrideModal's backdrop renders inside the DM panel in tableControls, fixed. ceiling: this one file. until: it portals to document.body (plan §6, One Dialog), then it moves to LAYER_HOSTS.
-  'src/components/DmOverrideModal.module.css',
   // debt: DmNarrationPanel's phone NPC target menu is fixed inside the DM panel. ceiling: this one file, <=420px only. until: the DM panel's menus portal (plan §6, One Dialog), then it moves to LAYER_HOSTS.
   'src/components/DmNarrationPanel.module.css',
 ]);

@@ -76,7 +76,7 @@ import { COMBAT_REFUSAL_REASON_MAP, monsterTurnFailureClass } from '@/lib/dnd/en
 import type { CombatAction } from '../regions/ActionBar';
 import type { LogRow } from '@/components/ChatLog';
 import type { CombatState, EndCombatOutcome, Session } from '@/lib/api/types';
-import { drivesMonsterTurns, isSessionDm, isSessionLocked } from '../format';
+import { areTurnsRunning, combatEndedLine, drivesMonsterTurns, isFightEnded, isSessionDm, isSessionLocked } from '../format';
 import type { UseCombatStateResult } from './useCombatState';
 import type { NarrateFn, NarrateDurableBeatFn } from './useNarration';
 import type { UseSceneActionsResult } from './useSceneActions';
@@ -85,7 +85,8 @@ import type { UseSceneStateResult } from './useSceneState';
 export interface UseCombatActionsResult {
   beginEncounter: () => Promise<void>;
   onCombatAction: (action: CombatAction, payload?: string) => Promise<void>;
-  onEndCombat: (outcome?: EndCombatOutcome) => Promise<void>;
+  /** Resolves true when the fight ended, false when it did not (a refusal, a failed request, another action in flight). */
+  onEndCombat: (outcome?: EndCombatOutcome, opts?: { quiet?: boolean }) => Promise<boolean>;
 }
 
 /**
@@ -444,7 +445,7 @@ export function useCombatActions(
         }
 
         // If combat ended, refresh grounding for the "Move on" affordance.
-        if (newState?.state === 'ended') {
+        if (isFightEnded(newState)) {
           void refreshGrounding();
         }
       } catch (err) {
@@ -499,27 +500,26 @@ export function useCombatActions(
    * Previously hardcoded 'unresolved'; now driven by the outcome chooser.
    */
   const onEndCombat = useCallback(
-    async (outcome: EndCombatOutcome = 'unresolved') => {
-      if (!combatId || !username || combatBusyRef.current) return;
+    async (outcome: EndCombatOutcome = 'unresolved', opts?: { quiet?: boolean }) => {
+      if (!combatId || !username || combatBusyRef.current) return false;
       combatBusyRef.current = true;
       // Tora MINOR-2: increment seq at mutation START so any in-flight poll is discarded.
       stateSeqRef.current += 1;
       setCombatBusy(true);
       // Tora MINOR-1: do NOT close the chooser here — only close on success so the
       // user can retry on engine error without re-opening the panel.
+      let ended = false;
       try {
         const result = await endCombat(combatId, { username, outcome });
+        ended = true;
         if (result.state) {
           stateSeqRef.current += 1;
           setCombatState(result.state);
         }
-        const outcomeLabel = result.outcome
-          ? result.outcome.charAt(0).toUpperCase() + result.outcome.slice(1)
-          : 'Unresolved';
         appendLog({
           who: 'Suzu',
           kind: 'system',
-          text: `Combat ended. ${outcomeLabel}.`,
+          text: combatEndedLine(result.outcome, result.message),
         });
         // Tora MINOR-1: close on SUCCESS only.
         setOutcomeChooserOpen(false);
@@ -536,16 +536,21 @@ export function useCombatActions(
           playOutcomeLine(result.outcome_line);
           void refreshGrounding();
         }
+        return true;
       } catch (err) {
         const body = (err as { body?: unknown } | null)?.body;
         const data = (body as { data?: { reason?: string } } | null)?.data;
         const reason = data?.reason;
-        if (reason === 'victory_refused') {
+        // `quiet`: the caller (the held confirm) shows the failure in its own dialog, and a toast beside it would be a second announcement of one failure (Iro MINOR-6).
+        if (opts?.quiet) {
+          // nothing: the caller says it
+        } else if (reason === 'victory_refused') {
           toast({ tone: 'error', message: "Can't claim victory — no enemies are down yet." });
         } else {
           toast({ tone: 'error', message: 'Could not end combat.' });
         }
-        // Tora MINOR-1: chooser stays open on error so the user can retry.
+        // Tora MINOR-1: chooser stays open on error so the user can retry. (An error AFTER the fight ended, in the scene advance, is not a failed end.)
+        return ended;
       } finally {
         combatBusyRef.current = false;
         setCombatBusy(false);
@@ -576,7 +581,7 @@ export function useCombatActions(
   // S5.3: skip the auto-driver entirely when dm_mode === 'human' — the DM
   // drives monster turns manually via the DmNarrationPanel (npc-action route).
   useEffect(() => {
-    if (!combatState || combatState.state !== 'active' || !combatId || !username) return;
+    if (!combatState || !areTurnsRunning(combatState) || !combatId || !username) return;
     // Only ONE tab drives monsters (A9d-2 Kage F3 re-verify S7, N2 I-2): `/monster-turn` is `guard_dm` on the engine, so every other
     // tab of an AI-auto table POSTed it on each poll and got a 404 back. The DM's tab and nothing else (`drivesMonsterTurns`, format.ts).
     if (!drivesMonsterTurns(session, username)) return;
@@ -682,7 +687,7 @@ export function useCombatActions(
             if (led.attempts >= MONSTER_TURN_ATTEMPTS_PER_TURN) sayMonsterTurnExhausted(led);
             break;
           }
-          if (st.state !== 'active') break;
+          if (!areTurnsRunning(st)) break;
           const next = st.participants.find((p) => p.participant_id === st.active_participant_id);
           if (!next || next.is_pc || !next.is_alive) break; // reached the player / nobody to drive
           // The turn moved on to another monster: it gets its own ledger.
@@ -728,7 +733,7 @@ export function useCombatActions(
   // Only this effect reads or writes it.
   const prevActiveParticipantIdRef = useRef<string | null>(null);
   useEffect(() => {
-    const active = combatId && combatState?.state !== 'ended' ? combatState : null;
+    const active = combatId && !isFightEnded(combatState) ? combatState : null;
     const current = active?.active_participant_id ?? null;
     const prev = prevActiveParticipantIdRef.current;
     prevActiveParticipantIdRef.current = current;

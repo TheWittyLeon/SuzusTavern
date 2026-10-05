@@ -114,7 +114,7 @@ export default function PartyStrip({
         targetUsername={p.username}
         selfUsername={selfUsername ?? ''}
         isDm={isDm}
-        combatActive={combatIsActive && combatState?.state === 'active'}
+        combatActive={combatIsActive}
         // DDX-25 R2 (D2-D4): a paused/ended session must not allow a rebind either — mirrors every other player-action gate
         // (Composer, combat rail, skill check, Move on, DiceTray) which all extend `sessionLocked`.
         sessionLocked={sessionLocked}

@@ -6,12 +6,13 @@
 import React from 'react';
 import fs from 'fs';
 import path from 'path';
-import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 const mockSubmitOverride = jest.fn();
 jest.mock('../../lib/api/dnd', () => ({ setSessionPolicy: jest.fn(), npcAction: jest.fn(), postSessionEvent: jest.fn(), submitOverride: (...a: unknown[]) => mockSubmitOverride(...a) }));
 import DmOverrideModal from '@/components/DmOverrideModal';
 import DmNarrationPanel from '@/components/DmNarrationPanel';
+import { OverrideHostFor } from '@/test-utils/OverrideHostFor';
 import type { CombatParticipantState, CombatState } from '@/lib/api/types';
 const mk = (id: string, name: string, hp: number, max: number, extra: Partial<CombatParticipantState> = {}): CombatParticipantState => ({
   participant_id: id, entity_id: id, name, is_pc: id.startsWith('pc'), initiative: 10, hp_current: hp, hp_max: max, ac: 12, conditions: [],
@@ -54,7 +55,7 @@ test('PIN-M6: Chromium shape — the opener HELD focus, then unmounts with the r
   mockSubmitOverride.mockResolvedValue({ applied: { message: 'Kestrel is revived.' }, state: st([GOBLIN, K_UP]) });
   function Host() {
     const [cs, setCs] = React.useState(st([GOBLIN, K_DEAD]));
-    return <DmNarrationPanel combatId="c1" combatState={cs} sessionId="s1" dmUsername="dm" onMessage={jest.fn()} onOverrideMessage={jest.fn()} onStateUpdate={(s: CombatState) => setCs(s)} onStateRefresh={jest.fn()} />;
+    return <OverrideHostFor combatState={cs} onStateUpdate={(s: CombatState) => setCs(s)}><DmNarrationPanel combatId="c1" combatState={cs} sessionId="s1" dmUsername="dm" onMessage={jest.fn()} onStateUpdate={(s: CombatState) => setCs(s)} onStateRefresh={jest.fn()} /></OverrideHostFor>;
   }
   render(<Host />);
   const opener = screen.getByRole('button', { name: 'Revive…' });
@@ -176,9 +177,9 @@ describe('backdrop', () => {
 });
 
 describe('panel openers', () => {
-  const st = (ps: CombatParticipantState[], state = 'active'): CombatState => ({ combat_id: 'c1', session_id: 's1', round: 1, state, turn_index: 0, active_participant_id: 'goblin-1', initiative: ps.map((x) => x.participant_id), participants: ps });
+  const st = (ps: CombatParticipantState[], state: CombatState['state'] = 'active'): CombatState => ({ combat_id: 'c1', session_id: 's1', round: 1, state, turn_index: 0, active_participant_id: 'goblin-1', initiative: ps.map((x) => x.participant_id), participants: ps });
   const panel = (cs: CombatState) => (
-    <DmNarrationPanel combatId="c1" combatState={cs} sessionId="s1" dmUsername="dm" onMessage={jest.fn()} onOverrideMessage={jest.fn()} onStateUpdate={jest.fn()} onStateRefresh={jest.fn()} />
+    <OverrideHostFor combatState={cs}><DmNarrationPanel combatId="c1" combatState={cs} sessionId="s1" dmUsername="dm" onMessage={jest.fn()} onStateUpdate={jest.fn()} onStateRefresh={jest.fn()} /></OverrideHostFor>
   );
 
   it('both openers announce a dialog', () => {

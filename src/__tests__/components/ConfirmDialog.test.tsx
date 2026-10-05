@@ -53,13 +53,37 @@ test('Escape cancels; confirm/cancel buttons fire; busy disables', () => {
   expect(screen.getByRole('button', { name: /cancel/i })).toBeDisabled();
 });
 
-test('backdrop click cancels', () => {
+test('a press and release on the backdrop, after the arm window, cancels', async () => {
   const onCancel = jest.fn();
   render(<ConfirmDialog open title="X" onConfirm={() => {}} onCancel={onCancel} />);
   // The backdrop is the dialog's parent (the outermost element).
   const backdrop = screen.getByRole('dialog').parentElement as HTMLElement;
+  await new Promise((r) => setTimeout(r, 350));
+  fireEvent.pointerDown(backdrop);
   fireEvent.click(backdrop);
   expect(onCancel).toHaveBeenCalledTimes(1);
+});
+
+test('a click within the arm window after open is ignored (the second click of a double press on the opener)', () => {
+  const onCancel = jest.fn();
+  render(<ConfirmDialog open title="X" onConfirm={() => {}} onCancel={onCancel} />);
+  const backdrop = screen.getByRole('dialog').parentElement as HTMLElement;
+  fireEvent.pointerDown(backdrop);
+  fireEvent.click(backdrop);
+  expect(onCancel).not.toHaveBeenCalled();
+});
+
+test('a press that began inside the dialog and was released on the backdrop does not cancel; nor does a click with no press on it', async () => {
+  const onCancel = jest.fn();
+  render(<ConfirmDialog open title="X" onConfirm={() => {}} onCancel={onCancel} />);
+  const dialog = screen.getByRole('dialog');
+  const backdrop = dialog.parentElement as HTMLElement;
+  await new Promise((r) => setTimeout(r, 350));
+  fireEvent.pointerDown(dialog);
+  fireEvent.click(backdrop);
+  expect(onCancel).not.toHaveBeenCalled();
+  fireEvent.click(backdrop);
+  expect(onCancel).not.toHaveBeenCalled();
 });
 
 test('busy flip parks focus on the dialog itself (Kage m5 focus park)', async () => {
@@ -118,4 +142,33 @@ test("SCROLL-LOCK: restores the page's OWN previous overflow, not a hardcoded ''
   );
   expect(document.body.style.overflow).toBe('clip');
   document.body.style.overflow = '';
+});
+
+test('a press on the scrim never moves focus: mousedown on it is default-prevented, whether or not the click that follows dismisses (Kage N-1)', async () => {
+  render(<><button>opener</button><ConfirmDialog open title="X" onConfirm={() => {}} onCancel={() => {}} /></>);
+  const dialog = screen.getByRole('dialog');
+  const scrim = dialog.parentElement as HTMLElement;
+  await new Promise((r) => setTimeout(r, 5));
+  // fireEvent returns false when the event's default was prevented
+  expect(fireEvent.mouseDown(scrim)).toBe(false);
+  // inside the dialog a press is NOT prevented (its fields and buttons take focus as usual)
+  expect(fireEvent.mouseDown(dialog)).toBe(true);
+  expect(screen.getByRole('button', { name: /cancel/i })).toHaveFocus();
+});
+
+test('a failed request (busy falls back with the dialog still open) puts focus on Cancel, not on the dialog box; a success that closes it does not (Iro MINOR-7)', async () => {
+  const { rerender } = render(<ConfirmDialog open title="X" onConfirm={() => {}} onCancel={() => {}} />);
+  await new Promise((r) => setTimeout(r, 5));
+  rerender(<ConfirmDialog open busy title="X" onConfirm={() => {}} onCancel={() => {}} />);
+  expect(screen.getByRole('dialog')).toHaveFocus();
+  rerender(<ConfirmDialog open title="X" onConfirm={() => {}} onCancel={() => {}} />);
+  expect(screen.getByRole('button', { name: /cancel/i })).toHaveFocus();
+});
+
+test('busy, then closed (a success): the dialog is gone and nothing is focused on its behalf', async () => {
+  const { rerender } = render(<><button>opener</button><ConfirmDialog open title="X" onConfirm={() => {}} onCancel={() => {}} /></>);
+  await new Promise((r) => setTimeout(r, 5));
+  rerender(<><button>opener</button><ConfirmDialog open busy title="X" onConfirm={() => {}} onCancel={() => {}} /></>);
+  rerender(<><button>opener</button><ConfirmDialog open={false} title="X" onConfirm={() => {}} onCancel={() => {}} /></>);
+  expect(screen.queryByRole('dialog')).toBeNull();
 });

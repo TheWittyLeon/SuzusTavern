@@ -22,6 +22,9 @@ export interface StageBoardProps {
   activeParticipantId: string | null;
   /** The combat round, for the rest line ("In combat · round 2"). */
   round: number | null;
+  /** The fight is held (every character fallen, waiting on the DM). The map still draws, and a square the viewer inspects still reads out, but the REST line is not written: it says "In combat",
+   *  and while it shows the stage's status is visually clipped, which would paint a held fight as a running one and hide the one line that tells the table what is happening. */
+  held?: boolean;
   /** Draw the active creature's reach without the interaction (see useBoard). */
   showReach: boolean;
   /** The page's stranded-focus rescue (useStrandedFocusRescue): called with true while the grid holds focus as it unmounts (the fight ended), so focus goes to the scene head, never `<body>`. */
@@ -34,14 +37,16 @@ export interface StageBoardProps {
   movedSeq: number;
 }
 
-function StageBoard({ space, participants, viewerParticipantId, activeParticipantId, round, showReach, rescueStrandedFocus, moveMode, moveSubmitting, onMove, onExitMove, movedSeq }: StageBoardProps) {
+function StageBoard({ space, participants, viewerParticipantId, activeParticipantId, round, held = false, showReach, rescueStrandedFocus, moveMode, moveSubmitting, onMove, onExitMove, movedSeq }: StageBoardProps) {
   const setLine = useStageLine();
   /** The last payload the map reported, kept so a new round re-writes the rest line without the map having to say anything. */
   const lastRef = useRef<InspectLine | null>(null);
   const roundRef = useRef(round);
+  const heldRef = useRef(held);
   const rescueRef = useRef(rescueStrandedFocus);
   useEffect(() => {
     roundRef.current = round;
+    heldRef.current = held;
     rescueRef.current = rescueStrandedFocus;
   });
 
@@ -54,7 +59,8 @@ function StageBoard({ space, participants, viewerParticipantId, activeParticipan
   /** The one writer of the line: the last payload the map reported, in the round the page is in. A band room (`space: null`, a malformed board, a board that BECOMES one mid-fight) has no line:
    *  it writes `null`, so a stale rest line never sits beside the band with the status clipped under it. */
   const show = useCallback(() => {
-    setLine(usableRef.current ? buildLine(lastRef.current, { round: roundRef.current }) : null);
+    // Held: no rest line (nothing inspected), so the stage's status paints; an inspected square still has its line.
+    setLine(usableRef.current && !(heldRef.current && lastRef.current === null) ? buildLine(lastRef.current, { round: roundRef.current }) : null);
   }, [setLine]);
 
   const onInspect = useCallback((line: InspectLine | null) => {
@@ -65,7 +71,7 @@ function StageBoard({ space, participants, viewerParticipantId, activeParticipan
   // The rest line before the map says anything, again when the round changes, and cleared when the board stops being usable.
   useEffect(() => {
     show();
-  }, [round, usable, show]);
+  }, [round, usable, held, show]);
 
   // Unmount (the fight ended, the board was lost): clear the line, and if the grid held focus say so BEFORE the DOM goes (a layout-effect cleanup runs before the removal), so the page's
   // rescue puts focus on the scene head instead of letting it fall to <body>. Focus that was elsewhere is not touched.

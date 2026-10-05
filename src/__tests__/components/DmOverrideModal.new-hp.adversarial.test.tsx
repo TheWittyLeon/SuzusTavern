@@ -340,7 +340,10 @@ describe('keyboard / focus around the confirm', () => {
 
   it('clicking the confirm backdrop cancels only the confirm', async () => {
     await toConfirmFocused();
-    fireEvent.click(screen.getByRole('alertdialog').parentElement as HTMLElement);
+    await new Promise((r) => setTimeout(r, 350)); // the confirm's arm window
+    const scrim = screen.getByRole('alertdialog').parentElement as HTMLElement;
+    fireEvent.pointerDown(scrim);
+    fireEvent.click(scrim);
     expect(confirmDialog()).not.toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
     expect(mockSubmitOverride).not.toHaveBeenCalled();

@@ -43,6 +43,7 @@ import { useAuth } from '@/lib/auth/AuthProvider';
 import { useAuthGate } from '@/lib/auth/useAuthGate';
 import { useToast } from '@/components/Toast';
 import { sessionTitle } from '@/lib/format';
+import { useOpenSnapshot } from '@/lib/useOpenSnapshot';
 import {
   getCombatState,
   getCharacterSheet,
@@ -56,7 +57,7 @@ import { matchCombatIntent, matchKeywordIntent } from '@/lib/dnd/intentFastPath'
 import { DURABLE_GENERATION_ENABLED } from '@/lib/config';
 import type { Participant } from '@/lib/api/types';
 import type { QuickCheck } from '@/components/DiceTray';
-import Pill from '@/components/Pill';
+import { statusPills } from './statusPills';
 import PageSkeleton from '@/components/PageSkeleton';
 import { type LogRow } from '@/components/ChatLog';
 import RollControl from '@/components/RollControl';
@@ -66,6 +67,7 @@ import ActionBar from './regions/ActionBar';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Drawer from '@/components/Drawer';
 import SafetyBanner from './regions/SafetyBanner';
+import { OverrideDialogHost } from './overrideDialog'; // before TableControls: DmOverrideModal's stylesheet keeps its place in the cascade (ahead of DmNarrationPanel's), as when the panel imported it
 import { SessionControls, DmCombatControls } from './regions/TableControls';
 import PartyStrip from './regions/PartyStrip';
 import SceneStage from './regions/SceneStage';
@@ -80,7 +82,7 @@ import {
   buildReadAloudBlock,
   deathSaveTally,
   groundingCreatureNames,
-  isCombatEncounterUnstarted,
+  endSessionBody, initiativeNames, isCombatEncounterUnstarted, areTurnsRunning, anyPcStanding,
   isSessionDm,
   scanXCardTracking,
 } from './format';
@@ -340,7 +342,7 @@ export default function PlayPage() {
   const {
     combatId, setCombatId, combatState, setCombatState, combatBusy, setCombatBusy,
     refusedReason, outcomeChooserOpen, setOutcomeChooserOpen, stateSeqRef, applyState, refreshState,
-    combatEngaged, combatIsActive, round, targetableFoes, activeParticipant,
+    combatEngaged, fightLive, fightHeld, combatIsActive, round, targetableFoes, activeParticipant,
     activeIsMine, isPlayerTurn, isDying, anyMonsterDown, allHostilesDown, selfPcId,
   } = combatStateResult;
 
@@ -436,13 +438,16 @@ export default function PlayPage() {
   //
   // Amendment A §A.1: the one derived boolean useSceneState reads off
   // combat's state -- `combatEngaged` comes straight from useCombatState's
-  // destructure above (A2); the isCombatEngaged() call itself lives inside
+  // destructure above (A2); the areTurnsRunning() call itself lives inside
   // that hook, not here.
   //
   // `sceneState` (the hook's own return object) is kept alongside the
   // destructure below -- useNarration and useSceneActions both take it as
   // one bundle (A5; see their own headers).
-  const sceneState = useSceneState(sessionId, combatEngaged, appendLog);
+  // `fightLive` is false until the fight's state is READ, while `combatIsActive` (the id is bound) is already true: an unread fight is live but not frozen, so the scene's moves wait on either.
+  // The End-session confirm's words are read once, when it opens: a hold that lands under it must not grow the body under a tap in flight.
+  const endSessionText = useOpenSnapshot(endSessionConfirmOpen, endSessionBody(combatState));
+  const sceneState = useSceneState(sessionId, fightLive || combatIsActive, appendLog);
   const {
     grounding, setGrounding, sceneAdvanceBusy, adventureComplete, completionSeries,
     checkBusy, offeredCheckSkill, setOfferedCheckSkill, freeformOfferedCheck,
@@ -838,7 +843,7 @@ export default function PlayPage() {
   // consumer of both, not owned by either one.
   useEffect(() => {
     if (
-      combatState?.state === 'active' &&
+      combatEngaged &&
       myCharacterIdStr === null &&
       !noCharToastFiredRef.current
     ) {
@@ -852,7 +857,7 @@ export default function PlayPage() {
     // call returns -- referentially stable across renders like any ref,
     // listed explicitly because the linter can't prove that through an
     // intermediate hook (same as the XP-guard effect above).
-  }, [combatState?.state, myCharacterIdStr, toast, noCharToastFiredRef]);
+  }, [combatEngaged, myCharacterIdStr, toast, noCharToastFiredRef]);
 
   // checkShouldOpen/openScene moved into useSceneState (TAV-PLAY-SHELL step
   // 5 hook 6) -- see the useSceneState() call above, right after appendLog.
@@ -1030,7 +1035,7 @@ export default function PlayPage() {
   // folding the tally into this label too would double-announce the same
   // event through two separate aria-live regions.
   const turnStatusText: string | null =
-    !combatId || combatState?.state !== 'active' || !activeParticipant
+    !combatId || !combatEngaged || !activeParticipant
       ? null
       : activeIsMine
         ? isDying
@@ -1045,7 +1050,7 @@ export default function PlayPage() {
   // Determine valid "Move on" transitions from grounding (ADV-7T).
   // Show the button only when: no active combat AND at least one transition is available
   // that doesn't require an unresolved encounter.
-  const activeEncounterId = combatState?.state === 'active'
+  const activeEncounterId = combatState && areTurnsRunning(combatState)
     ? combatState.encounter_id
     : null;
 
@@ -1298,11 +1303,7 @@ export default function PlayPage() {
   // initiative_order); mapped to display names and filtered defensively
   // (a stale/unknown id — e.g. a monster removed mid-encounter — just drops
   // out rather than rendering "undefined").
-  const narratorInitiativeOrder = combatIsActive && combatState
-    ? combatState.initiative
-        .map((id) => combatState.participants.find((p) => p.participant_id === id)?.name)
-        .filter((name): name is string => !!name)
-    : [];
+  const narratorInitiativeOrder = combatIsActive ? initiativeNames(combatState) : [];
 
   // TAV-SOLO-DM-CAST-RAIL: a solo-table human DM who ALSO has a bound
   // character (the GM-PC pattern) keeps their DM controls (DmNarrationPanel /
@@ -1330,13 +1331,7 @@ export default function PlayPage() {
 
   // anyMonsterDown/allHostilesDown now come from useCombatState's destructure
   // above (Amendment A §A.6).
-  const statusPill = combatIsActive ? (
-    <Pill tone="lav" dot><span className={styles.pillRound} aria-hidden>round {round ?? 1} · </span>combat</Pill>
-  ) : (
-    <Pill tone="muted" dot>
-      exploring
-    </Pill>
-  );
+  const { statusPill, narratorStatusPill } = statusPills(combatIsActive, round, styles.pillRound);
   // Iro-A11y CRITICAL (review pass) — NarratorStrip's OWN combat line
   // already states "Round N" explicitly (see its `combatParts`); embedding
   // the full `statusPill` (which ALSO says "round N") in its `status` slot
@@ -1349,11 +1344,6 @@ export default function PlayPage() {
   // still uses the full `statusPill` with its round, visually. The round is
   // `aria-hidden` there (A9d-2, Iro A9d-1 MINOR-5): the initiative tracker in the
   // party strip is the one polite region that says it, in every row.
-  const narratorStatusPill = combatIsActive ? (
-    <Pill tone="lav" dot>
-      combat
-    </Pill>
-  ) : statusPill;
 
   // selfPcId now comes from useCombatState's destructure above.
 
@@ -1543,7 +1533,7 @@ export default function PlayPage() {
           deathSaves={deathSaveTally(activeParticipant)}
           variant={variantFor(row, 'actionBar', moment)}
           outerRailRef={composerRailAnchorRef}
-          localTurnActionRef={localTurnActionRef} move={board.bar} moveButtonRef={board.moveButtonRef} turnLine={row.barTurnLine ? turnStatusText : undefined}
+          localTurnActionRef={localTurnActionRef} held={fightHeld} move={board.bar} moveButtonRef={board.moveButtonRef} turnLine={row.barTurnLine ? turnStatusText : undefined}
         />
       ) : undefined,
     composer: (
@@ -1595,10 +1585,10 @@ export default function PlayPage() {
         lastOpenerRef={lastOpenerRef}
         allHostilesDown={allHostilesDown}
         anyMonsterDown={anyMonsterDown}
-        onEndCombat={(key) => void onEndCombat(key)}
+        onEndCombat={(key, opts) => onEndCombat(key, opts)}
         beginCombatRef={beginCombatRef}
         onBeginEncounter={beginEncounter}
-        talking={talking} sessionLocked={sessionLocked} rollBusy={rollBusy} round={round}
+        talking={talking} sessionLocked={sessionLocked} rollBusy={rollBusy} round={round} held={fightHeld} canEndHeld={isDm} humanDmTable={session?.dm_mode === 'human'} heldStanding={fightHeld && anyPcStanding(combatState?.participants)}
         variant={variantFor(row, 'sceneStage', moment)} bodyLabel={board.label}
       >
         {board.stage ? <StageBoard {...board.stage} /> : null}
@@ -1610,11 +1600,7 @@ export default function PlayPage() {
     sessionRecap: <SessionRecapTenant session={session} username={username} stepAside={combatIsActive} />,
     sessionPausedEnded: <SessionPausedEndedTenant isEnded={isEnded} isPaused={isPaused} />,
     turnStatus: (
-      <TurnStatusTenant
-        combatIsActive={combatIsActive}
-        activeIsMine={activeIsMine}
-        turnStatusText={turnStatusText}
-      />
+      <TurnStatusTenant combatIsActive={combatIsActive} activeIsMine={activeIsMine} turnStatusText={turnStatusText} held={fightHeld} />
     ),
     deadStatus: <DeadStatusTenant combatIsActive={combatIsActive} isMyPcDead={isMyPcDead} />,
     durableRetryRow: (
@@ -1640,7 +1626,7 @@ export default function PlayPage() {
         onCast={(text) => appendLog({ who: username ?? 'you', kind: 'system', text })}
         onSheetChanged={setMySheet}
         onStateRefresh={refreshState}
-        onBusyChange={setCombatBusy} fallbackFocus={() => sceneHeadRef.current}
+        onBusyChange={setCombatBusy} fallbackFocus={() => sceneHeadRef.current} held={fightHeld}
       />
     ),
     // T4p2: completion next-part offer (design doc §6.4) — a tenant of
@@ -1662,6 +1648,7 @@ export default function PlayPage() {
   };
 
   return (
+    <OverrideDialogHost isHumanDM={isHumanDM} combatId={combatId} combatState={combatState} dmUsername={session?.dm_username ?? username ?? ''} appendLog={appendLog} onStateUpdate={applyState} onStateRefresh={refreshState} fallbackFocus={() => sceneHeadRef.current}>
     <PlayShell
       row={row}
       moment={moment}
@@ -1719,7 +1706,7 @@ export default function PlayPage() {
             open={endSessionConfirmOpen}
             tone="danger"
             title="End this session?"
-            body="This ends the table for everyone at it. Players won't be able to act until a new session starts. This can't be undone from here."
+            body={endSessionText}
             // DDX-25: deliberately NOT "End session" — the left-pane trigger
             // already has that accessible name, and both are on screen at once
             // while the dialog is open (mirrors DeleteCampaignButton's trigger
@@ -1733,5 +1720,6 @@ export default function PlayPage() {
         </>
       }
     />
+    </OverrideDialogHost>
   );
 }

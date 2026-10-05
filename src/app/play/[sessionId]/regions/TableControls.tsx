@@ -294,13 +294,6 @@ export function DmCombatControls({
         panelRef={dmPanelAnchorRef}
         localTurnActionRef={localTurnActionRef}
         onMessage={(text) => appendLog({ who: 'Suzu', kind: 'system', text })}
-        onOverrideMessage={(text) =>
-          appendLog({
-            who: `DM (${dmUsername})`,
-            kind: 'dm_override',
-            text: `DM ruled: ${text}`,
-          })
-        }
         onStateUpdate={onCombatStateUpdate}
         onStateRefresh={onCombatStateRefresh}
       />

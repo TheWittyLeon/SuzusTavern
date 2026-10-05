@@ -29,7 +29,7 @@ jest.mock('../../lib/api/dnd', () => ({
 }));
 
 import ChatLog, { type LogRow } from '@/components/ChatLog';
-import DmNarrationPanel from '@/components/DmNarrationPanel';
+import { PanelWithHost } from '@/test-utils/OverrideHostFor';
 import DmOverrideModal from '@/components/DmOverrideModal';
 import type { CombatState, CombatParticipantState } from '@/lib/api/types';
 
@@ -189,7 +189,7 @@ describe('MAJOR-1 — DmNarrationPanel: NPC attack target menu closes on outside
     render(
       <div>
         <div data-testid="outside">outside</div>
-        <DmNarrationPanel {...PANEL_BASE} />
+        <PanelWithHost {...PANEL_BASE} />
       </div>,
     );
 
@@ -210,7 +210,7 @@ describe('MAJOR-1 — DmNarrationPanel: NPC attack target menu closes on outside
   });
 
   it('target menu stays open when mousedown fires inside the attack wrap', async () => {
-    render(<DmNarrationPanel {...PANEL_BASE} />);
+    render(<PanelWithHost {...PANEL_BASE} />);
 
     const attackBtn = screen.getByRole('button', { name: /Attack — pick target/i });
     fireEvent.click(attackBtn);
@@ -236,7 +236,7 @@ describe('MINOR-1 — DmNarrationPanel: toggle ref-latch prevents double-fire', 
   });
 
   it('calling handleToggleVisible twice synchronously fires setSessionPolicy once', async () => {
-    render(<DmNarrationPanel {...PANEL_BASE} overridePlayerVisible={true} />);
+    render(<PanelWithHost {...PANEL_BASE} overridePlayerVisible={true} />);
 
     const checkbox = screen.getByRole('checkbox', { name: /Show my overrides to players/i });
 

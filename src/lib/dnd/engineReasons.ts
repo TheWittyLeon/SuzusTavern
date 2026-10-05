@@ -84,6 +84,17 @@ export const SHARED_REASON_COPY: Record<string, string> = {
 };
 
 /**
+ * Refusals of a SCENE move (`/sessions/{id}/advance`, a check's auto-advance). Its own map, not SHARED: the combat and cast maps spread SHARED and are held to the engine's
+ * combat and spell vocabularies by dnd-engineReasons.test.ts, and `combat_live` is neither.
+ *
+ * `combat_live` (ENGINE E0, ruling 48 B), 409: a scene move while a fight is not ended, a held one included. The Tavern hides those affordances while a fight is live, so this is
+ * reachable only from a stale tab (the fight began after this tab last read it). The engine's own sentence.
+ */
+export const SCENE_MOVE_REASON_COPY: Record<string, string> = {
+  combat_live: 'A fight is still live. End it before moving the scene.',
+};
+
+/**
  * 5e action-economy refusals. The engine mirrors these three codes across
  * `COMBAT_REASON_STATUS` and `SPELL_REASON_STATUS` deliberately (see the DDX-12
  * comment in engine/spells.py), so both maps below spread them.

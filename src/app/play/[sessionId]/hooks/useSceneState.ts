@@ -15,7 +15,7 @@
  * narration beat, which is `useNarration`'s (row 7, composed BELOW this
  * hook and ABOVE `useSceneActions`) concern, not this hook's.
  *
- * Signature is `useSceneState(sessionId, combatEngaged, appendLog)`, not the
+ * Signature is `useSceneState(sessionId, fightLive, appendLog)`, not the
  * plan's abridged `useScene(sessionId)` — narrower than A1's original
  * `useScene`, which also took `session`/`talking`/`advantage`/
  * `confirmBeatRef`/`renderedSeqsRef`: every one of those five was needed
@@ -25,12 +25,13 @@
  * closure, so dropping the unused parameter rather than threading a dead
  * value through is the correct read of "no unrequested parameter", the
  * same rule that keeps `density` off a region that doesn't vary by it):
- *   - `combatEngaged` (Amendment A §A.1) — the ONE derived boolean this hook
- *     reads off combat's state (`isCombatEngaged(combatState)`, see
+ *   - `fightLive` (Amendment A §A.1) — the ONE derived boolean this hook
+ *     reads off combat's state (`isFightLive(combatState)`, see
  *     `../format.ts`), not `CombatState` itself. Gates
- *     `availableTransitions`/`availableChecks` during active combat — a
- *     DATA gate, not a presentation one (see A.1's own reasoning, unchanged
- *     from A1).
+ *     `availableTransitions`/`availableChecks` while a fight is live: before
+ *     initiative, running, between turns and held (TPK-HOLD W2; it was "turns
+ *     running" until then, which offered Move on to a fight the engine will
+ *     refuse to leave, ruling 48 B). A DATA gate, not a presentation one.
  *   - `appendLog` — every authored-line player writes to the transcript;
  *     that's useTranscript's concern (row 4, composed ABOVE this hook).
  *
@@ -139,7 +140,7 @@ export interface UseSceneStateResult {
 
 export function useSceneState(
   sessionId: string,
-  combatEngaged: boolean,
+  fightLive: boolean,
   appendLog: (row: Omit<LogRow, 'id' | 'ts'>) => void,
 ): UseSceneStateResult {
   const { toast } = useToast();
@@ -563,14 +564,14 @@ export function useSceneState(
   // P1-PLAYFIX-2 §A.3: memoized (not a plain const) — the composer's
   // keyword-fast-path (page.tsx onSend) depends on this array, and a fresh
   // array literal every render would recreate that callback every render
-  // too. `combatEngaged` is a parameter (Amendment A §A.1:
-  // `isCombatEngaged(combatState)`, owned by useCombatState) — transitions/
-  // checks are an exploration-beat affordance, hidden during active combat.
+  // too. `fightLive` is a parameter (Amendment A §A.1:
+  // `isFightLive(combatState)`, owned by useCombatState) — transitions/
+  // checks are an exploration-beat affordance, hidden while a fight is live.
   // This is a DATA gate, not a presentation one — see this hook's own
   // header comment for why.
   const availableTransitions = useMemo<SceneTransition[]>(
     () =>
-      combatEngaged === false && grounding?.transitions
+      fightLive === false && grounding?.transitions
         ? grounding.transitions.filter((t) => {
             // NOTE (TAV-SCENE-TRANSITION-LEAKS-FLAG-SLUG, 2026-08-06): flag
             // gating is deliberately NOT done here. The engine owns it —
@@ -585,7 +586,7 @@ export function useSceneState(
             return st.startsWith('resolved_');
           })
         : [],
-    [combatEngaged, grounding],
+    [fightLive, grounding],
   );
 
   // P1-PLAYFIX §3.3.3 (S2.4) — authored skill checks for the current scene.
@@ -596,7 +597,7 @@ export function useSceneState(
   // longer gated behind a narrator invite. Deduped by skill+dc, left in the
   // scene's own authored order.
   const availableChecks = useMemo<SceneCheck[]>(() => {
-    if (combatEngaged) return [];
+    if (fightLive) return [];
     const raw = grounding?.checks ?? [];
     const seen = new Set<string>();
     const deduped: SceneCheck[] = [];
@@ -610,7 +611,7 @@ export function useSceneState(
       deduped.push(c);
     }
     return deduped;
-  }, [combatEngaged, grounding]);
+  }, [fightLive, grounding]);
 
   return {
     grounding,

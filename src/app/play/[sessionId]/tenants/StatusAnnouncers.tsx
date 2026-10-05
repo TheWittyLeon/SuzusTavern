@@ -4,6 +4,7 @@ import type { RefObject } from 'react';
 import type { Session } from '@/lib/api/types';
 import SessionRecap from '@/components/SessionRecap';
 import { DURABLE_GENERATION_ENABLED } from '@/lib/config';
+import { HELD_FROZEN_NOTE } from '@/lib/dnd/heldFight';
 import styles from '../Play.module.css';
 
 /**
@@ -86,13 +87,15 @@ export interface TurnStatusTenantProps {
   combatIsActive: boolean;
   activeIsMine: boolean;
   turnStatusText: string | null;
+  /** The fight is held: nobody holds a turn, so there is no turn text. The line says why the verbs are locked instead (Tora MINOR-7) and is not announced: the stage strip says the hold once. */
+  held?: boolean;
 }
 
 /** Iro MEDIUM-2: ONE persistent live region for turn status. Stays mounted
  *  throughout combat; only the text and className change in place. This
  *  prevents the 4s poll from re-triggering AT announcements on every
  *  combatState object replacement when the text hasn't actually changed. */
-export function TurnStatusTenant({ combatIsActive, activeIsMine, turnStatusText }: TurnStatusTenantProps) {
+export function TurnStatusTenant({ combatIsActive, activeIsMine, turnStatusText, held = false }: TurnStatusTenantProps) {
   if (!combatIsActive) return null;
   return (
     <div
@@ -106,7 +109,8 @@ export function TurnStatusTenant({ combatIsActive, activeIsMine, turnStatusText 
       className={activeIsMine ? styles.myTurnStatus : styles.offTurnStatus}
       data-tenant="turnStatus"
     >
-      {turnStatusText}
+      {/* Held: an aria-hidden element INSIDE the stable live node (its role and attributes never change, so nothing is re-announced), and being an element child it keeps the line painted and its height. */}
+      {held ? <span aria-hidden="true">{HELD_FROZEN_NOTE}</span> : turnStatusText}
     </div>
   );
 }

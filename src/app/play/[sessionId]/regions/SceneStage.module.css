@@ -89,6 +89,24 @@
   white-space: nowrap;
 }
 
+/* TPK-HOLD W4: the DM's held strip. Revive… and End combat keep to the scene name's row and the status line takes the WHOLE width under them: a 390px phone beside two buttons
+   left the line 170px, wrapped it to two lines under a name that wraps to two (77px against the strip's 75px cap), and "Every character has fallen." is the one line the table must
+   read. One row of buttons and one line of text is 61px. The grid's own areas change, never the buttons' (44x44, 8px apart); `.hero` below names its own columns, so it has its own rule. */
+.strip.heldDm {
+  grid-template-areas:
+    'head end wrap'
+    'note note note';
+}
+
+/* The held strip on a phone: the scene NAME is one line with an ellipsis. A 59-character name wrapped to two lines and took the strip to 77-78px against its 75px cap at the DM's seat and the
+   watcher's (the cap held by 0.4px on a tightened leading, and not at all for the DM), and the name is a label while the note beside it is the reason (Aoi addendum 3, 5: clamp the name).
+   Only while held (`clampName`); the full text is still in the DOM, in the group's accessible name and in `title`. A running fight's name still wraps. */
+.strip.heldClamp .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .strip .begin {
   padding: var(--space-2) var(--space-5);
   font-size: var(--text-sm);
@@ -135,6 +153,15 @@
     '. . . . .'
     '. head end wrap .'
     '. note end wrap .'
+    '. . . . .'
+    'body body body body body';
+}
+
+.hero.heldDm {
+  grid-template-areas:
+    '. . . . .'
+    '. head end wrap .'
+    '. note note note .'
     '. . . . .'
     'body body body body body';
 }

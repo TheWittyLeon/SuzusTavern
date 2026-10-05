@@ -1207,6 +1207,7 @@
 
 /* The Session popover (AnchoredPopover owns its surface, position and scroll cue). A bounded width: the card's buttons are full width, and
    the popover would otherwise grow to its widest panel. The card sheds its own box in here (the popover has one). */
+/* One class is enough: `.popover` (AnchoredPopover.module.css) is `:where(.popover)`, zero specificity, so this wins whatever the order the two sheets load in. */
 .sessionPopover {
   width: 320px;
   min-width: 0;
@@ -1524,3 +1525,28 @@
    the PHONE row (`--play-areas`/`--play-columns`/`--play-rows` drive `.grid`
    directly, presets.ts owns the shape) and the Journal opens from the header's
    "Open journal" toggle like it does everywhere else. */
+
+/* TPK-HOLD W4: the held strip's "Revive…", the recovery. The accent tint beside End combat's danger outline; the same 44x44 border-box as `.endCombatBtn`.
+   Its place in the strip is the region's own (SceneStage.module.css), not this file's. */
+.reviveBtn {
+  margin-left: auto;
+  padding: 4px 10px;
+  border-radius: var(--radius-xs);
+  border: 1px solid color-mix(in oklab, var(--accent) 45%, transparent);
+  background: color-mix(in oklab, var(--accent) 18%, transparent);
+  color: var(--ink);
+  font-size: 11px;
+  cursor: pointer;
+  box-sizing: border-box;
+  min-height: 44px;
+  min-inline-size: 44px;
+}
+
+.reviveBtn:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--accent) 28%, transparent);
+}
+
+.reviveBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

@@ -26,9 +26,11 @@ interface Props {
   /** ...or under a `hidden` attribute */
   hiddenAttr?: boolean;
   showControl?: boolean;
+  /** ...or natively `disabled` (a browser drops focus from it, and nothing can be done on it) */
+  disabledBtn?: boolean;
 }
 
-function Harness({ layoutId = 'table', isDying = false, sceneHasEncounter = false, combatIsActive = false, inert = false, hiddenAttr = false, showControl = true }: Props) {
+function Harness({ layoutId = 'table', isDying = false, sceneHasEncounter = false, combatIsActive = false, inert = false, hiddenAttr = false, showControl = true, disabledBtn = false }: Props) {
   const headRef = useRef<HTMLDivElement>(null);
   const { composerRailAnchorRef } = useFocusAnchors(isDying, sceneHasEncounter, null, headRef, combatIsActive, layoutId);
   return (
@@ -37,7 +39,7 @@ function Harness({ layoutId = 'table', isDying = false, sceneHasEncounter = fals
       <div ref={composerRailAnchorRef} tabIndex={-1} data-testid="rail">rail</div>
       <div data-testid="empty-space" />
       <button type="button">Elsewhere</button>
-      <div {...(inert ? { inert: true } : {})} {...(hiddenAttr ? { hidden: true } : {})}>{showControl && <button type="button">Docked sheet</button>}</div>
+      <div {...(inert ? { inert: true } : {})} {...(hiddenAttr ? { hidden: true } : {})}>{showControl && <button type="button" disabled={disabledBtn}>Docked sheet</button>}</div>
     </div>
   );
 }
@@ -72,6 +74,13 @@ describe('layout-change rescue: only when the focused control was removed', () =
     const { rerender } = render(<Harness layoutId="table" />);
     act(() => sheet().focus());
     rerender(<Harness layoutId="phone" hiddenAttr />);
+    expect(head()).toHaveFocus();
+  });
+
+  it('the control focus was on goes natively `disabled` (a verb locked under focus): counted as taken away, the scene head takes focus (Kage T-1: without this the held-arrives-player leg reds)', () => {
+    const { rerender } = render(<Harness layoutId="table" />);
+    act(() => sheet().focus());
+    rerender(<Harness layoutId="phone" disabledBtn />);
     expect(head()).toHaveFocus();
   });
 

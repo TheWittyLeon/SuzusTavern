@@ -1276,13 +1276,31 @@ export type TerrainNotes =
   | string
   | { lighting?: string; cover?: string; hazards?: string[] };
 
+/**
+ * The engine's `CombatState` enum as it reaches the wire (`state`). Closed on
+ * purpose: a tenth state is a compile error at every reader that switches on
+ * it, not a silent "not 'active'". Readers never compare these strings; they
+ * go through the predicates in `lib/dnd/combatState.ts`
+ * (`isFightLive`, `areTurnsRunning`, `isFightHeld`, `isFightEnded`), which
+ * treat a value outside this list as live and frozen (fail closed).
+ * `held`: a DM override left no character alive; nothing moves until the DM
+ * revives one or ends the fight (ENGINE TPK-HOLD).
+ */
+// debt: CombatStateValue is a hand-maintained client mirror of the engine's CombatState enum (engine/combat.py). ceiling: a seventh engine state is unknown to this closed type; the predicates in format.ts treat it as live and frozen (fails closed) but the compiler cannot see it. until: the engine publishes CombatState's values as a digest-pinned fixture and a drift test reads it (Backlog TAV-COMBAT-STATE-ENUM-MIRROR, same shape as TAV-SPACE-KINDS-HAND-MIRROR).
+export type CombatStateValue =
+  | 'idle'
+  | 'rolling_initiative'
+  | 'active'
+  | 'between_turns'
+  | 'held'
+  | 'ended';
+
 /** Full combat state snapshot — source of truth for all UI state during combat. */
 export interface CombatState {
   combat_id: string;
   session_id: string;
   round: number;
-  /** 'idle' | 'rolling_initiative' | 'active' | 'between_turns' | 'ended' */
-  state: string;
+  state: CombatStateValue;
   turn_index: number;
   /** participant_id of the current combatant; null when ended. */
   active_participant_id: string | null;
@@ -2314,16 +2332,19 @@ export interface RollResult {
 }
 
 /**
- * B3: DM-chooser outcome values. 'tpk' and 'alert' exist on the engine but are
+ * B3: DM-chooser outcome values, plus 'tpk'. 'alert' exists on the engine but is
  * reserved for system-driven resolution paths — intentionally excluded from the
- * UI chooser.
+ * UI chooser. 'tpk' is NOT a chooser entry either: it is what the held strip's
+ * single End combat sends (TPK-HOLD W4), because the engine ends a held fight as
+ * a TPK whatever outcome is sent. The chooser's list stays as it is.
  */
 export type EndCombatOutcome =
   | 'victory'
   | 'retreat'
   | 'parley'
   | 'flee'
-  | 'unresolved';
+  | 'unresolved'
+  | 'tpk';
 
 /** Request body for POST /api/dnd/combat/{id}/end. */
 export interface EndCombatRequest {
@@ -2337,6 +2358,8 @@ export interface EndCombatRequest {
 export interface EndCombatResult {
   state: CombatState;
   outcome: string;
+  /** The engine's own sentence for the end ("Combat ended. The party has fallen."); the log prefers it to the Tavern's outcome map. */
+  message?: string;
   xp_earned?: number;
   defeated?: string[];
   scene_advance?: CombatSceneAdvance | null;

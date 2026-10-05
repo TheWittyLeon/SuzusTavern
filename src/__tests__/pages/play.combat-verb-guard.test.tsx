@@ -341,15 +341,16 @@ describe('TAV-COMBAT-VERB-NO-MECHANICS — ordering vs the movement fast-path', 
     expect(mStream.mock.calls[0][0].message).toBe('I press forward');
   });
 
-  it('positive control: the same movement phrase still fast-paths between turns (combat present, not active)', async () => {
-    // Kage-CR A2 IMPORTANT-1 (verbatim ask): "one `between_turns` + `combatId`
-    // fixture ... asserting the keyword fast-path still advances (transitions
-    // NOT filtered)." `combatEngaged` (useCombatState.ts) must be the exact
-    // `isCombatEngaged` predicate (`state === 'active'`), NOT `combatIsActive`
-    // (`!!combatId && state !== 'ended'`) -- the two disagree on
-    // `between_turns`/`rolling_initiative`/`idle`. Same scene and same
-    // movement phrase as the negative control just above, but with combat
-    // PRESENT and NOT `'active'` -- the fast-path must still fire.
+  // TPK-HOLD W2 flips Kage-CR A2 IMPORTANT-1's positive control. `combatEngaged` used to be the
+  // `areTurnsRunning` predicate here, so a fight between turns still offered "Move on" and the
+  // keyword fast-path advanced the scene. The scene's gate is now `isFightLive` (a fight that has
+  // not ended): the engine refuses a scene move while a fight is not ended (ruling 48 B), and a
+  // HELD fight must not be walked away from. Every live state now behaves like 'active' above:
+  // the movement phrase is a plain message to the narrator. The positive control (nothing live)
+  // is the first case of this describe.
+  it.each(['between_turns', 'rolling_initiative', 'idle', 'held'] as const)(
+    "a live fight in state '%s' does not fast-path a movement phrase either",
+    async (liveState) => {
     mGetSession.mockResolvedValue({ ...SESSION, active_combat_id: 'combat-1' });
     mGetGrounding.mockResolvedValue(GROUNDING_UNSTARTED_ENCOUNTER);
     mAdvanceScene.mockResolvedValue({
@@ -360,7 +361,7 @@ describe('TAV-COMBAT-VERB-NO-MECHANICS — ordering vs the movement fast-path', 
       combat_id: 'combat-1',
       session_id: 's1',
       round: 1,
-      state: 'between_turns',
+      state: liveState,
       turn_index: 0,
       active_participant_id: 'p1',
       initiative: ['p1'],
@@ -390,7 +391,9 @@ describe('TAV-COMBAT-VERB-NO-MECHANICS — ordering vs the movement fast-path', 
 
     await sendMessage('I press forward');
 
-    await waitFor(() => expect(mAdvanceScene).toHaveBeenCalledTimes(1));
-    expect(mAdvanceScene.mock.calls[0][1]).toMatchObject({ to_scene: 'everfree_zecoras_hut' });
-  });
+    expect(mAdvanceScene).not.toHaveBeenCalled();
+    await waitFor(() => expect(mStream).toHaveBeenCalledTimes(1));
+    expect(mStream.mock.calls[0][0].message).toBe('I press forward');
+    },
+  );
 });

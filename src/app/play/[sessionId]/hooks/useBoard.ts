@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import type { SpaceCoordinate } from '@/lib/api/types';
+import { areTurnsRunning, isFightHeld } from '../format';
 import { moveToken } from '@/lib/api/dnd';
 import { COMBAT_REFUSAL_REASON_MAP } from '@/lib/dnd/engineReasons';
 import { engineErrorMessage, extractReason, isApiError } from '@/lib/dnd/engineError';
@@ -90,7 +91,7 @@ export function useBoard({ cs, room, stageHasBody, moveAllowed, sessionLocked, a
 
   const activeParticipant = state?.participants.find((p) => p.is_active_turn) ?? null;
   // T1: every seat sees the reach of the creature whose turn it is, all turn: the board room, an active state, and a creature that has a square and a budget.
-  const showReach = room === 'board' && state?.state === 'active' && activeParticipant?.at != null && (activeParticipant.movement_remaining ?? 0) > 0;
+  const showReach = room === 'board' && areTurnsRunning(state) && activeParticipant?.at != null && (activeParticipant.movement_remaining ?? 0) > 0;
 
   const hasStage = served && stageHasBody && state != null;
   const mine = hasStage ? state.participants.find((p) => p.participant_id === selfPcId) ?? null : null;
@@ -103,7 +104,7 @@ export function useBoard({ cs, room, stageHasBody, moveAllowed, sessionLocked, a
   const [movedSeq, setMovedSeq] = useState(0);
   const [focusMoveTick, setFocusMoveTick] = useState(0);
   // canMove: offered, my turn, an active fight, feet left, the session not locked, and nothing ELSE in flight (a verb in flight disarms; my own move in flight does not).
-  const canMove = offered && activeIsMine && state?.state === 'active' && myBudget > 0 && !sessionLocked && (!combatBusy || moveSubmitting);
+  const canMove = offered && activeIsMine && areTurnsRunning(state) && myBudget > 0 && !sessionLocked && (!combatBusy || moveSubmitting);
   // `armed` is the player's intent; it resets in render (the adjust-state-during-render pattern) when `canMove` goes false, so a turn that passes or a verb that starts disarms Move with no effect.
   if (armed && !canMove) setArmed(false);
   const moveMode = armed && canMove;
@@ -196,6 +197,7 @@ export function useBoard({ cs, room, stageHasBody, moveAllowed, sessionLocked, a
         viewerParticipantId: selfPcId,
         activeParticipantId: state.active_participant_id,
         round,
+        held: isFightHeld(state),
         showReach,
         rescueStrandedFocus,
         moveMode,
@@ -205,7 +207,7 @@ export function useBoard({ cs, room, stageHasBody, moveAllowed, sessionLocked, a
         movedSeq,
       },
       label: isSpaceUsable(state.space) ? 'Tactical map' : undefined,
-      bar: offered ? { pressed: moveMode, disabled: !canMove || moveSubmitting, reason: moveSubmitting ? 'Moving…' : activeIsMine && state?.state === 'active' && myBudget <= 0 ? 'No movement left' : undefined, onToggle } : undefined,
+      bar: offered ? { pressed: moveMode, disabled: !canMove || moveSubmitting, reason: moveSubmitting ? 'Moving…' : activeIsMine && areTurnsRunning(state) && myBudget <= 0 ? 'No movement left' : undefined, onToggle } : undefined,
       moveButtonRef: bindMoveButton,
     };
   }, [hasStage, state, selfPcId, round, showReach, rescueStrandedFocus, moveMode, moveSubmitting, onMove, onExitMove, movedSeq, offered, canMove, activeIsMine, myBudget, onToggle, bindMoveButton]);

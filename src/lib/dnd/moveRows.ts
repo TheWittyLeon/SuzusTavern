@@ -8,6 +8,7 @@
 //
 // Pure: `moveRows(seen, state)` returns the rows to append and the `seen` to keep. The thin effect that appends them is in hooks/useBoard.ts.
 import type { CombatState, SpaceCoordinate } from '@/lib/api/types';
+import { isFightEnded } from '@/lib/dnd/combatState';
 import { coordsEqual, isSpaceUsable } from '@/components/tactical-map/reach';
 
 /** More rows than this in ONE flush (a tab that was hidden across several turns) is a single row instead of a flood. */
@@ -34,7 +35,7 @@ export interface MoveSeen {
 }
 
 function turnKey(state: CombatState): string {
-  return state.state === 'ended' ? 'ended' : `${state.round}|${state.active_participant_id ?? ''}`;
+  return isFightEnded(state) ? 'ended' : `${state.round}|${state.active_participant_id ?? ''}`;
 }
 
 function squares(state: CombatState): Record<string, SpaceCoordinate | null> {

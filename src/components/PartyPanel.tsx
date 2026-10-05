@@ -39,6 +39,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { RegionVariant } from '@/app/play/[sessionId]/variants';
 import type { CombatState, Participant } from '@/lib/api/types';
+import { isFightEnded } from '@/lib/dnd/combatState';
 import styles from './PartyPanel.module.css';
 
 export interface PartyPanelProps {
@@ -123,7 +124,7 @@ export default function PartyPanel({
   // Matches by character name since participants don't carry participant_id.
   const combatHpByName: Map<string, { hp: number; max: number; isDowned: boolean }> =
     new Map();
-  if (combatState && combatState.state !== 'ended') {
+  if (combatState && !isFightEnded(combatState)) {
     for (const p of combatState.participants) {
       if (p.is_pc) {
         combatHpByName.set(p.name.toLowerCase(), {

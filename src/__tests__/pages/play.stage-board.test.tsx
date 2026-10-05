@@ -28,7 +28,7 @@ function Writer({ text }: { text: string | null }) {
   return <button type="button" onClick={() => set(text)}>write</button>;
 }
 
-function Stage({ combat = true, allDown = false, text = null, board = false, rescue = jest.fn(), round = 2, space = SPACE, showBoard }: { combat?: boolean; allDown?: boolean; text?: string | null; board?: boolean; rescue?: (had: boolean) => void; round?: number; space?: CombatSpace | null; showBoard?: boolean }) {
+function Stage({ combat = true, allDown = false, text = null, board = false, rescue = jest.fn(), round = 2, space = SPACE, showBoard, held = false }: { combat?: boolean; allDown?: boolean; text?: string | null; board?: boolean; rescue?: (had: boolean) => void; round?: number; space?: CombatSpace | null; showBoard?: boolean; held?: boolean }) {
   const head = useRef<HTMLDivElement>(null);
   const end = useRef<HTMLButtonElement>(null);
   const opener = useRef<HTMLButtonElement>(null);
@@ -39,9 +39,9 @@ function Stage({ combat = true, allDown = false, text = null, board = false, res
       <SceneStage
         sceneName="Hollow" objective={null} sceneHeadRef={head} combatIsActive={combat} activeEncounterId={null} sceneHasEncounter={false} combatBusy={false} endCombatBtnRef={end}
         outcomeChooserOpen={open} setOutcomeChooserOpen={setOpen} lastOpenerRef={opener} allHostilesDown={allDown} anyMonsterDown={false} onEndCombat={() => {}} beginCombatRef={begin}
-        onBeginEncounter={() => {}} talking={false} sessionLocked={false} rollBusy={false} round={round} variant="hero" bodyLabel={board ? 'Tactical map' : undefined}
+        onBeginEncounter={() => {}} talking={false} sessionLocked={false} rollBusy={false} round={round} held={held} variant="hero" bodyLabel={board ? 'Tactical map' : undefined}
       >
-        {board && (showBoard ?? combat) ? <StageBoard space={space} participants={PARTICIPANTS} viewerParticipantId="p1" activeParticipantId="p1" round={round} showReach rescueStrandedFocus={rescue} moveMode={false} moveSubmitting={false} onMove={() => {}} onExitMove={() => {}} movedSeq={0} /> : board ? null : <Writer text={text} />}
+        {board && (showBoard ?? combat) ? <StageBoard space={space} participants={PARTICIPANTS} viewerParticipantId="p1" activeParticipantId={held ? null : 'p1'} round={round} held={held} showReach={!held} rescueStrandedFocus={rescue} moveMode={false} moveSubmitting={false} onMove={() => {}} onExitMove={() => {}} movedSeq={0} /> : board ? null : <Writer text={text} />}
       </SceneStage>
     </aside>
   );
@@ -128,6 +128,31 @@ describe('the adapter', () => {
     act(() => { cells[3].click(); });
     expect(screen.queryByRole('button', { name: /^Move\b/ })).toBeNull();
     expect(screen.getByRole('grid')).not.toHaveAttribute('aria-busy', 'true');
+  });
+});
+
+describe('a HELD fight (TPK-HOLD W4): the map writes no rest line, so the stage paints the held line', () => {
+  it('not held: the rest line is written and the status is clipped under it (the control)', async () => {
+    render(<Stage board />);
+    await waitFor(() => expect(line()).toHaveTextContent('In combat · round 2'));
+  });
+
+  it('held: no rest line is written, the status is not clipped, and it says the fight is held', async () => {
+    render(<Stage board held />);
+    // let the adapter's effects run
+    await act(async () => { await Promise.resolve(); });
+    expect(line()).toBeNull();
+    const st = screen.getByText(/^Every character has fallen\./).closest('[role="status"]') as HTMLElement;
+    expect(st.className).not.toMatch(/noteClipped/);
+  });
+
+  it('the fight turning held takes the rest line away, and resuming brings it back', async () => {
+    const { rerender } = render(<Stage board />);
+    await waitFor(() => expect(line()).toHaveTextContent('In combat · round 2'));
+    rerender(<Stage board held />);
+    await waitFor(() => expect(line()).toBeNull());
+    rerender(<Stage board />);
+    await waitFor(() => expect(line()).toHaveTextContent('In combat · round 2'));
   });
 });
 

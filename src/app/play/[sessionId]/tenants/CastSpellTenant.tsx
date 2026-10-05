@@ -38,6 +38,8 @@ export interface CastSpellTenantProps {
   mySheet: CharacterSheet | null;
   username: string | null;
   isPlayerTurn: boolean;
+  /** The fight is held: the panel's lock notice says so. */
+  held?: boolean;
   combatBusy: boolean;
   sessionLocked: boolean;
   onCast: (text: string) => void;
@@ -63,6 +65,7 @@ export default function CastSpellTenant({
   mySheet,
   username,
   isPlayerTurn,
+  held,
   combatBusy,
   sessionLocked,
   onCast,
@@ -119,6 +122,7 @@ export default function CastSpellTenant({
           participants={combatState.participants}
           spellSlots={mySheet.spell_slots}
           isPlayerTurn={isPlayerTurn}
+          held={held}
           disabled={combatBusy || sessionLocked}
           onCast={(message) => {
             onCast(message);

@@ -24,9 +24,10 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { npcAction, postSessionEvent, setSessionPolicy } from '@/lib/api/dnd';
 import type { CombatParticipantState, CombatState } from '@/lib/api/types';
-import DmOverrideModal from '@/components/DmOverrideModal';
-import { useLastAliveHp } from '@/lib/useLastAliveHp';
-import { isCombatEngaged } from '@/app/play/[sessionId]/format';
+import { areTurnsRunning, isFightHeld } from '@/lib/dnd/combatState';
+import { anyPcStanding } from '@/lib/dnd/heldFight';
+// debt: a component importing the play route's override-dialog context (the one value import from app/ left in components/ and lib/). ceiling: components/ depends on a route module until the host moves. until: the override dialog's context object and hook move into components/ (Backlog TAV-OVERRIDE-HOST-TO-COMPONENTS).
+import { useOverrideDialog } from '@/app/play/[sessionId]/overrideDialog';
 import Icon from '@/components/Icon';
 import { consumeEscape } from '@/lib/a11y/escapeConsume';
 import styles from './DmNarrationPanel.module.css';
@@ -39,9 +40,6 @@ export interface DmNarrationPanelProps {
   /** S5.4 — initial value from session.dm_override_player_visible (default true). */
   overridePlayerVisible?: boolean;
   onMessage: (text: string) => void;
-  /** S5.4 — called with the resolved message after a successful override; caller
-   *  should append this with kind='dm_override' so ChatLog renders it distinctly. */
-  onOverrideMessage?: (text: string) => void;
   onStateUpdate: (state: CombatState) => void;
   onStateRefresh: () => void;
   /** Tora MAJOR-2: exposes this panel's own section so the play page can
@@ -437,7 +435,6 @@ export default function DmNarrationPanel({
   dmUsername,
   overridePlayerVisible = true,
   onMessage,
-  onOverrideMessage,
   onStateUpdate,
   onStateRefresh,
   panelRef,
@@ -448,18 +445,17 @@ export default function DmNarrationPanel({
   );
   const pcTargets = livingPcTargets(combatState.participants);
 
-  // S5.4: override modal state
-  const [overrideOpen, setOverrideOpen] = useState(false);
-  // Which kind the dialog opens on ('revive' from the Revive… opener).
-  const [overrideKind, setOverrideKind] = useState<'revive' | undefined>(undefined);
-  const lastAliveHp = useLastAliveHp(combatState.participants);
+  // S5.4: the override dialog is the page's ONE mount (overrideDialog.tsx); this panel only opens it. Null when this seat cannot override.
+  const overrideDialog = useOverrideDialog();
   // Focus lands here after a revive if the Revive… opener has unmounted.
   const overrideBtnRef = useRef<HTMLButtonElement>(null);
-  // Revive… is offered only while a player character has fallen in a live fight.
-  // debt: a held fight (everyone down, waiting on the DM) is not covered; the engine accepts a revive there too, so the opener should show. ceiling: Revive… is hidden in a held fight. until: ENGINE-TPK-UNDO (the HOLD build widens isCombatEngaged / this check).
+  const focusOverrideBtn = () => overrideBtnRef.current;
+  // Revive… is offered while a player character has fallen and the engine would take a revive: a running fight, or a held one.
+  // A held fight with a character still standing offers it too, as Resume… (the same dialog: its title and list follow the polled state), even when nobody has fallen.
+  const heldStanding = isFightHeld(combatState) && anyPcStanding(combatState.participants);
   const canRevive =
-    isCombatEngaged(combatState) &&
-    combatState.participants.some((p) => p.is_pc && !p.is_alive);
+    (areTurnsRunning(combatState) && combatState.participants.some((p) => p.is_pc && !p.is_alive)) ||
+    (isFightHeld(combatState) && combatState.participants.some((p) => p.is_pc));
 
   // S5.4: visibility toggle (optimistic local state, persisted via setSessionPolicy)
   const [overrideVisible, setOverrideVisible] = useState(overridePlayerVisible);
@@ -468,24 +464,6 @@ export default function DmNarrationPanel({
   // MINOR-1: ref-latch guards against double-tap race on the async toggle.
   // setToggleBusy drives the disabled UI; toggleBusyRef is the synchronous gate.
   const toggleBusyRef = useRef(false);
-
-  const handleOverrideSuccess = (
-    message: string,
-    newState: CombatState | undefined,
-  ) => {
-    setOverrideOpen(false);
-    // Route override messages through the dedicated callback (dm_override kind)
-    // so ChatLog renders them with the amber ruling treatment. Fall back to the
-    // generic onMessage with a "DM ruled:" prefix if no dedicated callback is set.
-    if (onOverrideMessage) {
-      onOverrideMessage(message);
-    } else {
-      onMessage(`DM ruled: ${message}`);
-    }
-    if (newState) {
-      onStateUpdate(newState);
-    }
-  };
 
   const handleToggleVisible = async () => {
     if (toggleBusyRef.current) return;
@@ -528,10 +506,7 @@ export default function DmNarrationPanel({
           className={styles.overrideBtn}
           aria-label="Open DM override modal"
           aria-haspopup="dialog"
-          onClick={() => {
-            setOverrideKind(undefined);
-            setOverrideOpen(true);
-          }}
+          onClick={() => overrideDialog?.open({ fallback: focusOverrideBtn })}
         >
           <Icon name="Sword" size={11} aria-hidden /> DM Override
         </button>
@@ -555,12 +530,9 @@ export default function DmNarrationPanel({
             type="button"
             className={styles.overrideBtn}
             aria-haspopup="dialog"
-            onClick={() => {
-              setOverrideKind('revive');
-              setOverrideOpen(true);
-            }}
+            onClick={() => overrideDialog?.open({ kind: 'revive', fallback: focusOverrideBtn })}
           >
-            Revive…
+            {heldStanding ? 'Resume…' : 'Revive…'}
           </button>
         )}
 
@@ -587,19 +559,6 @@ export default function DmNarrationPanel({
         />
       ))}
 
-      {/* S5.4: Override modal — rendered at this level so it can see all participants */}
-      <DmOverrideModal
-        open={overrideOpen}
-        combatId={combatId}
-        participants={combatState.participants}
-        defaultActorId={combatState.active_participant_id}
-        onSuccess={handleOverrideSuccess}
-        onClose={() => setOverrideOpen(false)}
-        initialKind={overrideKind}
-        lastAliveHp={lastAliveHp}
-        onRefresh={onStateRefresh}
-        fallbackFocusRef={overrideBtnRef}
-      />
     </section>
   );
 }
