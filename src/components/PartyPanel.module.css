@@ -439,11 +439,13 @@
 }
 
 /* B8c-4 P1 fix round (Aoi-UI, "Downed Tile"): the badges are CHIPS on the avatar's corners, out of flow. The row was a line under the avatar (17px: margin + an 11px glyph), which made a downed or level-up tile 74px
-   against 57 and overflowed the band's 91px cap. Now no badge has a line box: a tile's height is the no-badge height in every state, and a ninth badge cannot change it. The tile is 44px wide: the avatar is 36px at
+   against 57 and overflowed the band's 91px cap. Now no badge has a line box: the row keeps its base rule (2px margin, no height of its own: a tile with no badge is 57px, as it was) and a tile's height is the same in every state. The tile is 44px wide: the avatar is 36px at
    4px in, so a chip 16px wide anchored 3px past the avatar's corner stays inside the tile (the sideways scroller cannot clip it) and the bottom chip is 1px above the HP bar. The chips are placed against the LINK (the
    positioned ancestor the focus caption is also placed against: a positioned `.member` moved the caption's anchor 1px, its border, and it stood 3px from the focus ring instead of 4), so their offsets count the member's 1px border. */
 .strip .badgeRow {
-  display: contents;
+  margin-top: 2px;
+  justify-content: center;
+  gap: 2px;
 }
 
 .strip .downedBadge,

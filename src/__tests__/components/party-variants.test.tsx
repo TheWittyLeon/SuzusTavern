@@ -242,10 +242,11 @@ describe('PartyPanel strip: downed and level-up chips', () => {
     expect(tile.querySelector('[class*="levelUpBadge"] [aria-hidden="true"]')?.textContent).toBe('↑');
     expect(tile).toHaveAccessibleName(/choose new features/);
   });
-  it('the stylesheet: the strip\'s badge row is out of flow (no line box, no margin) and the chips are 16px discs on the avatar\'s corners', () => {
+  it('the stylesheet: the strip\'s badge row has no height of its own (the chips are out of flow; its 2px margin stays, so a tile with no badge is 57px) and the chips are 16px discs on the avatar\'s corners', () => {
     const css = readFileSync(join(__dirname, '../../components/PartyPanel.module.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
-    expect(/\.strip \.badgeRow\s*\{[^}]*\}/.exec(css)?.[0]).toMatch(/display:\s*contents/);
-    expect(/\.strip \.badgeRow\s*\{[^}]*\}/.exec(css)?.[0]).not.toMatch(/margin/);
+    // the row keeps the base rule (2px margin, a row with no height of its own: every tile with no badge is the 57px it always was, on the desktop strip too) and the chips are absolute inside it
+    expect(/\.strip \.badgeRow\s*\{[^}]*\}/.exec(css)?.[0]).toMatch(/margin-top:\s*2px/);
+    expect(/\.strip \.badgeRow\s*\{[^}]*\}/.exec(css)?.[0]).not.toMatch(/display:\s*contents/);
     // the focus caption is placed against the LINK; a positioned `.member` (inside it, behind a 1px border) moved its anchor and the caption stood 3px from the ring instead of 4 (the party-name-focus leg)
     for (const m of css.matchAll(/\.strip \.member\s*\{[^}]*\}/g)) expect(m[0]).not.toMatch(/position/);
     expect(/\.strip \.link\s*\{[^}]*position:\s*relative/.test(css)).toBe(true);
