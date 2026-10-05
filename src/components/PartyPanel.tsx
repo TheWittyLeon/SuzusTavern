@@ -160,6 +160,8 @@ export default function PartyPanel({
           const display = (
             <div
               className={you ? `${styles.member} ${styles.you}` : styles.member}
+              // the strip's desaturated avatar reads this (a data attribute, not a class name); only the strip emits it, so the rail's markup is what it was
+              data-downed={variant === 'strip' && isDowned ? 'true' : undefined}
               title={variant === 'strip' ? (c?.name ?? p.username) : undefined}
             >
               <div className={styles.avatar} aria-hidden>
@@ -181,11 +183,18 @@ export default function PartyPanel({
                   <div className={styles.badgeRow}>
                     {you && <span className={styles.youBadge}>you</span>}
                     {p.is_dm && <span className={styles.dmBadge}>DM</span>}
-                    {isDowned && (
+                    {isDowned && (variant === 'strip' ? (
+                      // B8c-4 P1 fix round: in the strip the badges are chips ON the avatar (out of flow), so a tile's height never depends on them. The glyph is aria-hidden and a visually hidden
+                      // ", downed" follows it (a bare span's aria-label is unreliable and the name fell back to the arrow's literal text): the tile reads "Sable Voss, downed Rogue ...".
+                      <span className={styles.downedBadge}>
+                        <span aria-hidden="true">↓</span>
+                        <span className="sr-only">, downed</span>
+                      </span>
+                    ) : (
                       <span className={styles.downedBadge} aria-label="downed">
                         ↓
                       </span>
-                    )}
+                    ))}
                     {hasPendingChoices && (
                       // Iro MAJOR-2: the `↑` glyph is aria-hidden so AT doesn't read it
                       // literally; the visible "level up" text stands on its own, and the

@@ -86,6 +86,9 @@ export interface SceneStageProps {
   variant?: RegionVariant<'sceneStage'>;
   /** B8c-4 P1: the scene line is the phone's STRIP even though the stage is a `hero` (the row's `stripLine`): the round shows beside the status and a held scene name is one ellipsised line. Absent = only an `inline` stage is. */
   stripLine?: boolean;
+  /** B8c-4 P1 fix round (Aoi-UI): the scene NAME is one line with an ellipsis whenever this is set, running or held (the phone's fight in a board room), so the strip is 52px in every engine for every name. Paint only: the
+   *  full name stays in the group's label and in `title`; the head stays inert. Absent = the name wraps, except held on the strip as before. */
+  clipName?: boolean;
   /** What goes in a `hero` stage's body: the tactical map and the theatre-of-mind band (B8c-3 mounts them). With none, a fight shows the stand-in. */
   children?: ReactNode;
   /** B8c-3 M2 (Iro, step 11 MINOR-2): the body's accessible name once a MAP is in it (a `group`); never a name or a role while the body is empty or holds the stand-in. */
@@ -119,6 +122,7 @@ export default function SceneStage({
   heldStanding = false,
   variant = 'panel',
   stripLine = false,
+  clipName = false,
   children,
   bodyLabel,
 }: SceneStageProps) {
@@ -144,7 +148,7 @@ export default function SceneStage({
   // The phone's strip while held: the scene NAME is one line with an ellipsis (its full text stays in the DOM and in the group's name; `title` is for a pointer). The strip is the one place the
   // name shows on a phone, so it is clamped ONLY while held, where the two-sentence line already takes the room (Aoi addendum 3, 5); a running fight's name wraps as it always did.
   const stripForm = inline || stripLine;
-  const clampName = held && stripForm;
+  const clampName = (held && stripForm) || clipName;
   // The held End combat asks first: it records a wipe and cannot be undone. The confirm is the app's ConfirmDialog. It stays open (busy) while the request is in flight, so one press is
   // one request; it goes when the fight does (or the hold lifts), and when the request FAILED with the fight still held it stays, with the error, for a retry.
   const [endConfirm, setEndConfirm] = useState<'closed' | 'open' | 'sent'>('closed');

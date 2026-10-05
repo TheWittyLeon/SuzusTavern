@@ -307,6 +307,22 @@ describe('the phone row (B8c-4 P1): a fight\'s stage is a hero, the map in its b
     expect(statusNode(d)).not.toHaveTextContent(/round 1/);
   });
 
+  it('the scene name is one clipped line in a board fight on the phone (class and title: the full name stays in the DOM, the label and the title); map off or desktop, it wraps as it did', async () => {
+    phone();
+    const p = await load(combat(SPACE));
+    expect(stage(p).className).toMatch(/heldClamp/);
+    expect(stage(p).querySelector('p')).toHaveAttribute('title', 'Flight Through the Everfree');
+    expect(within(stage(p)).getByRole('group', { name: /Scene: Flight Through the Everfree/ })).toBeInTheDocument();
+    cleanup();
+    const off = await load(combat());
+    expect(stage(off).className).not.toMatch(/heldClamp/);
+    expect(stage(off).querySelector('p')).not.toHaveAttribute('title');
+    cleanup();
+    desktop();
+    const d = await load(combat(SPACE));
+    expect(stage(d).className).not.toMatch(/heldClamp/);
+  });
+
   it('the handle folds the body: `hidden`, the grid still mounted; a second press opens it again', async () => {
     phone();
     const c = await load(combat(SPACE));

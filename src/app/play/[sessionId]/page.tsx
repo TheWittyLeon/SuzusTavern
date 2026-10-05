@@ -1589,7 +1589,7 @@ export default function PlayPage() {
         beginCombatRef={beginCombatRef}
         onBeginEncounter={beginEncounter}
         talking={talking} sessionLocked={sessionLocked} rollBusy={rollBusy} round={round} held={fightHeld} canEndHeld={isDm} humanDmTable={session?.dm_mode === 'human'} heldStanding={fightHeld && anyPcStanding(combatState?.participants)}
-        variant={variantFor(row, 'sceneStage', moment)} stripLine={row.stripLine} bodyLabel={board.label}
+        variant={variantFor(row, 'sceneStage', moment)} stripLine={row.stripLine} clipName={row.stripLine === true && facts.room === 'board'} bodyLabel={board.label}
       >
         {board.stage ? <StageBoard {...board.stage} /> : null}
       </SceneStage>

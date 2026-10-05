@@ -166,7 +166,8 @@ describe('PartyStrip passes its variant to all three children', () => {
 
   it('strip: the DM keeps one rebind button per member and the visible names to tell them apart', () => {
     const { container } = strip('strip', { isDm: true });
-    expect(container.querySelectorAll('.sr-only')).toHaveLength(0);
+    // (a downed member's chip carries its own visually hidden ", downed": that one is the tile's, not a rebind name)
+    expect(Array.from(container.querySelectorAll('.sr-only')).filter((e) => !e.closest('[class*="downedBadge"]'))).toHaveLength(0);
     expect(screen.getAllByRole('button').filter((b) => /character/i.test(b.getAttribute('aria-label') ?? ''))).toHaveLength(3);
   });
 });
@@ -206,5 +207,49 @@ describe('the strip caption sits ABOVE its tile, one line, and the label fades (
   it('the first and last tile still flip to the list edge so a caption never leaves the band', () => {
     expect(rule('.strip .list > li:first-child .link:focus-visible .nameRow')).toMatch(/left:\s*0/);
     expect(rule('.strip .list > li:last-child:not(:first-child) .link:focus-visible .nameRow')).toMatch(/right:\s*0/);
+  });
+});
+
+// B8c-4 P1 fix round (Aoi-UI, "Downed Tile"): in the strip the badges are chips on the avatar, out of flow; the downed glyph is aria-hidden with a visually hidden ", downed" after it. The rail keeps the markup it had.
+describe('PartyPanel strip: downed and level-up chips', () => {
+  const downedCombat = { ...COMBAT, participants: [{ ...combatant('pc2', 'Sable Voss'), death_saves: { successes: 0, failures: 0, is_downed: true, is_dying: true, is_stable: false, is_dead: false } }] } as unknown as CombatState;
+  const party = [member('kes', 'Kestrel Ashwood', { character: { character_id: 'c1', name: 'Kestrel Ashwood', char_class: 'Ranger', level: 4, current_hp: 27, max_hp: 34, ac: 16, pending_choices: [{ kind: 'asi' }] } as never }), member('sable', 'Sable Voss')];
+  const tiles = (variant: 'strip' | 'rail') => render(<PartyPanel participants={party} selfUsername="kes" variant={variant} combatState={downedCombat} />);
+
+  it('the downed tile\'s name says "downed" and never the arrow: glyph aria-hidden, a hidden ", downed" after it', () => {
+    tiles('strip');
+    const tile = screen.getByRole('button', { name: /Sable Voss/ });
+    expect(tile).toHaveAccessibleName(/^Sable Voss\s*, downed/);
+    expect(tile.getAttribute('aria-label') ?? '').not.toMatch(/↓|arrow/i);
+    const chip = tile.querySelector('[class*="downedBadge"]') as HTMLElement;
+    expect(chip.querySelector('[aria-hidden="true"]')?.textContent).toBe('↓');
+    expect(chip.querySelector('.sr-only')?.textContent).toBe(', downed');
+    expect(chip).not.toHaveAttribute('aria-label');
+  });
+  it('the member says data-downed="true" for the avatar\'s desaturation, only when downed, only in the strip', () => {
+    const { container, unmount } = tiles('strip');
+    expect(container.querySelectorAll('[data-downed="true"]')).toHaveLength(1);
+    expect(container.querySelector('[data-downed="true"]')?.textContent).toMatch(/Sable/);
+    unmount();
+    const rail = tiles('rail');
+    expect(rail.container.querySelector('[data-downed]')).toBeNull();
+    // the rail's downed marker is what it was
+    expect(rail.container.querySelector('[aria-label="downed"]')).not.toBeNull();
+  });
+  it('a level-up tile carries its chip with the existing hidden clause', () => {
+    tiles('strip');
+    const tile = screen.getByRole('button', { name: /Kestrel Ashwood/ });
+    expect(tile.querySelector('[class*="levelUpBadge"] [aria-hidden="true"]')?.textContent).toBe('↑');
+    expect(tile).toHaveAccessibleName(/choose new features/);
+  });
+  it('the stylesheet: the strip\'s badge row is out of flow (no line box, no margin) and the chips are 16px discs on the avatar\'s corners', () => {
+    const css = readFileSync(join(__dirname, '../../components/PartyPanel.module.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(/\.strip \.badgeRow\s*\{[^}]*\}/.exec(css)?.[0]).toMatch(/display:\s*contents/);
+    expect(/\.strip \.badgeRow\s*\{[^}]*\}/.exec(css)?.[0]).not.toMatch(/margin/);
+    const chip = /\.strip \.downedBadge,\s*\.strip \.levelUpBadge\s*\{[^}]*\}/.exec(css)?.[0] ?? '';
+    expect(chip).toMatch(/position:\s*absolute/);
+    expect(chip).toMatch(/width:\s*16px/);
+    expect(chip).toMatch(/height:\s*16px/);
+    expect(css).toMatch(/\.strip \.member\[data-downed='true'\] \.avatar\s*\{[^}]*saturate\(0\.35\)/);
   });
 });
