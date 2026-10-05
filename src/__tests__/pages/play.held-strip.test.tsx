@@ -395,3 +395,21 @@ describe('the round span (the phone\'s strip) is not drawn while held (Tora M-1:
     expect(status().textContent).toMatch(/· round 2/);
   });
 });
+
+describe('the held strip of someone who cannot act carries heldWatch (its note\'s leading keeps the strip under the 75px cap with a long scene name)', () => {
+  const root = () => document.querySelector('[data-region="sceneStage"]') as HTMLElement;
+  it('a player\'s held strip has it (and not heldDm); the DM\'s has heldDm (and not heldWatch); a running fight has neither', () => {
+    const { rerender } = render(<Stage dm={false} variant="inline" />);
+    expect(root().className).toMatch(/heldWatch/);
+    expect(root().className).not.toMatch(/heldDm/);
+    rerender(<Stage variant="inline" />);
+    expect(root().className).toMatch(/heldDm/);
+    expect(root().className).not.toMatch(/heldWatch/);
+    rerender(<Stage state="active" variant="inline" dm={false} />);
+    expect(root().className).not.toMatch(/held(Dm|Watch)/);
+  });
+  it('the stylesheet gives the note a tighter leading there', () => {
+    const css = fs.readFileSync(path.join(__dirname, '../../app/play/[sessionId]/regions/SceneStage.module.css'), 'utf8');
+    expect(css.match(/\.strip\.heldWatch \.note\s*\{[^}]*\}/)?.[0] ?? '').toMatch(/line-height:\s*1\.2/);
+  });
+});

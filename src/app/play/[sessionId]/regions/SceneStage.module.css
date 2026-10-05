@@ -98,6 +98,12 @@
     'note note note';
 }
 
+/* The held strip of someone who cannot act: no buttons, and a line of two sentences ("Every character has fallen. The DM decides what happens next.") that wraps to two lines under a scene name that
+   wraps to two. At 1.3 that is 77px against the strip's 75px cap (a 59-character name at 360 and 390: Tora M-1); at 1.2 the note is 2.6px shorter and the strip is under it. Only the note's leading changes. */
+.strip.heldWatch .note {
+  line-height: 1.2;
+}
+
 .strip .begin {
   padding: var(--space-2) var(--space-5);
   font-size: var(--text-sm);

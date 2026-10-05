@@ -182,7 +182,7 @@ export default function SceneStage({
       data-variant={variant}
       // A `hero` owns its slot's edges: the slot drops its padding and stops being a scroller (Play.module.css, `data-slot-fill`).
       data-slot-fill={hero ? '' : undefined}
-      className={`${hero ? `${cx(styles.stage, strip.strip)} ${strip.hero}` : cx(styles.stage, strip.strip)}${heldDm ? ` ${strip.heldDm}` : ''}`}
+      className={`${hero ? `${cx(styles.stage, strip.strip)} ${strip.hero}` : cx(styles.stage, strip.strip)}${heldDm ? ` ${strip.heldDm}` : held ? ` ${strip.heldWatch}` : ''}`}
     >
       {/* FIX-8 (MEDIUM-1): aria-label surfaces the scene name to AT so the "Scene" kicker (now aria-hidden) doesn't duplicate it on
           screen readers. Iro Ship 2 CRITICAL-1: tabIndex={-1} + ref makes this a programmatic focus anchor — refocusSceneHeadIfStranded()
