@@ -196,4 +196,15 @@ describe('no reader reads a fight state outside the predicates (AST, typed)', ()
     expect(members.length).toBeGreaterThanOrEqual(6);
     expect([...rows].sort()).toEqual([...members].sort());
   });
+
+  it('components and lib take the fight-state predicates and the held words from lib, never from the play route\'s format module (Kage T-8: the dependency points down)', () => {
+    const offenders: string[] = [];
+    for (const dir of ['components', 'lib']) {
+      for (const f of walk(path.join(SRC, dir))) {
+        const text = fs.readFileSync(f, 'utf8');
+        if (/from\s+['"]@\/app\/play\/\[sessionId\]\/format['"]/.test(text)) offenders.push(path.relative(ROOT, f));
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
 });
