@@ -556,7 +556,8 @@ describe('the automatic cases (addendum): the page is left at its end, once, nev
     const s = shell(foldRow(), { ...stored, moment: 'exploring' });
     to.mockClear();
     s.again({ moment: 'combat' });
-    expect(to).toHaveBeenCalledWith({ top: 740, behavior: 'instant' });
+    // the page's end is scrollHeight - clientHeight (740 - 664 = 76 here), never scrollHeight itself (iOS Safari overshot by a frame)
+    expect(to).toHaveBeenCalledWith({ top: 76, behavior: 'instant' });
   });
 
   it('not while an editable field has focus (a soft keyboard may be up)', () => {

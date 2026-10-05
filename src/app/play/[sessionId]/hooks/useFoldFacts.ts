@@ -104,7 +104,9 @@ export function useFoldFacts({ rootRef, moment, candidates, stored, revealed }: 
     parkedGen.current = gen.current;
     ownScrollUntil.current = Date.now() + 100;
     userScrolled.current = false; // the page has settled where the shell left it
-    window.scrollTo({ top: doc.scrollHeight, behavior: 'instant' });
+    // To the page's END (`scrollHeight - clientHeight`), not to `scrollHeight`: Chromium clamps the larger number, but iOS Safari reported a one-frame overshoot (scrollY 756 of a 741px page, the visual
+    // viewport offset at the page's height) on the simulator's measurement for B8c-4 P1 (iPhone 16e, iOS 26.2).
+    window.scrollTo({ top: doc.scrollHeight - doc.clientHeight, behavior: 'instant' });
   }, [gateOpen]);
 
   // A decision is asked for again: now, or queued until the gate opens.
