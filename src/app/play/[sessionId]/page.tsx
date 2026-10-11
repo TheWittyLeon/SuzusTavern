@@ -471,7 +471,7 @@ export default function PlayPage() {
   const {
     endCombatBtnRef, lastOpenerRef, beginCombatRef, composerRailAnchorRef, dmPanelAnchorRef,
     composerTextareaAnchorRef,
-  } = useFocusAnchors(isDying, sceneHasEncounter, combatIsActive ? combatId : null, sceneHeadRef, combatIsActive, layoutId);
+  } = useFocusAnchors(isDying, sceneHasEncounter, sceneHeadRef, combatIsActive, layoutId);
 
   // B8c-3 M2/M2b: the map as the stage's body (null with the flag off or on a stage with no body) and the observers' move rows.
   const board = useBoard({ cs: combatStateResult, room: facts.room, stageHasBody: variantFor(row, 'sceneStage', moment) === 'hero', moveAllowed: row.boardMove === true, sessionLocked, appendLog, rescueStrandedFocus: refocusSceneHeadIfStranded, railRef: composerRailAnchorRef });

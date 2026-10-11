@@ -11,7 +11,7 @@
  * three behind would split one concern across two files for no reason).
  *
  * Composed AFTER `useCombatState` (row 5) and `useSceneState` (row 6) in
- * page.tsx — both effects below read `isDying`/`combatId`
+ * page.tsx — both effects below read `isDying`/`combatIsActive`
  * (useCombatState) and `sceneHasEncounter`/`sceneHeadRef` (useSceneState)
  * as plain downward params — and BEFORE `useCombatActions` (row 10), which
  * takes `composerRailAnchorRef`/`dmPanelAnchorRef` from this hook's return
@@ -74,8 +74,6 @@ export interface UseFocusAnchorsResult {
 export function useFocusAnchors(
   isDying: boolean,
   sceneHasEncounter: boolean,
-  // The LIVE fight's id, or null when no fight is live: `combatId` itself is never cleared after a fight ends.
-  combatId: string | null,
   sceneHeadRef: MutableRefObject<HTMLDivElement | null>,
   // TAV-PLAY-SHELL step 6b, commit C3 (carry (b), Iro MEDIUM-3 re-home):
   // drives the composer-refocus rescue below. Composer.tsx can no longer
@@ -136,14 +134,14 @@ export function useFocusAnchors(
   // that would double-announce on mount).
   const prevSceneHasEncounterRef = useRef(sceneHasEncounter);
   useEffect(() => {
-    if (sceneHasEncounter && !prevSceneHasEncounterRef.current && !combatId) {
+    if (sceneHasEncounter && !prevSceneHasEncounterRef.current && !combatIsActive) {
       toast({
         tone: 'warn',
         message: 'This scene can turn into a fight — "Stand and fight" is ready when you are.',
       });
     }
     prevSceneHasEncounterRef.current = sceneHasEncounter;
-  }, [sceneHasEncounter, combatId, toast]);
+  }, [sceneHasEncounter, combatIsActive, toast]);
 
   // Iro-A11y CRITICAL-1 — focus-strand on unmount. `sceneHasEncounter` is
   // ALSO the "Begin an encounter" button's mount condition (not just a copy
@@ -157,10 +155,10 @@ export function useFocusAnchors(
   // itself rather than a click-captured flag.
   const beginEncounterVisibleRef = useRef(false);
   useLayoutEffect(() => {
-    const nowVisible = !combatId && sceneHasEncounter;
+    const nowVisible = !combatIsActive && sceneHasEncounter;
     if (beginEncounterVisibleRef.current && !nowVisible && focusWasRemoved()) sceneHeadRef.current?.focus({ preventScroll: true });
     beginEncounterVisibleRef.current = nowVisible;
-  }, [combatId, sceneHasEncounter, sceneHeadRef, focusWasRemoved]);
+  }, [combatIsActive, sceneHasEncounter, sceneHeadRef, focusWasRemoved]);
 
   // Iro MEDIUM-3 (re-homed from Composer.tsx, TAV-PLAY-SHELL step 6b
   // commit C3): when ActionBar unmounts (combat ends), keyboard focus is
