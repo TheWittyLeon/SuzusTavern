@@ -243,8 +243,8 @@ describe('TAV-EVENTS-FEED-FROZEN-PAST-200: break-it', () => {
   // page fails, and seeds the watermark from them. The poll then renders ONLY dice_roll / x_card
   // (POLL_RENDERED_KINDS), so the narration in the unread tail is never drawn: the story ends
   // mid-campaign with later dice rolls hanging in the air, until a reload. Needs a mount whose
-  // second page fails once. Drop `.failing` when the mount retries its rehydration.
-  it.failing('a mount whose second history page fails still shows the narration of the rows it never read', async () => {
+  // second page fails once.
+  it('a mount whose second history page fails still shows the narration of the rows it never read', async () => {
     let calls = 0;
     mockGetSessionEventsRaw.mockImplementation((...args: unknown[]) => {
       calls += 1;
@@ -256,5 +256,52 @@ describe('TAV-EVENTS-FEED-FROZEN-PAST-200: break-it', () => {
     await tick();
     await tick();
     await waitFor(() => expect(screen.getByText('story line 1200.')).toBeInTheDocument());
+  });
+
+  const lineCount = (text: string) => screen.queryAllByText(text).length;
+
+  it('a healed mount shows the whole story once, in order', async () => {
+    let calls = 0;
+    mockGetSessionEventsRaw.mockImplementation((...args: unknown[]) => {
+      calls += 1;
+      if (calls === 2) return Promise.resolve(null);
+      return fakeEngine(...args);
+    });
+    renderPlay(<PlayPage />);
+    expect(await screen.findByText('story line 500.')).toBeInTheDocument();
+    await tick();
+    await tick();
+    await waitFor(() => expect(screen.getByText('story line 1200.')).toBeInTheDocument());
+    for (const n of [1, 500, 501, 1000, 1200]) expect(lineCount(`story line ${n}.`)).toBe(1);
+    const shown = screen
+      .getAllByText(/^story line \d+\.$/)
+      .map((el) => Number(/\d+/.exec(el.textContent ?? '')![0]));
+    expect(shown).toHaveLength(1200);
+    expect(shown).toEqual([...shown].sort((a, b) => a - b));
+  });
+
+  it('while the server keeps failing the heal retries once per poll tick, then stops asking once healed', async () => {
+    let fail = true;
+    mockGetSessionEventsRaw.mockImplementation((...args: unknown[]) => {
+      const since = args[2] as number;
+      if (since > 0 && fail) return Promise.resolve(null);
+      return fakeEngine(...args);
+    });
+    renderPlay(<PlayPage />);
+    expect(await screen.findByText('story line 500.')).toBeInTheDocument();
+    const afterMount = mockGetSessionEventsRaw.mock.calls.length;
+    await tick();
+    await tick();
+    expect(mockGetSessionEventsRaw.mock.calls.length).toBe(afterMount + 2); // one request per tick
+    expect(screen.queryByText('story line 501.')).not.toBeInTheDocument();
+    fail = false;
+    await tick();
+    await waitFor(() => expect(screen.getByText('story line 1200.')).toBeInTheDocument());
+    const healed = mockGetSessionEventsRaw.mock.calls.length;
+    campaign.push({ seq: TOTAL + 1, kind: 'narration', actor: 'suzu', data: { text: 'live line.' } });
+    await tick();
+    // healed: a live narration row is the composer's to draw, not the poll's
+    expect(screen.queryByText('live line.')).not.toBeInTheDocument();
+    expect(mockGetSessionEventsRaw.mock.calls.length).toBe(healed + 1);
   });
 });

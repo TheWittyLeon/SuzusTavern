@@ -89,7 +89,12 @@ import {
   getSessionEventsPage,
 } from '@/lib/api/dnd';
 import { eventToLogRow, POLL_RENDERED_KINDS } from '@/lib/rehydration';
-import { readSessionEventsForward } from '@/lib/sessionEventsPaging';
+import {
+  hasUnreadHistory,
+  markHistoryRead,
+  readReachedEnd,
+  readSessionEventsForward,
+} from '@/lib/sessionEventsPaging';
 import { POLL_MAX_PAGES } from '@/lib/api/eventsPaging.constants';
 import { DURABLE_GENERATION_ENABLED } from '@/lib/config';
 import { clearTurnKey } from '@/lib/turnKey';
@@ -735,7 +740,14 @@ export function useSessionEvents(
           lastEventSeqRef.current,
           POLL_MAX_PAGES,
         );
-        if (!events || events.length === 0) return;
+        if (!events) return;
+        // TAV-MOUNT-PARTIAL-HISTORY-HEALS: while the mount's read was partial, the
+        // rows past the watermark are unread HISTORY, not live activity: draw every
+        // kind, in order, until a read reaches the end of the log. One request per
+        // tick (the poll's own cadence), so a failing server is not hammered.
+        const healing = hasUnreadHistory(sessionId);
+        if (healing && readReachedEnd(events)) markHistoryRead(sessionId);
+        if (events.length === 0) return;
         const newOnes = events
           .filter((e) => (e.seq ?? 0) > lastEventSeqRef.current)
           .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
@@ -759,7 +771,7 @@ export function useSessionEvents(
             : [...prev, ...fresh].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
         });
         const rows = newOnes
-          .filter((e) => e.kind != null && POLL_RENDERED_KINDS.has(e.kind))
+          .filter((e) => healing || (e.kind != null && POLL_RENDERED_KINDS.has(e.kind)))
           .map(eventToLogRow)
           .filter((r): r is LogRow => r !== null);
         if (rows.length > 0) {
