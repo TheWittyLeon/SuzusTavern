@@ -10,8 +10,7 @@
  * `getSessionEvents` (in dnd.ts) and `readSessionEventsForward` can share it
  * without an import cycle.
  */
-import type { EngineSessionEvent } from './types';
-import { markIncomplete, pageMetaOf } from './eventsPageMeta';
+import type { EventsWirePage, EventsRead, EventsReadStop } from './eventsPageMeta';
 import { MOUNT_MAX_PAGES, RAW_EVENTS_PAGE_LIMIT } from './eventsPaging.constants';
 
 /**
@@ -24,42 +23,52 @@ import { MOUNT_MAX_PAGES, RAW_EVENTS_PAGE_LIMIT } from './eventsPaging.constants
  * proxy or a mocked reader; or `has_more` false) a page short of
  * `RAW_EVENTS_PAGE_LIMIT` is the end, and a full page is asked past once more.
  *
- * Also stops when a page makes no forward progress (a proxy that drops
- * `since_seq` would otherwise loop forever), or at `maxPages`.
+ * Only rows past the cursor are appended, so a wire that ignores `since_seq`
+ * (and serves the same page again) cannot double the log. Also stops when a page
+ * makes no forward progress, or at `maxPages`.
  *
- * Returns `null` only when the FIRST page fails (engine unreachable — the
- * existing sentinel). A later page failing returns what was read so far,
- * marked incomplete (`isReadComplete`): the events are a contiguous prefix past
- * `sinceSeq`, so the caller's watermark still advances correctly and the rest
- * arrives next time. Hitting `maxPages` with rows left is marked the same way.
+ * Returns `null` only when the FIRST page fails (engine unreachable: the existing
+ * sentinel). Every other stop is an `EventsRead`: `complete` is false when the
+ * read ended with rows unread (a later page failed, the page cap was hit, or the
+ * wire said `has_more` but the cursor cannot move), `cursor` is the last seq read,
+ * and one `console.warn` names the session, that seq and the reason. The rows are
+ * a contiguous prefix past `sinceSeq`, so the caller's watermark still advances
+ * correctly and the rest arrives next time.
  */
 export async function pageEventsForward(
-  fetchPage: (sinceSeq: number) => Promise<EngineSessionEvent[] | null>,
+  fetchPage: (sinceSeq: number) => Promise<EventsWirePage | null>,
+  sessionId: string,
   sinceSeq = 0,
   maxPages = MOUNT_MAX_PAGES,
-): Promise<EngineSessionEvent[] | null> {
+): Promise<EventsRead | null> {
   let cursor = sinceSeq;
-  let all: EngineSessionEvent[] | null = null;
+  let all: EventsRead['rows'] | null = null;
+  const partial = (stop: EventsReadStop): EventsRead => {
+    console.warn(`[events] session ${sessionId}: read stopped after seq ${cursor}: ${stop}`);
+    return { rows: all ?? [], complete: false, cursor, stop };
+  };
   for (let page = 0; page < maxPages; page += 1) {
-    const rows = await fetchPage(cursor);
-    if (rows === null) return all && markIncomplete(all);
+    const got = await fetchPage(cursor);
+    if (got === null) return all && partial('later page failed');
+    const { rows } = got;
     // Append only rows past the cursor: a wire that ignores `since_seq` serves the
     // same page again, and appending it before the no-progress check would double
     // the log. (A row with no `seq` cannot be compared, so it is kept.)
     const fresh = rows.filter((e) => e.seq == null || e.seq > cursor);
     all = [...(all ?? []), ...fresh];
-    const meta = pageMetaOf(rows);
     const rowMax = rows.reduce((m, e) => Math.max(m, e.seq ?? 0), cursor);
     // `has_more` only EXTENDS the read: a full page is asked past even when the
     // wire says no more (rows can land between two requests), and a short page
     // is the end unless the wire says otherwise.
-    const wireHasMore = meta?.hasMore === true;
-    if (!wireHasMore && rows.length < RAW_EVENTS_PAGE_LIMIT) return all;
-    const next = wireHasMore ? Math.max(rowMax, meta?.maxSeq ?? 0) : rowMax;
-    // No forward progress. A wire that still says `has_more` has rows we cannot
-    // reach, so that read is incomplete; a full page with no has_more is the end.
-    if (next <= cursor) return wireHasMore ? markIncomplete(all) : all;
+    const wireHasMore = got.hasMore === true;
+    if (!wireHasMore && rows.length < RAW_EVENTS_PAGE_LIMIT) return { rows: all, complete: true, cursor: Math.max(rowMax, got.maxSeq ?? 0) };
+    const next = wireHasMore ? Math.max(rowMax, got.maxSeq ?? 0) : rowMax;
+    if (next <= cursor) {
+      // No forward progress. A wire that still says `has_more` has rows we cannot
+      // reach, so that read is incomplete; a full page with no has_more is the end.
+      return wireHasMore ? partial('has_more but the cursor cannot move') : { rows: all, complete: true, cursor };
+    }
     cursor = next;
   }
-  return all && markIncomplete(all);
+  return all && partial('page cap reached');
 }

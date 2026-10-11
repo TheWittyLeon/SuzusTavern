@@ -12,63 +12,60 @@
  * Not in `dnd.ts` on purpose: callers (and the /play test pin) mock that
  * module wholesale, and the loop must keep working over the mocked reader.
  */
+import type { MutableRefObject } from 'react';
 import { getSessionEventsRaw } from '@/lib/api/dnd';
 import { pageEventsForward } from '@/lib/api/eventsPaging';
-import { isReadComplete } from '@/lib/api/eventsPageMeta';
+import { pageOf, type EventsRead } from '@/lib/api/eventsPageMeta';
 import type { EngineSessionEvent } from '@/lib/api/types';
 import { MOUNT_MAX_PAGES } from '@/lib/api/eventsPaging.constants';
 
 /**
  * Read every event with `seq > sinceSeq`, oldest first (see `pageEventsForward`
- * for the stop conditions and the null / partial-result contract).
+ * for the stop conditions): the typed result, null when the first page fails.
  */
-export function readSessionEventsForward(
+export async function readSessionEventsResult(
   sessionId: string,
   signal?: AbortSignal,
   sinceSeq = 0,
   maxPages = MOUNT_MAX_PAGES,
-): Promise<EngineSessionEvent[] | null> {
+): Promise<EventsRead | null> {
   return pageEventsForward(
-    (cursor) => getSessionEventsRaw(sessionId, signal, cursor),
+    async (cursor) => {
+      const rows = await getSessionEventsRaw(sessionId, signal, cursor);
+      return rows && pageOf(rows);
+    },
+    sessionId,
     sinceSeq,
     maxPages,
   );
 }
 
-/**
- * TAV-MOUNT-PARTIAL-HISTORY-HEALS — sessions whose mount read stopped before the
- * end of the log (a later page failed, or the page cap hit). The play screen
- * seeds its poll watermark from what the mount DID read, and the flag-OFF poll
- * draws only dice and X-card rows, so without this the narration in the unread
- * rows would never appear until a reload. While a session is listed here the
- * poll draws every kind it reads past the watermark, and delists the session
- * once a read reaches the end of the log.
- */
-const sessionsWithUnreadHistory = new Set<string>();
+/** The rows of `readSessionEventsResult`, for a caller that does not need to know whether the read finished. */
+export async function readSessionEventsForward(
+  sessionId: string,
+  signal?: AbortSignal,
+  sinceSeq = 0,
+  maxPages = MOUNT_MAX_PAGES,
+): Promise<EngineSessionEvent[] | null> {
+  return (await readSessionEventsResult(sessionId, signal, sinceSeq, maxPages))?.rows ?? null;
+}
 
 /**
- * The mount's history read: `readSessionEventsForward` from zero, plus the
- * record of whether it reached the end. A null (first page failed) is not
- * recorded: the mount then renders nothing and runs the opening path, which a
- * later heal must not race.
+ * TAV-MOUNT-PARTIAL-HISTORY-HEALS — the mount's history read. Sets
+ * `unreadHistoryRef` (owned by the play page's transcript hook, so it is gone
+ * when the page unmounts) to whether the read stopped before the end of the log.
+ * The play screen seeds its poll watermark from what the mount DID read, and the
+ * flag-OFF poll draws only dice and X-card rows, so while the ref is true the poll
+ * draws every kind it reads past the watermark, until a read reaches the end.
+ * A null (first page failed) leaves it false: the mount then renders nothing and
+ * runs the opening path, which a later heal must not race.
  */
 export async function readSessionHistory(
   sessionId: string,
-  signal?: AbortSignal,
+  signal: AbortSignal | undefined,
+  unreadHistoryRef: MutableRefObject<boolean>,
 ): Promise<EngineSessionEvent[] | null> {
-  const rows = await readSessionEventsForward(sessionId, signal);
-  if (rows !== null && !isReadComplete(rows)) sessionsWithUnreadHistory.add(sessionId);
-  else sessionsWithUnreadHistory.delete(sessionId);
-  return rows;
+  const read = await readSessionEventsResult(sessionId, signal);
+  unreadHistoryRef.current = read !== null && !read.complete;
+  return read && read.rows;
 }
-
-export const hasUnreadHistory = (sessionId: string): boolean =>
-  sessionsWithUnreadHistory.has(sessionId);
-
-/** Called by the poll after a read from the watermark that reached the end of the log. */
-export const markHistoryRead = (sessionId: string): void => {
-  sessionsWithUnreadHistory.delete(sessionId);
-};
-
-/** True when a poll read reached the end of the log (an untagged array counts as complete). */
-export const readReachedEnd = isReadComplete;

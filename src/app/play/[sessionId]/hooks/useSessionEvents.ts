@@ -89,12 +89,7 @@ import {
   getSessionEventsPage,
 } from '@/lib/api/dnd';
 import { eventToLogRow, POLL_RENDERED_KINDS } from '@/lib/rehydration';
-import {
-  hasUnreadHistory,
-  markHistoryRead,
-  readReachedEnd,
-  readSessionEventsForward,
-} from '@/lib/sessionEventsPaging';
+import { readSessionEventsResult } from '@/lib/sessionEventsPaging';
 import { POLL_MAX_PAGES } from '@/lib/api/eventsPaging.constants';
 import { DURABLE_GENERATION_ENABLED } from '@/lib/config';
 import { clearTurnKey } from '@/lib/turnKey';
@@ -186,6 +181,7 @@ export interface UseSessionEventsHandlers {
   // useTranscript (the ledger) — Amendment A §A.3 edge R4: this hook reads
   // it, never owns it.
   lastEventSeqRef: MutableRefObject<number>;
+  unreadHistoryRef: MutableRefObject<boolean>;
   renderedSeqsRef: MutableRefObject<Set<number>>;
   pendingByKeyRef: MutableRefObject<Map<string, PendingTurnEntry>>;
   logRef: MutableRefObject<LogRow[]>;
@@ -267,6 +263,7 @@ export function useSessionEvents(
   // body for a future edit to add to the deps array by mistake.
   const {
     lastEventSeqRef,
+    unreadHistoryRef,
     renderedSeqsRef,
     pendingByKeyRef,
     logRef,
@@ -734,19 +731,20 @@ export function useSessionEvents(
       try {
         // TAV-EVENTS-FEED-FROZEN-PAST-200: ask only for rows past the
         // watermark (the unparameterised read is the OLDEST 200, forever).
-        const events = await readSessionEventsForward(
+        const read = await readSessionEventsResult(
           sessionId,
           undefined,
           lastEventSeqRef.current,
           POLL_MAX_PAGES,
         );
-        if (!events) return;
+        if (!read) return;
+        const events = read.rows;
         // TAV-MOUNT-PARTIAL-HISTORY-HEALS: while the mount's read was partial, the
         // rows past the watermark are unread HISTORY, not live activity: draw every
         // kind, in order, until a read reaches the end of the log. One request per
         // tick (the poll's own cadence), so a failing server is not hammered.
-        const healing = hasUnreadHistory(sessionId);
-        if (healing && readReachedEnd(events)) markHistoryRead(sessionId);
+        const healing = unreadHistoryRef.current;
+        if (healing && read.complete) unreadHistoryRef.current = false;
         if (events.length === 0) return;
         const newOnes = events
           .filter((e) => (e.seq ?? 0) > lastEventSeqRef.current)
@@ -847,6 +845,7 @@ export function useSessionEvents(
     sessionId,
     state,
     lastEventSeqRef,
+    unreadHistoryRef,
     renderedSeqsRef,
     pendingByKeyRef,
     logRef,

@@ -1,49 +1,60 @@
 /**
- * TAV-EVENTS-PAGER-FOLLOWS-WIRE — what the events wire said about a page, carried
- * beside the rows instead of inside them.
+ * TAV-EVENTS-PAGER-FOLLOWS-WIRE — what the events wire said about a page, and what a
+ * whole forward read came to, as typed values.
  *
  * The engine answers `{ events, max_seq, has_more }`, with `max_seq` / `has_more`
  * computed BEFORE the NekoNova proxy drops `dm_override` rows the caller may not
- * see, so a full engine page can reach the client short. `getSessionEventsRaw`
- * must keep returning a plain `EngineSessionEvent[]` (the recap and several page
- * tests depend on that shape), so the wire's verdict rides in a WeakMap keyed by
- * the returned array. An array from anywhere else (a test mock, an old proxy)
- * has no entry, and the pager falls back to the short-page rule.
+ * see, so a full engine page can reach the client short. `fetchEventsPage` (dnd.ts)
+ * returns the verdict beside the rows as an `EventsWirePage`; `pageEventsForward` returns
+ * an `EventsRead`. Nothing here rides on an array's identity except the one channel
+ * below.
  *
  * Own module (no imports of dnd.ts) so it survives tests that mock `dnd.ts`.
  */
 import type { EngineSessionEvent } from './types';
 
-export interface EventsPageMeta {
+/** One page as the wire answered it. */
+export interface EventsWirePage {
+  rows: EngineSessionEvent[];
   /** The engine's pre-filter "more rows exist past this page". Absent on a proxy that omits it. */
   hasMore?: boolean;
   /** The engine's pre-filter highest seq on this page. */
   maxSeq?: number;
 }
 
-const pageMeta = new WeakMap<EngineSessionEvent[], EventsPageMeta>();
+/** Why a forward read stopped before the end of the log. */
+export type EventsReadStop = 'later page failed' | 'page cap reached' | 'has_more but the cursor cannot move';
 
-/** Attach the wire's verdict to a page and return the same array. */
-export function tagPage(rows: EngineSessionEvent[], meta: EventsPageMeta): EngineSessionEvent[] {
-  pageMeta.set(rows, meta);
-  return rows;
-}
-
-export function pageMetaOf(rows: EngineSessionEvent[]): EventsPageMeta | undefined {
-  return pageMeta.get(rows);
+/** The outcome of a whole forward read. */
+export interface EventsRead {
+  /** Events past the starting cursor, oldest first, each once. */
+  rows: EngineSessionEvent[];
+  /** False when the read stopped before the end of the log; the rest is still unread. */
+  complete: boolean;
+  /** The highest seq the read reached (the starting cursor if it read nothing). */
+  cursor: number;
+  /** Set exactly when `complete` is false. */
+  stop?: EventsReadStop;
 }
 
 /**
- * A whole-read result the pager stopped before the end of the log (a later page
- * failed, or the page cap hit). Untagged = complete.
+ * The one remaining side channel: `getSessionEventsRaw` must keep returning a plain
+ * `EngineSessionEvent[]` (the page tests mock exactly that), and the play screen's
+ * reader pages over it, so the page verdict rides on the array's identity here.
+ * A `.map` between the reader and the pager drops it and brings back the short-page
+ * bug. `getSessionEvents` does not use it: it pages over `fetchEventsPage` directly.
+ *
+ * debt: the wire's has_more / max_seq reach readSessionEventsResult through a WeakMap keyed by the array getSessionEventsRaw returns. ceiling: any transform of that array between reader and pager silently loses the verdict (short pages end the read again). until: the page tests that mock getSessionEventsRaw as a bare array move to a typed page mock, then the play reader pages over fetchEventsPage and this map is deleted.
  */
-const incompleteReads = new WeakSet<EngineSessionEvent[]>();
+const pageMeta = new WeakMap<EngineSessionEvent[], Pick<EventsWirePage, 'hasMore' | 'maxSeq'>>();
 
-export function markIncomplete(rows: EngineSessionEvent[]): EngineSessionEvent[] {
-  incompleteReads.add(rows);
-  return rows;
+/** Attach the wire's verdict to a page's rows and return the same array. */
+export function tagPage(page: EventsWirePage): EngineSessionEvent[] {
+  pageMeta.set(page.rows, { hasMore: page.hasMore, maxSeq: page.maxSeq });
+  return page.rows;
 }
 
-export function isReadComplete(rows: EngineSessionEvent[]): boolean {
-  return !incompleteReads.has(rows);
+/** Recover a page from rows a reader returned (no verdict for an array from anywhere else). */
+export function pageOf(rows: EngineSessionEvent[]): EventsWirePage {
+  return { rows, ...pageMeta.get(rows) };
 }

@@ -261,7 +261,7 @@ export default function PlayPage() {
   // useCombatActions below).
   const transcript = useTranscript();
   const {
-    log, setLog, appendLog, logRef, lastEventSeqRef, renderedSeqsRef,
+    log, setLog, appendLog, logRef, lastEventSeqRef, unreadHistoryRef, renderedSeqsRef,
     pendingByKeyRef, clearStreamNarration,
   } = transcript;
 
@@ -553,7 +553,7 @@ export default function PlayPage() {
         const [g, party, rawEvents] = await Promise.all([
           getGrounding(sessionId, ctrl.signal),
           getParticipants(sessionId, ctrl.signal).catch(() => [] as Participant[]),
-          readSessionHistory(sessionId, ctrl.signal),
+          readSessionHistory(sessionId, ctrl.signal, unreadHistoryRef),
         ]);
         if (ctrl.signal.aborted) return;
         if (g) {
@@ -898,7 +898,7 @@ export default function PlayPage() {
   // hook in this series that takes handler callbacks instead of reading a
   // sibling hook's state.
   useSessionEvents(sessionId, state, {
-    lastEventSeqRef, renderedSeqsRef, pendingByKeyRef, logRef, setLog, appendLog,
+    lastEventSeqRef, unreadHistoryRef, renderedSeqsRef, pendingByKeyRef, logRef, setLog, appendLog,
     clearStreamNarration,
     onGroundingInvalidated, applyOfferedCheckSignal, setOfferedCheckSkill,
     setFreeformOfferedCheck,

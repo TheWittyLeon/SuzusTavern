@@ -17,8 +17,7 @@ beforeEach(() => {
   (global as Record<string, unknown>).fetch = mockFetch;
 });
 
-import { readSessionEventsForward } from '@/lib/sessionEventsPaging';
-import { isReadComplete } from '@/lib/api/eventsPageMeta';
+import { readSessionEventsForward, readSessionEventsResult } from '@/lib/sessionEventsPaging';
 import { getSessionEvents } from '@/lib/api/dnd';
 import { MOUNT_MAX_PAGES } from '@/lib/api/eventsPaging.constants';
 
@@ -185,8 +184,11 @@ describe('a wire that ignores since_seq', () => {
     mockFetch.mockImplementation(async () =>
       new Response(JSON.stringify({ success: true, data: { events: [], max_seq: 0, has_more: true } }), { status: 200 }),
     );
-    const out = await readSessionEventsForward('s1');
-    expect(out).toEqual([]);
-    expect(isReadComplete(out!)).toBe(false);
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const read = await readSessionEventsResult('s1');
+    expect(read).toMatchObject({ rows: [], complete: false, cursor: 0, stop: 'has_more but the cursor cannot move' });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toMatch(/s1.*seq 0.*cursor cannot move/);
+    warn.mockRestore();
   });
 });

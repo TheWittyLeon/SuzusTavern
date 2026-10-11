@@ -3,7 +3,7 @@
 // Typed wrappers for the DnD proxy at /api/dnd/*.
 // Method + path taken verbatim from the NekoNova bridge files.
 import { apiCall } from './client';
-import { tagPage } from './eventsPageMeta';
+import { tagPage, type EventsWirePage } from './eventsPageMeta';
 import { pageEventsForward } from './eventsPaging';
 import { MOUNT_MAX_PAGES, RAW_EVENTS_PAGE_LIMIT } from './eventsPaging.constants';
 import type {
@@ -688,15 +688,16 @@ export const getSessionEvents = async (
   signal?: AbortSignal,
   maxPages = MOUNT_MAX_PAGES,
 ): Promise<SessionEvent[] | null> => {
-  const raw = await pageEventsForward(
-    (cursor) => getSessionEventsRaw(sessionId, signal, cursor),
+  const read = await pageEventsForward(
+    (cursor) => fetchEventsPage(sessionId, signal, cursor),
+    sessionId,
     0,
     maxPages,
   );
   // FIX-4: null when the first page fails (engine unreachable) so
   // checkShouldOpen can distinguish "no events" from "don't open".
-  if (raw === null) return null;
-  return raw.map((e): SessionEvent => ({
+  if (read === null) return null;
+  return read.rows.map((e): SessionEvent => ({
     event_id: e.seq != null ? String(e.seq) : undefined,
     event_type: e.kind,
     actor: e.actor,
@@ -727,23 +728,31 @@ export const getSessionEventsRaw = (
   sessionId: string,
   signal?: AbortSignal,
   sinceSeq = 0,
-) =>
+) => fetchEventsPage(sessionId, signal, sinceSeq).then((page) => page && tagPage(page));
+
+/**
+ * One page of the events wire with the engine's pre-filter `has_more` / `max_seq`
+ * kept beside the rows (null on error, like getSessionEventsRaw, which is this
+ * with the verdict dropped to the array's identity). Page it with
+ * `pageEventsForward`.
+ */
+export const fetchEventsPage = (
+  sessionId: string,
+  signal?: AbortSignal,
+  sinceSeq = 0,
+): Promise<EventsWirePage | null> =>
   apiCall<{ events: EngineSessionEvent[]; has_more?: boolean; max_seq?: number }>(
     // TAV-EVENTS-FEED-FROZEN-PAST-200: the engine default is the OLDEST 200
-    // rows; always say where to start and how many. Page forward with
-    // readSessionEventsForward (src/lib/sessionEventsPaging.ts).
+    // rows; always say where to start and how many.
     `/api/dnd/sessions/${encodeURIComponent(sessionId)}/events?since_seq=${encodeURIComponent(String(sinceSeq))}&limit=${RAW_EVENTS_PAGE_LIMIT}`,
     { method: 'GET', signal },
   )
-    // The wire's pre-filter has_more / max_seq ride beside the rows (WeakMap in
-    // eventsPageMeta.ts), so the return shape stays a plain array.
-    .then((d) =>
-      tagPage(d.events ?? [], {
-        hasMore: typeof d.has_more === 'boolean' ? d.has_more : undefined,
-        maxSeq: typeof d.max_seq === 'number' ? d.max_seq : undefined,
-      }),
-    )
-    .catch(() => null as EngineSessionEvent[] | null);
+    .then((d): EventsWirePage => ({
+      rows: d.events ?? [],
+      hasMore: typeof d.has_more === 'boolean' ? d.has_more : undefined,
+      maxSeq: typeof d.max_seq === 'number' ? d.max_seq : undefined,
+    }))
+    .catch(() => null);
 
 /**
  * DDX-20 — cursor-paged session events read (flag-ON durable-generation poll

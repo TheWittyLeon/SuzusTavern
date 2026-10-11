@@ -58,6 +58,7 @@ export interface UseTranscriptResult {
   idRef: MutableRefObject<number>;
   logRef: MutableRefObject<LogRow[]>;
   lastEventSeqRef: MutableRefObject<number>;
+  unreadHistoryRef: MutableRefObject<boolean>;
   renderedSeqsRef: MutableRefObject<Set<number>>;
   pendingByKeyRef: MutableRefObject<Map<string, PendingTurnEntry>>;
   streamRowIdRef: MutableRefObject<string | null>;
@@ -76,6 +77,11 @@ export function useTranscript(): UseTranscriptResult {
   // below). Lets the poll fetch the full event list every tick (the engine
   // has no "since seq" filter) while only ever appending NEW rows.
   const lastEventSeqRef = useRef(0);
+
+  // TAV-MOUNT-PARTIAL-HISTORY-HEALS: true while the mount's history read stopped
+  // before the end of the log (set by readSessionHistory, cleared by the events
+  // poll once a read reaches the end). Page-owned, so unmounting drops it.
+  const unreadHistoryRef = useRef(false);
 
   // DDX-20 (flag-ON only, DURABLE_GENERATION_ENABLED) — the reconciliation
   // ledger (Client Integration Design §3.1). Both refs, poll-safe: mutated
@@ -164,6 +170,7 @@ export function useTranscript(): UseTranscriptResult {
     idRef,
     logRef,
     lastEventSeqRef,
+    unreadHistoryRef,
     renderedSeqsRef,
     pendingByKeyRef,
     streamRowIdRef,
