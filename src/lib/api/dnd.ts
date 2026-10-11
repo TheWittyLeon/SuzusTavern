@@ -3,6 +3,7 @@
 // Typed wrappers for the DnD proxy at /api/dnd/*.
 // Method + path taken verbatim from the NekoNova bridge files.
 import { apiCall } from './client';
+import { tagPage } from './eventsPageMeta';
 import { pageEventsForward } from './eventsPaging';
 import { MOUNT_MAX_PAGES, RAW_EVENTS_PAGE_LIMIT } from './eventsPaging.constants';
 import type {
@@ -727,14 +728,21 @@ export const getSessionEventsRaw = (
   signal?: AbortSignal,
   sinceSeq = 0,
 ) =>
-  apiCall<{ events: EngineSessionEvent[] }>(
+  apiCall<{ events: EngineSessionEvent[]; has_more?: boolean; max_seq?: number }>(
     // TAV-EVENTS-FEED-FROZEN-PAST-200: the engine default is the OLDEST 200
     // rows; always say where to start and how many. Page forward with
     // readSessionEventsForward (src/lib/sessionEventsPaging.ts).
     `/api/dnd/sessions/${encodeURIComponent(sessionId)}/events?since_seq=${encodeURIComponent(String(sinceSeq))}&limit=${RAW_EVENTS_PAGE_LIMIT}`,
     { method: 'GET', signal },
   )
-    .then((d) => d.events ?? [])
+    // The wire's pre-filter has_more / max_seq ride beside the rows (WeakMap in
+    // eventsPageMeta.ts), so the return shape stays a plain array.
+    .then((d) =>
+      tagPage(d.events ?? [], {
+        hasMore: typeof d.has_more === 'boolean' ? d.has_more : undefined,
+        maxSeq: typeof d.max_seq === 'number' ? d.max_seq : undefined,
+      }),
+    )
     .catch(() => null as EngineSessionEvent[] | null);
 
 /**

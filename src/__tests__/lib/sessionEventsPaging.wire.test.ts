@@ -119,8 +119,7 @@ describe('a proxy that filters rows out of a full page', () => {
   // stops after the first ~500 events with has_more:true on the wire unread, and the unread tail's
   // narration never reaches the transcript (the poll only draws dice_roll / x_card). The wire already
   // says what to do: has_more and max_seq are pre-filter, but getSessionEventsRaw discards them.
-  // Drop `.failing` when the pager follows has_more / max_seq.
-  it.failing('reads past a short page when the wire says has_more', async () => {
+  it('reads past a short page when the wire says has_more', async () => {
     const campaign = story(700);
     campaign[99] = { seq: 100, kind: 'dm_override', data: {} };
     wire(campaign, 'dm_override');
@@ -132,5 +131,40 @@ describe('a proxy that filters rows out of a full page', () => {
   it('control: with nothing filtered the same 700-event campaign is read whole', async () => {
     wire(story(700));
     expect(await readSessionEventsForward('s1')).toHaveLength(700);
+  });
+
+  it('a whole page filtered to zero rows still advances from max_seq while has_more is true', async () => {
+    const campaign = story(700);
+    for (let i = 0; i < 500; i += 1) campaign[i] = { seq: i + 1, kind: 'dm_override', data: {} };
+    wire(campaign, 'dm_override');
+    const out = await readSessionEventsForward('s1');
+    expect(out!.map((e) => e.seq)).toEqual(Array.from({ length: 200 }, (_, i) => 501 + i));
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('an anonymous reader whose every row is hidden ends cleanly when has_more goes false', async () => {
+    wire(Array.from({ length: 30 }, (_, i) => ({ seq: i + 1, kind: 'dm_override' })), 'dm_override');
+    expect(await readSessionEventsForward('s1')).toEqual([]);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('a response with no has_more (older proxy) still ends on a short page', async () => {
+    const campaign = story(700);
+    mockFetch.mockImplementation(async (url: string) => {
+      const since = Number(new URL(url, 'http://x').searchParams.get('since_seq') ?? 0);
+      const events = campaign.filter((e) => e.seq > since).slice(0, 500);
+      return new Response(JSON.stringify({ success: true, data: { events } }), { status: 200 });
+    });
+    const out = await readSessionEventsForward('s1');
+    expect(out).toHaveLength(700);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('has_more true with a max_seq that does not move stops instead of looping', async () => {
+    mockFetch.mockImplementation(async () =>
+      new Response(JSON.stringify({ success: true, data: { events: [], max_seq: 0, has_more: true } }), { status: 200 }),
+    );
+    expect(await readSessionEventsForward('s1')).toEqual([]);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 });
