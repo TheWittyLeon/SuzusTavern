@@ -610,7 +610,9 @@ export default function TacticalMap({
   // `a11y.ts`'s `cellAccessibleName` and `buildLine` render the same CellNameInput; a fact cannot be in one and not the other.
   function describeSquare(sp: CombatSpace, coord: SpaceCoordinate): { input: CellNameInput; occupant?: CombatParticipantState & { at: SpaceCoordinate }; desc?: OccupantDescription } {
     const key = coordKeyStr(coord);
-    const occupant = placed.find((p) => coordKeyStr(p.at) === key);
+    // A corpse's square is walkable, so it can hold two placed participants: the living one is drawn and named, the corpse is not drawn while someone stands on it.
+    const here = placed.filter((p) => coordKeyStr(p.at) === key);
+    const occupant = here.find(occupiesWhenAlive) ?? here[0];
     // Kage-CR D1 CRITICAL-1: `space.blocked`/`.features` are
     // legally omittable content (the validator accepts absence
     // and never backfills `[]` — B3/Miko re-confirmed by object
