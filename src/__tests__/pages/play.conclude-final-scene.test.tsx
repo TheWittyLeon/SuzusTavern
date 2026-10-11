@@ -160,3 +160,37 @@ describe('TAV-ADVENTURE-COMPLETE-NOT-REHYDRATED (the W9-F2 neighbour)', () => {
     await waitFor(() => expect(mStream).toHaveBeenCalled());
   });
 });
+
+describe('a finished adventure says so (W9-F2 accessibility neighbour)', () => {
+  const COMPLETE = 'This adventure is complete.';
+
+  it('a finished adventure at mount shows the status and no Conclude offer', async () => {
+    mGetGrounding.mockResolvedValue({ ...FINAL_SCENE, adventure_completed: true });
+    renderPlay(<PlayPage />);
+    await screen.findByRole('textbox');
+    expect(screen.getByText(COMPLETE)).toHaveAttribute('role', 'status');
+    expect(screen.queryByRole('button', { name: /Conclude the adventure/i })).not.toBeInTheDocument();
+  });
+
+  it('an unfinished adventure shows the Conclude offer and no status', async () => {
+    mGetGrounding.mockResolvedValue(FINAL_SCENE);
+    renderPlay(<PlayPage />);
+    expect(await screen.findByRole('button', { name: /Conclude the adventure/i })).toBeInTheDocument();
+    expect(screen.queryByText(COMPLETE)).not.toBeInTheDocument();
+  });
+
+  it('completing by click logs its line once, then shows the status', async () => {
+    mGetGrounding.mockResolvedValue(FINAL_SCENE);
+    mAdvanceScene.mockResolvedValue({ from_scene: 'anchor_origin_question', to_scene: null, completed: true });
+    renderPlay(<PlayPage />);
+    const btn = await screen.findByRole('button', { name: /Conclude the adventure/i });
+    expect(screen.queryByText(COMPLETE)).not.toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(btn);
+    });
+    await waitFor(() => expect(screen.getByText(COMPLETE)).toBeInTheDocument());
+    expect(screen.getByText(COMPLETE)).toHaveAttribute('role', 'status');
+    expect(screen.getAllByText('The adventure is complete.')).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: /Conclude the adventure/i })).not.toBeInTheDocument();
+  });
+});

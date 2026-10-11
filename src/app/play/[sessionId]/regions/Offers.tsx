@@ -225,6 +225,16 @@ export default function Offers({
           TAV-SLICE-END-ADVANCE-NULL / Kage-CR item 4: once a terminal
           advance has landed (adventureComplete), this affordance is gone
           entirely. */}
+      {/* A finished adventure (a reload included: `adventureComplete` rides grounding) says so
+          in the place the transition group was. The log line is appended only on the player's own
+          click, so this is the one statement of completion that is in the tree at load. No link or
+          call to action: what comes next is not decided here. */}
+      {adventureComplete && (
+        <div role="status" className={styles.moveOnLabel}>
+          This adventure is complete.
+        </div>
+      )}
+
       {availableTransitions.length > 0 && !adventureComplete && (
         <div
           ref={transitionWrapRef}
