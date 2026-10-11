@@ -636,7 +636,8 @@ describe('Session listing (ST-033 / ST-041 / ST-044)', () => {
     });
     const events = await getSessionEvents('s1');
     const { url, method } = lastCall();
-    expect(url).toBe('/api/dnd/sessions/s1/events');
+    // TAV-RECAP-READS-OLDEST-200: the bare URL meant "oldest 200 rows".
+    expect(url).toBe('/api/dnd/sessions/s1/events?since_seq=0&limit=500');
     expect(method).toBe('GET');
     expect(events).toHaveLength(1);
     expect(events![0]).toMatchObject({

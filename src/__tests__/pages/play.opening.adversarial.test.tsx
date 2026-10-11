@@ -334,6 +334,17 @@ describe("P1-READALOUD adversarial - state and flags", () => {
     );
   });
 
+  it("TAV-RECAP-READS-OLDEST-200: the opening gate reads page 1 only, never a whole campaign", async () => {
+    mGetSession.mockResolvedValue(SESSION_AI_OFF);
+    mGetGrounding.mockResolvedValue(GROUNDING_WITH_SCENE);
+    renderPlay(<PlayPage />);
+    await screen.findByText("The Hollow Tide");
+    await waitFor(() => expect(screen.getByText(/cave mouth yawns/i)).toBeInTheDocument());
+    // SessionRecap calls (sid, signal); checkShouldOpen must add maxPages = 1.
+    const calls = mGetSessionEvents.mock.calls as unknown[][];
+    expect(calls.some((c) => c[2] === 1)).toBe(true);
+  });
+
   it("freeform session (no scene_id in grounding) → no opening regardless of events", async () => {
     mGetSession.mockResolvedValue(SESSION_AI_OFF);
     mGetGrounding.mockResolvedValue(GROUNDING_FREEFORM);
