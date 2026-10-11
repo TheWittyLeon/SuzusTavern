@@ -215,8 +215,12 @@ export function useSceneActions(
         // DM-ARRIVAL-NARRATION (Leon's ruling 2026-08-09: REPLACE the beat).
         // C3 — plays first, same as the server-INTENT path; does NOT
         // participate in the "replace the synthetic beat" ruling below.
-        playRescueTransitionLine(advancedGrounding);
-        if (playArrivalLine(advancedGrounding)) return;
+        // A terminal advance has no destination scene: grounding still serves the scene the player
+        // is standing in, so its arrival line / rescue line would replay, and the ending would be skipped.
+        if (!isAdventureComplete) {
+          playRescueTransitionLine(advancedGrounding);
+          if (playArrivalLine(advancedGrounding)) return;
+        }
         // Kage #1 / Miko DEFECT-2: advanceScene() above already moved the
         // scene server-side — suppress the INTENT classifier from advancing
         // it a second time off this confirmation beat.

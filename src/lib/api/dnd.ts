@@ -1553,6 +1553,7 @@ const normalizeGrounding = (raw: unknown): GroundingData | null => {
       : [],
     flags: (progress.flags as Record<string, unknown> | undefined) ?? {},
     encounter_state: (progress.encounter_state as Record<string, unknown> | undefined) ?? {},
+    adventure_completed: progress.completed === true,
     // A1: adventure-level fields for opening scene
     hook: adventure.hook as string | undefined,
     adventure_title: adventure.title as string | undefined,

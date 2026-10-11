@@ -158,9 +158,10 @@ export function useSceneState(
   // (to_scene: null / completed: true) has no further "Move on" affordance —
   // latch this so a second click can't post another /advance (and narrate
   // another "adventure concludes" beat) indefinitely. Session-lifetime only;
-  // a reload naturally resets it (the engine's own `progress.completed` is
-  // the durable source of truth — this is just a UI repeat-guard).
-  const [adventureComplete, setAdventureComplete] = useState(false);
+  // a reload resets it, so completion is `|| grounding.adventure_completed`
+  // (the engine's `progress.completed`, the durable source of truth) below.
+  const [adventureCompleteLatch, setAdventureComplete] = useState(false);
+  const adventureComplete = adventureCompleteLatch || grounding?.adventure_completed === true;
   // T4p2: the /advance completion payload's series next-pointer (design doc
   // §6.4) — RENDER-ONLY addition, not a new interaction. Populated (never
   // required) alongside adventureComplete above; NextPartOffer degrades to

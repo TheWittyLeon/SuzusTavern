@@ -149,3 +149,20 @@ describe('getGrounding — transition projection', () => {
     expect(Object.keys(g!.transitions![1]).sort()).toEqual(['label', 'to']);
   });
 });
+
+describe('getGrounding — adventure completion (TAV-ADVENTURE-COMPLETE-NOT-REHYDRATED)', () => {
+  it('carries campaign.progress.completed as adventure_completed', async () => {
+    const p = groundingPayload();
+    (p.data.campaign.progress as Record<string, unknown>).completed = true;
+    respond(p);
+    expect((await getGrounding('s1'))?.adventure_completed).toBe(true);
+  });
+
+  it('is false when the engine says not completed, or says nothing', async () => {
+    expect((await getGrounding('s1'))?.adventure_completed).toBe(false);
+    const p = groundingPayload();
+    (p.data.campaign.progress as Record<string, unknown>).completed = false;
+    respond(p);
+    expect((await getGrounding('s1'))?.adventure_completed).toBe(false);
+  });
+});

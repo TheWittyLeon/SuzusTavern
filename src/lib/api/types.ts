@@ -2130,6 +2130,8 @@ export interface GroundingData {
   flags?: Record<string, unknown>;
   /** Current encounter state (null when no encounter active or resolved). */
   encounter_state?: Record<string, unknown> | null;
+  /** The adventure has been concluded (`campaign.progress.completed`); true survives a reload. */
+  adventure_completed?: boolean;
   /** Adventure hook (A1 — opening scene grounding). */
   hook?: string;
   /** Adventure title (A1 — AI-off opening header). */
