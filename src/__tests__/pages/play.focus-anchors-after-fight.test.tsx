@@ -136,15 +136,6 @@ beforeEach(() => {
   streamOnce([{ kind: 'chunk', text: 'Suzu narrates.' }, { kind: 'done' }]);
 });
 
-async function sendMessage(text: string) {
-  const input = screen.getByRole('textbox');
-  fireEvent.change(input, { target: { value: text } });
-  await act(async () => {
-    fireEvent.keyDown(input, { key: 'Enter' });
-  });
-}
-
-
 const mGetCombatState = dnd.getCombatState as jest.MockedFunction<typeof dnd.getCombatState>;
 const mRollInitiative = dnd.rollInitiative as jest.MockedFunction<typeof dnd.rollInitiative>;
 

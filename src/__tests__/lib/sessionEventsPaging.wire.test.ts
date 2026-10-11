@@ -71,7 +71,7 @@ describe('page boundaries over the real wire', () => {
     const first = await readSessionEventsForward('s1');
     expect(first).toHaveLength(MOUNT_MAX_PAGES * 500);
     expect(mockFetch).toHaveBeenCalledTimes(MOUNT_MAX_PAGES);
-    const mark = first![first!.length - 1].seq;
+    const mark = first![first!.length - 1].seq as number;
     const rest = await readSessionEventsForward('s1', undefined, mark);
     expect(rest!.map((e) => e.seq)).toEqual(Array.from({ length: 120 }, (_, i) => mark + 1 + i));
   });
