@@ -21,8 +21,9 @@
  *     established by useSuzuNote.ts.
  *
  * `events`/`grounding` are passed down from the play page's OWN existing
- * rehydration + 4s events poll (getSessionEventsRaw) — this component makes
- * zero network calls of its own for those three sections.
+ * rehydration (paged forward on mount) + 4s events poll (which fetches only
+ * rows past its seq watermark and merges them in by `seq`) — this component
+ * makes zero network calls of its own for those three sections.
  *
  * The close button here is wired by the parent (page.tsx), which owns the
  * open/close state (`journalOpen`) and the dialog semantics on the wrapping
@@ -56,8 +57,9 @@ type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
 export interface JournalPaneProps {
   sessionId: string;
-  /** Full raw session-event log — same array the play page's rehydration +
-   *  4s events poll already fetch. No new poll is triggered by this prop. */
+  /** Full raw session-event log — the array the play page builds from its
+   *  paged mount rehydration plus the 4s poll's new rows merged by `seq`.
+   *  No new poll is triggered by this prop. */
   events: EngineSessionEvent[];
   grounding: GroundingData | null;
   onClose: () => void;

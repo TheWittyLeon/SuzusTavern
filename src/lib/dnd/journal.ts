@@ -2,8 +2,9 @@
  * DDX-22 Phase 0 — Journal / Memory pane data derivation.
  *
  * Pure, side-effect-free functions that turn the play page's EXISTING
- * `session_events` array (from `getSessionEventsRaw` — already fetched by
- * rehydration on mount + the 4s events poll, see page.tsx) into the three
+ * `session_events` array (from `getSessionEventsRaw` — paged forward on mount,
+ * then topped up by the 4s events poll's new rows merged by `seq`; see
+ * page.tsx and useSessionEvents) into the three
  * event-sourced Journal sections. No network calls here and no new poll —
  * see the design doc (`DDX-22 Journal Memory Pane Design.md` §2) for the
  * verified data-source map this mirrors:
@@ -16,7 +17,7 @@
  * All three derivations sort defensively by `seq` ascending first — the
  * engine's GET /events has no ordering guarantee (the play page's own mount
  * rehydration re-sorts for the same reason) — so callers may pass events in
- * any order, including raw poll responses.
+ * any order, including a merged poll batch.
  */
 import type { EngineSessionEvent, SceneNpc } from '@/lib/api/types';
 import { decodeHtmlEntities } from '@/lib/rehydration';

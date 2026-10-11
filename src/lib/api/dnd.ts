@@ -3,7 +3,8 @@
 // Typed wrappers for the DnD proxy at /api/dnd/*.
 // Method + path taken verbatim from the NekoNova bridge files.
 import { apiCall } from './client';
-import { RAW_EVENTS_PAGE_LIMIT } from './eventsPaging.constants';
+import { pageEventsForward } from './eventsPaging';
+import { MOUNT_MAX_PAGES, RAW_EVENTS_PAGE_LIMIT } from './eventsPaging.constants';
 import type {
   AdvanceSceneRequest,
   AdvanceSceneResult,
@@ -675,28 +676,37 @@ export const getParticipants = (sessionId: string, signal?: AbortSignal) =>
  * created_at } ] } }`. We adapt the wire shape → SessionEvent so buildRecap is
  * unaffected: kind → event_type, data.description|data.text → description.
  * 404 / network errors → [] (recap must never break the screen).
+ *
+ * TAV-RECAP-READS-OLDEST-200: pages forward (via getSessionEventsRaw) so the
+ * recap sees the campaign's LAST events, not the engine default of the oldest
+ * 200. `maxPages` bounds the read; a caller that only needs the start of the
+ * campaign (checkShouldOpen) passes 1.
  */
-export const getSessionEvents = (sessionId: string, signal?: AbortSignal) =>
-  apiCall<{ events: EngineSessionEvent[] }>(
-    `/api/dnd/sessions/${encodeURIComponent(sessionId)}/events`,
-    { method: 'GET', signal },
-  )
-    .then((d): SessionEvent[] =>
-      (d.events ?? []).map((e) => ({
-        event_id: e.seq != null ? String(e.seq) : undefined,
-        event_type: e.kind,
-        actor: e.actor,
-        // Prefer an explicit description key; fall back to a `text` key for
-        // narration events where the payload stores the prose there.
-        description:
-          (e.data?.['description'] as string | undefined) ??
-          (e.data?.['text'] as string | undefined),
-        created_at: e.created_at,
-      })),
-    )
-    // FIX-4: return null on error (sentinel) so checkShouldOpen can
-    // distinguish "no events" from "engine unreachable → don't open".
-    .catch(() => null as SessionEvent[] | null);
+export const getSessionEvents = async (
+  sessionId: string,
+  signal?: AbortSignal,
+  maxPages = MOUNT_MAX_PAGES,
+): Promise<SessionEvent[] | null> => {
+  const raw = await pageEventsForward(
+    (cursor) => getSessionEventsRaw(sessionId, signal, cursor),
+    0,
+    maxPages,
+  );
+  // FIX-4: null when the first page fails (engine unreachable) so
+  // checkShouldOpen can distinguish "no events" from "don't open".
+  if (raw === null) return null;
+  return raw.map((e): SessionEvent => ({
+    event_id: e.seq != null ? String(e.seq) : undefined,
+    event_type: e.kind,
+    actor: e.actor,
+    // Prefer an explicit description key; fall back to a `text` key for
+    // narration events where the payload stores the prose there.
+    description:
+      (e.data?.['description'] as string | undefined) ??
+      (e.data?.['text'] as string | undefined),
+    created_at: e.created_at,
+  }));
+};
 
 /**
  * PLAY-PERSIST §6.1 — raw session events reader (rehydration).

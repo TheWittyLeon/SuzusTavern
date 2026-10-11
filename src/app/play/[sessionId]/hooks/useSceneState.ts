@@ -481,7 +481,9 @@ export function useSceneState(
 
       // FIX-4: getSessionEvents now returns null on error (engine unreachable).
       // Treat null as fail-safe: don't open when we can't confirm the session state.
-      const events = await getSessionEvents(sid, signal);
+      // Page 1 only: the markers it looks for are written at the START of a
+      // campaign, so reading the whole log would cost pages for nothing.
+      const events = await getSessionEvents(sid, signal, 1);
       if (events === null) return false; // engine unreachable → fail safe, don't open
       if (signal.aborted) return false;
 
