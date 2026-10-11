@@ -43,7 +43,11 @@ export async function pageEventsForward(
   for (let page = 0; page < maxPages; page += 1) {
     const rows = await fetchPage(cursor);
     if (rows === null) return all && markIncomplete(all);
-    all = [...(all ?? []), ...rows];
+    // Append only rows past the cursor: a wire that ignores `since_seq` serves the
+    // same page again, and appending it before the no-progress check would double
+    // the log. (A row with no `seq` cannot be compared, so it is kept.)
+    const fresh = rows.filter((e) => e.seq == null || e.seq > cursor);
+    all = [...(all ?? []), ...fresh];
     const meta = pageMetaOf(rows);
     const rowMax = rows.reduce((m, e) => Math.max(m, e.seq ?? 0), cursor);
     // `has_more` only EXTENDS the read: a full page is asked past even when the
@@ -52,7 +56,9 @@ export async function pageEventsForward(
     const wireHasMore = meta?.hasMore === true;
     if (!wireHasMore && rows.length < RAW_EVENTS_PAGE_LIMIT) return all;
     const next = wireHasMore ? Math.max(rowMax, meta?.maxSeq ?? 0) : rowMax;
-    if (next <= cursor) return all; // no forward progress
+    // No forward progress. A wire that still says `has_more` has rows we cannot
+    // reach, so that read is incomplete; a full page with no has_more is the end.
+    if (next <= cursor) return wireHasMore ? markIncomplete(all) : all;
     cursor = next;
   }
   return all && markIncomplete(all);

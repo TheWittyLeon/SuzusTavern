@@ -18,6 +18,7 @@ beforeEach(() => {
 });
 
 import { readSessionEventsForward } from '@/lib/sessionEventsPaging';
+import { isReadComplete } from '@/lib/api/eventsPageMeta';
 import { getSessionEvents } from '@/lib/api/dnd';
 import { MOUNT_MAX_PAGES } from '@/lib/api/eventsPaging.constants';
 
@@ -166,5 +167,26 @@ describe('a proxy that filters rows out of a full page', () => {
     );
     expect(await readSessionEventsForward('s1')).toEqual([]);
     expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('a wire that ignores since_seq', () => {
+  it('serving the same full page every time yields each of its rows once', async () => {
+    const campaign = story(600);
+    mockFetch.mockImplementation(async () =>
+      new Response(JSON.stringify({ success: true, data: { events: campaign.slice(0, 500) } }), { status: 200 }),
+    );
+    const out = await readSessionEventsForward('s1');
+    expect(out!.map((e) => e.seq)).toEqual(Array.from({ length: 500 }, (_, i) => i + 1));
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('has_more true with a cursor that cannot move is not reported as a complete read', async () => {
+    mockFetch.mockImplementation(async () =>
+      new Response(JSON.stringify({ success: true, data: { events: [], max_seq: 0, has_more: true } }), { status: 200 }),
+    );
+    const out = await readSessionEventsForward('s1');
+    expect(out).toEqual([]);
+    expect(isReadComplete(out!)).toBe(false);
   });
 });

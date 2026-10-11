@@ -48,8 +48,16 @@ describe('readSessionEventsForward', () => {
 
   it('stops when a page makes no forward progress (proxy that drops since_seq)', async () => {
     mockRaw.mockResolvedValue(rows(1, RAW_EVENTS_PAGE_LIMIT));
-    await readSessionEventsForward('s1');
+    const out = await readSessionEventsForward('s1');
     expect(mockRaw).toHaveBeenCalledTimes(2); // second page repeats seq 1..500 -> break
+    expect(out!.map((e) => e.seq)).toEqual(rows(1, RAW_EVENTS_PAGE_LIMIT).map((e) => e.seq)); // each row once
+  });
+
+  it('a full page served twice yields its 500 rows once', async () => {
+    mockRaw.mockResolvedValue(rows(1, RAW_EVENTS_PAGE_LIMIT));
+    const out = await readSessionEventsForward('s1');
+    expect(out).toHaveLength(RAW_EVENTS_PAGE_LIMIT);
+    expect(new Set(out!.map((e) => e.seq)).size).toBe(RAW_EVENTS_PAGE_LIMIT);
   });
 
   it('honours maxPages', async () => {

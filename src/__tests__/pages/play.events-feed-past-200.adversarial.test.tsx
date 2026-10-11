@@ -209,6 +209,21 @@ describe('TAV-EVENTS-FEED-FROZEN-PAST-200: break-it', () => {
     expect(safetyRows()).toBe(mounted);
   });
 
+  it('a campaign larger than one page, against a wire that ignores since_seq, draws each row once with no duplicate-key error', async () => {
+    campaign = Array.from({ length: 600 }, (_, i) => ({ seq: i + 1, kind: 'narration', data: { text: `w${i + 1}.` } }));
+    // Always the same full page (the oldest 500), whatever the caller asked for.
+    mockGetSessionEventsRaw.mockImplementation(() => Promise.resolve(campaign.slice(0, 500)));
+    const errors = jest.spyOn(console, 'error').mockImplementation(() => {});
+    renderPlay(<PlayPage />);
+    expect(await screen.findByText('w500.')).toBeInTheDocument();
+    await tick();
+    for (const n of [1, 250, 500]) expect(screen.queryAllByText(`w${n}.`)).toHaveLength(1);
+    expect(screen.getAllByText(/^w\d+\.$/)).toHaveLength(500);
+    const duplicateKey = errors.mock.calls.filter((c) => /same key|unique "key"/.test(String(c[0])));
+    errors.mockRestore();
+    expect(duplicateKey).toHaveLength(0);
+  });
+
   it('a later page that fails during a poll does not lose or double the rows, and the next tick finishes the job', async () => {
     campaign = Array.from({ length: 10 }, (_, i) => ({ seq: i + 1, kind: 'narration', data: { text: `s${i + 1}.` } }));
     renderPlay(<PlayPage />);
