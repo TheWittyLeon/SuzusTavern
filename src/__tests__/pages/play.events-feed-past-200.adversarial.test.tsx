@@ -254,11 +254,10 @@ describe('TAV-EVENTS-FEED-FROZEN-PAST-200: break-it', () => {
     }
   });
 
-  // DEFECT (P3), documented as an expected failure: the mount keeps the pages it read when a later
-  // page fails, and seeds the watermark from them. The poll then renders ONLY dice_roll / x_card
-  // (POLL_RENDERED_KINDS), so the narration in the unread tail is never drawn: the story ends
-  // mid-campaign with later dice rolls hanging in the air, until a reload. Needs a mount whose
-  // second page fails once.
+  // The mount keeps the pages it read when a later page fails and seeds the watermark from them.
+  // The poll normally renders ONLY dice_roll / x_card (POLL_RENDERED_KINDS), so the unread tail's
+  // narration would never be drawn; while the mount's read was partial the poll draws every kind
+  // until a read reaches the end. Needs a mount whose second page fails once.
   it('a mount whose second history page fails still shows the narration of the rows it never read', async () => {
     let calls = 0;
     mockGetSessionEventsRaw.mockImplementation((...args: unknown[]) => {

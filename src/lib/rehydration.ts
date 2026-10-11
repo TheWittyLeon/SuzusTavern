@@ -119,7 +119,9 @@ function diceRollLogRow(e: EngineSessionEvent): LogRow | null {
 
 /**
  * Kage-CR A4 IMPORTANT-4 (2026-09-28) — the flag-OFF/live session-events poll
- * (`hooks/useSessionEvents.ts`) renders only these two kinds as ROWS; every
+ * (`hooks/useSessionEvents.ts`) renders only these two kinds as ROWS (except
+ * while the mount's history read was partial: it then draws every kind it
+ * reads past the watermark, until a read reaches the end); every
  * other kind is already reflected through its own optimistic-append or
  * streaming path (player_action/narration/dm_narration) and is left to a
  * future unified events poll (DDX-20) rather than double-rendered here.

@@ -1077,7 +1077,7 @@ export default function PlayPage() {
   // the toast, not a weaker one. Still fires the SAME toast infra
   // `applyOfferedCheckSignal` above uses (not a new shape) on the RISING
   // edge only (false -> true), and only while the button is actually
-  // rendered (`!combatId` — beginEncounter's own gate, unchanged). Still
+  // rendered (`!combatIsActive` — beginEncounter's own gate). Still
   // deliberately NOT a live region wrapped around the button itself: that
   // would double-announce on mount (the button's initial text is read once
   // when it first appears; wrapping it in aria-live would announce it

@@ -296,11 +296,12 @@ export function useSessionEvents(
   // Mirrors the session-status poll (useSessionLifecycle's own effect):
   // same cadence, same document.hidden gate, same cleanup-on-unmount shape.
   //
-  // The engine's GET /events has no "since seq" filter, so every tick refetches
-  // the full (capped) event list and appends only rows with seq strictly
+  // Each tick asks the events route only for rows past the watermark
+  // (`since_seq`, paged forward) and appends only rows with seq strictly
   // greater than lastEventSeqRef.current (set once by rehydration, advanced
   // here after each tick). Only the kinds in POLL_RENDERED_KINDS (see
-  // ../../../lib/rehydration.ts) are rendered as ROWS by this poll — other
+  // ../../../lib/rehydration.ts) are rendered as ROWS by this poll, except
+  // while the mount's history read was partial (it then draws every kind) — other
   // kinds (player_action/narration/...) are already reflected through their
   // own optimistic-append/streaming paths and are intentionally left to a
   // future unified events poll (DDX-20) to avoid duplicating rows for the

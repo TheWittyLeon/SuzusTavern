@@ -112,13 +112,11 @@ describe('the recap reader over the real wire', () => {
 });
 
 describe('a proxy that filters rows out of a full page', () => {
-  // DEFECT (P2, conditional): pageEventsForward treats "fewer than 500 rows" as the end of the log.
   // The proxy drops dm_override rows AFTER the engine applied its 500 cap, so a full engine page
   // reaches the client short whenever one of its rows is an override the caller may not see
-  // (a non-DM player with dm_override_player_visible=false; any anonymous reader). The mount then
-  // stops after the first ~500 events with has_more:true on the wire unread, and the unread tail's
-  // narration never reaches the transcript (the poll only draws dice_roll / x_card). The wire already
-  // says what to do: has_more and max_seq are pre-filter, but getSessionEventsRaw discards them.
+  // (a non-DM player with dm_override_player_visible=false; any anonymous reader). A "fewer than
+  // 500 rows is the end" rule would stop the mount there with the tail unread, so the pager
+  // follows the wire's pre-filter has_more and max_seq instead.
   it('reads past a short page when the wire says has_more', async () => {
     const campaign = story(700);
     campaign[99] = { seq: 100, kind: 'dm_override', data: {} };
