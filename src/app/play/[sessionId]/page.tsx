@@ -471,7 +471,7 @@ export default function PlayPage() {
   const {
     endCombatBtnRef, lastOpenerRef, beginCombatRef, composerRailAnchorRef, dmPanelAnchorRef,
     composerTextareaAnchorRef,
-  } = useFocusAnchors(isDying, sceneHasEncounter, combatId, sceneHeadRef, combatIsActive, layoutId);
+  } = useFocusAnchors(isDying, sceneHasEncounter, combatIsActive ? combatId : null, sceneHeadRef, combatIsActive, layoutId);
 
   // B8c-3 M2/M2b: the map as the stage's body (null with the flag off or on a stage with no body) and the observers' move rows.
   const board = useBoard({ cs: combatStateResult, room: facts.room, stageHasBody: variantFor(row, 'sceneStage', moment) === 'hero', moveAllowed: row.boardMove === true, sessionLocked, appendLog, rescueStrandedFocus: refocusSceneHeadIfStranded, railRef: composerRailAnchorRef });
@@ -1159,7 +1159,7 @@ export default function PlayPage() {
     // server prompt guard, and for Leon's scope ruling.
     if (
       combatEncounterUnstarted &&
-      !combatId &&
+      !combatIsActive &&
       matchCombatIntent(text, sceneCreatureNames)
     ) {
       appendLog({ who: username ?? 'You', kind: 'player', text, color: 'var(--accent)' });
@@ -1233,7 +1233,7 @@ export default function PlayPage() {
     onMoveOn,
     // TAV-COMBAT-VERB-NO-MECHANICS — the guard's gate + its copy inputs.
     combatEncounterUnstarted,
-    combatId,
+    combatIsActive,
     sceneCreatureNames,
     toast,
     // beginCombatRef: now comes from useFocusAnchors' return (TAV-PLAY-SHELL

@@ -74,6 +74,7 @@ export interface UseFocusAnchorsResult {
 export function useFocusAnchors(
   isDying: boolean,
   sceneHasEncounter: boolean,
+  // The LIVE fight's id, or null when no fight is live: `combatId` itself is never cleared after a fight ends.
   combatId: string | null,
   sceneHeadRef: MutableRefObject<HTMLDivElement | null>,
   // TAV-PLAY-SHELL step 6b, commit C3 (carry (b), Iro MEDIUM-3 re-home):
