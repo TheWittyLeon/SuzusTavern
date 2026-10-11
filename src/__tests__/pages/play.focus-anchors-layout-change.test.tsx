@@ -14,7 +14,7 @@ jest.mock('../../components/Toast', () => ({ useToast: () => ({ toast: jest.fn()
 
 function Harness({ layoutId, withHandle = true, combatIsActive = false }: { layoutId: LayoutId; withHandle?: boolean; combatIsActive?: boolean }) {
   const headRef = useRef<HTMLDivElement>(null);
-  useFocusAnchors(false, false, null, headRef, combatIsActive, layoutId);
+  useFocusAnchors(false, false, headRef, combatIsActive, layoutId);
   return (
     <div>
       <div ref={headRef} tabIndex={-1} aria-label="Scene head" />

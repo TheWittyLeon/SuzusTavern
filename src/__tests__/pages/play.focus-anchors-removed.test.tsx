@@ -32,7 +32,7 @@ interface Props {
 
 function Harness({ layoutId = 'table', isDying = false, sceneHasEncounter = false, combatIsActive = false, inert = false, hiddenAttr = false, showControl = true, disabledBtn = false }: Props) {
   const headRef = useRef<HTMLDivElement>(null);
-  const { composerRailAnchorRef } = useFocusAnchors(isDying, sceneHasEncounter, null, headRef, combatIsActive, layoutId);
+  const { composerRailAnchorRef } = useFocusAnchors(isDying, sceneHasEncounter, headRef, combatIsActive, layoutId);
   return (
     <div>
       <div ref={headRef} tabIndex={-1} data-testid="head">head</div>
