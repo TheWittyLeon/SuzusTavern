@@ -749,7 +749,8 @@ describe('Session listing (ST-033 / ST-041 / ST-044)', () => {
     });
     const events = await getSessionEventsRaw('s1');
     const { url, method } = lastCall();
-    expect(url).toBe('/api/dnd/sessions/s1/events');
+    // TAV-EVENTS-FEED-FROZEN-PAST-200: the bare URL meant "oldest 200 rows".
+    expect(url).toBe('/api/dnd/sessions/s1/events?since_seq=0&limit=500');
     expect(method).toBe('GET');
     // Raw shape preserved — unlike getSessionEvents, `data` is NOT dropped/flattened.
     expect(events).toEqual([

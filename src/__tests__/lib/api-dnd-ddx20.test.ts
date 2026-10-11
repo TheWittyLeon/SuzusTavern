@@ -11,7 +11,7 @@ beforeEach(() => {
   (global as Record<string, unknown>).fetch = mockFetch;
 });
 
-import { getSessionEventsPage } from '../../lib/api/dnd';
+import { getSessionEventsPage, getSessionEventsRaw } from '../../lib/api/dnd';
 
 function lastCall() {
   const [url, init] = mockFetch.mock.calls[mockFetch.mock.calls.length - 1] as [
@@ -111,5 +111,19 @@ describe('getSessionEventsPage', () => {
   it('THROWS on network error (no swallow-to-null sentinel)', async () => {
     mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
     await expect(getSessionEventsPage('sess-1', 0)).rejects.toThrow();
+  });
+});
+
+describe('getSessionEventsRaw — TAV-EVENTS-FEED-FROZEN-PAST-200', () => {
+  it('always sends since_seq and the engine-max limit (never the oldest-200 default)', async () => {
+    mockFetch.mockResolvedValueOnce(envelope({ events: [] }));
+    await getSessionEventsRaw('sess-1');
+    expect(lastCall().url).toBe('/api/dnd/sessions/sess-1/events?since_seq=0&limit=500');
+  });
+
+  it('forwards the caller watermark as since_seq', async () => {
+    mockFetch.mockResolvedValueOnce(envelope({ events: [] }));
+    await getSessionEventsRaw('sess-1', undefined, 812);
+    expect(lastCall().url).toBe('/api/dnd/sessions/sess-1/events?since_seq=812&limit=500');
   });
 });
