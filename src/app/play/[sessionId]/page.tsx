@@ -50,8 +50,8 @@ import {
   getGrounding,
   getParticipants,
   getSession,
-  getSessionEventsRaw,
 } from '@/lib/api/dnd';
+import { readSessionEventsForward } from '@/lib/sessionEventsPaging';
 import { eventToLogRow, formatEventTimestamp as formatOpeningTimestamp } from '@/lib/rehydration';
 import { matchCombatIntent, matchKeywordIntent } from '@/lib/dnd/intentFastPath';
 import { DURABLE_GENERATION_ENABLED } from '@/lib/config';
@@ -553,7 +553,7 @@ export default function PlayPage() {
         const [g, party, rawEvents] = await Promise.all([
           getGrounding(sessionId, ctrl.signal),
           getParticipants(sessionId, ctrl.signal).catch(() => [] as Participant[]),
-          getSessionEventsRaw(sessionId, ctrl.signal),
+          readSessionEventsForward(sessionId, ctrl.signal),
         ]);
         if (ctrl.signal.aborted) return;
         if (g) {

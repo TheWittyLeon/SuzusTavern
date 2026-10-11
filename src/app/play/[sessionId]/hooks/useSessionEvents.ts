@@ -87,9 +87,10 @@ import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import {
   getGrounding,
   getSessionEventsPage,
-  getSessionEventsRaw,
 } from '@/lib/api/dnd';
 import { eventToLogRow, POLL_RENDERED_KINDS } from '@/lib/rehydration';
+import { readSessionEventsForward } from '@/lib/sessionEventsPaging';
+import { POLL_MAX_PAGES } from '@/lib/api/eventsPaging.constants';
 import { DURABLE_GENERATION_ENABLED } from '@/lib/config';
 import { clearTurnKey } from '@/lib/turnKey';
 import { reconcileDurableEvents, applyReconcileResult } from '@/lib/dnd/reconcileEvents';
@@ -726,7 +727,14 @@ export function useSessionEvents(
         return;
       }
       try {
-        const events = await getSessionEventsRaw(sessionId);
+        // TAV-EVENTS-FEED-FROZEN-PAST-200: ask only for rows past the
+        // watermark (the unparameterised read is the OLDEST 200, forever).
+        const events = await readSessionEventsForward(
+          sessionId,
+          undefined,
+          lastEventSeqRef.current,
+          POLL_MAX_PAGES,
+        );
         if (!events || events.length === 0) return;
         const newOnes = events
           .filter((e) => (e.seq ?? 0) > lastEventSeqRef.current)
@@ -741,7 +749,15 @@ export function useSessionEvents(
         // actually changed. The mount-time rehydration effect already seeds
         // journalEvents once on load — this only keeps it current on ticks
         // that have real new activity.
-        setJournalEvents([...events].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0)));
+        // Merge by seq: `events` is now only the rows past the watermark, so
+        // replacing the journal with it would drop the whole earlier story.
+        setJournalEvents((prev) => {
+          const seen = new Set(prev.map((e) => e.seq ?? 0));
+          const fresh = newOnes.filter((e) => !seen.has(e.seq ?? 0));
+          return fresh.length === 0
+            ? prev
+            : [...prev, ...fresh].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+        });
         const rows = newOnes
           .filter((e) => e.kind != null && POLL_RENDERED_KINDS.has(e.kind))
           .map(eventToLogRow)

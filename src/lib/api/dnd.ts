@@ -3,6 +3,7 @@
 // Typed wrappers for the DnD proxy at /api/dnd/*.
 // Method + path taken verbatim from the NekoNova bridge files.
 import { apiCall } from './client';
+import { RAW_EVENTS_PAGE_LIMIT } from './eventsPaging.constants';
 import type {
   AdvanceSceneRequest,
   AdvanceSceneResult,
@@ -711,9 +712,16 @@ export const getSessionEvents = (sessionId: string, signal?: AbortSignal) =>
  * convention as getSessionEvents. Callers must treat null as "skip
  * rehydration, render what we have" rather than crash.
  */
-export const getSessionEventsRaw = (sessionId: string, signal?: AbortSignal) =>
+export const getSessionEventsRaw = (
+  sessionId: string,
+  signal?: AbortSignal,
+  sinceSeq = 0,
+) =>
   apiCall<{ events: EngineSessionEvent[] }>(
-    `/api/dnd/sessions/${encodeURIComponent(sessionId)}/events`,
+    // TAV-EVENTS-FEED-FROZEN-PAST-200: the engine default is the OLDEST 200
+    // rows; always say where to start and how many. Page forward with
+    // readSessionEventsForward (src/lib/sessionEventsPaging.ts).
+    `/api/dnd/sessions/${encodeURIComponent(sessionId)}/events?since_seq=${encodeURIComponent(String(sinceSeq))}&limit=${RAW_EVENTS_PAGE_LIMIT}`,
     { method: 'GET', signal },
   )
     .then((d) => d.events ?? [])
