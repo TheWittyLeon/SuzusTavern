@@ -103,6 +103,7 @@ import type {
 } from '@/lib/api/types';
 import type { LogRow } from '@/components/ChatLog';
 import { POLL_INTERVAL_MS, scanXCardTracking } from '../format';
+import { buildHistoryRows, mergeHealedRows } from '../historyRows';
 import type { PlayPageLoadState } from './useSessionLifecycle';
 import type { XCardEvent } from './useSafety';
 
@@ -769,12 +770,19 @@ export function useSessionEvents(
             ? prev
             : [...prev, ...fresh].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
         });
-        const rows = newOnes
-          .filter((e) => healing || (e.kind != null && POLL_RENDERED_KINDS.has(e.kind)))
-          .map(eventToLogRow)
-          .filter((r): r is LogRow => r !== null);
-        if (rows.length > 0) {
-          setLog((prev) => [...prev, ...rows]);
+        if (healing) {
+          // The mount's own row builder (opening_narrated included); grounding is read only for that.
+          const g = newOnes.some((e) => e.kind === 'opening_narrated') ? await getGrounding(sessionId).catch(() => null) : null;
+          const healed = buildHistoryRows(newOnes, g);
+          if (healed.length > 0) setLog((prev) => mergeHealedRows(prev, healed));
+        } else {
+          const rows = newOnes
+            .filter((e) => e.kind != null && POLL_RENDERED_KINDS.has(e.kind))
+            .map(eventToLogRow)
+            .filter((r): r is LogRow => r !== null);
+          if (rows.length > 0) {
+            setLog((prev) => [...prev, ...rows]);
+          }
         }
         const { xCard, narrationSeq } = scanXCardTracking(newOnes);
         if (xCard) {

@@ -79,7 +79,7 @@ export function useTranscript(): UseTranscriptResult {
   const lastEventSeqRef = useRef(0);
 
   // TAV-MOUNT-PARTIAL-HISTORY-HEALS: true while the mount's history read stopped
-  // before the end of the log (set by readSessionHistory, cleared by the events
+  // before the end of the log (set by the mount effect beside the watermark, cleared by the events
   // poll once a read reaches the end). Page-owned, so unmounting drops it.
   const unreadHistoryRef = useRef(false);
 

@@ -51,21 +51,21 @@ export async function readSessionEventsForward(
 }
 
 /**
- * TAV-MOUNT-PARTIAL-HISTORY-HEALS — the mount's history read. Sets
- * `unreadHistoryRef` (owned by the play page's transcript hook, so it is gone
- * when the page unmounts) to whether the read stopped before the end of the log.
- * The play screen seeds its poll watermark from what the mount DID read, and the
- * flag-OFF poll draws only dice and X-card rows, so while the ref is true the poll
- * draws every kind it reads past the watermark, until a read reaches the end.
- * A null (first page failed) leaves it false: the mount then renders nothing and
- * runs the opening path, which a later heal must not race.
+ * TAV-MOUNT-PARTIAL-HISTORY-HEALS — the mount's history read. Returns the typed read (null when the
+ * first page failed); the caller decides what an incomplete one means. The play screen seeds its
+ * poll watermark from what the mount DID read, and the flag-OFF poll draws only dice and X-card
+ * rows, so while the read was incomplete the poll heals: it draws every kind it reads past the
+ * watermark, until a read reaches the end of the log. The mount sets the flag (`unreadHistoryRef`,
+ * owned by the transcript hook) in the same run that seeds the watermark, never earlier.
  */
-export async function readSessionHistory(
-  sessionId: string,
-  signal: AbortSignal | undefined,
-  unreadHistoryRef: MutableRefObject<boolean>,
-): Promise<EngineSessionEvent[] | null> {
-  const read = await readSessionEventsResult(sessionId, signal);
-  unreadHistoryRef.current = read !== null && !read.complete;
-  return read && read.rows;
+export function readSessionHistory(sessionId: string, signal: AbortSignal | undefined): Promise<EventsRead | null> {
+  return readSessionEventsResult(sessionId, signal);
+}
+
+/**
+ * Record whether a mount history read left rows unread (a null read, the first page failing, counts:
+ * the whole log is unread). Call it in the same synchronous run that seeds the poll watermark.
+ */
+export function flagUnreadHistory(unreadHistoryRef: MutableRefObject<boolean>, read: EventsRead | null): void {
+  unreadHistoryRef.current = read === null || !read.complete;
 }

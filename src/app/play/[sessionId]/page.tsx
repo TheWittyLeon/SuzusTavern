@@ -51,15 +51,14 @@ import {
   getParticipants,
   getSession,
 } from '@/lib/api/dnd';
-import { readSessionHistory } from '@/lib/sessionEventsPaging';
-import { eventToLogRow, formatEventTimestamp as formatOpeningTimestamp } from '@/lib/rehydration';
+import { flagUnreadHistory, readSessionHistory } from '@/lib/sessionEventsPaging';
+import { buildHistoryRows } from './historyRows';
 import { matchCombatIntent, matchKeywordIntent } from '@/lib/dnd/intentFastPath';
 import { DURABLE_GENERATION_ENABLED } from '@/lib/config';
 import type { Participant } from '@/lib/api/types';
 import type { QuickCheck } from '@/components/DiceTray';
 import { statusPills } from './statusPills';
 import PageSkeleton from '@/components/PageSkeleton';
-import { type LogRow } from '@/components/ChatLog';
 import RollControl from '@/components/RollControl';
 import DiceTrayTenant from './tenants/DiceTrayTenant';
 import Composer, { type ComposeMode } from '@/components/Composer';
@@ -79,7 +78,6 @@ import PlayShell from './PlayShell';
 import { FOLD_SPECS } from './foldSpecs';
 import { composerHasRoll, getPlacement, variantFor, type Moment, type RegionId, type TenantId } from './presets';
 import {
-  buildReadAloudBlock,
   deathSaveTally,
   groundingCreatureNames,
   endSessionBody, initiativeNames, isCombatEncounterUnstarted, areTurnsRunning, anyPcStanding,
@@ -297,6 +295,7 @@ export default function PlayPage() {
   // -- see that hook's own header for the full DDX-22 scope. A9d E4: one
   // presentation at every width, no parameters.
   const journalDrawer = useJournalDrawer();
+  const { setJournalEvents: seedJournal, journalSeenSeqsRef: journalSeenRef } = journalDrawer;
 
   // Iro MEDIUM-2: persistent turn-status text so one mounted live region mutates
   // in place instead of two regions mounting/unmounting on every poll cycle.
@@ -550,12 +549,17 @@ export default function PlayPage() {
 
         // Fetch grounding, participants, and the raw event log (rehydration) in
         // parallel.
-        const [g, party, rawEvents] = await Promise.all([
+        const [g, party, history] = await Promise.all([
           getGrounding(sessionId, ctrl.signal),
           getParticipants(sessionId, ctrl.signal).catch(() => [] as Participant[]),
-          readSessionHistory(sessionId, ctrl.signal, unreadHistoryRef),
+          readSessionHistory(sessionId, ctrl.signal),
         ]);
         if (ctrl.signal.aborted) return;
+        // The heal's flag is set HERE, in the same synchronous run that seeds the watermark below:
+        // set when the read resolved (slow grounding still pending), a poll tick could consume it
+        // before the watermark was applied. A failed first page (null) heals from 0 as well.
+        flagUnreadHistory(unreadHistoryRef, history);
+        const rawEvents = history && history.rows;
         if (g) {
           setGrounding(g);
           // Check Retry + Fail-Forward Iro-A11y MAJOR-1: seed the
@@ -599,9 +603,9 @@ export default function PlayPage() {
         // renderedSeqsRef's own gate below rather than relying on "nobody
         // reads it anyway".
         if (sortedRawEvents) {
-          journalDrawer.setJournalEvents(sortedRawEvents);
+          seedJournal(sortedRawEvents);
           if (DURABLE_GENERATION_ENABLED) {
-            journalDrawer.journalSeenSeqsRef.current = new Set(
+            journalSeenRef.current = new Set(
               sortedRawEvents.map((e) => e.seq ?? 0),
             );
           }
@@ -613,46 +617,7 @@ export default function PlayPage() {
         // never crash); the existing (unchanged) opening path still runs below.
         if (sortedRawEvents && !rehydratedRef.current) {
           const sorted = sortedRawEvents;
-          const rows: LogRow[] = [];
-          for (const e of sorted) {
-            if (e.kind === 'opening_narrated') {
-              // §6.4 — reconstruct the verbatim read-aloud from CURRENT grounding,
-              // but only while the player is still on the scene it was shown for.
-              // If they've advanced, showing the (different) current boxed_text
-              // would misrepresent it as "the opening" — render a compact marker
-              // instead so the log still records "the game opened here".
-              const openingSceneId = (e.data?.['scene_id'] as string | undefined) || undefined;
-              if (g && openingSceneId && openingSceneId === g.scene_id) {
-                rows.push({
-                  id: `ev${e.seq ?? 'opening'}-read-aloud`,
-                  ts: formatOpeningTimestamp(e.created_at),
-                  who: 'Scene',
-                  kind: 'read_aloud',
-                  text: buildReadAloudBlock(g),
-                });
-                for (const line of g.opening_lines ?? []) {
-                  rows.push({
-                    id: `ev${e.seq ?? 'opening'}-line-${line.npc_ref}`,
-                    ts: formatOpeningTimestamp(e.created_at),
-                    who: line.speaker_display_name,
-                    kind: 'read_aloud_line',
-                    text: line.line,
-                  });
-                }
-              } else if (g) {
-                rows.push({
-                  id: `ev${e.seq ?? 'opening'}-marker`,
-                  ts: formatOpeningTimestamp(e.created_at),
-                  who: 'Scene',
-                  kind: 'system',
-                  text: `— ${g.adventure_title ?? 'the adventure'} · opening —`,
-                });
-              }
-              continue;
-            }
-            const row = eventToLogRow(e);
-            if (row) rows.push(row);
-          }
+          const rows = buildHistoryRows(sorted, g);
           setLog(rows);
           rehydratedRef.current = true;
           // DDX-08 / T3: the events poll (`useSessionEvents.ts`, A4) only

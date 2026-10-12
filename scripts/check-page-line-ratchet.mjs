@@ -269,13 +269,14 @@ const PAGE = join(ROOT, PAGE_REL);
 // dialog's host (`overrideDialog.tsx`, one wrapper element on two lines) and its imports. Net -12 against 806.
 // -> 792 (TPK-HOLD round 3): the turn-status tenant's four prop lines are one (4 -> 1), which pays for the held props on the stage (on its existing line), the End-session confirm's
 // snapshot (`useOpenSnapshot`, 1) and the scene gate's comment-only change. Net -2 against 794.
+// -> 759 (TAV-HEAL-SHARES-MOUNT-ROW-BUILDER): the mount's history-to-rows loop (33 code lines) moves to `historyRows.ts` (`buildHistoryRows`, shared with the poll heal); the call, the unread-history flag and two journal aliases (the compiler lint needs them once the loop is gone) stay. Net -33 against 792.
 // Update this value, in the SAME commit, whenever page.tsx's actual
 // non-comment, non-blank line count drops below it. Never raise it
 // silently -- unless the growth is deliberate and reviewed, in which case
 // raise it in the same commit and say why (this file's own rule, restated
 // correctly per the A7 pre-merge ratchet ruling: the runbook's "may only go
 // down" was a paraphrase that was never this file's actual rule).
-export const RATCHET_CEILING = 792;
+export const RATCHET_CEILING = 759;
 
 /**
  * Pure: counts lines the way `wc -l` does (newline-byte count). Exported so
