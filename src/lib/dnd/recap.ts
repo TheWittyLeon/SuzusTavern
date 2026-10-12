@@ -14,6 +14,7 @@
  */
 import { sessionTitle, formatStarted } from '@/lib/format';
 import type { Session, SessionEvent } from '@/lib/api/types';
+import { STRUCTURAL_EVENT_KINDS } from '@/lib/rehydration';
 
 export type { SessionEvent };
 
@@ -79,7 +80,11 @@ export function buildRecap(
 ): RecapResult {
   const max = opts.maxLines ?? 4;
 
-  const withDesc = events.filter((e) => e.description && e.description.trim());
+  const allWithDesc = events.filter((e) => e.description && e.description.trim());
+  // Bookkeeping rows (a stored model recap included) stay out of the deterministic digest whenever there is
+  // story to print instead; a log of bookkeeping alone still counts as "from events" (the stored recap shows).
+  const storyWithDesc = allWithDesc.filter((e) => !STRUCTURAL_EVENT_KINDS.has((e.event_type ?? '').toLowerCase()));
+  const withDesc = storyWithDesc.length ? storyWithDesc : allWithDesc;
   // Normalize type (engine case convention isn't contract-locked yet — Kage).
   const notable = withDesc.filter((e) => NOTABLE.has((e.event_type ?? '').toLowerCase()));
   const picked = (notable.length ? notable : withDesc).slice(-max);
@@ -113,7 +118,8 @@ export function buildRecap(
 /**
  * TAV-RECAP-ROW-PER-PAGE-OPEN (R37): what the log already says about the last "previously on".
  * `null` = no `recap` row yet (a first open: make one). Otherwise the LAST recap row's text
- * (null when blank) and whether any event lies past it. Events are oldest first.
+ * (null when blank) and whether any STORY event lies past it (bookkeeping kinds, STRUCTURAL_EVENT_KINDS, do
+ * not count: a pause or resume is not "something happened"). Events are oldest first.
  */
 export function lastStoredRecap(events: SessionEvent[]): { text: string | null; newerEvents: boolean } | null {
   let at = -1;
@@ -121,5 +127,6 @@ export function lastStoredRecap(events: SessionEvent[]): { text: string | null; 
     if ((events[i].event_type ?? '').toLowerCase() === 'recap') { at = i; break; }
   }
   if (at < 0) return null;
-  return { text: events[at].description?.trim() || null, newerEvents: at < events.length - 1 };
+  const newerEvents = events.slice(at + 1).some((e) => !STRUCTURAL_EVENT_KINDS.has((e.event_type ?? '').toLowerCase()));
+  return { text: events[at].description?.trim() || null, newerEvents };
 }

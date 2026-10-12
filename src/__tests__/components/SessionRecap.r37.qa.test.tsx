@@ -198,10 +198,9 @@ describe('R37: which later events count as "something happened"', () => {
   // QA RULING (Miko): bookkeeping is not story. A pause/resume, a session_start, a rebind, an
   // opening marker or another recap row after the recap means nothing HAPPENED in the fiction; spending a
   // model call there re-creates the spend R37 exists to stop (a resume from the dashboard writes
-  // session_resume, then the play strip opens: one call per resume). The code counts EVERY row, which is the
-  // literal text of R37. The repo's own taxonomy agrees (lib/rehydration.ts drops recap / rebind / session_start /
+  // session_resume, then the play strip opens: one call per resume). Fixed (coordinator ruling, R37 read as story only): the kinds are STRUCTURAL_EVENT_KINDS (lib/rehydration.ts). The repo's own taxonomy agrees (lib/rehydration.ts drops recap / rebind / session_start /
   // session_created from the transcript as "structural"). Not a blocker: the failure mode is today's cost, not a wrong answer.
-  test.failing.each(['session_start', 'session_created', 'session_pause', 'session_resume', 'rebind', 'opening_narrated'])(
+  it.each(['session_start', 'session_created', 'session_pause', 'session_resume', 'rebind', 'opening_narrated'])(
     'JUDGEMENT (non-blocking): a %s after the recap should NOT trigger a new recap',
     async (kind) => {
       log = [...story(1, 2), recap(3, 'STORED BEFORE BOOKKEEPING'), { seq: 4, kind, data: { description: 'bookkeeping' } }];
@@ -235,11 +234,11 @@ describe('R37: the assist interlock is untouched', () => {
     expect(posts()).toHaveLength(0);
     expect(screen.queryByText(/STORED MODEL TEXT/, { selector: 'p' })).not.toBeInTheDocument();
   });
-  // FINDING (pre-existing, not introduced by this branch; low): buildRecap's fallback digest takes the last
+  // (Was a finding, fixed: structural rows stay out of the digest while story remains.) buildRecap's fallback digest takes the last
   // four rows WITH A DESCRIPTION when the log has no "notable" kind, and a stored `recap` row has one, so with
   // assist OFF the deterministic list prints the model's earlier recap as a bullet. recap.ts promises the
   // assist-off recap is "exactly" the deterministic digest. Non-blocking: no model call is made.
-  test.failing('assist off: a model-written recap row does not appear in the deterministic digest', async () => {
+  it('assist off: a model-written recap row does not appear in the deterministic digest', async () => {
     log = [...story(1, 1), recap(2, 'STORED MODEL TEXT')];
     await mount('card', { session: session({ ai_assist_level: 'off' }) });
     expect(screen.queryByText(/STORED MODEL TEXT/)).not.toBeInTheDocument();
