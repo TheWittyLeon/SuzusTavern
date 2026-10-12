@@ -294,6 +294,7 @@ export function useCombatActions(
         // Harmless on the branches whose routes don't emit it today (dodge/
         // dash/attack/endturn — only death-save and /combat/{id}/end do).
         let outcomeLine: string | null | undefined;
+        let skipTurnEndBeat = false;
 
         if (action === 'attack' && payload) {
           // payload is the participant_id (from the target menu item's id).
@@ -389,6 +390,13 @@ export function useCombatActions(
         } else if (action === 'endturn') {
           const res = await combatEndTurn({ username, combat_id: combatId });
           newState = res.state ?? null;
+          if (res.already_advanced === true) {
+            // The advance was a no-op (another client ended this turn first): no second "turn ends" beat below. The
+            // refused call can itself have moved the turn on or ended the fight, so the fight is read again; the rest of
+            // the answer (scene advance, outcome line) is still used.
+            skipTurnEndBeat = true;
+            newState = (await getCombatState(combatId).catch(() => null)) ?? newState;
+          }
           outcomeLine = res.outcome_line;
           if (res.scene_advance) {
             sceneAdvance = {
@@ -406,21 +414,23 @@ export function useCombatActions(
           setCombatState(newState);
         }
 
-        appendLog({ who: username, kind: 'system', text: message });
-        // DDX-20 Pass 3 §3.3 — flag-OFF this `await` serializes end-turn
-        // narration ahead of the scene-advance call just below (preserved
-        // verbatim). Flag-ON, `narrateDurableBeat` returns after the job is
-        // CREATED, not after narration completes, so it is fired-and-forgot
-        // (`void`, no `await`) here — the accepted trade-off documented in
-        // Pass-3 §3.3: beat 2 (scene-advance) may 409 subscribe-and-drop
-        // against this beat's still-streaming narration; the scene still
-        // advances (its durable `scene_advance` event is independent). Do
-        // NOT try to serialize these — that re-couples the beats for a
-        // cosmetic gain the single-slot model already bounds.
-        if (DURABLE_GENERATION_ENABLED) {
-          void narrateDurableBeat(playerLine, message, 'act', { beat: 'end_turn' });
-        } else {
-          await narrate(playerLine, message, 'act'); // byte-unchanged legacy path
+        if (!skipTurnEndBeat) {
+          appendLog({ who: username, kind: 'system', text: message });
+          // DDX-20 Pass 3 §3.3 — flag-OFF this `await` serializes end-turn
+          // narration ahead of the scene-advance call just below (preserved
+          // verbatim). Flag-ON, `narrateDurableBeat` returns after the job is
+          // CREATED, not after narration completes, so it is fired-and-forgot
+          // (`void`, no `await`) here — the accepted trade-off documented in
+          // Pass-3 §3.3: beat 2 (scene-advance) may 409 subscribe-and-drop
+          // against this beat's still-streaming narration; the scene still
+          // advances (its durable `scene_advance` event is independent). Do
+          // NOT try to serialize these — that re-couples the beats for a
+          // cosmetic gain the single-slot model already bounds.
+          if (DURABLE_GENERATION_ENABLED) {
+            void narrateDurableBeat(playerLine, message, 'act', { beat: 'end_turn' });
+          } else {
+            await narrate(playerLine, message, 'act'); // byte-unchanged legacy path
+          }
         }
 
         // Monsters' turns (after the player ends theirs) are driven uniformly by
@@ -662,9 +672,15 @@ export function useCombatActions(
               ? `${mla.actor_id}: ${mla.outcome}${mla.damage_dealt ? `, ${mla.damage_dealt} dmg` : ''}`
               : null);
           if (mLog) appendLog({ who: 'Suzu', kind: 'system', text: mLog });
-          if (mres.state) {
+          let held = mres.state;
+          if (mres.already_advanced === true) {
+            // The advance was a no-op, but this call can be the one that attacked (the line above stays) and can itself
+            // have moved the turn on or ended the fight: the driver follows the fight as the server holds it now.
+            held = (await getCombatState(combatId).catch(() => null)) ?? held;
+          }
+          if (held) {
             stateSeqRef.current += 1;
-            setCombatState(mres.state);
+            setCombatState(held);
           }
           if (mres.scene_advance) {
             await handleSceneAdvance(
@@ -681,7 +697,7 @@ export function useCombatActions(
           // on the engine today (only death-save + /combat/{id}/end do) —
           // this is inert-but-harmless until/unless the engine adds it here.
           playOutcomeLine(mres.outcome_line);
-          const st = mres.state;
+          const st = held;
           if (!st) {
             // A 200 with no state advanced nothing we can see (a stuck engine): the next poll asks again, and the cap speaks.
             if (led.attempts >= MONSTER_TURN_ATTEMPTS_PER_TURN) sayMonsterTurnExhausted(led);

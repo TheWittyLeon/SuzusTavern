@@ -1403,6 +1403,13 @@ export interface CombatMessageResult {
   outcome_line?: string | null;
   /** Error: machine-readable refusal reason (e.g. 'not_your_turn'). */
   reason?: string;
+  /**
+   * Engine, on end-turn / monster-turn / npc-action only: `true` when THIS call's advance was a
+   * no-op (the turn had already moved). Absent otherwise; read absent as false. It does NOT mean the
+   * call was a duplicate (the loser of a monster-turn race can be the call that attacked), and the
+   * refused call can itself have moved the turn on or ended the fight: re-read the fight.
+   */
+  already_advanced?: boolean;
   [k: string]: unknown;
 }
 
@@ -2700,9 +2707,13 @@ export interface NpcActionResult {
     applied?: CombatMessageResult;
     state?: CombatState;
     turn_advanced?: boolean;
+    /** See `CombatMessageResult.already_advanced`. */
+    already_advanced?: boolean;
   };
   state?: CombatState;
   turn_advanced?: boolean;
+  /** See `CombatMessageResult.already_advanced`. */
+  already_advanced?: boolean;
   [k: string]: unknown;
 }
 
