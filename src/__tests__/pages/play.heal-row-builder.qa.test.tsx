@@ -156,7 +156,7 @@ describe('parity: a healed transcript reads like a mounted one', () => {
 });
 
 describe('the flag-before-watermark race', () => {
-  // FINDING (P2, non-blocking, PRE-EXISTING -- the base has the same hole; the branch's claim "a first-page failure
+  // (Was a P2 finding, fixed: the mount arms the flag before it reads anything.) Original description: the branch's claim "a first-page failure
   // heals from 0" is true only AFTER the mount's Promise.all joins): the flag is armed when grounding AND the
   // history read have both settled. A poll tick that lands before that (grounding / participants slower than the
   // 4 s tick -- likely exactly when the engine just failed the first page) sees flag=false and watermark=0, reads
@@ -164,7 +164,7 @@ describe('the flag-before-watermark race', () => {
   // arms the flag but there is nothing past the watermark: the story is never drawn until reload. Observed
   // requests: since_seq [0, 0, 3, 3, 3]; log = the dice row alone. Fix: arm the flag true at mount start and
   // let the mount clear it, or hold the events poll until the mount has seeded the watermark.
-  test.failing('FIRST page fails and grounding is slow: a poll tick inside that window must not consume the history as live activity', async () => {
+  it('FIRST page fails and grounding is slow: a poll tick inside that window must not consume the history as live activity', async () => {
     campaign = [nar(1, 'first line.'), dice(2), nar(3, 'third line.')];
     let calls = 0;
     mockRaw.mockImplementation((...a: unknown[]) => (++calls === 1 ? Promise.resolve(null) : fakeEngine(...a)));
@@ -199,14 +199,14 @@ describe('the flag-before-watermark race', () => {
     expect(count('Stealth +3')).toBe(1);
   });
 
-  // FINDING (new in this branch): the heal now AWAITS getGrounding between clearing the unread-history flag
+  // (Was a P3 finding, fixed: the heal advances the watermark before its grounding await.) Original description: the heal AWAITS getGrounding between clearing the unread-history flag
   // and advancing the watermark (useSessionEvents.ts, heal branch). The poll has no re-entrancy guard, so a
   // second tick inside that await (grounding slower than the 4 s tick) reads the same rows past the
   // un-advanced watermark, sees healing === false, and draws the dice/X-card rows itself; the first tick
   // then merges the same rows again. Before this branch nothing awaited in that window. Trigger: an
   // opening_narrated in the healed tail AND grounding >4 s. Cosmetic (a doubled dice line), self-limiting,
   // so non-blocking; fix is to advance the watermark before the await or read grounding without awaiting.
-  test.failing('opening_narrated in the healed tail + grounding slower than one tick: a dice row is drawn once', async () => {
+  it('opening_narrated in the healed tail + grounding slower than one tick: a dice row is drawn once', async () => {
     campaign = [...filler(500), { seq: 501, kind: 'opening_narrated', data: { scene_id: 'cave-mouth' } }, dice(502), nar(503, 'tail B.')];
     failRequest(2);
     let first = true;

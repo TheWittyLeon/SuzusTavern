@@ -771,10 +771,20 @@ export function useSessionEvents(
             : [...prev, ...fresh].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
         });
         if (healing) {
-          // The mount's own row builder (opening_narrated included); grounding is read only for that.
-          const g = newOnes.some((e) => e.kind === 'opening_narrated') ? await getGrounding(sessionId).catch(() => null) : null;
-          const healed = buildHistoryRows(newOnes, g);
-          if (healed.length > 0) setLog((prev) => mergeHealedRows(prev, healed));
+          // The watermark moves BEFORE the grounding await: the poll has no re-entrancy guard, so a tick landing
+          // inside the await must find these rows already past the watermark (else it draws them a second time).
+          // A throw restores it, keeping this tick's advance-after / retry-on-throw contract.
+          const mark = lastEventSeqRef.current;
+          lastEventSeqRef.current = newOnes.reduce((m, e) => Math.max(m, e.seq ?? 0), mark);
+          try {
+            // The mount's own row builder (opening_narrated included); grounding is read only for that.
+            const g = newOnes.some((e) => e.kind === 'opening_narrated') ? await getGrounding(sessionId).catch(() => null) : null;
+            const healed = buildHistoryRows(newOnes, g);
+            if (healed.length > 0) setLog((prev) => mergeHealedRows(prev, healed));
+          } catch (err) {
+            lastEventSeqRef.current = mark;
+            throw err;
+          }
         } else {
           const rows = newOnes
             .filter((e) => e.kind != null && POLL_RENDERED_KINDS.has(e.kind))

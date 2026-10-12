@@ -534,6 +534,9 @@ export default function PlayPage() {
   useEffect(() => {
     if (!username || !sessionId) return;
     const ctrl = new AbortController();
+    // Armed BEFORE anything is read: until the mount has seeded the watermark, the poll may not treat what it reads as
+    // live (it would advance the watermark over a history the mount then fails to draw). The mount clears it below.
+    unreadHistoryRef.current = true;
     (async () => {
       try {
         const s = await getSession(sessionId, ctrl.signal);
@@ -555,11 +558,9 @@ export default function PlayPage() {
           readSessionHistory(sessionId, ctrl.signal),
         ]);
         if (ctrl.signal.aborted) return;
-        // The heal's flag is set HERE, in the same synchronous run that seeds the watermark below:
-        // set when the read resolved (slow grounding still pending), a poll tick could consume it
-        // before the watermark was applied. A failed first page (null) heals from 0 as well.
+        // The flag was armed at the top of this effect; this settles it (cleared for a complete read, kept for a
+        // partial one or a failed first page, which heals from 0), in the same run that seeds the watermark below.
         flagUnreadHistory(unreadHistoryRef, history);
-        const rawEvents = history && history.rows;
         if (g) {
           setGrounding(g);
           // Check Retry + Fail-Forward Iro-A11y MAJOR-1: seed the
@@ -582,8 +583,8 @@ export default function PlayPage() {
         // `[...rawEvents].sort(...)` computed twice. Behaviour-neutral: each
         // block below still only runs under its own original condition,
         // this only removes the duplicate computation.
-        const sortedRawEvents = rawEvents
-          ? [...rawEvents].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
+        const sortedRawEvents = history
+          ? [...history.rows].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
           : null;
 
         // DDX-22: seed the Journal pane from the SAME rehydration fetch —
