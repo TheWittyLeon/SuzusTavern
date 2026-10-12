@@ -249,4 +249,54 @@ describe('SessionRecap', () => {
     rerender(<SessionRecap session={session} username="leon" variant="strip" hidden={false} />);
     expect(container.querySelector('section')).toBeNull();
   });
+
+  // TAV-RECAP-ROW-PER-PAGE-OPEN (R37): a new recap only when events exist past the last stored one.
+  describe('one recap per change of history (R37)', () => {
+    const play = { event_type: 'scene_advance', description: 'The party fled the rising tide.' };
+    const stored = { event_type: 'recap', description: 'Last time, the tide was rising.' };
+    const streamOk = () =>
+      mStream.mockImplementation(async function* () {
+        yield { kind: 'chunk' as const, text: 'A fresh recap.' };
+      });
+
+    it.each(['card', 'strip'] as const)('%s: no event past the last stored recap -> shows it, sends NO request', async (variant) => {
+      mGetEvents.mockResolvedValue([play, stored]);
+      streamOk();
+      render(<SessionRecap session={makeSession({ ai_assist_level: 'full' })} username="leon" variant={variant} />);
+      if (variant === 'strip') fireEvent.click(await screen.findByRole('button', { name: /previously on/i }));
+      expect(await screen.findByText(/the tide was rising/i, { selector: 'p' })).toBeInTheDocument();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(mStream).not.toHaveBeenCalled();
+    });
+
+    it.each(['card', 'strip'] as const)('%s: an event past the last stored recap -> sends one request', async (variant) => {
+      mGetEvents.mockResolvedValue([play, stored, { event_type: 'player_action', description: 'I open the door.' }]);
+      streamOk();
+      render(<SessionRecap session={makeSession({ ai_assist_level: 'full' })} username="leon" variant={variant} />);
+      await waitFor(() => expect(mStream).toHaveBeenCalledTimes(1));
+    });
+
+    it('the LAST recap row decides (an older recap with events after it, then a newer recap)', async () => {
+      mGetEvents.mockResolvedValue([play, { ...stored, description: 'old' }, play, { ...stored, description: 'newest recap text' }]);
+      streamOk();
+      render(<SessionRecap session={makeSession({ ai_assist_level: 'full' })} username="leon" />);
+      expect(await screen.findByText(/newest recap text/i, { selector: 'p' })).toBeInTheDocument();
+      expect(mStream).not.toHaveBeenCalled();
+    });
+
+    it('no recap row yet: the first open still sends one request', async () => {
+      mGetEvents.mockResolvedValue([play]);
+      streamOk();
+      render(<SessionRecap session={makeSession({ ai_assist_level: 'assist' })} username="leon" />);
+      await waitFor(() => expect(mStream).toHaveBeenCalledTimes(1));
+    });
+
+    it('assist off: a stored recap is not shown and nothing is requested', async () => {
+      mGetEvents.mockResolvedValue([play, stored]);
+      render(<SessionRecap session={makeSession({ ai_assist_level: 'off' })} username="leon" />);
+      await screen.findByRole('heading');
+      expect(screen.queryByText(/the tide was rising/i)).not.toBeInTheDocument();
+      expect(mStream).not.toHaveBeenCalled();
+    });
+  });
 });

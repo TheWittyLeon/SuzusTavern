@@ -109,3 +109,17 @@ export function buildRecap(
     fromEvents: false,
   };
 }
+
+/**
+ * TAV-RECAP-ROW-PER-PAGE-OPEN (R37): what the log already says about the last "previously on".
+ * `null` = no `recap` row yet (a first open: make one). Otherwise the LAST recap row's text
+ * (null when blank) and whether any event lies past it. Events are oldest first.
+ */
+export function lastStoredRecap(events: SessionEvent[]): { text: string | null; newerEvents: boolean } | null {
+  let at = -1;
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    if ((events[i].event_type ?? '').toLowerCase() === 'recap') { at = i; break; }
+  }
+  if (at < 0) return null;
+  return { text: events[at].description?.trim() || null, newerEvents: at < events.length - 1 };
+}

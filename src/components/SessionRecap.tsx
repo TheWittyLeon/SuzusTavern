@@ -14,7 +14,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { getSessionEvents } from '@/lib/api/dnd';
 import { streamDmNarration } from '@/lib/stream';
-import { buildRecap, type RecapResult } from '@/lib/dnd/recap';
+import { buildRecap, lastStoredRecap, type RecapResult } from '@/lib/dnd/recap';
 import { sessionTitle } from '@/lib/format';
 import Icon from '@/components/Icon';
 import type { Session } from '@/lib/api/types';
@@ -46,6 +46,10 @@ export default function SessionRecap({ session, username, variant = 'card', hidd
   // which would reset this ref anyway, but keying by id is defense-in-depth
   // if a future caller omits the key — still recaps exactly once.
   const requestedForRef = useRef<string | null>(null);
+  // R37 (TAV-RECAP-ROW-PER-PAGE-OPEN): the last stored `recap` row of the events read below, set
+  // before `recap` so the narration effect sees it. A new "previously on" is requested only when
+  // the log has events past it; otherwise the stored text is shown.
+  const storedRef = useRef<ReturnType<typeof lastStoredRecap>>(null);
 
   // Deterministic digest — zero LLM, always runs. Depends on the STABLE
   // session_id, not the whole `session` object: a poll-driven identity change
@@ -58,6 +62,7 @@ export default function SessionRecap({ session, username, variant = 'card', hidd
       // Fall back to [] so the recap keeps its resilient empty-state behavior.
       const events = (await getSessionEvents(session.session_id, ctrl.signal)) ?? [];
       if (ctrl.signal.aborted) return;
+      storedRef.current = lastStoredRecap(events);
       setRecap(buildRecap(session, events));
     })();
     return () => ctrl.abort();
@@ -80,9 +85,18 @@ export default function SessionRecap({ session, username, variant = 'card', hidd
     // a fresh session has no past, and the LLM would fabricate one.
     if (!recap || recap.empty || !recap.facts || !recap.fromEvents) return;
     if (level !== 'full' && level !== 'assist') return;
-    if (!username) return;
     if (requestedForRef.current === session.session_id) return;
+    const stored = storedRef.current;
+    if (stored && !stored.newerEvents) {
+      // Nothing happened since the last recap: show it, send nothing (R37).
+      requestedForRef.current = session.session_id;
+      if (stored.text) setAiText(stored.text);
+      return;
+    }
+    if (!username) return;
     requestedForRef.current = session.session_id;
+    // debt: two tabs opening at once both see "newer events" and both generate. ceiling: one extra recap row per race.
+    // until: a server-side guard on kind=recap (Backlog TAV-RECAP-ROW-PER-PAGE-OPEN).
     const ctrl = new AbortController();
     (async () => {
       let full = '';
