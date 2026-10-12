@@ -388,6 +388,17 @@ describe('end-turn already_advanced: the refused call itself changed the fight',
     await clickEndTurn();
     await tick(0);
     expect(endTurnBeats()).toBe(0);
+    // nothing failed: no error toast. The only notice is the info line that says the turn had already ended.
+    expect(mockToast).not.toHaveBeenCalledWith(expect.objectContaining({ tone: 'error' }));
+    expect(mockToast).toHaveBeenCalledTimes(1);
+    expect(mockToast).toHaveBeenCalledWith({ tone: 'info', message: 'That turn had already ended.' });
+  });
+
+  it('a normal end-turn (no flag) says nothing extra', async () => {
+    mEndTurn.mockResolvedValue({ message: 'm', state: COMBAT_STATE_GOBLIN_TURN } as never);
+    await mountOnPcTurn();
+    await clickEndTurn();
+    await tick(0);
     expect(mockToast).not.toHaveBeenCalled();
   });
 });

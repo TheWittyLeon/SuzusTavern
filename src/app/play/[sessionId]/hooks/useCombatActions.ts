@@ -396,6 +396,8 @@ export function useCombatActions(
             // the answer (scene advance, outcome line) is still used.
             skipTurnEndBeat = true;
             newState = (await getCombatState(combatId).catch(() => null)) ?? newState;
+            // No beat is drawn or narrated for it, so say it (the toast host is a live region).
+            toast({ tone: 'info', message: 'That turn had already ended.' });
           }
           outcomeLine = res.outcome_line;
           if (res.scene_advance) {
@@ -502,6 +504,7 @@ export function useCombatActions(
       setCombatBusy,
       setRefusedReason,
       setCombatState,
+      toast,
     ],
   );
 
