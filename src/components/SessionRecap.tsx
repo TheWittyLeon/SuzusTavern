@@ -62,8 +62,16 @@ export default function SessionRecap({ session, username, variant = 'card', hidd
       // Fall back to [] so the recap keeps its resilient empty-state behavior.
       const events = (await getSessionEvents(session.session_id, ctrl.signal)) ?? [];
       if (ctrl.signal.aborted) return;
-      storedRef.current = lastStoredRecap(events);
-      setRecap(buildRecap(session, events));
+      const stored = lastStoredRecap(events);
+      storedRef.current = stored;
+      const built = buildRecap(session, events);
+      // The stored text goes in with the digest, in one render (the effect below would swap it in a render later:
+      // a flash of the digest and a layout shift). Same conditions as that effect's stored branch.
+      const level = session.ai_assist_level;
+      if (stored && !stored.newerEvents && stored.text && built.fromEvents && (level === 'full' || level === 'assist')) {
+        setAiText(stored.text);
+      }
+      setRecap(built);
     })();
     return () => ctrl.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -95,7 +103,7 @@ export default function SessionRecap({ session, username, variant = 'card', hidd
     }
     if (!username) return;
     requestedForRef.current = session.session_id;
-    // debt: two tabs opening at once both see "newer events" and both generate. ceiling: one extra recap row per race.
+    // debt: two openings inside the generation window (two tabs, or the dashboard card then Resume in one tab) both see "newer events" and both generate. ceiling: one extra recap row per race.
     // until: a server-side guard on kind=recap (Backlog TAV-RECAP-ROW-PER-PAGE-OPEN).
     const ctrl = new AbortController();
     (async () => {

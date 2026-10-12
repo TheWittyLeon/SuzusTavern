@@ -136,9 +136,11 @@ function diceRollLogRow(e: EngineSessionEvent): LogRow | null {
 export const POLL_RENDERED_KINDS = new Set(['dice_roll', 'x_card']);
 
 /**
- * Event kinds that are bookkeeping, not story: nothing happened in the fiction when one was written. The ONE
- * definition: `eventToLogRow` leaves them out of the transcript, and the recap reads it twice (R37's "events
- * since the last recap" does not count them; the assist-off digest does not print them). A deny-list on purpose:
+ * Event kinds that are bookkeeping, not story: nothing happened in the fiction when one was written. The
+ * recap reads this set twice (R37's "events since the last recap" does not count them; the assist-off digest
+ * does not print them). It is NOT the only such list: the opening gate keeps its own, with different members
+ * (`STRUCTURAL_EVENT_KINDS` in hooks/useSceneState.ts, filed as its own row), and `eventToLogRow` does not read
+ * this set (it drops these kinds through its `default` branch, like any unknown kind). A deny-list on purpose:
  * a story kind missing from it costs one stale recap, a bookkeeping kind wrongly counted costs a model call
  * on every resume.
  * debt: a client copy of the engine's event vocabulary, kept as a kind list. ceiling: a new bookkeeping kind the engine adds is counted as story (one model call per occurrence) until it is listed here. until: the engine marks an event's class (story or bookkeeping) on the row.
@@ -170,7 +172,7 @@ export const STRUCTURAL_EVENT_KINDS: ReadonlySet<string> = new Set([
  *                                  skip if description missing)
  *   opening_narrated           -> null (handled specially by the caller —
  *                                       read-aloud reconstruction, not a plain row)
- *   anything else (the STRUCTURAL_EVENT_KINDS above, unknown kinds)
+ *   anything else (rebind, session_start, session_created, recap, unknown kinds)
  *                              -> null (structural/forward-compatible skip)
  *
  * The row's `id` is derived from `seq` so rehydrated rows never collide with

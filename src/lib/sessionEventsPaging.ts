@@ -55,8 +55,9 @@ export async function readSessionEventsForward(
  * first page failed); the caller decides what an incomplete one means. The play screen seeds its
  * poll watermark from what the mount DID read, and the flag-OFF poll draws only dice and X-card
  * rows, so while the read was incomplete the poll heals: it draws every kind it reads past the
- * watermark, until a read reaches the end of the log. The mount sets the flag (`unreadHistoryRef`,
- * owned by the transcript hook) in the same run that seeds the watermark, never earlier.
+ * watermark, until a read reaches the end of the log. The mount arms the flag (`unreadHistoryRef`,
+ * owned by the transcript hook) before it reads anything, so a poll tick that lands first heals instead of
+ * consuming the log as live, and settles it (`flagUnreadHistory`) in the run that seeds the watermark.
  */
 export function readSessionHistory(sessionId: string, signal: AbortSignal | undefined): Promise<EventsRead | null> {
   return readSessionEventsResult(sessionId, signal);

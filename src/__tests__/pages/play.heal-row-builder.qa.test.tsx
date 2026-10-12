@@ -182,6 +182,44 @@ describe('the flag-before-watermark race', () => {
     expect(count('Stealth +3')).toBe(1);
   });
 
+  // K1 (review): a COMPLETE mount read, grounding slower than one tick, an opening row in the log. The first tick
+  // lands before the mount joins; it must not draw the history the mount is about to draw.
+  it('complete mount read + slow grounding + an opening row: every row is drawn exactly once', async () => {
+    campaign = [nar(1, 'first line.'), { seq: 2, kind: 'opening_narrated', data: { scene_id: 'cave-mouth' } }, dice(3), nar(4, 'last line.')];
+    const waiting: Array<(g: GroundingData | null) => void> = [];
+    mGetGrounding.mockImplementation(() => new Promise((r) => { waiting.push(r as (g: GroundingData | null) => void); }));
+    const err = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    renderPlay(<PlayPage />);
+    await act(async () => { await Promise.resolve(); });
+    await tick(); // a poll tick lands while the mount still waits on grounding
+    await tick();
+    await act(async () => { waiting.forEach((r) => r(GROUNDING)); });
+    await tick();
+    await tick();
+    await waitFor(() => expect(count('last line.')).toBe(1));
+    expect(count('first line.')).toBe(1);
+    expect(count('Stealth +3')).toBe(1);
+    expect(screen.queryAllByText(/Damp air rolls out/)).toHaveLength(1);
+    expect(err.mock.calls.some((c) => /same key|unique "key"/i.test(String(c[0])))).toBe(false);
+    err.mockRestore();
+  });
+
+  // K3 (review): the heal's grounding read rejects (a flaky server is exactly when a heal runs): the tail is still drawn.
+  it('the heal\'s grounding read rejects: the tail is still drawn, once', async () => {
+    campaign = [...filler(500), { seq: 501, kind: 'opening_narrated', data: { scene_id: 'cave-mouth' } }, nar(502, 'tail B.')];
+    failRequest(2);
+    let first = true;
+    mGetGrounding.mockImplementation(() => {
+      if (first) { first = false; return Promise.resolve(GROUNDING); }
+      return Promise.reject(new Error('grounding down'));
+    });
+    renderPlay(<PlayPage />);
+    expect(await screen.findByText('old 500.')).toBeInTheDocument();
+    await tick();
+    await tick();
+    await waitFor(() => expect(count('tail B.')).toBe(1));
+  });
+
   it('second page fails and grounding is slow: every tail row is drawn exactly once', async () => {
     campaign = [...filler(500), nar(501, 'tail A.'), dice(502), nar(503, 'tail B.')];
     failRequest(2);
@@ -269,6 +307,14 @@ describe('a partial mount healed while the player sends a turn', () => {
       persisted: [act_(503, 'I look around.'), nar(504, 'A long reply that the server stores in a shortened…')],
     });
     expect(screen.queryAllByText(/A long reply that the server stores/)).toHaveLength(1);
+  });
+});
+
+describe('mergeHealedRows: an event is drawn once', () => {
+  const ev = (seq: number, text: string): LogRow => ({ id: `ev${seq}`, ts: '', who: 'x', kind: 'narration', text } as LogRow);
+  it('a healed row whose id the log already holds is not added again', () => {
+    const out = mergeHealedRows([ev(1, 'a'), ev(2, 'b')], [ev(1, 'a'), ev(2, 'b'), ev(3, 'c')]);
+    expect(out.map((r) => r.id)).toEqual(['ev1', 'ev2', 'ev3']);
   });
 });
 

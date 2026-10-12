@@ -388,6 +388,8 @@ describe('end-turn already_advanced: the refused call itself changed the fight',
     await clickEndTurn();
     await tick(0);
     expect(endTurnBeats()).toBe(0);
+    // a throw inside the branch lands in the refusal banner (role=alert), never in a toast: absent means it did not throw
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     // nothing failed: no error toast. The only notice is the info line that says the turn had already ended.
     expect(mockToast).not.toHaveBeenCalledWith(expect.objectContaining({ tone: 'error' }));
     expect(mockToast).toHaveBeenCalledTimes(1);
@@ -460,6 +462,42 @@ describe('monster-turn: every value of the flag', () => {
     for (let i = 0; i < 3; i += 1) await tick();
     expect(mMonsterTurn).toHaveBeenCalledTimes(1);
     expect(screen.getByText('[MONSTER] ok')).toBeInTheDocument();
+  });
+
+  it('true + the re-read FAILS: the ANSWER\'s state is applied (the page offers End turn on the player\'s turn)', async () => {
+    mGetCombatState.mockImplementation(async () => COMBAT_STATE_GOBLIN_TURN);
+    mMonsterTurn.mockImplementationOnce(async () => {
+      mGetCombatState.mockImplementation(async () => { throw new Error('boom'); });
+      return { message: '[MONSTER] ok', state: COMBAT_STATE, already_advanced: true } as never;
+    });
+    await mount();
+    await waitFor(() => expect(endTurnButton()).toBeInTheDocument());
+    expect(mMonsterTurn).toHaveBeenCalledTimes(1);
+  });
+
+  it('true + the answer carries scene_advance: the scene advance is still narrated', async () => {
+    const held = { s: COMBAT_STATE_GOBLIN_TURN };
+    armReadCounter(() => held.s);
+    mMonsterTurn.mockImplementationOnce(async () => {
+      held.s = COMBAT_STATE_ENDED;
+      return {
+        message: '[MONSTER] The last goblin falls.', state: COMBAT_STATE_ENDED, already_advanced: true,
+        scene_advance: { from_scene: 'cave_mouth', to_scene: 'tunnel', outcome: 'victory' },
+      } as never;
+    });
+    await mount();
+    await waitFor(() => expect(mStream.mock.calls.some((c) => c[0].message === 'The scene changes.')).toBe(true));
+  });
+
+  it('true + the answer carries outcome_line: the line is still played', async () => {
+    const held = { s: COMBAT_STATE_GOBLIN_TURN };
+    armReadCounter(() => held.s);
+    mMonsterTurn.mockImplementationOnce(async () => {
+      held.s = COMBAT_STATE_ENDED;
+      return { message: '[MONSTER] The last goblin falls.', state: COMBAT_STATE_ENDED, already_advanced: true, outcome_line: OUTCOME } as never;
+    });
+    await mount();
+    expect(await screen.findByText(OUTCOME)).toBeInTheDocument();
   });
 
   it('true + a DISCRIMINATING pair: answer says "player\'s turn", re-read says "still the goblin\'s" -> the driver acts on the re-read', async () => {

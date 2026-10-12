@@ -42,15 +42,19 @@ const sameLine = (r: LogRow) => `${r.kind}\u0000${r.text}`;
  * Fold the heal's rows into a transcript that may already hold this page's own turns: history goes
  * BEFORE the first row the page appended, and a healed row that one of those live rows already
  * shows (same kind and text; one healed row per live row) is dropped, so a turn taken
- * while the heal was pending is drawn once.
+ * while the heal was pending is drawn once. A healed row whose id the log already holds is dropped too:
+ * a history row's id is its event's, so "an event is drawn once" is a property of the merge, not of
+ * timing (a tick that read the log before the mount drew it must not draw it a second time).
  *
  * debt: the live-turn match is by line content, because a live row carries no event seq. ceiling: a live narration the server stored truncated or re-escaped is drawn a second time; an identical older line is dropped once per live row. until: live rows are stamped with their event's seq.
  */
 export function mergeHealedRows(log: LogRow[], healed: LogRow[]): LogRow[] {
+  const drawn = new Set(log.map((r) => r.id));
   const liveLines = new Map<string, number>();
   for (const r of log) if (isLive(r)) liveLines.set(sameLine(r), (liveLines.get(sameLine(r)) ?? 0) + 1);
   const fresh: LogRow[] = [];
   for (const r of [...healed].reverse()) {
+    if (drawn.has(r.id)) continue;
     const left = liveLines.get(sameLine(r)) ?? 0;
     if (left > 0) liveLines.set(sameLine(r), left - 1);
     else fresh.unshift(r);

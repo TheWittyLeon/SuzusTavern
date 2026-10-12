@@ -395,9 +395,10 @@ export function useCombatActions(
             // refused call can itself have moved the turn on or ended the fight, so the fight is read again; the rest of
             // the answer (scene advance, outcome line) is still used.
             skipTurnEndBeat = true;
-            newState = (await getCombatState(combatId).catch(() => null)) ?? newState;
-            // No beat is drawn or narrated for it, so say it (the toast host is a live region).
+            // No beat is drawn or narrated for it, so say it (the toast host is a live region). Before the re-read:
+            // the page's own turn-status announcement follows the new state, and this should reach the listener first.
             toast({ tone: 'info', message: 'That turn had already ended.' });
+            newState = (await getCombatState(combatId).catch(() => null)) ?? newState;
           }
           outcomeLine = res.outcome_line;
           if (res.scene_advance) {

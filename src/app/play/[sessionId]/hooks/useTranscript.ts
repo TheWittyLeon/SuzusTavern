@@ -78,9 +78,10 @@ export function useTranscript(): UseTranscriptResult {
   // appends only rows with a seq above it.
   const lastEventSeqRef = useRef(0);
 
-  // TAV-MOUNT-PARTIAL-HISTORY-HEALS: true while the mount's history read stopped
-  // before the end of the log (set by the mount effect beside the watermark, cleared by the events
-  // poll once a read reaches the end). Page-owned, so unmounting drops it.
+  // TAV-MOUNT-PARTIAL-HISTORY-HEALS: true while the log past the watermark may be unread history.
+  // The mount effect arms it before it reads anything, settles it beside the watermark (kept when the
+  // read stopped early or failed), and the events poll clears it once a read reaches the end.
+  // Page-owned, so unmounting drops it.
   const unreadHistoryRef = useRef(false);
 
   // DDX-20 (flag-ON only, DURABLE_GENERATION_ENABLED) — the reconciliation

@@ -210,6 +210,23 @@ describe('R37: which later events count as "something happened"', () => {
   );
 });
 
+describe('R37: the stored recap appears in the same render as the card', () => {
+  it('the digest list is never drawn before the stored text (no flash, no layout shift)', async () => {
+    log = [...story(1, 2), recap(3, 'STORED, NO FLASH')];
+    let listSeen = false;
+    const mo = new MutationObserver((records) => {
+      for (const r of records) r.addedNodes.forEach((n) => {
+        if (n instanceof Element && (n.tagName === 'UL' || n.querySelector('ul'))) listSeen = true;
+      });
+    });
+    mo.observe(document.body, { childList: true, subtree: true });
+    await mount('card');
+    mo.disconnect();
+    expect(screen.getByText(/STORED, NO FLASH/, { selector: 'p' })).toBeInTheDocument();
+    expect(listSeen).toBe(false);
+  });
+});
+
 describe('R37: the assist interlock is untouched', () => {
   const levels: Array<[string, Partial<Session>]> = [
     ['off', { ai_assist_level: 'off' }],
