@@ -186,7 +186,7 @@ function MonsterRow({
       // The advance was a no-op (a racing call moved the turn): this call can itself have moved it past a dead holder
       // or ended the fight, so ask the page to read the fight again. The message above is kept: it may be the attack.
       // (The wire nests the flag like the state: flat in the unwrapped answer, or under `data`.)
-      if (res.already_advanced === true || res.data?.already_advanced === true) onStateRefresh();
+      if (res?.already_advanced === true || res?.data?.already_advanced === true) onStateRefresh();
     } catch (err) {
       const body = (err as { body?: unknown } | null)?.body;
       const data = (body as { data?: { reason?: string; state?: CombatState } } | null)?.data;

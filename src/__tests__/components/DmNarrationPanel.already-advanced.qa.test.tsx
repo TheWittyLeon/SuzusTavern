@@ -98,12 +98,8 @@ describe('npc-action: the flag is strictly boolean true', () => {
     expect(onStateRefresh).toHaveBeenCalledTimes(1);
   });
 
-  // FINDING (low, non-blocking, NEW on this branch): the added line reads `res.already_advanced` with no `?.`,
-  // while every read above it (`(res as ...)?.data?.state`, `?.message`) tolerates an answer with no body.
-  // apiCall returns `result.data`, which is undefined when the proxy omits it, so a successful npc-action
-  // with an empty `data` now throws a TypeError into the catch and shows the DM a refusal error for an action
-  // that went through. Before the branch the same answer was a silent success.
-  test.failing.each([['undefined', undefined], ['null', null]])('an empty successful answer (%s) is not turned into an error', async (_n, answer) => {
+  // apiCall returns `result.data`, undefined when the proxy omits it: a successful npc-action with no body is a success, not a refusal.
+  it.each([['undefined', undefined], ['null', null]])('an empty successful answer (%s) is not turned into an error', async (_n, answer) => {
     await skipOnce(answer, 'call');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
