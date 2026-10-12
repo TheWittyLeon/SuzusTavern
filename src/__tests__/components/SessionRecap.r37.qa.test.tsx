@@ -211,19 +211,22 @@ describe('R37: which later events count as "something happened"', () => {
 });
 
 describe('R37: the stored recap appears in the same render as the card', () => {
-  it('the digest list is never drawn before the stored text (no flash, no layout shift)', async () => {
+  it('the card is first inserted with the stored text in it, never with the digest list', async () => {
     log = [...story(1, 2), recap(3, 'STORED, NO FLASH')];
-    let listSeen = false;
-    const mo = new MutationObserver((records) => {
-      for (const r of records) r.addedNodes.forEach((n) => {
-        if (n instanceof Element && (n.tagName === 'UL' || n.querySelector('ul'))) listSeen = true;
-      });
+    // The node is snapshotted at the moment React inserts it: a MutationObserver reads the live tree a microtask later,
+    // after the digest has already been swapped out.
+    const inserted: string[] = [];
+    const real = Node.prototype.appendChild;
+    const spy = jest.spyOn(Node.prototype, 'appendChild').mockImplementation(function <T extends Node>(this: Node, n: T): T {
+      if (n instanceof Element && n.tagName === 'SECTION') inserted.push(n.outerHTML);
+      return real.call(this, n) as T;
     });
-    mo.observe(document.body, { childList: true, subtree: true });
     await mount('card');
-    mo.disconnect();
+    spy.mockRestore();
+    expect(inserted.length).toBeGreaterThan(0);
+    expect(inserted[0]).toContain('STORED, NO FLASH');
+    expect(inserted[0]).not.toContain('<ul');
     expect(screen.getByText(/STORED, NO FLASH/, { selector: 'p' })).toBeInTheDocument();
-    expect(listSeen).toBe(false);
   });
 });
 

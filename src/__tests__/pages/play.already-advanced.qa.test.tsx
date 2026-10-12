@@ -396,6 +396,16 @@ describe('end-turn already_advanced: the refused call itself changed the fight',
     expect(mockToast).toHaveBeenCalledWith({ tone: 'info', message: 'That turn had already ended.' });
   });
 
+  it('the notice does not wait for the re-read: it is fired while the re-read is still pending', async () => {
+    mEndTurn.mockResolvedValue({ message: 'm', state: COMBAT_STATE_GOBLIN_TURN, already_advanced: true } as never);
+    await mountOnPcTurn();
+    let release: (s: CombatState) => void = () => undefined;
+    mGetCombatState.mockImplementation(() => new Promise<CombatState>((r) => { release = r; }));
+    await clickEndTurn();
+    await waitFor(() => expect(mockToast).toHaveBeenCalledWith({ tone: 'info', message: 'That turn had already ended.' }));
+    await act(async () => { release(COMBAT_STATE_GOBLIN_TURN); });
+  });
+
   it('a normal end-turn (no flag) says nothing extra', async () => {
     mEndTurn.mockResolvedValue({ message: 'm', state: COMBAT_STATE_GOBLIN_TURN } as never);
     await mountOnPcTurn();
