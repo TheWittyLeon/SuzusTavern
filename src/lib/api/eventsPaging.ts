@@ -31,7 +31,8 @@ import { MOUNT_MAX_PAGES, RAW_EVENTS_PAGE_LIMIT } from './eventsPaging.constants
  * sentinel). Every other stop is an `EventsRead`: `complete` is false when the
  * read ended with rows unread (a later page failed, the page cap was hit, or the
  * wire said `has_more` but the cursor cannot move), `cursor` is the last seq read,
- * and one `console.warn` names the session, that seq and the reason. The rows are
+ * and one `console.warn` names the session, that seq and the reason (not for hitting a cap the
+ * caller asked for: `capIsAsked`). The rows are
  * a contiguous prefix past `sinceSeq`, so the caller's watermark still advances
  * correctly and the rest arrives next time.
  */
@@ -40,11 +41,16 @@ export async function pageEventsForward(
   sessionId: string,
   sinceSeq = 0,
   maxPages = MOUNT_MAX_PAGES,
+  capIsAsked = false,
 ): Promise<EventsRead | null> {
   let cursor = sinceSeq;
   let all: EventsRead['rows'] | null = null;
   const partial = (stop: EventsReadStop): EventsRead => {
-    console.warn(`[events] session ${sessionId}: read stopped after seq ${cursor}: ${stop}`);
+    // A caller that set `maxPages` on purpose (`capIsAsked`: the opening gate's one-page peek) asked for the
+    // stop at the cap, so that stop is not a fault. The result still says `complete: false` for whoever reads it.
+    if (!(capIsAsked && stop === 'page cap reached')) {
+      console.warn(`[events] session ${sessionId}: read stopped after seq ${cursor}: ${stop}`);
+    }
     return { rows: all ?? [], complete: false, cursor, stop };
   };
   for (let page = 0; page < maxPages; page += 1) {

@@ -686,13 +686,14 @@ export const getParticipants = (sessionId: string, signal?: AbortSignal) =>
 export const getSessionEvents = async (
   sessionId: string,
   signal?: AbortSignal,
-  maxPages = MOUNT_MAX_PAGES,
+  maxPages?: number,
 ): Promise<SessionEvent[] | null> => {
   const read = await pageEventsForward(
     (cursor) => fetchEventsPage(sessionId, signal, cursor),
     sessionId,
     0,
-    maxPages,
+    maxPages ?? MOUNT_MAX_PAGES,
+    maxPages !== undefined, // a caller-set cap is asked for: stopping there is no warning
   );
   // FIX-4: null when the first page fails (engine unreachable) so
   // checkShouldOpen can distinguish "no events" from "don't open".

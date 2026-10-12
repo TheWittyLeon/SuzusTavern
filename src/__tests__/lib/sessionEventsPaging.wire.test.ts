@@ -105,6 +105,29 @@ describe('the recap reader over the real wire', () => {
     expect(out![out!.length - 1].description).toBe('l1200');
   });
 
+  // TAV-EVENTS-WARN-ON-BOUNDED-READ: the opening gate reads ONE page on purpose, so on a campaign
+  // past 500 events its stop at the cap is the request, not a fault: no warning (the rows are the same).
+  it('a read the caller bounded on purpose does not warn when it stops at its cap', async () => {
+    wire(story(1200));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const out = await getSessionEvents('s1', undefined, 1);
+    expect(out).toHaveLength(500);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('a bounded read whose later page FAILS still warns (that stop was not asked for)', async () => {
+    wire(story(1200));
+    let calls = 0;
+    const inner = mockFetch.getMockImplementation()!;
+    mockFetch.mockImplementation((...a: unknown[]) => (++calls === 2 ? Promise.resolve(new Response('{}', { status: 500 })) : inner(...a)));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const out = await getSessionEvents('s1', undefined, 5);
+    expect(out).toHaveLength(500);
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
   it('a first-page HTTP 500 is the null sentinel, not an empty recap', async () => {
     mockFetch.mockResolvedValue(new Response('{"success":false}', { status: 500 }));
     expect(await getSessionEvents('s1')).toBeNull();

@@ -74,8 +74,8 @@ export function useTranscript(): UseTranscriptResult {
 
   // DDX-08 / T3: highest session-event `seq` already rendered into the log
   // (set once by rehydration, then advanced by the dice-roll events poll
-  // below). Lets the poll fetch the full event list every tick (the engine
-  // has no "since seq" filter) while only ever appending NEW rows.
+  // below). The poll asks only for rows past it (`since_seq`, paged forward) and
+  // appends only rows with a seq above it.
   const lastEventSeqRef = useRef(0);
 
   // TAV-MOUNT-PARTIAL-HISTORY-HEALS: true while the mount's history read stopped
