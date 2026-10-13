@@ -137,13 +137,13 @@ export const POLL_RENDERED_KINDS = new Set(['dice_roll', 'x_card']);
 
 /**
  * Event kinds that are bookkeeping, not story: nothing happened in the fiction when one was written. The
- * recap reads this set twice (R37's "events since the last recap" does not count them; the assist-off digest
- * does not print them). It is NOT the only such list: the opening gate keeps its own, with different members
+ * recap reads this set once, in `isStoryEvent` (R37's "events since the last recap" and R51's "any recap at all"
+ * do not count them; the assist-off digest does not print them). It is NOT the only such list: the opening gate keeps its own, with different members
  * (`STRUCTURAL_EVENT_KINDS` in hooks/useSceneState.ts, filed as its own row), and `eventToLogRow` does not read
  * this set (it drops these kinds through its `default` branch, like any unknown kind). A deny-list on purpose:
  * a story kind missing from it costs one stale recap, a bookkeeping kind wrongly counted costs a model call
  * on every resume.
- * debt: a client copy of the engine's event vocabulary, kept as a kind list. ceiling: a new bookkeeping kind the engine adds is counted as story (one model call per occurrence) until it is listed here. until: the engine marks an event's class (story or bookkeeping) on the row.
+ * debt: a client copy of the engine's event vocabulary: this kind list, plus the convention that story rows carry their prose in `description` or `text`. ceiling: a new bookkeeping kind that carries text is counted as story (one model call per occurrence) until it is listed here; a story kind the engine adds with no text, or with its prose under another key, never earns a recap. until: the engine marks an event's class (story or bookkeeping) on the row.
  */
 export const STRUCTURAL_EVENT_KINDS: ReadonlySet<string> = new Set([
   'recap',

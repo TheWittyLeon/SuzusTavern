@@ -7,10 +7,8 @@
  * the load-bearing path the AI-off interlock (S2.5) requires: when
  * `ai_assist_level === 'off'` the recap is exactly this, with no narration call.
  *
- * NOTE (flagged dependency): the engine writes `session_events` but exposes no
- * READ route yet, so `getSessionEvents` returns [] today and the recap uses the
- * metadata digest. When the tiny engine `GET /sessions/{id}/events` lands, the
- * event digest below lights up with no Tavern change.
+ * The events come from `getSessionEvents` (the engine's paged events read); with no events the recap
+ * falls back to the session-metadata digest.
  */
 import { sessionTitle, formatStarted } from '@/lib/format';
 import type { Session, SessionEvent } from '@/lib/api/types';
@@ -37,15 +35,15 @@ export interface RecapResult {
 }
 
 // Event types worth surfacing in a recap (A3 - real engine event kinds).
-// Engine msm path emits: scene_advance, encounter_resolved, session_start,
-// session_end, xp_award, level_up, opening_narrated.
+// Engine msm path emits (with text): scene_advance, encounter_resolved, session_end, xp_award, and more
+// (the level-up row is `character_levelup`, with no text, so it never reaches the digest).
 // Forward-compat aliases kept for callers normalising legacy event_type values.
 const NOTABLE = new Set([
   // Real engine kinds (msm path)
   'scene_advance',        // scene moved on - has description
   'encounter_resolved',   // combat/encounter ended - has description
   'xp_award',             // XP granted - has description
-  'level_up',             // character levelled - has description
+  'level_up',             // legacy alias; the engine writes `character_levelup`, with no text
   'session_end',          // session ended - has description
   // Forward-compat / legacy aliases
   'combat',               // legacy combat kind
@@ -80,7 +78,7 @@ export function buildRecap(
 ): RecapResult {
   const max = opts.maxLines ?? 4;
 
-  const allWithDesc = events.filter((e) => e.description && e.description.trim());
+  const allWithDesc = events.filter((e) => eventText(e));
   // Bookkeeping rows (a stored model recap included) stay out of the deterministic digest whenever there is
   // story to print instead; a log of bookkeeping alone still counts as "from events" (the stored recap shows).
   const storyWithDesc = events.filter(isStoryEvent);
@@ -88,7 +86,7 @@ export function buildRecap(
   // Normalize type (engine case convention isn't contract-locked yet — Kage).
   const notable = withDesc.filter((e) => NOTABLE.has((e.event_type ?? '').toLowerCase()));
   const picked = (notable.length ? notable : withDesc).slice(-max);
-  const eventLines = picked.map((e) => e.description!.trim());
+  const eventLines = picked.map((e) => eventText(e));
 
   if (eventLines.length > 0) {
     return {
@@ -115,6 +113,10 @@ export function buildRecap(
   };
 }
 
+/** A row's story text, trimmed; '' when it has none. The reader casts `data.description`/`data.text` without
+ *  checking, and a table member can write any JSON there, so only a string counts. */
+const eventText = (e: SessionEvent): string => (typeof e.description === 'string' ? e.description.trim() : '');
+
 /**
  * The one definition of "something has happened" (R37, R51 F2): a story row, the same row `buildRecap` puts in
  * the digest: it has story text to tell (`description`, which the reader fills from `data.description` or
@@ -124,7 +126,7 @@ export function buildRecap(
  * anywhere in the log).
  */
 export const isStoryEvent = (e: SessionEvent): boolean =>
-  !!e.description?.trim() && !STRUCTURAL_EVENT_KINDS.has((e.event_type ?? '').toLowerCase());
+  !!eventText(e) && !STRUCTURAL_EVENT_KINDS.has((e.event_type ?? '').toLowerCase());
 
 /**
  * TAV-RECAP-ROW-PER-PAGE-OPEN (R37): what the log already says about the last "previously on".
@@ -139,5 +141,5 @@ export function lastStoredRecap(events: SessionEvent[]): { text: string | null; 
   }
   if (at < 0) return null;
   const newerEvents = events.slice(at + 1).some(isStoryEvent);
-  return { text: events[at].description?.trim() || null, newerEvents };
+  return { text: eventText(events[at]) || null, newerEvents };
 }

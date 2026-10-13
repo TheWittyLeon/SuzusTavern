@@ -255,6 +255,65 @@ describe('R51 F2: a row counts only when it has story text to tell', () => {
   });
 });
 
+describe('R51 F2: a non-string or blank text is not story, and nothing throws', () => {
+  // The reader casts data.description / data.text unchecked, and a table member can write any JSON there.
+  const odd: Array<[string, Row]> = [
+    ['description 0', { seq: 2, kind: 'narration', data: { description: 0 } }],
+    ['description false', { seq: 2, kind: 'narration', data: { description: false } }],
+    ['description 5', { seq: 2, kind: 'narration', data: { description: 5 } }],
+    ['description {}', { seq: 2, kind: 'narration', data: { description: {} } }],
+    ['text 0', { seq: 2, kind: 'narration', data: { text: 0 } }],
+    ['whitespace-only text', { seq: 2, kind: 'narration', data: { text: '   \n\t ' } }],
+  ];
+  it.each(VARIANTS)('%s: such a row does not count, nothing throws, nothing is sent', async (variant) => {
+    for (const [, r] of odd) {
+      cleanup();
+      mockFetch.mockClear();
+      log = [book(1, 'session_start'), r];
+      const view = await mount(variant);
+      expect(eventsGets).toBeGreaterThan(0);
+      expect(posts()).toHaveLength(0);
+      if (variant === 'card') expect(screen.getByRole('heading', { name: /where you left off/i })).toBeInTheDocument();
+      else expect(view.container).toBeEmptyDOMElement();
+    }
+  });
+
+  it.each(VARIANTS)('%s: such a row after a story row and a stored recap neither throws nor makes a new recap', async (variant) => {
+    for (const [, r] of odd) {
+      cleanup();
+      mockFetch.mockClear();
+      log = [...story(1, 2), recap(3, 'STORED AMONG ODD ROWS'), { ...r, seq: 4 }];
+      await mount(variant);
+      expect(await screen.findByText(/STORED AMONG ODD ROWS/, { selector: 'p' })).toBeInTheDocument();
+      expect(posts()).toHaveLength(0);
+    }
+  });
+
+  it('a non-string row beside real story does not stop the recap: one request', async () => {
+    log = [...story(1, 2), { seq: 3, kind: 'narration', data: { description: {} } }];
+    await mount('card');
+    expect(posts()).toHaveLength(1);
+  });
+});
+
+describe('R51 F2: PIN, current behaviour: a stored recap shows while the log has no story', () => {
+  // Owner question open (hide it?). R37 says show the last one, so it shows; this pin makes a change deliberate.
+  it.each(VARIANTS)('%s: session_start + one stored recap, no story: the stored text shows, nothing is sent', async (variant) => {
+    log = [book(1, 'session_start'), recap(2, 'STORED WITH NO STORY')];
+    await mount(variant);
+    expect(await screen.findByText(/STORED WITH NO STORY/, { selector: 'p' })).toBeInTheDocument();
+    expect(posts()).toHaveLength(0);
+  });
+
+  it('assist off: the card still prints "Previously on…" with the bookkeeping line (the digest of a log with a recap row)', async () => {
+    log = [book(1, 'session_start'), recap(2, 'STORED WITH NO STORY')];
+    await mount('card', { session: session({ ai_assist_level: 'off' }) });
+    expect(screen.getByRole('heading', { name: /previously on/i })).toBeInTheDocument();
+    expect(screen.getByText(/bookkeeping session_start/)).toBeInTheDocument();
+    expect(posts()).toHaveLength(0);
+  });
+});
+
 describe('R51 F2: a read that stopped early', () => {
   // A later page that fails leaves a prefix. The rule is the same as for a whole log: no story row seen, nothing sent
   // and the "nothing to recap yet" state shows (a digest of bookkeeping lines is a recap of nothing). Nothing is

@@ -49,7 +49,6 @@ function sseBody(text: string) {
 }
 
 const posts = () => mockFetch.mock.calls.filter(([url]) => String(url).includes('/api/narration'));
-const postBodies = () => posts().map(([, init]) => JSON.parse((init as { body: string }).body));
 
 beforeEach(() => {
   log = [];
@@ -95,8 +94,6 @@ const session = (extra: Partial<Session> = {}): Session => ({
   ...extra,
 });
 
-const row = (seq: number, kind: string, text?: string): Row => ({ seq, kind, data: text === undefined ? {} : { text } });
-const story = (from: number, n: number): Row[] => Array.from({ length: n }, (_, i) => row(from + i, 'narration', `story ${from + i}`));
 const recap = (seq: number, text: string): Row => ({ seq, kind: 'recap', data: { who: 'Suzu', text, log_kind: 'recap' } });
 
 const settle = async () => {
@@ -118,20 +115,15 @@ const VARIANTS = ['card', 'strip'] as const;
 const book = (seq: number, kind: string): Row => ({ seq, kind, data: { description: `bookkeeping ${kind}` } });
 const one = (seq: number, text = 'story'): Row => ({ seq, kind: 'narration', data: { text } });
 
-// FINDING 1: kinds the engine writes before any play that carry NO description (routes/sessions.py:3620
-// campaign_setting_changed {setting, from, to}). isStoryEvent counts them; buildRecap then falls back to the
-// bookkeeping text, so fromEvents is true and a recap is requested for a campaign where nothing happened.
+// Kinds the engine writes before any play that carry NO description (campaign_setting_changed
+// {setting, from, to}). isStoryEvent needs story text, so such a row is not something that happened and no recap is
+// requested for a campaign where nothing did.
 describe('MIKO F1: a configuration row is not something that happened', () => {
   it.each(VARIANTS)('%s: session_start + campaign_setting_changed (no description) sends nothing', async (variant) => {
     log = [book(1, 'session_start'), { seq: 2, kind: 'campaign_setting_changed', data: { setting: 'starting_level', from: 1, to: 3 } }];
     await mount(variant);
     expect(eventsGets).toBeGreaterThan(0);
     expect(posts()).toHaveLength(0);
-  });
-  it.each(VARIANTS)('%s: the request, if sent, must not be grounded on bookkeeping text', async (variant) => {
-    log = [book(1, 'session_start'), { seq: 2, kind: 'campaign_setting_changed', data: { setting: 'starting_level', from: 1, to: 3 } }];
-    await mount(variant);
-    for (const b of postBodies()) expect(String(b.mechanics)).not.toMatch(/bookkeeping session_start/);
   });
 });
 
@@ -145,10 +137,9 @@ describe('MIKO deny-list edge: malformed rows', () => {
   it.each(cases)('card: session_start + %s', async (name, r) => {
     log = [book(1, 'session_start'), r];
     await mount('card');
-    // characterization: print what was sent
-    // eslint-disable-next-line no-console
-    console.log(`[malformed] ${name}: posts=${posts().length}`);
-    if (name.startsWith('upper')) expect(posts()).toHaveLength(0);
+    expect(eventsGets).toBeGreaterThan(0);
+    expect(name).toBeTruthy();
+    expect(posts()).toHaveLength(0);
   });
   it('strip: a malformed-only non-bookkeeping row (null kind, no text) with only bookkeeping text must send nothing', async () => {
     log = [book(1, 'session_start'), { seq: 2, kind: null as unknown as string, data: {} }];
@@ -200,12 +191,11 @@ describe('MIKO order and timing', () => {
     await settle();
     expect(posts()).toHaveLength(0);
   });
-  it('card and strip mounted together on a due campaign: characterization (debt says 2)', async () => {
+  it('card and strip mounted together on a due campaign: both generate (the debt: marker in SessionRecap.tsx)', async () => {
     log = [book(1, 'session_start'), one(2)];
     render(<><SessionRecap session={session()} username="leon" variant="card" /><SessionRecap session={session()} username="leon" variant="strip" /></>);
     await settle();
-    // eslint-disable-next-line no-console
-    console.log(`[two mounts, due] posts=${posts().length}`);
+    expect(posts()).toHaveLength(2);
   });
   it('card and strip mounted together on a bookkeeping-only campaign: zero', async () => {
     log = [book(1, 'session_start')];
