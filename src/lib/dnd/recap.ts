@@ -116,6 +116,13 @@ export function buildRecap(
 }
 
 /**
+ * The one definition of "something has happened" (R37, R51 F2): an event that is not bookkeeping
+ * (STRUCTURAL_EVENT_KINDS). Both recap decisions read it: whether a NEW recap is due (a story event past
+ * the last stored one) and whether ANY recap is due (a story event anywhere in the log).
+ */
+export const isStoryEvent = (e: SessionEvent): boolean => !STRUCTURAL_EVENT_KINDS.has((e.event_type ?? '').toLowerCase());
+
+/**
  * TAV-RECAP-ROW-PER-PAGE-OPEN (R37): what the log already says about the last "previously on".
  * `null` = no `recap` row yet (a first open: make one). Otherwise the LAST recap row's text
  * (null when blank) and whether any STORY event lies past it (bookkeeping kinds, STRUCTURAL_EVENT_KINDS, do
@@ -127,6 +134,6 @@ export function lastStoredRecap(events: SessionEvent[]): { text: string | null; 
     if ((events[i].event_type ?? '').toLowerCase() === 'recap') { at = i; break; }
   }
   if (at < 0) return null;
-  const newerEvents = events.slice(at + 1).some((e) => !STRUCTURAL_EVENT_KINDS.has((e.event_type ?? '').toLowerCase()));
+  const newerEvents = events.slice(at + 1).some(isStoryEvent);
   return { text: events[at].description?.trim() || null, newerEvents };
 }

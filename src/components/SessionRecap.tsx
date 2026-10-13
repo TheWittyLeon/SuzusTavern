@@ -14,7 +14,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { getSessionEvents } from '@/lib/api/dnd';
 import { streamDmNarration } from '@/lib/stream';
-import { buildRecap, lastStoredRecap, type RecapResult } from '@/lib/dnd/recap';
+import { buildRecap, isStoryEvent, lastStoredRecap, type RecapResult } from '@/lib/dnd/recap';
 import { sessionTitle } from '@/lib/format';
 import Icon from '@/components/Icon';
 import type { Session } from '@/lib/api/types';
@@ -50,6 +50,10 @@ export default function SessionRecap({ session, username, variant = 'card', hidd
   // before `recap` so the narration effect sees it. A new "previously on" is requested only when
   // the log has events past it; otherwise the stored text is shown.
   const storedRef = useRef<ReturnType<typeof lastStoredRecap>>(null);
+  // R51 F2: whether the log holds any story event. No recap is due (none requested, none stored) until it does.
+  // Set with `storedRef`, before `recap`. A read that did not reach the end of the log cannot say "none" and
+  // sends nothing either; the digest it shows is the one it has.
+  const storyRef = useRef(false);
 
   // Deterministic digest — zero LLM, always runs. Depends on the STABLE
   // session_id, not the whole `session` object: a poll-driven identity change
@@ -60,11 +64,18 @@ export default function SessionRecap({ session, username, variant = 'card', hidd
     (async () => {
       // FIX-4: getSessionEvents now returns null on error (engine unreachable).
       // Fall back to [] so the recap keeps its resilient empty-state behavior.
-      const events = (await getSessionEvents(session.session_id, ctrl.signal)) ?? [];
+      const read = await getSessionEvents(session.session_id, ctrl.signal);
+      const events = read ?? [];
+      const complete = read?.readComplete === true; // false when the first page failed (null) or the reader did not say
       if (ctrl.signal.aborted) return;
       const stored = lastStoredRecap(events);
       storedRef.current = stored;
-      const built = buildRecap(session, events);
+      const hasStory = events.some(isStoryEvent);
+      storyRef.current = hasStory;
+      // Nothing has happened (R51 F2): the whole log read, no story event and no stored recap. Shown as a log with
+      // no events: the card's metadata digest, and nothing in the strip (it needs real play history).
+      const nothingHappened = complete && !stored && !hasStory;
+      const built = buildRecap(session, nothingHappened ? [] : events);
       // The stored text goes in with the digest, in one render (the effect below would swap it in a render later:
       // a flash of the digest and a layout shift). Same conditions as that effect's stored branch.
       const level = session.ai_assist_level;
@@ -95,6 +106,8 @@ export default function SessionRecap({ session, username, variant = 'card', hidd
     if (level !== 'full' && level !== 'assist') return;
     if (requestedForRef.current === session.session_id) return;
     const stored = storedRef.current;
+    // R51 F2: no stored recap and no story event in the log: nothing to recap yet. Not latched: nothing was decided.
+    if (!stored && !storyRef.current) return;
     if (stored && !stored.newerEvents) {
       // Nothing happened since the last recap: show it, send nothing (R37).
       requestedForRef.current = session.session_id;
