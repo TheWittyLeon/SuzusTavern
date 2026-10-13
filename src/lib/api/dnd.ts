@@ -682,16 +682,12 @@ export const getParticipants = (sessionId: string, signal?: AbortSignal) =>
  * recap sees the campaign's LAST events, not the engine default of the oldest
  * 200. `maxPages` bounds the read; a caller that only needs the start of the
  * campaign (checkShouldOpen) passes 1.
- *
- * The array carries `readComplete`: true when the read reached the end of the log, false when a later
- * page failed or a cap stopped it. The recap uses it to tell "nothing has happened" from "the read did
- * not get far enough to know". (A property, not a new argument: callers and their mocks keep their shape.)
  */
 export const getSessionEvents = async (
   sessionId: string,
   signal?: AbortSignal,
   maxPages?: number,
-): Promise<(SessionEvent[] & { readComplete?: boolean }) | null> => {
+): Promise<SessionEvent[] | null> => {
   const read = await pageEventsForward(
     (cursor) => fetchEventsPage(sessionId, signal, cursor),
     sessionId,
@@ -702,7 +698,7 @@ export const getSessionEvents = async (
   // FIX-4: null when the first page fails (engine unreachable) so
   // checkShouldOpen can distinguish "no events" from "don't open".
   if (read === null) return null;
-  const events: SessionEvent[] = read.rows.map((e): SessionEvent => ({
+  return read.rows.map((e): SessionEvent => ({
     event_id: e.seq != null ? String(e.seq) : undefined,
     event_type: e.kind,
     actor: e.actor,
@@ -713,8 +709,6 @@ export const getSessionEvents = async (
       (e.data?.['text'] as string | undefined),
     created_at: e.created_at,
   }));
-  // Not enumerable: the array still equals (and spreads as) the plain list every caller expects.
-  return Object.defineProperty(events, 'readComplete', { value: read.complete });
 };
 
 /**

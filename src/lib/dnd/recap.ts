@@ -83,7 +83,7 @@ export function buildRecap(
   const allWithDesc = events.filter((e) => e.description && e.description.trim());
   // Bookkeeping rows (a stored model recap included) stay out of the deterministic digest whenever there is
   // story to print instead; a log of bookkeeping alone still counts as "from events" (the stored recap shows).
-  const storyWithDesc = allWithDesc.filter((e) => !STRUCTURAL_EVENT_KINDS.has((e.event_type ?? '').toLowerCase()));
+  const storyWithDesc = events.filter(isStoryEvent);
   const withDesc = storyWithDesc.length ? storyWithDesc : allWithDesc;
   // Normalize type (engine case convention isn't contract-locked yet — Kage).
   const notable = withDesc.filter((e) => NOTABLE.has((e.event_type ?? '').toLowerCase()));
@@ -116,11 +116,15 @@ export function buildRecap(
 }
 
 /**
- * The one definition of "something has happened" (R37, R51 F2): an event that is not bookkeeping
- * (STRUCTURAL_EVENT_KINDS). Both recap decisions read it: whether a NEW recap is due (a story event past
- * the last stored one) and whether ANY recap is due (a story event anywhere in the log).
+ * The one definition of "something has happened" (R37, R51 F2): a story row, the same row `buildRecap` puts in
+ * the digest: it has story text to tell (`description`, which the reader fills from `data.description` or
+ * `data.text`) and its kind is not bookkeeping (STRUCTURAL_EVENT_KINDS). A row with no text (a setting change, a
+ * flag, a malformed or unknown kind) has nothing to recap, whatever its kind. Both recap decisions read it:
+ * whether a NEW recap is due (a story row past the last stored one) and whether ANY recap is due (a story row
+ * anywhere in the log).
  */
-export const isStoryEvent = (e: SessionEvent): boolean => !STRUCTURAL_EVENT_KINDS.has((e.event_type ?? '').toLowerCase());
+export const isStoryEvent = (e: SessionEvent): boolean =>
+  !!e.description?.trim() && !STRUCTURAL_EVENT_KINDS.has((e.event_type ?? '').toLowerCase());
 
 /**
  * TAV-RECAP-ROW-PER-PAGE-OPEN (R37): what the log already says about the last "previously on".

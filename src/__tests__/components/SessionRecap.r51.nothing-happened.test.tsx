@@ -205,24 +205,73 @@ describe('R51 F2: a log of bookkeeping alone gets no recap', () => {
   });
 });
 
-describe('R51 F2: a read that did not reach the end decides nothing', () => {
-  // How it is resolved: the read says whether it reached the end of the log (`readComplete`). Without it the
-  // component never concludes "nothing happened": it keeps showing the digest it has, and sends nothing, because a
-  // recap fired on a prefix would spend the call R37 exists to save. It does not latch (a new mount reads again),
-  // so a recap that is due is made on the next open, never lost.
-  it.each(VARIANTS)('%s: page 2 fails after bookkeeping-only page 1: nothing sent; the digest is not the "nothing happened" state', async (variant) => {
+// The kinds the engine writes at 2b7f583 (routes/, engine/) whose data carries no `description` or `text`: nothing to tell.
+const NO_TEXT_KINDS = [
+  'campaign_setting_changed', 'combat_started', 'flag_set', 'character_levelup', 'floor_applied', 'act_handoff',
+  'xp_capped', 'x_card', 'beat_done', 'beat_resolved', 'beat_override', 'dm_override',
+];
+const bare = (seq: number, kind: string | null): Row => ({ seq, kind: kind as string, data: { setting: 'starting_level', from: 1, to: 3 } });
+
+describe('R51 F2: a row counts only when it has story text to tell', () => {
+  it.each(VARIANTS)('%s: each engine kind with no text, alone after session_start, sends nothing', async (variant) => {
+    for (const kind of [...NO_TEXT_KINDS, '', null, 'some_future_kind']) {
+      cleanup();
+      mockFetch.mockClear();
+      log = [book(1, 'session_start'), bare(2, kind)];
+      await mount(variant);
+      expect(eventsGets).toBeGreaterThan(0);
+      expect(posts()).toHaveLength(0);
+    }
+  });
+
+  it('card: such a log shows the no-events state, not "Session started by ..."', async () => {
+    log = [book(1, 'session_start'), bare(2, 'campaign_setting_changed')];
+    await mount('card');
+    expect(screen.getByRole('heading', { name: /where you left off/i })).toBeInTheDocument();
+    expect(screen.queryByText(/bookkeeping/)).not.toBeInTheDocument();
+  });
+
+  it.each(VARIANTS)('%s: a configuration row after a stored recap does not make a new one; the stored one shows', async (variant) => {
+    log = [...story(1, 2), recap(3, 'STORED, THEN A SETTING'), bare(4, 'campaign_setting_changed')];
+    await mount(variant);
+    expect(await screen.findByText(/STORED, THEN A SETTING/, { selector: 'p' })).toBeInTheDocument();
+    expect(posts()).toHaveLength(0);
+  });
+
+  it.each(VARIANTS)('%s: the first row that carries story text flips it', async (variant) => {
+    log = [book(1, 'session_start'), bare(2, 'campaign_setting_changed')];
+    const first = await mount(variant);
+    expect(posts()).toHaveLength(0);
+    first.unmount();
+    log.push({ seq: 3, kind: 'scene_advance', data: { description: 'The scene moved to the Hollow.' } });
+    await mount(variant);
+    expect(posts()).toHaveLength(1);
+  });
+
+  it.each(VARIANTS)('%s: a story-kind row with no text (a dice roll without a description) is not something to recap', async (variant) => {
+    log = [book(1, 'session_start'), { seq: 2, kind: 'dice_roll', data: { total: 14 } }];
+    await mount(variant);
+    expect(posts()).toHaveLength(0);
+  });
+});
+
+describe('R51 F2: a read that stopped early', () => {
+  // A later page that fails leaves a prefix. The rule is the same as for a whole log: no story row seen, nothing sent
+  // and the "nothing to recap yet" state shows (a digest of bookkeeping lines is a recap of nothing). Nothing is
+  // latched: the next open reads again and makes the recap if one is due.
+  it.each(VARIANTS)('%s: page 2 fails after bookkeeping-only page 1: nothing sent, the no-events state shows', async (variant) => {
     eventsMode = 'page2-fails';
     log = [...Array.from({ length: 500 }, (_, i) => book(i + 1, 'session_resume')), row(501, 'narration', 'unseen story')];
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
-    await mount(variant);
+    const view = await mount(variant);
     expect(posts()).toHaveLength(0);
-    // Not concluded: the prefix's own digest is still on screen (a concluded "nothing happened" card says "Where you left off").
-    expect(screen.getAllByText(/bookkeeping session_resume/).length).toBeGreaterThan(0);
-    expect(screen.queryByText(/where you left off/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/bookkeeping session_resume/)).not.toBeInTheDocument();
+    if (variant === 'card') expect(screen.getByRole('heading', { name: /where you left off/i })).toBeInTheDocument();
+    else expect(view.container).toBeEmptyDOMElement();
     warn.mockRestore();
   });
 
-  it('the same log read whole is not suppressed: once page 2 answers, the recap is made', async () => {
+  it('the same log read whole on the next open: the recap is made', async () => {
     log = [...Array.from({ length: 500 }, (_, i) => book(i + 1, 'session_resume')), row(501, 'narration', 'now seen')];
     eventsMode = 'page2-fails';
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);

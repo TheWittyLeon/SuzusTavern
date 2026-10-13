@@ -51,8 +51,8 @@ export default function SessionRecap({ session, username, variant = 'card', hidd
   // the log has events past it; otherwise the stored text is shown.
   const storedRef = useRef<ReturnType<typeof lastStoredRecap>>(null);
   // R51 F2: whether the log holds any story event. No recap is due (none requested, none stored) until it does.
-  // Set with `storedRef`, before `recap`. A read that did not reach the end of the log cannot say "none" and
-  // sends nothing either; the digest it shows is the one it has.
+  // Set with `storedRef`, before `recap`. A read that stopped early (a later page failed) sees a prefix: the same
+  // rule applies to it, nothing is sent, and nothing is latched, so the next open reads again.
   const storyRef = useRef(false);
 
   // Deterministic digest — zero LLM, always runs. Depends on the STABLE
@@ -66,15 +66,15 @@ export default function SessionRecap({ session, username, variant = 'card', hidd
       // Fall back to [] so the recap keeps its resilient empty-state behavior.
       const read = await getSessionEvents(session.session_id, ctrl.signal);
       const events = read ?? [];
-      const complete = read?.readComplete === true; // false when the first page failed (null) or the reader did not say
       if (ctrl.signal.aborted) return;
       const stored = lastStoredRecap(events);
       storedRef.current = stored;
       const hasStory = events.some(isStoryEvent);
       storyRef.current = hasStory;
-      // Nothing has happened (R51 F2): the whole log read, no story event and no stored recap. Shown as a log with
-      // no events: the card's metadata digest, and nothing in the strip (it needs real play history).
-      const nothingHappened = complete && !stored && !hasStory;
+      // Nothing has happened (R51 F2): no story row and no stored recap. Shown as a log with no events: the card's
+      // metadata digest, and nothing in the strip (it needs real play history). A digest made only of bookkeeping
+      // lines is a recap of nothing and is never shown, whatever the read's completeness.
+      const nothingHappened = !stored && !hasStory;
       const built = buildRecap(session, nothingHappened ? [] : events);
       // The stored text goes in with the digest, in one render (the effect below would swap it in a render later:
       // a flash of the digest and a layout shift). Same conditions as that effect's stored branch.
@@ -116,7 +116,7 @@ export default function SessionRecap({ session, username, variant = 'card', hidd
     }
     if (!username) return;
     requestedForRef.current = session.session_id;
-    // debt: two openings inside the generation window (two tabs, or the dashboard card then Resume in one tab) both see "newer events" and both generate. ceiling: one extra recap row per race.
+    // debt: two openings inside the generation window (two tabs; the dashboard card then Resume in one tab; the card and the strip mounted together on one page) both see "newer events" and both generate. ceiling: one extra recap row per race.
     // until: a server-side guard on kind=recap (Backlog TAV-RECAP-ROW-PER-PAGE-OPEN).
     const ctrl = new AbortController();
     (async () => {
