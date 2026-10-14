@@ -146,6 +146,11 @@
 .slot:has(> [data-slot-fill]) {
   padding: 0;
   overflow: visible;
+  /* Safari treats an unset minimum differently from a zero one here: a stretched item that spans a content-sized row and carries a written `min-height` (the `.slot` rule's `0`) is measured at its
+     previous stretched height, so after a window height step the stage stayed too tall (map past its size, action bar and X-card under the bottom edge). By the standard `auto` is zero for this slot (the
+     stage's rows never have an `auto` minimum), so no other engine changes. The harness check `stage-height-steps` (tools/ui-audit, WebKit) holds this and is the only test that can see it; if it
+     goes red, the subgrid restructure (choice (b) in R51 F3; design 2026-10-12 TAVERN Play Stage Height in WebKit) is the fallback. */
+  min-height: auto;
 }
 
 /* B8c-4 P0 (brief 2.3, "the fill rule matches through a dock and drops the slot's block edge"; Kage I-5): a stage whose body folds sits INSIDE a body dock (slot > dock > panel > stage), so the rule above
@@ -155,6 +160,8 @@
   padding: 0;
   overflow: visible;
   border-block: 0;
+  /* Same minimum as the rule above, through the dock (see there). */
+  min-height: auto;
 }
 
 /* A9d E3 (build brief 2.3): the fold handle is never squeezed out. A slot whose dock is foldable keeps room for the handle (44px,
