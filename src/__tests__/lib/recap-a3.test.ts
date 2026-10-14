@@ -50,12 +50,13 @@ describe("A3 - NOTABLE set matches real engine event kinds", () => {
     expect(r.lines).toContain("Velka reached level 2.");
   });
 
-  it("session_end with description surfaces in the recap", () => {
+  it("session_end is bookkeeping (R64): alone it is not a recap, it is the metadata state", () => {
     const events: SessionEvent[] = [
       { event_type: "session_end", description: "The session ended with the party at the cave mouth." },
     ];
     const r = buildRecap(base, events);
-    expect(r.lines).toContain("The session ended with the party at the cave mouth.");
+    expect(r.fromEvents).toBe(false);
+    expect(r.lines).not.toContain("The session ended with the party at the cave mouth.");
   });
 
   it("scene_advance and encounter_resolved preferred over unrecognised kinds", () => {

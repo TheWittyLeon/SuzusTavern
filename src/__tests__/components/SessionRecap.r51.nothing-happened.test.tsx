@@ -197,10 +197,10 @@ describe('R51 F2: a log of bookkeeping alone gets no recap', () => {
     expect(posts()).toHaveLength(0);
   });
 
-  it('a stored recap with NO story anywhere (only recap rows): the last shows, nothing is sent (R37 as built)', async () => {
+  it('a stored recap with NO story anywhere (only recap rows) is hidden (R63; the tests are in SessionRecap.r63-r64.test.tsx)', async () => {
     log = [book(1, 'session_start'), recap(2, 'MADE BEFORE R51')];
     await mount('card');
-    expect(await screen.findByText(/MADE BEFORE R51/, { selector: 'p' })).toBeInTheDocument();
+    expect(screen.queryByText(/MADE BEFORE R51/)).not.toBeInTheDocument();
     expect(posts()).toHaveLength(0);
   });
 });
@@ -293,24 +293,6 @@ describe('R51 F2: a non-string or blank text is not story, and nothing throws', 
     log = [...story(1, 2), { seq: 3, kind: 'narration', data: { description: {} } }];
     await mount('card');
     expect(posts()).toHaveLength(1);
-  });
-});
-
-describe('R51 F2: PIN, current behaviour: a stored recap shows while the log has no story', () => {
-  // Owner question open (hide it?). R37 says show the last one, so it shows; this pin makes a change deliberate.
-  it.each(VARIANTS)('%s: session_start + one stored recap, no story: the stored text shows, nothing is sent', async (variant) => {
-    log = [book(1, 'session_start'), recap(2, 'STORED WITH NO STORY')];
-    await mount(variant);
-    expect(await screen.findByText(/STORED WITH NO STORY/, { selector: 'p' })).toBeInTheDocument();
-    expect(posts()).toHaveLength(0);
-  });
-
-  it('assist off: the card still prints "Previously on…" with the bookkeeping line (the digest of a log with a recap row)', async () => {
-    log = [book(1, 'session_start'), recap(2, 'STORED WITH NO STORY')];
-    await mount('card', { session: session({ ai_assist_level: 'off' }) });
-    expect(screen.getByRole('heading', { name: /previously on/i })).toBeInTheDocument();
-    expect(screen.getByText(/bookkeeping session_start/)).toBeInTheDocument();
-    expect(posts()).toHaveLength(0);
   });
 });
 

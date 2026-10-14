@@ -16,7 +16,7 @@
  *   - postSessionEvent failure is non-fatal.
  *   - narrate() / streamDmNarration is NOT called on open (no AI opening call).
  *   - Idempotent: opening_narrated already in events → gate blocks; no re-render.
- *   - Structural events alone (session_start, character_bound) allow the opening.
+ *   - Structural events alone (session_start, rebind) allow the opening.
  *
  * StrictMode abort note: React StrictMode double-invokes effects and tears down
  * the AbortController between mounts. The openingFiredRef latch prevents double-
@@ -361,10 +361,10 @@ describe("P1-READALOUD renders verbatim for AI-off sessions (same path)", () => 
     expect(screen.queryByText(/cave mouth yawns/i)).not.toBeInTheDocument();
   });
 
-  it("structural events alone (session_start, character_bound) allow the opening to fire", async () => {
+  it("structural events alone (session_start, rebind) allow the opening to fire", async () => {
     mGetSessionEvents.mockResolvedValue([
       { event_type: "session_start", description: "Session started." },
-      { event_type: "character_bound", description: "Velka bound." },
+      { event_type: "rebind", description: "Velka bound." },
     ]);
     renderPlay(<PlayPage />);
     await screen.findByText("The Hollow Tide");

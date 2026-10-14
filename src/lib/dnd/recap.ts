@@ -35,16 +35,17 @@ export interface RecapResult {
 }
 
 // Event types worth surfacing in a recap (A3 - real engine event kinds).
-// Engine msm path emits (with text): scene_advance, encounter_resolved, session_end, xp_award, and more
+// Engine msm path emits (with text): scene_advance, encounter_resolved, xp_award, and more (session_end is bookkeeping, R64: STRUCTURAL_EVENT_KINDS)
 // (the level-up row is `character_levelup`, with no text, so it never reaches the digest).
 // Forward-compat aliases kept for callers normalising legacy event_type values.
+// NOTABLE only ever sees story rows: `buildRecap` filters bookkeeping (STRUCTURAL_EVENT_KINDS) out before it looks, so a
+// bookkeeping kind listed here would be dead code (session_end was, until R64 took it out). Keep them out.
 const NOTABLE = new Set([
   // Real engine kinds (msm path)
   'scene_advance',        // scene moved on - has description
   'encounter_resolved',   // combat/encounter ended - has description
   'xp_award',             // XP granted - has description
   'level_up',             // legacy alias; the engine writes `character_levelup`, with no text
-  'session_end',          // session ended - has description
   // Forward-compat / legacy aliases
   'combat',               // legacy combat kind
   'combat_end',           // legacy combat-end kind
@@ -78,11 +79,9 @@ export function buildRecap(
 ): RecapResult {
   const max = opts.maxLines ?? 4;
 
-  const allWithDesc = events.filter((e) => eventText(e));
-  // Bookkeeping rows (a stored model recap included) stay out of the deterministic digest whenever there is
-  // story to print instead; a log of bookkeeping alone still counts as "from events" (the stored recap shows).
-  const storyWithDesc = events.filter(isStoryEvent);
-  const withDesc = storyWithDesc.length ? storyWithDesc : allWithDesc;
+  // The digest is built from story rows only (isStoryEvent): bookkeeping rows (a stored model recap, a session
+  // start or end) never print, by any path. A log of bookkeeping alone is the metadata state (R51 F2, R63, R64).
+  const withDesc = events.filter(isStoryEvent);
   // Normalize type (engine case convention isn't contract-locked yet — Kage).
   const notable = withDesc.filter((e) => NOTABLE.has((e.event_type ?? '').toLowerCase()));
   const picked = (notable.length ? notable : withDesc).slice(-max);

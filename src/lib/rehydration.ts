@@ -136,14 +136,15 @@ function diceRollLogRow(e: EngineSessionEvent): LogRow | null {
 export const POLL_RENDERED_KINDS = new Set(['dice_roll', 'x_card']);
 
 /**
- * Event kinds that are bookkeeping, not story: nothing happened in the fiction when one was written. The
+ * Event kinds that are bookkeeping, not story: nothing happened in the fiction when one was written (a session started, paused, resumed or ended). The
  * recap reads this set once, in `isStoryEvent` (R37's "events since the last recap" and R51's "any recap at all"
- * do not count them; the assist-off digest does not print them). It is NOT the only such list: the opening gate keeps its own, with different members
- * (`STRUCTURAL_EVENT_KINDS` in hooks/useSceneState.ts, filed as its own row), and `eventToLogRow` does not read
- * this set (it drops these kinds through its `default` branch, like any unknown kind). A deny-list on purpose:
+ * do not count them; the assist-off digest does not print them). The play page's opening gate reads it too, through the same `isStoryEvent` (one list), but asks a different
+ * question: not "is there prose to retell" but "has the table moved past the opening". Fail direction there: a wrong draw
+ * happens once, a wrong hold is permanent, so a play row with no text does not hold the opening back.
+ * `eventToLogRow` does not read this set (it drops these kinds through its `default` branch, like any unknown kind). A deny-list on purpose:
  * a story kind missing from it costs one stale recap, a bookkeeping kind wrongly counted costs a model call
  * on every resume.
- * debt: a client copy of the engine's event vocabulary: this kind list, plus the convention that story rows carry their prose in `description` or `text`. ceiling: a new bookkeeping kind that carries text is counted as story (one model call per occurrence) until it is listed here; a story kind the engine adds with no text, or with its prose under another key, never earns a recap. until: the engine marks an event's class (story or bookkeeping) on the row.
+ * debt: a client copy of the engine's event vocabulary: this kind list, plus the convention that story rows carry their prose in `description` or `text`. ceiling: a new bookkeeping kind that carries text is counted as story (one model call per occurrence, and the scene's opening withheld) until it is listed here; a play kind with no text does not hold the opening back (drawn once, written once), and does not earn a recap; a story kind the engine adds with no text, or with its prose under another key, never earns a recap. until: the engine marks an event's class (story or bookkeeping) on the row.
  */
 export const STRUCTURAL_EVENT_KINDS: ReadonlySet<string> = new Set([
   'recap',
@@ -151,8 +152,9 @@ export const STRUCTURAL_EVENT_KINDS: ReadonlySet<string> = new Set([
   'session_created',
   'session_pause',
   'session_resume',
-  'rebind',
+  'rebind', // a character bound or re-bound to the campaign: setup
   'opening_narrated',
+  'session_end', // R64: ending a session is bookkeeping, text or not ("Session ended. 0 XP awarded to 0 players.")
 ]);
 
 /**

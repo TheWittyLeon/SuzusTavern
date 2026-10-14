@@ -78,22 +78,9 @@ import type {
   SeriesCompletionPointer,
   SeriesNextAdventure,
 } from '@/lib/api/types';
+import { isStoryEvent } from '@/lib/dnd/recap';
 import { buildReadAloudBlock, titleCaseSkill } from '../format';
 import { useStrandedFocusRescue } from './useStrandedFocusRescue';
-
-/** A1 — structural event kinds that indicate the scene hasn't started yet.
- * These are session/character SETUP events, not fiction — their presence
- * must NOT suppress the read-aloud opening. The engine emits `rebind` when
- * a character is bound/re-bound to a campaign (there is no
- * `character_bound` kind); both are listed so the gate matches engine
- * reality regardless. */
-const STRUCTURAL_EVENT_KINDS = new Set([
-  'session_start',
-  'session_created',
-  'character_bound',
-  'rebind',
-  'opening_narrated',
-]);
 
 export interface UseSceneStateResult {
   grounding: GroundingData | null;
@@ -469,7 +456,9 @@ export function useSceneState(
    * Returns true only when:
    *   - grounding has a scene_id + boxed_text (there's a scene to open)
    *   - getSessionEvents returns no `opening_narrated` event
-   *   - AND no non-structural fiction events exist (belt-and-braces)
+   *   - AND the table has not moved past the opening: no story row (`isStoryEvent`) exists (belt-and-braces)
+   * Fail direction: a wrong DRAW happens once (the marker is then written); a wrong HOLD is permanent. So when in
+   * doubt the opening is drawn: a play row with no story text (an X-card, a fight started) does not hold it back.
    * Returns false on any error (fail safe: don't speculate, render silence).
    */
   const checkShouldOpen = useCallback(
@@ -487,13 +476,14 @@ export function useSceneState(
       if (events === null) return false; // engine unreachable → fail safe, don't open
       if (signal.aborted) return false;
 
-      // Durable marker exists: opening already ran.
-      if (events.some((e: SessionEvent) => e.event_type === 'opening_narrated')) return false;
+      // Durable marker exists: opening already ran. (Case-folded, like isStoryEvent's own kind check.)
+      if (events.some((e: SessionEvent) => (e.event_type ?? '').toLowerCase() === 'opening_narrated')) return false;
 
-      // Belt-and-braces: any non-structural event means play already started.
-      const hasFiction = events.some(
-        (e: SessionEvent) => e.event_type && !STRUCTURAL_EVENT_KINDS.has(e.event_type),
-      );
+      // Belt-and-braces: any story event means play already started. NOT the recap's question: the recap asks whether
+      // there is prose to retell, this asks whether the table has moved past the opening. It shares the function
+      // (`isStoryEvent`, over the one bookkeeping list in lib/rehydration.ts) and so also treats a play row with no
+      // text as "not yet". Fail direction: a wrong draw happens once, a wrong hold is permanent.
+      const hasFiction = events.some(isStoryEvent);
       if (hasFiction) return false;
 
       return true;

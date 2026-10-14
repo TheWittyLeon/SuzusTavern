@@ -162,8 +162,9 @@ describe('R37 decision table (network-level)', () => {
     expect(posts()).toHaveLength(0);
   });
 
-  it('a recap row is never "newer than itself": a log of ONLY recap rows shows the last and sends nothing', async () => {
-    log = [recap(1, 'ONLY ONE'), recap(2, 'ONLY TWO')];
+  it('a recap row is never "newer than itself": recap rows after the story show the last and send nothing', async () => {
+    // R63: a log of ONLY recap rows (no story) now hides them; there is a story row ahead of them here.
+    log = [...story(1, 1), recap(2, 'ONLY ONE'), recap(3, 'ONLY TWO')];
     await mount('card');
     expect(await screen.findByText(/ONLY TWO/, { selector: 'p' })).toBeInTheDocument();
     expect(posts()).toHaveLength(0);
