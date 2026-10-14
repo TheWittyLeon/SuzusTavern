@@ -149,7 +149,7 @@
   /* Safari treats an unset minimum differently from a zero one here: a stretched item that spans a content-sized row and carries a written `min-height` (the `.slot` rule's `0`) is measured at its
      previous stretched height, so after a window height step the stage stayed too tall (map past its size, action bar and X-card under the bottom edge). By the standard `auto` is zero for this slot (the
      stage's rows never have an `auto` minimum), so no other engine changes. The harness check `stage-height-steps` (tools/ui-audit, WebKit) holds this and is the only test that can see it; if it
-     goes red, the restructure in the design (2026-10-12 TAVERN Play Stage Height in WebKit, option A) is the fallback. */
+     goes red, the subgrid restructure (choice (b) in R51 F3; design 2026-10-12 TAVERN Play Stage Height in WebKit) is the fallback. */
   min-height: auto;
 }
 
