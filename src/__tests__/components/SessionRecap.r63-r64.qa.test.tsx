@@ -5,7 +5,7 @@
  * Same harness as SessionRecap.r51.nothing-happened.test.tsx: the REAL component, reader, pager and stream over a
  * fake `fetch`; "no request" is asserted on the network mock.
  */
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { TextDecoder as NodeTextDecoder, TextEncoder as NodeTextEncoder } from 'util';
 
@@ -113,7 +113,6 @@ const VARIANTS = ['card', 'strip'] as const;
 const book = (seq: number, kind: string): Row => ({ seq, kind, data: { description: `bookkeeping ${kind}` } });
 const ENDED = 'Session ended. 0 XP awarded to 0 players.';
 const ended = (seq: number): Row => ({ seq, kind: 'session_end', data: { description: ENDED } });
-const noRecapRows = () => log.filter((e) => e.kind === 'recap' && e.data?.log_kind === 'recap');
 const heading = (re: RegExp) => screen.getByRole('heading', { name: re });
 
 

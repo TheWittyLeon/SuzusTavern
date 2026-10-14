@@ -759,7 +759,8 @@ export default function PlayPage() {
         // player can interact while the opening streams in the background.
         // openScene comes from useScene's destructure above (TAV-PLAY-SHELL
         // step 5 hook 4).
-        if (g && !ctrl.signal.aborted) {
+        // Not for an ended campaign: no write (the opening marker) to a campaign that is over.
+        if (g && !ctrl.signal.aborted && (s.status ?? s.state) !== 'ended') {
            
           void openScene(s, g, sessionId, ctrl.signal);
         }

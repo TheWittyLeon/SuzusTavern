@@ -77,9 +77,9 @@ const GROUNDING = {
 };
 const ev = (event_type: string, description: string) => ({ event_type, description });
 
-async function openingDrawnFor(events: unknown[]): Promise<boolean> {
+async function openingDrawnFor(events: unknown[], session: Session = SESSION): Promise<boolean> {
   jest.clearAllMocks();
-  mockGetSession.mockResolvedValue(SESSION);
+  mockGetSession.mockResolvedValue(session);
   mockGetSessionEvents.mockResolvedValue(events);
   mockGetGrounding.mockResolvedValue(GROUNDING);
   const view = renderPlay(<PlayPage />);
@@ -122,11 +122,10 @@ describe('opening gate vs the recap list on session_end (R64)', () => {
     ).toBe(true);
   });
 
-  it('a character bound (character_bound, rebind) is setup, not play: the opening is drawn', async () => {
+  it('a character bound (rebind, the row the engine writes) is setup, not play: the opening is drawn', async () => {
     expect(
       await openingDrawnFor([
         ev('session_start', 'Session started by dm_alice.'),
-        ev('character_bound', 'Mira bound.'),
         ev('rebind', 'Mira re-bound.'),
       ]),
     ).toBe(true);
@@ -148,5 +147,34 @@ describe('opening gate vs the recap list on session_end (R64)', () => {
     expect(
       await openingDrawnFor([ev('session_start', 'Session started.'), ev('session_end', 'Session ended.'), ev('xp_award', '50 XP awarded.')]),
     ).toBe(false);
+  });
+});
+
+// The gate's rule is NOT "the same question" as the recap's. The recap asks whether there is prose to retell; the gate
+// asks whether the table has moved past the opening. It uses `isStoryEvent`, so a play row with no text ("not yet")
+// does not hold the opening back. Fail direction: a wrong draw happens once (the marker is then written); a wrong hold
+// is permanent. Owner question open (K1): if he says a textless play row should hold it, these two flip.
+describe('opening gate: a play kind with no text does not hold the opening back (as built)', () => {
+  it('x_card alone: the opening is drawn', async () => {
+    expect(await openingDrawnFor([ev('session_start', 'Session started.'), { event_type: 'x_card' }])).toBe(true);
+  });
+
+  it('combat_started alone: the opening is drawn', async () => {
+    expect(await openingDrawnFor([ev('session_start', 'Session started.'), { event_type: 'combat_started' }])).toBe(true);
+  });
+});
+
+describe('opening gate: an ended campaign gets no opening and no write (K4)', () => {
+  const endedSession: Session = { ...SESSION, status: 'ended' };
+  const events = [ev('session_start', 'Session started by dm_alice.'), ev('session_end', 'Session ended. 0 XP awarded to 0 players.')];
+
+  it('ended, never played: no opening, no marker written', async () => {
+    expect(await openingDrawnFor(events, endedSession)).toBe(false);
+    expect(mockPostSessionEvent).not.toHaveBeenCalled();
+  });
+
+  it('active, nothing happened: the opening is drawn and the marker is written once', async () => {
+    expect(await openingDrawnFor(events, { ...SESSION, status: 'active' })).toBe(true);
+    expect(mockPostSessionEvent).toHaveBeenCalledTimes(1);
   });
 });

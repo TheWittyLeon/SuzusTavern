@@ -6,7 +6,7 @@
  * Same harness as SessionRecap.r51.nothing-happened.test.tsx: the REAL component, reader, pager and stream over a
  * fake `fetch`; "no request" is asserted on the network mock.
  */
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { TextDecoder as NodeTextDecoder, TextEncoder as NodeTextEncoder } from 'util';
 
@@ -46,7 +46,6 @@ function sseBody(text: string) {
 }
 
 const posts = () => mockFetch.mock.calls.filter(([url]) => String(url).includes('/api/narration'));
-const postBodies = () => posts().map(([, init]) => JSON.parse((init as { body: string }).body));
 
 beforeEach(() => {
   log = [];
@@ -207,8 +206,19 @@ describe('R63: a stored recap of nothing is hidden', () => {
   });
 });
 
-describe('R64: the digest itself (direct buildRecap)', () => {
-  it('a session_end beside a notable story row is not printed, and is not what makes the digest "from events"', () => {
+describe('R64: the digest itself (direct buildRecap): bookkeeping never prints, by any path', () => {
+  it('a log of bookkeeping alone (start, recap, end) is the metadata state, not "Previously on"', () => {
+    const r = buildRecap(session(), [
+      { event_type: 'session_start', description: 'Session started by suzu.' },
+      { event_type: 'recap', description: 'A RECAP OF NOTHING' },
+      { event_type: 'session_end', description: ENDED },
+    ]);
+    expect(r.fromEvents).toBe(false);
+    expect(r.headline).toBe('Where you left off');
+    expect(r.facts).not.toMatch(/Session|RECAP/);
+  });
+
+  it('a session_end beside a notable story row is not printed', () => {
     const r = buildRecap(
       session(),
       [

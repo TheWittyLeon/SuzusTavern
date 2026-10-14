@@ -9,7 +9,8 @@
  *        opening_narrated marker is absent.
  *   2. AI-full session + encounter_resolved event → opening must NOT fire.
  *   3. Multiple non-structural events → opening must NOT fire.
- *   4. Unknown future event kinds → treated as non-structural → gate blocks.
+ *   4. Unknown future event kinds WITH story text → treated as play → gate blocks. (Without text they do not:
+ *      the gate asks isStoryEvent; see the no-text twin below.)
  *
  * FAILURE INJECTION
  *   5. getGrounding resolves to null → no opening, no crash, page renders.
@@ -18,7 +19,7 @@
  * STATE / FLAGS
  *   7. AI-off + opening_narrated already written → postSessionEvent NOT called
  *      a second time (fire-once gate holds on re-mount).
- *   8. Structural-only events (session_start, character_bound) allow opening (AI-off).
+ *   8. Structural-only events (session_start, rebind) allow opening (AI-off).
  *   9. Freeform session (no scene_id) → no opening regardless of event list.
  *  10. opening_lines with unknown/extra fields are safely ignored (projection strips them).
  *
@@ -233,6 +234,13 @@ describe("P1-READALOUD adversarial - hasFiction gate (AI-full)", () => {
     expect(screen.queryByText(/cave mouth yawns/i)).not.toBeInTheDocument();
     expect(mPostSessionEvent).not.toHaveBeenCalled();
   });
+
+  it("an unknown future event kind with NO story text does not hold the opening back (as built; a wrong draw happens once)", async () => {
+    mGetSessionEvents.mockResolvedValue([{ event_type: "future_unknown_kind" } as never]);
+    renderPlay(<PlayPage />);
+    await screen.findByText("The Hollow Tide");
+    await waitFor(() => expect(screen.getByText(/cave mouth yawns/i)).toBeInTheDocument());
+  });
 });
 
 // ── FAILURE INJECTION ─────────────────────────────────────────────────────────
@@ -317,12 +325,12 @@ describe("P1-READALOUD adversarial - state and flags", () => {
     expect(screen.queryByText(/cave mouth yawns/i)).not.toBeInTheDocument();
   });
 
-  it("structural-only events (session_start + character_bound) still allow opening (AI-off)", async () => {
+  it("structural-only events (session_start + rebind) still allow opening (AI-off)", async () => {
     mGetSession.mockResolvedValue(SESSION_AI_OFF);
     mGetGrounding.mockResolvedValue(GROUNDING_WITH_SCENE);
     mGetSessionEvents.mockResolvedValue([
       { event_type: "session_start", description: "Session started." },
-      { event_type: "character_bound", description: "Velka bound." },
+      { event_type: "rebind", description: "Velka bound." },
     ]);
 
     renderPlay(<PlayPage />);

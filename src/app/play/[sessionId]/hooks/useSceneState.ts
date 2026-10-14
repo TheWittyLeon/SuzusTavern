@@ -456,7 +456,9 @@ export function useSceneState(
    * Returns true only when:
    *   - grounding has a scene_id + boxed_text (there's a scene to open)
    *   - getSessionEvents returns no `opening_narrated` event
-   *   - AND no non-structural fiction events exist (belt-and-braces)
+   *   - AND the table has not moved past the opening: no story row (`isStoryEvent`) exists (belt-and-braces)
+   * Fail direction: a wrong DRAW happens once (the marker is then written); a wrong HOLD is permanent. So when in
+   * doubt the opening is drawn: a play row with no story text (an X-card, a fight started) does not hold it back.
    * Returns false on any error (fail safe: don't speculate, render silence).
    */
   const checkShouldOpen = useCallback(
@@ -474,12 +476,13 @@ export function useSceneState(
       if (events === null) return false; // engine unreachable → fail safe, don't open
       if (signal.aborted) return false;
 
-      // Durable marker exists: opening already ran.
-      if (events.some((e: SessionEvent) => e.event_type === 'opening_narrated')) return false;
+      // Durable marker exists: opening already ran. (Case-folded, like isStoryEvent's own kind check.)
+      if (events.some((e: SessionEvent) => (e.event_type ?? '').toLowerCase() === 'opening_narrated')) return false;
 
-      // Belt-and-braces: any story event means play already started. The same question the recap asks, through
-      // the same function (`isStoryEvent`, over the one bookkeeping list in lib/rehydration.ts): setup rows
-      // (start, bind, pause, resume, end, a stored recap) and rows with no story text do not suppress the opening.
+      // Belt-and-braces: any story event means play already started. NOT the recap's question: the recap asks whether
+      // there is prose to retell, this asks whether the table has moved past the opening. It shares the function
+      // (`isStoryEvent`, over the one bookkeeping list in lib/rehydration.ts) and so also treats a play row with no
+      // text as "not yet". Fail direction: a wrong draw happens once, a wrong hold is permanent.
       const hasFiction = events.some(isStoryEvent);
       if (hasFiction) return false;
 
