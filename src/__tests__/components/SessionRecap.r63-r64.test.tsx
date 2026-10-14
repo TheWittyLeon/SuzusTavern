@@ -149,3 +149,59 @@ describe('R64: session_end is bookkeeping', () => {
     expect(screen.queryByText(/Session ended/)).not.toBeInTheDocument();
   });
 });
+
+describe('R63: a stored recap of nothing is hidden', () => {
+  it.each(VARIANTS)('%s: start + a stored recap, no story: the stored text is hidden, nothing sent, nothing stored, nothing deleted', async (variant) => {
+    log = [book(1, 'session_start'), recap(2, 'A RECAP OF NOTHING')];
+    const before = log.length;
+    const view = await mount(variant);
+    expect(eventsGets).toBeGreaterThan(0);
+    expect(screen.queryByText(/A RECAP OF NOTHING/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/bookkeeping session_start/)).not.toBeInTheDocument();
+    expect(posts()).toHaveLength(0);
+    expect(log).toHaveLength(before);
+    if (variant === 'card') expect(heading(/where you left off/i)).toBeInTheDocument();
+    else expect(view.container).toBeEmptyDOMElement();
+  });
+
+  it('assist off: the card shows the metadata state, not "Previously on" with the bookkeeping line', async () => {
+    log = [book(1, 'session_start'), recap(2, 'A RECAP OF NOTHING')];
+    await mount('card', { session: session({ ai_assist_level: 'off' }) });
+    expect(heading(/where you left off/i)).toBeInTheDocument();
+    expect(screen.queryByText(/bookkeeping session_start/)).not.toBeInTheDocument();
+  });
+
+  it.each(VARIANTS)('%s: start + recap + end (R63 and R64 together): hidden, nothing sent', async (variant) => {
+    log = [book(1, 'session_start'), recap(2, 'A RECAP OF NOTHING'), ended(3)];
+    await mount(variant);
+    expect(screen.queryByText(/A RECAP OF NOTHING/)).not.toBeInTheDocument();
+    expect(posts()).toHaveLength(0);
+  });
+
+  it.each(VARIANTS)('%s: then a real event arrives: the recap shows again, and a fresh one is made as R37 says', async (variant) => {
+    log = [book(1, 'session_start'), recap(2, 'A RECAP OF NOTHING')];
+    const first = await mount(variant);
+    expect(screen.queryByText(/A RECAP OF NOTHING/)).not.toBeInTheDocument();
+    expect(posts()).toHaveLength(0);
+    first.unmount();
+    log.push(row(3, 'player_action', 'I open the door'));
+    await mount(variant);
+    expect(posts()).toHaveLength(1);
+    expect(await screen.findByText(/FRESH RECAP FROM THE MODEL/, { selector: 'p' })).toBeInTheDocument();
+    expect(screen.queryByText(/A RECAP OF NOTHING/)).not.toBeInTheDocument();
+  });
+
+  it('then a real event arrives with no username to generate with: the digest of the story shows (the recap is back)', async () => {
+    log = [book(1, 'session_start'), recap(2, 'A RECAP OF NOTHING'), row(3, 'narration', 'The door creaks open.')];
+    await mount('card', { username: null });
+    expect(posts()).toHaveLength(0);
+    expect(screen.getByText(/The door creaks open\./)).toBeInTheDocument();
+  });
+
+  it.each(VARIANTS)('%s: a stored recap with story before it still shows (R37 unchanged)', async (variant) => {
+    log = [book(1, 'session_start'), ...story(2, 2), recap(4, 'STORED AFTER STORY')];
+    await mount(variant);
+    expect(await screen.findByText(/STORED AFTER STORY/, { selector: 'p' })).toBeInTheDocument();
+    expect(posts()).toHaveLength(0);
+  });
+});

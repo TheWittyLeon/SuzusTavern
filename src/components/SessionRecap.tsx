@@ -66,13 +66,14 @@ export default function SessionRecap({ session, username, variant = 'card', hidd
       const stored = lastStoredRecap(events);
       storedRef.current = stored;
       const hasStory = events.some(isStoryEvent);
-      // Nothing has happened (R51 F2): no story row and no stored recap. Shown as a log with no events: the card's
-      // metadata digest, and nothing in the strip (it needs real play history). When no recap row is stored, a digest
-      // made only of bookkeeping lines is never shown, whatever the read's completeness; a stored recap still shows
-      // (R37). A read that stopped early sees a prefix: the same rule, nothing sent, nothing latched.
+      // Nothing has happened (R51 F2, R63): the log has no story row. Shown as a log with no events: the card's
+      // metadata digest, and nothing in the strip (it needs real play history). A recap row stored before R51 (a
+      // recap of nothing) is hidden too, not shown: it costs no call and deletes no row, and it shows again once a
+      // story row exists. The decision reads only the log's rows, through `isStoryEvent`. A read that stopped early
+      // sees a prefix: the same rule, nothing sent, nothing latched.
       // The narration effect needs no second check: with nothing happened the digest is built from [] and is not
       // `fromEvents`, so it returns at the gate on `recap.fromEvents`.
-      const nothingHappened = !stored && !hasStory;
+      const nothingHappened = !hasStory;
       const built = buildRecap(session, nothingHappened ? [] : events);
       // The stored text goes in with the digest, in one render (the effect below would swap it in a render later:
       // a flash of the digest and a layout shift). Same conditions as that effect's stored branch.
