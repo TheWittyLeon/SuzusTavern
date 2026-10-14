@@ -12,6 +12,7 @@ import { TextDecoder as NodeTextDecoder, TextEncoder as NodeTextEncoder } from '
 
 import SessionRecap from '@/components/SessionRecap';
 import type { Session } from '@/lib/api/types';
+import { buildRecap } from '@/lib/dnd/recap';
 
 const g = globalThis as unknown as Record<string, unknown>;
 if (typeof g.TextDecoder === 'undefined') g.TextDecoder = NodeTextDecoder;
@@ -203,5 +204,20 @@ describe('R63: a stored recap of nothing is hidden', () => {
     await mount(variant);
     expect(await screen.findByText(/STORED AFTER STORY/, { selector: 'p' })).toBeInTheDocument();
     expect(posts()).toHaveLength(0);
+  });
+});
+
+describe('R64: the digest itself (direct buildRecap)', () => {
+  it('a session_end beside a notable story row is not printed, and is not what makes the digest "from events"', () => {
+    const r = buildRecap(
+      session(),
+      [
+        { event_type: 'session_start', description: 'Session started by suzu.' },
+        { event_type: 'scene_advance', description: 'The scene moved to the Hollow.' },
+        { event_type: 'session_end', description: ENDED },
+      ],
+    );
+    expect(r.lines).toEqual(['The scene moved to the Hollow.']);
+    expect(r.facts).not.toMatch(/Session ended/);
   });
 });

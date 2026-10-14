@@ -70,7 +70,8 @@ export default function SessionRecap({ session, username, variant = 'card', hidd
       // metadata digest, and nothing in the strip (it needs real play history). A recap row stored before R51 (a
       // recap of nothing) is hidden too, not shown: it costs no call and deletes no row, and it shows again once a
       // story row exists. The decision reads only the log's rows, through `isStoryEvent`. A read that stopped early
-      // sees a prefix: the same rule, nothing sent, nothing latched.
+      // sees a prefix: the same rule, nothing sent, nothing latched. So a stored recap is also hidden when the read stops early
+      // with no story in the prefix (fail closed; nothing is deleted, and the next complete read shows it again).
       // The narration effect needs no second check: with nothing happened the digest is built from [] and is not
       // `fromEvents`, so it returns at the gate on `recap.fromEvents`.
       const nothingHappened = !hasStory;

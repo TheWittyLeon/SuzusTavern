@@ -8,9 +8,7 @@
  * ("nothing happened", by the recap's ruling) is treated by the opening gate as "play already started", so the
  * scene's read-aloud opening is never drawn. The control (start only) draws it.
  *
- * The disagreement is real, so the "ought" assertion below is red today and is marked `it.failing`: the suite stays
- * green, and the day the two lists are made one decision this test turns red and tells the fixer to drop `.failing`.
- * The same shape exists for session_pause / session_resume / recap (the gate never listed them; pre-existing).
+ * Fixed: the gate now asks `isStoryEvent`, the one decision, so these assert the opening IS drawn.
  */
 import React from 'react';
 import { screen, waitFor, act } from '@testing-library/react';
@@ -103,7 +101,7 @@ describe('opening gate vs the recap list on session_end (R64)', () => {
   });
 
   // The recap says start + end is "nothing happened". The gate must say the same: the opening is still owed.
-  it.failing('start + end only ("nothing happened" per the recap): the opening should still be drawn', async () => {
+  it('start + end only ("nothing happened" per the recap): the opening should still be drawn', async () => {
     expect(
       await openingDrawnFor([
         ev('session_start', 'Session started by dm_alice.'),
@@ -112,23 +110,43 @@ describe('opening gate vs the recap list on session_end (R64)', () => {
     ).toBe(true);
   });
 
-  it('characterization (today): start + end only draws NO opening, and the recap shows nothing either: the player sees neither', async () => {
-    expect(
-      await openingDrawnFor([
-        ev('session_start', 'Session started by dm_alice.'),
-        ev('session_end', 'Session ended. 0 XP awarded to 0 players.'),
-      ]),
-    ).toBe(false);
-  });
-
-  // Pre-existing (not R64): the gate never listed pause/resume, the recap always did.
-  it('characterization (pre-existing): start + pause + resume only draws NO opening, though the recap list calls all three bookkeeping', async () => {
+  // The gate asks the recap's own question (isStoryEvent over the one list in lib/rehydration.ts): a campaign in which
+  // nothing has happened is owed its opening, whatever bookkeeping rows sit in its log.
+  it('start + pause + resume only: the opening is drawn (was: never drawn, the gate kept its own list)', async () => {
     expect(
       await openingDrawnFor([
         ev('session_start', 'Session started by dm_alice.'),
         ev('session_pause', 'Session paused.'),
         ev('session_resume', 'Session resumed.'),
       ]),
+    ).toBe(true);
+  });
+
+  it('a character bound (character_bound, rebind) is setup, not play: the opening is drawn', async () => {
+    expect(
+      await openingDrawnFor([
+        ev('session_start', 'Session started by dm_alice.'),
+        ev('character_bound', 'Mira bound.'),
+        ev('rebind', 'Mira re-bound.'),
+      ]),
+    ).toBe(true);
+  });
+
+  it('a stored recap row alone is bookkeeping: the opening is drawn', async () => {
+    expect(await openingDrawnFor([ev('session_start', 'Session started.'), ev('recap', 'A RECAP OF NOTHING')])).toBe(true);
+  });
+
+  it('a row with no story text (a setting change) is not play: the opening is drawn', async () => {
+    expect(await openingDrawnFor([ev('session_start', 'Session started.'), { event_type: 'campaign_setting_changed' }])).toBe(true);
+  });
+
+  it('bookkeeping kinds in other case still count as bookkeeping', async () => {
+    expect(await openingDrawnFor([ev('SESSION_END', 'Session ended.')])).toBe(true);
+  });
+
+  it('story after the bookkeeping still suppresses it', async () => {
+    expect(
+      await openingDrawnFor([ev('session_start', 'Session started.'), ev('session_end', 'Session ended.'), ev('xp_award', '50 XP awarded.')]),
     ).toBe(false);
   });
 });

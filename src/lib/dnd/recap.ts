@@ -38,6 +38,9 @@ export interface RecapResult {
 // Engine msm path emits (with text): scene_advance, encounter_resolved, xp_award, and more (session_end is bookkeeping, R64: STRUCTURAL_EVENT_KINDS)
 // (the level-up row is `character_levelup`, with no text, so it never reaches the digest).
 // Forward-compat aliases kept for callers normalising legacy event_type values.
+// In every component path NOTABLE sees story rows only: `buildRecap` filters bookkeeping (STRUCTURAL_EVENT_KINDS) out
+// first whenever there is story, and the component passes [] when there is none. A bookkeeping kind listed here is
+// dead code (session_end was, until R64 took it out); keep them out. Pinned directly in SessionRecap.r63-r64.test.tsx.
 const NOTABLE = new Set([
   // Real engine kinds (msm path)
   'scene_advance',        // scene moved on - has description

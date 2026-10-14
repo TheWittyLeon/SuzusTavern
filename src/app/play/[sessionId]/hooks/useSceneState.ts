@@ -78,22 +78,9 @@ import type {
   SeriesCompletionPointer,
   SeriesNextAdventure,
 } from '@/lib/api/types';
+import { isStoryEvent } from '@/lib/dnd/recap';
 import { buildReadAloudBlock, titleCaseSkill } from '../format';
 import { useStrandedFocusRescue } from './useStrandedFocusRescue';
-
-/** A1 — structural event kinds that indicate the scene hasn't started yet.
- * These are session/character SETUP events, not fiction — their presence
- * must NOT suppress the read-aloud opening. The engine emits `rebind` when
- * a character is bound/re-bound to a campaign (there is no
- * `character_bound` kind); both are listed so the gate matches engine
- * reality regardless. */
-const STRUCTURAL_EVENT_KINDS = new Set([
-  'session_start',
-  'session_created',
-  'character_bound',
-  'rebind',
-  'opening_narrated',
-]);
 
 export interface UseSceneStateResult {
   grounding: GroundingData | null;
@@ -490,10 +477,10 @@ export function useSceneState(
       // Durable marker exists: opening already ran.
       if (events.some((e: SessionEvent) => e.event_type === 'opening_narrated')) return false;
 
-      // Belt-and-braces: any non-structural event means play already started.
-      const hasFiction = events.some(
-        (e: SessionEvent) => e.event_type && !STRUCTURAL_EVENT_KINDS.has(e.event_type),
-      );
+      // Belt-and-braces: any story event means play already started. The same question the recap asks, through
+      // the same function (`isStoryEvent`, over the one bookkeeping list in lib/rehydration.ts): setup rows
+      // (start, bind, pause, resume, end, a stored recap) and rows with no story text do not suppress the opening.
+      const hasFiction = events.some(isStoryEvent);
       if (hasFiction) return false;
 
       return true;
