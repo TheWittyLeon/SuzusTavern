@@ -136,7 +136,7 @@ function diceRollLogRow(e: EngineSessionEvent): LogRow | null {
 export const POLL_RENDERED_KINDS = new Set(['dice_roll', 'x_card']);
 
 /**
- * Event kinds that are bookkeeping, not story: nothing happened in the fiction when one was written. The
+ * Event kinds that are bookkeeping, not story: nothing happened in the fiction when one was written (a session started, paused, resumed or ended). The
  * recap reads this set once, in `isStoryEvent` (R37's "events since the last recap" and R51's "any recap at all"
  * do not count them; the assist-off digest does not print them). It is NOT the only such list: the opening gate keeps its own, with different members
  * (`STRUCTURAL_EVENT_KINDS` in hooks/useSceneState.ts, filed as its own row), and `eventToLogRow` does not read
@@ -153,6 +153,7 @@ export const STRUCTURAL_EVENT_KINDS: ReadonlySet<string> = new Set([
   'session_resume',
   'rebind',
   'opening_narrated',
+  'session_end', // R64: ending a session is bookkeeping, text or not ("Session ended. 0 XP awarded to 0 players.")
 ]);
 
 /**

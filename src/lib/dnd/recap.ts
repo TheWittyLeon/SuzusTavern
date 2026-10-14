@@ -35,7 +35,7 @@ export interface RecapResult {
 }
 
 // Event types worth surfacing in a recap (A3 - real engine event kinds).
-// Engine msm path emits (with text): scene_advance, encounter_resolved, session_end, xp_award, and more
+// Engine msm path emits (with text): scene_advance, encounter_resolved, xp_award, and more (session_end is bookkeeping, R64: STRUCTURAL_EVENT_KINDS)
 // (the level-up row is `character_levelup`, with no text, so it never reaches the digest).
 // Forward-compat aliases kept for callers normalising legacy event_type values.
 const NOTABLE = new Set([
@@ -44,7 +44,6 @@ const NOTABLE = new Set([
   'encounter_resolved',   // combat/encounter ended - has description
   'xp_award',             // XP granted - has description
   'level_up',             // legacy alias; the engine writes `character_levelup`, with no text
-  'session_end',          // session ended - has description
   // Forward-compat / legacy aliases
   'combat',               // legacy combat kind
   'combat_end',           // legacy combat-end kind
