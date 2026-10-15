@@ -44,6 +44,25 @@ describe('next.config.ts — allowedDevOrigins from ALLOWED_DEV_ORIGINS', () => 
     expect(parseOrigins('10.69.69.226, 10.69.69.218 ,,')).toEqual(['10.69.69.226', '10.69.69.218']);
   });
 
+  it('rejects a scheme, port or path loudly: Next compares hostnames only, so it would never match', () => {
+    expect(() => parseOrigins('http://10.0.0.5')).toThrow(/bare hostname/);
+    expect(() => parseOrigins('10.0.0.5:13000')).toThrow(/bare hostname/);
+    expect(() => parseOrigins('ok.lan,10.0.0.5/x')).toThrow(/10\.0\.0\.5\/x/);
+  });
+
+  it('passes a lone "*" through, and Next\'s own matcher treats it as matching nothing', () => {
+    expect(parseOrigins('*')).toEqual(['*']);
+    // Characterisation of the installed Next (internal module): if this goes red after a Next
+    // upgrade, a bare "*" has become an open door and parseOrigins must start rejecting it.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { isCsrfOriginAllowed } = require('next/dist/server/app-render/csrf-protection') as {
+      isCsrfOriginAllowed: (origin: string, allowed: string[]) => boolean;
+    };
+    expect(isCsrfOriginAllowed('evil.example', ['*'])).toBe(false);
+    expect(isCsrfOriginAllowed('10.0.0.5', ['10.0.0.5'])).toBe(true);
+    expect(isCsrfOriginAllowed('a.lan', ['*.lan'])).toBe(true);
+  });
+
   it('is empty when unset or blank', () => {
     expect(parseOrigins(undefined)).toEqual([]);
     expect(parseOrigins('  ')).toEqual([]);

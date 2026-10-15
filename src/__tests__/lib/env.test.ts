@@ -178,6 +178,20 @@ describe('env.ts', () => {
       expect(loadFresh().DURABLE_GENERATION_ENABLED).toBe(false);
     });
 
+    // Writes down what the shared parseBool does with awkward spellings (case-insensitive, trimmed,
+    // empty = unset = default false), so a change to that parser is seen here.
+    it.each(['TRUE', ' true', 'true ', 'Yes'])('parses %j as on', (v) => {
+      setNodeEnv('production');
+      process.env.NEXT_PUBLIC_DURABLE_GENERATION_ENABLED = v;
+      expect(loadFresh().DURABLE_GENERATION_ENABLED).toBe(true);
+    });
+
+    it.each(['', '   ', 'FALSE', 'no', '0'])('parses %j as off', (v) => {
+      setNodeEnv('development');
+      process.env.NEXT_PUBLIC_DURABLE_GENERATION_ENABLED = v;
+      expect(loadFresh().DURABLE_GENERATION_ENABLED).toBe(false);
+    });
+
     it.each(['true', '1', 'yes'])('explicit %s turns it on (the dev profile)', (v) => {
       setNodeEnv('development');
       process.env.NEXT_PUBLIC_DURABLE_GENERATION_ENABLED = v;

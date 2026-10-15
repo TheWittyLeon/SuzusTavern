@@ -1,8 +1,23 @@
 import type { NextConfig } from "next";
 
-/** Comma-separated host list -> trimmed, non-empty entries. */
+/**
+ * Comma-separated host list -> trimmed, non-empty entries.
+ *
+ * Next matches these against the request's HOSTNAME only (Next 16.2.6 isCsrfOriginAllowed), so an
+ * entry with a scheme or path ("http://10.0.0.5:13000") would silently never match and the dev page
+ * would hang on "Loading..."; that is a loud startup error here instead. A bare "*" is NOT rejected:
+ * Next itself refuses to let a lone wildcard match anything (only "*.suffix" patterns match), so it
+ * is inert, not an open door. Pinned against Next's own matcher in next-config.test.ts.
+ */
 export function parseOrigins(raw: string | undefined): string[] {
-  return (raw ?? '').split(',').map((h) => h.trim()).filter(Boolean);
+  const hosts = (raw ?? '').split(',').map((h) => h.trim()).filter(Boolean);
+  const bad = hosts.find((h) => /[/:]/.test(h));
+  if (bad) {
+    throw new Error(
+      `ALLOWED_DEV_ORIGINS entry "${bad}" must be a bare hostname or IP (no scheme, port or path).`,
+    );
+  }
+  return hosts;
 }
 
 const nextConfig: NextConfig = {
