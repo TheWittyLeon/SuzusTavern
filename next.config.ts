@@ -1,5 +1,10 @@
 import type { NextConfig } from "next";
 
+/** Comma-separated host list -> trimmed, non-empty entries. */
+export function parseOrigins(raw: string | undefined): string[] {
+  return (raw ?? '').split(',').map((h) => h.trim()).filter(Boolean);
+}
+
 const nextConfig: NextConfig = {
   // UIR2-TAV-10: the review-queue UI lives at /admin/content; /admin/review
   // was a bare 404 (stale link/bookmark surface — no in-repo <Link> pointed
@@ -9,7 +14,7 @@ const nextConfig: NextConfig = {
   // rather than 308 — this is a UI reroute, not a permanent URL change we
   // want search engines/clients to cache forever.
   // DEV-ONLY, and it is what makes the dev Tavern browser-testable at all.
-  // The dev stack is served from another host (10.69.69.226:13000), and
+  // The dev stack is served from another host (e.g. <dev-host>:13000), and
   // Next 16 blocks dev-time client assets/HMR for a cross-origin dev request
   // unless that origin is listed here — it prints this exact suggestion in
   // the container log. Without it the shell renders (SSR) but the React
@@ -20,7 +25,10 @@ const nextConfig: NextConfig = {
   //
   // Ignored entirely by `next build` / production — this cannot affect the
   // deployed container's behaviour.
-  allowedDevOrigins: ['10.69.69.226'],
+  // The origins come from ALLOWED_DEV_ORIGINS (comma-separated hosts), set by
+  // the dev profile (NekoNova deployment/staging/docker-compose.tavern-dev.yml); unset = none listed, so a
+  // second dev host needs a new env value, not a code edit.
+  allowedDevOrigins: parseOrigins(process.env.ALLOWED_DEV_ORIGINS),
   async redirects() {
     return [
       {

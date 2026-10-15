@@ -7,7 +7,7 @@
  * build), so the fix disables it outright via `devIndicators: false`
  * rather than guess a corner that's clear across every route/viewport.
  */
-import nextConfig from '../../next.config';
+import nextConfig, { parseOrigins } from '../../next.config';
 
 describe('next.config.ts — devIndicators (UIR2-TAV-16)', () => {
   it('disables the dev-mode build-activity indicator', () => {
@@ -32,5 +32,37 @@ describe('next.config.ts — /admin/review redirect (UIR2-TAV-10)', () => {
     expect(entry).toBeDefined();
     expect(entry?.destination).toBe('/admin/content');
     expect(entry?.permanent).toBe(false);
+  });
+});
+
+/**
+ * Dev profile: the cross-origin dev allow-list comes from ALLOWED_DEV_ORIGINS,
+ * not a host literal in code, so a second dev host is an env value.
+ */
+describe('next.config.ts — allowedDevOrigins from ALLOWED_DEV_ORIGINS', () => {
+  it('parses a comma-separated list, trimming and dropping empties', () => {
+    expect(parseOrigins('10.69.69.226, 10.69.69.218 ,,')).toEqual(['10.69.69.226', '10.69.69.218']);
+  });
+
+  it('is empty when unset or blank', () => {
+    expect(parseOrigins(undefined)).toEqual([]);
+    expect(parseOrigins('  ')).toEqual([]);
+  });
+
+  it('the exported config carries no host literal of its own', () => {
+    const saved = process.env.ALLOWED_DEV_ORIGINS;
+    delete process.env.ALLOWED_DEV_ORIGINS;
+    jest.isolateModules(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const fresh = require('../../next.config').default;
+      expect(fresh.allowedDevOrigins).toEqual([]);
+    });
+    process.env.ALLOWED_DEV_ORIGINS = '10.0.0.5';
+    jest.isolateModules(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const fresh = require('../../next.config').default;
+      expect(fresh.allowedDevOrigins).toEqual(['10.0.0.5']);
+    });
+    if (saved === undefined) delete process.env.ALLOWED_DEV_ORIGINS; else process.env.ALLOWED_DEV_ORIGINS = saved;
   });
 });

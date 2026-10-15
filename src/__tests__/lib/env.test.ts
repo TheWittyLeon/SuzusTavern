@@ -153,6 +153,38 @@ describe('env.ts', () => {
     });
   });
 
+  describe('DURABLE_GENERATION_ENABLED', () => {
+    function loadFresh(): { DURABLE_GENERATION_ENABLED: boolean } {
+      process.env.NEXT_PUBLIC_NEKANOVA_URL = 'http://neko:8080';
+      process.env.AUTH_API_URL = 'http://auth:5000';
+      jest.resetModules();
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      return (require('../../lib/env') as { env: { DURABLE_GENERATION_ENABLED: boolean } }).env;
+    }
+
+    afterEach(() => {
+      delete process.env.NEXT_PUBLIC_DURABLE_GENERATION_ENABLED;
+    });
+
+    it.each(['production', 'development', 'test'])('unset is false under NODE_ENV=%s (committed behaviour)', (mode) => {
+      setNodeEnv(mode);
+      delete process.env.NEXT_PUBLIC_DURABLE_GENERATION_ENABLED;
+      expect(loadFresh().DURABLE_GENERATION_ENABLED).toBe(false);
+    });
+
+    it('garbage value falls back to false, not true', () => {
+      setNodeEnv('production');
+      process.env.NEXT_PUBLIC_DURABLE_GENERATION_ENABLED = 'maybe';
+      expect(loadFresh().DURABLE_GENERATION_ENABLED).toBe(false);
+    });
+
+    it.each(['true', '1', 'yes'])('explicit %s turns it on (the dev profile)', (v) => {
+      setNodeEnv('development');
+      process.env.NEXT_PUBLIC_DURABLE_GENERATION_ENABLED = v;
+      expect(loadFresh().DURABLE_GENERATION_ENABLED).toBe(true);
+    });
+  });
+
   describe('CODEX_ENABLED', () => {
     function loadEnvFresh(): { CODEX_ENABLED: boolean; IS_PROD: boolean } {
       process.env.NEXT_PUBLIC_NEKANOVA_URL = 'http://neko:8080';

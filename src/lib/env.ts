@@ -41,6 +41,12 @@ export interface Env {
    * config.ts's CODEX_ENABLED doc comment for the full rationale).
    */
   CODEX_ENABLED: boolean;         // NEXT_PUBLIC_CODEX_ENABLED
+  /**
+   * DDX-20 durable generation (config.ts DURABLE_GENERATION_ENABLED). Defaults
+   * to false: an unset var is byte-identical to the committed behaviour, so a
+   * production build is unchanged. The dev profile sets it true at start/build.
+   */
+  DURABLE_GENERATION_ENABLED: boolean; // NEXT_PUBLIC_DURABLE_GENERATION_ENABLED
 }
 
 /** Parse a boolean-ish env var. Returns undefined when unset/empty. */
@@ -103,6 +109,10 @@ function loadEnv(): Env {
   // same requirement as every other NEXT_PUBLIC_* read in this file.
   const codexEnabled = parseBool(process.env.NEXT_PUBLIC_CODEX_ENABLED) ?? !isProd;
 
+  // DDX-20 durable generation — default OFF; static `process.env.NEXT_PUBLIC_x`
+  // literal for the same inlining reason as the Codex flag above.
+  const durableGenerationEnabled = parseBool(process.env.NEXT_PUBLIC_DURABLE_GENERATION_ENABLED) ?? false;
+
   return Object.freeze({
     NEKANOVA_URL: requirePublic(process.env.NEXT_PUBLIC_NEKANOVA_URL, 'NEXT_PUBLIC_NEKANOVA_URL', 'http://localhost:8080'),
     AUTH_API_URL: requireServer(process.env.AUTH_API_URL, 'AUTH_API_URL', 'http://localhost:5000'),
@@ -111,6 +121,7 @@ function loadEnv(): Env {
     COOKIE_SECURE: cookieSecure,
     DEPLOY_ENV,
     CODEX_ENABLED: codexEnabled,
+    DURABLE_GENERATION_ENABLED: durableGenerationEnabled,
   });
 }
 

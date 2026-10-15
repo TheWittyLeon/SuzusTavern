@@ -54,10 +54,14 @@ export const CODEX_ENABLED = env.CODEX_ENABLED;
  * from the poll. See "DDX-20 — Tavern Client Integration Design" (Sora-Arch)
  * for the full mechanism.
  *
+ * Sourced from env.ts (NEXT_PUBLIC_DURABLE_GENERATION_ENABLED, build-time).
+ * Unset = false = the committed, shipped behaviour above; only the dev profile
+ * (ProjectNekoNova deployment/staging/docker-compose.tavern-dev.yml) sets it true.
+ *
  * Rollout ordering (§2, §11 of that design): the engine flag
  * `SUZU_DND_DURABLE_GENERATION` must be ON first; only THEN rebuild Tavern
  * with this const `true`. Flipping this before the engine is ready 404s on
  * `/dm/turn`. Rollback: flip back to `false` and redeploy — no client-side
  * migration needed.
  */
-export const DURABLE_GENERATION_ENABLED = false;
+export const DURABLE_GENERATION_ENABLED = env.DURABLE_GENERATION_ENABLED;

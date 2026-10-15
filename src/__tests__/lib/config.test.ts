@@ -35,7 +35,29 @@ describe('config.ts', () => {
     delete process.env.NEXT_PUBLIC_NEKANOVA_URL;
     delete process.env.AUTH_API_URL;
     delete process.env.NEXT_PUBLIC_CODEX_ENABLED;
+    delete process.env.NEXT_PUBLIC_DURABLE_GENERATION_ENABLED;
     jest.resetModules();
+  });
+
+  describe('DURABLE_GENERATION_ENABLED', () => {
+    function load(): boolean {
+      jest.resetModules();
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      return (require('../../lib/config') as { DURABLE_GENERATION_ENABLED: boolean }).DURABLE_GENERATION_ENABLED;
+    }
+
+    it('is false when the env var is unset (production builds unchanged)', () => {
+      setNodeEnv('production');
+      process.env.NEXT_PUBLIC_NEKANOVA_URL = 'http://neko:8080';
+      process.env.AUTH_API_URL = 'http://auth:5000';
+      delete process.env.NEXT_PUBLIC_DURABLE_GENERATION_ENABLED;
+      expect(load()).toBe(false);
+    });
+
+    it('is true when NEXT_PUBLIC_DURABLE_GENERATION_ENABLED=true (dev profile)', () => {
+      process.env.NEXT_PUBLIC_DURABLE_GENERATION_ENABLED = 'true';
+      expect(load()).toBe(true);
+    });
   });
 
   describe('CODEX_ENABLED', () => {
