@@ -59,9 +59,11 @@ export const CODEX_ENABLED = env.CODEX_ENABLED;
  * (ProjectNekoNova deployment/staging/docker-compose.tavern-dev.yml) sets it true.
  *
  * Rollout ordering (§2, §11 of that design): the engine flag
- * `SUZU_DND_DURABLE_GENERATION` must be ON first; only THEN rebuild Tavern
- * with this const `true`. Flipping this before the engine is ready 404s on
- * `/dm/turn`. Rollback: flip back to `false` and redeploy — no client-side
- * migration needed.
+ * `SUZU_DND_DURABLE_GENERATION` must be ON first; only THEN start/build the
+ * Tavern with NEXT_PUBLIC_DURABLE_GENERATION_ENABLED=true. Turning it on before
+ * the engine is ready 404s on `/dm/turn`. Rollback: unset the variable (or set
+ * it false) and restart/rebuild — no client-side migration needed. NEXT_PUBLIC_*
+ * is inlined at build for a production bundle, so there it is a rebuild, not a
+ * restart.
  */
 export const DURABLE_GENERATION_ENABLED = env.DURABLE_GENERATION_ENABLED;

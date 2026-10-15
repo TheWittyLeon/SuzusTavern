@@ -50,17 +50,25 @@ describe('next.config.ts — allowedDevOrigins from ALLOWED_DEV_ORIGINS', () => 
     expect(() => parseOrigins('ok.lan,10.0.0.5/x')).toThrow(/10\.0\.0\.5\/x/);
   });
 
-  it('passes a lone "*" through, and Next\'s own matcher treats it as matching nothing', () => {
-    expect(parseOrigins('*')).toEqual(['*']);
-    // Characterisation of the installed Next (internal module): if this goes red after a Next
-    // upgrade, a bare "*" has become an open door and parseOrigins must start rejecting it.
+  it.each(['*', '**', '*.*', '**.*', '*.*.*.*', '*.com', '10.69.69.*', '*.lan', 'ok.lan,*.*'])(
+    'rejects the wildcard entry %j',
+    (raw) => {
+      expect(() => parseOrigins(raw)).toThrow(/wildcard/);
+    },
+  );
+
+  it('documents why: Next 16.2.6 matches these wildcards against real hosts (characterisation)', () => {
+    // Internal Next module; if this goes red after an upgrade, re-read the reasoning in next.config.ts.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { isCsrfOriginAllowed } = require('next/dist/server/app-render/csrf-protection') as {
       isCsrfOriginAllowed: (origin: string, allowed: string[]) => boolean;
     };
+    expect(isCsrfOriginAllowed('evil.com', ['*.*'])).toBe(true);
+    expect(isCsrfOriginAllowed('10.1.2.3', ['*.*.*.*'])).toBe(true);
+    expect(isCsrfOriginAllowed('evil.com', ['*.com'])).toBe(true);
+    expect(isCsrfOriginAllowed('10.69.69.7', ['10.69.69.*'])).toBe(true);
     expect(isCsrfOriginAllowed('evil.example', ['*'])).toBe(false);
     expect(isCsrfOriginAllowed('10.0.0.5', ['10.0.0.5'])).toBe(true);
-    expect(isCsrfOriginAllowed('a.lan', ['*.lan'])).toBe(true);
   });
 
   it('is empty when unset or blank', () => {
@@ -70,18 +78,21 @@ describe('next.config.ts — allowedDevOrigins from ALLOWED_DEV_ORIGINS', () => 
 
   it('the exported config carries no host literal of its own', () => {
     const saved = process.env.ALLOWED_DEV_ORIGINS;
-    delete process.env.ALLOWED_DEV_ORIGINS;
-    jest.isolateModules(() => {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const fresh = require('../../next.config').default;
-      expect(fresh.allowedDevOrigins).toEqual([]);
-    });
-    process.env.ALLOWED_DEV_ORIGINS = '10.0.0.5';
-    jest.isolateModules(() => {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const fresh = require('../../next.config').default;
-      expect(fresh.allowedDevOrigins).toEqual(['10.0.0.5']);
-    });
-    if (saved === undefined) delete process.env.ALLOWED_DEV_ORIGINS; else process.env.ALLOWED_DEV_ORIGINS = saved;
+    try {
+      delete process.env.ALLOWED_DEV_ORIGINS;
+      jest.isolateModules(() => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const fresh = require('../../next.config').default;
+        expect(fresh.allowedDevOrigins).toEqual([]);
+      });
+      process.env.ALLOWED_DEV_ORIGINS = '10.0.0.5';
+      jest.isolateModules(() => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const fresh = require('../../next.config').default;
+        expect(fresh.allowedDevOrigins).toEqual(['10.0.0.5']);
+      });
+    } finally {
+      if (saved === undefined) delete process.env.ALLOWED_DEV_ORIGINS; else process.env.ALLOWED_DEV_ORIGINS = saved;
+    }
   });
 });

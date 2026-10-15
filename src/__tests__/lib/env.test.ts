@@ -153,6 +153,22 @@ describe('env.ts', () => {
     });
   });
 
+  describe('env.ts source: NEXT_PUBLIC_* reads are static', () => {
+    it('never reads process.env dynamically (a dynamic lookup is not inlined into the client bundle)', () => {
+      /* eslint-disable @typescript-eslint/no-require-imports */
+      const fs = require('fs') as typeof import('fs');
+      const path = require('path') as typeof import('path');
+      /* eslint-enable @typescript-eslint/no-require-imports */
+      const src = fs.readFileSync(path.join(__dirname, '../../lib/env.ts'), 'utf8');
+      const code = src.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+      expect(code).not.toMatch(/process\.env\s*\[/);
+      expect(code).not.toMatch(/\}\s*=\s*process\.env/);
+      const names = new Set(code.match(/NEXT_PUBLIC_[A-Z_]+/g));
+      expect(names.size).toBeGreaterThan(3);
+      for (const name of names) expect(code).toContain(`process.env.${name}`);
+    });
+  });
+
   describe('DURABLE_GENERATION_ENABLED', () => {
     function loadFresh(): { DURABLE_GENERATION_ENABLED: boolean } {
       process.env.NEXT_PUBLIC_NEKANOVA_URL = 'http://neko:8080';
