@@ -15,4 +15,11 @@ describe('TavernShell.module.css active tab', () => {
     expect(m![1]).toMatch(/background:\s*linear-gradient\(135deg, var\(--accent\), var\(--accent-2\)\)/);
     expect(m![1]).toMatch(/color:\s*var\(--on-accent\)/);
   });
+
+  it('is declared after .tab:hover (equal specificity: source order is the whole fix)', () => {
+    const hover = css.indexOf('.tab:hover {');
+    const active = css.search(/\.tabActive,\s*\.tabActive:hover\s*\{/);
+    expect(hover).toBeGreaterThan(-1);
+    expect(active).toBeGreaterThan(hover);
+  });
 });

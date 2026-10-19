@@ -292,6 +292,23 @@ describe('Play.module.css', () => {
       expect(text).toMatch(/\.slotOverlay\s*\{[^}]*border-block-width:\s*0/);
     });
 
+    it('the phone slot edge is at least the focus-ring clearance, so max(0px, edge - ring) never clamps and the slot total (border + padding) stays the edge', () => {
+      // Miko, TAV-PLAY-PHONE-RING-CLIP mutation check: the border arm is `max(0px, edge - ring)` and the padding arm adds the whole ring. While edge >= ring the sum is
+      // exactly `edge` (no track floor moves). Shrink the edge token below the clearance and the border clamps at 0 while the padding still adds the full ring: every slot
+      // grows by the shortfall and nothing else in the suite notices. Read the tokens, do not copy their values.
+      const globals = fs.readFileSync(path.resolve(process.cwd(), 'src/app/globals.css'), 'utf8');
+      const px = (name: string) => {
+        const m = globals.match(new RegExp(`\\n\\s*${name}:\\s*(\\d+(?:\\.\\d+)?)px;`));
+        expect(m).not.toBeNull();
+        return Number(m![1]);
+      };
+      const clearance = px('--focus-ring-width') + px('--focus-ring-offset');
+      expect(globals).toMatch(/--focus-ring-clearance:\s*calc\(var\(--focus-ring-width\) \+ var\(--focus-ring-offset\)\)/);
+      expect(clearance).toBeGreaterThan(0);
+      // the phone row's edge is `var(--space-3)` (pinned literally in play-preset-registry.test.ts)
+      expect(px('--space-3')).toBeGreaterThanOrEqual(clearance);
+    });
+
     it('the compact header cannot outgrow its box: the head shrinks (min-width:0), the title wrapper takes the rest, the pill rides beside the title', () => {
       const text = strip(css);
       expect(text).toMatch(/\.topBarCompact \.sessionHead\s*\{[^}]*flex:\s*1 1 0;[^}]*min-width:\s*0/);
