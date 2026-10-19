@@ -10,13 +10,13 @@ import { cssRules } from '../helpers/cssRules';
 
 const rules = cssRules(fs.readFileSync(path.join(__dirname, '../../components/TavernShell.module.css'), 'utf8'));
 const lastWith = (sel: string) => [...rules].reverse().find((r) => r.selectors.includes(sel));
-const stateRule = (hover: string, base: string) => [...rules].reverse().find((r) => r.selectors.includes(hover) && r.selectors.includes(base));
+const stateRule = (hover: string) => [...rules].reverse().find((r) => r.selectors.includes(hover));
 
 describe('TavernShell.module.css tab states beat .tab:hover', () => {
   const ranks = (state: string) => {
     const lastTabHover = lastWith('.tab:hover');
     expect(lastTabHover).toBeDefined();
-    const withHover = stateRule(`${state}:hover`, state);
+    const withHover = stateRule(`${state}:hover`); // the hover state's own rule must carry the whole look, wherever the base rule sits
     expect(withHover).toBeDefined();
     expect(withHover!.at).toBeGreaterThan(lastTabHover!.at); // equal specificity: source order is the whole fix
     return withHover!;
