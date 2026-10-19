@@ -31,6 +31,7 @@
  */
 import fs from 'fs';
 import path from 'path';
+import { LAYOUT_ROWS_BY_ID } from '../../app/play/[sessionId]/presets';
 
 describe('Play.module.css', () => {
   let css: string;
@@ -293,36 +294,82 @@ describe('Play.module.css', () => {
       expect(text).toMatch(/\.slotOverlay\s*\{[^}]*border-block-width:\s*0/);
     });
 
-    it('no `.slot` variant sets block padding on its own: it sets --slot-pad-block (the ring rides on top) or zeroes --play-slot-ring (border + padding stays the edge)', () => {
+    it('no rule whose subject is a slot element (.slot, .slotStack, .slotScroll, .slotOverlay, ...) sets block padding on its own: it sets --slot-pad-block (the ring rides on top) or zeroes --play-slot-ring (border + padding stays the edge)', () => {
       // TAV-PLAY-PHONE-RING-CLIP, QA finding: the safety slot's own `padding-block: 4px` skipped the ring while the border arm still subtracted it, so
       // border + padding fell 10 -> 6 per side and 8px went to a neighbour band. The base `.slot` is the one place that adds the ring to the padding.
+      // PlayShell puts `.slot` plus a layout class (`.slotStack` = the story log, `.slotScroll`) on one element, so every `.slot*` subject counts; the
+      // subject is the LAST compound of each comma-separated selector (a `.slotStack > [data-tenant]` rule styles a child, not the slot).
       const text = strip(css);
+      const subjectOf = (sel: string): string => {
+        let depth = 0;
+        let start = 0;
+        for (let i = 0; i < sel.length; i++) {
+          const c = sel[i];
+          if (c === '(' || c === '[') depth++;
+          else if (c === ')' || c === ']') depth--;
+          else if (depth === 0 && /[\s>+~]/.test(c)) start = i + 1;
+        }
+        return sel.slice(start).replace(/\([^()]*(\([^()]*\)[^()]*)*\)/g, '');
+      };
+      const splitList = (sel: string): string[] => {
+        const out: string[] = [];
+        let depth = 0;
+        let cur = '';
+        for (const c of sel) {
+          if (c === '(' || c === '[') depth++;
+          if (c === ')' || c === ']') depth--;
+          if (c === ',' && depth === 0) { out.push(cur); cur = ''; } else cur += c;
+        }
+        return [...out, cur].map((x) => x.trim()).filter(Boolean);
+      };
+      const PADDING = /(^|[;\s{])padding(-block(-start|-end)?|-top|-bottom)?\s*:/;
       const offenders: string[] = [];
+      let sawStack = false;
       for (const m of text.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-        const sel = m[1].trim();
-        const body = m[2];
-        if (!/(^|[\s,>])\.slot(?![A-Za-z0-9_-])/.test(sel) || sel === '.slot') continue;
-        if (!/(^|[;\s])padding(-block)?(-start|-end)?\s*:/.test(body)) continue;
-        if (!/--play-slot-ring:\s*0px/.test(body)) offenders.push(sel.replace(/\s+/g, ' '));
+        const list = splitList(m[1]);
+        const slotSubjects = list.filter((sel) => /\.slot[A-Za-z]*(?![\w-])/.test(subjectOf(sel)));
+        if (slotSubjects.length === 0) continue;
+        if (slotSubjects.some((sel) => /\.slotStack(?![\w-])/.test(subjectOf(sel)))) sawStack = true;
+        if (list.length === 1 && list[0] === '.slot') continue; // the base rule: the one place that composes
+        if (!PADDING.test(m[2])) continue;
+        if (!/--play-slot-ring:\s*0px/.test(m[2])) offenders.push(list.join(', ').replace(/\s+/g, ' '));
       }
+      expect(sawStack).toBe(true); // the walk reaches the story log's class (positive control: it is not matching nothing)
       expect(offenders).toEqual([]);
     });
 
-    it('the phone slot edge is at least the focus-ring clearance, so max(0px, edge - ring) never clamps and the slot total (border + padding) stays the edge', () => {
+    it('the phone row edge is at least the focus-ring clearance in every layer that sets it (vars, momentVars, factVars), so max(0px, edge - ring) never clamps and the slot total (border + padding) stays the edge', () => {
       // Miko, TAV-PLAY-PHONE-RING-CLIP mutation check: the border arm is `max(0px, edge - ring)` and the padding arm adds the whole ring. While edge >= ring the sum is
-      // exactly `edge` (no track floor moves). Shrink the edge token below the clearance and the border clamps at 0 while the padding still adds the full ring: every slot
-      // grows by the shortfall and nothing else in the suite notices. Read the tokens, do not copy their values.
+      // exactly `edge` (no track floor moves). Shrink the edge below the clearance and the border clamps at 0 while the padding still adds the full ring: every slot
+      // grows by the shortfall and nothing else in the suite notices. Read the row's own values, resolved through globals.css; copy no token name or number.
       const globals = fs.readFileSync(path.resolve(process.cwd(), 'src/app/globals.css'), 'utf8');
-      const px = (name: string) => {
-        const m = globals.match(new RegExp(`\\n\\s*${name}:\\s*(\\d+(?:\\.\\d+)?)px;`));
-        expect(m).not.toBeNull();
-        return Number(m![1]);
+      const px = (value: string): number => {
+        const v = value.trim();
+        let m = v.match(/^(\d+(?:\.\d+)?)px$/);
+        if (m) return Number(m[1]);
+        m = v.match(/^var\((--[\w-]+)\)$/);
+        if (m) {
+          const d = globals.match(new RegExp(`\\n\\s*${m[1]}:\\s*([^;]+);`));
+          expect(d).not.toBeNull();
+          return px(d![1]);
+        }
+        m = v.match(/^calc\((.+) \+ (.+)\)$/);
+        if (m) return px(m[1]) + px(m[2]);
+        throw new Error(`cannot resolve ${value} to px`);
       };
-      const clearance = px('--focus-ring-width') + px('--focus-ring-offset');
       expect(globals).toMatch(/--focus-ring-clearance:\s*calc\(var\(--focus-ring-width\) \+ var\(--focus-ring-offset\)\)/);
-      expect(clearance).toBeGreaterThan(0);
-      // the phone row's edge is `var(--space-3)` (pinned literally in play-preset-registry.test.ts)
-      expect(px('--space-3')).toBeGreaterThanOrEqual(clearance);
+      const row = LAYOUT_ROWS_BY_ID.phone;
+      const layers: Array<Readonly<Record<string, string>> | undefined> = [
+        row.vars,
+        ...Object.values(row.momentVars ?? {}),
+        ...Object.values((row.factVars ?? {}) as Record<string, Record<string, Record<string, string>>>).flatMap((byValue) => Object.values(byValue)),
+      ];
+      const edges = layers.flatMap((l) => (l?.['--play-slot-edge'] != null ? [px(l['--play-slot-edge'])] : []));
+      const rings = layers.flatMap((l) => (l?.['--play-slot-ring'] != null ? [px(l['--play-slot-ring'])] : []));
+      expect(edges.length).toBeGreaterThan(0);
+      expect(rings.length).toBeGreaterThan(0);
+      expect(rings.every((r) => r > 0)).toBe(true);
+      expect(Math.min(...edges)).toBeGreaterThanOrEqual(Math.max(...rings));
     });
 
     it('the compact header cannot outgrow its box: the head shrinks (min-width:0), the title wrapper takes the rest, the pill rides beside the title', () => {

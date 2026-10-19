@@ -129,9 +129,15 @@
      BORDER. A scroll container paints its content into its padding, so a band
      squeezed to its minimum showed the next tenant's first pixels (the stage's "ROLL"
      label under the scene head); the border sits outside the padding box and the
-     overflow clip, so nothing paints there. Desktop rows set neither: no border, the
+     overflow clip, so nothing paints there. Since TAV-PLAY-PHONE-RING-CLIP that holds
+     for the border part of the edge only: `--play-slot-ring` (the focus-ring clearance, 4px)
+     of it is padding again, inside the clip, so up to 4px of a scrolled band's content paints
+     there (accepted, see the debt marker below). Desktop rows set neither: no border, the
      padding above is unchanged. */
   border-block: max(0px, calc(var(--play-slot-edge, 0px) - var(--play-slot-ring, 0px))) solid transparent;
+  /* debt: phone slot ring clearance moved into padding.
+     ceiling: <=4px of a scrolling band's content paints inside the slot edge (measured by QA on the 91px party band when scrolled).
+     until: a second scrolling band appears on the phone, or Leon wants a clean cut (then clip with a mask / an inset clip-path that keeps the ring). */
   /* Ink-clip fix (TAV-PLAY-PHONE-RING-CLIP): the transparent border sits OUTSIDE the overflow clip, so on the phone (zero padding) an
      outward focus ring on a slot's first/last child (story log, Roll, Say, textarea, Send) was cut by the padding-box edge. A row sets
      `--play-slot-ring` to --focus-ring-clearance: that much of the edge is paid as padding INSIDE the clip instead of border, so the
@@ -1028,7 +1034,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--density-gap);
-  --slot-pad-block: 4px;
+  --slot-pad-block: var(--space-2);
 }
 
 .slot:has(> [data-tenant="safetyControls"]) > :not([data-tenant]) {

@@ -94,7 +94,10 @@
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
   color: var(--on-accent);
 }
-.tabDisabled {
+.tabDisabled,
+.tabDisabled:hover {
+  /* .tab:hover (same specificity, earlier) would otherwise brighten a tab that is not clickable. */
+  background: transparent;
   color: var(--ink-3);
   cursor: not-allowed;
   opacity: 0.7;

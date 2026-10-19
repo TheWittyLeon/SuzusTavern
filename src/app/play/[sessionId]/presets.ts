@@ -444,7 +444,8 @@ export interface LayoutRow {
   /**
    * A9d: extra `--play-*` custom properties for this row, emitted on `.grid` beside
    * the three track lists. Absent = the desktop defaults. The phone row sets
-   * `--play-slot-edge` (what each slot spends top and bottom, as a transparent border,
+   * `--play-slot-edge` (what each slot spends top and bottom: a transparent border, less
+   * `--play-slot-ring` of it paid as padding inside the clip so a focus ring is not shaved;
    * see `.slot` in `Play.module.css`) and zeroes `--play-slot-pad`: seven slots at
    * 2 x 16px is 224px of an 844px screen.
    */
@@ -976,7 +977,7 @@ const TABLE_ROW: LayoutRow = {
 
 // Floor arithmetic (measured at 390x844, `probe-floor`; re-derive when a tenant in the
 // story slot changes height):
-//   exploring 224 = 160 inner log + 12 slot edge (6px border each side) + 6 stack gap
+//   exploring 224 = 160 inner log + 12 slot edge (6px each side: 2px border + 4px ring padding) + 6 stack gap
 //                   + 46 "Previously on..." recap (one line: the scene subtitle is dropped on the phone)
 //   combat    208 = 160 inner log + 12 slot edge + 6 stack gap + 30 status line (no recap:
 //                   "Previously on..." steps aside in combat, A9d R-1 lever 2, so the 63 + its
