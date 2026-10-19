@@ -117,7 +117,7 @@
      pad token. Every slot paid 2 x --density-pad (44px) of block padding
      out of a 868px grid; across the five slots of the centre column that
      was the budget the story log lost. Inline padding keeps the pad. */
-  padding-block: var(--play-slot-pad, var(--density-gap));
+  padding-block: calc(var(--play-slot-pad, var(--density-gap)) + var(--play-slot-ring, 0px));
   padding-inline: var(--play-slot-inline, var(--density-pad));
   /* A9d: a row that spends less than the density gap per slot (phone) sets
      `--play-slot-edge` and zeroes `--play-slot-pad`: the same space as a transparent
@@ -126,7 +126,11 @@
      label under the scene head); the border sits outside the padding box and the
      overflow clip, so nothing paints there. Desktop rows set neither: no border, the
      padding above is unchanged. */
-  border-block: var(--play-slot-edge, 0px) solid transparent;
+  border-block: max(0px, calc(var(--play-slot-edge, 0px) - var(--play-slot-ring, 0px))) solid transparent;
+  /* Ink-clip fix (TAV-PLAY-PHONE-RING-CLIP): the transparent border sits OUTSIDE the overflow clip, so on the phone (zero padding) an
+     outward focus ring on a slot's first/last child (story log, Roll, Say, textarea, Send) was cut by the padding-box edge. A row sets
+     `--play-slot-ring` to --focus-ring-clearance: that much of the edge is paid as padding INSIDE the clip instead of border, so the
+     slot's total block size (border + padding) is unchanged and no track floor moves. Absent = 0px = the rules above, byte for byte. */
   /* A9b fix round 1 (B3): the containing block for absolutely-positioned
      descendants (the `.srOnly` live regions). On a `position:static`
      overflow container they escape its clip and stretch the DOCUMENT's

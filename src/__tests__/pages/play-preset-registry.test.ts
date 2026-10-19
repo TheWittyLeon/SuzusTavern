@@ -1054,6 +1054,8 @@ describe('TAV-PLAY-SHELL presets.ts — phone track classes are pinned as litera
     expect(LAYOUT_ROWS_BY_ID.phone.vars).toEqual({
       '--play-slot-edge': 'var(--space-3)',
       '--play-slot-pad': '0px',
+      // TAV-PLAY-PHONE-RING-CLIP: the part of the edge a focus ring needs is padding inside the clip, not border outside it (Play.module.css `.slot`).
+      '--play-slot-ring': 'var(--focus-ring-clearance)',
       '--play-slot-inline': 'var(--space-6)',
       '--play-recap-sub': 'none',
       // A9d-2 N7 (named exception: `--play-dice-columns` is deleted with the stage's dice tenant on the phone; the dice are in the Roll popover and

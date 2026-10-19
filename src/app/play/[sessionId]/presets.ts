@@ -997,6 +997,8 @@ const PHONE_ROW: LayoutRow = {
   vars: {
     '--play-slot-edge': 'var(--space-3)',
     '--play-slot-pad': '0px',
+    // Part of the slot edge is paid as padding inside the clip so an outward focus ring is not shaved (Play.module.css `.slot`).
+    '--play-slot-ring': 'var(--focus-ring-clearance)',
     '--play-slot-inline': 'var(--space-6)',
     // The recap strip's scene subtitle is dropped on the phone: one line, not two (about -18px).
     '--play-recap-sub': 'none',

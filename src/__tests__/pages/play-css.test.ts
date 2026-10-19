@@ -283,8 +283,10 @@ describe('Play.module.css', () => {
       // measured once (the stage's "ROLL" label under the scene head at its minimum); it is not gated by a browser pass.
       const text = strip(css);
       const slot = text.slice(text.indexOf('.slot {'), text.indexOf('\n}', text.indexOf('.slot {')));
-      expect(slot).toMatch(/padding-block:\s*var\(--play-slot-pad, var\(--density-gap\)\)/);
-      expect(slot).toMatch(/border-block:\s*var\(--play-slot-edge, 0px\) solid transparent/);
+      // TAV-PLAY-PHONE-RING-CLIP: `--play-slot-ring` (the phone sets it to --focus-ring-clearance) moves that much of the edge from the border
+      // (outside the clip: shaved an outward focus ring on a slot's first/last child) to padding inside it. Absent = 0px = the plain forms.
+      expect(slot).toMatch(/padding-block:\s*calc\(var\(--play-slot-pad, var\(--density-gap\)\) \+ var\(--play-slot-ring, 0px\)\)/);
+      expect(slot).toMatch(/border-block:\s*max\(0px, calc\(var\(--play-slot-edge, 0px\) - var\(--play-slot-ring, 0px\)\)\) solid transparent/);
       expect(slot).toMatch(/padding-inline:\s*var\(--play-slot-inline, var\(--density-pad\)\)/);
       expect(text).toMatch(/\.slot:has\(> :only-child:empty\)\s*\{[^}]*border-block-width:\s*0/);
       expect(text).toMatch(/\.slotOverlay\s*\{[^}]*border-block-width:\s*0/);
