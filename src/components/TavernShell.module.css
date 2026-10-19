@@ -87,11 +87,11 @@
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-.tabActive {
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
-  color: var(--on-accent);
-}
+.tabActive,
 .tabActive:hover {
+  /* .tab:hover (same specificity, earlier) would otherwise strip the gradient
+     and leave --on-accent text on the bare nav surface. */
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
   color: var(--on-accent);
 }
 .tabDisabled {
