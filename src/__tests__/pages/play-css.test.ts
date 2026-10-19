@@ -32,6 +32,7 @@
 import fs from 'fs';
 import path from 'path';
 import { LAYOUT_ROWS_BY_ID } from '../../app/play/[sessionId]/presets';
+import { cssRules, subjectOf } from '../../test-utils/cssRules';
 
 describe('Play.module.css', () => {
   let css: string;
@@ -299,40 +300,20 @@ describe('Play.module.css', () => {
       // border + padding fell 10 -> 6 per side and 8px went to a neighbour band. The base `.slot` is the one place that adds the ring to the padding.
       // PlayShell puts `.slot` plus a layout class (`.slotStack` = the story log, `.slotScroll`) on one element, so every `.slot*` subject counts; the
       // subject is the LAST compound of each comma-separated selector (a `.slotStack > [data-tenant]` rule styles a child, not the slot).
-      const text = strip(css);
-      const subjectOf = (sel: string): string => {
-        let depth = 0;
-        let start = 0;
-        for (let i = 0; i < sel.length; i++) {
-          const c = sel[i];
-          if (c === '(' || c === '[') depth++;
-          else if (c === ')' || c === ']') depth--;
-          else if (depth === 0 && /[\s>+~]/.test(c)) start = i + 1;
-        }
-        return sel.slice(start).replace(/\([^()]*(\([^()]*\)[^()]*)*\)/g, '');
-      };
-      const splitList = (sel: string): string[] => {
-        const out: string[] = [];
-        let depth = 0;
-        let cur = '';
-        for (const c of sel) {
-          if (c === '(' || c === '[') depth++;
-          if (c === ')' || c === ']') depth--;
-          if (c === ',' && depth === 0) { out.push(cur); cur = ''; } else cur += c;
-        }
-        return [...out, cur].map((x) => x.trim()).filter(Boolean);
-      };
+      // cssRules flattens @media/@container and THROWS on an at-rule it cannot reason about (@layer, @scope, ...), and `subjectOf` keeps `:is()`/`:where()`
+      // arguments, so `:is(.slot)` is still a slot rule.
+      const parsed = cssRules(css);
       const PADDING = /(^|[;\s{])padding(-block(-start|-end)?|-top|-bottom)?\s*:/;
       const offenders: string[] = [];
       let sawStack = false;
-      for (const m of text.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-        const list = splitList(m[1]);
+      for (const m of parsed) {
+        const list = m.selectors;
         const slotSubjects = list.filter((sel) => /\.slot[A-Za-z]*(?![\w-])/.test(subjectOf(sel)));
         if (slotSubjects.length === 0) continue;
         if (slotSubjects.some((sel) => /\.slotStack(?![\w-])/.test(subjectOf(sel)))) sawStack = true;
         if (list.length === 1 && list[0] === '.slot') continue; // the base rule: the one place that composes
-        if (!PADDING.test(m[2])) continue;
-        if (!/--play-slot-ring:\s*0px/.test(m[2])) offenders.push(list.join(', ').replace(/\s+/g, ' '));
+        if (!PADDING.test(m.body)) continue;
+        if (!/--play-slot-ring:\s*0px/.test(m.body)) offenders.push(list.join(', '));
       }
       expect(sawStack).toBe(true); // the walk reaches the story log's class (positive control: it is not matching nothing)
       expect(offenders).toEqual([]);
