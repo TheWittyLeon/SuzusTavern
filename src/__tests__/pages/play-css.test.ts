@@ -285,11 +285,27 @@ describe('Play.module.css', () => {
       const slot = text.slice(text.indexOf('.slot {'), text.indexOf('\n}', text.indexOf('.slot {')));
       // TAV-PLAY-PHONE-RING-CLIP: `--play-slot-ring` (the phone sets it to --focus-ring-clearance) moves that much of the edge from the border
       // (outside the clip: shaved an outward focus ring on a slot's first/last child) to padding inside it. Absent = 0px = the plain forms.
-      expect(slot).toMatch(/padding-block:\s*calc\(var\(--play-slot-pad, var\(--density-gap\)\) \+ var\(--play-slot-ring, 0px\)\)/);
+      expect(slot).toMatch(/--slot-pad-block:\s*var\(--play-slot-pad, var\(--density-gap\)\)/);
+      expect(slot).toMatch(/padding-block:\s*calc\(var\(--slot-pad-block\) \+ var\(--play-slot-ring, 0px\)\)/);
       expect(slot).toMatch(/border-block:\s*max\(0px, calc\(var\(--play-slot-edge, 0px\) - var\(--play-slot-ring, 0px\)\)\) solid transparent/);
       expect(slot).toMatch(/padding-inline:\s*var\(--play-slot-inline, var\(--density-pad\)\)/);
       expect(text).toMatch(/\.slot:has\(> :only-child:empty\)\s*\{[^}]*border-block-width:\s*0/);
       expect(text).toMatch(/\.slotOverlay\s*\{[^}]*border-block-width:\s*0/);
+    });
+
+    it('no `.slot` variant sets block padding on its own: it sets --slot-pad-block (the ring rides on top) or zeroes --play-slot-ring (border + padding stays the edge)', () => {
+      // TAV-PLAY-PHONE-RING-CLIP, QA finding: the safety slot's own `padding-block: 4px` skipped the ring while the border arm still subtracted it, so
+      // border + padding fell 10 -> 6 per side and 8px went to a neighbour band. The base `.slot` is the one place that adds the ring to the padding.
+      const text = strip(css);
+      const offenders: string[] = [];
+      for (const m of text.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+        const sel = m[1].trim();
+        const body = m[2];
+        if (!/(^|[\s,>])\.slot(?![A-Za-z0-9_-])/.test(sel) || sel === '.slot') continue;
+        if (!/(^|[;\s])padding(-block)?(-start|-end)?\s*:/.test(body)) continue;
+        if (!/--play-slot-ring:\s*0px/.test(body)) offenders.push(sel.replace(/\s+/g, ' '));
+      }
+      expect(offenders).toEqual([]);
     });
 
     it('the phone slot edge is at least the focus-ring clearance, so max(0px, edge - ring) never clamps and the slot total (border + padding) stays the edge', () => {

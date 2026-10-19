@@ -117,7 +117,12 @@
      pad token. Every slot paid 2 x --density-pad (44px) of block padding
      out of a 868px grid; across the five slots of the centre column that
      was the budget the story log lost. Inline padding keeps the pad. */
-  padding-block: calc(var(--play-slot-pad, var(--density-gap)) + var(--play-slot-ring, 0px));
+  --slot-pad-block: var(--play-slot-pad, var(--density-gap));
+  /* ONE place composes a slot's block padding with the ring clearance. A `.slot` variant that wants different block padding sets `--slot-pad-block`
+     (the ring still rides on top, so border + padding stays the edge); one that owns its edges and zeroes the padding sets `--play-slot-ring: 0px` so
+     the border arm gives the ring back. A bare `padding`/`padding-block` there would drop the ring from the total and hand the difference to a
+     neighbour band (the safety slot did, 8px; play-css.test.ts pins it). */
+  padding-block: calc(var(--slot-pad-block) + var(--play-slot-ring, 0px));
   padding-inline: var(--play-slot-inline, var(--density-pad));
   /* A9d: a row that spends less than the density gap per slot (phone) sets
      `--play-slot-edge` and zeroes `--play-slot-pad`: the same space as a transparent
@@ -149,6 +154,7 @@
    its second line is one ellipsised line, and the slot is no scroller either way. The harness's `hero-ring` leg measures the ring against every clipping ancestor, in every engine it runs in. */
 .slot:has(> [data-slot-fill]) {
   padding: 0;
+  --play-slot-ring: 0px;
   overflow: visible;
   /* Safari treats an unset minimum differently from a zero one here: a stretched item that spans a content-sized row and carries a written `min-height` (the `.slot` rule's `0`) is measured at its
      previous stretched height, so after a window height step the stage stayed too tall (map past its size, action bar and X-card under the bottom edge). By the standard `auto` is zero for this slot (the
@@ -162,6 +168,7 @@
    this matches nothing today (zero pixels); it is HP1's `p:bleed` positive control. */
 .slot:has(> [data-has-body] > * > [data-slot-fill]) {
   padding: 0;
+  --play-slot-ring: 0px;
   overflow: visible;
   border-block: 0;
   /* Same minimum as the rule above, through the dock (see there). */
@@ -200,6 +207,7 @@
 .slot:empty,
 .slot:has(> :only-child:empty) {
   padding: 0;
+  --play-slot-ring: 0px;
   border-block-width: 0;
 }
 
@@ -231,6 +239,7 @@
   justify-self: start;
   overflow: visible;
   padding: 0;
+  --play-slot-ring: 0px;
   border-block-width: 0;
 }
 .slotOverlay[data-anchor^='top'] {
@@ -1019,7 +1028,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--density-gap);
-  padding-block: 4px;
+  --slot-pad-block: 4px;
 }
 
 .slot:has(> [data-tenant="safetyControls"]) > :not([data-tenant]) {
