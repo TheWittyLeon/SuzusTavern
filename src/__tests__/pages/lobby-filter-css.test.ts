@@ -4,7 +4,7 @@
  */
 import fs from 'fs';
 import path from 'path';
-import { cssRules } from '../helpers/cssRules';
+import { cssRules } from '../../test-utils/cssRules';
 
 const rules = cssRules(fs.readFileSync(path.join(__dirname, '../../app/lobby/Lobby.module.css'), 'utf8'));
 

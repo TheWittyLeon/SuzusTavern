@@ -6,7 +6,7 @@
  */
 import fs from 'fs';
 import path from 'path';
-import { cssRules } from '../helpers/cssRules';
+import { cssRules } from '../../test-utils/cssRules';
 
 const rules = cssRules(fs.readFileSync(path.join(__dirname, '../../components/TavernShell.module.css'), 'utf8'));
 const lastWith = (sel: string) => [...rules].reverse().find((r) => r.selectors.includes(sel));
