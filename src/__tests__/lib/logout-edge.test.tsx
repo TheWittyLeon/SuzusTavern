@@ -30,7 +30,11 @@ const mockRefresh = authApi.refresh as jest.Mock;
 const USER = { id: 1, username: 'alice', email: null, roles: [] };
 
 const held = {} as { auth: AuthContextValue; showSecond: () => void };
-function Probe() { held.auth = useAuth(); return null; }
+function Probe() {
+  const a = useAuth();
+  React.useEffect(() => { held.auth = a; });
+  return null;
+}
 function Page() {
   const gate = useAuthGate({ skeleton: <div>skeleton</div>, label: 'Loading' });
   if (gate) return <>{gate}</>;
@@ -143,7 +147,7 @@ describe('signingOut lifecycle', () => {
     function Second() { return <Page />; }
     function Host() {
       const [second, setSecond] = React.useState(false);
-      held.showSecond = () => setSecond(true);
+      React.useEffect(() => { held.showSecond = () => setSecond(true); }, []);
       return second ? <Second /> : null;
     }
     render(<AuthProvider initialUser={USER}><Probe /><Page /><Host /></AuthProvider>);
