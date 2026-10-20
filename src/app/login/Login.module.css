@@ -198,6 +198,21 @@
   line-height: 1.4;
 }
 
+/* Informational one-liner (unconfirmed sign-out). --warn-ink is the contrast-safe text colour on
+   its own 12% tint in every palette (see globals.css). */
+.formNotice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--warn) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--warn) 28%, transparent);
+  color: var(--warn-ink);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
 /* Rate-limit countdown — sibling of the alert, polite live region (a11y) */
 .formCountdown {
   margin: -6px 0 0;

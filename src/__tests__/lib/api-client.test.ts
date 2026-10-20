@@ -399,6 +399,15 @@ describe('apiFetch — network/abort errors', () => {
     });
   });
 
+  it('throws ApiError with code "timeout" on TimeoutError (AbortSignal.timeout), distinct from "network"', async () => {
+    mockFetch.mockRejectedValueOnce(new DOMException('t', 'TimeoutError'));
+
+    await expect(apiFetch('/api/test')).rejects.toMatchObject<Partial<ApiError>>({
+      status: 0,
+      code: 'timeout',
+    });
+  });
+
   it('throws ApiError with code "abort" on AbortError', async () => {
     const abortErr = new DOMException('Aborted', 'AbortError');
     mockFetch.mockRejectedValueOnce(abortErr);

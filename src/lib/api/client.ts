@@ -70,7 +70,7 @@ export function makeApiError(
  *          dead session (e.g. a JWT_SECRET rotation mass-emits it), not an
  *          "unavailable" backend.
  *   5. On non-2xx: parse JSON if possible, throw ApiError {status, code, body}.
- *   6. On network/abort: throw ApiError {status: 0, code: 'network'|'abort'}.
+ *   6. On network/abort: throw ApiError {status: 0, code: 'network'|'abort'|'timeout'}.
  *   7. Returns the parsed JSON body, unwrapped.
  */
 export async function apiFetch<T = unknown>(
@@ -101,6 +101,11 @@ export async function apiFetch<T = unknown>(
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') {
       throw makeApiError(0, 'abort');
+    }
+    // AbortSignal.timeout() rejects with TimeoutError: a deadline passed, not a dropped connection.
+    // Callers that log or word a failure can now tell the two apart.
+    if (err instanceof DOMException && err.name === 'TimeoutError') {
+      throw makeApiError(0, 'timeout');
     }
     throw makeApiError(0, 'network');
   }

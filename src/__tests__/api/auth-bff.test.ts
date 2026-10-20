@@ -302,6 +302,45 @@ describe('POST /api/auth/logout', () => {
     const res = await POST(req, makeCtx(['logout']));
     expect(res.status).toBe(200);
   });
+
+  describe('operator log when the upstream revoke did not happen', () => {
+    const post = () => POST(
+      makePostRequest('http://localhost:3000/api/auth/logout', {}, 'st_access=old-at; st_refresh=secret-rt'),
+      makeCtx(['logout']),
+    );
+    let warn: jest.SpyInstance;
+    beforeEach(() => { warn = jest.spyOn(console, 'warn').mockImplementation(() => {}); });
+    afterEach(() => warn.mockRestore());
+    const logoutWarns = () => warn.mock.calls.filter((c) => c[0] === '[auth-bff] logout upstream did not revoke');
+
+    it('upstream 5xx: still 200, ONE line with the status', async () => {
+      mockFetch.mockResolvedValueOnce(new Response('boom', { status: 500 }));
+      expect((await post()).status).toBe(200);
+      expect(logoutWarns()).toHaveLength(1);
+      expect(logoutWarns()[0][1]).toMatchObject({ upstreamStatus: 500, path: 'logout' });
+    });
+    it('upstream unreachable: still 200, ONE line saying no_response', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('down'));
+      expect((await post()).status).toBe(200);
+      expect(logoutWarns()).toHaveLength(1);
+      expect(logoutWarns()[0][1]).toMatchObject({ upstreamStatus: 'no_response' });
+    });
+    it('never logs a token', async () => {
+      mockFetch.mockResolvedValueOnce(new Response('boom', { status: 502 }));
+      await post();
+      expect(JSON.stringify(warn.mock.calls)).not.toMatch(/secret-rt|old-at/);
+    });
+    it('upstream 2xx: logs nothing', async () => {
+      mockFetch.mockResolvedValueOnce(new Response('{}', { status: 200 }));
+      await post();
+      expect(logoutWarns()).toHaveLength(0);
+    });
+    it('no refresh cookie (no upstream call): logs nothing', async () => {
+      await POST(makePostRequest('http://localhost:3000/api/auth/logout', {}, 'st_access=old-at'), makeCtx(['logout']));
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(logoutWarns()).toHaveLength(0);
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

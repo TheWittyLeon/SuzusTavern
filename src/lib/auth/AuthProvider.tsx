@@ -21,7 +21,7 @@ import React, {
   useRef,
   type ReactNode,
 } from 'react';
-import { LOGIN_REAUTH_HREF, LOGIN_ROUTE_RE } from './loginRoute';
+import { LOGIN_REAUTH_HREF, LOGIN_REAUTH_UNCONFIRMED_HREF, LOGIN_ROUTE_RE } from './loginRoute';
 import { usePathnameSafe, useRouterSafe } from './navigationSafe';
 import type { User } from '@/lib/api/types';
 import * as authApi from '@/lib/api/auth';
@@ -273,17 +273,23 @@ export function AuthProvider({
     // Clear any stale re-auth error so a prior failed retry can't surface a
     // "Try again" prompt on the next protected-page visit (Miko-QA).
     setAuthError(null);
+    let confirmed = true;
     try {
       await authApi.logout(AbortSignal.timeout(LOGOUT_TIMEOUT_MS));
     } catch (e) {
+      // The BFF answers 200 and clears cookies whatever upstream did, so a throw here means that
+      // answer never arrived: the cookies may still be live. The login page says so (R183 C6).
+      confirmed = false;
       // Best-effort: BFF clears cookies even on upstream failure (§2.7.3). Say what kind of
       // failure (never a token or cookie value), so a session that outlives sign-out is traceable.
-      const { name, status } = (e as { name?: string; status?: number }) ?? {};
-      console.warn('[auth] logout call failed; navigating to login anyway', { name, status });
+      // `code` ('network' | 'timeout' | 'abort' | an HTTP error code) is what tells a timeout (the
+      // BFF most likely still revoked) from a dropped connection (it did not).
+      const { name, status, code } = (e as { name?: string; status?: number; code?: string }) ?? {};
+      console.warn('[auth] logout call failed; navigating to login anyway', { name, status, code });
     }
     // The ONE navigator on sign-out (useAuthGate stands down while `signingOut`), so a caller only
     // has to `await logout()`. Runs after the BFF has answered or timed out, i.e. after Set-Cookie.
-    routerRef.current.replace(LOGIN_REAUTH_HREF);
+    routerRef.current.replace(confirmed ? LOGIN_REAUTH_HREF : LOGIN_REAUTH_UNCONFIRMED_HREF);
   }, []);
 
   const refresh = useCallback(async (): Promise<boolean> => {

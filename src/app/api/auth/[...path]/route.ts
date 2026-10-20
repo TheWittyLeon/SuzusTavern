@@ -352,10 +352,19 @@ async function handleLogout(req: NextRequest): Promise<NextResponse> {
 
   // Best-effort upstream call with 2s timeout — swallow all errors
   if (refresh) {
-    await fetchUpstream('auth/logout', {
+    const { res, durationMs } = await fetchUpstream('auth/logout', {
       method: 'POST',
       headers: { Authorization: `Bearer ${refresh}` },
     }, 2000);
+    // The browser still gets 200 + cleared cookies (above), but the server-side session may
+    // outlive it: leave one operator-visible line. Status/kind only, never a token.
+    if (!res || !res.ok) {
+      console.warn('[auth-bff] logout upstream did not revoke', {
+        upstreamStatus: res ? res.status : 'no_response',
+        durationMs,
+        path: 'logout',
+      });
+    }
   }
 
   const response = NextResponse.json({ ok: true }, { status: 200 });

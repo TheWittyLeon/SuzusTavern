@@ -26,6 +26,7 @@ import { useToast } from '@/components/Toast';
 import { useReducedMotion } from '@/lib/useReducedMotion';
 import { OAUTH_ENABLED } from '@/lib/config';
 import { sanitizeNextPath } from '@/lib/auth/redirect';
+import { SIGNOUT_PARAM, SIGNOUT_UNCONFIRMED } from '@/lib/auth/loginRoute';
 import type { ApiError } from '@/lib/api/types';
 import styles from './Login.module.css';
 
@@ -74,6 +75,8 @@ function LoginForm() {
   const nextOrigin =
     typeof window !== 'undefined' ? window.location.origin : 'http://localhost';
   const nextPath = sanitizeNextPath(searchParams.get('next'), nextOrigin);
+  // Informational only (R183 C6): logout()'s request failed. Shows one line; changes nothing else.
+  const signoutUnconfirmed = searchParams.get(SIGNOUT_PARAM) === SIGNOUT_UNCONFIRMED;
 
   // ── Focus management: 2FA entry ───────────────────────────────────────────
   useEffect(() => {
@@ -337,6 +340,13 @@ function LoginForm() {
         <h1 className={styles.formHeading}>Welcome back.</h1>
         <p className={styles.formSub}>Sign in to your tavern account.</p>
       </div>
+
+      {signoutUnconfirmed && (
+        <div role="status" className={styles.formNotice}>
+          <Icon name="Shield" size={14} aria-hidden />
+          We couldn&apos;t confirm you were signed out. Close the browser to be sure.
+        </div>
+      )}
 
       {/* Handle field */}
       <div className={styles.fieldGroup}>

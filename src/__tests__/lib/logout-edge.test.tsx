@@ -69,7 +69,7 @@ async function clickSignOut() {
 
 beforeEach(() => { jest.clearAllMocks(); nav.path = '/dashboard'; nav.follow = true; });
 
-describe('sign out: BFF failure shapes still end on /login?reauth=1', () => {
+describe('sign out: BFF failure shapes still end on /login?reauth=1 (+ the unconfirmed marker)', () => {
   it.each([
     ['network error', () => Promise.reject(Object.assign(new Error('x'), { status: 0 }))],
     ['500', () => Promise.reject(Object.assign(new Error('x'), { status: 500 }))],
@@ -79,7 +79,7 @@ describe('sign out: BFF failure shapes still end on /login?reauth=1', () => {
     mockLogout.mockImplementation(impl);
     mount();
     await clickSignOut();
-    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login?reauth=1'));
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login?reauth=1&signout=unconfirmed'));
     expect(mockReplace).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalledTimes(1);
     warn.mockRestore();
@@ -145,9 +145,20 @@ describe('a caller that only awaits logout()', () => {
     mockLogout.mockRejectedValue(Object.assign(new Error('secret-token-abc'), { name: 'ApiError', status: 0 }));
     mount(USER, false);
     await act(async () => { await held.auth.logout(); });
-    expect(mockReplace).toHaveBeenCalledWith('/login?reauth=1');
-    // Exactly {name, status}: the raw error (and its message) must never be a logged argument.
-    expect(warn).toHaveBeenCalledWith(expect.any(String), { name: 'ApiError', status: 0 });
+    expect(mockReplace).toHaveBeenCalledWith('/login?reauth=1&signout=unconfirmed');
+    // Exactly {name, status, code}: the raw error (and its message) must never be a logged argument.
+    expect(warn).toHaveBeenCalledWith(expect.any(String), { name: 'ApiError', status: 0, code: undefined });
+    warn.mockRestore();
+  });
+});
+
+describe('logout failure log tells a timeout from a dropped connection', () => {
+  it.each(['timeout', 'network'])('logs code %s (never the message)', async (code) => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockLogout.mockRejectedValue(Object.assign(new Error('secret-token-abc'), { name: 'Error', status: 0, code }));
+    mount(USER, false);
+    await act(async () => { await held.auth.logout(); });
+    expect(warn).toHaveBeenCalledWith(expect.any(String), { name: 'Error', status: 0, code });
     warn.mockRestore();
   });
 });

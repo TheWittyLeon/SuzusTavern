@@ -283,7 +283,7 @@ describe('Dashboard — logout via account menu', () => {
     await act(async () => {
       fireEvent.click(signOut);
     });
-    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login?reauth=1'));
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login?reauth=1&signout=unconfirmed'));
     warn.mockRestore();
   });
 });

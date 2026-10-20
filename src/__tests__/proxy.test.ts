@@ -364,6 +364,24 @@ describe('/login — ?reauth=1 (TAV-AUDIT-401-DEADEND)', () => {
     expect(res.headers.get('location')).toContain('/dashboard');
   });
 
+  it('the informational signout=unconfirmed param changes nothing: reauth=1 still serves the form', () => {
+    const req = makeReq('/login', { st_access: validAccessToken() }, '?reauth=1&signout=unconfirmed');
+    const res = middleware(req);
+    expect(res.headers.get('location')).toBeNull();
+    expect(res.status).toBe(200);
+  });
+
+  it('signout=unconfirmed alone is NOT a reauth: a paper-valid token still bounces (no bypass, no new redirect target)', () => {
+    const req = makeReq('/login', { st_access: validAccessToken() }, '?signout=unconfirmed');
+    const res = middleware(req);
+    expect(new URL(res.headers.get('location')!).pathname).toBe('/dashboard');
+  });
+
+  it('signout=unconfirmed does not weaken protected-path gating', () => {
+    const res = middleware(makeReq('/lobby', {}, '?reauth=1&signout=unconfirmed'));
+    expect(new URL(res.headers.get('location')!).pathname).toBe('/login');
+  });
+
   it('reauth=1 does NOT weaken protected-path gating', () => {
     // The param can only ever forgo a convenience redirect on a PUBLIC page.
     // Protected paths are gated on the refresh cookie and must be untouched by

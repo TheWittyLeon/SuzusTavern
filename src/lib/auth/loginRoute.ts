@@ -18,3 +18,14 @@ export const REAUTH_PARAM = 'reauth';
  * a fresh client-router cache key, so an earlier `/login` → `/dashboard` 307 cannot be replayed.
  */
 export const LOGIN_REAUTH_HREF = `${LOGIN_PATH}?${REAUTH_PARAM}=1`;
+
+/**
+ * Informational-only marker: logout()'s request failed (network error, BFF 5xx, client timeout), so
+ * the browser may still hold live cookies. The login page shows one line for it and does nothing
+ * else; proxy.ts reads only `reauth`, so this param changes no routing and carries no target.
+ */
+export const SIGNOUT_PARAM = 'signout';
+export const SIGNOUT_UNCONFIRMED = 'unconfirmed';
+
+/** `LOGIN_REAUTH_HREF` plus the unconfirmed-sign-out marker. */
+export const LOGIN_REAUTH_UNCONFIRMED_HREF = `${LOGIN_REAUTH_HREF}&${SIGNOUT_PARAM}=${SIGNOUT_UNCONFIRMED}`;
