@@ -6,11 +6,29 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
-const mockReplace = jest.fn();
-jest.mock('next/navigation', () => ({
-  useRouter: () => ({ replace: mockReplace, push: jest.fn() }),
-  usePathname: () => '/dashboard',
-}));
+// The router moves the pathname (and re-renders subscribers), as Next does: replace('/login?...')
+// lands on /login. Reset to /dashboard before each test.
+const nav = {
+  path: '/dashboard',
+  subs: new Set<() => void>(),
+};
+const mockReplace = jest.fn((url: string) => {
+  nav.path = url.split('?')[0];
+  nav.subs.forEach((f) => f());
+});
+jest.mock('next/navigation', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const R = require('react') as typeof import('react');
+  return {
+    useRouter: () => ({ replace: mockReplace, push: jest.fn() }),
+    usePathname: () =>
+      R.useSyncExternalStore(
+        (f) => { nav.subs.add(f); return () => { nav.subs.delete(f); }; },
+        () => nav.path,
+        () => nav.path,
+      ),
+  };
+});
 jest.mock('../../lib/theme/ThemeProvider', () => ({
   useTheme: () => ({ vibe: 'dusk-tavern', setVibe: jest.fn(), density: 'cozy', setDensity: jest.fn() }),
 }));
@@ -48,7 +66,7 @@ async function clickSignOut() {
   fireEvent.click(await screen.findByRole('menuitem', { name: /sign out/i }));
 }
 
-beforeEach(() => { jest.clearAllMocks(); });
+beforeEach(() => { jest.clearAllMocks(); nav.path = '/dashboard'; });
 
 describe('sign out: BFF failure shapes still end on /login?reauth=1', () => {
   it.each([
@@ -141,8 +159,7 @@ describe('signingOut lifecycle', () => {
   // WITHOUT a full reload (Back button restoring the client-router entry; AuthProvider lives above
   // the route so its state survives). user is null, signingOut is still true => gate stands down =>
   // skeleton forever and no redirect.
-  // KNOWN DEFECT pin (Miko-QA 2026-10-20): `it.failing` flips red the day signingOut is scoped/cleared properly.
-  it.failing('a protected page mounted AFTER sign-out completed still redirects to /login', async () => {
+  it('a protected page mounted AFTER sign-out completed still redirects to /login', async () => {
     mockLogout.mockResolvedValue({ ok: true });
     function Second() { return <Page />; }
     function Host() {
@@ -154,7 +171,9 @@ describe('signingOut lifecycle', () => {
     await clickSignOut();
     await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login?reauth=1'));
     mockReplace.mockClear();
-    act(() => { held.showSecond(); }); // new gate consumer under the SAME provider (Back-button entry)
+    // Back button: the client router returns to /dashboard and mounts a new gate consumer under
+    // the SAME provider.
+    act(() => { nav.path = '/dashboard'; nav.subs.forEach((f) => f()); held.showSecond(); });
     await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login'));
   });
 });

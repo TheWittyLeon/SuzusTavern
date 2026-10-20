@@ -21,6 +21,7 @@ import React, {
   useRef,
   type ReactNode,
 } from 'react';
+import * as NextNavigation from 'next/navigation';
 import type { User } from '@/lib/api/types';
 import * as authApi from '@/lib/api/auth';
 
@@ -74,6 +75,10 @@ function classifyAuthError(e: unknown): AuthError {
  */
 const RETRY_AUTH_TIMEOUT_MS = 12_000;
 
+// Same guard as useAuthGate's: suites that mock next/navigation without usePathname still mount.
+const usePathnameSafe =
+  typeof NextNavigation.usePathname === 'function' ? NextNavigation.usePathname : () => null;
+
 /**
  * TAV-LOGOUT-STAYS-ON-DASHBOARD: bound on logout()'s BFF call. The BFF gives
  * its own upstream call 2 s before clearing cookies; this must outlast that
@@ -109,7 +114,7 @@ export interface AuthContextValue {
   retrying: boolean;
   /**
    * TAV-LOGOUT-STAYS-ON-DASHBOARD: true from the moment logout() starts until
-   * the next successful login. While set, the caller of logout() is the ONLY
+   * the app reaches /login (or the next successful login). While set, the caller of logout() is the ONLY
    * navigator: useAuthGate must not redirect on the null user, because the
    * BFF has not necessarily cleared the cookies yet and proxy.ts would 307
    * /login back to /dashboard off the still-valid st_access.
@@ -174,6 +179,12 @@ export function AuthProvider({
   const [retrying, setRetrying] = useState(false);
   // TAV-LOGOUT-STAYS-ON-DASHBOARD: see AuthContextValue.signingOut.
   const [signingOut, setSigningOut] = useState(false);
+  // The flag covers the sign-out IN FLIGHT only: it ends when the app has arrived on /login (the
+  // caller's navigation). Left set longer, a protected page mounted later under this provider
+  // (Back button) would have a silent gate and sit on the skeleton forever.
+  const pathname = usePathnameSafe();
+  // (State adjusted during render, React's pattern for state derived from a changing value.)
+  if (signingOut && pathname !== null && /^\/login(\/|$)/.test(pathname)) setSigningOut(false);
 
   // Guard against React 18/19 strict-mode double-invoke of useEffect.
   // client.ts already single-flights /api/auth/refresh, but we also prevent

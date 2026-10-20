@@ -122,8 +122,10 @@ export function useAuthGate(opts: UseAuthGateOptions): ReactNode | null {
   // (and the router caches that answer for /login). The signOut caller
   // navigates once the cookies are gone.
   useEffect(() => {
+    // Already on /login (sign-out just arrived there): nothing to redirect to.
+    if (pathname !== null && /^\/login(\/|$)/.test(pathname)) return;
     if (!user && !loading && !maybeAuthed && !authError && !signingOut) router.replace('/login');
-  }, [user, loading, maybeAuthed, authError, signingOut, router]);
+  }, [user, loading, maybeAuthed, authError, signingOut, router, pathname]);
 
   if (user) return null;
 
