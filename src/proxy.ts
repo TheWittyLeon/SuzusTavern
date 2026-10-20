@@ -29,6 +29,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 import { isExpired } from '@/lib/auth/jwt';
+import { LOGIN_ROUTE_RE, REAUTH_PARAM } from '@/lib/auth/loginRoute';
 import { sanitizeNextPath } from '@/lib/auth/redirect';
 
 const ACCESS_COOKIE  = 'st_access';
@@ -44,7 +45,7 @@ const PROTECTED: RegExp[] = [
 ];
 
 const AUTH_PAGES: RegExp[] = [
-  /^\/login(\/|$)/,
+  LOGIN_ROUTE_RE,
 ];
 
 export const config = {
@@ -97,7 +98,7 @@ export function proxy(req: NextRequest): NextResponse {
       // this redirect is a convenience, never an authorization control (/login
       // is public, and every protected path is gated on the refresh cookie
       // above), so a hand-typed param can only ever forgo a shortcut.
-      const reauth = req.nextUrl.searchParams.get('reauth') === '1';
+      const reauth = req.nextUrl.searchParams.get(REAUTH_PARAM) === '1';
       if (accessValid && !reauth) {
         // Already authenticated — redirect to ?next or /dashboard.
         // Shared open-redirect guard with the login page (src/lib/auth/redirect.ts)

@@ -10,10 +10,11 @@ import '@testing-library/jest-dom';
 // lands on /login. Reset to /dashboard before each test.
 const nav = {
   path: '/dashboard',
+  follow: true, // false: replace() is recorded but the pathname stays (to hold signingOut set)
   subs: new Set<() => void>(),
 };
 const mockReplace = jest.fn((url: string) => {
-  nav.path = url.split('?')[0];
+  if (nav.follow) nav.path = url.split('?')[0];
   nav.subs.forEach((f) => f());
 });
 jest.mock('next/navigation', () => {
@@ -66,13 +67,13 @@ async function clickSignOut() {
   fireEvent.click(await screen.findByRole('menuitem', { name: /sign out/i }));
 }
 
-beforeEach(() => { jest.clearAllMocks(); nav.path = '/dashboard'; });
+beforeEach(() => { jest.clearAllMocks(); nav.path = '/dashboard'; nav.follow = true; });
 
 describe('sign out: BFF failure shapes still end on /login?reauth=1', () => {
   it.each([
     ['network error', () => Promise.reject(Object.assign(new Error('x'), { status: 0 }))],
     ['500', () => Promise.reject(Object.assign(new Error('x'), { status: 500 }))],
-    ['client timeout (AbortError)', () => Promise.reject(new DOMException('t', 'TimeoutError'))],
+    ['client timeout (TimeoutError)', () => Promise.reject(new DOMException('t', 'TimeoutError'))],
   ])('%s', async (_n, impl) => {
     mockLogout.mockImplementation(impl);
     mount();
@@ -81,7 +82,7 @@ describe('sign out: BFF failure shapes still end on /login?reauth=1', () => {
     expect(mockReplace).toHaveBeenCalledTimes(1);
   });
 
-  it('passes a bounded abort signal to the BFF call', async () => {
+  it('hands the BFF call an AbortSignal (the 5 s bound itself is pinned in logout-flow)', async () => {
     mockLogout.mockResolvedValue({ ok: true });
     mount();
     await clickSignOut();
@@ -91,7 +92,9 @@ describe('sign out: BFF failure shapes still end on /login?reauth=1', () => {
 });
 
 describe('sign out: double click', () => {
-  it('two clicks reach logout() and navigate exactly once', async () => {
+  // End-to-end result only: the gate swaps the shell for the skeleton on the first click, which
+  // alone removes the menu item. The button's own disabled={signingOut} guard is NOT what this proves.
+  it('two clicks in one tick reach logout() once and navigate once', async () => {
     let done!: () => void;
     mockLogout.mockImplementation(() => new Promise((r) => { done = () => r({ ok: true }); }));
     mount();
@@ -107,15 +110,16 @@ describe('sign out: double click', () => {
 });
 
 describe('gate normal path is not disabled', () => {
-  it('no session at mount (refresh fails 401, not signing out) still redirects to /login', async () => {
-    mockRefresh.mockRejectedValue(Object.assign(new Error('no'), { status: 401, code: 'NO_REFRESH' }));
+  it('never signed in (no user, not signing out) redirects to /login', async () => {
     mount(null);
-    // 401 classifies to an authError prompt or a redirect; either way it must not hang on the bare skeleton.
-    await waitFor(() => {
-      const redirected = mockReplace.mock.calls.some((c) => c[0] === '/login');
-      const prompted = screen.queryByRole('heading') !== null;
-      expect(redirected || prompted).toBe(true);
-    });
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login'));
+  });
+  it('a refresh the server rejects (401) shows the expired prompt, not a bare skeleton', async () => {
+    mockRefresh.mockRejectedValue(Object.assign(new Error('no'), { status: 401, code: 'unauthorized' }));
+    render(<AuthProvider initialUser={null} initialMaybeAuthed><Probe /><Page /></AuthProvider>);
+    expect(await screen.findByRole('heading', { name: /your session has ended/i })).toBeInTheDocument();
+    expect(mockRefresh).toHaveBeenCalled();
+    expect(mockReplace).not.toHaveBeenCalled();
   });
   it('signingOut is false at mount', () => {
     mount();
@@ -123,7 +127,31 @@ describe('gate normal path is not disabled', () => {
   });
 });
 
+describe('a caller that only awaits logout()', () => {
+  it('ends on /login?reauth=1 with no navigation of its own', async () => {
+    mockLogout.mockResolvedValue({ ok: true });
+    mount(USER, false); // provider only: no shell, no gate, nobody else to navigate
+    await act(async () => { await held.auth.logout(); });
+    expect(mockReplace).toHaveBeenCalledTimes(1);
+    expect(mockReplace).toHaveBeenCalledWith('/login?reauth=1');
+    expect(nav.path).toBe('/login');
+    expect(held.auth.signingOut).toBe(false); // arrival ended the in-flight window
+  });
+  it('warns with the error type (never a value) when the BFF call fails, and still navigates', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockLogout.mockRejectedValue(Object.assign(new Error('secret-token-abc'), { name: 'ApiError', status: 0 }));
+    mount(USER, false);
+    await act(async () => { await held.auth.logout(); });
+    expect(mockReplace).toHaveBeenCalledWith('/login?reauth=1');
+    const logged = JSON.stringify(warn.mock.calls);
+    expect(logged).toContain('ApiError');
+    expect(logged).not.toContain('secret-token-abc');
+    warn.mockRestore();
+  });
+});
+
 describe('signingOut lifecycle', () => {
+  beforeEach(() => { nav.follow = false; }); // hold the flag: these tests walk what clears it
   async function logoutViaApi() {
     mockLogout.mockResolvedValue({ ok: true });
     await act(async () => { await held.auth.logout(); });
@@ -153,6 +181,7 @@ describe('signingOut lifecycle', () => {
     mockLogin.mockRejectedValue(new Error('bad creds'));
     await act(async () => { await held.auth.login('a', 'b').catch(() => undefined); });
     expect(held.auth.user).toBeNull();
+    expect(held.auth.signingOut).toBe(true);
   });
 
   // Ren's caveat, as a user walks it: sign out, land on /login, then reach a protected page again
@@ -160,6 +189,7 @@ describe('signingOut lifecycle', () => {
   // the route so its state survives). user is null, signingOut is still true => gate stands down =>
   // skeleton forever and no redirect.
   it('a protected page mounted AFTER sign-out completed still redirects to /login', async () => {
+    nav.follow = true; // this one needs the sign-out to actually arrive on /login
     mockLogout.mockResolvedValue({ ok: true });
     function Second() { return <Page />; }
     function Host() {

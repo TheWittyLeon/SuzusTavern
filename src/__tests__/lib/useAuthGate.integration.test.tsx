@@ -266,7 +266,9 @@ describe('useAuthGate integration — retry CTA stays mounted+focused through a 
     expect(
       screen.queryByRole('heading', { name: /your session has ended/i }),
     ).not.toBeInTheDocument();
-    expect(mockReplace).not.toHaveBeenCalled();
+    // ...and logout() itself made the one navigation (the gate stood down).
+    expect(mockReplace).toHaveBeenCalledTimes(1);
+    expect(mockReplace).toHaveBeenCalledWith('/login?reauth=1');
   });
 });
 

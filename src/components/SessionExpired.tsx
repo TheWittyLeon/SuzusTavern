@@ -19,6 +19,7 @@ import Link from 'next/link';
 import Card from '@/components/Card';
 import Button from '@/components/Button';
 import SuzuDM from '@/components/SuzuDM';
+import { LOGIN_REAUTH_HREF } from '@/lib/auth/loginRoute';
 import styles from './SessionExpired.module.css';
 
 export interface SessionExpiredProps {
@@ -85,8 +86,8 @@ export default function SessionExpired({
   // bounced these links straight back to the page that just 401'd — this
   // component's own CTA was a no-op loop. The param is how the client tells
   // the edge what only the client can know. Strip it and the loop returns.
-  const loginHref = `/login?reauth=1${pathname ? `&next=${encodeURIComponent(pathname)}` : ''}`;
-  const plainLoginHref = '/login?reauth=1';
+  const loginHref = `${LOGIN_REAUTH_HREF}${pathname ? `&next=${encodeURIComponent(pathname)}` : ''}`;
+  const plainLoginHref = LOGIN_REAUTH_HREF;
 
   return (
     <main

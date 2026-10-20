@@ -19,25 +19,11 @@
  * of the page's real body.
  */
 import { Children, cloneElement, isValidElement, useEffect, type ReactNode } from 'react';
-import * as NextNavigation from 'next/navigation';
 import { useAuth } from './AuthProvider';
 import PageSkeleton, { type PageSkeletonProps } from '@/components/PageSkeleton';
 import SessionExpired from '@/components/SessionExpired';
-
-// A long tail of pre-existing page tests mock next/navigation with only the
-// exports that page's OWN code touches (e.g. play/[sessionId] tests mock
-// `useParams` alone — the page never called `useRouter` before this hook
-// existed). The real next/navigation module always exports both `useRouter`
-// and `usePathname`, so guarding the call is a no-op in production and lets
-// this hook drop into every existing test suite without an unrelated,
-// wide-blast-radius sweep to add router/pathname mocks everywhere it's now
-// transitively used. Stable fallback references keep the effect below from
-// re-running on identity churn alone.
-const NOOP_ROUTER = { replace: () => { /* no router mocked in this test */ } };
-const useRouterSafe =
-  typeof NextNavigation.useRouter === 'function' ? NextNavigation.useRouter : () => NOOP_ROUTER;
-const usePathnameSafe =
-  typeof NextNavigation.usePathname === 'function' ? NextNavigation.usePathname : () => null;
+import { LOGIN_ROUTE_RE } from './loginRoute';
+import { usePathnameSafe, useRouterSafe } from './navigationSafe';
 
 export interface UseAuthGateOptions {
   /** Rendered inside the bounded loading <main> while genuinely resolving. */
@@ -123,7 +109,7 @@ export function useAuthGate(opts: UseAuthGateOptions): ReactNode | null {
   // navigates once the cookies are gone.
   useEffect(() => {
     // Already on /login (sign-out just arrived there): nothing to redirect to.
-    if (pathname !== null && /^\/login(\/|$)/.test(pathname)) return;
+    if (pathname !== null && LOGIN_ROUTE_RE.test(pathname)) return;
     if (!user && !loading && !maybeAuthed && !authError && !signingOut) router.replace('/login');
   }, [user, loading, maybeAuthed, authError, signingOut, router, pathname]);
 

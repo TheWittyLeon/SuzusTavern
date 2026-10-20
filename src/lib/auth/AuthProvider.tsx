@@ -21,7 +21,8 @@ import React, {
   useRef,
   type ReactNode,
 } from 'react';
-import * as NextNavigation from 'next/navigation';
+import { LOGIN_REAUTH_HREF, LOGIN_ROUTE_RE } from './loginRoute';
+import { usePathnameSafe, useRouterSafe } from './navigationSafe';
 import type { User } from '@/lib/api/types';
 import * as authApi from '@/lib/api/auth';
 
@@ -75,10 +76,6 @@ function classifyAuthError(e: unknown): AuthError {
  */
 const RETRY_AUTH_TIMEOUT_MS = 12_000;
 
-// Same guard as useAuthGate's: suites that mock next/navigation without usePathname still mount.
-const usePathnameSafe =
-  typeof NextNavigation.usePathname === 'function' ? NextNavigation.usePathname : () => null;
-
 /**
  * TAV-LOGOUT-STAYS-ON-DASHBOARD: bound on logout()'s BFF call. The BFF gives
  * its own upstream call 2 s before clearing cookies; this must outlast that
@@ -124,7 +121,7 @@ export interface AuthContextValue {
   login(username: string, password: string): Promise<'ok' | '2fa'>;
   /** Completes the 2FA half-step. Throws on bad TOTP or network error. */
   verify2FA(totp_code: string): Promise<void>;
-  /** Best-effort: POST /api/auth/logout, then clears local user state. */
+  /** Best-effort: POST /api/auth/logout, clears local user state, then navigates to /login?reauth=1. */
   logout(): Promise<void>;
   /** Force a silent /api/auth/refresh. Returns true on success. */
   refresh(): Promise<boolean>;
@@ -183,8 +180,12 @@ export function AuthProvider({
   // caller's navigation). Left set longer, a protected page mounted later under this provider
   // (Back button) would have a silent gate and sit on the skeleton forever.
   const pathname = usePathnameSafe();
+  // logout() navigates; a ref keeps its identity stable across router identity churn.
+  const router = useRouterSafe();
+  const routerRef = useRef(router);
+  useEffect(() => { routerRef.current = router; });
   // (State adjusted during render, React's pattern for state derived from a changing value.)
-  if (signingOut && pathname !== null && /^\/login(\/|$)/.test(pathname)) setSigningOut(false);
+  if (signingOut && pathname !== null && LOGIN_ROUTE_RE.test(pathname)) setSigningOut(false);
 
   // Guard against React 18/19 strict-mode double-invoke of useEffect.
   // client.ts already single-flights /api/auth/refresh, but we also prevent
@@ -274,9 +275,15 @@ export function AuthProvider({
     setAuthError(null);
     try {
       await authApi.logout(AbortSignal.timeout(LOGOUT_TIMEOUT_MS));
-    } catch {
-      // Best-effort: BFF clears cookies even on upstream failure (§2.7.3)
+    } catch (e) {
+      // Best-effort: BFF clears cookies even on upstream failure (§2.7.3). Say what kind of
+      // failure (never a token or cookie value), so a session that outlives sign-out is traceable.
+      const { name, status } = (e as { name?: string; status?: number }) ?? {};
+      console.warn('[auth] logout call failed; navigating to login anyway', { name, status });
     }
+    // The ONE navigator on sign-out (useAuthGate stands down while `signingOut`), so a caller only
+    // has to `await logout()`. Runs after the BFF has answered or timed out, i.e. after Set-Cookie.
+    routerRef.current.replace(LOGIN_REAUTH_HREF);
   }, []);
 
   const refresh = useCallback(async (): Promise<boolean> => {

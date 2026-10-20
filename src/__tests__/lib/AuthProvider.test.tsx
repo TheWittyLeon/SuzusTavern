@@ -22,6 +22,11 @@ import '@testing-library/jest-dom';
 // Mock the auth API wrappers (apiFetch underneath touches fetch)
 // ---------------------------------------------------------------------------
 
+// logout() navigates via the router (no app router is mounted in this suite).
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ replace: jest.fn() }),
+  usePathname: () => '/dashboard',
+}));
 jest.mock('../../lib/api/auth', () => ({
   login: jest.fn(),
   verify2FA: jest.fn(),
