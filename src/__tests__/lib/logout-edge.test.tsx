@@ -29,8 +29,8 @@ const mockVerify = authApi.verify2FA as jest.Mock;
 const mockRefresh = authApi.refresh as jest.Mock;
 const USER = { id: 1, username: 'alice', email: null, roles: [] };
 
-let auth: AuthContextValue;
-function Probe() { auth = useAuth(); return null; }
+const held = {} as { auth: AuthContextValue; showSecond: () => void };
+function Probe() { held.auth = useAuth(); return null; }
 function Page() {
   const gate = useAuthGate({ skeleton: <div>skeleton</div>, label: 'Loading' });
   if (gate) return <>{gate}</>;
@@ -97,40 +97,40 @@ describe('gate normal path is not disabled', () => {
   });
   it('signingOut is false at mount', () => {
     mount();
-    expect(auth.signingOut).toBe(false);
+    expect(held.auth.signingOut).toBe(false);
   });
 });
 
 describe('signingOut lifecycle', () => {
   async function logoutViaApi() {
     mockLogout.mockResolvedValue({ ok: true });
-    await act(async () => { await auth.logout(); });
-    expect(auth.signingOut).toBe(true);
+    await act(async () => { await held.auth.logout(); });
+    expect(held.auth.signingOut).toBe(true);
   }
   it('login() success clears it', async () => {
     mount(USER, false);
     await logoutViaApi();
     mockLogin.mockResolvedValue({ kind: 'ok', user: USER });
-    await act(async () => { await auth.login('a', 'b'); });
-    expect(auth.signingOut).toBe(false);
-    expect(auth.user).toEqual(USER);
+    await act(async () => { await held.auth.login('a', 'b'); });
+    expect(held.auth.signingOut).toBe(false);
+    expect(held.auth.user).toEqual(USER);
   });
   it('2FA path clears it (login -> 2fa -> verify2FA)', async () => {
     mount(USER, false);
     await logoutViaApi();
     mockLogin.mockResolvedValue({ kind: '2fa' });
-    await act(async () => { await auth.login('a', 'b'); });
-    expect(auth.signingOut).toBe(true); // half-step: still no user
+    await act(async () => { await held.auth.login('a', 'b'); });
+    expect(held.auth.signingOut).toBe(true); // half-step: still no user
     mockVerify.mockResolvedValue({ user: USER });
-    await act(async () => { await auth.verify2FA('123456'); });
-    expect(auth.signingOut).toBe(false);
+    await act(async () => { await held.auth.verify2FA('123456'); });
+    expect(held.auth.signingOut).toBe(false);
   });
   it('a FAILED login after logout leaves it set (still no user)', async () => {
     mount(USER, false);
     await logoutViaApi();
     mockLogin.mockRejectedValue(new Error('bad creds'));
-    await act(async () => { await auth.login('a', 'b').catch(() => undefined); });
-    expect(auth.user).toBeNull();
+    await act(async () => { await held.auth.login('a', 'b').catch(() => undefined); });
+    expect(held.auth.user).toBeNull();
   });
 
   // Ren's caveat, as a user walks it: sign out, land on /login, then reach a protected page again
@@ -140,18 +140,17 @@ describe('signingOut lifecycle', () => {
   // KNOWN DEFECT pin (Miko-QA 2026-10-20): `it.failing` flips red the day signingOut is scoped/cleared properly.
   it.failing('a protected page mounted AFTER sign-out completed still redirects to /login', async () => {
     mockLogout.mockResolvedValue({ ok: true });
-    let showSecond!: () => void;
     function Second() { return <Page />; }
     function Host() {
       const [second, setSecond] = React.useState(false);
-      showSecond = () => setSecond(true);
+      held.showSecond = () => setSecond(true);
       return second ? <Second /> : null;
     }
     render(<AuthProvider initialUser={USER}><Probe /><Page /><Host /></AuthProvider>);
     await clickSignOut();
     await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login?reauth=1'));
     mockReplace.mockClear();
-    act(() => { showSecond(); }); // new gate consumer under the SAME provider (Back-button entry)
+    act(() => { held.showSecond(); }); // new gate consumer under the SAME provider (Back-button entry)
     await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login'));
   });
 });
