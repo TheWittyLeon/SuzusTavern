@@ -75,11 +75,14 @@ describe('sign out: BFF failure shapes still end on /login?reauth=1', () => {
     ['500', () => Promise.reject(Object.assign(new Error('x'), { status: 500 }))],
     ['client timeout (TimeoutError)', () => Promise.reject(new DOMException('t', 'TimeoutError'))],
   ])('%s', async (_n, impl) => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {}); // the deliberate failure's log
     mockLogout.mockImplementation(impl);
     mount();
     await clickSignOut();
     await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login?reauth=1'));
     expect(mockReplace).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
   });
 
   it('hands the BFF call an AbortSignal (the 5 s bound itself is pinned in logout-flow)', async () => {
@@ -143,9 +146,8 @@ describe('a caller that only awaits logout()', () => {
     mount(USER, false);
     await act(async () => { await held.auth.logout(); });
     expect(mockReplace).toHaveBeenCalledWith('/login?reauth=1');
-    const logged = JSON.stringify(warn.mock.calls);
-    expect(logged).toContain('ApiError');
-    expect(logged).not.toContain('secret-token-abc');
+    // Exactly {name, status}: the raw error (and its message) must never be a logged argument.
+    expect(warn).toHaveBeenCalledWith(expect.any(String), { name: 'ApiError', status: 0 });
     warn.mockRestore();
   });
 });

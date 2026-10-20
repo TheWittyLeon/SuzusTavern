@@ -22,7 +22,7 @@ import { Children, cloneElement, isValidElement, useEffect, type ReactNode } fro
 import { useAuth } from './AuthProvider';
 import PageSkeleton, { type PageSkeletonProps } from '@/components/PageSkeleton';
 import SessionExpired from '@/components/SessionExpired';
-import { LOGIN_ROUTE_RE } from './loginRoute';
+import { LOGIN_PATH, LOGIN_ROUTE_RE } from './loginRoute';
 import { usePathnameSafe, useRouterSafe } from './navigationSafe';
 
 export interface UseAuthGateOptions {
@@ -105,12 +105,12 @@ export function useAuthGate(opts: UseAuthGateOptions): ReactNode | null {
   // TAV-LOGOUT-STAYS-ON-DASHBOARD: not while signing out. logout() nulls
   // `user` before the BFF has cleared the cookies; a redirect here reaches
   // proxy.ts with a still-valid st_access, which 307s /login → /dashboard
-  // (and the router caches that answer for /login). The signOut caller
-  // navigates once the cookies are gone.
+  // (and the router caches that answer for /login). logout() navigates
+  // itself once the cookies are gone.
   useEffect(() => {
     // Already on /login (sign-out just arrived there): nothing to redirect to.
     if (pathname !== null && LOGIN_ROUTE_RE.test(pathname)) return;
-    if (!user && !loading && !maybeAuthed && !authError && !signingOut) router.replace('/login');
+    if (!user && !loading && !maybeAuthed && !authError && !signingOut) router.replace(LOGIN_PATH);
   }, [user, loading, maybeAuthed, authError, signingOut, router, pathname]);
 
   if (user) return null;

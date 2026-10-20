@@ -29,7 +29,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 import { isExpired } from '@/lib/auth/jwt';
-import { LOGIN_ROUTE_RE, REAUTH_PARAM } from '@/lib/auth/loginRoute';
+import { LOGIN_PATH, LOGIN_ROUTE_RE, REAUTH_PARAM } from '@/lib/auth/loginRoute';
 import { sanitizeNextPath } from '@/lib/auth/redirect';
 
 const ACCESS_COOKIE  = 'st_access';
@@ -71,7 +71,7 @@ export function proxy(req: NextRequest): NextResponse {
       if (!refreshPresent) {
         // No session at all — redirect to login with return path
         const loginUrl = req.nextUrl.clone();
-        loginUrl.pathname = '/login';
+        loginUrl.pathname = LOGIN_PATH;
         loginUrl.search = `next=${encodeURIComponent(pathname + search)}`;
         return NextResponse.redirect(loginUrl);
       }

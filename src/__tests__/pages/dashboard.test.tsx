@@ -272,6 +272,7 @@ describe('Dashboard — logout via account menu', () => {
   });
 
   it('redirects to /login even if logout() throws', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {}); // the deliberate failure's log
     mockLogout.mockRejectedValueOnce(new Error('network'));
     renderDashboard(ALICE);
     await waitFor(() =>
@@ -283,6 +284,7 @@ describe('Dashboard — logout via account menu', () => {
       fireEvent.click(signOut);
     });
     await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login?reauth=1'));
+    warn.mockRestore();
   });
 });
 

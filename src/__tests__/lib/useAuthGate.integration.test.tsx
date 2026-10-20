@@ -257,7 +257,7 @@ describe('useAuthGate integration — retry CTA stays mounted+focused through a 
 
     // Clean sign-out: no SessionExpired of either variant (not a stale
     // rate_limited/expired prompt). The gate itself stands down while
-    // signing out (TAV-LOGOUT-STAYS-ON-DASHBOARD) — the logout() caller owns
+    // signing out (TAV-LOGOUT-STAYS-ON-DASHBOARD) — logout() itself makes
     // the one navigation, once the cookies are cleared.
     expect(screen.queryByTestId('real-content')).not.toBeInTheDocument();
     expect(

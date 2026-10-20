@@ -111,8 +111,8 @@ export interface AuthContextValue {
   retrying: boolean;
   /**
    * TAV-LOGOUT-STAYS-ON-DASHBOARD: true from the moment logout() starts until
-   * the app reaches /login (or the next successful login). While set, the caller of logout() is the ONLY
-   * navigator: useAuthGate must not redirect on the null user, because the
+   * the app reaches /login (or the next successful login). While set, logout() is the ONLY
+   * navigator (it navigates itself once the BFF has answered): useAuthGate must not redirect on the null user, because the
    * BFF has not necessarily cleared the cookies yet and proxy.ts would 307
    * /login back to /dashboard off the still-valid st_access.
    */
@@ -177,7 +177,7 @@ export function AuthProvider({
   // TAV-LOGOUT-STAYS-ON-DASHBOARD: see AuthContextValue.signingOut.
   const [signingOut, setSigningOut] = useState(false);
   // The flag covers the sign-out IN FLIGHT only: it ends when the app has arrived on /login (the
-  // caller's navigation). Left set longer, a protected page mounted later under this provider
+  // navigation logout() makes). Left set longer, a protected page mounted later under this provider
   // (Back button) would have a silent gate and sit on the skeleton forever.
   const pathname = usePathnameSafe();
   // logout() navigates; a ref keeps its identity stable across router identity churn.
