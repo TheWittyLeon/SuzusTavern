@@ -20,9 +20,11 @@ export function buildHistoryRows(events: EngineSessionEvent[], g: GroundingData 
       const ts = formatEventTimestamp(e.created_at);
       if (g && openingSceneId && openingSceneId === g.scene_id) {
         rows.push({ id: `ev${e.seq ?? 'opening'}-read-aloud`, ts, who: 'Scene', kind: 'read_aloud', text: buildReadAloudBlock(g) });
-        for (const line of g.opening_lines ?? []) {
-          rows.push({ id: `ev${e.seq ?? 'opening'}-line-${line.npc_ref}`, ts, who: line.speaker_display_name, kind: 'read_aloud_line', text: line.line });
-        }
+        // TAV-HISTORYROWS-DUP-SPEAKER-KEY: the id is the line's position, not its speaker — one NPC
+        // can speak twice in a scene, and ChatLog keys on this id.
+        (g.opening_lines ?? []).forEach((line, i) => {
+          rows.push({ id: `ev${e.seq ?? 'opening'}-line-${i}`, ts, who: line.speaker_display_name, kind: 'read_aloud_line', text: line.line });
+        });
       } else if (g) {
         rows.push({ id: `ev${e.seq ?? 'opening'}-marker`, ts, who: 'Scene', kind: 'system', text: `— ${g.adventure_title ?? 'the adventure'} · opening —` });
       }
