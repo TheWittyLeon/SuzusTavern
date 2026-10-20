@@ -78,11 +78,13 @@ function LoginForm() {
   // Informational only (R183 C6): logout()'s request failed. Shows one line; changes nothing else.
   const signoutUnconfirmed = searchParams.get(SIGNOUT_PARAM) === SIGNOUT_UNCONFIRMED;
   // "Sign out again" (R192): click-only, never on load (a crafted link must not sign anyone out).
-  // `disabled={retryingSignOut}` is the one-request-per-click guard (React flushes a discrete
-  // click's state before the next event, so a second click lands on a disabled button).
+  // Mutually exclusive with signing in: a late logout would clear the new login's cookies.
+  // The button uses aria-disabled (not `disabled`) so a keyboard user keeps focus on it; the early
+  // return is the double-click guard (React flushes a discrete click's state before the next event).
   const [retryingSignOut, setRetryingSignOut] = useState(false);
   const [signOutAgainFailed, setSignOutAgainFailed] = useState(false);
   const onSignOutAgain = useCallback(async () => {
+    if (retryingSignOut || submitting) return;
     setRetryingSignOut(true);
     setSignOutAgainFailed(false);
     try {
@@ -91,7 +93,7 @@ function LoginForm() {
     } finally {
       setRetryingSignOut(false);
     }
-  }, [retrySignOut]);
+  }, [retrySignOut, retryingSignOut, submitting]);
   const signoutNoticeId = signoutUnconfirmed ? 'signout-notice' : undefined;
 
   // ── Focus management: 2FA entry ───────────────────────────────────────────
@@ -139,7 +141,8 @@ function LoginForm() {
   const handleSubmit = useCallback(
     async (e: React.FormEvent<HTMLFormElement>) => {
       e.preventDefault();
-      if (submitting || ratelimited) return;
+      // A pending 'Sign out again' would clear the cookies this login is about to set.
+      if (submitting || ratelimited || retryingSignOut) return;
 
       setFormState('submitting');
       setErrorMsg(null);
@@ -188,7 +191,7 @@ function LoginForm() {
         }
       }
     },
-    [handle, password, login, router, nextPath, submitting, ratelimited, toast],
+    [handle, password, login, router, nextPath, submitting, ratelimited, retryingSignOut, toast],
   );
 
   // ── 2FA verify ───────────────────────────────────────────────────────────
@@ -358,13 +361,20 @@ function LoginForm() {
       </div>
 
       {signoutUnconfirmed && (
-        <div id="signout-notice" role="status" className={styles.formNotice}>
+        <div className={styles.formNotice}>
           <Icon name="Shield" size={14} aria-hidden />
-          <span>
+          {/* id + role on the TEXT only: the field's description and the status announcement
+              must not include the button's name. */}
+          <span id="signout-notice" role="status">
             We couldn&apos;t confirm you were signed out.
             {signOutAgainFailed && ' That didn\u2019t work either. Try again in a moment.'}
           </span>
-          <Button size="default" onClick={onSignOutAgain} disabled={retryingSignOut}>
+          <Button
+            size="default"
+            onClick={onSignOutAgain}
+            aria-disabled={retryingSignOut || submitting ? 'true' : undefined}
+            aria-busy={retryingSignOut || undefined}
+          >
             Sign out again
           </Button>
         </div>
@@ -455,7 +465,7 @@ function LoginForm() {
       <button
         type="submit"
         className={`btn btn-primary btn-lg ${styles.submitBtn}`}
-        disabled={submitting || ratelimited}
+        disabled={submitting || ratelimited || retryingSignOut}
         // TAV-13 (WCAG 2.5.3 label-in-name): in the idle state the visible label
         // is "Open the door", so leave the accessible name to that text (no
         // aria-label override, which previously read "Sign in" and broke

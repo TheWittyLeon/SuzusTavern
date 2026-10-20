@@ -281,19 +281,23 @@ export function AuthProvider({
    * revoked after a timeout is NOT known here (its own upstream bound is 2 s, ours is 5 s, but the
    * BFF is not guaranteed to have finished); the BFF's own log line is the evidence.
    */
-  const requestLogout = useCallback(async (): Promise<boolean> => {
+  const requestLogout = useCallback(async (outcome: string): Promise<boolean> => {
     try {
       await authApi.logout(AbortSignal.timeout(LOGOUT_TIMEOUT_MS));
       return true;
     } catch (e) {
       const { name, status, code } = (e as { name?: string; status?: number; code?: string }) ?? {};
-      console.warn('[auth] logout call failed; navigating to login anyway', { name, status, code });
+      console.warn(`[auth] logout call failed; ${outcome}`, { name, status, code });
       return false;
     }
   }, []);
 
   const retrySignOut = useCallback(async (): Promise<boolean> => {
-    if (!(await requestLogout())) return false;
+    if (!(await requestLogout('staying on the login page'))) return false;
+    // Cookies are gone now: drop any user / re-auth state the first sign-out left behind.
+    setUser(null);
+    setMaybeAuthed(false);
+    setAuthError(null);
     routerRef.current.replace(LOGIN_REAUTH_HREF);
     return true;
   }, [requestLogout]);
@@ -308,7 +312,7 @@ export function AuthProvider({
     // Clear any stale re-auth error so a prior failed retry can't surface a
     // "Try again" prompt on the next protected-page visit (Miko-QA).
     setAuthError(null);
-    const confirmed = await requestLogout();
+    const confirmed = await requestLogout('navigating to login anyway');
     // The ONE navigator on sign-out (useAuthGate stands down while `signingOut`), so a caller only
     // has to `await logout()`. Runs after the BFF has answered or timed out, i.e. after Set-Cookie.
     // An unconfirmed sign-out adds the informational marker the login page words (R183 C6).

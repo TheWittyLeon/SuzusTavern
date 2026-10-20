@@ -38,6 +38,7 @@ import { ToastProvider } from '../../components/Toast';
 import LoginPage from '../../app/login/page';
 
 const mockLogout = authApi.logout as jest.Mock;
+const mockLogin = authApi.login as jest.Mock;
 const USER = { id: 1, username: 'alice', email: null, roles: [] };
 const NOTICE = /couldn.t confirm you were signed out\./i;
 
@@ -151,11 +152,91 @@ describe('"Sign out again" (R192)', () => {
     mount(null);
     fireEvent.click(again());
     fireEvent.click(again());
-    expect(again()).toBeDisabled();
+    expect(again()).toHaveAttribute('aria-disabled', 'true');
+    expect(again()).toHaveAttribute('aria-busy', 'true');
     expect(mockLogout).toHaveBeenCalledTimes(1);
     await act(async () => { done(); });
     await waitFor(() => expect(mockUrl).toBe('/login?reauth=1'));
     expect(mockLogout).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps keyboard focus on the button after a failed retry (aria-disabled, never disabled)', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockUrl = FAIL_HREF;
+    mockLogout.mockRejectedValueOnce(Object.assign(new Error('x'), { status: 0, code: 'network' }));
+    mount(null);
+    const btn = again();
+    btn.focus();
+    fireEvent.click(btn);
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/didn.t work either/i));
+    expect(btn).not.toBeDisabled();
+    expect(document.activeElement).toBe(btn);
+    warn.mockRestore();
+  });
+
+  it('the failure line disappears while the next attempt is in flight', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockUrl = FAIL_HREF;
+    mockLogout.mockRejectedValueOnce(Object.assign(new Error('x'), { status: 0 }));
+    mount(null);
+    fireEvent.click(again());
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/didn.t work either/i));
+    mockLogout.mockImplementation(() => new Promise(() => {})); // never settles
+    fireEvent.click(again());
+    expect(screen.getByRole('status')).not.toHaveTextContent(/didn.t work either/i);
+    expect(screen.getByRole('status')).toHaveTextContent(NOTICE);
+    warn.mockRestore();
+  });
+
+  it('a successful retry clears the provider user / maybeAuthed left from the first sign-out', async () => {
+    mockUrl = FAIL_HREF;
+    mockLogout.mockResolvedValue({ ok: true });
+    mount(USER); // stale: the first sign-out failed before it could clear anything
+    expect(held.auth.user).not.toBeNull();
+    fireEvent.click(again());
+    await waitFor(() => expect(mockUrl).toBe('/login?reauth=1'));
+    expect(held.auth.user).toBeNull();
+    expect(held.auth.maybeAuthed).toBe(false);
+  });
+
+  it('a failed retry logs "staying on the login page", not "navigating"', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockUrl = FAIL_HREF;
+    mockLogout.mockRejectedValueOnce(Object.assign(new Error('secret'), { name: 'Error', status: 0, code: 'timeout' }));
+    mount(null);
+    fireEvent.click(again());
+    await waitFor(() => expect(warn).toHaveBeenCalled());
+    expect(warn).toHaveBeenCalledWith('[auth] logout call failed; staying on the login page', { name: 'Error', status: 0, code: 'timeout' });
+    warn.mockRestore();
+  });
+
+  describe('exclusive with signing in', () => {
+    const fillAndSubmit = () => {
+      fireEvent.change(screen.getByLabelText('Tavern handle'), { target: { value: 'bob' } });
+      fireEvent.change(screen.getByLabelText('Passphrase'), { target: { value: 'pw' } });
+      fireEvent.submit(screen.getByLabelText('Tavern handle').closest('form')!);
+    };
+
+    it('a pending retry blocks sign-in: zero login calls, submit button inert', async () => {
+      mockUrl = FAIL_HREF;
+      mockLogout.mockImplementation(() => new Promise(() => {}));
+      mount(null);
+      fireEvent.click(again());
+      fillAndSubmit();
+      expect(mockLogin).not.toHaveBeenCalled();
+      expect(screen.getByRole('button', { name: /open the door/i })).toBeDisabled();
+    });
+
+    it('a submitting sign-in blocks the retry: zero logout calls', async () => {
+      mockUrl = FAIL_HREF;
+      mockLogin.mockImplementation(() => new Promise(() => {}));
+      mount(null);
+      fillAndSubmit();
+      await waitFor(() => expect(mockLogin).toHaveBeenCalledTimes(1));
+      fireEvent.click(again());
+      expect(mockLogout).not.toHaveBeenCalled();
+      expect(again()).toHaveAttribute('aria-disabled', 'true');
+    });
   });
 
   it('the notice is described to the handle input (alongside nothing else when idle)', async () => {
@@ -163,6 +244,7 @@ describe('"Sign out again" (R192)', () => {
     mount(null);
     const notice = await screen.findByRole('status');
     expect(notice).toHaveAttribute('id', 'signout-notice');
+    expect(notice).not.toHaveTextContent(/sign out again/i); // description / announcement exclude the button
     expect(screen.getByLabelText('Tavern handle')).toHaveAttribute('aria-describedby', 'signout-notice');
   });
 
