@@ -121,8 +121,16 @@ export interface AuthContextValue {
   login(username: string, password: string): Promise<'ok' | '2fa'>;
   /** Completes the 2FA half-step. Throws on bad TOTP or network error. */
   verify2FA(totp_code: string): Promise<void>;
-  /** Best-effort: POST /api/auth/logout, clears local user state, then navigates to /login?reauth=1. */
+  /**
+   * Best-effort: POST /api/auth/logout, clears local user state, then navigates to /login?reauth=1
+   * (or /login?reauth=1&signout=unconfirmed when the request itself failed).
+   */
   logout(): Promise<void>;
+  /**
+   * The login page's "Sign out again" (R192): one more logout request, no state change. Resolves
+   * true after navigating to /login?reauth=1 (notice gone); false when it failed again (nothing moves).
+   */
+  retrySignOut(): Promise<boolean>;
   /** Force a silent /api/auth/refresh. Returns true on success. */
   refresh(): Promise<boolean>;
   /** Re-attempt refresh+me after an authError (e.g. the rate-limited retry CTA). */
@@ -142,6 +150,7 @@ const NO_OP_CONTEXT: AuthContextValue = {
   login: async () => 'ok',
   verify2FA: async () => { /* no-op */ },
   logout: async () => { /* no-op */ },
+  retrySignOut: async () => false,
   refresh: async () => false,
   retryAuth: async () => { /* no-op */ },
 };
@@ -263,6 +272,32 @@ export function AuthProvider({
     }
   }, []);
 
+  /**
+   * ONE logout request, bounded. true = the BFF answered 2xx (it clears the cookies on that answer).
+   * false = it threw (network, timeout, 5xx, or a non-JSON 2xx): the answer did not arrive intact,
+   * so the cookies MAY still be live and the server-side session MAY NOT have been revoked.
+   * Logs the error kind only (never a message, token or cookie value); `code` ('network' | 'timeout'
+   * | 'abort' | an HTTP error code) tells a client deadline from a dropped connection. Whether the BFF
+   * revoked after a timeout is NOT known here (its own upstream bound is 2 s, ours is 5 s, but the
+   * BFF is not guaranteed to have finished); the BFF's own log line is the evidence.
+   */
+  const requestLogout = useCallback(async (): Promise<boolean> => {
+    try {
+      await authApi.logout(AbortSignal.timeout(LOGOUT_TIMEOUT_MS));
+      return true;
+    } catch (e) {
+      const { name, status, code } = (e as { name?: string; status?: number; code?: string }) ?? {};
+      console.warn('[auth] logout call failed; navigating to login anyway', { name, status, code });
+      return false;
+    }
+  }, []);
+
+  const retrySignOut = useCallback(async (): Promise<boolean> => {
+    if (!(await requestLogout())) return false;
+    routerRef.current.replace(LOGIN_REAUTH_HREF);
+    return true;
+  }, [requestLogout]);
+
   const logout = useCallback(async (): Promise<void> => {
     // Raised BEFORE user is nulled so useAuthGate never sees (no user, not
     // signing out) and redirects while the cookies are still valid.
@@ -273,24 +308,12 @@ export function AuthProvider({
     // Clear any stale re-auth error so a prior failed retry can't surface a
     // "Try again" prompt on the next protected-page visit (Miko-QA).
     setAuthError(null);
-    let confirmed = true;
-    try {
-      await authApi.logout(AbortSignal.timeout(LOGOUT_TIMEOUT_MS));
-    } catch (e) {
-      // The BFF answers 200 and clears cookies whatever upstream did, so a throw here means that
-      // answer never arrived: the cookies may still be live. The login page says so (R183 C6).
-      confirmed = false;
-      // Best-effort: BFF clears cookies even on upstream failure (§2.7.3). Say what kind of
-      // failure (never a token or cookie value), so a session that outlives sign-out is traceable.
-      // `code` ('network' | 'timeout' | 'abort' | an HTTP error code) is what tells a timeout (the
-      // BFF most likely still revoked) from a dropped connection (it did not).
-      const { name, status, code } = (e as { name?: string; status?: number; code?: string }) ?? {};
-      console.warn('[auth] logout call failed; navigating to login anyway', { name, status, code });
-    }
+    const confirmed = await requestLogout();
     // The ONE navigator on sign-out (useAuthGate stands down while `signingOut`), so a caller only
     // has to `await logout()`. Runs after the BFF has answered or timed out, i.e. after Set-Cookie.
+    // An unconfirmed sign-out adds the informational marker the login page words (R183 C6).
     routerRef.current.replace(confirmed ? LOGIN_REAUTH_HREF : LOGIN_REAUTH_UNCONFIRMED_HREF);
-  }, []);
+  }, [requestLogout]);
 
   const refresh = useCallback(async (): Promise<boolean> => {
     try {
@@ -357,6 +380,7 @@ export function AuthProvider({
     login,
     verify2FA,
     logout,
+    retrySignOut,
     refresh,
     retryAuth,
   };

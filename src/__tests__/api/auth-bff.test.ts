@@ -328,6 +328,7 @@ describe('POST /api/auth/logout', () => {
     it('never logs a token', async () => {
       mockFetch.mockResolvedValueOnce(new Response('boom', { status: 502 }));
       await post();
+      expect(logoutWarns()).toHaveLength(1); // the line fired, so the no-token check below is not vacuous
       expect(JSON.stringify(warn.mock.calls)).not.toMatch(/secret-rt|old-at/);
     });
     it('upstream 2xx: logs nothing', async () => {

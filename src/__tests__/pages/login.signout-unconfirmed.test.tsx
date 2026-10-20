@@ -4,16 +4,30 @@
  * real login page reading that URL. Only authApi and the router are modelled.
  */
 import React, { Suspense } from 'react';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 let mockUrl = '/dashboard';
-const mockReplace = jest.fn((url: string) => { mockUrl = url; });
-jest.mock('next/navigation', () => ({
-  useRouter: () => ({ replace: mockReplace, push: jest.fn() }),
-  usePathname: () => mockUrl.split('?')[0],
-  useSearchParams: () => new URL(mockUrl, 'http://localhost').searchParams,
-}));
+const mockSubs = new Set<() => void>();
+const mockReplace = jest.fn((url: string) => { mockUrl = url; mockSubs.forEach((f) => f()); });
+jest.mock('next/navigation', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const R = require('react') as typeof import('react');
+  // A router that re-renders subscribers on replace(), as Next does.
+  const useUrl = () => R.useSyncExternalStore(
+    (f) => { mockSubs.add(f); return () => { mockSubs.delete(f); }; },
+    () => mockUrl,
+    () => mockUrl,
+  );
+  return {
+    useRouter: () => ({ replace: mockReplace, push: jest.fn() }),
+    usePathname: () => useUrl().split('?')[0],
+    useSearchParams: () => {
+      const url = useUrl();
+      return R.useMemo(() => new URL(url, 'http://localhost').searchParams, [url]);
+    },
+  };
+});
 jest.mock('../../lib/api/auth', () => ({
   login: jest.fn(), verify2FA: jest.fn(), logout: jest.fn(), refresh: jest.fn(), me: jest.fn(), register: jest.fn(),
 }));
@@ -25,7 +39,7 @@ import LoginPage from '../../app/login/page';
 
 const mockLogout = authApi.logout as jest.Mock;
 const USER = { id: 1, username: 'alice', email: null, roles: [] };
-const NOTICE = /couldn.t confirm you were signed out\. Close the browser to be sure\./i;
+const NOTICE = /couldn.t confirm you were signed out\./i;
 
 const held = {} as { auth: AuthContextValue };
 function Probe() {
@@ -86,6 +100,77 @@ describe('everything else shows no notice', () => {
     mount(null);
     await screen.findByRole('heading', { name: /welcome back/i });
     expect(screen.queryByText(NOTICE)).not.toBeInTheDocument();
+  });
+});
+
+describe('"Sign out again" (R192)', () => {
+  const FAIL_HREF = '/login?reauth=1&signout=unconfirmed';
+  const again = () => screen.getByRole('button', { name: /sign out again/i });
+
+  it('page load with the param makes ZERO logout calls, even for the full crafted link', async () => {
+    mockUrl = FAIL_HREF;
+    mount(null);
+    await screen.findByRole('status');
+    expect(mockLogout).not.toHaveBeenCalled();
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it('click -> exactly one logout call -> /login?reauth=1, notice gone', async () => {
+    mockUrl = FAIL_HREF;
+    mockLogout.mockResolvedValue({ ok: true });
+    mount(null);
+    fireEvent.click(again());
+    await waitFor(() => expect(mockUrl).toBe('/login?reauth=1'));
+    expect(mockLogout).toHaveBeenCalledTimes(1);
+    expect(mockLogout.mock.calls[0][0]).toBeInstanceOf(AbortSignal);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('failure keeps the notice, says so in one short line, goes nowhere, and can be retried', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockUrl = FAIL_HREF;
+    mockLogout.mockRejectedValueOnce(Object.assign(new Error('x'), { status: 0, code: 'network' }));
+    mount(null);
+    fireEvent.click(again());
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/didn.t work either/i));
+    expect(screen.getByRole('status')).toHaveTextContent(NOTICE);
+    expect(mockReplace).not.toHaveBeenCalled();
+    expect(mockUrl).toBe(FAIL_HREF);
+    expect(again()).toBeEnabled();
+    mockLogout.mockResolvedValueOnce({ ok: true });
+    fireEvent.click(again());
+    await waitFor(() => expect(mockUrl).toBe('/login?reauth=1'));
+    expect(mockLogout).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
+  });
+
+  it('is disabled while in flight and two clicks in one tick send one request', async () => {
+    mockUrl = FAIL_HREF;
+    let done!: () => void;
+    mockLogout.mockImplementation(() => new Promise((r) => { done = () => r({ ok: true }); }));
+    mount(null);
+    fireEvent.click(again());
+    fireEvent.click(again());
+    expect(again()).toBeDisabled();
+    expect(mockLogout).toHaveBeenCalledTimes(1);
+    await act(async () => { done(); });
+    await waitFor(() => expect(mockUrl).toBe('/login?reauth=1'));
+    expect(mockLogout).toHaveBeenCalledTimes(1);
+  });
+
+  it('the notice is described to the handle input (alongside nothing else when idle)', async () => {
+    mockUrl = FAIL_HREF;
+    mount(null);
+    const notice = await screen.findByRole('status');
+    expect(notice).toHaveAttribute('id', 'signout-notice');
+    expect(screen.getByLabelText('Tavern handle')).toHaveAttribute('aria-describedby', 'signout-notice');
+  });
+
+  it('no notice -> no aria-describedby on the handle input', async () => {
+    mockUrl = '/login?reauth=1';
+    mount(null);
+    await screen.findByRole('heading', { name: /welcome back/i });
+    expect(screen.getByLabelText('Tavern handle')).not.toHaveAttribute('aria-describedby');
   });
 });
 

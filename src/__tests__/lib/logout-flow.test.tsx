@@ -79,7 +79,7 @@ beforeEach(() => {
     if (path !== '/api/auth/logout') return Promise.reject(new Error(`unexpected fetch ${path}`));
     return new Promise<Response>((resolve, reject) => {
       // Like a real fetch: an aborted signal rejects the call (and no Set-Cookie ever lands).
-      init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+      init?.signal?.addEventListener('abort', () => reject(init?.signal?.reason ?? new DOMException('aborted', 'AbortError')));
       finishLogout = () => {
         mockJar = {}; // the BFF's Set-Cookie: expired
         mockLogoutDone = true;
@@ -111,6 +111,7 @@ describe('sign out with a slow logout response', () => {
 
     await waitFor(() => expect(mockTrace).toHaveLength(1));
     expect(mockTrace[0].atLogoutDone).toBe(true);
+    expect(mockTrace[0].url).toBe('/login?reauth=1'); // answered: no unconfirmed marker
     expect(mockLocation).toMatch(/^\/login/);
   });
 
@@ -122,6 +123,8 @@ describe('sign out with a slow logout response', () => {
       // Cookies were NOT cleared (no response) — the shell still has to leave the dashboard.
       expect(mockLocation).toMatch(/^\/login/);
       expect(mockLocation).not.toBe('/dashboard');
+      // The request never answered: exactly one navigation, carrying the unconfirmed marker.
+      expect(mockTrace.map((x) => x.url)).toEqual(['/login?reauth=1&signout=unconfirmed']);
     } finally {
       jest.useRealTimers();
     }

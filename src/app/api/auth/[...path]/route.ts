@@ -356,7 +356,7 @@ async function handleLogout(req: NextRequest): Promise<NextResponse> {
       method: 'POST',
       headers: { Authorization: `Bearer ${refresh}` },
     }, 2000);
-    // The browser still gets 200 + cleared cookies (above), but the server-side session may
+    // The browser still gets 200 + cleared cookies (below), but the server-side session may
     // outlive it: leave one operator-visible line. Status/kind only, never a token.
     if (!res || !res.ok) {
       console.warn('[auth-bff] logout upstream did not revoke', {

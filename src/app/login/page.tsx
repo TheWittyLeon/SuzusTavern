@@ -44,7 +44,7 @@ type FormState =
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { login, verify2FA } = useAuth();
+  const { login, verify2FA, retrySignOut } = useAuth();
   const { toast } = useToast();
   const reduced = useReducedMotion();
 
@@ -77,6 +77,22 @@ function LoginForm() {
   const nextPath = sanitizeNextPath(searchParams.get('next'), nextOrigin);
   // Informational only (R183 C6): logout()'s request failed. Shows one line; changes nothing else.
   const signoutUnconfirmed = searchParams.get(SIGNOUT_PARAM) === SIGNOUT_UNCONFIRMED;
+  // "Sign out again" (R192): click-only, never on load (a crafted link must not sign anyone out).
+  // `disabled={retryingSignOut}` is the one-request-per-click guard (React flushes a discrete
+  // click's state before the next event, so a second click lands on a disabled button).
+  const [retryingSignOut, setRetryingSignOut] = useState(false);
+  const [signOutAgainFailed, setSignOutAgainFailed] = useState(false);
+  const onSignOutAgain = useCallback(async () => {
+    setRetryingSignOut(true);
+    setSignOutAgainFailed(false);
+    try {
+      // Success navigates to /login?reauth=1 (this notice unmounts); failure leaves everything as is.
+      if (!(await retrySignOut())) setSignOutAgainFailed(true);
+    } finally {
+      setRetryingSignOut(false);
+    }
+  }, [retrySignOut]);
+  const signoutNoticeId = signoutUnconfirmed ? 'signout-notice' : undefined;
 
   // ── Focus management: 2FA entry ───────────────────────────────────────────
   useEffect(() => {
@@ -342,9 +358,15 @@ function LoginForm() {
       </div>
 
       {signoutUnconfirmed && (
-        <div role="status" className={styles.formNotice}>
+        <div id="signout-notice" role="status" className={styles.formNotice}>
           <Icon name="Shield" size={14} aria-hidden />
-          We couldn&apos;t confirm you were signed out. Close the browser to be sure.
+          <span>
+            We couldn&apos;t confirm you were signed out.
+            {signOutAgainFailed && ' That didn\u2019t work either. Try again in a moment.'}
+          </span>
+          <Button size="default" onClick={onSignOutAgain} disabled={retryingSignOut}>
+            Sign out again
+          </Button>
         </div>
       )}
 
@@ -363,7 +385,11 @@ function LoginForm() {
           onChange={(e) => setHandle(e.target.value)}
           disabled={submitting}
           aria-invalid={formState === 'error-badcreds' || undefined}
-          aria-describedby={formState === 'error-badcreds' ? 'creds-error' : undefined}
+          aria-describedby={
+            [signoutNoticeId, formState === 'error-badcreds' ? 'creds-error' : undefined]
+              .filter(Boolean)
+              .join(' ') || undefined
+          }
         />
       </div>
 

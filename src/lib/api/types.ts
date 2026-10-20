@@ -8,7 +8,7 @@ export type ApiResult<T> =
   | { success: false; error: string };
 
 export interface ApiError extends Error {
-  /** HTTP status; 0 for network/abort. */
+  /** HTTP status; 0 for network/abort/timeout. */
   status: number;
   /** Upstream error string, normalised. */
   code: string;

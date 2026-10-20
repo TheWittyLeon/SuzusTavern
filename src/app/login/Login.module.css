@@ -211,6 +211,7 @@
   color: var(--warn-ink);
   font-size: 13px;
   line-height: 1.4;
+  flex-wrap: wrap;
 }
 
 /* Rate-limit countdown — sibling of the alert, polite live region (a11y) */

@@ -23,7 +23,7 @@
 // NEVER surfaces `err.body.message` for a 5xx (could leak "Internal server
 // error" / stack-adjacent text — the engine's own 500 branches use exactly
 // that generic string, never anything more specific) or for a network/abort
-// error (status 0 — `apiFetch` synthesizes `code: 'network'|'abort'` with no
+// error (status 0 — `apiFetch` synthesizes `code: 'network'|'abort'|'timeout'` with no
 // body at all, see src/lib/api/client.ts).
 //
 // PRECISION (2026-08-06, Kage-CR #7): that restriction is about the BODY
