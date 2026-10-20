@@ -255,9 +255,10 @@ describe('useAuthGate integration — retry CTA stays mounted+focused through a 
       await Promise.resolve();
     });
 
-    // Clean genuine-logout: no SessionExpired of either variant, and the
-    // real redirect-to-/login effect fires (not a stale rate_limited/expired
-    // prompt standing in for it).
+    // Clean sign-out: no SessionExpired of either variant (not a stale
+    // rate_limited/expired prompt). The gate itself stands down while
+    // signing out (TAV-LOGOUT-STAYS-ON-DASHBOARD) — the logout() caller owns
+    // the one navigation, once the cookies are cleared.
     expect(screen.queryByTestId('real-content')).not.toBeInTheDocument();
     expect(
       screen.queryByRole('heading', { name: /hold on a moment/i }),
@@ -265,7 +266,7 @@ describe('useAuthGate integration — retry CTA stays mounted+focused through a 
     expect(
       screen.queryByRole('heading', { name: /your session has ended/i }),
     ).not.toBeInTheDocument();
-    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login'));
+    expect(mockReplace).not.toHaveBeenCalled();
   });
 });
 

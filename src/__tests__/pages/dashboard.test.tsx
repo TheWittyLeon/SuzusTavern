@@ -268,7 +268,7 @@ describe('Dashboard — logout via account menu', () => {
       fireEvent.click(signOut);
     });
     await waitFor(() => expect(mockLogout).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login'));
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login?reauth=1'));
   });
 
   it('redirects to /login even if logout() throws', async () => {
@@ -282,7 +282,7 @@ describe('Dashboard — logout via account menu', () => {
     await act(async () => {
       fireEvent.click(signOut);
     });
-    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login'));
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login?reauth=1'));
   });
 });
 

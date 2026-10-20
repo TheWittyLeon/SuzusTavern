@@ -135,7 +135,12 @@ function UserMenu() {
     setSigningOut(true);
     try {
       await logout(); // clears user state immediately, then best-effort BFF call
-      router.replace('/login');
+      // Only navigator on sign-out (useAuthGate stands down via `signingOut`).
+      // `?reauth=1` = "session confirmed dead": proxy.ts then serves /login even
+      // if the BFF call timed out and st_access is still on the wire, and it is
+      // a fresh router-cache key, so an earlier /login → /dashboard 307 (e.g. a
+      // prefetch while signed in) cannot be replayed.
+      router.replace('/login?reauth=1');
     } finally {
       setSigningOut(false); // insurance if navigation is deferred
     }

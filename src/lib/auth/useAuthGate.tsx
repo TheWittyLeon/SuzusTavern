@@ -107,7 +107,7 @@ function withSkeletonLabel(node: ReactNode, label: string): ReactNode {
  * routes to <SessionExpired> instead of falling through to the skeleton.
  */
 export function useAuthGate(opts: UseAuthGateOptions): ReactNode | null {
-  const { user, loading, maybeAuthed, authError, retrying, retryAuth } = useAuth();
+  const { user, loading, maybeAuthed, authError, retrying, signingOut, retryAuth } = useAuth();
   const router = useRouterSafe();
   const pathname = usePathnameSafe();
 
@@ -115,9 +115,15 @@ export function useAuthGate(opts: UseAuthGateOptions): ReactNode | null {
   // preserving prior behavior for that case. Expired/rate-limited get a
   // prompt instead — they HAD a session; a bare redirect would erase that
   // context without explanation.
+  //
+  // TAV-LOGOUT-STAYS-ON-DASHBOARD: not while signing out. logout() nulls
+  // `user` before the BFF has cleared the cookies; a redirect here reaches
+  // proxy.ts with a still-valid st_access, which 307s /login → /dashboard
+  // (and the router caches that answer for /login). The signOut caller
+  // navigates once the cookies are gone.
   useEffect(() => {
-    if (!user && !loading && !maybeAuthed && !authError) router.replace('/login');
-  }, [user, loading, maybeAuthed, authError, router]);
+    if (!user && !loading && !maybeAuthed && !authError && !signingOut) router.replace('/login');
+  }, [user, loading, maybeAuthed, authError, signingOut, router]);
 
   if (user) return null;
 

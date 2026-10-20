@@ -74,6 +74,14 @@ function classifyAuthError(e: unknown): AuthError {
  */
 const RETRY_AUTH_TIMEOUT_MS = 12_000;
 
+/**
+ * TAV-LOGOUT-STAYS-ON-DASHBOARD: bound on logout()'s BFF call. The BFF gives
+ * its own upstream call 2 s before clearing cookies; this must outlast that
+ * so a slow-but-working logout still lands its Set-Cookie, yet stay finite so
+ * a hung connection can't leave the sign-out button spinning forever.
+ */
+const LOGOUT_TIMEOUT_MS = 5_000;
+
 export interface AuthContextValue {
   user: User | null;
   loading: boolean;
@@ -99,6 +107,14 @@ export interface AuthContextValue {
    * through the whole retry, showing a "Retrying…" state instead.
    */
   retrying: boolean;
+  /**
+   * TAV-LOGOUT-STAYS-ON-DASHBOARD: true from the moment logout() starts until
+   * the next successful login. While set, the caller of logout() is the ONLY
+   * navigator: useAuthGate must not redirect on the null user, because the
+   * BFF has not necessarily cleared the cookies yet and proxy.ts would 307
+   * /login back to /dashboard off the still-valid st_access.
+   */
+  signingOut: boolean;
   /** Returns 'ok' or '2fa'; throws on bad creds / network. */
   login(username: string, password: string): Promise<'ok' | '2fa'>;
   /** Completes the 2FA half-step. Throws on bad TOTP or network error. */
@@ -120,6 +136,7 @@ const NO_OP_CONTEXT: AuthContextValue = {
   maybeAuthed: false,
   authError: null,
   retrying: false,
+  signingOut: false,
   login: async () => 'ok',
   verify2FA: async () => { /* no-op */ },
   logout: async () => { /* no-op */ },
@@ -155,6 +172,8 @@ export function AuthProvider({
   // see retryAuth below for why `authError` itself is deliberately NOT
   // cleared at the start of a retry.
   const [retrying, setRetrying] = useState(false);
+  // TAV-LOGOUT-STAYS-ON-DASHBOARD: see AuthContextValue.signingOut.
+  const [signingOut, setSigningOut] = useState(false);
 
   // Guard against React 18/19 strict-mode double-invoke of useEffect.
   // client.ts already single-flights /api/auth/refresh, but we also prevent
@@ -209,6 +228,7 @@ export function AuthProvider({
       const result = await authApi.login(username, password);
       if (result.kind === 'ok') {
         setUser(result.user);
+        setSigningOut(false);
         setAuthError(null);
         return 'ok';
       }
@@ -224,6 +244,7 @@ export function AuthProvider({
     try {
       const result = await authApi.verify2FA(totp_code);
       setUser(result.user);
+      setSigningOut(false);
       setAuthError(null);
     } finally {
       setLoading(false);
@@ -231,6 +252,9 @@ export function AuthProvider({
   }, []);
 
   const logout = useCallback(async (): Promise<void> => {
+    // Raised BEFORE user is nulled so useAuthGate never sees (no user, not
+    // signing out) and redirects while the cookies are still valid.
+    setSigningOut(true);
     // Clear user immediately — UI unblocks before the network call completes
     setUser(null);
     setMaybeAuthed(false);
@@ -238,7 +262,7 @@ export function AuthProvider({
     // "Try again" prompt on the next protected-page visit (Miko-QA).
     setAuthError(null);
     try {
-      await authApi.logout();
+      await authApi.logout(AbortSignal.timeout(LOGOUT_TIMEOUT_MS));
     } catch {
       // Best-effort: BFF clears cookies even on upstream failure (§2.7.3)
     }
@@ -305,6 +329,7 @@ export function AuthProvider({
     maybeAuthed,
     authError,
     retrying,
+    signingOut,
     login,
     verify2FA,
     logout,
