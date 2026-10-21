@@ -212,11 +212,14 @@ describe('"Sign out again" (R192)', () => {
     });
 
     it('authError (silent refresh failed with a retryable error)', async () => {
-      mockUrl = FAIL_HREF;
+      // The silent refresh does not run ON /login (TAV-LOGIN-BG-REFRESH-RACE): the error is left by a
+      // protected page's refresh, and the user then reaches the login page's notice.
+      mockUrl = '/dashboard';
       (authApi.refresh as jest.Mock).mockRejectedValue(Object.assign(new Error('x'), { status: 503, code: 'refresh_unavailable' }));
       mockLogout.mockResolvedValue({ ok: true });
       mount(null, true);
       await waitFor(() => expect(held.auth.authError).not.toBeNull());
+      await act(async () => { mockUrl = FAIL_HREF; mockSubs.forEach((f) => f()); });
       fireEvent.click(again());
       await waitFor(() => expect(mockUrl).toBe('/login?reauth=1'));
       expect(held.auth.authError).toBeNull();

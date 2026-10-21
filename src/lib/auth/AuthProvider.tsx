@@ -204,18 +204,30 @@ export function AuthProvider({
   // the same tick from letting a later failure clobber an earlier success.
   const retryingRef = useRef(false);
 
+  // TAV-LOGIN-BG-REFRESH-RACE: the login page never reads the user, and a refresh in flight there
+  // raced "Sign out again" (it landed after the sign-out, restored the user and re-issued the cookies
+  // the sign-out had cleared). So the refresh waits while the route is /login and runs when the app
+  // leaves it. `silentRefreshRan` doubles as "settled": a sign-out or a sign-in marks it, so neither
+  // is ever followed by a refresh that could undo it.
+  // Unmount (not a dependency change) is what abandons an in-flight silent refresh.
+  const unmounted = useRef(false);
+  useEffect(() => {
+    unmounted.current = false;
+    return () => { unmounted.current = true; };
+  }, []);
+
+  const onLoginRoute = pathname !== null && LOGIN_ROUTE_RE.test(pathname);
+
   useEffect(() => {
     // Only run the silent refresh if we mounted in the "maybeAuthed" loading state.
-    if (!initialMaybeAuthed || initialUser || silentRefreshRan.current) return;
+    if (!initialMaybeAuthed || initialUser || silentRefreshRan.current || onLoginRoute) return;
     silentRefreshRan.current = true;
-
-    let cancelled = false;
 
     async function silentRefresh() {
       try {
         await authApi.refresh();
         const data = await authApi.me();
-        if (!cancelled) {
+        if (!unmounted.current) {
           setUser(data.user);
           setAuthError(null);
         }
@@ -225,11 +237,11 @@ export function AuthProvider({
         // a skeleton forever. proxy.ts would have redirected if the refresh
         // token was absent; if it's here and fails, the token expired (or
         // the refresh endpoint is rate-limiting us) during the request.
-        if (!cancelled) {
+        if (!unmounted.current) {
           setAuthError(classifyAuthError(e));
         }
       } finally {
-        if (!cancelled) {
+        if (!unmounted.current) {
           setLoading(false);
           setMaybeAuthed(false);
         }
@@ -238,16 +250,17 @@ export function AuthProvider({
 
     void silentRefresh();
 
-    return () => { cancelled = true; };
-    // Intentionally empty deps — runs once on mount only.
+    // Re-runs only when the route crosses /login; `silentRefreshRan` keeps it to one real run.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [onLoginRoute]);
 
   const login = useCallback(async (username: string, password: string): Promise<'ok' | '2fa'> => {
     setLoading(true);
     try {
       const result = await authApi.login(username, password);
       if (result.kind === 'ok') {
+        silentRefreshRan.current = true; // a fresh session: a deferred background refresh has nothing to add
+        setMaybeAuthed(false);
         setUser(result.user);
         setSigningOut(false);
         setAuthError(null);
@@ -264,6 +277,8 @@ export function AuthProvider({
     setLoading(true);
     try {
       const result = await authApi.verify2FA(totp_code);
+      silentRefreshRan.current = true;
+      setMaybeAuthed(false);
       setUser(result.user);
       setSigningOut(false);
       setAuthError(null);
@@ -295,6 +310,8 @@ export function AuthProvider({
   const retrySignOut = useCallback(async (): Promise<boolean> => {
     if (!(await requestLogout('staying on the login page'))) return false;
     // Cookies are gone now: drop any user / re-auth state the first sign-out left behind.
+    silentRefreshRan.current = true; // a deferred background refresh must never undo a sign-out
+    setLoading(false); // the deferred refresh was what would have ended the mount-time loading state
     setUser(null);
     setMaybeAuthed(false);
     setAuthError(null);
@@ -306,6 +323,8 @@ export function AuthProvider({
     // Raised BEFORE user is nulled so useAuthGate never sees (no user, not
     // signing out) and redirects while the cookies are still valid.
     setSigningOut(true);
+    silentRefreshRan.current = true; // a deferred background refresh must never undo a sign-out
+    setLoading(false); // as in retrySignOut: nothing is left to resolve
     // Clear user immediately — UI unblocks before the network call completes
     setUser(null);
     setMaybeAuthed(false);
