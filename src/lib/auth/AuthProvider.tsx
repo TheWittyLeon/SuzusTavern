@@ -207,8 +207,13 @@ export function AuthProvider({
   // TAV-LOGIN-BG-REFRESH-RACE: the login page never reads the user, and a refresh in flight there
   // raced "Sign out again" (it landed after the sign-out, restored the user and re-issued the cookies
   // the sign-out had cleared). So the refresh waits while the route is /login and runs when the app
-  // leaves it. `silentRefreshRan` doubles as "settled": a sign-out or a sign-in marks it, so neither
-  // is ever followed by a refresh that could undo it.
+  // leaves it. `silentRefreshRan` doubles as "settled": a sign-out or sign-in marks it, so a refresh
+  // still DEFERRED is never started after one. (A refresh already IN FLIGHT when logout() runs can
+  // still land: that is the separate Backlog item TAV-LOGOUT-DURING-INFLIGHT-REFRESH.)
+  // Whether a refresh is owed is decided from the MOUNT-TIME props only: a later render's props
+  // (a hydrated user, a cleared flag) must not change a decision made when the provider mounted.
+  const needsSilentRefresh = useRef(initialMaybeAuthed && !initialUser);
+
   // Unmount (not a dependency change) is what abandons an in-flight silent refresh.
   const unmounted = useRef(false);
   useEffect(() => {
@@ -220,7 +225,7 @@ export function AuthProvider({
 
   useEffect(() => {
     // Only run the silent refresh if we mounted in the "maybeAuthed" loading state.
-    if (!initialMaybeAuthed || initialUser || silentRefreshRan.current || onLoginRoute) return;
+    if (!needsSilentRefresh.current || silentRefreshRan.current || onLoginRoute) return;
     silentRefreshRan.current = true;
 
     async function silentRefresh() {
@@ -251,7 +256,7 @@ export function AuthProvider({
     void silentRefresh();
 
     // Re-runs only when the route crosses /login; `silentRefreshRan` keeps it to one real run.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [onLoginRoute]);
 
   const login = useCallback(async (username: string, password: string): Promise<'ok' | '2fa'> => {
@@ -310,7 +315,7 @@ export function AuthProvider({
   const retrySignOut = useCallback(async (): Promise<boolean> => {
     if (!(await requestLogout('staying on the login page'))) return false;
     // Cookies are gone now: drop any user / re-auth state the first sign-out left behind.
-    silentRefreshRan.current = true; // a deferred background refresh must never undo a sign-out
+    silentRefreshRan.current = true; // a refresh still deferred is never started after a sign-out
     setLoading(false); // the deferred refresh was what would have ended the mount-time loading state
     setUser(null);
     setMaybeAuthed(false);
@@ -323,7 +328,7 @@ export function AuthProvider({
     // Raised BEFORE user is nulled so useAuthGate never sees (no user, not
     // signing out) and redirects while the cookies are still valid.
     setSigningOut(true);
-    silentRefreshRan.current = true; // a deferred background refresh must never undo a sign-out
+    silentRefreshRan.current = true; // a refresh still deferred is never started after a sign-out
     setLoading(false); // as in retrySignOut: nothing is left to resolve
     // Clear user immediately — UI unblocks before the network call completes
     setUser(null);

@@ -50,7 +50,7 @@ const tree = () => (
   </AuthProvider>
 );
 
-/** A refresh that settles when the test says so: the slow background request of the race. */
+/** A refresh that settles when the test says so (it must never be called on /login: the test asserts that). */
 function deferredRefresh() {
   let settle!: () => void;
   mockRefresh.mockImplementation(() => new Promise<void>((resolve) => { settle = resolve; }));
@@ -65,7 +65,7 @@ beforeEach(() => {
 });
 
 describe('the background refresh and the login route', () => {
-  it('does not run on /login at all', async () => {
+  it('is not started on /login at all', async () => {
     mockRefresh.mockResolvedValue(undefined);
     mockMe.mockResolvedValue({ user: ALICE });
     render(tree());
@@ -75,7 +75,7 @@ describe('the background refresh and the login route', () => {
     expect(screen.getByTestId('who')).toHaveTextContent('none');
   });
 
-  it('cannot restore the user after a successful "Sign out again" (the race)', async () => {
+  it('"Sign out again" on /login leaves no refresh that could restore the user (none is started)', async () => {
     const landRefresh = deferredRefresh();
     render(tree());
     await act(async () => {});
@@ -112,6 +112,18 @@ describe('the background refresh and the login route', () => {
     expect(screen.getByTestId('who')).toHaveTextContent('none');
   });
 
+  it('never runs after logout() either, even when the app then leaves /login', async () => {
+    mockRefresh.mockResolvedValue(undefined);
+    const view = render(tree());
+    await act(async () => {});
+    await act(async () => { await held.auth.logout(); });
+    mockPathname = '/dashboard';
+    view.rerender(tree());
+    await act(async () => {});
+    expect(mockRefresh).not.toHaveBeenCalled();
+    expect(screen.getByTestId('who')).toHaveTextContent('none');
+  });
+
   it('never runs after a sign-in on /login (the form already holds a fresh session)', async () => {
     mockLogin.mockResolvedValue({ kind: 'ok', user: ALICE });
     mockRefresh.mockResolvedValue(undefined);
@@ -123,5 +135,37 @@ describe('the background refresh and the login route', () => {
     await act(async () => {});
     expect(mockRefresh).not.toHaveBeenCalled();
     expect(screen.getByTestId('who')).toHaveTextContent('alice');
+  });
+});
+
+describe('the decision to refresh is made from the mount-time props', () => {
+  it('a later render with a hydrated user / cleared flag does not cancel the deferred refresh', async () => {
+    mockRefresh.mockResolvedValue(undefined);
+    mockMe.mockResolvedValue({ user: ALICE });
+    const view = render(tree());
+    await act(async () => {});
+    mockPathname = '/dashboard';
+    view.rerender(
+      <AuthProvider initialUser={null} initialMaybeAuthed={false}>
+        <Probe />
+      </AuthProvider>,
+    );
+    await act(async () => {});
+    expect(mockRefresh).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('who')).toHaveTextContent('alice');
+  });
+
+  it('a provider mounted without the flag never refreshes, whatever later renders pass', async () => {
+    mockRefresh.mockResolvedValue(undefined);
+    const view = render(
+      <AuthProvider initialUser={null} initialMaybeAuthed={false}>
+        <Probe />
+      </AuthProvider>,
+    );
+    await act(async () => {});
+    mockPathname = '/dashboard';
+    view.rerender(tree());
+    await act(async () => {});
+    expect(mockRefresh).not.toHaveBeenCalled();
   });
 });

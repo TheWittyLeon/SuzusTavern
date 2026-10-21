@@ -200,7 +200,7 @@ describe('"Sign out again" (R192)', () => {
       expect(held.auth.user).toBeNull();
     });
 
-    it('maybeAuthed (silent refresh still pending)', async () => {
+    it('maybeAuthed (set at mount; the refresh is deferred while on /login)', async () => {
       mockUrl = FAIL_HREF;
       (authApi.refresh as jest.Mock).mockImplementation(() => new Promise(() => {}));
       mockLogout.mockResolvedValue({ ok: true });
