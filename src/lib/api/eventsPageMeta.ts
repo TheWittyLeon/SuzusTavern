@@ -58,3 +58,21 @@ export function tagPage(page: EventsWirePage): EngineSessionEvent[] {
 export function pageOf(rows: EngineSessionEvent[]): EventsWirePage {
   return { rows, ...pageMeta.get(rows) };
 }
+
+/**
+ * Whether an events array is the PREFIX of a log (a later page failed, or the page cap was hit), as opposed to
+ * the whole of it. `getSessionEvents` returns a plain `SessionEvent[]` (113 suites mock it as one), so the verdict
+ * rides on the array's identity, like the page verdict above; an array from anywhere else (a mock) reads as whole.
+ *
+ * debt: the partial-read verdict reaches SessionRecap through a WeakSet keyed by the array getSessionEvents returns. ceiling: any copy or transform of that array between the reader and SessionRecap reads as a whole log again (the recap would generate from a prefix). until: the suites that mock getSessionEvents as a bare array move to a typed read result, then getSessionEvents returns { events, complete } and this set is deleted.
+ */
+const partialReads = new WeakSet<object>();
+
+/** Mark an events array as a prefix of the log and return the same array. */
+export function markPartialRead<T extends object>(events: T): T {
+  partialReads.add(events);
+  return events;
+}
+
+/** True when `events` came from a read that stopped early. */
+export const isPartialRead = (events: object): boolean => partialReads.has(events);

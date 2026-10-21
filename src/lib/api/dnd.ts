@@ -3,7 +3,7 @@
 // Typed wrappers for the DnD proxy at /api/dnd/*.
 // Method + path taken verbatim from the NekoNova bridge files.
 import { apiCall } from './client';
-import { tagPage, type EventsWirePage } from './eventsPageMeta';
+import { markPartialRead, tagPage, type EventsWirePage } from './eventsPageMeta';
 import { pageEventsForward } from './eventsPaging';
 import { MOUNT_MAX_PAGES, RAW_EVENTS_PAGE_LIMIT } from './eventsPaging.constants';
 import type {
@@ -698,7 +698,7 @@ export const getSessionEvents = async (
   // FIX-4: null when the first page fails (engine unreachable) so
   // checkShouldOpen can distinguish "no events" from "don't open".
   if (read === null) return null;
-  return read.rows.map((e): SessionEvent => ({
+  const events = read.rows.map((e): SessionEvent => ({
     event_id: e.seq != null ? String(e.seq) : undefined,
     event_type: e.kind,
     actor: e.actor,
@@ -709,6 +709,8 @@ export const getSessionEvents = async (
       (e.data?.['text'] as string | undefined),
     created_at: e.created_at,
   }));
+  // HUNT1020-27: a read that stopped early is a prefix; SessionRecap asks `isPartialRead` before it generates.
+  return read.complete ? events : markPartialRead(events);
 };
 
 /**
