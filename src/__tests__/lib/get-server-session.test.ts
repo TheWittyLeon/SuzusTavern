@@ -335,15 +335,29 @@ describe('getServerSession — per-token /auth/me cache (HUNT1020-05)', () => {
     expect(mockFetch).toHaveBeenCalledTimes(5);
   });
 
-  it('a 401 for a token evicts it', async () => {
+  it('a 401 evicts: two renders miss together, one is answered 200 (cached), the other 401', async () => {
     const t = tokenFor('1');
     asToken(t);
-    getSharedMeCache().set(t, userOf('stale') as never, FUTURE);
-    getSharedMeCache().evict(t); // what the BFF does on logout / a 401 from /api/auth/me
+    mockFetch.mockResolvedValueOnce(jsonRes({ user: userOf('alice') }));
     mockFetch.mockResolvedValueOnce(jsonRes({ msg: 'revoked' }, 401));
-    expect((await getServerSession()).user).toBeNull();
+    const [first, second] = await Promise.all([getServerSession(), getServerSession()]);
+    expect(first.user).toMatchObject({ username: 'alice' });
+    expect(second.user).toBeNull();
+    // the 401 must have dropped what the 200 just cached
     expect(getSharedMeCache().get(t)).toBeNull();
-    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('a render whose fetch started BEFORE a logout evicted the token cannot refill the cache', async () => {
+    const t = tokenFor('1');
+    asToken(t);
+    let release!: (r: Response) => void;
+    mockFetch.mockImplementationOnce(() => new Promise<Response>((res) => { release = res; }));
+    const pending = getServerSession();
+    await new Promise((r) => setTimeout(r, 5)); // the fetch is in flight
+    getSharedMeCache().evict(t); // what the logout route does
+    release(jsonRes({ user: userOf('alice') }));
+    await pending;
+    expect(getSharedMeCache().get(t)).toBeNull();
   });
 });
 

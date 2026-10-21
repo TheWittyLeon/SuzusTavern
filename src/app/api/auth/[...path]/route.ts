@@ -33,6 +33,8 @@ import {
 } from '@/lib/auth/cookies';
 import { checkAuthPost } from '@/lib/auth/requestGuard';
 import { getSharedMeCache } from '@/lib/auth/meCache';
+import { decodeJwtExp } from '@/lib/auth/jwt';
+import { findAuthRoute } from '@/lib/auth/authRoutes';
 
 type Ctx = { params: Promise<{ path: string[] }> };
 
@@ -54,10 +56,11 @@ async function fetchUpstream(
   let controller: AbortController | undefined;
   let signal = init.signal as AbortSignal | undefined;
 
+  let timer: ReturnType<typeof setTimeout> | undefined;
   if (timeoutMs !== undefined) {
     controller = new AbortController();
     signal = controller.signal;
-    setTimeout(() => controller!.abort(), timeoutMs);
+    timer = setTimeout(() => controller!.abort(), timeoutMs);
   }
 
   try {
@@ -68,8 +71,20 @@ async function fetchUpstream(
     return { res, durationMs: Date.now() - start };
   } catch {
     return { res: null, durationMs: Date.now() - start };
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
 }
+
+/**
+ * Deadline for the session-restoring calls (refresh, me). Kage I1: after the layout's 2.5 s /auth/me
+ * deadline the client runs silentRefresh = refresh + me through this BFF; with no bound here a stalled
+ * Auth-Python left those requests, and the page, hanging. Kept under the client's own 12 s bound so the
+ * BFF answers 502 `upstream_unavailable` (classified 'offline': retryable) before the browser gives up.
+ * Cost: if upstream commits a refresh rotation after this deadline, that response is dropped and the
+ * session is dead; only reachable on an 8 s stall, which is already an outage.
+ */
+const SESSION_UPSTREAM_TIMEOUT_MS = 8000;
 
 /**
  * Build a 429 response from an upstream rate-limited reply. Forwards the
@@ -287,7 +302,7 @@ async function handleRefresh(req: NextRequest): Promise<NextResponse> {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${refreshToken}`,
     },
-  });
+  }, SESSION_UPSTREAM_TIMEOUT_MS);
 
   if (!res) {
     console.warn('[auth-bff] refresh upstream unavailable', { durationMs, path: 'refresh' });
@@ -319,10 +334,17 @@ async function handleMe(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'no_access_token' }, { status: 401 });
   }
 
+  // Same per-token cache the root layout reads (meCache.ts). HUNT1020-05 is MITIGATED, not closed: the
+  // upstream cap (20/h non-admin) still applies, this just bounds it to about one call a minute per token.
+  const cache = getSharedMeCache();
+  const cached = cache.get(access);
+  if (cached) return NextResponse.json({ user: cached }, { status: 200 });
+
+  const startedAt = Date.now();
   const { res, durationMs } = await fetchUpstream('auth/me', {
     method: 'GET',
     headers: { Authorization: `Bearer ${access}` },
-  });
+  }, SESSION_UPSTREAM_TIMEOUT_MS);
 
   if (!res) {
     return NextResponse.json({ error: 'upstream_unavailable' }, { status: 502 });
@@ -340,6 +362,10 @@ async function handleMe(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json(safeBody, { status: res.status });
   }
 
+  const user = safeBody['user'];
+  if (user && typeof user === 'object') {
+    cache.set(access, user as never, decodeJwtExp(access), startedAt);
+  }
   return NextResponse.json(safeBody, { status: res.status });
 }
 
@@ -544,59 +570,49 @@ async function handlePasswordPolicy(): Promise<NextResponse> {
 // Dispatch
 // ---------------------------------------------------------------------------
 
-/** POST paths whose handler reads a JSON body (so a non-JSON Content-Type is refused). */
-const BODIED_POST_PATHS = new Set([
-  'register',
-  'login',
-  'login/verify-2fa',
-  'password/change',
-  'request-password-reset',
-  'reset-password',
-]);
+/**
+ * Handlers by `${method} ${path}`. The set of servable routes is authRoutes.ts's table, not this map:
+ * dispatch() looks the row up first, so a handler without a row is unreachable and a row without a
+ * handler is a 404 (a test walks the table to keep the two equal).
+ */
+const HANDLERS: Record<string, (req: NextRequest) => Promise<NextResponse>> = {
+  'GET me': handleMe,
+  'GET registration-mode': () => handleRegistrationMode(),
+  'GET password-policy': () => handlePasswordPolicy(),
+  'POST register': handleRegister,
+  'POST login': handleLogin,
+  'POST login/verify-2fa': handleVerify2FA,
+  'POST refresh': handleRefresh,
+  'POST logout': handleLogout,
+  // Password self-service (AUTH-PASSWORD-SELF-SERVICE).
+  'POST password/change': handlePasswordChange,
+  'POST request-password-reset': handleRequestPasswordReset,
+  'POST reset-password': handleResetPassword,
+};
 
 async function dispatch(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
   const { path } = await ctx.params;
   const joined = path.join('/');
 
-  if (req.method === 'GET' && joined === 'me') {
-    return handleMe(req);
+  // Strict deny: only rows in the table are served.
+  const route = findAuthRoute(req.method, joined);
+  const handler = route ? HANDLERS[`${route.method} ${route.path}`] : undefined;
+  if (!route || !handler) {
+    return NextResponse.json({ error: 'not_found' }, { status: 404 });
   }
 
-  if (req.method === 'GET' && joined === 'registration-mode') {
-    return handleRegistrationMode();
-  }
-
-  if (req.method === 'GET' && joined === 'password-policy') {
-    return handlePasswordPolicy();
-  }
-
-  if (req.method === 'POST') {
+  if (route.method === 'POST') {
     // HUNT1020-22/-23: same-origin + JSON only, before any handler reads the body or touches cookies.
-    // Routes that read a body demand a JSON Content-Type; refresh/logout carry none.
-    const verdict = checkAuthPost(req.headers, req.headers.get('host') ?? req.nextUrl.host, {
-      json: BODIED_POST_PATHS.has(joined),
-    });
+    const verdict = checkAuthPost(req.headers, req.headers.get('host') ?? req.nextUrl.host, route.body);
     if (verdict !== null) {
       console.warn('[auth-bff] refused request', { verdict });
       return verdict === 'not_json'
         ? NextResponse.json({ error: 'unsupported_media_type' }, { status: 415 })
         : NextResponse.json({ error: 'forbidden_origin' }, { status: 403 });
     }
-    if (joined === 'register')       return handleRegister(req);
-    if (joined === 'login')          return handleLogin(req);
-    if (joined === 'login/verify-2fa') return handleVerify2FA(req);
-    if (joined === 'refresh')        return handleRefresh(req);
-    if (joined === 'logout')         return handleLogout(req);
-    // Password self-service (AUTH-PASSWORD-SELF-SERVICE). All four upstream
-    // endpoints already existed; nothing could reach them because this
-    // allow-list is strict-deny and they were never added.
-    if (joined === 'password/change')         return handlePasswordChange(req);
-    if (joined === 'request-password-reset')  return handleRequestPasswordReset(req);
-    if (joined === 'reset-password')          return handleResetPassword(req);
   }
 
-  // Unknown path or wrong method
-  return NextResponse.json({ error: 'not_found' }, { status: 404 });
+  return handler(req);
 }
 
 export async function POST(req: NextRequest, ctx: Ctx): Promise<NextResponse> {

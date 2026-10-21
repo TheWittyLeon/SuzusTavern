@@ -4,6 +4,7 @@
 // Zero external dependencies.
 
 import type { ApiError, ApiResult } from './types';
+import { refreshesOn401 } from '@/lib/auth/authRoutes';
 
 export interface ApiFetchOptions extends Omit<RequestInit, 'body'> {
   /** JSON body — will be stringified. Use `rawBody` for non-JSON. */
@@ -28,24 +29,6 @@ export interface ApiFetchOptions extends Omit<RequestInit, 'body'> {
 // survives to the throw. A bare boolean threw both away.
 let refreshInFlight: Promise<{ ok: boolean; status: number; body: unknown }> | null = null;
 
-/**
- * Auth BFF endpoints whose 401 is NOT "your access token expired": a credential check failing
- * (login, 2FA code, reset token), a public call with no session to refresh, or the refresh/logout
- * calls themselves. Refreshing on these rotates the session for nothing and REPLAYS the credential
- * POST, so every typo counted twice toward Auth-Python's 5-failure lock (HUNT1020-19).
- * `password/change` is deliberately absent: upstream answers a wrong current password with 400, so
- * its 401 really is an expired access token.
- */
-const NO_REFRESH_ON_401 = new Set([
-  '/api/auth/refresh',
-  '/api/auth/login',
-  '/api/auth/login/verify-2fa',
-  '/api/auth/register',
-  '/api/auth/request-password-reset',
-  '/api/auth/reset-password',
-  '/api/auth/logout',
-]);
-
 /** Construct an ApiError without leaking raw text. */
 export function makeApiError(
   status: number,
@@ -66,7 +49,7 @@ export function makeApiError(
  *   1. `path` is resolved as a relative URL — callers pass '/api/dnd/...' style paths.
  *   2. JSON requests: Content-Type 'application/json', body = JSON.stringify(json).
  *   3. `credentials: 'same-origin'` (cookies attach automatically — st_access/st_refresh).
- *   4. On 401 (and not already retried and path not in NO_REFRESH_ON_401):
+ *   4. On 401 (and not already retried and authRoutes.refreshesOn401(path)):
  *        - POST '/api/auth/refresh' once, same-origin (BFF rotates cookies).
  *        - If refresh succeeds, retry the original request with `_retried = true`.
  *        - If refresh fails with status 0 (network throw), >=500, or 429,
@@ -129,7 +112,7 @@ export async function apiFetch<T = unknown>(
   }
 
   // 401 → attempt refresh once, then retry
-  if (res.status === 401 && !_retried && !NO_REFRESH_ON_401.has(path.split('?')[0])) {
+  if (res.status === 401 && !_retried && refreshesOn401(path)) {
     let refreshResult: { ok: boolean; status: number; body: unknown };
     try {
       if (!refreshInFlight) {

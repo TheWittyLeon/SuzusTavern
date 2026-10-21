@@ -73,6 +73,19 @@ it('wrong passphrase with a live refresh cookie sends the login once, not twice'
   expect(screen.getByRole('alert')).toHaveTextContent(/Wrong handle or passphrase/);
 });
 
+it.each([403, 415])('the BFF guard refusing the request (%i) is not worded as a network failure', async (status) => {
+  global.fetch = jest.fn(() => json(status, { error: 'forbidden_origin' })) as unknown as typeof fetch;
+  await submitLogin();
+  expect(screen.getByRole('alert')).toHaveTextContent(/refused.*Reload/i);
+  expect(screen.queryByText(/Can.t reach the tavern/)).not.toBeInTheDocument();
+});
+
+it('a 502 from the BFF (upstream down) still gets the connectivity copy', async () => {
+  global.fetch = jest.fn(() => json(502, { error: 'upstream_unavailable' })) as unknown as typeof fetch;
+  await submitLogin();
+  expect(screen.getByText(/Can.t reach the tavern/)).toBeInTheDocument();
+});
+
 it('positive control: a genuine network failure still says so', async () => {
   global.fetch = jest.fn(() => Promise.reject(new TypeError('failed'))) as unknown as typeof fetch;
   await submitLogin();

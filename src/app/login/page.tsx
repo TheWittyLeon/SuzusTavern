@@ -40,6 +40,7 @@ type FormState =
   | 'error-badcreds'
   | 'error-ratelimited'
   | 'error-locked'
+  | 'error-refused'
   | 'error-network';
 
 // ── LoginForm — the interactive component ────────────────────────────────────
@@ -197,6 +198,11 @@ function LoginForm() {
             lockedMessage((apiErr.body as Record<string, unknown> | undefined)?.locked_until),
           );
           setPassword('');
+        } else if (apiErr?.status !== 0 && apiErr?.status < 500) {
+          // A plain refusal (the BFF's same-origin/JSON guard answers 403/415, or any other 4xx): the
+          // network is fine, so don't say it isn't.
+          setFormState('error-refused');
+          setErrorMsg('The tavern refused that sign-in request. Reload the page and try again.');
         } else {
           setFormState('error-network');
           setErrorMsg("Can't reach the tavern right now. Check your connection and try again.");
@@ -436,7 +442,7 @@ function LoginForm() {
       </div>
 
       {/* Inline error — bad creds / network: assertive one-shot alert */}
-      {(formState === 'error-badcreds' || formState === 'error-locked' || formState === 'error-network') && (
+      {(formState === 'error-badcreds' || formState === 'error-locked' || formState === 'error-refused' || formState === 'error-network') && (
         <div ref={errorRef} id="creds-error" role="alert" className={styles.formError}>
           <Icon name="Close" size={14} aria-hidden />
           {errorMsg}

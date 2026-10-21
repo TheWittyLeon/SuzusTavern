@@ -508,6 +508,67 @@ describe('auth BFF CSRF guard', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
+  // Kage I3: the table is the only source of servable routes and of "needs JSON".
+  it('every POST row in the table refuses a same-origin text/plain body unless its row says body:none', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { AUTH_ROUTES } = require('../../lib/auth/authRoutes') as typeof import('../../lib/auth/authRoutes');
+    for (const r of AUTH_ROUTES.filter((x) => x.method === 'POST')) {
+      mockFetch.mockReset();
+      mockFetch.mockResolvedValue(upstreamJson({ ok: true }));
+      const res = await POST(
+        post(r.path, { 'content-type': 'text/plain', 'sec-fetch-site': 'same-origin' }, '{}', 'st_access=a; st_refresh=r; st_partial=p'),
+        makeCtx(r.path.split('/')),
+      );
+      if (r.body === 'json') {
+        expect([r.path, res.status]).toEqual([r.path, 415]);
+        expect(mockFetch).not.toHaveBeenCalled();
+      } else {
+        expect([r.path, res.status]).not.toEqual([r.path, 415]);
+      }
+    }
+  });
+
+  it('every row has a handler: a same-origin JSON request to each is served, not 404', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { AUTH_ROUTES } = require('../../lib/auth/authRoutes') as typeof import('../../lib/auth/authRoutes');
+    for (const r of AUTH_ROUTES) {
+      mockFetch.mockReset();
+      mockFetch.mockResolvedValue(upstreamJson({ ok: true }));
+      const ctx = makeCtx(r.path.split('/'));
+      const cookie = 'st_access=a; st_refresh=r; st_partial=p';
+      const res = r.method === 'GET'
+        ? await GET(makeGetRequest(`http://localhost:3000/api/auth/${r.path}`, cookie), ctx)
+        : await POST(post(r.path, { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, '{}', cookie), ctx);
+      expect([r.path, res.status]).not.toEqual([r.path, 404]);
+    }
+  });
+
+  it('a route missing from the table is refused (404), even same-origin JSON, and never reaches upstream', async () => {
+    mockFetch.mockResolvedValue(upstreamJson({ ok: true }));
+    for (const path of [['not-a-route'], ['admin', 'login'], ['login', 'extra'], ['LOGIN']]) {
+      const res = await POST(
+        post(path.join('/'), { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, '{}', 'st_access=a'),
+        makeCtx(path),
+      );
+      expect(res.status).toBe(404);
+      expect(res.headers.get('set-cookie')).toBeNull();
+    }
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('wrong method on a table path is a 404 (GET login, POST me)', async () => {
+    const g = await GET(makeGetRequest('http://localhost:3000/api/auth/login'), makeCtx(['login']));
+    expect(g.status).toBe(404);
+    const p = await POST(post('me', { 'content-type': 'application/json' }, '{}'), makeCtx(['me']));
+    expect(p.status).toBe(404);
+  });
+
+  it('logout without a JSON content type is refused 415 (a bodiless cross-site form must not sign anyone out)', async () => {
+    const res = await POST(post('logout', { 'sec-fetch-site': 'same-origin' }, '', 'st_access=a; st_refresh=r'), makeCtx(['logout']));
+    expect(res.status).toBe(415);
+    expect(res.headers.get('set-cookie')).toBeNull();
+  });
+
   it('positive control: same-origin JSON login (browser headers) still signs in and sets cookies', async () => {
     mockFetch.mockResolvedValueOnce(upstreamJson(LOGIN_OK));
     const res = await POST(
@@ -526,7 +587,7 @@ describe('auth BFF CSRF guard', () => {
   it('positive control: same-origin logout still revokes upstream and clears cookies', async () => {
     mockFetch.mockResolvedValueOnce(upstreamJson({ msg: 'ok' }));
     const res = await POST(
-      post('logout', { 'sec-fetch-site': 'same-origin', origin: 'http://localhost:3000', host: 'localhost:3000' }, '', 'st_access=a; st_refresh=r'),
+      post('logout', { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin', origin: 'http://localhost:3000', host: 'localhost:3000' }, '{}', 'st_access=a; st_refresh=r'),
       makeCtx(['logout']),
     );
     expect(res.status).toBe(200);
@@ -585,12 +646,91 @@ describe('layout /auth/me cache eviction', () => {
     expect(getSharedMeCache().get('tok-B')).not.toBeNull();
   });
 
-  it('a 401 from /api/auth/me evicts', async () => {
+  it('a 401 from /api/auth/me evicts (concurrent miss: another request cached the token first)', async () => {
     seed();
+    getSharedMeCache().evict('tok-A'); // both requests below miss
+    getSharedMeCache().clear();
+    getSharedMeCache().set('tok-B', U);
+    mockFetch.mockResolvedValueOnce(upstreamJson({ user: { id: 1, username: 'alice' } }));
     mockFetch.mockResolvedValueOnce(upstreamJson({ msg: 'revoked' }, 401));
-    await GET(makeGetRequest('http://localhost:3000/api/auth/me', 'st_access=tok-A'), makeCtx(['me']));
+    await Promise.all([
+      GET(makeGetRequest('http://localhost:3000/api/auth/me', 'st_access=tok-A'), makeCtx(['me'])),
+      GET(makeGetRequest('http://localhost:3000/api/auth/me', 'st_access=tok-A'), makeCtx(['me'])),
+    ]);
     expect(getSharedMeCache().get('tok-A')).toBeNull();
     expect(getSharedMeCache().get('tok-B')).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Kage I1 / I2 — the session-restoring calls are bounded; /api/auth/me shares the layout's cache
+// ---------------------------------------------------------------------------
+
+describe('GET /api/auth/me — shared cache (Kage I2)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { getSharedMeCache } = require('../../lib/auth/meCache') as typeof import('../../lib/auth/meCache');
+  const b64 = (x: string) => btoa(x).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  const jwt = (sub: string) => `${b64('{"alg":"HS256"}')}.${b64(JSON.stringify({ sub, exp: Math.floor(Date.now() / 1000) + 600 }))}.sig`;
+  beforeEach(() => getSharedMeCache().clear());
+
+  it('second call with the same token is served from the cache (one upstream call)', async () => {
+    const t = jwt('1');
+    mockFetch.mockResolvedValue(upstreamJson({ user: { id: 1, username: 'alice' }, access_token: 'LEAK' }));
+    const a = await GET(makeGetRequest('http://localhost:3000/api/auth/me', `st_access=${t}`), makeCtx(['me']));
+    const b = await GET(makeGetRequest('http://localhost:3000/api/auth/me', `st_access=${t}`), makeCtx(['me']));
+    expect(await a.json()).toEqual({ user: { id: 1, username: 'alice' } });
+    expect(await b.json()).toEqual({ user: { id: 1, username: 'alice' } });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('two tokens never share an entry', async () => {
+    const [A, B] = [jwt('a'), jwt('b')];
+    mockFetch.mockImplementation(async (_u, init) =>
+      upstreamJson({ user: { username: String((init?.headers as Record<string, string>).Authorization).includes(A) ? 'alice' : 'bob' } }),
+    );
+    for (const [t, who] of [[A, 'alice'], [B, 'bob'], [A, 'alice'], [B, 'bob']]) {
+      const res = await GET(makeGetRequest('http://localhost:3000/api/auth/me', `st_access=${t}`), makeCtx(['me']));
+      expect((await res.json()).user.username).toBe(who);
+    }
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('errors are never cached', async () => {
+    const t = jwt('1');
+    mockFetch.mockResolvedValueOnce(upstreamJson({ msg: 'x' }, 500));
+    mockFetch.mockResolvedValueOnce(upstreamJson({ user: { username: 'alice' } }));
+    const r1 = await GET(makeGetRequest('http://localhost:3000/api/auth/me', `st_access=${t}`), makeCtx(['me']));
+    const r2 = await GET(makeGetRequest('http://localhost:3000/api/auth/me', `st_access=${t}`), makeCtx(['me']));
+    expect(r1.status).toBe(500);
+    expect(r2.status).toBe(200);
+  });
+});
+
+describe('stalled upstream (Kage I1)', () => {
+  const stall = () =>
+    mockFetch.mockImplementation(
+      (_u, init) =>
+        new Promise((_res, rej) => {
+          const sig = (init as RequestInit).signal as AbortSignal | undefined;
+          if (!sig) return; // no deadline: hangs forever (the old behaviour)
+          sig.addEventListener('abort', () => rej(new DOMException('aborted', 'AbortError')));
+        }),
+    );
+
+  it('refresh and me answer 502 upstream_unavailable after the BFF deadline instead of hanging', async () => {
+    jest.useFakeTimers();
+    try {
+      stall();
+      const pr = POST(makePostRequest('http://localhost:3000/api/auth/refresh', {}, 'st_refresh=r'), makeCtx(['refresh']));
+      const pm = GET(makeGetRequest('http://localhost:3000/api/auth/me', 'st_access=tok-stall'), makeCtx(['me']));
+      await jest.advanceTimersByTimeAsync(8001);
+      const [r, m] = await Promise.all([pr, pm]);
+      expect(r.status).toBe(502);
+      expect(m.status).toBe(502);
+      expect(await r.json()).toEqual({ error: 'upstream_unavailable' });
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 

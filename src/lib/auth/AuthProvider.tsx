@@ -230,8 +230,12 @@ export function AuthProvider({
 
     async function silentRefresh() {
       try {
-        await authApi.refresh();
-        const data = await authApi.me();
+        // Same bound as retryAuth (Kage I1): the layout's /auth/me now times out after 2.5 s and hands
+        // the page to this refresh; without a deadline a stalled auth server left the skeleton forever.
+        // On timeout client.ts reports status 0, classifyAuthError says 'offline', and the prompt offers Try again.
+        const signal = AbortSignal.timeout(RETRY_AUTH_TIMEOUT_MS);
+        await authApi.refresh(signal);
+        const data = await authApi.me(signal);
         if (!unmounted.current) {
           setUser(data.user);
           setAuthError(null);

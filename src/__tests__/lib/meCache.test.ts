@@ -88,4 +88,29 @@ describe('createMeCache (HUNT1020-05)', () => {
     expect(c.size).toBe(0);
     expect(c.get('')).toBeNull();
   });
+
+  it('a fetch that started before an eviction cannot refill it; a later one can; the marker expires', () => {
+    let t = 1_000_000;
+    const c = createMeCache({ ttlMs: 60_000, now: () => t });
+    c.evict('tok');
+    c.set('tok', user(1), null, t - 5); // started before the eviction
+    expect(c.get('tok')).toBeNull();
+    t += 10;
+    c.set('tok', user(1), null, t); // started after
+    expect(c.get('tok')).not.toBeNull();
+
+    const d = createMeCache({ ttlMs: 60_000, now: () => t });
+    d.evict('x');
+    t += 61_000;
+    d.set('x', user(2), null, t - 120_000); // marker is older than a ttl: no longer consulted
+    expect(d.get('x')).not.toBeNull();
+  });
+
+  it('evicting one token leaves another token\'s late fill alone', () => {
+    const t = 5_000;
+    const c = createMeCache({ now: () => t });
+    c.evict('a');
+    c.set('b', user(2), null, t - 1);
+    expect(c.get('b')).not.toBeNull();
+  });
 });

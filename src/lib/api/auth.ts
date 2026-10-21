@@ -26,7 +26,8 @@ export const me = (signal?: AbortSignal) =>
   apiFetch<{ user: User }>('/api/auth/me', { method: 'GET', signal });
 
 export const logout = (signal?: AbortSignal) =>
-  apiFetch<{ ok: true }>('/api/auth/logout', { method: 'POST', signal });
+  // `{}` as JSON: the BFF guard requires a JSON Content-Type on every POST except refresh (authRoutes.ts).
+  apiFetch<{ ok: true }>('/api/auth/logout', { method: 'POST', json: {}, signal });
 
 export const register = (
   username: string,

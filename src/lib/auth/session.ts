@@ -65,6 +65,7 @@ export async function getServerSession(): Promise<{
     return { user: cachedUser, accessExpiresAt, maybeAuthed: false };
   }
 
+  const startedAt = Date.now();
   try {
     const res = await fetch(`${env.AUTH_API_URL}/auth/me`, {
       method: 'GET',
@@ -79,6 +80,7 @@ export async function getServerSession(): Promise<{
       signal: AbortSignal.timeout(SESSION_ME_DEADLINE_MS),
     });
 
+    // Reachable when a concurrent render cached this token between our miss and this answer.
     if (res.status === 401) cache.evict(token);
 
     if (!res.ok) {
@@ -90,7 +92,7 @@ export async function getServerSession(): Promise<{
 
     const data = await res.json() as { user?: User };
     // Only a real user is cached; never an error, an empty body or a timeout.
-    if (data.user) cache.set(token, data.user, accessExpiresAt);
+    if (data.user) cache.set(token, data.user, accessExpiresAt, startedAt);
     return { user: data.user ?? null, accessExpiresAt, maybeAuthed: false };
   } catch {
     // Network error or parse failure — treat as no session
