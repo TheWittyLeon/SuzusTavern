@@ -103,6 +103,7 @@ const SAFE_BODY_KEYS = new Set<string>([
   'error_code',    // structured error identifier, when present
   'errors',        // field-level validation errors, when present
   'requires_2fa',  // login → 2FA branch flag
+  'locked_until',  // login 423 (account locked): naive-UTC ISO timestamp, not a secret
 ]);
 
 /**

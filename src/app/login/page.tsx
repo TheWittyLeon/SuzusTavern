@@ -28,6 +28,7 @@ import { OAUTH_ENABLED } from '@/lib/config';
 import { sanitizeNextPath } from '@/lib/auth/redirect';
 import { SIGNOUT_PARAM, SIGNOUT_UNCONFIRMED } from '@/lib/auth/loginRoute';
 import type { ApiError } from '@/lib/api/types';
+import { lockedMessage } from '@/lib/auth/lockout';
 import styles from './Login.module.css';
 
 // ── Form state machine ────────────────────────────────────────────────────────
@@ -38,6 +39,7 @@ type FormState =
   | '2fa'
   | 'error-badcreds'
   | 'error-ratelimited'
+  | 'error-locked'
   | 'error-network';
 
 // ── LoginForm — the interactive component ────────────────────────────────────
@@ -187,6 +189,14 @@ function LoginForm() {
             message: `Too many attempts. Wait ${formatCountdown(retryAfter)}.`,
             duration: retryAfter * 1000,
           });
+        } else if (apiErr?.status === 423) {
+          // HUNT1020-04: Authentication-Python's account lockout (checked BEFORE the passphrase,
+          // so even a correct one gets 423). It is not a connectivity failure.
+          setFormState('error-locked');
+          setErrorMsg(
+            lockedMessage((apiErr.body as Record<string, unknown> | undefined)?.locked_until),
+          );
+          setPassword('');
         } else {
           setFormState('error-network');
           setErrorMsg("Can't reach the tavern right now. Check your connection and try again.");
@@ -426,7 +436,7 @@ function LoginForm() {
       </div>
 
       {/* Inline error — bad creds / network: assertive one-shot alert */}
-      {(formState === 'error-badcreds' || formState === 'error-network') && (
+      {(formState === 'error-badcreds' || formState === 'error-locked' || formState === 'error-network') && (
         <div ref={errorRef} id="creds-error" role="alert" className={styles.formError}>
           <Icon name="Close" size={14} aria-hidden />
           {errorMsg}

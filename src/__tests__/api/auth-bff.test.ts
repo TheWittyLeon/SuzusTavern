@@ -421,6 +421,27 @@ describe('Upstream 429 forwarding', () => {
 });
 
 // ---------------------------------------------------------------------------
+// HUNT1020-04 — 423 (account locked) relays locked_until so the login page can say for how long
+// ---------------------------------------------------------------------------
+
+describe('Upstream 423 (account locked)', () => {
+  it('relays status, msg and locked_until; still drops token-shaped fields', async () => {
+    mockFetch.mockResolvedValueOnce(
+      upstreamJson(
+        { msg: 'account locked', locked_until: '2026-10-20T23:00:00', access_token: 'LEAK', refresh_token: 'LEAK' },
+        423,
+      ),
+    );
+    const req = makePostRequest('http://localhost:3000/api/auth/login', { username: 'alice', password: 'x' });
+    const res = await POST(req, makeCtx(['login']));
+    expect(res.status).toBe(423);
+    const body = await res.json();
+    expect(body).toEqual({ msg: 'account locked', locked_until: '2026-10-20T23:00:00' });
+    expect(res.headers.get('set-cookie')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 429 forwarding — without Retry-After header (branch: retryAfter ? ... : {})
 // These cover each handler's ternary for missing Retry-After.
 // ---------------------------------------------------------------------------
