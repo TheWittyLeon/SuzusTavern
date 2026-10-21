@@ -125,7 +125,7 @@
      same-hue text variant clears ≥4.5:1 on every candlelit surface used for
      this badge; decorative --accent (buttons/gradients/borders) unchanged. */
   --accent-ink: #8a3820;
-  --accent-2-ink: var(--accent-2);   /* already AA as text on this palette; the slot exists so Pill can read one name everywhere */
+  --accent-2-ink: var(--accent-2);   /* AA as text on --bg/--card-solid and on the lav pill's 14% tint over them; the same pill on --bg-3 is 4.49:1 (just under 4.5, sRGB math, not asserted); the slot exists so Pill can read one name everywhere */
   --warm:       #d4a64b;
   /* A11Y (S8.3): #7a5300 on 14%-warm tint (~#f0e7cc) = 6.2:1 — passes AA.
      Candlelit --warm (#d4a64b) alone is 1.60:1 — fails. */

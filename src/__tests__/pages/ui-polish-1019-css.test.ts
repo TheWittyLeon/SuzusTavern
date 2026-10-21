@@ -42,6 +42,14 @@ describe('TAV-UI-POLISH-1019 AC-10: "round N" never wraps in the initiative head
     expect(body).toMatch(/white-space:\s*nowrap/);
     expect(body).toMatch(/flex-shrink:\s*0/);
   });
+
+  // Pins the declarations only. Geometry ("round 12" inside the card on the 160px rail at compact/cozy/airy)
+  // is measured by the stub harness in a real browser, not by jest (jsdom applies no CSS).
+  it('.head wraps with a tight row gap so the header stays inside the rail', () => {
+    const body = declsOf('src/components/InitiativeTracker.module.css', '.head');
+    expect(body).toMatch(/flex-wrap:\s*wrap/);
+    expect(body).toMatch(/row-gap:\s*2px/);
+  });
 });
 
 describe('TAV-UI-POLISH-1019 AC-11: the page keeps a ring of room at the viewport bottom', () => {

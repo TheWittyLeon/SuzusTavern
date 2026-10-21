@@ -11,6 +11,10 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  /* On the 160px rail "INITIATIVE" + "round 12" do not fit one line: the header wraps (the .round unit
+     stays whole) instead of the label pushing past the card edge (TAV-UI-POLISH-1019 AC-10). */
+  flex-wrap: wrap;
+  row-gap: 2px;
   margin-bottom: 8px;
 }
 
@@ -25,7 +29,7 @@
   font-size: 10px;
   font-family: var(--font-mono);
   color: var(--crit-ink); /* text-safe on candlelit (A11Y S3.1) */
-  /* "round 2" is one unit: in a narrow rail the label wraps, never this
+  /* "round 2" is one unit: in a narrow rail the header row wraps (.head), never this
      (TAV-UI-POLISH-1019). */
   white-space: nowrap;
   flex-shrink: 0;
