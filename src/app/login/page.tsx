@@ -71,6 +71,8 @@ function LoginForm() {
   const errorRef = useRef<HTMLDivElement>(null);
 
   const submitting = formState === 'submitting';
+  // Signing in, or signed in and navigating away ('ok'): the retry must not fire in either.
+  const signingIn = submitting || formState === 'ok';
   const ratelimited = formState === 'error-ratelimited';
   const nextOrigin =
     typeof window !== 'undefined' ? window.location.origin : 'http://localhost';
@@ -84,7 +86,7 @@ function LoginForm() {
   const [retryingSignOut, setRetryingSignOut] = useState(false);
   const [signOutAgainFailed, setSignOutAgainFailed] = useState(false);
   const onSignOutAgain = useCallback(async () => {
-    if (retryingSignOut || submitting) return;
+    if (retryingSignOut || signingIn) return;
     setRetryingSignOut(true);
     setSignOutAgainFailed(false);
     try {
@@ -93,7 +95,7 @@ function LoginForm() {
     } finally {
       setRetryingSignOut(false);
     }
-  }, [retrySignOut, retryingSignOut, submitting]);
+  }, [retrySignOut, retryingSignOut, signingIn]);
   const signoutNoticeId = signoutUnconfirmed ? 'signout-notice' : undefined;
 
   // ── Focus management: 2FA entry ───────────────────────────────────────────
@@ -372,7 +374,7 @@ function LoginForm() {
           <Button
             size="default"
             onClick={onSignOutAgain}
-            aria-disabled={retryingSignOut || submitting ? 'true' : undefined}
+            aria-disabled={retryingSignOut || signingIn ? 'true' : undefined}
             aria-busy={retryingSignOut || undefined}
           >
             Sign out again

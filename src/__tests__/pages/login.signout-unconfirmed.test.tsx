@@ -48,9 +48,9 @@ function Probe() {
   React.useEffect(() => { held.auth = a; });
   return null;
 }
-function mount(user: typeof USER | null) {
+function mount(user: typeof USER | null, initialMaybeAuthed = false) {
   return render(
-    <AuthProvider initialUser={user}>
+    <AuthProvider initialUser={user} initialMaybeAuthed={initialMaybeAuthed}>
       <ToastProvider>
         <Probe />
         <Suspense fallback={null}><LoginPage /></Suspense>
@@ -137,7 +137,7 @@ describe('"Sign out again" (R192)', () => {
     expect(screen.getByRole('status')).toHaveTextContent(NOTICE);
     expect(mockReplace).not.toHaveBeenCalled();
     expect(mockUrl).toBe(FAIL_HREF);
-    expect(again()).toBeEnabled();
+    expect(again()).not.toHaveAttribute('aria-disabled');
     mockLogout.mockResolvedValueOnce({ ok: true });
     fireEvent.click(again());
     await waitFor(() => expect(mockUrl).toBe('/login?reauth=1'));
@@ -154,6 +154,7 @@ describe('"Sign out again" (R192)', () => {
     fireEvent.click(again());
     expect(again()).toHaveAttribute('aria-disabled', 'true');
     expect(again()).toHaveAttribute('aria-busy', 'true');
+    expect(again()).not.toBeDisabled(); // `disabled` would drop keyboard focus to <body> (jsdom cannot show that)
     expect(mockLogout).toHaveBeenCalledTimes(1);
     await act(async () => { done(); });
     await waitFor(() => expect(mockUrl).toBe('/login?reauth=1'));
@@ -188,15 +189,38 @@ describe('"Sign out again" (R192)', () => {
     warn.mockRestore();
   });
 
-  it('a successful retry clears the provider user / maybeAuthed left from the first sign-out', async () => {
-    mockUrl = FAIL_HREF;
-    mockLogout.mockResolvedValue({ ok: true });
-    mount(USER); // stale: the first sign-out failed before it could clear anything
-    expect(held.auth.user).not.toBeNull();
-    fireEvent.click(again());
-    await waitFor(() => expect(mockUrl).toBe('/login?reauth=1'));
-    expect(held.auth.user).toBeNull();
-    expect(held.auth.maybeAuthed).toBe(false);
+  describe('a successful retry clears what the first sign-out left in the provider', () => {
+    it('user', async () => {
+      mockUrl = FAIL_HREF;
+      mockLogout.mockResolvedValue({ ok: true });
+      mount(USER); // stale: the first sign-out failed before it could clear anything
+      expect(held.auth.user).not.toBeNull();
+      fireEvent.click(again());
+      await waitFor(() => expect(mockUrl).toBe('/login?reauth=1'));
+      expect(held.auth.user).toBeNull();
+    });
+
+    it('maybeAuthed (silent refresh still pending)', async () => {
+      mockUrl = FAIL_HREF;
+      (authApi.refresh as jest.Mock).mockImplementation(() => new Promise(() => {}));
+      mockLogout.mockResolvedValue({ ok: true });
+      mount(null, true);
+      expect(held.auth.maybeAuthed).toBe(true);
+      fireEvent.click(again());
+      await waitFor(() => expect(mockUrl).toBe('/login?reauth=1'));
+      expect(held.auth.maybeAuthed).toBe(false);
+    });
+
+    it('authError (silent refresh failed with a retryable error)', async () => {
+      mockUrl = FAIL_HREF;
+      (authApi.refresh as jest.Mock).mockRejectedValue(Object.assign(new Error('x'), { status: 503, code: 'refresh_unavailable' }));
+      mockLogout.mockResolvedValue({ ok: true });
+      mount(null, true);
+      await waitFor(() => expect(held.auth.authError).not.toBeNull());
+      fireEvent.click(again());
+      await waitFor(() => expect(mockUrl).toBe('/login?reauth=1'));
+      expect(held.auth.authError).toBeNull();
+    });
   });
 
   it('a failed retry logs "staying on the login page", not "navigating"', async () => {
@@ -225,6 +249,18 @@ describe('"Sign out again" (R192)', () => {
       fillAndSubmit();
       expect(mockLogin).not.toHaveBeenCalled();
       expect(screen.getByRole('button', { name: /open the door/i })).toBeDisabled();
+    });
+
+    it('a sign-in that just succeeded (page navigating away) blocks the retry too', async () => {
+      mockUrl = FAIL_HREF;
+      mockLogin.mockResolvedValue({ kind: 'ok', user: USER });
+      mockReplace.mockImplementationOnce(() => {}); // navigation is in progress: the page is still on screen
+      mount(null);
+      fillAndSubmit();
+      await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/dashboard'));
+      fireEvent.click(again());
+      expect(mockLogout).not.toHaveBeenCalled();
+      expect(again()).toHaveAttribute('aria-disabled', 'true');
     });
 
     it('a submitting sign-in blocks the retry: zero logout calls', async () => {
