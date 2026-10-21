@@ -31,6 +31,7 @@ import {
   readRefresh,
   readPartial,
 } from '@/lib/auth/cookies';
+import { checkAuthPost } from '@/lib/auth/requestGuard';
 
 type Ctx = { params: Promise<{ path: string[] }> };
 
@@ -536,6 +537,16 @@ async function handlePasswordPolicy(): Promise<NextResponse> {
 // Dispatch
 // ---------------------------------------------------------------------------
 
+/** POST paths whose handler reads a JSON body (so a non-JSON Content-Type is refused). */
+const BODIED_POST_PATHS = new Set([
+  'register',
+  'login',
+  'login/verify-2fa',
+  'password/change',
+  'request-password-reset',
+  'reset-password',
+]);
+
 async function dispatch(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
   const { path } = await ctx.params;
   const joined = path.join('/');
@@ -553,6 +564,17 @@ async function dispatch(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
   }
 
   if (req.method === 'POST') {
+    // HUNT1020-22/-23: same-origin + JSON only, before any handler reads the body or touches cookies.
+    // Routes that read a body demand a JSON Content-Type; refresh/logout carry none.
+    const verdict = checkAuthPost(req.headers, req.headers.get('host') ?? req.nextUrl.host, {
+      json: BODIED_POST_PATHS.has(joined),
+    });
+    if (verdict !== null) {
+      console.warn('[auth-bff] refused request', { verdict });
+      return verdict === 'not_json'
+        ? NextResponse.json({ error: 'unsupported_media_type' }, { status: 415 })
+        : NextResponse.json({ error: 'forbidden_origin' }, { status: 403 });
+    }
     if (joined === 'register')       return handleRegister(req);
     if (joined === 'login')          return handleLogin(req);
     if (joined === 'login/verify-2fa') return handleVerify2FA(req);

@@ -442,6 +442,109 @@ describe('Upstream 423 (account locked)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// HUNT1020-22 / -23 — login CSRF + forced sign-out: state-changing auth routes are same-origin + JSON
+// ---------------------------------------------------------------------------
+
+describe('auth BFF CSRF guard', () => {
+  const LOGIN_OK = {
+    access_token: 'A', refresh_token: 'R', user: { id: 1, username: 'alice' },
+  };
+
+  function post(path: string, headers: Record<string, string>, body = '{"username":"attacker","password":"x","pad":"="}', cookie?: string) {
+    const h = new Headers(headers);
+    if (cookie) h.set('cookie', cookie);
+    return new NextRequest(`http://localhost:3000/api/auth/${path}`, { method: 'POST', headers: h, body });
+  }
+
+  it('cross-site text/plain form POST to /login: refused, upstream never called, no session cookies', async () => {
+    mockFetch.mockResolvedValue(upstreamJson(LOGIN_OK));
+    const res = await POST(
+      post('login', { 'content-type': 'text/plain', origin: 'http://evil.example', 'sec-fetch-site': 'cross-site' }),
+      makeCtx(['login']),
+    );
+    expect(res.status).toBe(403);
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(res.headers.get('set-cookie')).toBeNull();
+  });
+
+  it('same-site-origin text/plain (no CORS preflight needed) is refused 415 even from our own origin', async () => {
+    mockFetch.mockResolvedValue(upstreamJson(LOGIN_OK));
+    const res = await POST(
+      post('login', { 'content-type': 'text/plain', 'sec-fetch-site': 'same-origin' }),
+      makeCtx(['login']),
+    );
+    expect(res.status).toBe(415);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('cross-site JSON POST with a bad Origin and no Sec-Fetch-Site (older browser): refused', async () => {
+    const res = await POST(
+      post('login', { 'content-type': 'application/json', origin: 'http://evil.example', host: 'localhost:3000' }),
+      makeCtx(['login']),
+    );
+    expect(res.status).toBe(403);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it.each(['register', 'login/verify-2fa', 'password/change', 'request-password-reset', 'reset-password', 'refresh', 'logout'])(
+    'cross-site POST to /%s is refused before any upstream call',
+    async (path) => {
+      const res = await POST(
+        post(path, { 'content-type': 'application/json', 'sec-fetch-site': 'cross-site' }, '{}', 'st_access=a; st_refresh=r; st_partial=p'),
+        makeCtx(path.split('/')),
+      );
+      expect(res.status).toBe(403);
+      expect(mockFetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it('cross-site logout does NOT clear the victim\'s cookies', async () => {
+    const res = await POST(
+      post('logout', { 'sec-fetch-site': 'cross-site', origin: 'http://evil.example' }, '', 'st_access=a; st_refresh=r'),
+      makeCtx(['logout']),
+    );
+    expect(res.status).toBe(403);
+    expect(res.headers.get('set-cookie')).toBeNull();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('positive control: same-origin JSON login (browser headers) still signs in and sets cookies', async () => {
+    mockFetch.mockResolvedValueOnce(upstreamJson(LOGIN_OK));
+    const res = await POST(
+      post(
+        'login',
+        { 'content-type': 'application/json', origin: 'http://localhost:3000', 'sec-fetch-site': 'same-origin', host: 'localhost:3000' },
+        '{"username":"alice","password":"pw"}',
+      ),
+      makeCtx(['login']),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get('set-cookie')).toMatch(/st_access=A/);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('positive control: same-origin logout still revokes upstream and clears cookies', async () => {
+    mockFetch.mockResolvedValueOnce(upstreamJson({ msg: 'ok' }));
+    const res = await POST(
+      post('logout', { 'sec-fetch-site': 'same-origin', origin: 'http://localhost:3000', host: 'localhost:3000' }, '', 'st_access=a; st_refresh=r'),
+      makeCtx(['logout']),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get('set-cookie')).toMatch(/st_refresh=;/);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('positive control: Origin-only (no Sec-Fetch-Site) matching our Host passes', async () => {
+    mockFetch.mockResolvedValueOnce(upstreamJson(LOGIN_OK));
+    const res = await POST(
+      post('login', { 'content-type': 'application/json', origin: 'http://localhost:3000', host: 'localhost:3000' }, '{"username":"a","password":"b"}'),
+      makeCtx(['login']),
+    );
+    expect(res.status).toBe(200);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 429 forwarding — without Retry-After header (branch: retryAfter ? ... : {})
 // These cover each handler's ternary for missing Retry-After.
 // ---------------------------------------------------------------------------
