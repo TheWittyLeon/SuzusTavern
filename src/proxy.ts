@@ -54,7 +54,23 @@ export const config = {
   matcher: ['/((?!_next/static|_next/image|_next/dev|favicon.ico|assets|api).*)'],
 };
 
+/**
+ * TAV-NO-FRAMING-HEADERS: no page of the Tavern is meant to be framed, so every response this proxy
+ * produces (redirects included) forbids it: CSP `frame-ancestors` for current browsers, and
+ * `X-Frame-Options` for the ones that predate it. They live here, not in `next.config.ts`'s
+ * `headers()`, because the dev box (.226) keeps its own copy of `next.config.ts` and a header there
+ * would never reach it. The matcher above leaves `/api/*` and static assets out: those are not pages.
+ */
+const FRAME_ANCESTORS = "frame-ancestors 'none'";
+
 export function proxy(req: NextRequest): NextResponse {
+  const res = route(req);
+  res.headers.set('Content-Security-Policy', FRAME_ANCESTORS);
+  res.headers.set('X-Frame-Options', 'DENY');
+  return res;
+}
+
+function route(req: NextRequest): NextResponse {
   try {
     const { pathname, search } = req.nextUrl;
 

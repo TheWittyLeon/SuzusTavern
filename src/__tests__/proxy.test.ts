@@ -391,3 +391,23 @@ describe('/login — ?reauth=1 (TAV-AUDIT-401-DEADEND)', () => {
     expect(res.headers.get('location')).toContain('/login');
   });
 });
+
+// ---------------------------------------------------------------------------
+// TAV-NO-FRAMING-HEADERS — no page of the Tavern may be framed by another origin
+// ---------------------------------------------------------------------------
+
+describe('Anti-framing headers (TAV-NO-FRAMING-HEADERS)', () => {
+  const cases: Array<[string, () => import('next/server').NextResponse]> = [
+    ['a pass-through page (/)', () => middleware(makeReq('/'))],
+    ['the login page', () => middleware(makeReq('/login'))],
+    ['a protected page that redirects to login', () => middleware(makeReq('/dashboard'))],
+    ['a protected page that passes through', () => middleware(makeReq('/play/s1', { st_refresh: validRefreshToken() }))],
+    ['the login redirect for a signed-in user', () => middleware(makeReq('/login', { st_access: validAccessToken() }))],
+  ];
+
+  it.each(cases)('%s carries frame-ancestors none and X-Frame-Options DENY', (_name, run) => {
+    const res = run();
+    expect(res.headers.get('content-security-policy')).toBe("frame-ancestors 'none'");
+    expect(res.headers.get('x-frame-options')).toBe('DENY');
+  });
+});
