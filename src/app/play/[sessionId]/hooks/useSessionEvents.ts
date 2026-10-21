@@ -785,7 +785,12 @@ export function useSessionEvents(
             .map(eventToLogRow)
             .filter((r): r is LogRow => r !== null);
           if (rows.length > 0) {
-            setLog((prev) => [...prev, ...rows]);
+            // Idempotent: the mount may have drawn these (a history row's id is its event's) while this tick was in flight.
+            setLog((prev) => {
+              const drawn = new Set(prev.map((r) => r.id));
+              const fresh = rows.filter((r) => !drawn.has(r.id));
+              return fresh.length > 0 ? [...prev, ...fresh] : prev;
+            });
           }
         }
         const { xCard, narrationSeq } = scanXCardTracking(newOnes);

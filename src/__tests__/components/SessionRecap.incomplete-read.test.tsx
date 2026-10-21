@@ -1,7 +1,7 @@
 /**
  * HUNT1020-27 -- a later events page that fails ends the read at a prefix. The prefix cannot say that nothing is
  * newer than its last recap, so SessionRecap must not generate (and store) a new recap from it. Real SessionRecap,
- * real getSessionEventsRead and pager, over a fake `fetch` (same harness as SessionRecap.r37.qa.test.tsx).
+ * real getSessionEvents and pager, over a fake `fetch` (same harness as SessionRecap.r37.qa.test.tsx).
  */
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
@@ -125,7 +125,7 @@ describe('HUNT1020-27: a later page fails and the prefix holds story after an OL
     warn.mockRestore();
   });
 
-  it('page 2 fails -> not latched: a later complete read of the same session may still generate', async () => {
+  it('page 2 fails -> nothing sent; a new mount after the partial read (complete this time) still generates', async () => {
     eventsMode = 'page2-fails';
     log = [...story(1, 500), ...story(501, 5)];
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);

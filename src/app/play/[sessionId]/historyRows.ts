@@ -48,7 +48,7 @@ const sameLine = (r: LogRow) => `${r.kind}\u0000${r.text}`;
  * a history row's id is its event's, so "an event is drawn once" is a property of the merge, not of
  * timing (a tick that read the log before the mount drew it must not draw it a second time).
  *
- * debt: the live-turn match is by line content, because a live row carries no event seq. ceiling: a live narration the server stored truncated or re-escaped is drawn a second time; an identical older line is dropped once per live row. until: live rows are stamped with their event's seq.
+ * debt: the live-turn match is by line content, because a live row carries no event seq. ceiling: a live narration the server stored truncated or re-escaped is drawn a second time; an identical older line is dropped once per live row (the mount's seed merges through here too: a history line equal to a live row's is drawn once, in the live row's place). until: live rows are stamped with their event's seq.
  */
 export function mergeHealedRows(log: LogRow[], healed: LogRow[]): LogRow[] {
   const drawn = new Set(log.map((r) => r.id));

@@ -63,8 +63,11 @@ const fakeEngine = (...args: unknown[]) => {
   const since = (args[2] as number | undefined) ?? 0;
   return Promise.resolve(campaign.filter((e) => (e.seq ?? 0) > since).slice(0, 500));
 };
+const act_ = (seq: number, text: string): EngineSessionEvent => ({ seq, kind: 'player_action', actor: 'alice', data: { text } });
+const dice = (seq: number): EngineSessionEvent => ({ seq, kind: 'dice_roll', actor: 'bob', data: { description: 'roll', rolls: [7], skill: 'sleight_of_hand', notation: '1d20' } });
 const nar = (seq: number, text: string): EngineSessionEvent => ({ seq, kind: 'narration', actor: 'suzu', data: { text } });
 
+const flush = async (n = 6) => { for (let i = 0; i < n; i += 1) await act(async () => { await Promise.resolve(); }); };
 const count = (t: string) => screen.queryAllByText(t).length;
 async function send(text: string) {
   const input = await screen.findByRole('textbox');
@@ -108,5 +111,57 @@ describe('HUNT1020-26: a turn sent while the mount still waits on grounding', ()
     expect(order.indexOf('I step forward quickly.')).toBeLessThan(order.indexOf('Suzu answers the quick turn.'));
     expect(count('I step forward quickly.')).toBe(1);
     expect(count('Suzu answers the quick turn.')).toBe(1);
+  });
+});
+
+describe('HUNT1020-26: the merge against the poll and a history that already holds the turn', () => {
+  it('a heal tick inside the mount window, then normal ticks: the other player\'s roll is drawn once, no duplicate key', async () => {
+    campaign = [nar(1, 'first line.'), nar(2, 'second line.')];
+    let release: (g: GroundingData | null) => void = () => undefined;
+    mGetGrounding.mockImplementation(() => new Promise((r) => { release = r as typeof release; }));
+    const errs: string[] = [];
+    const spy = jest.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { errs.push(String(a[0])); });
+    renderPlay(<PlayPage />);
+    await flush();
+    campaign.push(dice(3));
+    await act(async () => { jest.advanceTimersByTime(4000); });
+    await flush();
+    await act(async () => { release(GROUNDING); });
+    await flush();
+    await act(async () => { jest.advanceTimersByTime(4000); });
+    await flush();
+    await act(async () => { jest.advanceTimersByTime(4000); });
+    await flush();
+    const text = screen.getByRole('log').textContent ?? '';
+    expect(text.split('Sleight Of Hand').length - 1).toBe(1);
+    expect(errs.filter((e) => /same key/i.test(e))).toHaveLength(0);
+    spy.mockRestore();
+  });
+
+  it('the history read already contains the live turn: the line and the reply each appear once', async () => {
+    campaign = [nar(1, 'first line.'), nar(2, 'second line.')];
+    let releaseRaw: () => void = () => undefined;
+    let held = false;
+    mockRaw.mockImplementation((...args: unknown[]) => {
+      if (!held && ((args[2] as number | undefined) ?? 0) === 0) {
+        held = true;
+        return new Promise((r) => { releaseRaw = () => r(fakeEngine(...args)); });
+      }
+      return fakeEngine(...args);
+    });
+    mStream.mockImplementation(async function* () {
+      yield { kind: 'chunk' as const, text: 'Suzu answers the quick turn.' };
+      yield { kind: 'done' as const };
+    });
+    renderPlay(<PlayPage />);
+    await flush();
+    await send('I step forward quickly.');
+    await flush();
+    campaign.push(act_(3, 'I step forward quickly.'), nar(4, 'Suzu answers the quick turn.'));
+    await act(async () => { releaseRaw(); });
+    await flush();
+    expect(count('I step forward quickly.')).toBe(1);
+    expect(count('Suzu answers the quick turn.')).toBe(1);
+    expect(count('first line.')).toBe(1);
   });
 });

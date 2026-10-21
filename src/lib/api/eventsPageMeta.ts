@@ -6,8 +6,8 @@
  * computed BEFORE the NekoNova proxy drops `dm_override` rows the caller may not
  * see, so a full engine page can reach the client short. `fetchEventsPage` (dnd.ts)
  * returns the verdict beside the rows as an `EventsWirePage`; `pageEventsForward` returns
- * an `EventsRead`. Nothing here rides on an array's identity except the one channel
- * below.
+ * an `EventsRead`. Two channels ride on an array's identity (below): the page verdict
+ * of `getSessionEventsRaw` and the partial-read verdict of `getSessionEvents`.
  *
  * Own module (no imports of dnd.ts) so it survives tests that mock `dnd.ts`.
  */

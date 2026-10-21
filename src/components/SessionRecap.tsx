@@ -52,7 +52,7 @@ export default function SessionRecap({ session, username, variant = 'card', hidd
   // the log has events past it; otherwise the stored text is shown.
   const storedRef = useRef<ReturnType<typeof lastStoredRecap>>(null);
   // HUNT1020-27: false when the events read stopped early (a later page failed). A prefix cannot say that nothing
-  // is newer than its last recap, so an incomplete read never generates: no request, no latch (the next complete
+  // is newer than its last recap, so an incomplete (or failed) read never generates: no request (a later mount's complete
   // read decides). Set before `recap`, like storedRef.
   const readCompleteRef = useRef(true);
 
@@ -68,7 +68,7 @@ export default function SessionRecap({ session, username, variant = 'card', hidd
       const read = await getSessionEvents(session.session_id, ctrl.signal);
       const events = read ?? [];
       if (ctrl.signal.aborted) return;
-      readCompleteRef.current = read === null || !isPartialRead(read);
+      readCompleteRef.current = read !== null && !isPartialRead(read);
       const stored = lastStoredRecap(events);
       storedRef.current = stored;
       // Nothing has happened (R51 F2, R63, R64): the log has no story row. buildRecap prints story rows only, so
