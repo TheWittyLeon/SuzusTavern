@@ -19,6 +19,7 @@ export const verify2FA = (totp_code: string, signal?: AbortSignal) =>
     signal,
   });
 
+// RAW transport: only client.ts refreshSession() may call this (single-flight, sign-out and cross-tab rules).
 export const refresh = (signal?: AbortSignal) =>
   apiFetch<{ ok: true }>('/api/auth/refresh', { method: 'POST', signal });
 

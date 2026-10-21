@@ -13,6 +13,7 @@
 
 import { apiFetch, apiCall, makeApiError } from '../../lib/api/client';
 import type { ApiError } from '../../lib/api/types';
+import { removeLocks } from '../../test-support/fakeLocks';
 
 // ---------------------------------------------------------------------------
 // Mock fetch
@@ -25,6 +26,7 @@ beforeEach(() => {
   (global as Record<string, unknown>).fetch = mockFetch;
   // Reset module so refreshInFlight is cleared between tests
   jest.resetModules();
+  removeLocks(); // in-tab mode; the lock paths are covered in refreshSession.test.ts
 });
 
 // ---------------------------------------------------------------------------

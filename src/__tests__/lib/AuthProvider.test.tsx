@@ -38,6 +38,7 @@ jest.mock('../../lib/api/auth', () => ({
 
 import * as authApi from '../../lib/api/auth';
 import { AuthProvider, useAuth } from '../../lib/auth/AuthProvider';
+import { resetRefreshSessionForTests } from '../../lib/api/client';
 import type { User } from '../../lib/api/types';
 
 const mockLogin    = authApi.login    as jest.MockedFunction<typeof authApi.login>;
@@ -49,6 +50,9 @@ const mockMe       = authApi.me       as jest.MockedFunction<typeof authApi.me>;
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+// A never-resolving refresh mock (below) would otherwise stay the module's in-flight refresh for later tests.
+beforeEach(() => resetRefreshSessionForTests());
 
 const ALICE: User = { id: 1, username: 'alice', email: null };
 

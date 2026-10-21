@@ -6,6 +6,7 @@
  */
 import { apiFetch } from '../../lib/api/client';
 import * as authApi from '../../lib/api/auth';
+import { removeLocks } from '../../test-support/fakeLocks';
 
 const mockFetch = jest.fn<ReturnType<typeof fetch>, Parameters<typeof fetch>>();
 const json = (body: unknown, status = 200) =>
@@ -14,6 +15,7 @@ const json = (body: unknown, status = 200) =>
 beforeEach(() => {
   mockFetch.mockReset();
   (global as Record<string, unknown>).fetch = mockFetch;
+  removeLocks(); // in-tab mode: no extra /api/auth/me from the cross-tab re-check
 });
 
 const urls = () => mockFetch.mock.calls.map((c) => String(c[0]));

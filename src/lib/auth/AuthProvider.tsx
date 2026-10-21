@@ -25,6 +25,7 @@ import { LOGIN_REAUTH_HREF, LOGIN_REAUTH_UNCONFIRMED_HREF, LOGIN_ROUTE_RE } from
 import { usePathnameSafe, useRouterSafe } from './navigationSafe';
 import type { User } from '@/lib/api/types';
 import * as authApi from '@/lib/api/auth';
+import { refreshFailureError, refreshSession, runSignOut } from '@/lib/api/client';
 
 /**
  * UIR2-TAV-3: distinguishes WHY the user is unauthenticated once we've
@@ -197,19 +198,23 @@ export function AuthProvider({
   if (signingOut && pathname !== null && LOGIN_ROUTE_RE.test(pathname)) setSigningOut(false);
 
   // Guard against React 18/19 strict-mode double-invoke of useEffect.
-  // client.ts already single-flights /api/auth/refresh, but we also prevent
-  // a second mount effect from running the whole refresh+me sequence again.
+  // Every refresh here goes through client.ts's refreshSession() (single-flight, cross-tab locked, refused
+  // during a sign-out), but we also prevent a second mount effect from running the whole refresh+me
+  // sequence again.
   const silentRefreshRan = useRef(false);
   // In-flight guard for retryAuth (UIR2-TAV-3 / Miko-QA): prevents two calls in
   // the same tick from letting a later failure clobber an earlier success.
   const retryingRef = useRef(false);
+  // Bumped when a sign-out starts. A refresh+me sequence that began earlier and lands after it must not
+  // set the user or touch authError (HUNT1020-25 / TAV-LOGOUT-DURING-INFLIGHT-REFRESH).
+  const signOutEpoch = useRef(0);
 
   // TAV-LOGIN-BG-REFRESH-RACE: the login page never reads the user, and a refresh in flight there
   // raced "Sign out again" (it landed after the sign-out, restored the user and re-issued the cookies
   // the sign-out had cleared). So the refresh waits while the route is /login and runs when the app
   // leaves it. `silentRefreshRan` doubles as "settled": a sign-out or sign-in marks it, so a refresh
-  // still DEFERRED is never started after one. (A refresh already IN FLIGHT when logout() runs can
-  // still land: that is the separate Backlog item TAV-LOGOUT-DURING-INFLIGHT-REFRESH.)
+  // still DEFERRED is never started after one. A refresh already IN FLIGHT when logout() runs is awaited
+  // by the logout request and its result is ignored (signOutEpoch; client.ts runSignOut).
   // Whether a refresh is owed is decided from the MOUNT-TIME props only: a later render's props
   // (a hydrated user, a cleared flag) must not change a decision made when the provider mounted.
   const needsSilentRefresh = useRef(initialMaybeAuthed && !initialUser);
@@ -229,14 +234,17 @@ export function AuthProvider({
     silentRefreshRan.current = true;
 
     async function silentRefresh() {
+      const epoch = signOutEpoch.current;
+      const signedOut = () => signOutEpoch.current !== epoch;
       try {
         // Same bound as retryAuth (Kage I1): the layout's /auth/me now times out after 2.5 s and hands
         // the page to this refresh; without a deadline a stalled auth server left the skeleton forever.
         // On timeout client.ts reports status 0, classifyAuthError says 'offline', and the prompt offers Try again.
         const signal = AbortSignal.timeout(RETRY_AUTH_TIMEOUT_MS);
-        await authApi.refresh(signal);
+        const refreshed = await refreshSession({ signal });
+        if (!refreshed.ok) throw refreshFailureError(refreshed);
         const data = await authApi.me(signal);
-        if (!unmounted.current) {
+        if (!unmounted.current && !signedOut()) {
           setUser(data.user);
           setAuthError(null);
         }
@@ -246,7 +254,7 @@ export function AuthProvider({
         // a skeleton forever. proxy.ts would have redirected if the refresh
         // token was absent; if it's here and fails, the token expired (or
         // the refresh endpoint is rate-limiting us) during the request.
-        if (!unmounted.current) {
+        if (!unmounted.current && !signedOut()) {
           setAuthError(classifyAuthError(e));
         }
       } finally {
@@ -307,7 +315,9 @@ export function AuthProvider({
    */
   const requestLogout = useCallback(async (outcome: string): Promise<boolean> => {
     try {
-      await authApi.logout(AbortSignal.timeout(LOGOUT_TIMEOUT_MS));
+      // runSignOut: waits for any in-flight refresh (and another tab's), refuses new ones, so the revoke
+      // carries the refresh token the jar holds after any rotation. The timeout starts when it is sent.
+      await runSignOut(() => authApi.logout(AbortSignal.timeout(LOGOUT_TIMEOUT_MS)));
       return true;
     } catch (e) {
       const { name, status, code } = (e as { name?: string; status?: number; code?: string }) ?? {};
@@ -317,6 +327,7 @@ export function AuthProvider({
   }, []);
 
   const retrySignOut = useCallback(async (): Promise<boolean> => {
+    signOutEpoch.current += 1;
     if (!(await requestLogout('staying on the login page'))) return false;
     // Cookies are gone now: drop any user / re-auth state the first sign-out left behind.
     silentRefreshRan.current = true; // a refresh still deferred is never started after a sign-out
@@ -332,6 +343,7 @@ export function AuthProvider({
     // Raised BEFORE user is nulled so useAuthGate never sees (no user, not
     // signing out) and redirects while the cookies are still valid.
     setSigningOut(true);
+    signOutEpoch.current += 1;
     silentRefreshRan.current = true; // a refresh still deferred is never started after a sign-out
     setLoading(false); // as in retrySignOut: nothing is left to resolve
     // Clear user immediately — UI unblocks before the network call completes
@@ -348,8 +360,10 @@ export function AuthProvider({
   }, [requestLogout]);
 
   const refresh = useCallback(async (): Promise<boolean> => {
+    const epoch = signOutEpoch.current;
     try {
-      await authApi.refresh();
+      const refreshed = await refreshSession();
+      if (!refreshed.ok || signOutEpoch.current !== epoch) return false;
       setAuthError(null);
       return true;
     } catch {
@@ -365,6 +379,8 @@ export function AuthProvider({
   const retryAuth = useCallback(async (): Promise<void> => {
     if (retryingRef.current) return;
     retryingRef.current = true;
+    const epoch = signOutEpoch.current;
+    const signedOut = () => signOutEpoch.current !== epoch;
     setLoading(true);
     setRetrying(true);
     // MAJOR-2 (Tora, interaction review): deliberately NOT clearing
@@ -387,13 +403,16 @@ export function AuthProvider({
       // clears) within the bound, no matter which of the two DOMException
       // shapes the runtime throws.
       const signal = AbortSignal.timeout(RETRY_AUTH_TIMEOUT_MS);
-      await authApi.refresh(signal);
+      const refreshed = await refreshSession({ signal });
+      if (!refreshed.ok) throw refreshFailureError(refreshed);
       const data = await authApi.me(signal);
-      setUser(data.user);
-      setAuthError(null);
-      setMaybeAuthed(false);
+      if (!signedOut()) {
+        setUser(data.user);
+        setAuthError(null);
+        setMaybeAuthed(false);
+      }
     } catch (e) {
-      setAuthError(classifyAuthError(e));
+      if (!signedOut()) setAuthError(classifyAuthError(e));
     } finally {
       retryingRef.current = false;
       setRetrying(false);
