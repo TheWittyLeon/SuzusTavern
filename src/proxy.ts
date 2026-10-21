@@ -57,9 +57,16 @@ export const config = {
 /**
  * TAV-NO-FRAMING-HEADERS: no page of the Tavern is meant to be framed, so every response this proxy
  * produces (redirects included) forbids it: CSP `frame-ancestors` for current browsers, and
- * `X-Frame-Options` for the ones that predate it. They live here, not in `next.config.ts`'s
- * `headers()`, because the dev box (.226) keeps its own copy of `next.config.ts` and a header there
- * would never reach it. The matcher above leaves `/api/*` and static assets out: those are not pages.
+ * `X-Frame-Options` for the ones that predate it.
+ *
+ * Why here and not in `next.config.ts`'s `headers()`: the proxy is the one place every page response
+ * passes through, including its own redirects. (The dev box also keeps its own copy of
+ * `next.config.ts`, so a header there would never reach it.) Any future CSP must EXTEND this
+ * constant, not add a second `Content-Security-Policy` header: two policies intersect, and the
+ * second `set` here would silently replace one of them.
+ *
+ * The matcher above leaves `/api/*` and static assets out: those are not pages. A test walks
+ * every `page.tsx` under `src/app` and asserts that each page route is matched.
  */
 const FRAME_ANCESTORS = "frame-ancestors 'none'";
 
