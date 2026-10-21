@@ -59,6 +59,20 @@ it('423 without locked_until: honest generic copy', async () => {
   expect(screen.queryByText(/Can.t reach the tavern/)).not.toBeInTheDocument();
 });
 
+// HUNT1020-19 through the real page: a typo sends ONE credential POST even with a live refresh cookie.
+it('wrong passphrase with a live refresh cookie sends the login once, not twice', async () => {
+  const calls: string[] = [];
+  global.fetch = jest.fn((p: string) => {
+    calls.push(p);
+    if (p === '/api/auth/login') return json(401, { msg: 'bad credentials' });
+    if (p === '/api/auth/refresh') return json(200, { ok: true });
+    return json(404, {});
+  }) as unknown as typeof fetch;
+  await submitLogin();
+  expect(calls).toEqual(['/api/auth/login']);
+  expect(screen.getByRole('alert')).toHaveTextContent(/Wrong handle or passphrase/);
+});
+
 it('positive control: a genuine network failure still says so', async () => {
   global.fetch = jest.fn(() => Promise.reject(new TypeError('failed'))) as unknown as typeof fetch;
   await submitLogin();
