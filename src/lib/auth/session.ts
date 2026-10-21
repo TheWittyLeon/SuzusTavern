@@ -5,10 +5,19 @@ import { cookies } from 'next/headers';
 import { env } from '@/lib/env';
 import type { User } from '@/lib/api/types';
 import { ACCESS_COOKIE, REFRESH_COOKIE } from './cookies';
+import { getSharedMeCache } from './meCache';
 
 // Re-export the pure Edge-safe helpers so callers that don't need server APIs
 // can import from here without hitting the server-only guard.
 export { decodeJwtExp, isExpired } from './jwt';
+
+/**
+ * How long the root layout waits for /auth/me before rendering without it (HUNT1020-24). The layout
+ * awaits this before a single byte of HTML, so a stalled Auth-Python used to blank every page for as
+ * long as undici's default (minutes). On timeout the page renders as "maybe authed" and the client's
+ * silent refresh sorts it out.
+ */
+export const SESSION_ME_DEADLINE_MS = 2500;
 
 /**
  * Server-component helper. Reads st_access from cookies, decodes exp,
@@ -48,6 +57,14 @@ export async function getServerSession(): Promise<{
     return { user: null, accessExpiresAt, maybeAuthed: hasRefresh };
   }
 
+  // HUNT1020-05: one /auth/me per document render burned Auth-Python's 20/hour cap. Serve a user
+  // fetched for THIS exact token in the last 60 s (see meCache.ts for the no-bleed properties).
+  const cache = getSharedMeCache();
+  const cachedUser = cache.get(token);
+  if (cachedUser) {
+    return { user: cachedUser, accessExpiresAt, maybeAuthed: false };
+  }
+
   try {
     const res = await fetch(`${env.AUTH_API_URL}/auth/me`, {
       method: 'GET',
@@ -55,9 +72,14 @@ export async function getServerSession(): Promise<{
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      // Don't cache — session state changes frequently
+      // Don't use Next's fetch cache — the 60 s per-token cache above is the only one.
       cache: 'no-store',
+      // HUNT1020-24: a deadline, so a stalled upstream cannot hold the whole shell. A timeout throws
+      // into the catch below, which already renders "no user, maybeAuthed iff a refresh cookie".
+      signal: AbortSignal.timeout(SESSION_ME_DEADLINE_MS),
     });
+
+    if (res.status === 401) cache.evict(token);
 
     if (!res.ok) {
       // Valid access token but /auth/me failed — treat as no session.
@@ -67,6 +89,8 @@ export async function getServerSession(): Promise<{
     }
 
     const data = await res.json() as { user?: User };
+    // Only a real user is cached; never an error, an empty body or a timeout.
+    if (data.user) cache.set(token, data.user, accessExpiresAt);
     return { user: data.user ?? null, accessExpiresAt, maybeAuthed: false };
   } catch {
     // Network error or parse failure — treat as no session

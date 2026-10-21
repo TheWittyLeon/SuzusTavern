@@ -545,6 +545,56 @@ describe('auth BFF CSRF guard', () => {
 });
 
 // ---------------------------------------------------------------------------
+// HUNT1020-05 — the layout's per-token /auth/me cache is evicted by logout / password change / 401
+// ---------------------------------------------------------------------------
+
+describe('layout /auth/me cache eviction', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { getSharedMeCache } = require('../../lib/auth/meCache') as typeof import('../../lib/auth/meCache');
+  const U = { id: 1, username: 'alice', email: null } as never;
+  const seed = () => {
+    getSharedMeCache().clear();
+    getSharedMeCache().set('tok-A', U);
+    getSharedMeCache().set('tok-B', U);
+  };
+
+  it('logout evicts that browser\'s token only', async () => {
+    seed();
+    mockFetch.mockResolvedValueOnce(upstreamJson({ msg: 'ok' }));
+    await POST(makePostRequest('http://localhost:3000/api/auth/logout', {}, 'st_access=tok-A; st_refresh=r'), makeCtx(['logout']));
+    expect(getSharedMeCache().get('tok-A')).toBeNull();
+    expect(getSharedMeCache().get('tok-B')).not.toBeNull();
+  });
+
+  it('logout evicts even when the upstream revoke fails', async () => {
+    seed();
+    mockFetch.mockRejectedValueOnce(new TypeError('down'));
+    const res = await POST(makePostRequest('http://localhost:3000/api/auth/logout', {}, 'st_access=tok-A; st_refresh=r'), makeCtx(['logout']));
+    expect(res.status).toBe(200);
+    expect(getSharedMeCache().get('tok-A')).toBeNull();
+  });
+
+  it('password change evicts the token whose sessions were just revoked', async () => {
+    seed();
+    mockFetch.mockResolvedValueOnce(upstreamJson({ msg: 'changed' }));
+    await POST(
+      makePostRequest('http://localhost:3000/api/auth/password/change', { current_password: 'a', new_password: 'b' }, 'st_access=tok-A'),
+      makeCtx(['password', 'change']),
+    );
+    expect(getSharedMeCache().get('tok-A')).toBeNull();
+    expect(getSharedMeCache().get('tok-B')).not.toBeNull();
+  });
+
+  it('a 401 from /api/auth/me evicts', async () => {
+    seed();
+    mockFetch.mockResolvedValueOnce(upstreamJson({ msg: 'revoked' }, 401));
+    await GET(makeGetRequest('http://localhost:3000/api/auth/me', 'st_access=tok-A'), makeCtx(['me']));
+    expect(getSharedMeCache().get('tok-A')).toBeNull();
+    expect(getSharedMeCache().get('tok-B')).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 429 forwarding — without Retry-After header (branch: retryAfter ? ... : {})
 // These cover each handler's ternary for missing Retry-After.
 // ---------------------------------------------------------------------------

@@ -32,6 +32,7 @@ import {
   readPartial,
 } from '@/lib/auth/cookies';
 import { checkAuthPost } from '@/lib/auth/requestGuard';
+import { getSharedMeCache } from '@/lib/auth/meCache';
 
 type Ctx = { params: Promise<{ path: string[] }> };
 
@@ -334,6 +335,7 @@ async function handleMe(req: NextRequest): Promise<NextResponse> {
   const { body: safeBody } = await parseUpstreamBody(res);
 
   if (!res.ok) {
+    if (res.status === 401) getSharedMeCache().evict(access);
     console.warn('[auth-bff] me upstream error', { upstreamStatus: res.status, durationMs, path: 'me' });
     return NextResponse.json(safeBody, { status: res.status });
   }
@@ -351,6 +353,10 @@ async function handleLogout(req: NextRequest): Promise<NextResponse> {
   // not the access token; sending the access token would 422 and leave the
   // server-side session alive for its full 7-day window.
   const refresh = readRefresh(req.cookies);
+
+  // Drop the layout's cached /auth/me for this access token (meCache.ts): a signed-out browser must
+  // not render as signed in for up to 60 s more.
+  getSharedMeCache().evict(readAccess(req.cookies));
 
   // Best-effort upstream call with 2s timeout — swallow all errors
   if (refresh) {
@@ -438,6 +444,7 @@ async function handlePasswordChange(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json(safeBody, { status: res.status });
   }
   const out = NextResponse.json(safeBody, { status: res.status });
+  getSharedMeCache().evict(access); // its session was just revoked upstream
   clearAll(out.cookies); // every session was just revoked upstream
   return out;
 }
