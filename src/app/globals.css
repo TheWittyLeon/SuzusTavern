@@ -53,6 +53,7 @@
      --accent, same rationale as --cool-ink/--warn-ink below. Dark palette —
      already AA as text, alias the decorative token. */
   --accent-ink: #f08bb6;
+  --accent-2-ink: var(--accent-2);   /* already AA as text on this palette; the slot exists so Pill can read one name everywhere */
   --warm:       #f5cba8;   /* ember / candleglow */
   /* A11Y (S8.3): warm-ink — dark palettes already AA so alias the decorative token */
   --warm-ink:   var(--warm);
@@ -124,6 +125,7 @@
      same-hue text variant clears ≥4.5:1 on every candlelit surface used for
      this badge; decorative --accent (buttons/gradients/borders) unchanged. */
   --accent-ink: #8a3820;
+  --accent-2-ink: var(--accent-2);   /* already AA as text on this palette; the slot exists so Pill can read one name everywhere */
   --warm:       #d4a64b;
   /* A11Y (S8.3): #7a5300 on 14%-warm tint (~#f0e7cc) = 6.2:1 — passes AA.
      Candlelit --warm (#d4a64b) alone is 1.60:1 — fails. */
@@ -188,6 +190,7 @@
   /* TAV-PARTY-YOUBADGE-CONTRAST-CANDLELIT: dark palette — already AA as
      text, alias the decorative token. */
   --accent-ink: #7ee8e2;
+  --accent-2-ink: var(--accent-2);   /* already AA as text on this palette; the slot exists so Pill can read one name everywhere */
   --warm:       #ffc792;
   /* A11Y (S8.3): dark palette — warm already AA as text; alias the decorative token */
   --warm-ink:   var(--warm);
@@ -241,6 +244,7 @@
   /* TAV-PARTY-YOUBADGE-CONTRAST-CANDLELIT: dark palette — already AA as
      text, alias the decorative token. */
   --accent-ink: #9cd6a8;
+  --accent-2-ink: var(--accent-2);   /* already AA as text on this palette; the slot exists so Pill can read one name everywhere */
   --warm:       #e8c89a;
   /* A11Y (S8.3): dark palette — warm already AA as text; alias the decorative token */
   --warm-ink:   var(--warm);
@@ -299,6 +303,9 @@
   --accent-2:   #9d7ff0;   /* deepened lavender counterpoint */
   --accent-3:   #f6c9d9;
   --accent-ink: #f2769f;   /* dark palette — already AA as text, alias the decorative token */
+  /* --accent-2 (#9d7ff0) measured 4.24:1 as 11px text on its own 14% tint (the lav Pill, axe serious).
+     Same hue, lightened; the decorative --accent-2 (fills, gradients) is unchanged. */
+  --accent-2-ink: #b39ef0;
   /* HEARTHLIGHT-NEW: decorative-only tertiary for hardware details —
      dividers, corner ticks, icon strokes on hero cards. NEVER used for text
      or any fill that needs a contrast guarantee (see DIRECTION.md). */
@@ -496,6 +503,12 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
+/* Focus ring vs the viewport's bottom edge: Tab scrolls a control just into view,
+   which parks it flush and shaves the 4px ring off (ink-clip probe: clipper
+   "viewport", bottom 3.9-4.4px, dashboard cards and buttons). The page's own
+   scroll-padding keeps that much clear. Bottom only: the top edge sits under the
+   sticky topnav, whose height is its own measurement (TAV-VIEWPORT-EDGE-RING-CLIP). */
+html { scroll-padding-bottom: var(--focus-ring-clearance); }
 
 body {
   font-family: var(--font-ui);

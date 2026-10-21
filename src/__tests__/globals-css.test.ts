@@ -187,6 +187,23 @@ describe('A11Y-BUTTON-BORDER-CONTRAST: --line-strong meets WCAG 1.4.11 (3:1 non-
     const composite = blendOver(line.rgb, line.alpha, bg)
     expect(contrast(composite, bg)).toBeLessThan(3.0)
   })
+
+  // TAV-UI-POLISH-1019 AC-12: the lav Pill is 11px text in --accent-2-ink on a 14% --accent-2 tint. Hearthlight's
+  // --accent-2 alone measured 4.24:1 (axe serious). Candlelit on --bg-3 is 4.49:1 by this math (not asserted: outside this item, reported).
+  // Source-value math (sRGB blend), like the --line-strong pins above; the real browser measured oklab compositing.
+  it.each(VIBES)('$name: --accent-2-ink text on its 14% --accent-2 tint clears 4.5:1 over --bg and --card-solid', ({ selector }) => {
+    const resolve = (token: string): string => {
+      const v = extractInBlock(selector, token)
+      const ref = v.match(/^var\(--([\w-]+)\)$/)
+      return ref ? extractInBlock(selector, ref[1]) : v
+    }
+    const ink = hexToRgb(resolve('accent-2-ink'))
+    const tint = hexToRgb(resolve('accent-2'))
+    for (const surface of ['bg', 'card-solid']) {
+      const base = hexToRgb(extractInBlock(selector, surface))
+      expect(contrast(ink, blendOver(tint, 0.14, base))).toBeGreaterThanOrEqual(4.5)
+    }
+  })
 })
 
 describe('A11Y-BUTTON-BORDER-CONTRAST: flagged buttons use --line-strong, not the low-contrast --line', () => {

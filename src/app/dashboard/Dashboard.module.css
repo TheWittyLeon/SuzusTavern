@@ -325,6 +325,9 @@
 }
 .charCardWrap > .charCard {
   width: 100%;
+  /* Grid stretch gives the wrapper the row's height; the card fills it so a
+     one-line-name card is as tall as its wrapped-name neighbour (TAV-UI-POLISH-1019). */
+  height: 100%;
   box-sizing: border-box;
 }
 .charDelete {
@@ -385,11 +388,17 @@
   font-size: 13px;
   font-weight: 600;
   margin-top: 6px;
+  /* The card centres its avatar and a one-line name; a wrapped name keeps that
+     alignment instead of falling back to the link's left (TAV-UI-POLISH-1019). */
+  text-align: center;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 .charSub {
   font-size: 11px;
   color: var(--ink-3);
   text-transform: capitalize;
+  text-align: center;
 }
 .charNew {
   border-style: dashed;

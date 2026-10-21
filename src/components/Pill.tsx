@@ -84,7 +84,8 @@ const TONE_MAP: Record<PillTone, { bg: string; fg: string; bd: string }> = {
   },
   lav: {
     bg: 'color-mix(in oklab, var(--accent-2) 14%, transparent)',
-    fg: 'var(--accent-2)',
+    // --accent-2-ink: text-safe twin of --accent-2 (hearthlight's measured 4.24:1).
+    fg: 'var(--accent-2-ink)',
     bd: 'color-mix(in oklab, var(--accent-2) 30%, transparent)',
   },
 };

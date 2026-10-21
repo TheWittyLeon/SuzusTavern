@@ -69,10 +69,10 @@ describe('Pill', () => {
       expect(el.style.color).toContain('var(--ink-2)');
     });
 
-    it('lav tone uses --accent-2 color', () => {
+    it('lav tone uses --accent-2-ink text (hearthlight --accent-2 is 4.24:1 as 11px text)', () => {
       const { container } = render(<Pill tone="lav">x</Pill>);
       const el = container.querySelector('[data-component="Pill"]') as HTMLElement;
-      expect(el.style.color).toContain('var(--accent-2)');
+      expect(el.style.color).toBe('var(--accent-2-ink)');
     });
   });
 

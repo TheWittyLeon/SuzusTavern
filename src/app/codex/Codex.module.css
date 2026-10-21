@@ -698,7 +698,10 @@
   width: 100%;
   max-width: 480px;
   max-height: min(640px, 86vh);
-  background: var(--card);
+  /* Opaque like every other dialog (ConfirmDialog, LevelUpDialog, Drawer use
+     --bg-2): --card is a translucent plane tint, so the list behind showed
+     through the text (TAV-UI-POLISH-1019, same class as UIA-0919-022). */
+  background: var(--bg-2);
   border: 1px solid var(--line);
   border-radius: 18px;
   box-shadow: var(--shadow-pop);
