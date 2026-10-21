@@ -37,7 +37,7 @@ export interface RefreshOutcome {
 
 /** The shared request's own bound. A caller's timeout/abort never reaches it (see refreshSession). */
 const REFRESH_TIMEOUT_MS = 10_000;
-/** How long a refresh waits for another tab to finish ITS refresh (the lock holder has the same bound). */
+/** How long a refresh waits to be granted the `st-refresh` lock (a holder is bounded by REFRESH_TIMEOUT_MS). */
 const REFRESH_LOCK_WAIT_MS = 15_000;
 /** How long logout waits for this tab's in-flight refresh before sending the revoke anyway. */
 const SIGN_OUT_REFRESH_WAIT_MS = 6_000;
@@ -50,6 +50,8 @@ const NO_ANSWER: RefreshOutcome = { ok: false, status: 0, body: undefined };
 const SIGNED_OUT: RefreshOutcome = { ok: false, status: 401, body: { error: 'signed_out' } };
 
 let refreshInFlight: Promise<RefreshOutcome> | null = null;
+/** Aborts the in-flight shared refresh request: fired by its own 10 s bound and by runSignOut (never by a caller). */
+let refreshAbort: AbortController | null = null;
 /** Number of sign-outs currently running (a counter: logout and a retry may overlap). */
 let signOutDepth = 0;
 
@@ -58,10 +60,7 @@ function isUnavailable(status: number): boolean {
   return status === 0 || status >= 500 || status === 429;
 }
 
-// debt: tabs without navigator.locks (old Safari, some webviews) get in-tab single-flight only, so two
-// such tabs can still race one rotation; the 401-then-/api/auth/me re-check absorbs the loser's 401.
-// ceiling: a stale-cookie race window of one refresh round-trip per tab pair. until: every supported
-// browser ships navigator.locks.
+// debt: cross-tab serialisation needs navigator.locks, a secure-context-only API. ceiling: on plain-HTTP origins (all of dev and prod today) two tabs each rotate once and a sign-out cannot wait for another tab's refresh. until: the Tavern is served over HTTPS, or a server-side (BFF/Auth-Python) fix lands.
 function locksApi(): LockManager | null {
   return typeof navigator !== 'undefined' && navigator.locks ? navigator.locks : null;
 }
@@ -80,7 +79,7 @@ async function sessionIsLive(): Promise<boolean> {
   }
 }
 
-async function runRefresh(): Promise<RefreshOutcome> {
+async function runRefresh(signal: AbortSignal): Promise<RefreshOutcome> {
   const locks = locksApi();
   const exec = async (): Promise<RefreshOutcome> => {
     // Sign-out began while this refresh waited for the lock: do not start the request.
@@ -88,10 +87,15 @@ async function runRefresh(): Promise<RefreshOutcome> {
     // Another tab may have rotated while we waited: if the (cached, per-token) /me is fine, we are done.
     // Without the lock there is no "waited", so this check only runs inside it. When there is no
     // st_access cookie the BFF answers 401 without an upstream call, so it costs nothing then.
-    if (locks && (await sessionIsLive())) return { ok: true, status: 200, body: undefined };
+    if (locks && (await sessionIsLive())) {
+      // The /me await can outlast the start of a sign-out: re-check before the POST that would rotate the jar.
+      if (signOutDepth > 0) return SIGNED_OUT;
+      return { ok: true, status: 200, body: undefined };
+    }
+    if (signOutDepth > 0) return SIGNED_OUT;
     let outcome: RefreshOutcome;
     try {
-      const body = await authApi.refresh(AbortSignal.timeout(REFRESH_TIMEOUT_MS));
+      const body = await authApi.refresh(signal);
       outcome = { ok: true, status: 200, body };
     } catch (e) {
       const { status, code, body } = (e as Partial<ApiError>) ?? {};
@@ -147,18 +151,28 @@ function raceSignal(promise: Promise<RefreshOutcome>, signal?: AbortSignal): Pro
 export function refreshSession(opts: { signal?: AbortSignal } = {}): Promise<RefreshOutcome> {
   if (signOutDepth > 0) return Promise.resolve(SIGNED_OUT);
   if (!refreshInFlight) {
-    refreshInFlight = runRefresh()
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), REFRESH_TIMEOUT_MS);
+    refreshAbort = ctl;
+    const flight: Promise<RefreshOutcome> = runRefresh(ctl.signal)
       .catch(() => NO_ANSWER)
       .finally(() => {
-        refreshInFlight = null;
+        clearTimeout(timer);
+        if (refreshInFlight === flight) {
+          refreshInFlight = null;
+          refreshAbort = null;
+        }
       });
+    refreshInFlight = flight;
   }
   return raceSignal(refreshInFlight, opts.signal);
 }
 
 /** Test seam: forget any in-flight refresh / sign-out (a test's never-resolving mock would leak into the next). */
 export function resetRefreshSessionForTests(): void {
+  refreshAbort?.abort(); // settles a hung flight, which clears its 10 s timer
   refreshInFlight = null;
+  refreshAbort = null;
   signOutDepth = 0;
 }
 
@@ -173,7 +187,7 @@ export function refreshFailureError(r: RefreshOutcome): ApiError {
  * taken (bounded) so another tab's refresh cannot rotate or Set-Cookie around the revoke. The point:
  * the request carries the refresh token the jar holds AFTER any rotation, and no refresh Set-Cookie can
  * land after the clearing one. If a bound expires the revoke is sent anyway (a stuck refresh must not
- * trap the user in a signed-in state); a refresh that outlives its bound could then still land late.
+ * trap the user in a signed-in state); the in-tab refresh request is aborted at that point, so none of this tab's refreshes can land after the revoke.
  */
 export async function runSignOut<T>(send: () => Promise<T>): Promise<T> {
   signOutDepth += 1; // synchronous: nothing can start a refresh between this call and the revoke
@@ -188,6 +202,8 @@ export async function runSignOut<T>(send: () => Promise<T>): Promise<T> {
         }),
       ]);
       clearTimeout(timer);
+      // The wait is over (settled or expired): a refresh still on the wire must not Set-Cookie after the revoke.
+      refreshAbort?.abort();
     }
     const locks = locksApi();
     if (!locks) return await send();
@@ -206,7 +222,7 @@ export async function runSignOut<T>(send: () => Promise<T>): Promise<T> {
       return await send(); // lock wait timed out: proceed unserialised
     }
   } finally {
-    signOutDepth -= 1;
+    signOutDepth = Math.max(0, signOutDepth - 1);
   }
 }
 

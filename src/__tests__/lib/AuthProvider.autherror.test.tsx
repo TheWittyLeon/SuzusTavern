@@ -6,7 +6,7 @@
  *   - silentRefresh (mount, initialMaybeAuthed) failing with a 401-shaped
  *     error → authError='expired'
  *   - silentRefresh failing with a 429-shaped error → authError='rate_limited'
- *   - silentRefresh failing with a plain network error (no status) → 'expired'
+ *   - silentRefresh failing with a rejection that carries no numeric status → 'offline' (no answer)
  *   - silentRefresh: refresh() succeeds but me() fails → 'expired'
  *   - a successful silent refresh leaves authError null
  *   - retryAuth(): success clears authError and sets user; failure re-sets it
@@ -127,6 +127,14 @@ describe('AuthProvider — silentRefresh failure sets authError', () => {
 
   // refreshSession() normalises whatever the transport throws: a rejection with no numeric status is "no
   // answer" (status 0 -> offline). The "unrecognized 4xx -> expired" rule is pinned with a real status.
+  it('a rejection with NO numeric status (plain Error) → authError="offline", not "expired"', async () => {
+    mockRefresh.mockRejectedValueOnce(new Error('boom'));
+    wrap(null, true);
+
+    await waitFor(() => expect(screen.getByTestId('loading')).toHaveTextContent('false'));
+    expect(screen.getByTestId('authError')).toHaveTextContent('offline');
+  });
+
   it('an unrecognized 4xx (418) → authError="expired"', async () => {
     mockRefresh.mockRejectedValueOnce(apiError(418));
     wrap(null, true);

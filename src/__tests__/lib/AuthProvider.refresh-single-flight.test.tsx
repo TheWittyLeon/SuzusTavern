@@ -54,6 +54,7 @@ function gate() {
 let events: string[];
 beforeEach(() => {
   jest.clearAllMocks();
+  held.auth = undefined as unknown as AuthContextValue; // a stale value from the previous row must not satisfy a row
   resetRefreshSessionForTests();
   removeLocks();
   events = [];
@@ -85,13 +86,17 @@ describe('one refresh across writers', () => {
 });
 
 describe('logout during an in-flight refresh', () => {
-  it.each([
-    ['silent refresh', () => { render(tree(true)); return Promise.resolve(); }],
-    ['retryAuth', () => { render(tree(false)); return Promise.resolve(held.auth.retryAuth()); }],
-    ['context refresh()', () => { render(tree(false)); return Promise.resolve(held.auth.refresh()); }],
-  ])('%s: logout is sent after the refresh settles, no refresh starts after, a late result is ignored', async (_n, start) => {
+  // Each writer: render first (so held.auth is THIS row's context), then start the refresh through it.
+  const writers: Array<[string, boolean, () => Promise<unknown>]> = [
+    ['silent refresh', true, () => Promise.resolve()],
+    ['retryAuth', false, () => Promise.resolve(held.auth.retryAuth())],
+    ['context refresh()', false, () => Promise.resolve(held.auth.refresh())],
+  ];
+
+  it.each(writers)('%s: logout is sent after the refresh settles, no refresh starts after, a late result is ignored', async (_n, maybe, start) => {
     const g = gate();
     mockRefresh.mockImplementation(() => { events.push('refresh-start'); return g.promise.then(() => { events.push('refresh-end'); return { ok: true }; }); });
+    render(tree(maybe));
     let writer!: Promise<unknown>;
     await act(async () => { writer = start(); });
     await waitFor(() => expect(mockRefresh).toHaveBeenCalledTimes(1));
@@ -109,6 +114,32 @@ describe('logout during an in-flight refresh', () => {
     expect(events).toEqual(['refresh-start', 'refresh-end', 'logout']);
     expect(mockRefresh).toHaveBeenCalledTimes(1);
     expect(held.auth.user).toBeNull(); // the refresh+me that landed did not log the user back in
+    expect(held.auth.authError).toBeNull();
+  });
+
+  // The held refresh FAILS after the sign-out began: silentRefresh's and retryAuth's catch must not
+  // surface 'expired' on a page that is already signing out.
+  it.each(writers)('%s: a refresh that FAILS (401) after logout began leaves authError null', async (_n, maybe, start) => {
+    (global as Record<string, unknown>).fetch = jest.fn(async () =>
+      new Response('{}', { status: 401, headers: { 'content-type': 'application/json' } }),
+    ); // the /me re-check after the 401 also says "gone"
+    const g = gate();
+    mockRefresh.mockImplementation(() => { events.push('refresh-start'); return g.promise; });
+    render(tree(maybe));
+    let writer!: Promise<unknown>;
+    await act(async () => { writer = start(); });
+    await waitFor(() => expect(mockRefresh).toHaveBeenCalledTimes(1));
+
+    let out!: Promise<void>;
+    act(() => { out = held.auth.logout(); });
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => {
+      g.fail(Object.assign(new Error('x'), { status: 401, code: 'unauthorized' }));
+      await out;
+      await writer;
+    });
+    expect(events).toEqual(['refresh-start', 'logout']);
+    expect(held.auth.user).toBeNull();
     expect(held.auth.authError).toBeNull();
   });
 

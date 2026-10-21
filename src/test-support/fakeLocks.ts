@@ -13,7 +13,7 @@ export function removeLocks(): void {
 export interface FakeLocks {
   /** Names requested, in order. */
   requests: string[];
-  /** Resolve a callback currently holding `name` only when released (default: held until cb settles). */
+  /** Restore the "navigator.locks missing" browser (same as removeLocks). */
   uninstall(): void;
 }
 
@@ -24,6 +24,8 @@ export function installFakeLocks(): FakeLocks {
     request(name: string, opts: { signal?: AbortSignal }, cb: () => Promise<unknown>) {
       requests.push(name);
       const prev = tails.get(name) ?? Promise.resolve();
+      let released!: () => void;
+      const settled = new Promise<void>((r) => { released = r; });
       const run = new Promise((resolve, reject) => {
         const signal = opts?.signal;
         let aborted = false;
@@ -34,15 +36,19 @@ export function installFakeLocks(): FakeLocks {
         signal?.addEventListener('abort', onAbort, { once: true });
         void prev.then(async () => {
           signal?.removeEventListener('abort', onAbort);
-          if (aborted) return;
+          if (aborted) return released(); // never held the lock
           try {
             resolve(await cb());
           } catch (e) {
             reject(e);
+          } finally {
+            released();
           }
         });
       });
-      tails.set(name, run.catch(() => undefined));
+      // The next waiter queues behind the PREVIOUS holder until this one releases: an aborted waiter
+      // (rejected early) must not free the lock while an earlier holder still runs.
+      tails.set(name, prev.then(() => settled));
       return run;
     },
   });

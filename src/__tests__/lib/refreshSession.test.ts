@@ -264,6 +264,123 @@ describe('runSignOut', () => {
     }
   });
 
+  /** A fetch that never answers on its own but rejects like the browser when its signal aborts. */
+  const hangUntilAborted = (aborted: string[]) => async (_input: unknown, init?: RequestInit) =>
+    new Promise<Response>((_res, rej) => {
+      init?.signal?.addEventListener('abort', () => {
+        aborted.push('refresh-aborted');
+        rej(new DOMException('aborted', 'AbortError'));
+      });
+    });
+
+  it.each([
+    ['without locks', false],
+    ['with locks', true],
+  ])('%s: a refresh still on the wire when the wait bound expires is aborted BEFORE the revoke is sent', async (_n, withLocks) => {
+    jest.useFakeTimers();
+    try {
+      if (withLocks) installFakeLocks();
+      const order: string[] = [];
+      mockFetch.mockImplementation(async (input, init) => {
+        if (String(input) === '/api/auth/me') return ME_401();
+        return hangUntilAborted(order)(input, init);
+      });
+      const inflight = refreshSession();
+      await jest.advanceTimersByTimeAsync(0); // let the refresh reach the wire (past the lock and /me)
+      const out = runSignOut(async () => { order.push('logout'); return 'revoked'; });
+      await jest.advanceTimersByTimeAsync(5_900);
+      expect(order).toEqual([]); // still waiting on the refresh
+      await jest.advanceTimersByTimeAsync(200);
+      await expect(out).resolves.toBe('revoked');
+      expect(order).toEqual(['refresh-aborted', 'logout']);
+      await expect(inflight).resolves.toMatchObject({ ok: false });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("a caller's own abort still never aborts the shared request (runSignOut not involved)", async () => {
+    const aborted: string[] = [];
+    mockFetch.mockImplementation(async (input, init) => hangUntilAborted(aborted)(input, init));
+    const ctl = new AbortController();
+    void refreshSession({ signal: ctl.signal });
+    ctl.abort();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(aborted).toEqual([]);
+    resetRefreshSessionForTests();
+  });
+
+  it('the shared request keeps its own 10 s bound (aborted by itself, no sign-out)', async () => {
+    jest.useFakeTimers();
+    try {
+      const aborted: string[] = [];
+      mockFetch.mockImplementation(async (input, init) => hangUntilAborted(aborted)(input, init));
+      const p = refreshSession();
+      await jest.advanceTimersByTimeAsync(9_900);
+      expect(aborted).toEqual([]);
+      await jest.advanceTimersByTimeAsync(200);
+      expect(aborted).toEqual(['refresh-aborted']);
+      await expect(p).resolves.toMatchObject({ ok: false, status: 0 });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('with locks: a sign-out that starts while the in-lock /me is held makes NO refresh POST (F2)', async () => {
+    installFakeLocks();
+    const meGate = deferred<Response>();
+    route({ '/api/auth/me': () => meGate.promise, '/api/auth/refresh': () => json({ ok: true }) });
+    const inflight = refreshSession();
+    await new Promise((r) => setTimeout(r, 0)); // exec is inside the lock, parked on /me
+    expect(urls()).toEqual(['/api/auth/me']);
+    const out = runSignOut(async () => 'done');
+    meGate.resolve(ME_401());
+    await inflight;
+    await out;
+    expect(count('/api/auth/refresh')).toBe(0);
+  });
+
+  it('a revoke that fails inside the lock is thrown, not re-sent (M13)', async () => {
+    installFakeLocks();
+    const send = jest.fn(async () => { throw new Error('boom'); });
+    await expect(runSignOut(send)).rejects.toThrow('boom');
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('SIGN_OUT_LOCK_WAIT_MS (3 s) bounds the lock wait; on expiry the revoke is sent once, unserialised (M16)', async () => {
+    // AbortSignal.timeout is not driven by jest's fake timers: hand the lock wait a signal we fire.
+    const ctl = new AbortController();
+    const spy = jest.spyOn(AbortSignal, 'timeout').mockReturnValue(ctl.signal);
+    try {
+      Object.defineProperty(globalThis.navigator, 'locks', {
+        configurable: true,
+        value: {
+          request: (_n: string, o: { signal: AbortSignal }) =>
+            new Promise((_res, rej) =>
+              o.signal.addEventListener('abort', () => rej(new DOMException('x', 'AbortError'))),
+            ),
+        },
+      });
+      const sent = jest.fn(async () => 'revoked');
+      const out = runSignOut(sent);
+      await Promise.resolve();
+      expect(sent).not.toHaveBeenCalled(); // waiting on the lock
+      ctl.abort();
+      await expect(out).resolves.toBe('revoked');
+      expect(sent).toHaveBeenCalledTimes(1);
+      expect(spy).toHaveBeenCalledWith(3_000);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('overlapping sign-outs: a failed one never drives the depth below zero', async () => {
+    await expect(runSignOut(async () => { throw new Error('a'); })).rejects.toThrow('a');
+    await expect(runSignOut(async () => { throw new Error('b'); })).rejects.toThrow('b');
+    route({ '/api/auth/refresh': () => json({ ok: true }) });
+    await expect(refreshSession()).resolves.toMatchObject({ ok: true });
+  });
+
   it('re-allows refreshes once the sign-out settles, even when the revoke fails', async () => {
     await expect(runSignOut(async () => { throw new Error('boom'); })).rejects.toThrow('boom');
     route({ '/api/auth/refresh': () => json({ ok: true }) });
