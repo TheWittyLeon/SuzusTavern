@@ -281,7 +281,7 @@ describe('AdminContentQueuePage — auth gate', () => {
     render(<AdminPage />);
 
     await waitFor(() => {
-      expect(mockReplace).toHaveBeenCalledWith('/login');
+      expect(mockReplace).toHaveBeenCalledWith('/login?reauth=1');
     });
   });
 

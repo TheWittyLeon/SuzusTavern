@@ -161,7 +161,7 @@ describe('CharacterPage — the ORIGINAL infinite-skeleton bug site, real refres
   it('genuine logout (no refresh cookie at all) still redirects to /login — unchanged prior behavior', async () => {
     renderWithProvider(false);
 
-    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login'));
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login?reauth=1'));
     expect(
       screen.queryByRole('heading', { name: /your session has ended|hold on a moment/i }),
     ).not.toBeInTheDocument();

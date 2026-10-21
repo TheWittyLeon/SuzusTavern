@@ -144,7 +144,7 @@ describe('PlayPage — genuinely logged out (no crash, no leaked session UI)', (
 
     renderPlay(<PlayPage />);
 
-    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login'));
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login?reauth=1'));
 
     // Give any pending microtasks a beat, then confirm the session-loading
     // effect (page.tsx ~493-494: `if (!username || !sessionId) return;`)

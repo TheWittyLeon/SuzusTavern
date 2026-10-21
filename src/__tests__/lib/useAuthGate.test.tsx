@@ -311,7 +311,7 @@ describe('useAuthGate — genuine logout', () => {
       retryAuth: jest.fn(),
     });
     render(<Harness />);
-    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login'));
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login?reauth=1'));
     expect(screen.queryByTestId('page-body')).not.toBeInTheDocument();
     // Bounded skeleton, not SessionExpired — this is the "never had a
     // session" case, not a failed-refresh case.

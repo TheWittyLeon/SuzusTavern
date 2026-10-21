@@ -729,7 +729,7 @@ describe('Trash — skeleton while loading + maybeAuthed', () => {
 describe('Trash — no user', () => {
   it('redirects to /login when not loading, no user, not maybeAuthed', async () => {
     renderTrash(null, false);
-    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login'));
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login?reauth=1'));
   });
 });
 

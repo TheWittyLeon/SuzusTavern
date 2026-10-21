@@ -324,7 +324,7 @@ describe('useAuthGate integration — genuine logout redirects, never renders re
       </AuthProvider>,
     );
 
-    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login'));
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login?reauth=1'));
     expect(screen.queryByTestId('real-content')).not.toBeInTheDocument();
     expect(
       screen.queryByRole('heading', { name: /your session has ended/i }),

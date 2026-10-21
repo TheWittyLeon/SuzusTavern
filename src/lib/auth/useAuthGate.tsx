@@ -22,7 +22,7 @@ import { Children, cloneElement, isValidElement, useEffect, type ReactNode } fro
 import { useAuth } from './AuthProvider';
 import PageSkeleton, { type PageSkeletonProps } from '@/components/PageSkeleton';
 import SessionExpired from '@/components/SessionExpired';
-import { LOGIN_PATH, LOGIN_ROUTE_RE } from './loginRoute';
+import { LOGIN_REAUTH_HREF, LOGIN_ROUTE_RE } from './loginRoute';
 import { usePathnameSafe, useRouterSafe } from './navigationSafe';
 
 export interface UseAuthGateOptions {
@@ -107,10 +107,16 @@ export function useAuthGate(opts: UseAuthGateOptions): ReactNode | null {
   // proxy.ts with a still-valid st_access, which 307s /login → /dashboard
   // (and the router caches that answer for /login). logout() navigates
   // itself once the cookies are gone.
+  //
+  // HUNT1020-20: the target is `/login?reauth=1`, never bare `/login`. After a sign-out whose request
+  // failed (cookies still live) browser Back restores a protected page under the same provider; a bare
+  // `/login` reaches proxy.ts with a paper-valid st_access and is 307'd to /dashboard, whose gate
+  // redirects again and the user is stranded on the skeleton. `reauth=1` is "the client has decided
+  // this session is over" (loginRoute.ts): the proxy serves the form, and it is a fresh router-cache key.
   useEffect(() => {
     // Already on /login (sign-out just arrived there): nothing to redirect to.
     if (pathname !== null && LOGIN_ROUTE_RE.test(pathname)) return;
-    if (!user && !loading && !maybeAuthed && !authError && !signingOut) router.replace(LOGIN_PATH);
+    if (!user && !loading && !maybeAuthed && !authError && !signingOut) router.replace(LOGIN_REAUTH_HREF);
   }, [user, loading, maybeAuthed, authError, signingOut, router, pathname]);
 
   if (user) return null;

@@ -115,7 +115,7 @@ describe('sign out: double click', () => {
 describe('gate normal path is not disabled', () => {
   it('never signed in (no user, not signing out) redirects to /login', async () => {
     mount(null);
-    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login'));
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login?reauth=1'));
   });
   it('a refresh the server rejects (401) shows the expired prompt, not a bare skeleton', async () => {
     mockRefresh.mockRejectedValue(Object.assign(new Error('no'), { status: 401, code: 'unauthorized' }));
@@ -217,6 +217,6 @@ describe('signingOut lifecycle', () => {
     // Back button: the client router returns to /dashboard and mounts a new gate consumer under
     // the SAME provider.
     act(() => { nav.path = '/dashboard'; nav.subs.forEach((f) => f()); held.showSecond(); });
-    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login'));
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login?reauth=1'));
   });
 });

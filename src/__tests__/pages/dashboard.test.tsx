@@ -291,7 +291,7 @@ describe('Dashboard — logout via account menu', () => {
 describe('Dashboard — no user', () => {
   it('redirects to /login when not loading, no user, not maybeAuthed', async () => {
     renderDashboard(null, false);
-    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login'));
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login?reauth=1'));
   });
 });
 

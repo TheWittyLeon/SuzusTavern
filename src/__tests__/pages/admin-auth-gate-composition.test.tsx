@@ -113,7 +113,7 @@ describe('AdminFlagsPage — auth-gate + role-gate composition', () => {
     });
     render(<AdminFlagsPage />);
 
-    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login'));
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login?reauth=1'));
     expect(screen.queryByTestId('tavern-shell')).not.toBeInTheDocument();
     expect(mockListFlags).not.toHaveBeenCalled();
   });
@@ -183,7 +183,7 @@ describe('AdminPendingPage — auth-gate + role-gate composition', () => {
     });
     render(<AdminPendingPage />);
 
-    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login'));
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/login?reauth=1'));
     expect(screen.queryByTestId('tavern-shell')).not.toBeInTheDocument();
     expect(mockListPending).not.toHaveBeenCalled();
   });
