@@ -70,12 +70,12 @@ describe('api/auth.ts', () => {
     expect(method).toBe('GET');
   });
 
-  it('logout — POST /api/auth/logout (no body)', async () => {
+  it('logout — POST /api/auth/logout with {} as JSON (the BFF guard requires JSON on every POST but refresh)', async () => {
     await logout().catch(() => null);
     const { url, method, body } = lastCall();
     expect(url).toBe('/api/auth/logout');
     expect(method).toBe('POST');
-    expect(body).toBeUndefined();
+    expect(body).toEqual({});
   });
 
   it('register — POST /api/auth/register with username+password', async () => {
