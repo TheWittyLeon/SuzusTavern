@@ -13,6 +13,7 @@
  */
 import { useEffect, useId, useRef, useState } from 'react';
 import { getSessionEvents } from '@/lib/api/dnd';
+import { isPartialRead } from '@/lib/api/eventsPageMeta';
 import { streamDmNarration } from '@/lib/stream';
 import { buildRecap, lastStoredRecap, type RecapResult } from '@/lib/dnd/recap';
 import { sessionTitle } from '@/lib/format';
@@ -50,6 +51,10 @@ export default function SessionRecap({ session, username, variant = 'card', hidd
   // before `recap` so the narration effect sees it. A new "previously on" is requested only when
   // the log has events past it; otherwise the stored text is shown.
   const storedRef = useRef<ReturnType<typeof lastStoredRecap>>(null);
+  // HUNT1020-27: false when the events read stopped early (a later page failed). A prefix cannot say that nothing
+  // is newer than its last recap, so an incomplete (or failed) read never generates: no request (a later mount's complete
+  // read decides). Set before `recap`, like storedRef.
+  const readCompleteRef = useRef(true);
 
   // Deterministic digest — zero LLM, always runs. Depends on the STABLE
   // session_id, not the whole `session` object: a poll-driven identity change
@@ -63,6 +68,7 @@ export default function SessionRecap({ session, username, variant = 'card', hidd
       const read = await getSessionEvents(session.session_id, ctrl.signal);
       const events = read ?? [];
       if (ctrl.signal.aborted) return;
+      readCompleteRef.current = read !== null && !isPartialRead(read);
       const stored = lastStoredRecap(events);
       storedRef.current = stored;
       // Nothing has happened (R51 F2, R63, R64): the log has no story row. buildRecap prints story rows only, so
@@ -112,6 +118,7 @@ export default function SessionRecap({ session, username, variant = 'card', hidd
       return;
     }
     if (!username) return;
+    if (!readCompleteRef.current) return;
     requestedForRef.current = session.session_id;
     // debt: two openings inside the generation window (two tabs; the dashboard card then Resume in one tab) both see "newer events" and both generate. ceiling: one extra recap row per race.
     // until: a server-side guard on kind=recap (Backlog TAV-RECAP-ROW-PER-PAGE-OPEN). The card (dashboard) and the strip (play) share no shipped page; two mounted together is a test-only case.

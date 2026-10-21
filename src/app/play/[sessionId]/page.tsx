@@ -52,7 +52,7 @@ import {
   getSession,
 } from '@/lib/api/dnd';
 import { flagUnreadHistory, readSessionHistory } from '@/lib/sessionEventsPaging';
-import { buildHistoryRows } from './historyRows';
+import { buildHistoryRows, mergeHealedRows } from './historyRows';
 import { matchCombatIntent, matchKeywordIntent } from '@/lib/dnd/intentFastPath';
 import { DURABLE_GENERATION_ENABLED } from '@/lib/config';
 import type { Participant } from '@/lib/api/types';
@@ -619,7 +619,9 @@ export default function PlayPage() {
         if (sortedRawEvents && !rehydratedRef.current) {
           const sorted = sortedRawEvents;
           const rows = buildHistoryRows(sorted, g);
-          setLog(rows);
+          // HUNT1020-26: the composer is live from setState('ok'), before this read lands, so the log may already
+          // hold a turn or a streaming reply this page appended. Merge (history first, live rows kept) rather than replace.
+          setLog((prev) => mergeHealedRows(prev, rows));
           rehydratedRef.current = true;
           // DDX-08 / T3: the events poll (`useSessionEvents.ts`, A4) only
           // appends seq > this — every rehydrated row (including any past
