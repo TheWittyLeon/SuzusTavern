@@ -34,7 +34,15 @@ export function sanitizeNextPath(
     if (url.origin !== origin) {
       return fallback;
     }
-    return `${url.pathname}${url.search}${url.hash}`;
+    const out = `${url.pathname}${url.search}${url.hash}`;
+    // Re-validate the OUTPUT, not just the input (HUNT1020-03). The URL parser drops dot
+    // segments, so '/.//evil.com' stays same-origin yet comes back as pathname '//evil.com',
+    // which both consumers (proxy 307 Location, router.replace) resolve a second time as a
+    // protocol-relative URL. A returned path must start with exactly one '/' and must
+    // re-resolve to our own origin.
+    if (out[0] !== '/' || out[1] === '/' || out[1] === '\\') return fallback;
+    if (new URL(out, origin).origin !== origin) return fallback;
+    return out;
   } catch {
     return fallback;
   }
