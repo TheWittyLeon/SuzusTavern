@@ -14,15 +14,21 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import '@testing-library/jest-dom';
 
 const push = jest.fn();
-jest.mock('next/navigation', () => ({ useRouter: () => ({ push }) }));
+const replace = jest.fn();
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push, replace }),
+  usePathname: () => '/settings',
+}));
 
 jest.mock('../../lib/api/auth', () => ({
   changePassword: jest.fn(),
   passwordPolicy: jest.fn(),
+  logout: jest.fn(),
 }));
 
 import * as auth from '../../lib/api/auth';
 import ChangePassphrasePanel from '../../components/ChangePassphrasePanel';
+import { AuthProvider } from '../../lib/auth/AuthProvider';
 
 const mockChange = auth.changePassword as jest.Mock;
 const mockPolicy = auth.passwordPolicy as jest.Mock;
@@ -42,8 +48,18 @@ beforeEach(() => {
   mockPolicy.mockResolvedValue(POLICY);
 });
 
-async function fill(current: string, next: string, confirm = next) {
-  render(<ChangePassphrasePanel />);
+const SIGNED_IN = { id: 1, username: 'alice', email: null, roles: [] };
+
+async function fill(current: string, next: string, confirm = next, withAuth = false) {
+  render(
+    withAuth ? (
+      <AuthProvider initialUser={SIGNED_IN}>
+        <ChangePassphrasePanel />
+      </AuthProvider>
+    ) : (
+      <ChangePassphrasePanel />
+    ),
+  );
   await act(async () => {});
   fireEvent.change(screen.getByLabelText('Current passphrase'), {
     target: { value: current },
@@ -65,9 +81,11 @@ describe('the sign-out consequence', () => {
     ).toBeInTheDocument();
   });
 
-  it('sends the user to /login after a successful change', async () => {
+  it('signs out through logout() after a successful change: user dropped, /login?reauth=1, never a bare push', async () => {
     // The BFF clears this browser's cookies because upstream revoked every
-    // session — leaving the user here would 401 their next action.
+    // session — leaving the user here would 401 their next action. TAV-CHANGE-PASSPHRASE-SIGNOUT:
+    // a bare router.push('/login') left the provider's user loaded and arrived without `reauth`, so
+    // proxy.ts could bounce /login straight back with a paper-valid token; logout() owns that exit.
     // Fake timers must be installed BEFORE the click: the redirect is a
     // real `setTimeout` scheduled during the submit, and advancing fake
     // timers cannot fire a callback that was queued on the real clock.
@@ -76,15 +94,19 @@ describe('the sign-out consequence', () => {
     jest.useFakeTimers();
     try {
       mockChange.mockResolvedValue({ msg: 'ok' });
-      await fill('old-one', 'Brand-New-1!');
+      (auth.logout as jest.Mock).mockResolvedValue(undefined);
+      await fill('old-one', 'Brand-New-1!', 'Brand-New-1!', true);
       await act(async () => {
         fireEvent.click(screen.getByRole('button', { name: /change passphrase/i }));
       });
       expect(screen.getByText(/Every session was signed out/i)).toBeInTheDocument();
+      expect(auth.logout).not.toHaveBeenCalled(); // the notice is read first
       await act(async () => {
         jest.advanceTimersByTime(2500);
       });
-      expect(push).toHaveBeenCalledWith('/login');
+      expect(auth.logout).toHaveBeenCalledTimes(1);
+      expect(replace).toHaveBeenCalledWith('/login?reauth=1');
+      expect(push).not.toHaveBeenCalled();
     } finally {
       jest.useRealTimers();
     }

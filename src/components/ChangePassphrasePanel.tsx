@@ -13,12 +13,12 @@
  * would 401 for no visible reason.
  */
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import Button from '@/components/Button';
 import NewPassphraseFields, {
   passphrasePairValid,
 } from '@/components/NewPassphraseFields';
 import { changePassword } from '@/lib/api/auth';
+import { useAuth } from '@/lib/auth/AuthProvider';
 import type { ApiError } from '@/lib/api/types';
 import styles from './ChangePassphrasePanel.module.css';
 
@@ -27,7 +27,7 @@ function isApiError(e: unknown): e is ApiError {
 }
 
 export default function ChangePassphrasePanel() {
-  const router = useRouter();
+  const { logout } = useAuth();
   const [current, setCurrent] = useState('');
   const [value, setValue] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -49,8 +49,10 @@ export default function ChangePassphrasePanel() {
       setCurrent('');
       setValue('');
       setConfirm('');
-      // Sessions are gone — go and sign in again.
-      setTimeout(() => router.push('/login'), 2200);
+      // Sessions are gone — go and sign in again. Through logout(), the one sign-out path: it drops the
+      // client's user and navigates to /login?reauth=1 (the BFF has cleared the cookies already, so its
+      // request is a no-op that answers 200). A bare push left the user loaded and arrived without reauth.
+      setTimeout(() => void logout(), 2200);
     } catch (err) {
       if (isApiError(err)) {
         const body = err.body as { msg?: string; errors?: string[] } | null | undefined;
